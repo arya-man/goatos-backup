@@ -1,13 +1,11 @@
 package sg.mesha.goatos.core.data
 
 import androidx.room.Dao
-import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
-import androidx.room.RoomDatabase
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.network.BootstrapDto
@@ -27,11 +25,6 @@ interface BootstrapCacheDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: BootstrapCacheEntity)
-}
-
-@Database(entities = [BootstrapCacheEntity::class], version = 1, exportSchema = false)
-abstract class GoatDatabase : RoomDatabase() {
-    abstract fun bootstrapCacheDao(): BootstrapCacheDao
 }
 
 /**

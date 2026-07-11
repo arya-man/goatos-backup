@@ -25,6 +25,7 @@
 
     <!-- Accessibility descriptions -->
     <string name="calendar_button_menu">Menu</string>
+    <string name="calendar_day_back">Back</string>
     <string name="calendar_button_refresh">Refresh</string>
 
     <!-- History section label (prefix before dynamic count) -->

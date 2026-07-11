@@ -6,11 +6,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.CalendarRepository
 import sg.mesha.goatos.core.network.dto.CalendarEventDto
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
@@ -23,7 +25,6 @@ import sg.mesha.goatos.feature.calendar.CalendarSegmentKind
 import sg.mesha.goatos.feature.calendar.CalendarTone
 import sg.mesha.goatos.feature.calendar.CalendarUiState
 import sg.mesha.goatos.feature.calendar.CalendarWeekDay
-import sg.mesha.goatos.feature.calendar.DaySheetUiState
 import sg.mesha.goatos.ui.calendarPlaceholder
 import sg.mesha.goatos.ui.sampleCalendarState
 import java.time.DayOfWeek
@@ -36,13 +37,21 @@ import java.util.Locale
 import javax.inject.Inject
 
 /**
- * Calendar screen state holder. Shows a loading placeholder first, then loads the real PC
- * vaccination calendar via [CalendarRepository.events] and maps it in [toCalendarUiState].
- * An empty real response shows an honest empty state and a failure shows an honest error
- * state — a fabricated sample calendar is NEVER shown as if it were live. Segment switch is
- * purely local; a day tap is ALSO purely local (mock `sel=day; renderWeek()` / `openDay(d)`)
- * — it re-scopes the week list or opens/updates the month day-sheet, never navigates. Item
- * taps are navigation, routed by the nav host.
+ * Calendar screen state holder — the offline-first REFERENCE for every other screen-read
+ * ViewModel (docs/decisions/android-offline-first.md). Room is the UI's single source of
+ * truth: [state] is fed by [CalendarRepository.observeEvents], a cache-first [kotlinx.coroutines.flow.Flow]
+ * that emits instantly from Room (cached data survives process restarts and screen
+ * re-entry) and re-emits the moment a background [CalendarRepository.refreshEvents] upserts
+ * new data. [refresh] never writes into [state] directly — it only drives the network call
+ * and the transient [CalendarUiState.isRefreshing]/[CalendarUiState.isOffline] flags; the
+ * DTO -> UiState mapping in [toCalendarUiState] is unchanged from the network-only version.
+ * An empty real response shows an honest empty state; a refresh failure with NO cache ever
+ * observed shows an honest error state; a refresh failure WITH cached data keeps rendering
+ * that cache and only flips [CalendarUiState.isOffline] — never a blank/loading wall. Segment
+ * switch is purely local, and a WEEK-strip day tap is purely local (mock `sel=day;
+ * renderWeek()`) — it re-scopes the week agenda list to the tapped day. A MONTH-grid day tap
+ * and item taps are navigation, routed by the nav host: the month day opens its own L1 day
+ * screen ([CalendarEvent.OpenDay]); items drill to their backend-supplied target.
  */
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
@@ -53,7 +62,7 @@ class CalendarViewModel @Inject constructor(
     val state: StateFlow<CalendarUiState> = _state.asStateFlow()
 
     /**
-     * Raw events from the last successful [load], retained so a day tap can filter to
+     * Raw events from the last cache emission, retained so a day tap can filter to
      * that day's real drives (mock's in-memory `DR[day]` map) without a second network
      * round trip. Never used to fabricate a day's content — a day with no matching event
      * simply filters to an empty list, which renders the honest empty state.
@@ -61,63 +70,70 @@ class CalendarViewModel @Inject constructor(
     private var loadedEvents: List<CalendarEventDto> = emptyList()
 
     init {
-        load()
+        // Cache-first: renders whatever Room already has (possibly nothing, on a cold
+        // install) immediately, then re-renders after every successful refresh below.
+        viewModelScope.launch {
+            repo.observeEvents().collectLatest { resource -> applyResource(resource) }
+        }
+        refresh()
     }
 
-    fun load() = viewModelScope.launch {
-        runCatching { repo.events() }
-            .onSuccess { dto ->
-                loadedEvents = dto.items
-                _state.value = dto.toCalendarUiState() ?: calendarPlaceholder("No drives scheduled")
-            }
-            .onFailure {
-                loadedEvents = emptyList()
-                _state.value = calendarPlaceholder("Couldn't load the calendar right now.")
-            }
+    /** Network side of stale-while-revalidate: upserts Room on success (the [observeEvents]
+     *  collector above re-emits and updates [state]); on failure it only flips
+     *  [CalendarUiState.isOffline] — cached content, if any, stays on screen. */
+    fun refresh() = viewModelScope.launch {
+        _state.update { it.copy(isRefreshing = true) }
+        val result = repo.refreshEvents()
+        // SWR: a refresh NEVER replaces what's on screen. On success the observeEvents
+        // collector re-emits the fresh cache; on failure the current content stays put and
+        // only the offline flag flips — the segments, the week strip, and any cached list keep
+        // rendering (never a blank wall). A cold start with no cache yet keeps its calendar
+        // skeleton + honest empty state, now flagged offline via [CalendarUiState.isOffline].
+        _state.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
+    }
+
+    private fun applyResource(resource: Resource<CalendarEventListResponseDto>) {
+        val dto = resource.data
+        loadedEvents = dto?.items.orEmpty()
+        // dto non-null (even empty) -> a full calendar shell with an honest empty content area;
+        // dto null only on a cold cache -> the loading skeleton. Never a blank collapse.
+        val base = dto?.toCalendarUiState() ?: calendarPlaceholder("Loading…")
+        _state.update { current ->
+            base.copy(
+                isRefreshing = current.isRefreshing,
+                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
+                isOffline = current.isOffline,
+            )
+        }
     }
 
     fun onEvent(event: CalendarEvent) {
         when (event) {
             is CalendarEvent.SelectSegment ->
                 _state.update { it.copy(selectedSegmentId = event.segmentId) }
-            CalendarEvent.Refresh -> load()
+            CalendarEvent.Refresh -> refresh()
             is CalendarEvent.TapDay -> selectDay(event.dateKey)
-            // Item taps are navigation — handled by the nav host.
+            // Month day + item taps are navigation — handled by the nav host.
+            is CalendarEvent.OpenDay -> Unit
             is CalendarEvent.TapItem -> Unit
         }
     }
 
     /**
-     * A day tap is in-screen selection only (mock: week strip does `sel=day; renderWeek()`,
-     * month grid does `openDay(d)`) — it never navigates. Whichever segment is active decides
-     * what the tap means: WEEK re-scopes [CalendarUiState.weekItems] and the selected-date
-     * label to the tapped day; MONTH builds/updates [CalendarUiState.daySheet] for that day.
-     * Both read only [loadedEvents] — an empty day renders an honest empty state.
+     * A WEEK-strip day tap is in-screen selection only (mock: `sel=day; renderWeek()`) — it
+     * re-scopes [CalendarUiState.weekItems] and the selected-date label to the tapped day,
+     * reading only [loadedEvents] (an empty day renders an honest empty state). A MONTH-grid
+     * day tap does NOT come here — it opens the day's own L1 screen ([CalendarEvent.OpenDay],
+     * routed by the nav host to CalendarDayScreen).
      */
     private fun selectDay(dateKey: String) {
         val date = runCatching { LocalDate.parse(dateKey) }.getOrNull() ?: return
-        val current = _state.value
-        val isMonth = current.segments.firstOrNull { it.id == current.selectedSegmentId }?.kind ==
-            CalendarSegmentKind.Month
-        if (isMonth) {
-            _state.update { s ->
-                s.copy(
-                    monthDays = s.monthDays.map { day -> day.copy(isSelected = day.dateKey == dateKey) },
-                    daySheet = DaySheetUiState(
-                        title = daySheetTitle(date),
-                        items = itemsForDate(date),
-                        emptyLabel = "No drives scheduled this day",
-                    ),
-                )
-            }
-        } else {
-            _state.update { s ->
-                s.copy(
-                    weekDays = s.weekDays.map { day -> day.copy(isSelected = day.dateKey == dateKey) },
-                    selectedDateLabel = dateLabel(date),
-                    weekItems = itemsForDate(date),
-                )
-            }
+        _state.update { s ->
+            s.copy(
+                weekDays = s.weekDays.map { day -> day.copy(isSelected = day.dateKey == dateKey) },
+                selectedDateLabel = dateLabel(date),
+                weekItems = itemsForDate(date),
+            )
         }
     }
 
@@ -125,8 +141,11 @@ class CalendarViewModel @Inject constructor(
     private fun itemsForDate(date: LocalDate): List<CalendarItem> =
         loadedEvents.filter { parseLocalDate(it.dueAt) == date }.map { it.toCalendarItem() }
 
-    private fun CalendarEventListResponseDto.toCalendarUiState(): CalendarUiState? {
-        if (items.isEmpty() && presentation.viewTabs.isEmpty()) return null
+    private fun CalendarEventListResponseDto.toCalendarUiState(): CalendarUiState {
+        // Always returns a valid calendar shell — even for an empty response the segments and
+        // the real current-week strip render, and the content area shows an honest empty state
+        // (never a collapse to a bare header). Content lists are still built ONLY from real
+        // events; nothing is back-filled from the sample base.
         val base = sampleCalendarState()
         val segments = presentation.viewTabs.map { tab ->
             CalendarSegment(
@@ -188,20 +207,6 @@ class CalendarViewModel @Inject constructor(
         )
     }
 
-    private fun CalendarEventDto.toCalendarItem(): CalendarItem {
-        val target = links.route()
-        return CalendarItem(
-            id = eventId,
-            title = title,
-            subtitle = subtitle,
-            statusLabel = status,
-            statusTone = fromSeverity(severity),
-            categoryLabel = vaccineName,
-            ctaLabel = if (target != null) "Open" else null,
-            target = target,
-        )
-    }
-
     /**
      * "Today · Tue 7 Jul" for the actual day, else just "Tue 7 Jul" — mirrors the mock's
      * `(sel===7?'Today · ':'')+WD[sel]+' '+sel+' Jul'` day label used above the week list.
@@ -211,10 +216,6 @@ class CalendarViewModel @Inject constructor(
             "${date.dayOfMonth} ${date.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)}"
         return if (date == today) "Today · $base" else base
     }
-
-    /** "8 July" — mirrors the mock's day-sheet title `d+' '+M.nm`. */
-    private fun daySheetTitle(date: LocalDate): String =
-        "${date.dayOfMonth} ${date.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)}"
 }
 
 private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
@@ -291,16 +292,38 @@ private fun buildMonthDays(items: List<CalendarEventDto>): List<CalendarMonthDay
     return blanks + days
 }
 
-private fun parseLocalDate(due: String): LocalDate? =
+internal fun parseLocalDate(due: String): LocalDate? =
     runCatching { OffsetDateTime.parse(due).atZoneSameInstant(KOLKATA).toLocalDate() }.getOrNull()
 
 /** The row-navigation route the backend attached to a calendar event ("drive" preferred). */
-private fun Map<String, JsonElement>.route(): String? =
+internal fun Map<String, JsonElement>.route(): String? =
     this["drive"]?.jsonPrimitive?.contentOrNull ?: this["vaccination"]?.jsonPrimitive?.contentOrNull
 
-private fun fromSeverity(severity: String): CalendarTone = when (severity.lowercase()) {
+internal fun fromSeverity(severity: String): CalendarTone = when (severity.lowercase()) {
     "critical", "high" -> CalendarTone.Danger
     "warn", "warning" -> CalendarTone.Warn
     "ok" -> CalendarTone.Ok
     else -> CalendarTone.Muted
 }
+
+/**
+ * Backend calendar event -> a drillable [CalendarItem]. Shared by [CalendarViewModel] and
+ * [CalendarDayViewModel] so the calendar and its L1 day screen map an event identically.
+ */
+internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
+    val target = links.route()
+    return CalendarItem(
+        id = eventId,
+        title = title,
+        subtitle = subtitle,
+        statusLabel = status,
+        statusTone = fromSeverity(severity),
+        categoryLabel = vaccineName,
+        ctaLabel = if (target != null) "Open" else null,
+        target = target,
+    )
+}
+
+/** "8 July" — the L1 day-detail title (mirrors the mock's `d+' '+M.nm`). */
+internal fun calendarDayTitle(date: LocalDate): String =
+    "${date.dayOfMonth} ${date.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)}"

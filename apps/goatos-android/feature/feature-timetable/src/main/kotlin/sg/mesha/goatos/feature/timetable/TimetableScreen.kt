@@ -22,10 +22,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.EmptyTone
 
 // ---------------------------------------------------------------------------
 // Timetable (HRMS shift roster) — screens.md-style TRD §14 dumb renderer.
@@ -245,19 +248,14 @@ private fun MetaCell(label: String, value: String) {
 
 @Composable
 private fun TimetableEmpty(message: String) {
-    Box(
+    EmptyState(
+        title = message,
+        icon = MeshaIcons.Clock,
+        tone = EmptyTone.Neutral,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = MeshaDimens.gutter, vertical = MeshaDimens.space8),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = message,
-            style = MeshaType.body,
-            color = MeshaColors.Faint,
-            textAlign = TextAlign.Center,
-        )
-    }
+            .padding(vertical = MeshaDimens.space8),
+    )
 }
 
 @Preview(backgroundColor = 0xFF0B100D, showBackground = true)

@@ -6,12 +6,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import sg.mesha.goatos.core.data.AdherenceRepository
+import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ControlTowerRepository
 import sg.mesha.goatos.core.data.VaccinationInsightsRepository
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
-import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
 import sg.mesha.goatos.feature.leadership.DataGapPill
@@ -27,17 +28,27 @@ import sg.mesha.goatos.ui.sampleLeadershipState
 import javax.inject.Inject
 
 /**
- * Leadership overview state holder. Shows a loading placeholder first, then loads real
- * process-integrity data via [ControlTowerRepository.summary] (hero + KPIs + decisions)
- * plus a real coverage % from [AdherenceRepository.adherence], mapped in
- * [toLeadershipUiState]. A failure shows an honest error state — the sample overview is
- * NEVER shown as if it were live data. Drill events are navigation, routed by the host;
- * [LeadershipEvent.Refresh] reloads.
+ * Leadership overview state holder — offline-first cache-first pattern (see CalendarViewModel).
+ * Room is the UI's single source of truth:
+ *  - [state] is fed by [ControlTowerRepository.observeSummary]; [refresh] drives
+ *    [ControlTowerRepository.refreshSummary].
+ *  - the data-gaps and doses-given drill overlays are fed by
+ *    [VaccinationInsightsRepository.observeGaps] / [VaccinationInsightsRepository.observeCoverage]
+ *    (collected in [init]); [loadGaps] / [loadDosesGiven] drive the matching refreshX when their
+ *    sheet opens (the collectors keep [gapsState] / [dosesState] populated from Room, so the
+ *    sheet renders cached rows instantly — never a blank/loading wall when a cache exists).
+ * Every observe collector emits instantly from Room and re-emits after a successful refresh; a
+ * refresh failure keeps cached data on screen and flips isOffline, and a failure with no cache
+ * ever observed shows an honest error state. The DTO -> UiState mappings are unchanged.
+ *
+ * Note: adherence is intentionally NOT a source here — process-integrity coverage is derived
+ * from the control-tower summary alone (see [toLeadershipUiState]); the adherence % flip-flopped
+ * the hero across reloads and was dropped as a coverage source, so no AdherenceRepository read
+ * is wired.
  */
 @HiltViewModel
 class LeadershipViewModel @Inject constructor(
     private val controlTower: ControlTowerRepository,
-    private val adherence: AdherenceRepository,
     private val insights: VaccinationInsightsRepository,
 ) : ViewModel() {
 
@@ -51,46 +62,144 @@ class LeadershipViewModel @Inject constructor(
     val dosesState: StateFlow<OverlayLoadState<GivenRow>> = _dosesState.asStateFlow()
 
     init {
-        load()
+        // Cache-first: renders whatever Room already has immediately, then re-renders
+        // after every successful refresh below.
+        viewModelScope.launch {
+            controlTower.observeSummary().collectLatest { summaryResource ->
+                applyResource(summaryResource)
+            }
+        }
+        // Drill-overlay caches are observed for the VM's lifetime so opening a sheet renders
+        // Room's cached rows instantly; the network refresh is lazy (driven by loadGaps /
+        // loadDosesGiven when the sheet actually opens). Args match refreshGaps/refreshCoverage
+        // below so the observe + refresh share the same cache key.
+        viewModelScope.launch {
+            insights.observeGaps(limit = GAPS_LIMIT).collectLatest { gapsResource ->
+                applyGapsResource(gapsResource)
+            }
+        }
+        viewModelScope.launch {
+            insights.observeCoverage(limit = COVERAGE_LIMIT).collectLatest { coverageResource ->
+                applyCoverageResource(coverageResource)
+            }
+        }
+        refresh()
     }
 
-    fun load() = viewModelScope.launch {
-        val summaryResult = runCatching { controlTower.summary() }
-        val adherenceResult = runCatching { adherence.adherence() }
-        summaryResult
-            .onSuccess { dto -> _state.value = dto.toLeadershipUiState(adherenceResult.getOrNull()) }
-            .onFailure { _state.value = leadershipPlaceholder("Couldn't load overview. Tap refresh to retry.") }
+    fun refresh() = viewModelScope.launch {
+        _state.update { it.copy(isRefreshing = true) }
+        val summaryResult = controlTower.refreshSummary()
+        _state.update { it.copy(isRefreshing = false, isOffline = summaryResult.isFailure) }
+    }
+
+    private fun applyResource(resource: Resource<ControlTowerResponseDto>) {
+        val dto = resource.data
+        val base = dto?.toLeadershipUiState()
+            ?: if (resource.hasData) leadershipPlaceholder("No overview data") else leadershipPlaceholder("Loading overview…")
+        _state.update { current ->
+            base.copy(
+                isRefreshing = current.isRefreshing,
+                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
+                isOffline = current.isOffline,
+            )
+        }
     }
 
     fun onEvent(event: LeadershipEvent) {
         when (event) {
-            LeadershipEvent.Refresh -> load()
+            LeadershipEvent.Refresh -> refresh()
             // Everything else is either navigation (routed by the host) or not yet backed.
             else -> Unit
         }
     }
 
+    /**
+     * Data-gaps overlay — cache-first. The [insights].observeGaps collector in [init] keeps
+     * [gapsState] fed from Room, so the sheet renders cached gaps instantly on open; this only
+     * drives the background [VaccinationInsightsRepository.refreshGaps] upsert (Room re-emits
+     * via that collector). A refresh failure keeps cached gaps on screen and flips isOffline; a
+     * failure with no cache ever observed shows an honest error. Preserves the trigger point —
+     * still called when the sheet opens.
+     */
     fun loadGaps() = viewModelScope.launch {
-        _gapsState.value = OverlayLoadState(isLoading = true)
-        runCatching { insights.gaps(limit = 50) }
-            .onSuccess { dto -> _gapsState.value = OverlayLoadState(items = dto.toGapRows()) }
-            .onFailure { error ->
-                _gapsState.value = OverlayLoadState(errorMessage = error.message ?: "Couldn't load data gaps.")
+        _gapsState.update { current ->
+            // Blocking loading state only on a cold cache; when cache exists keep it and refresh silently.
+            current.copy(isRefreshing = true, isLoading = current.items.isEmpty(), errorMessage = null)
+        }
+        val result = insights.refreshGaps(limit = GAPS_LIMIT)
+        _gapsState.update { current ->
+            when {
+                result.isSuccess -> current.copy(isRefreshing = false, isLoading = false, isOffline = false)
+                // A cache was already rendered — keep it on screen, just surface offline.
+                current.items.isNotEmpty() || current.lastSyncedAt != null ->
+                    current.copy(isRefreshing = false, isLoading = false, isOffline = true)
+                // Never cached, ever: no fallback, so the honest error is the only truthful thing.
+                else -> current.copy(
+                    isRefreshing = false,
+                    isLoading = false,
+                    isOffline = true,
+                    errorMessage = result.exceptionOrNull()?.message ?: "Couldn't load data gaps.",
+                )
             }
+        }
     }
 
+    /**
+     * Doses-given (per-vaccine coverage) overlay — cache-first, mirrors [loadGaps]. The
+     * observeCoverage collector in [init] keeps [dosesState] fed from Room; this drives the
+     * background [VaccinationInsightsRepository.refreshCoverage] upsert. Preserves the trigger
+     * point — still called when the sheet opens.
+     */
     fun loadDosesGiven() = viewModelScope.launch {
-        _dosesState.value = OverlayLoadState(isLoading = true)
-        runCatching { insights.coverage(limit = 50) }
-            .onSuccess { dto -> _dosesState.value = OverlayLoadState(items = dto.toGivenRows()) }
-            .onFailure { error ->
-                _dosesState.value = OverlayLoadState(errorMessage = error.message ?: "Couldn't load vaccination coverage.")
+        _dosesState.update { current ->
+            current.copy(isRefreshing = true, isLoading = current.items.isEmpty(), errorMessage = null)
+        }
+        val result = insights.refreshCoverage(limit = COVERAGE_LIMIT)
+        _dosesState.update { current ->
+            when {
+                result.isSuccess -> current.copy(isRefreshing = false, isLoading = false, isOffline = false)
+                current.items.isNotEmpty() || current.lastSyncedAt != null ->
+                    current.copy(isRefreshing = false, isLoading = false, isOffline = true)
+                else -> current.copy(
+                    isRefreshing = false,
+                    isLoading = false,
+                    isOffline = true,
+                    errorMessage = result.exceptionOrNull()?.message ?: "Couldn't load vaccination coverage.",
+                )
             }
+        }
     }
 
-    private fun ControlTowerResponseDto.toLeadershipUiState(
-        adherenceDto: ProtocolAdherenceResponseDto?,
-    ): LeadershipUiState {
+    /** Cache emission for the gaps overlay: render Room's rows, clear loading/error when data
+     *  is present, and carry the sync clock — never blow away cached rows on a null emission. */
+    private fun applyGapsResource(resource: Resource<VaccinationGapsResponseDto>) {
+        val dto = resource.data
+        _gapsState.update { current ->
+            val items = dto?.toGapRows() ?: current.items
+            current.copy(
+                items = items,
+                isLoading = if (resource.hasData) false else current.isLoading,
+                errorMessage = if (resource.hasData) null else current.errorMessage,
+                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
+            )
+        }
+    }
+
+    /** Cache emission for the doses-given overlay — mirrors [applyGapsResource]. */
+    private fun applyCoverageResource(resource: Resource<VaccinationCoverageResponseDto>) {
+        val dto = resource.data
+        _dosesState.update { current ->
+            val items = dto?.toGivenRows() ?: current.items
+            current.copy(
+                items = items,
+                isLoading = if (resource.hasData) false else current.isLoading,
+                errorMessage = if (resource.hasData) null else current.errorMessage,
+                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
+            )
+        }
+    }
+
+    private fun ControlTowerResponseDto.toLeadershipUiState(): LeadershipUiState {
         val base = sampleLeadershipState()
         // Process integrity is ONE deterministic value from the control-tower summary (the
         // hero's own source): intact → 100, else reduced by open-gap count. It must NOT be
@@ -137,7 +246,17 @@ data class OverlayLoadState<T>(
     val items: List<T> = emptyList(),
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
+    // Offline-first cache sync state (carried on the sub-state; the sheet renders items/
+    // isLoading/errorMessage today and can surface these later without a VM change).
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val isOffline: Boolean = false,
 )
+
+/** Overlay read page sizes — must match between observeX (init collectors) and refreshX
+ *  (loadGaps/loadDosesGiven) so the cache-first stream and the refresh share one cache key. */
+private const val GAPS_LIMIT = 50
+private const val COVERAGE_LIMIT = 50
 
 private fun VaccinationGapsResponseDto.toGapRows(): List<GapRow> =
     if (rows.isNotEmpty()) {

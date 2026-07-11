@@ -7,7 +7,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.feature.record.RecordEvent
@@ -18,12 +21,15 @@ import sg.mesha.goatos.ui.sampleRecordState
 import javax.inject.Inject
 
 /**
- * Read-only shed/drive record state holder. Shows a loading placeholder first, then loads the
- * real drilldown for the `shedId` nav arg (read from [SavedStateHandle]) via
- * [ExecutionRepository.shed]; only when no shed id was supplied does it fall back to the first
- * execution shed. Mapped in [toRecordUiState]. An empty/failed load shows an honest empty/error
- * state — the sample record is NEVER shown as if it were live data. The record is read-only;
- * the only event ([RecordEvent.Close]) is navigation.
+ * Read-only shed/drive record state holder — offline-first (docs/decisions/android-offline-first.md).
+ * Room is the UI's single source of truth: [state] is fed by [ExecutionRepository.observeShed],
+ * a cache-first Flow that emits instantly from Room and re-emits after every successful
+ * [ExecutionRepository.refreshShed] upsert. [refresh] drives the network call and transient
+ * [RecordUiState.isRefreshing]/[RecordUiState.isOffline] flags; the DTO → UiState mapping is
+ * unchanged. An empty real response shows an honest empty state; a refresh failure with NO cache
+ * ever observed shows an honest error state; a refresh failure WITH cached data keeps rendering
+ * that cache and only flips [RecordUiState.isOffline] — never a blank/loading wall. The record is
+ * read-only; the only event ([RecordEvent.Close]) is navigation.
  */
 @HiltViewModel
 class RecordViewModel @Inject constructor(
@@ -37,18 +43,44 @@ class RecordViewModel @Inject constructor(
     val state: StateFlow<RecordUiState> = _state.asStateFlow()
 
     init {
-        load()
+        // Cache-first: renders whatever Room already has (possibly nothing, on a cold
+        // install) immediately, then re-renders after every successful refresh below.
+        viewModelScope.launch {
+            val id = shedId ?: repo.rows().rows.firstOrNull()?.shedId
+            id?.let {
+                repo.observeShed(it).collectLatest { resource -> applyResource(resource) }
+            }
+        }
+        refresh()
     }
 
-    fun load() = viewModelScope.launch {
-        runCatching {
-            val id = shedId ?: repo.rows().rows.firstOrNull()?.shedId
-            id?.let { repo.shed(it) }
-        }
-            .onSuccess { drilldown ->
-                _state.value = drilldown?.toRecordUiState() ?: recordPlaceholder("No record to show for this shed.")
+    /** Network side of stale-while-revalidate: upserts Room on success (the [observeShed]
+     *  collector above re-emits and updates [state]); on failure it only flips
+     *  [RecordUiState.isOffline] — cached content, if any, stays on screen. */
+    fun refresh() = viewModelScope.launch {
+        _state.update { it.copy(isRefreshing = true) }
+        val id = shedId ?: repo.rows().rows.firstOrNull()?.shedId
+        if (id != null) {
+            val result = repo.refreshShed(id)
+            _state.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
+        } else {
+            _state.update { current ->
+                recordPlaceholder("No record to show for this shed.").copy(isRefreshing = false)
             }
-            .onFailure { _state.value = recordPlaceholder("Couldn't load this record right now.") }
+        }
+    }
+
+    private fun applyResource(resource: Resource<VaccinationExecutionShedDrilldownDto>) {
+        val dto = resource.data
+        val base = dto?.toRecordUiState()
+            ?: if (resource.hasData) recordPlaceholder("No record to show for this shed.") else recordPlaceholder("Loading…")
+        _state.update { current ->
+            base.copy(
+                isRefreshing = current.isRefreshing,
+                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
+                isOffline = current.isOffline,
+            )
+        }
     }
 
     fun onEvent(event: RecordEvent) {

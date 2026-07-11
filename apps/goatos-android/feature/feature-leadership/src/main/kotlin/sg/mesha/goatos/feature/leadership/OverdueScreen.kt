@@ -27,6 +27,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
+import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.leadership.R
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,6 +57,10 @@ data class OverdueUiState(
     val rows: List<OverdueRow>,
     val explainerTitle: String,
     val explainer: String,
+    // Offline-first cache sync state
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val isOffline: Boolean = false,
 )
 
 data class OverdueLegendItem(
@@ -89,18 +96,36 @@ fun OverdueScreen(
             onLeading = { onEvent(LeadershipEvent.Back) },
             onRefresh = { onEvent(LeadershipEvent.Refresh) },
         )
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item { SectionLabel(state.sectionTitle) }
-            item { Legend(state.legend) }
-            items(state.rows, key = { it.id }) { row ->
-                OverdueRowView(row, onEvent)
+        SyncStatusIndicator(
+            isRefreshing = state.isRefreshing,
+            lastSyncedAt = state.lastSyncedAt,
+            hasData = state.rows.isNotEmpty(),
+            isOffline = state.isOffline,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        if (state.rows.isEmpty()) {
+            EmptyState(
+                title = stringResource(R.string.overdue_empty_title),
+                icon = MeshaIcons.Check,
+                tone = EmptyTone.Positive,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item { SectionLabel(state.sectionTitle) }
+                item { Legend(state.legend) }
+                items(state.rows, key = { it.id }) { row ->
+                    OverdueRowView(row, onEvent)
+                }
+                item { SectionLabel(state.explainerTitle) }
+                item { InfoBox(state.explainer) }
             }
-            item { SectionLabel(state.explainerTitle) }
-            item { InfoBox(state.explainer) }
         }
     }
 }

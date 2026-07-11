@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.EmptyTone
 
 // ---------------------------------------------------------------------------
 // Shed / drive record sheet (screens.md: ovl-shedrec, ovl-driverec) — READ-ONLY.
@@ -82,6 +84,11 @@ data class RecordMetaRow(
  * Everything the read-only record sheet renders. [title]/[subtitle]/[statusLabel]
  * are backend labels (shed or drive · date · status); [groups] is the per-vaccine
  * breakdown; [meta] carries operator/window/proof or a "not started" status line.
+ *
+ * Offline-first sync state (docs/decisions/android-offline-first.md):
+ * [isRefreshing]/[lastSyncedAt]/[isOffline] describe the background network refresh
+ * over the ALREADY-RENDERED Room cache — they never gate whether the rest of this
+ * state renders, and are displayed by SyncStatusIndicator.
  */
 // @Immutable: groups/meta List<T> fields otherwise mark this unstable (item 6,
 // perf/stability pass).
@@ -94,6 +101,10 @@ data class RecordUiState(
     val countLabel: String? = null,
     val statusLabel: String? = null,
     val statusTone: RecordTone = RecordTone.OK,
+    // Offline-first sync state, rendered by sg.mesha.goatos.core.ui.SyncStatusIndicator.
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val isOffline: Boolean = false,
 )
 
 sealed interface RecordEvent {
@@ -195,26 +206,35 @@ private fun RecordHeader(state: RecordUiState, onEvent: (RecordEvent) -> Unit) {
 
 @Composable
 private fun RecordSummaryCard(state: RecordUiState) {
-    Column(
-        modifier = Modifier
-            .padding(horizontal = 16.dp)
-            .fillMaxWidth()
-            .background(RecordTokens.Surf, shape = RoundedCornerShape(16.dp))
-            .border(1.dp, RecordTokens.Hair, shape = RoundedCornerShape(16.dp))
-            .padding(horizontal = 15.dp),
-    ) {
-        val lastGroup = state.groups.lastIndex
-        val hasMeta = state.meta.isNotEmpty()
-        state.groups.forEachIndexed { index, group ->
-            VaccineGroupItem(group)
-            if (index != lastGroup || hasMeta) {
-                HorizontalDivider(thickness = 1.dp, color = RecordTokens.Surf2)
+    if (state.groups.isEmpty()) {
+        EmptyState(
+            title = state.subtitle,
+            icon = MeshaIcons.Syringe,
+            tone = EmptyTone.Neutral,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        )
+    } else {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 16.dp)
+                .fillMaxWidth()
+                .background(RecordTokens.Surf, shape = RoundedCornerShape(16.dp))
+                .border(1.dp, RecordTokens.Hair, shape = RoundedCornerShape(16.dp))
+                .padding(horizontal = 15.dp),
+        ) {
+            val lastGroup = state.groups.lastIndex
+            val hasMeta = state.meta.isNotEmpty()
+            state.groups.forEachIndexed { index, group ->
+                VaccineGroupItem(group)
+                if (index != lastGroup || hasMeta) {
+                    HorizontalDivider(thickness = 1.dp, color = RecordTokens.Surf2)
+                }
             }
-        }
-        state.meta.forEachIndexed { index, meta ->
-            MetaItem(meta)
-            if (index != state.meta.lastIndex) {
-                HorizontalDivider(thickness = 1.dp, color = RecordTokens.Surf2)
+            state.meta.forEachIndexed { index, meta ->
+                MetaItem(meta)
+                if (index != state.meta.lastIndex) {
+                    HorizontalDivider(thickness = 1.dp, color = RecordTokens.Surf2)
+                }
             }
         }
     }

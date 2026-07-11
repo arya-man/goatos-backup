@@ -30,6 +30,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.SyncStatusIndicator
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.feature.profile.R
 
 // ---------------------------------------------------------------------------
@@ -91,6 +95,11 @@ data class AlertRow(
  * Everything the Alerts surface renders. Header title, the alert rows, the empty
  * copy, and the mark-all label are all backend-provided (dumb renderer). A null
  * [markAllLabel] means the backend surfaced no mark-all action for this principal.
+ *
+ * Offline-first sync state (docs/decisions/android-offline-first.md), rendered by
+ * sg.mesha.goatos.core.ui.SyncStatusIndicator. [isRefreshing]/[lastSyncedAt]/[isOffline]
+ * describe the background network refresh over the ALREADY-RENDERED Room cache above —
+ * they never gate whether the rest of this state renders.
  */
 // @Immutable: rows: List<AlertRow> otherwise marks this unstable (item 6, perf/stability pass).
 @Immutable
@@ -99,11 +108,15 @@ data class AlertsUiState(
     val rows: List<AlertRow> = emptyList(),
     val emptyLabel: String,
     val markAllLabel: String? = null,
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val isOffline: Boolean = false,
 )
 
 sealed interface AlertsEvent {
     data object MarkAllRead : AlertsEvent
     data class OpenAlert(val id: String) : AlertsEvent
+    data object Refresh : AlertsEvent
 }
 
 /** Tone pill (bg, fg) — mirrors the mock's `.pill` tone variants. */
@@ -151,8 +164,24 @@ fun AlertsScreen(
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
         item { AlertsHeader(title = state.title, markAllLabel = state.markAllLabel, onEvent = onEvent) }
+        item {
+            SyncStatusIndicator(
+                isRefreshing = state.isRefreshing,
+                lastSyncedAt = state.lastSyncedAt,
+                hasData = state.lastSyncedAt != null,
+                isOffline = state.isOffline,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
         if (state.rows.isEmpty()) {
-            item { AlertsEmpty(state.emptyLabel) }
+            item {
+                EmptyState(
+                    title = state.emptyLabel,
+                    icon = MeshaIcons.Bell,
+                    tone = EmptyTone.Positive,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 48.dp),
+                )
+            }
         } else {
             items(state.rows.size) { index ->
                 AlertCard(row = state.rows[index], onEvent = onEvent)
@@ -252,23 +281,6 @@ private fun AlertCard(row: AlertRow, onEvent: (AlertsEvent) -> Unit) {
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun AlertsEmpty(message: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 48.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = message,
-            color = AlertsTokens.Faint,
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center,
-        )
     }
 }
 

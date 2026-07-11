@@ -19,6 +19,7 @@
 
     <!-- Accessibility descriptions -->
     <string name="calendar_button_menu">ಮೆನು</string>
+    <string name="calendar_day_back">ಹಿಂದೆ</string>
     <string name="calendar_button_refresh">ರಿಫ್ರೆಶ್</string>
 
     <!-- History section label (prefix before dynamic count) -->

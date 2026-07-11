@@ -23,6 +23,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import sg.mesha.goatos.feature.calendar.CalendarDayScreen
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarScreen
 import sg.mesha.goatos.feature.leadership.LeadershipEvent
@@ -45,6 +46,7 @@ import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
 import sg.mesha.goatos.feature.timetable.TimetableScreen
 import sg.mesha.goatos.viewmodel.AlertsViewModel
+import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
 import sg.mesha.goatos.viewmodel.CoverageBannerViewModel
 import sg.mesha.goatos.viewmodel.LeadershipViewModel
@@ -91,6 +93,13 @@ object Routes {
      *  shed's per-animal roster from the backend. */
     fun scanRoute(shedId: String?): String =
         if (shedId.isNullOrBlank()) SCAN else "$SCAN?$SCAN_SHED_ARG=${Uri.encode(shedId)}"
+
+    const val CALENDAR_DAY = "/calendarDay"
+    const val CALENDAR_DAY_ARG = "dateKey"
+
+    /** Day-detail (L1) screen opened by a month-grid day tap (arg = ISO date key). */
+    fun calendarDayRoute(dateKey: String): String =
+        "$CALENDAR_DAY?$CALENDAR_DAY_ARG=${Uri.encode(dateKey)}"
 
     fun rescheduleRoute(obligationId: String?): String =
         if (obligationId.isNullOrBlank()) RESCHEDULE else "$RESCHEDULE?$RESCHEDULE_OBLIGATION_ARG=${Uri.encode(obligationId)}"
@@ -176,12 +185,39 @@ fun AppNavHost(
                                 ?: state.historyRows.firstOrNull { it.id == event.itemId }?.target
                             navController.navigate(calendarTargetRoute(target)) { launchSingleTop = true }
                         }
-                        // Tapping a day is IN-SCREEN selection (mock: sel=day; renderWeek) —
-                        // week list re-scopes to that day, month day opens its day-sheet. It must
-                        // NOT navigate away. Handled by CalendarViewModel.
+                        // A MONTH-grid day tap opens the day's own L1 screen (real drill),
+                        // never an inline sheet under the grid.
+                        is CalendarEvent.OpenDay ->
+                            navController.navigate(Routes.calendarDayRoute(event.dateKey)) { launchSingleTop = true }
+                        // A WEEK-strip day tap is in-screen selection (re-scopes the week agenda
+                        // list to that day) and must NOT navigate. Handled by CalendarViewModel.
                         is CalendarEvent.TapDay -> vm.onEvent(event)
                         else -> vm.onEvent(event)
                     }
+                },
+            )
+        }
+
+        // Calendar day detail (L1) — opened by a MONTH-grid day tap. Its own screen showing
+        // that day's drives; Back pops to the calendar, an item drills to its backend target.
+        composable(
+            route = "${Routes.CALENDAR_DAY}?${Routes.CALENDAR_DAY_ARG}={${Routes.CALENDAR_DAY_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.CALENDAR_DAY_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
+            val vm: CalendarDayViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            CalendarDayScreen(
+                state = state,
+                onBack = { navController.popBackStack() },
+                onItemTap = { itemId ->
+                    val target = state.items.firstOrNull { it.id == itemId }?.target
+                    navController.navigate(calendarTargetRoute(target)) { launchSingleTop = true }
                 },
             )
         }

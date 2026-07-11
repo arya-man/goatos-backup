@@ -75,12 +75,20 @@ data class CalendarHistoryRow(
     val target: String? = null,
 )
 
-/** The `ovl-day` sheet: the sheds for a tapped month day (surfaced as a bottom section). */
+/**
+ * L1 day-detail screen: the drives/sheds due on a tapped month day, opened as its OWN
+ * screen (a real navigation drill), NOT appended below the month grid. Offline-first sync
+ * fields mirror the Calendar reference so the day screen shows syncing/stale over its own
+ * Room-backed read and never a blank wall on re-entry.
+ */
 @Immutable
-data class DaySheetUiState(
-    val title: String,
-    val items: List<CalendarItem>,
-    val emptyLabel: String,
+data class CalendarDayUiState(
+    val title: String = "",
+    val items: List<CalendarItem> = emptyList(),
+    val emptyLabel: String = "",
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val isOffline: Boolean = false,
 )
 
 // @Immutable: every field is a val built once from a fixed List — the compiler otherwise
@@ -97,6 +105,13 @@ data class CalendarUiState(
      *  while the principal holds an active ad-hoc-leave/week-off coverage window for
      *  another position. Null hides the banner entirely (CoverageBanner renders nothing). */
     val coverageBanner: CoverageBannerUiState? = null,
+    // Offline-first sync state (docs/decisions/android-offline-first.md), rendered by
+    // sg.mesha.goatos.core.ui.SyncStatusIndicator. [isRefreshing]/[lastSyncedAt]/[isOffline]
+    // describe the background network refresh over the ALREADY-RENDERED Room cache above —
+    // they never gate whether the rest of this state renders.
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val isOffline: Boolean = false,
     val segments: List<CalendarSegment> = emptyList(),
     val selectedSegmentId: String = "",
     // WEEK
@@ -108,7 +123,6 @@ data class CalendarUiState(
     val monthWeekdayLabels: List<String> = emptyList(),
     val monthDays: List<CalendarMonthDay> = emptyList(),
     val monthHint: String = "",
-    val daySheet: DaySheetUiState? = null,
     // HISTORY
     val historyLabel: String = "",
     val historyRows: List<CalendarHistoryRow> = emptyList(),
@@ -119,7 +133,11 @@ data class CalendarUiState(
 sealed interface CalendarEvent {
     data class SelectSegment(val segmentId: String) : CalendarEvent
 
+    /** Week-strip day tap — re-scopes the week agenda list in place (stays on the calendar). */
     data class TapDay(val dateKey: String) : CalendarEvent
+
+    /** Month-grid day tap — opens that day's drives as their OWN L1 screen (nav host routes it). */
+    data class OpenDay(val dateKey: String) : CalendarEvent
 
     data class TapItem(val itemId: String) : CalendarEvent
 

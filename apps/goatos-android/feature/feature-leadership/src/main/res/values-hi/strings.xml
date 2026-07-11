@@ -11,6 +11,8 @@
     <string name="overview_backlog_title">टीके के आधार पर बैकलॉग · लंबित खुराक</string>
     <string name="overview_needs_decision_title">निर्णय की आवश्यकता है</string>
     <string name="overview_coverage_by_park_title">पार्क के आधार पर कवरेज</string>
+    <string name="overview_empty_title">अभी कोई अवलोकन कार्य नहीं है</string>
+    <string name="overdue_empty_title">कोई अतिदेय पशु नहीं</string>
 
     <!-- KPI tile labels -->
     <string name="overview_kpi_critical_label">गंभीर</string>

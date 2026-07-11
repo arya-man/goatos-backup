@@ -46,6 +46,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.sheds.R
 
 /**
@@ -139,6 +142,13 @@ data class ShedsUiState(
     val rows: List<ShedRow> = emptyList(),
     val rosterChanges: List<RosterChange> = emptyList(),
     val kernelInfo: String? = null,
+    // Offline-first sync state (docs/decisions/android-offline-first.md), rendered by
+    // sg.mesha.goatos.core.ui.SyncStatusIndicator. [isRefreshing]/[lastSyncedAt]/[isOffline]
+    // describe the background network refresh over the ALREADY-RENDERED Room cache above —
+    // they never gate whether the rest of this state renders.
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val isOffline: Boolean = false,
 )
 
 sealed interface ShedsEvent {
@@ -211,7 +221,16 @@ fun ShedsScreen(
             item { DriveMeta(state) }
             item { DayProgress(state) }
             state.roleNote?.let { note -> item { RoleNote(note) } }
-            state.caption?.let { caption -> item { SectionCaption(caption) } }
+            if (state.rows.isEmpty() && state.caption != null) {
+                item {
+                    EmptyState(
+                        title = state.caption,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        icon = MeshaIcons.Goat,
+                        tone = EmptyTone.Neutral,
+                    )
+                }
+            }
             items(state.rows, key = { it.id }) { row ->
                 ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
             }
@@ -268,6 +287,20 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -
                 color = Ink,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
+            )
+            // Offline-first sync/stale affordance (docs/decisions/android-offline-first.md):
+            // renders nothing while there is no cache yet — a cold-start/error placeholder
+            // above already covers that moment — otherwise "Syncing…" / "Updated Xm ago" /
+            // "Offline · updated Xm ago", NEVER a second loading wall over live content.
+            SyncStatusIndicator(
+                isRefreshing = state.isRefreshing,
+                lastSyncedAt = state.lastSyncedAt,
+                // [ShedsUiState.lastSyncedAt] is only ever non-null once a Room cache row
+                // has been observed (set from Resource.lastSyncedAt in the ViewModel), so it
+                // doubles as the "do we have anything cached to annotate" signal.
+                hasData = state.lastSyncedAt != null,
+                isOffline = state.isOffline,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
         Box(

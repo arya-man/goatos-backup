@@ -46,6 +46,9 @@ import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
+import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.leadership.R
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -147,6 +150,10 @@ data class LeadershipUiState(
     // (backend decides via the payload — not a client role gate). null → hidden.
     val coverageByParkTitle: String? = null,
     val coverageByPark: List<ParkCoverageRow> = emptyList(),
+    // Offline-first cache sync state
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val isOffline: Boolean = false,
 )
 
 // @Immutable: dosesTrend: List<Float> otherwise marks this unstable (item 6, perf/stability pass).
@@ -253,34 +260,56 @@ fun LeadershipScreen(
             leadingContentDescription = stringResource(R.string.overview_menu_content_description),
             refreshContentDescription = stringResource(R.string.overview_refresh_content_description),
         )
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item { CoverageHero(state.hero, onEvent) }
-            item { KpiRow(state.kpis, onEvent) }
+        SyncStatusIndicator(
+            isRefreshing = state.isRefreshing,
+            lastSyncedAt = state.lastSyncedAt,
+            hasData = state.kpis.isNotEmpty() || state.todaySheds.isNotEmpty(),
+            isOffline = state.isOffline,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+        val hasOverviewData = state.kpis.isNotEmpty() || state.todaySheds.isNotEmpty() ||
+            state.backlog.isNotEmpty() || state.needsDecision.isNotEmpty() ||
+            (state.coverageByParkTitle != null && state.coverageByPark.isNotEmpty())
 
-            // Section headers are fixed chrome — localize by key, not the VM's English title.
-            item { SectionLabel(stringResource(R.string.overview_today_sheds_title)) }
-            items(state.todaySheds, key = { it.shedId }) { shed ->
-                ShedSummaryRow(shed, onEvent)
-            }
+        if (!hasOverviewData) {
+            EmptyState(
+                title = stringResource(R.string.overview_empty_title),
+                icon = MeshaIcons.Check,
+                tone = EmptyTone.Neutral,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                item { CoverageHero(state.hero, onEvent) }
+                item { KpiRow(state.kpis, onEvent) }
 
-            item { SectionLabel(stringResource(R.string.overview_backlog_title)) }
-            items(state.backlog, key = { it.vaccine }) { row -> BacklogRowView(row) }
+                // Section headers are fixed chrome — localize by key, not the VM's English title.
+                item { SectionLabel(stringResource(R.string.overview_today_sheds_title)) }
+                items(state.todaySheds, key = { it.shedId }) { shed ->
+                    ShedSummaryRow(shed, onEvent)
+                }
 
-            item { SectionLabel(stringResource(R.string.overview_needs_decision_title)) }
-            items(state.needsDecision, key = { it.id }) { row ->
-                DecisionRowView(row, onEvent)
-            }
+                item { SectionLabel(stringResource(R.string.overview_backlog_title)) }
+                items(state.backlog, key = { it.vaccine }) { row -> BacklogRowView(row) }
 
-            // coverageByParkTitle's presence (non-null) is still the backend's grant signal
-            // for whether this section renders at all — only the displayed text is localized.
-            if (state.coverageByParkTitle != null && state.coverageByPark.isNotEmpty()) {
-                item { SectionLabel(stringResource(R.string.overview_coverage_by_park_title)) }
-                items(state.coverageByPark, key = { it.code }) { park ->
-                    ParkCoverageRowView(park, onEvent)
+                item { SectionLabel(stringResource(R.string.overview_needs_decision_title)) }
+                items(state.needsDecision, key = { it.id }) { row ->
+                    DecisionRowView(row, onEvent)
+                }
+
+                // coverageByParkTitle's presence (non-null) is still the backend's grant signal
+                // for whether this section renders at all — only the displayed text is localized.
+                if (state.coverageByParkTitle != null && state.coverageByPark.isNotEmpty()) {
+                    item { SectionLabel(stringResource(R.string.overview_coverage_by_park_title)) }
+                    items(state.coverageByPark, key = { it.code }) { park ->
+                        ParkCoverageRowView(park, onEvent)
+                    }
                 }
             }
         }

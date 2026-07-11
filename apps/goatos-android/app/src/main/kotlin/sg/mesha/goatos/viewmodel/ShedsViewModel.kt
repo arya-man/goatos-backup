@@ -6,7 +6,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
@@ -20,12 +23,18 @@ import sg.mesha.goatos.ui.shedsPlaceholder
 import javax.inject.Inject
 
 /**
- * Today's-sheds / drive-status state holder. Shows a loading placeholder first, then loads
- * the real vaccination execution rows via [ExecutionRepository.rows] and groups them into
- * one [ShedRow] per shed in [toShedsUiState]. An empty real response shows an honest empty
- * state and a failure shows an honest error state — fabricated sheds are NEVER shown as if
- * they were live. [ShedsEvent.Refresh] reloads; [ShedsEvent.OpenShedRecord] is navigation,
- * routed by the host.
+ * Today's-sheds / drive-status state holder — the offline-first pattern for the sheds
+ * read screen (docs/decisions/android-offline-first.md). Room is the UI's single source of
+ * truth: [state] is fed by [ExecutionRepository.observeRows], a cache-first [Flow]
+ * that emits instantly from Room (cached data survives process restarts and screen
+ * re-entry) and re-emits the moment a background [ExecutionRepository.refreshRows] upserts
+ * new data. [refresh] never writes into [state] directly — it only drives the network call
+ * and the transient [ShedsUiState.isRefreshing]/[ShedsUiState.isOffline] flags; the
+ * DTO -> UiState mapping in [toShedsUiState] is unchanged from the network-only version.
+ * An empty real response shows an honest empty state; a refresh failure with NO cache ever
+ * observed shows an honest error state; a refresh failure WITH cached data keeps rendering
+ * that cache and only flips [ShedsUiState.isOffline] — never a blank/loading wall.
+ * [ShedsEvent.OpenShedRecord] is navigation, routed by the nav host.
  */
 @HiltViewModel
 class ShedsViewModel @Inject constructor(
@@ -36,18 +45,39 @@ class ShedsViewModel @Inject constructor(
     val state: StateFlow<ShedsUiState> = _state.asStateFlow()
 
     init {
-        load()
+        // Cache-first: renders whatever Room already has (possibly nothing, on a cold
+        // install) immediately, then re-renders after every successful refresh below.
+        viewModelScope.launch {
+            repo.observeRows().collectLatest { resource -> applyResource(resource) }
+        }
+        refresh()
     }
 
-    fun load() = viewModelScope.launch {
-        runCatching { repo.rows() }
-            .onSuccess { dto -> _state.value = dto.toShedsUiState() ?: shedsPlaceholder("No sheds scheduled today") }
-            .onFailure { _state.value = shedsPlaceholder("Couldn't load today's sheds. Tap refresh to retry.") }
+    /** Network side of stale-while-revalidate: upserts Room on success (the [observeRows]
+     *  collector above re-emits and updates [state]); on failure it only flips
+     *  [ShedsUiState.isOffline] — cached content, if any, stays on screen. */
+    fun refresh() = viewModelScope.launch {
+        _state.update { it.copy(isRefreshing = true) }
+        val result = repo.refreshRows()
+        _state.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
+    }
+
+    private fun applyResource(resource: Resource<VaccinationExecutionResponseDto>) {
+        val dto = resource.data
+        val base = dto?.toShedsUiState()
+            ?: if (resource.hasData) shedsPlaceholder("No sheds scheduled today") else shedsPlaceholder("Loading…")
+        _state.update { current ->
+            base.copy(
+                isRefreshing = current.isRefreshing,
+                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
+                isOffline = current.isOffline,
+            )
+        }
     }
 
     fun onEvent(event: ShedsEvent) {
         when (event) {
-            ShedsEvent.Refresh -> load()
+            ShedsEvent.Refresh -> refresh()
             is ShedsEvent.OpenShedRecord -> Unit // navigation — handled by the nav host.
             ShedsEvent.Back -> Unit // navigation — handled by the nav host.
         }

@@ -19,6 +19,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    // Robolectric-backed unit tests (GoatDatabaseCacheTest) need a real Context, so JUnit
+    // can resolve Robolectric's own resources/manifest at test runtime.
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
 }
 
 dependencies {
@@ -44,4 +51,9 @@ dependencies {
     // OutboxStore — sg.mesha.goatos.core.data.sync) stays framework-free here; the app module
     // wires WorkManager as a thin trigger/backstop around SyncEngine.drainOnce().
     testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.kotlinx.coroutines.test)
+    // Room migration + cache round-trip test (GoatDatabaseCacheTest) needs a real
+    // (shadowed) android.database.sqlite + Context — see the libs.versions.toml note.
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

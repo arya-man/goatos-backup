@@ -22,6 +22,8 @@
     <string name="overview_backlog_title">Backlog by vaccine · pending doses</string>
     <string name="overview_needs_decision_title">Needs a decision</string>
     <string name="overview_coverage_by_park_title">Coverage by park</string>
+    <string name="overview_empty_title">No overview work right now</string>
+    <string name="overdue_empty_title">No overdue animals</string>
 
     <!-- KPI tile labels -->
     <string name="overview_kpi_critical_label">Critical</string>

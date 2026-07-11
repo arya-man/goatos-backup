@@ -141,6 +141,9 @@ fun sampleScanState(): ScanUiState = ScanUiState(
     submitLabel = "Submit shed record",
     canSubmit = false,
     scanEnabled = true,
+    isRefreshing = false,
+    lastSyncedAt = System.currentTimeMillis(),
+    isOffline = false,
 )
 
 fun sampleSubmitState(): SubmitUiState = SubmitUiState(

@@ -19,6 +19,7 @@
 
     <!-- Accessibility descriptions -->
     <string name="calendar_button_menu">मेनू</string>
+    <string name="calendar_day_back">वापस</string>
     <string name="calendar_button_refresh">ताज़ा करें</string>
 
     <!-- History section label (prefix before dynamic count) -->

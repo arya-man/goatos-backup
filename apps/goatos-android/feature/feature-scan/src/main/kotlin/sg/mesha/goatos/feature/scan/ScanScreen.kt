@@ -32,6 +32,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.EmptyTone
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.SyncStatusIndicator
 
 // ---------------------------------------------------------------------------
 // Scan (v-scan) — the field operator's tap-to-scan surface for one shed.
@@ -144,6 +147,12 @@ data class ScanUiState(
     val scanEnabled: Boolean,              // show tap-to-scan affordances at all
     val error: ScanError? = null,          // not-due red state
     val footNote: String = "",             // haptic/tone legend copy
+    // Offline-first sync state (docs/decisions/android-offline-first.md), rendered by
+    // sg.mesha.goatos.core.ui.SyncStatusIndicator. [isRefreshing]/[lastSyncedAt]/[isOffline]
+    // describe the background network refresh over the ALREADY-RENDERED Room cache above.
+    val isRefreshing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val isOffline: Boolean = false,
     // Local UI selection (not backend-fed) — which tile is active and whether the roster
     // overlay is open. Mirrors the mock's Done/Pending/Skipped chips → scan-list overlay.
     val selectedFilter: ScanStatus? = null,
@@ -225,6 +234,17 @@ fun ScanScreen(
                         labels = state.tileLabels,
                         selected = state.selectedFilter,
                         onTile = { onEvent(ScanEvent.OpenTile(it)) },
+                    )
+                }
+                item {
+                    SyncStatusIndicator(
+                        isRefreshing = state.isRefreshing,
+                        lastSyncedAt = state.lastSyncedAt,
+                        hasData = state.lastSyncedAt != null,
+                        isOffline = state.isOffline,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
                     )
                 }
                 item {
@@ -719,11 +739,10 @@ fun ScanListSheet(
             )
             Spacer(Modifier.height(4.dp))
             if (filtered.isEmpty()) {
-                Text(
-                    stringResource(R.string.scan_search_empty),
-                    color = ScanTokens.faint,
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center,
+                EmptyState(
+                    title = stringResource(R.string.scan_search_empty),
+                    icon = MeshaIcons.Goat,
+                    tone = EmptyTone.Neutral,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 26.dp),
@@ -801,6 +820,9 @@ private fun previewState() = ScanUiState(
     scanEnabled = true,
     error = null,
     footNote = "eligible → green + buzz + tone · not due → red + double buzz + alert tone",
+    isRefreshing = false,
+    lastSyncedAt = System.currentTimeMillis(),
+    isOffline = false,
 )
 
 @Preview(name = "Scan — in progress (dark)")

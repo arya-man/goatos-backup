@@ -11,6 +11,8 @@
     <string name="overview_backlog_title">ಲಸಿಕೆ ಆಧಾರಿತ ಬ್ಯಾಕ್ಲಾಗ್ · ಬಾಕಿ ಡೋಸ್</string>
     <string name="overview_needs_decision_title">ನಿರ್ಧಾರದ ಅಗತ್ಯ</string>
     <string name="overview_coverage_by_park_title">ಪಾರ್ಕ್ ಆಧಾರಿತ ಕವರೇಜ್</string>
+    <string name="overview_empty_title">ಈಗ ಯಾವುದೇ ಅವಲೋಕನ ಕೆಲಸ ಇಲ್ಲ</string>
+    <string name="overdue_empty_title">ಅವಧಿ ಮೀರಿದ ಪ್ರಾಣಿಗಳಿಲ್ಲ</string>
 
     <!-- KPI tile labels -->
     <string name="overview_kpi_critical_label">ಗಂಭೀರ</string>

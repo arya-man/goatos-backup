@@ -1,12 +1,28 @@
 package sg.mesha.goatos.core.data
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheDao
+import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheEntity
+import sg.mesha.goatos.core.data.cache.InsightsGapsCacheDao
+import sg.mesha.goatos.core.data.cache.InsightsGapsCacheEntity
+import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
 
 /**
  * Leadership drill overlays: live vaccination data gaps and per-vaccine coverage.
- * Thin pass-through over [AppApi]; DTO -> overlay rows stays in :app.
+ * Offline-first (docs/decisions/android-offline-first.md): Room is the UI's single source of
+ * truth for both reads, each backed by its own cache table ([InsightsGapsCacheDao] /
+ * [InsightsCoverageCacheDao]). observeX is cache-first and reactive; refreshX is the network
+ * side of stale-while-revalidate — it upserts Room on success and leaves the cache untouched
+ * on failure. gaps/coverage are kept as the plain network calls refreshX wraps. DTO -> overlay
+ * rows stays in :app.
  */
 interface VaccinationInsightsRepository {
     suspend fun gaps(
@@ -15,16 +31,52 @@ interface VaccinationInsightsRepository {
         cursor: String? = null,
     ): VaccinationGapsResponseDto
 
+    /** Cache-first stream for this filter scope: emits immediately with whatever Room has
+     *  (null data on a cold cache) and re-emits after every successful [refreshGaps]. */
+    fun observeGaps(
+        parkId: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): Flow<Resource<VaccinationGapsResponseDto>>
+
+    /** Fetches and upserts Room on success; on failure returns the failure and leaves the
+     *  cache untouched — the caller surfaces stale/offline, never a blank screen. */
+    suspend fun refreshGaps(
+        parkId: String? = null,
+        limit: Int? = null,
+        cursor: String? = null,
+    ): Result<Unit>
+
     suspend fun coverage(
         parkId: String? = null,
         asOf: String? = null,
         dueBefore: String? = null,
         limit: Int? = null,
     ): VaccinationCoverageResponseDto
+
+    /** Cache-first stream for this filter scope. */
+    fun observeCoverage(
+        parkId: String? = null,
+        asOf: String? = null,
+        dueBefore: String? = null,
+        limit: Int? = null,
+    ): Flow<Resource<VaccinationCoverageResponseDto>>
+
+    /** Fetches and upserts Room on success; leaves the cache untouched on failure. */
+    suspend fun refreshCoverage(
+        parkId: String? = null,
+        asOf: String? = null,
+        dueBefore: String? = null,
+        limit: Int? = null,
+    ): Result<Unit>
 }
 
 class DefaultVaccinationInsightsRepository(
     private val api: AppApi,
+    private val gapsDao: InsightsGapsCacheDao,
+    private val coverageDao: InsightsCoverageCacheDao,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+    private val clock: () -> Long = { System.currentTimeMillis() },
 ) : VaccinationInsightsRepository {
     override suspend fun gaps(
         parkId: String?,
@@ -32,10 +84,60 @@ class DefaultVaccinationInsightsRepository(
         cursor: String?,
     ): VaccinationGapsResponseDto = api.getVaccinationGaps(parkId, limit, cursor)
 
+    override fun observeGaps(
+        parkId: String?,
+        limit: Int?,
+        cursor: String?,
+    ): Flow<Resource<VaccinationGapsResponseDto>> =
+        gapsDao.observe(cacheKey(parkId, limit?.toString(), cursor))
+            .map { it.toResource() }
+
+    override suspend fun refreshGaps(
+        parkId: String?,
+        limit: Int?,
+        cursor: String?,
+    ): Result<Unit> = runCatching {
+        val dto = gaps(parkId, limit, cursor)
+        val key = cacheKey(parkId, limit?.toString(), cursor)
+        gapsDao.upsert(InsightsGapsCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+    }
+
     override suspend fun coverage(
         parkId: String?,
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
     ): VaccinationCoverageResponseDto = api.getVaccinationCoverage(parkId, asOf, dueBefore, limit)
+
+    override fun observeCoverage(
+        parkId: String?,
+        asOf: String?,
+        dueBefore: String?,
+        limit: Int?,
+    ): Flow<Resource<VaccinationCoverageResponseDto>> =
+        coverageDao.observe(cacheKey(parkId, asOf, dueBefore, limit?.toString()))
+            .map { it.toResource() }
+
+    override suspend fun refreshCoverage(
+        parkId: String?,
+        asOf: String?,
+        dueBefore: String?,
+        limit: Int?,
+    ): Result<Unit> = runCatching {
+        val dto = coverage(parkId, asOf, dueBefore, limit)
+        val key = cacheKey(parkId, asOf, dueBefore, limit?.toString())
+        coverageDao.upsert(InsightsCoverageCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+    }
+
+    private fun InsightsGapsCacheEntity?.toResource(): Resource<VaccinationGapsResponseDto> =
+        Resource(
+            data = this?.let { runCatching { json.decodeFromString<VaccinationGapsResponseDto>(it.dtoJson) }.getOrNull() },
+            lastSyncedAt = this?.updatedAt,
+        )
+
+    private fun InsightsCoverageCacheEntity?.toResource(): Resource<VaccinationCoverageResponseDto> =
+        Resource(
+            data = this?.let { runCatching { json.decodeFromString<VaccinationCoverageResponseDto>(it.dtoJson) }.getOrNull() },
+            lastSyncedAt = this?.updatedAt,
+        )
 }

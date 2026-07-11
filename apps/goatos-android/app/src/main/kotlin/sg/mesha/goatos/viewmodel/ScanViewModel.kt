@@ -7,9 +7,12 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.feature.scan.RosterRow
 import sg.mesha.goatos.feature.scan.ScanEvent
@@ -21,10 +24,16 @@ import sg.mesha.goatos.ui.sampleScanState
 import javax.inject.Inject
 
 /**
- * Scan (tap-to-scan) state holder. Loads the real per-animal roster for the tapped shed
- * from [ExecutionRepository.scanRoster] and folds each hardware RFID read (keyboard-wedge)
- * into the draft overlay: match the tag against the roster, mark a due animal done, push a
- * live feed row. The backend revalidates on submit — this is a draft overlay, not truth.
+ * Scan (tap-to-scan) state holder — the offline-first pattern (docs/decisions/android-offline-first.md).
+ * Room is the UI's single source of truth: [state] is fed by [ExecutionRepository.observeScanRoster],
+ * a cache-first Flow that emits instantly from Room and re-emits when a background
+ * [ExecutionRepository.refreshScanRoster] upserts new data. [refresh] never writes [state] directly —
+ * it only drives the network call and the transient [ScanUiState.isRefreshing]/[ScanUiState.isOffline]
+ * flags; the DTO -> UiState mapping is unchanged from the network-only version.
+ *
+ * Folds each hardware RFID read (keyboard-wedge) into the draft overlay: match the tag against
+ * the roster, mark a due animal done, push a live feed row. The backend revalidates on submit —
+ * this is a draft overlay, not truth.
  *
  * Capture is gated by [setCaptureActive]: the nav host enables it only while the Scan screen
  * is composed and disables it on navigate-away, so tag reads never land off-screen.
@@ -42,7 +51,15 @@ class ScanViewModel @Inject constructor(
     val state: StateFlow<ScanUiState> = _state.asStateFlow()
 
     init {
-        loadRoster()
+        // Cache-first: renders whatever Room already has (possibly nothing, on a cold
+        // install) immediately, then re-renders after every successful refresh below.
+        viewModelScope.launch {
+            val id = shedId ?: return@launch
+            repo.observeScanRoster(id, limit = 1000).collectLatest { resource ->
+                applyResource(resource)
+            }
+        }
+        loadRosterAndRefresh()
         viewModelScope.launch {
             reader.reads.collect { onTagRead(it.tag) }
         }
@@ -55,12 +72,46 @@ class ScanViewModel @Inject constructor(
         reader.setCaptureEnabled(false)
     }
 
-    private fun loadRoster() {
+    /** Network side of stale-while-revalidate: upserts Room on success; on failure it only flips
+     *  [ScanUiState.isOffline] — cached content, if any, stays on screen. */
+    fun refresh() = viewModelScope.launch {
+        _state.update { it.copy(isRefreshing = true) }
+        val id = shedId ?: return@launch
+        val result = repo.refreshScanRoster(id, limit = 1000)
+        _state.update { current ->
+            when {
+                result.isSuccess -> current.copy(isRefreshing = false, isOffline = false)
+                // A cache was already rendered (lastSyncedAt set by a prior emission) —
+                // keep it on screen and just surface the offline signal.
+                current.lastSyncedAt != null -> current.copy(isRefreshing = false, isOffline = true)
+                // Never synced, ever: no cache to fall back to.
+                else -> current.copy(isRefreshing = false, isOffline = true)
+            }
+        }
+    }
+
+    private fun loadRosterAndRefresh() {
         val id = shedId ?: return // no shed threaded → keep the interim sample roster
-        viewModelScope.launch {
-            runCatching { repo.scanRoster(id) }
-                .onSuccess { resp -> _state.update { it.withRoster(resp.rows) } }
-                .onFailure { /* keep current so the screen is never blank; backend revalidates on submit */ }
+        refresh()
+    }
+
+    private fun applyResource(resource: Resource<ScanRosterResponseDto>) {
+        val dto = resource.data
+        _state.update { current ->
+            if (dto != null) {
+                current.withRoster(dto.rows)
+                    .copy(
+                        isRefreshing = current.isRefreshing,
+                        lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
+                        isOffline = current.isOffline,
+                    )
+            } else {
+                current.copy(
+                    isRefreshing = current.isRefreshing,
+                    lastSyncedAt = current.lastSyncedAt,
+                    isOffline = current.isOffline,
+                )
+            }
         }
     }
 

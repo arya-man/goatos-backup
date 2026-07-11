@@ -39,6 +39,8 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
 import sg.mesha.goatos.core.ui.CoverageBanner
+import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.calendar.R
 
 /**
@@ -138,6 +140,20 @@ private fun CalendarHeader(state: CalendarUiState, onEvent: (CalendarEvent) -> U
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
+            // Offline-first sync/stale affordance (docs/decisions/android-offline-first.md):
+            // renders nothing while there is no cache yet — a cold-start/error placeholder
+            // above already covers that moment — otherwise "Syncing…" / "Updated Xm ago" /
+            // "Offline · updated Xm ago", NEVER a second loading wall over live content.
+            SyncStatusIndicator(
+                isRefreshing = state.isRefreshing,
+                lastSyncedAt = state.lastSyncedAt,
+                // [CalendarUiState.lastSyncedAt] is only ever non-null once a Room cache row
+                // has been observed (set from Resource.lastSyncedAt in the ViewModel), so it
+                // doubles as the "do we have anything cached to annotate" signal.
+                hasData = state.lastSyncedAt != null,
+                isOffline = state.isOffline,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
         // Refresh button on the right
         HeaderIconButton(onClick = { onEvent(CalendarEvent.Refresh) }, icon = MeshaIcons.Refresh, contentDescription = stringResource(R.string.calendar_button_refresh))
@@ -238,7 +254,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
     }
     item { SectionLabel(state.selectedDateLabel) }
     if (state.weekItems.isEmpty()) {
-        item { EmptyCard(stringResource(R.string.calendar_week_empty)) }
+        item {
+            EmptyState(
+                title = stringResource(R.string.calendar_week_empty),
+                icon = MeshaIcons.Calendar,
+            )
+        }
     } else {
         items(state.weekItems, key = { it.id }) { item ->
             EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id)) })
@@ -405,7 +426,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
                 MonthCell(
                     cell = cell,
                     modifier = Modifier.weight(1f),
-                    onClick = { cell.dateKey?.let { onEvent(CalendarEvent.TapDay(it)) } },
+                    onClick = { cell.dateKey?.let { onEvent(CalendarEvent.OpenDay(it)) } },
                 )
             }
             repeat(7 - week.size) { Spacer(Modifier.weight(1f)) }
@@ -422,15 +443,8 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
             )
         }
     }
-    state.daySheet?.let { sheet ->
-        item {
-            DaySheet(
-                state = sheet,
-                onEvent = onEvent,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-        }
-    }
+    // A month day tap now opens its own L1 screen (CalendarDayScreen) instead of
+    // appending a sheet below the grid — see CalendarEvent.OpenDay / the nav host.
 }
 
 @Composable
@@ -476,55 +490,68 @@ private fun MonthCell(
 }
 
 /* --------------------------------------------------------------------------- */
-/* Day sheet (ovl-day)                                                         */
+/* Day detail — L1 screen                                                      */
 /* --------------------------------------------------------------------------- */
 
-/** The `ovl-day` sheet: sheds for a tapped month day. Rendered as a bottom section. */
+/**
+ * The L1 day-detail screen: a full navigation destination showing the drives/sheds due on
+ * a tapped month day. Opened by [CalendarEvent.OpenDay] (routed by the nav host), NOT a
+ * sheet appended under the calendar grid. Offline-first: renders its cached
+ * [CalendarDayUiState] instantly and shows a sync/stale indicator, never a blank wall on
+ * re-entry. Tapping a drive drills on via [onItemTap] (the backend-supplied target).
+ */
 @Composable
-fun DaySheet(
-    state: DaySheetUiState,
-    onEvent: (CalendarEvent) -> Unit = {},
+fun CalendarDayScreen(
+    state: CalendarDayUiState,
+    onBack: () -> Unit = {},
+    onItemTap: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(MeshaColors.Surf2)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(20.dp))
-            .padding(top = 12.dp, bottom = 8.dp),
+            .fillMaxSize()
+            .background(MeshaColors.PageBg)
+            .padding(horizontal = Gutter),
     ) {
-        Box(
-            Modifier
-                .padding(bottom = 10.dp)
-                .align(Alignment.CenterHorizontally)
-                .size(width = 34.dp, height = 4.dp)
-                .clip(CircleShape)
-                .background(MeshaColors.Hair),
-        )
-        Text(
-            text = state.title,
-            color = MeshaColors.Ink,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.W800,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        )
-        if (state.items.isEmpty()) {
-            // Fixed chrome localized client-side, like the week/history empty states below —
-            // the VM's state.emptyLabel is an English structural fallback, not the rendered copy.
-            Text(
-                text = stringResource(R.string.calendar_day_sheet_empty),
-                color = MeshaColors.Muted,
-                fontSize = 12.5.sp,
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        Row(
+            Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HeaderIconButton(
+                onClick = onBack,
+                icon = MeshaIcons.ChevronLeft,
+                contentDescription = stringResource(R.string.calendar_day_back),
             )
-        } else {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                state.items.forEach { item ->
-                    EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id)) })
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(
+                    text = state.title,
+                    color = MeshaColors.Ink,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.W800,
+                )
+                SyncStatusIndicator(
+                    isRefreshing = state.isRefreshing,
+                    lastSyncedAt = state.lastSyncedAt,
+                    hasData = state.lastSyncedAt != null,
+                    isOffline = state.isOffline,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+        LazyColumn(Modifier.fillMaxSize()) {
+            if (state.items.isEmpty()) {
+                item {
+                    EmptyState(
+                        title = state.emptyLabel.ifEmpty { stringResource(R.string.calendar_day_sheet_empty) },
+                        icon = MeshaIcons.Calendar,
+                    )
+                }
+            } else {
+                items(state.items, key = { it.id }) { item ->
+                    EventCard(item = item, onClick = { onItemTap(item.id) })
                 }
             }
+            item { Spacer(Modifier.size(24.dp)) }
         }
     }
 }
@@ -539,7 +566,12 @@ private fun androidx.compose.foundation.lazy.LazyListScope.historyContent(
 ) {
     item { SectionLabel(state.historyLabel) }
     if (state.historyRows.isEmpty()) {
-        item { EmptyCard(stringResource(R.string.calendar_history_empty)) }
+        item {
+            EmptyState(
+                title = stringResource(R.string.calendar_history_empty),
+                icon = MeshaIcons.Clock,
+            )
+        }
     } else {
         items(state.historyRows, key = { it.id }) { row ->
             HistoryRow(row = row, onClick = { onEvent(CalendarEvent.TapItem(row.id)) })
@@ -611,27 +643,6 @@ private fun SectionLabel(text: String) {
         letterSpacing = 0.55.sp,
         modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp),
     )
-}
-
-@Composable
-private fun EmptyCard(text: String) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .padding(bottom = 11.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(18.dp))
-            .padding(22.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = text,
-            color = MeshaColors.Muted,
-            fontSize = 12.5.sp,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-    }
 }
 
 @Composable

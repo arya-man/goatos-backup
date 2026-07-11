@@ -34,6 +34,14 @@ import sg.mesha.goatos.core.data.RosterRepository
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.VaccinationInsightsRepository
 import sg.mesha.goatos.core.data.buildGoatDatabase
+import sg.mesha.goatos.core.data.cache.AdherenceCacheDao
+import sg.mesha.goatos.core.data.cache.CalendarCacheDao
+import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
+import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
+import sg.mesha.goatos.core.data.cache.ExecutionShedCacheDao
+import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheDao
+import sg.mesha.goatos.core.data.cache.InsightsGapsCacheDao
+import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
@@ -79,6 +87,34 @@ object AppModule {
     @Provides
     @Singleton
     fun provideBootstrapCache(dao: BootstrapCacheDao): BootstrapCache = BootstrapCache(dao)
+
+    // --- Offline-first read-screen caches (docs/decisions/android-offline-first.md) -----
+    // One JSON-blob-by-scope cache table per screen-facing read model; each DAO is handed
+    // straight to its Default*Repository alongside the shared AppApi.
+
+    @Provides
+    fun provideCalendarCacheDao(db: GoatDatabase): CalendarCacheDao = db.calendarCacheDao()
+
+    @Provides
+    fun provideControlTowerCacheDao(db: GoatDatabase): ControlTowerCacheDao = db.controlTowerCacheDao()
+
+    @Provides
+    fun provideExecutionRowsCacheDao(db: GoatDatabase): ExecutionRowsCacheDao = db.executionRowsCacheDao()
+
+    @Provides
+    fun provideExecutionShedCacheDao(db: GoatDatabase): ExecutionShedCacheDao = db.executionShedCacheDao()
+
+    @Provides
+    fun provideScanRosterCacheDao(db: GoatDatabase): ScanRosterCacheDao = db.scanRosterCacheDao()
+
+    @Provides
+    fun provideAdherenceCacheDao(db: GoatDatabase): AdherenceCacheDao = db.adherenceCacheDao()
+
+    @Provides
+    fun provideInsightsGapsCacheDao(db: GoatDatabase): InsightsGapsCacheDao = db.insightsGapsCacheDao()
+
+    @Provides
+    fun provideInsightsCoverageCacheDao(db: GoatDatabase): InsightsCoverageCacheDao = db.insightsCoverageCacheDao()
 
     @Provides
     @Singleton
@@ -129,15 +165,22 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideExecutionRepository(api: AppApi): ExecutionRepository = DefaultExecutionRepository(api)
+    fun provideExecutionRepository(
+        api: AppApi,
+        rowsDao: ExecutionRowsCacheDao,
+        shedDao: ExecutionShedCacheDao,
+        scanRosterDao: ScanRosterCacheDao,
+    ): ExecutionRepository = DefaultExecutionRepository(api, rowsDao, shedDao, scanRosterDao)
 
     @Provides
     @Singleton
-    fun provideCalendarRepository(api: AppApi): CalendarRepository = DefaultCalendarRepository(api)
+    fun provideCalendarRepository(api: AppApi, dao: CalendarCacheDao): CalendarRepository =
+        DefaultCalendarRepository(api, dao)
 
     @Provides
     @Singleton
-    fun provideControlTowerRepository(api: AppApi): ControlTowerRepository = DefaultControlTowerRepository(api)
+    fun provideControlTowerRepository(api: AppApi, dao: ControlTowerCacheDao): ControlTowerRepository =
+        DefaultControlTowerRepository(api, dao)
 
     @Provides
     @Singleton
@@ -145,12 +188,17 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAdherenceRepository(api: AppApi): AdherenceRepository = DefaultAdherenceRepository(api)
+    fun provideAdherenceRepository(api: AppApi, dao: AdherenceCacheDao): AdherenceRepository =
+        DefaultAdherenceRepository(api, dao)
 
     @Provides
     @Singleton
-    fun provideVaccinationInsightsRepository(api: AppApi): VaccinationInsightsRepository =
-        DefaultVaccinationInsightsRepository(api)
+    fun provideVaccinationInsightsRepository(
+        api: AppApi,
+        gapsDao: InsightsGapsCacheDao,
+        coverageDao: InsightsCoverageCacheDao,
+    ): VaccinationInsightsRepository =
+        DefaultVaccinationInsightsRepository(api, gapsDao, coverageDao)
 
     @Provides
     @Singleton
