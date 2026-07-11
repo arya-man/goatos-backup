@@ -11,15 +11,19 @@
 // and uses Asia/Kolkata for every business date. It seeds ONLY to the existing
 // schema: parks/sheds (creates missing sheds park-scoped), animals, one
 // vaccination.matrix protocol definition/version with seven vaccine rows,
-// per-goat vaccination history (accepted completions) and next-cycle obligations
-// (scheduled/due). Date cells in the source are last-administered dates, not
-// due dates; the seeder derives the next open work from those history rows.
+// per-goat trusted base-anchor history (accepted completions) and future-only
+// obligations. Date cells in the source are imported base schedule anchors from
+// Vaccination V2 / DemoDB, not live due dates; for the current schema the
+// seeder persists anchors on or before the business date as accepted/completed
+// history so recurrence can schedule from them, while the kernel suppresses any
+// open work that would land on or before the business date.
 // It never mutates the protocol/obligation SCHEMA.
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -86,6 +90,7 @@ type goatRecord struct {
 	DOB            string
 	StageEntryDate string
 	PurchaseDate   string
+	OriginType     string
 	Species        string
 	Status         string
 	Health         string
@@ -110,7 +115,7 @@ type stats struct {
 	Obligations        int
 	Completed          int         // completed history obligations from last-administered cells
 	CompletionsHistory int         // vaccination_completions rows (accepted doses)
-	Due                int         // "Pending" -> open/due obligations
+	PendingSource      int         // "Pending" source signals delegated to kernel generation
 	Scheduled          int         // future -> scheduled obligations
 	Skipped            int         // NA / blank cells
 	KernelGenerated    int         // kernel-generated open obligations
@@ -228,6 +233,7 @@ func loadGoats(sourcePath string) ([]goatRecord, error) {
 			DOB:            cell(row, col["dob"]),
 			StageEntryDate: cell(row, col["stage_entry_date"]),
 			PurchaseDate:   cell(row, col["purchase_date"]),
+			OriginType:     cell(row, col["origin_type"]),
 			Species:        optionalCell(row, col, "species", "Species"),
 			Status:         cell(row, col["status"]),
 			Health:         cell(row, col["health_status"]),
@@ -563,6 +569,10 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	st.Protocols = 1
 
 	// 4. Animals: import each goat with shed_id + park_id (the read model groups on these).
+	breedIDs, err := ensureSeedBreeds(ctx, tx, goats)
+	if err != nil {
+		return st, err
+	}
 	goatIDByAnimalKey := map[string]string{}
 	goatLifecycleByAnimalKey := map[string]string{}
 	goatOriginTypeByAnimalKey := map[string]string{}
@@ -570,9 +580,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	goatEntryDateByAnimalKey := map[string]*time.Time{}
 	goatStageByAnimalKey := map[string]string{}
 	type goatIns struct {
-		goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, sex, lifecycle, stage, age, shedID, parkID, dob string
-		entryDate                                                                                                                string
-		health                                                                                                                   *string
+		goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
+		entryDate                                                                                                                                     string
+		health                                                                                                                                        *string
 	}
 	var goatRows []goatIns
 	for _, g := range goats {
@@ -589,7 +599,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		goatID := detUUID("goat", tenantID, animalKey)
 		goatIDByAnimalKey[animalKey] = goatID
 		goatLifecycleByAnimalKey[animalKey] = normalizeLifecycle(g.Status)
-		goatOriginTypeByAnimalKey[animalKey] = "procured"
+		goatOriginTypeByAnimalKey[animalKey] = normalizeOriginType(g.OriginType)
 		goatStageByAnimalKey[animalKey] = normalizeStage(g.Stage, g.Age)
 
 		// Parse DOB for later use in schedule path resolution
@@ -609,15 +619,19 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			entryDateValue = entryDate.Format("2006-01-02")
 		}
 
+		species := deriveSeedSpecies(g.Species, g.Breed)
+		breed := normalizeBreed(g.Breed)
 		goatRows = append(goatRows, goatIns{
 			goatID:            goatID,
 			animalKey:         animalKey,
 			animalIdentifier1: animalIdentifier1,
 			animalIdentifier2: animalIdentifier2,
-			species:           deriveSeedSpecies(g.Species, g.Breed),
-			breed:             normalizeBreed(g.Breed),
+			species:           species,
+			breed:             breed,
+			breedID:           breedIDs[seedBreedKey(species, breed)],
 			sex:               normalizeSex(g.Gender),
 			lifecycle:         normalizeLifecycle(g.Status),
+			originType:        normalizeOriginType(g.OriginType),
 			stage:             normalizeStage(g.Stage, g.Age),
 			age:               g.Age,
 			health:            normalizeHealth(g.Health),
@@ -629,14 +643,14 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 	if err := batch(ctx, tx, goatRows, 500, func(b *pgx.Batch, gi goatIns) {
 		b.Queue(`
-				INSERT INTO goats (goat_id, tenant_id, species, breed, sex, lifecycle_status,
+				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
 					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, updated_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,'procured',$8,$9,$10,$10,$11,$12,$13,$14,now())
-				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, sex=EXCLUDED.sex,
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,now())
+				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, breed_id=EXCLUDED.breed_id, sex=EXCLUDED.sex,
 					lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
 					shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
 					management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date, updated_at=now()`,
-			gi.goatID, tenantID, gi.species, gi.breed, gi.sex, gi.lifecycle, gi.health,
+			gi.goatID, tenantID, gi.species, gi.breed, nullString(gi.breedID), gi.sex, gi.lifecycle, gi.health, nullString(gi.originType),
 			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID)
 	}); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
@@ -648,8 +662,8 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	for _, gi := range goatRows {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
-				scope_key, valid_from, normalizer_version, status)
-			VALUES ('animal_identifier_1',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active')
+				scope_key, valid_from, normalizer_version, status, is_primary_for_goat)
+			VALUES ('animal_identifier_1',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active',true)
 			ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
 			tenantID, gi.goatID, gi.animalIdentifier1, strings.ToLower(gi.animalIdentifier1)); err != nil {
 			return st, fmt.Errorf("insert identifier %s: %w", gi.animalIdentifier1, err)
@@ -659,8 +673,8 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
-				scope_key, valid_from, normalizer_version, status)
-			VALUES ('animal_identifier_2',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active')
+				scope_key, valid_from, normalizer_version, status, is_primary_for_goat)
+			VALUES ('animal_identifier_2',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active',false)
 			ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
 			tenantID, gi.goatID, gi.animalIdentifier2, strings.ToLower(gi.animalIdentifier2)); err != nil {
 			return st, fmt.Errorf("insert identifier %s: %w", gi.animalIdentifier2, err)
@@ -743,23 +757,13 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			st.Skipped++
 			continue
 		case strings.EqualFold(val, "Pending"):
-			// Pending handling:
-			// - adult path with entry_date → SKIP (kernel post_arrival will generate)
-			// - else → deferred with needs_scheduling_source_pending
-			if path == "adult" && goatEntryDateByAnimalKey[c.AnimalKey] != nil {
-				st.Skipped++
-				continue
-			}
-			if !openEligible {
-				st.Skipped++
-				continue
-			}
-			// Create deferred obligation (not due, needs review)
-			obls = append(obls, oblIns{
-				obligationID: oblID, versionID: versionID, ruleID: ruleID, goatID: goatID,
-				dueAt: now, status: "deferred", sequence: c.Sequence, idem: oblIdem,
-			})
-			st.Due++
+			// Pending is source evidence that no administration was recorded. The
+			// vaccination kernel is the sole owner of the resulting scheduled or
+			// missing-anchor deferred obligation. Writing a source placeholder here
+			// as well creates two active rows for the same goat/rule with different
+			// idempotency keys.
+			st.PendingSource++
+			continue
 		default:
 			d, err := time.ParseInLocation("2006-01-02", val, loc)
 			if err != nil {
@@ -767,9 +771,11 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 				continue
 			}
 			administeredAt := sourceVaccinationDateTime(d, loc)
-			if sourceVaccinationDateIsHistory(d, now, loc) {
-				// Source date cells are last-administered history, not due dates.
-				// Create COMPLETED obligation + vaccination_completions with status='accepted' AND verified_at set.
+			if sourceVaccinationDateOnOrBeforeBusinessDate(d, now, loc) {
+				// Source date cells are imported base anchors. Persist anchors on or
+				// before the business date as accepted/completed history so the
+				// recurrence engine has a durable start point, but never materialize
+				// open work from the anchor itself.
 				completedAt := administeredAt
 				verifiedBy := detUUID("seed-actor", tenantID)
 				sourceDateKey := administeredAt.Format("2006-01-02")
@@ -865,6 +871,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	if genErr != nil {
 		return st, genErr
 	}
+	if err := verifySeedReconciliation(ctx, pool, tenantID, now, st); err != nil {
+		return st, err
+	}
 
 	return st, nil
 }
@@ -883,14 +892,193 @@ func seedGenerationError(genRes vaccinationdomain.GenerateResult, err error, all
 		genRes.FailedGoats, genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory, err)
 }
 
+type seedReconciliation struct {
+	SourceAcceptedHistory        int64
+	AcceptedStatusMismatches     int64
+	DuplicateActiveRuleTargets   int64
+	ActivePrimaryAfterHistory    int64
+	SeededPendingPlaceholders    int64
+	RepeatObligationsNotFuture   int64
+	SchedulableOpenWorkNotFuture int64
+	MissingBreedForeignKeys      int64
+	MissingPrimaryIdentifiers    int64
+	MissingAnchorNormalWork      int64
+}
+
+// verifySeedReconciliation is the non-optional seed postflight. A seed command may
+// have committed source rows before generation fails, so a failed postflight means
+// the environment is unusable and must be reset/reseeded; it must never be handed
+// off as partially healthy.
+func verifySeedReconciliation(ctx context.Context, pool *pgxpool.Pool, tenantID string, asOf time.Time, st stats) error {
+	var got seedReconciliation
+	err := pool.QueryRow(ctx, `
+WITH active AS (
+  SELECT oi.*
+  FROM obligation_instances oi
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.status NOT IN ('completed', 'canceled', 'superseded', 'waived')
+), duplicate_active AS (
+  SELECT target_id, rule_id
+  FROM active
+  WHERE target_type = 'goat'
+  GROUP BY target_id, rule_id
+  HAVING count(*) > 1
+)
+SELECT
+  (SELECT count(*)
+   FROM vaccination_completions vc
+   WHERE vc.tenant_id = $1::uuid
+     AND vc.status = 'accepted'
+     AND vc.idempotency_key LIKE 'vacc-real-cmp:%'),
+  (SELECT count(*)
+   FROM vaccination_completions vc
+   JOIN obligation_instances oi
+     ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+   WHERE vc.tenant_id = $1::uuid
+     AND vc.status = 'accepted'
+     AND oi.status <> 'completed'),
+  (SELECT count(*) FROM duplicate_active),
+  (SELECT count(*)
+   FROM active current_oi
+   JOIN protocol_rules current_pr
+     ON current_pr.tenant_id = current_oi.tenant_id
+    AND current_pr.rule_id = current_oi.rule_id
+   WHERE current_oi.target_type = 'goat'
+     AND COALESCE(NULLIF(current_pr.repeat, ''), 'none') = 'none'
+     AND EXISTS (
+       SELECT 1
+       FROM obligation_instances history_oi
+       JOIN vaccination_completions history_vc
+         ON history_vc.tenant_id = history_oi.tenant_id
+        AND history_vc.obligation_id = history_oi.obligation_id
+        AND history_vc.status = 'accepted'
+       WHERE history_oi.tenant_id = current_oi.tenant_id
+         AND history_oi.target_id = current_oi.target_id
+         AND history_oi.rule_id = current_oi.rule_id
+         AND history_oi.status = 'completed'
+     )),
+  (SELECT count(*)
+   FROM active
+   WHERE idempotency_key LIKE 'vacc-real-obl:%'),
+  (SELECT count(*)
+   FROM active current_oi
+   JOIN protocol_rules current_pr
+     ON current_pr.tenant_id = current_oi.tenant_id
+    AND current_pr.rule_id = current_oi.rule_id
+   WHERE COALESCE(NULLIF(current_pr.repeat, ''), 'none') <> 'none'
+     AND (current_oi.due_at AT TIME ZONE 'Asia/Kolkata')::date
+         <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date),
+  (SELECT count(*)
+   FROM active
+   WHERE status <> 'deferred'
+     AND (due_at AT TIME ZONE 'Asia/Kolkata')::date
+         <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date),
+  (SELECT count(*)
+   FROM goats g
+   WHERE g.tenant_id = $1::uuid
+     AND g.breed_id IS NULL),
+  (SELECT count(*)
+   FROM goats g
+   WHERE g.tenant_id = $1::uuid
+     AND NOT EXISTS (
+       SELECT 1 FROM goat_identifiers gi
+       WHERE gi.tenant_id = g.tenant_id
+         AND gi.goat_id = g.goat_id
+         AND gi.identifier_type = 'animal_identifier_1'
+         AND gi.status = 'active'
+         AND NULLIF(btrim(gi.identifier_value), '') IS NOT NULL
+     )),
+  (SELECT count(*)
+   FROM active oi
+   JOIN protocol_rules pr
+     ON pr.tenant_id = oi.tenant_id
+    AND pr.rule_id = oi.rule_id
+   JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+   WHERE oi.target_type = 'goat'
+     AND (
+       (pr.trigger_type = 'birth_age' AND g.dob IS NULL)
+       OR (pr.trigger_type = 'post_arrival' AND g.entry_date IS NULL)
+     )
+     AND oi.status <> 'deferred'
+     AND NOT EXISTS (
+       SELECT 1
+       FROM obligation_instances history_oi
+       JOIN vaccination_completions vc
+         ON vc.tenant_id = history_oi.tenant_id
+        AND vc.obligation_id = history_oi.obligation_id
+        AND vc.status = 'accepted'
+       WHERE history_oi.tenant_id = oi.tenant_id
+         AND history_oi.target_id = oi.target_id
+         AND history_oi.rule_id = oi.rule_id
+     ))
+`, tenantID, asOf).Scan(
+		&got.SourceAcceptedHistory,
+		&got.AcceptedStatusMismatches,
+		&got.DuplicateActiveRuleTargets,
+		&got.ActivePrimaryAfterHistory,
+		&got.SeededPendingPlaceholders,
+		&got.RepeatObligationsNotFuture,
+		&got.SchedulableOpenWorkNotFuture,
+		&got.MissingBreedForeignKeys,
+		&got.MissingPrimaryIdentifiers,
+		&got.MissingAnchorNormalWork,
+	)
+	if err != nil {
+		return fmt.Errorf("vaccination seed reconciliation query: %w", err)
+	}
+	if err := validateSeedReconciliation(got, int64(st.CompletionsHistory)); err != nil {
+		return fmt.Errorf("vaccination seed reconciliation failed: %w", err)
+	}
+	fmt.Printf("seed_reconciliation accepted_history=%d status_mismatches=0 duplicate_active_rule_targets=0 active_primary_after_history=0 seeded_pending_placeholders=0 repeat_not_future=0 schedulable_not_future=0 missing_breed_fks=0 missing_primary_identifiers=0 missing_anchor_normal_work=0\n", got.SourceAcceptedHistory)
+	return nil
+}
+
+func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) error {
+	problems := make([]string, 0, 6)
+	if got.SourceAcceptedHistory != expectedHistory {
+		problems = append(problems, fmt.Sprintf("accepted source history=%d want=%d", got.SourceAcceptedHistory, expectedHistory))
+	}
+	if got.AcceptedStatusMismatches != 0 {
+		problems = append(problems, fmt.Sprintf("accepted completion/status mismatches=%d", got.AcceptedStatusMismatches))
+	}
+	if got.DuplicateActiveRuleTargets != 0 {
+		problems = append(problems, fmt.Sprintf("duplicate active goat/rule groups=%d", got.DuplicateActiveRuleTargets))
+	}
+	if got.ActivePrimaryAfterHistory != 0 {
+		problems = append(problems, fmt.Sprintf("active primary obligations already satisfied by accepted history=%d", got.ActivePrimaryAfterHistory))
+	}
+	if got.SeededPendingPlaceholders != 0 {
+		problems = append(problems, fmt.Sprintf("seed-owned Pending placeholders=%d", got.SeededPendingPlaceholders))
+	}
+	if got.RepeatObligationsNotFuture != 0 {
+		problems = append(problems, fmt.Sprintf("repeat obligations not strictly future=%d", got.RepeatObligationsNotFuture))
+	}
+	if got.SchedulableOpenWorkNotFuture != 0 {
+		problems = append(problems, fmt.Sprintf("schedulable open work not strictly future=%d", got.SchedulableOpenWorkNotFuture))
+	}
+	if got.MissingBreedForeignKeys != 0 {
+		problems = append(problems, fmt.Sprintf("goats missing species-owned breed foreign key=%d", got.MissingBreedForeignKeys))
+	}
+	if got.MissingPrimaryIdentifiers != 0 {
+		problems = append(problems, fmt.Sprintf("goats missing primary animal identifier=%d", got.MissingPrimaryIdentifiers))
+	}
+	if got.MissingAnchorNormalWork != 0 {
+		problems = append(problems, fmt.Sprintf("missing trigger anchor goats with normal active work=%d", got.MissingAnchorNormalWork))
+	}
+	if len(problems) > 0 {
+		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
+}
+
 func printSeedSummary(st stats, genRes vaccinationdomain.GenerateResult) {
 	fmt.Printf("seeded real vaccination data with kernel generation:\n"+
 		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
-		"  obligations=%d (completed=%d due=%d scheduled=%d) completions_history=%d skipped_cells=%d\n"+
+		"  obligations=%d (completed=%d scheduled=%d) completions_history=%d pending_source=%d skipped_cells=%d\n"+
 		"  purged_fixtures total=%d (calendar_projections=%d obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n"+
 		"  kernel_generation generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
 		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
-		st.Obligations, st.Completed, st.Due, st.Scheduled, st.CompletionsHistory, st.Skipped,
+		st.Obligations, st.Completed, st.Scheduled, st.CompletionsHistory, st.PendingSource, st.Skipped,
 		st.Purged.total(), st.Purged.CalendarProjections, st.Purged.Obligations, st.Purged.Batches,
 		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows,
 		genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.FailedGoats, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory)
@@ -1433,6 +1621,36 @@ func normalizeBreed(b string) string {
 	return strings.TrimSpace(b)
 }
 
+func seedBreedKey(species, breed string) string {
+	return strings.ToLower(strings.TrimSpace(species)) + "\x00" + strings.ToLower(strings.TrimSpace(breed))
+}
+
+// ensureSeedBreeds makes the source breed vocabulary a real species-scoped FK
+// before goats are inserted. The text column remains for display/backward
+// compatibility, but every reviewed source breed must also resolve through the
+// canonical breeds table so sheep cannot inherit a goat-only NULL breed_id.
+func ensureSeedBreeds(ctx context.Context, tx pgx.Tx, goats []goatRecord) (map[string]string, error) {
+	ids := make(map[string]string)
+	for _, g := range goats {
+		species := deriveSeedSpecies(g.Species, g.Breed)
+		breed := normalizeBreed(g.Breed)
+		key := seedBreedKey(species, breed)
+		if _, ok := ids[key]; ok {
+			continue
+		}
+		var breedID string
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO breeds (species, canonical_name, status, created_at, updated_at)
+			VALUES ($1,$2,'active',now(),now())
+			ON CONFLICT (species, canonical_name) DO UPDATE SET status='active', updated_at=now()
+			RETURNING breed_id`, species, breed).Scan(&breedID); err != nil {
+			return nil, fmt.Errorf("ensure source breed %s/%s: %w", species, breed, err)
+		}
+		ids[key] = breedID
+	}
+	return ids, nil
+}
+
 func deriveSeedSpecies(speciesHint, breed string) string {
 	switch strings.ToLower(strings.TrimSpace(speciesHint)) {
 	case "sheep", "ovine", "ewe", "ram", "lamb":
@@ -1444,6 +1662,19 @@ func deriveSeedSpecies(speciesHint, breed string) string {
 		return "sheep"
 	}
 	return "goat"
+}
+
+func normalizeOriginType(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "birth", "born", "bred":
+		return "birth"
+	case "purchase", "procured", "bought":
+		return "procured"
+	case "import", "imported":
+		return "imported"
+	default:
+		return ""
+	}
 }
 
 func normalizeLifecycle(s string) string {
@@ -1744,8 +1975,11 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"name": "Preventive Care Vaccination Matrix",
 			"type": "matrix",
 		},
-		"eligibility":        vaccinationSeedEligibility(),
-		"missed_dose_policy": "immediate",
+		"eligibility": vaccinationSeedEligibility(),
+		"missed_dose_policy": map[string]any{
+			"nearby_drive_align_days":           14,
+			"materialize_only_future_open_work": true,
+		},
 		"compatibility_policy": map[string]any{
 			"live_to_killed_gap_days":            14,
 			"killed_to_killed_gap_days":          14,
@@ -1922,7 +2156,7 @@ func sourceVaccinationDateTime(d time.Time, loc *time.Location) time.Time {
 	return time.Date(d.Year(), d.Month(), d.Day(), 9, 0, 0, 0, loc)
 }
 
-func sourceVaccinationDateIsHistory(d time.Time, asOf time.Time, loc *time.Location) bool {
+func sourceVaccinationDateOnOrBeforeBusinessDate(d time.Time, asOf time.Time, loc *time.Location) bool {
 	sourceDay := startOfDay(d.In(loc))
 	asOfDay := startOfDay(asOf.In(loc))
 	return !sourceDay.After(asOfDay)

@@ -1505,6 +1505,57 @@ func TestOlderGoatTrustedFirstDoseAllowsNextMissingDose(t *testing.T) {
 	}
 }
 
+func TestTrustedHistorySuppressesMissingDateBlocker(t *testing.T) {
+	tests := []struct {
+		name string
+		goat domain.EligibleGoat
+		rule protodomain.Rule
+	}{
+		{
+			name: "birth age without DOB",
+			goat: domain.EligibleGoat{GoatID: "goat-missing-dob", LifecycleStatus: "alive"},
+			rule: protodomain.Rule{
+				RuleID: "rule-primary", DoseCode: "PRIMARY", Sequence: 1,
+				TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, CatchUp: "immediate",
+			},
+		},
+		{
+			name: "post arrival without entry date",
+			goat: domain.EligibleGoat{GoatID: "goat-missing-entry", LifecycleStatus: "alive", OriginType: "procured"},
+			rule: protodomain.Rule{
+				RuleID: "rule-arrival", DoseCode: "ARRIVAL", Sequence: 1,
+				TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 7, CatchUp: "immediate",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			asOf := time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC)
+			proto := &generationProtoFake{rules: []protodomain.Rule{tt.rule}}
+			goats := &generationGoatFake{
+				list: []domain.EligibleGoat{tt.goat},
+				trustedByDue: map[string]bool{
+					asOf.UTC().Format(time.RFC3339Nano): true,
+				},
+			}
+			obl := &generationObligationFake{seen: map[string]bool{}}
+
+			result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+			if err != nil {
+				t.Fatalf("generate with accepted history and missing source date: %v", err)
+			}
+			if result.SuppressedByTrustedHistory != 1 || result.Generated != 0 || result.SkippedNoDueDate != 0 || len(obl.inserted) != 0 {
+				t.Fatalf("result=%#v inserted=%#v, want accepted history to suppress the missing-date blocker", result, obl.inserted)
+			}
+			if len(goats.trustedCalls) != 1 || !goats.trustedCalls[0].Equal(asOf) {
+				t.Fatalf("trusted evidence calls=%#v, want one as-of lookup", goats.trustedCalls)
+			}
+		})
+	}
+}
+
 func TestTrustedPreviousCompletionAllowsAfterPreviousCompletionDose(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 13, 0, 0, 0, 0, time.UTC)

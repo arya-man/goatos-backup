@@ -15,9 +15,11 @@ make verify-google-dev-seed-fixtures
 1. Apply schema migrations with the dedicated `goatos-dev-migrate` job.
 2. Seed only the five approved dashboard email grants with
    `make seed-dev-email-grants`.
-3. Seed the source-derived ET/K1 protocol baseline with
-   `backend/cmd/seed-vaccination-trigger` using the explicit dev Cloud SQL
-   guard from `docs/runbooks/google-dev-clean-slate-seed-strategy.md`.
+3. Seed the canonical source-derived vaccination matrix with
+   `backend/cmd/seed-vaccination-real` using the explicit dev Cloud SQL guard
+   from `docs/runbooks/google-dev-clean-slate-seed-strategy.md`. The
+   `seed-vaccination-trigger` command is a trigger-harness fixture and must not
+   be used as the clean-slate baseline.
 4. In the admin web Counts / Herd Register screen, import `sheds.csv` through
    `Import sheds`.
 5. Apply `post-import-shed-profiles.sql` with `psql` to bind the imported
@@ -27,7 +29,8 @@ make verify-google-dev-seed-fixtures
 7. Import `goats.csv` through `Import sheet`; do not insert these goats with
    ad hoc SQL. This keeps `goat.created` events and idempotency behavior real.
    The main file is the accepted golden herd: 50 complete, trusted sample goats
-   with DOB, shed, stage, sex, and origin populated.
+   with DOB, shed, stage, species, sex, origin, and both recognized animal ID
+   columns populated.
 8. Preview `invalid-goats.csv` through `Import sheet` and confirm every row is
    blocked with a clear row-level reason. Do not commit this file.
 9. Run the worker/API validation sequence from the runbook and record actual

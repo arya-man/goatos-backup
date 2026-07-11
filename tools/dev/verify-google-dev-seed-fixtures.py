@@ -15,12 +15,13 @@ FIXTURE_DIR = ROOT / "fixtures" / "google-dev-clean-slate"
 
 GOAT_HEADERS = [
     "Farm",
-    "RFID",
-    "Old tag",
+    "Animal ID 1",
+    "Animal ID 2",
     "Temp field ID",
     "Park",
     "Shed",
     "Breed",
+    "Species",
     "Sex",
     "DOB",
     "Management stage",
@@ -35,7 +36,7 @@ GOAT_HEADERS = [
 SHED_HEADERS = ["Park", "Shed code", "Shed name", "Display order", "Notes"]
 
 REQUIRED_SCENARIOS = {
-    "eligible_day21",
+    "eligible_day28",
     "age_ineligible",
     "stage_profile_mismatch",
     "location_ineligible",
@@ -135,7 +136,7 @@ def validate_goats(shed_codes: set[str]) -> set[str]:
         fail(f"goats.csv must contain 50-100 accepted sample goats, got {len(rows)}")
     seen_rfids: set[str] = set()
     for index, row in enumerate(rows, start=2):
-        rfid = row["RFID"]
+        rfid = row["Animal ID 1"]
         if not rfid.startswith("GDEV-"):
             fail(f"goats.csv row {index} RFID must start GDEV-, got {rfid!r}")
         if rfid in seen_rfids:
@@ -145,6 +146,10 @@ def validate_goats(shed_codes: set[str]) -> set[str]:
             fail(f"goats.csv row {index} park must be CBE or CPT")
         if row["Shed"] not in shed_codes:
             fail(f"goats.csv row {index} references unknown shed {row['Shed']!r}")
+        if not row["Animal ID 2"]:
+            fail(f"goats.csv row {index} Animal ID 2 is required for the accepted golden herd")
+        if row["Species"] not in {"goat", "sheep"}:
+            fail(f"goats.csv row {index} must use species goat or sheep")
         if row["Sex"] not in {"female", "male"}:
             fail(f"goats.csv row {index} must use known sex female or male, got {row['Sex']!r}")
         if row["Origin"] not in {"birth", "procured", "imported"}:
@@ -168,7 +173,7 @@ def validate_invalid_goats() -> set[str]:
     assert_headers("invalid-goats.csv", headers, GOAT_HEADERS)
     seen_rfids: set[str] = set()
     for index, row in enumerate(rows, start=2):
-        rfid = row["RFID"]
+        rfid = row["Animal ID 1"]
         if not rfid.startswith("GDEV-INVALID-"):
             fail(f"invalid-goats.csv row {index} RFID must start GDEV-INVALID-, got {rfid!r}")
         if rfid in seen_rfids:

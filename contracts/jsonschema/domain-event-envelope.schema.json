@@ -65,7 +65,8 @@
         "protocol.version.retired",
         "config.changed",
         "counts.base_count_anchor.recorded",
-        "counts.shifting_event.recorded"
+        "counts.shifting_event.recorded",
+        "counts.projection_exception.opened"
       ]
     },
     "schema_version": {
@@ -92,7 +93,8 @@
         "protocol_version",
         "admin_ui_config_family",
         "count_base_anchor",
-        "shifting_event"
+        "shifting_event",
+        "count_projection_exception"
       ]
     },
     "aggregate_id": {
@@ -114,7 +116,8 @@
         "protocol_version",
         "admin_ui_config_family",
         "count_base_anchor",
-        "shifting_event"
+        "shifting_event",
+        "count_projection_exception"
       ]
     },
     "subject_id": {
@@ -316,7 +319,8 @@
             "notification_request",
             "obligation_status_event",
             "count_base_anchor",
-            "shifting_event"
+            "shifting_event",
+            "count_projection_exception"
           ]
         },
         "evidence_id": {

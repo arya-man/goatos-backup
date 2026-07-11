@@ -221,6 +221,47 @@ func TestVaccinationMatrixUsesNextCycleOnlyForRepeatRows(t *testing.T) {
 	}
 }
 
+func TestValidateSeedReconciliation(t *testing.T) {
+	t.Run("clean seed passes", func(t *testing.T) {
+		if err := validateSeedReconciliation(seedReconciliation{SourceAcceptedHistory: 3389}, 3389); err != nil {
+			t.Fatalf("validate clean reconciliation: %v", err)
+		}
+	})
+
+	t.Run("every corruption class blocks handoff", func(t *testing.T) {
+		got := seedReconciliation{
+			SourceAcceptedHistory:      3388,
+			AcceptedStatusMismatches:   1,
+			DuplicateActiveRuleTargets: 2,
+			ActivePrimaryAfterHistory:  3,
+			SeededPendingPlaceholders:  4,
+			RepeatObligationsNotFuture: 5,
+			MissingBreedForeignKeys:    6,
+			MissingPrimaryIdentifiers:  7,
+			MissingAnchorNormalWork:    8,
+		}
+		err := validateSeedReconciliation(got, 3389)
+		if err == nil {
+			t.Fatal("validate corrupt reconciliation returned nil")
+		}
+		for _, want := range []string{
+			"accepted source history=3388 want=3389",
+			"accepted completion/status mismatches=1",
+			"duplicate active goat/rule groups=2",
+			"active primary obligations already satisfied by accepted history=3",
+			"seed-owned Pending placeholders=4",
+			"repeat obligations not strictly future=5",
+			"goats missing species-owned breed foreign key=6",
+			"goats missing primary animal identifier=7",
+			"missing trigger anchor goats with normal active work=8",
+		} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("error=%q, want %q", err, want)
+			}
+		}
+	})
+}
+
 func TestVaccinationMatrixIsPublishable(t *testing.T) {
 	raw, err := vaccinationMatrixRuleDSL()
 	if err != nil {
@@ -231,6 +272,23 @@ func TestVaccinationMatrixIsPublishable(t *testing.T) {
 	}
 	if err := protocolapp.ValidatePublishable([]byte(raw)); err != nil {
 		t.Fatalf("ValidatePublishable: %v", err)
+	}
+}
+
+func TestSourceNormalizationPreservesProvenance(t *testing.T) {
+	for raw, want := range map[string]string{
+		"Birth":    "birth",
+		"Purchase": "procured",
+		"procured": "procured",
+		"Imported": "imported",
+		"":         "",
+	} {
+		if got := normalizeOriginType(raw); got != want {
+			t.Fatalf("normalizeOriginType(%q)=%q, want %q", raw, got, want)
+		}
+	}
+	if got := seedBreedKey("sheep", "Anantapur Sheep"); got != "sheep\x00anantapur sheep" {
+		t.Fatalf("seedBreedKey=%q", got)
 	}
 }
 

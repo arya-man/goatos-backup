@@ -34,7 +34,19 @@
         "age_band": { "type": "string" }
       }
     },
-    "missed_dose_policy": { "type": "string" },
+    "missed_dose_policy": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "nearby_drive_align_days": { "type": "integer" },
+            "materialize_only_future_open_work": { "type": "boolean" }
+          }
+        }
+      ]
+    },
     "stock_policy": {
       "type": "object",
       "additionalProperties": false,
