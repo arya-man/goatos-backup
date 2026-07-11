@@ -362,6 +362,71 @@ INSERT INTO process_integrity_projection_rows (
 	}
 }
 
+func TestProcessIntegrityProjectionKeepsUnbatchedHistoryOutOfNextCycle(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	const (
+		historyObl  = "71000000-0000-4000-8000-000000000050"
+		historyComp = "71000000-0000-4000-8000-000000000051"
+		nextObl     = "71000000-0000-4000-8000-000000000052"
+	)
+	execPI(t, ctx, pool, "completed unbatched history obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, completed_at, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, 'goat', $5, 'shed', $6, TIMESTAMPTZ '2026-02-21 03:30:00+00',
+		   'completed', TIMESTAMPTZ '2026-02-21 03:30:00+00', 'pi-history-obl', 50)`,
+		historyObl, piTenant, piVersion, piRule, piGoat, piShed)
+	execPI(t, ctx, pool, "accepted unbatched history completion",
+		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key, recorded_by)
+		 VALUES ($1, $2, $3, $4, TIMESTAMPTZ '2026-02-21 03:30:00+00', 'accepted', 'pi-history-comp', $5)`,
+		historyComp, piTenant, historyObl, piGoat, piOperator)
+	execPI(t, ctx, pool, "scheduled unbatched next-cycle obligation",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, 'goat', $5, 'shed', $6, TIMESTAMPTZ '2026-12-20 03:30:00+00',
+		   'scheduled', 'pi-next-obl', 51)`,
+		nextObl, piTenant, piVersion, piRule, piGoat, piShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 7, 11, 11, 30, 0, 0, time.UTC)
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("RecomputeProjection: %v", err)
+	}
+	category := domain.CategoryVaccination
+	result, err := repo.ListRows(ctx, domain.Query{
+		TenantID:  piTenant,
+		Category:  &category,
+		AsOf:      asOf,
+		DueBefore: time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC),
+		Limit:     100,
+	})
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+	if row := rowByObligationID(result.Rows, historyObl); row != nil {
+		t.Fatalf("completed history row should be hidden from default Action Center, got %#v", row)
+	}
+	next := rowByObligationID(result.Rows, nextObl)
+	if next == nil {
+		t.Fatalf("next-cycle row missing: %#v", result.Rows)
+	}
+	if next.WorkState != domain.WorkStateScheduled {
+		t.Fatalf("next-cycle work_state = %s, want scheduled (row=%#v)", next.WorkState, next)
+	}
+	if next.CompletedCount != 0 || next.ExpectedCount != 1 {
+		t.Fatalf("next-cycle counts completed/expected = %d/%d, want 0/1", next.CompletedCount, next.ExpectedCount)
+	}
+	for _, row := range result.Rows {
+		if row.DueAt.Equal(time.Date(2026, 2, 21, 3, 30, 0, 0, time.UTC)) && row.WorkState == domain.WorkStateOverdue {
+			t.Fatalf("historical completion due date leaked as overdue row: %#v", row)
+		}
+	}
+}
+
 func TestProcessIntegrityProjectionPruneExhaustsMultipleBatches(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -989,6 +1054,15 @@ func TestProcessIntegrityAsOfTerminalEventReconstruction(t *testing.T) {
 func rowByBatchSubstr(rows []domain.Row, batchID string) *domain.Row {
 	for i := range rows {
 		if strings.Contains(rows[i].RowID, batchID) {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+
+func rowByObligationID(rows []domain.Row, obligationID string) *domain.Row {
+	for i := range rows {
+		if rows[i].ObligationID == obligationID {
 			return &rows[i]
 		}
 	}

@@ -1036,8 +1036,9 @@ grouped AS (
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
     AND ($9::text = '' OR located.protocol_version_id = $9::uuid)
-  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code
-),
+	  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.rule_id, located.protocol_id, located.protocol_version_id, located.protocol_name, located.dose_code,
+	    CASE WHEN located.batch_id IS NULL THEN located.due_at ELSE NULL END
+	),
 enriched AS (
   SELECT
     grouped.*,

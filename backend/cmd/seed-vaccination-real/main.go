@@ -11,8 +11,10 @@
 // and uses Asia/Kolkata for every business date. It seeds ONLY to the existing
 // schema: parks/sheds (creates missing sheds park-scoped), animals, one
 // vaccination.matrix protocol definition/version with seven vaccine rows,
-// per-goat vaccination history (accepted completions) and obligations
-// (scheduled/due). It never mutates the protocol/obligation SCHEMA.
+// per-goat vaccination history (accepted completions) and next-cycle obligations
+// (scheduled/due). Date cells in the source are last-administered dates, not
+// due dates; the seeder derives the next open work from those history rows.
+// It never mutates the protocol/obligation SCHEMA.
 package main
 
 import (
@@ -30,6 +32,8 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
+	processpg "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/postgres"
+	processdomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
 )
@@ -97,12 +101,29 @@ type stats struct {
 	Protocols          int
 	Animals            int
 	Obligations        int
-	Completed          int         // completed obligations (past history)
+	Completed          int         // completed history obligations from last-administered cells
 	CompletionsHistory int         // vaccination_completions rows (accepted doses)
 	Due                int         // "Pending" -> open/due obligations
 	Scheduled          int         // future -> scheduled obligations
 	Skipped            int         // NA / blank cells
 	Purged             purgeCounts // synthetic fixtures removed
+}
+
+type oblIns struct {
+	obligationID, versionID, ruleID, goatID string
+	dueAt                                   time.Time
+	windowStart                             *time.Time
+	status                                  string
+	completedAt                             *time.Time
+	sequence                                int
+	idem                                    string
+}
+
+type cmpIns struct {
+	completionID, obligationID, goatID string
+	doseML                             float64
+	administeredAt                     time.Time
+	idem                               string
 }
 
 func main() {
@@ -153,15 +174,23 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
+	processProjection, err := processpg.NewRepository(pool, pgCfg.QueryTimeout).RecomputeProjection(ctx, processdomain.ProjectionRecomputeRequest{
+		TenantID: *tenantID,
+	})
+	if err != nil {
+		return fmt.Errorf("recompute process integrity projection after vaccination seed: %w", err)
+	}
 
 	fmt.Printf("seeded real vaccination data:\n"+
 		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
 		"  obligations=%d (completed=%d due=%d scheduled=%d) completions_history=%d skipped_cells=%d\n"+
-		"  purged_fixtures total=%d (calendar_projections=%d obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n",
+		"  purged_fixtures total=%d (calendar_projections=%d obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n"+
+		"  process_integrity_projection rows=%d version=%d as_of=%s\n",
 		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
 		st.Obligations, st.Completed, st.Due, st.Scheduled, st.CompletionsHistory, st.Skipped,
 		st.Purged.total(), st.Purged.CalendarProjections, st.Purged.Obligations, st.Purged.Batches,
-		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows)
+		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows,
+		processProjection.Rows, processProjection.ProjectionVersion, processProjection.AsOf.Format(time.RFC3339))
 	return nil
 }
 
@@ -585,21 +614,6 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 	}
 
 	// 5. Obligations-first, then completions. Build the two batches, classifying each cell.
-	type oblIns struct {
-		obligationID, versionID, ruleID, goatID string
-		dueAt                                   time.Time
-		windowStart                             *time.Time
-		status                                  string
-		completedAt                             *time.Time
-		sequence                                int
-		idem                                    string
-	}
-	type cmpIns struct {
-		completionID, obligationID, goatID string
-		doseML                             float64
-		administeredAt                     time.Time
-		idem                               string
-	}
 	var obls []oblIns
 	var cmps []cmpIns
 
@@ -649,24 +663,46 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 				st.Skipped++
 				continue
 			}
-			dueAt := time.Date(d.Year(), d.Month(), d.Day(), 9, 0, 0, 0, loc)
-			if dueAt.Before(now) {
-				// Past dose -> completed history (allowed even for excluded goats).
-				completedAt := dueAt
+			administeredAt := sourceVaccinationDateTime(d, loc)
+			if !administeredAt.After(now) {
+				// Source date cells are last-administered history, not due dates. Keep
+				// accepted history for audit/proof, then derive the next open cycle.
+				completedAt := administeredAt
+				historyOblID := detUUID("obligation-history", tenantID, c.AnimalKey, def.Code, c.DoseCode, administeredAt.Format("2006-01-02"))
 				obls = append(obls, oblIns{
-					obligationID: oblID, versionID: versionID, ruleID: ruleID, goatID: goatID,
-					dueAt: dueAt, status: "completed", completedAt: &completedAt, sequence: c.Sequence, idem: oblIdem,
+					obligationID: historyOblID,
+					versionID:    versionID,
+					ruleID:       ruleID,
+					goatID:       goatID,
+					dueAt:        administeredAt,
+					status:       "completed",
+					completedAt:  &completedAt,
+					sequence:     c.Sequence,
+					idem:         "vacc-real-obl:history:" + c.AnimalKey + ":" + def.Code + ":" + c.DoseCode,
 				})
 				cmps = append(cmps, cmpIns{
 					completionID:   detUUID("completion", tenantID, c.AnimalKey, def.Code, c.DoseCode),
-					obligationID:   oblID,
+					obligationID:   historyOblID,
 					goatID:         goatID,
 					doseML:         def.DoseML,
-					administeredAt: dueAt,
+					administeredAt: administeredAt,
 					idem:           "vacc-real-cmp:" + c.AnimalKey + ":" + def.Code + ":" + c.DoseCode,
 				})
 				st.Completed++
 				st.CompletionsHistory++
+				if !openEligible {
+					continue
+				}
+				nextDue := nextDueAfterLastVaccination(administeredAt, c.Vaccine, now)
+				obls = append(obls, oblIns{
+					obligationID: detUUID("obligation-next", tenantID, c.AnimalKey, def.Code, c.DoseCode, nextDue.Format("2006-01-02")),
+					versionID:    versionID, ruleID: ruleID, goatID: goatID,
+					dueAt:    nextDue,
+					status:   "scheduled",
+					sequence: c.Sequence,
+					idem:     "vacc-real-obl:next:" + c.AnimalKey + ":" + def.Code + ":" + c.DoseCode + ":" + nextDue.Format("2006-01-02"),
+				})
+				st.Scheduled++
 			} else {
 				if !openEligible {
 					st.Skipped++
@@ -675,7 +711,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, tenantID string, loc *time.Lo
 				// Future dose -> scheduled.
 				obls = append(obls, oblIns{
 					obligationID: oblID, versionID: versionID, ruleID: ruleID, goatID: goatID,
-					dueAt: dueAt, status: "scheduled", sequence: c.Sequence, idem: oblIdem,
+					dueAt: administeredAt, status: "scheduled", sequence: c.Sequence, idem: oblIdem,
 				})
 				st.Scheduled++
 			}
@@ -1430,6 +1466,19 @@ func revaccinationIntervalDays(vaccName string) int {
 	default:
 		return 365
 	}
+}
+
+func sourceVaccinationDateTime(d time.Time, loc *time.Location) time.Time {
+	return time.Date(d.Year(), d.Month(), d.Day(), 9, 0, 0, 0, loc)
+}
+
+func nextDueAfterLastVaccination(lastAdministeredAt time.Time, vaccName string, asOf time.Time) time.Time {
+	intervalDays := revaccinationIntervalDays(vaccName)
+	nextDue := lastAdministeredAt.AddDate(0, 0, intervalDays)
+	for !nextDue.After(asOf) {
+		nextDue = nextDue.AddDate(0, 0, intervalDays)
+	}
+	return nextDue
 }
 
 func nullableDate(s string) *string {

@@ -30,6 +30,7 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 
 func (s *Service) ActionCenter(ctx context.Context, q domain.Query) (domain.ActionCenterResponse, error) {
 	q = s.defaults(q)
+	q.IncludeCompleted = true
 	result, err := s.repo.ListRows(ctx, q)
 	if err != nil {
 		return domain.ActionCenterResponse{}, err
@@ -45,6 +46,7 @@ func (s *Service) ActionCenter(ctx context.Context, q domain.Query) (domain.Acti
 
 func (s *Service) ActionCenterCounts(ctx context.Context, q domain.Query) (domain.ActionCenterCountsResponse, error) {
 	q = s.defaults(q)
+	q.IncludeCompleted = true
 	counts, err := s.repo.CountByWorkState(ctx, q)
 	if err != nil {
 		return domain.ActionCenterCountsResponse{}, err
@@ -221,6 +223,9 @@ func (s *Service) defaults(q domain.Query) domain.Query {
 	}
 	if q.Limit <= 0 {
 		q.Limit = 100
+	}
+	if q.WorkState != nil && *q.WorkState == domain.WorkStateCompleted {
+		q.IncludeCompleted = true
 	}
 	return q
 }

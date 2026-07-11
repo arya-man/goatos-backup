@@ -154,9 +154,9 @@ type BoardColumn = {
 const BOARD_COLUMN_STATES: Record<string, WorkState[]> = {
   pending: ["due", "scheduled", "proof_pending", "verification_pending", "in_progress"],
   ontime: ["completed"],
-  late: ["overdue"],
-  skipped: ["rejected", "deferred"],
-  deviated: ["blocked"],
+  late: ["overdue", "missed"],
+  skipped: ["deferred"],
+  deviated: ["blocked", "rejected"],
 };
 
 function boardColumns(pageContract: AdminUiPageContract): BoardColumn[] {
@@ -168,8 +168,23 @@ function boardColumns(pageContract: AdminUiPageContract): BoardColumn[] {
   }));
 }
 
+export function boardWorkStates(pageContract: AdminUiPageContract): WorkState[] {
+  const states: WorkState[] = [];
+  for (const column of boardColumns(pageContract)) {
+    for (const state of column.states) {
+      if (!states.includes(state)) states.push(state);
+    }
+  }
+  return states;
+}
+
 function boardColumnFor(row: ActionCenterObligation, columns: BoardColumn[]): BoardColumn {
   return columns.find((column) => column.states.includes(row.work_state)) ?? columns[0];
+}
+
+function columnCount(column: BoardColumn, stateCounts?: ReadonlyMap<WorkState, number>): number | undefined {
+  if (!stateCounts) return undefined;
+  return column.states.reduce((sum, state) => sum + (stateCounts.get(state) ?? 0), 0);
 }
 
 // Mock-shaped status board (ported from the mock taskboard): one .tcol per visual lane, header swatch +
@@ -178,11 +193,13 @@ function boardColumnFor(row: ActionCenterObligation, columns: BoardColumn[]): Bo
 export function WorkBoard({
   pageContract,
   rows,
-  showAllColumns = false,
+  stateCounts,
+  showAllColumns = true,
   drawerHrefForRow,
 }: {
   pageContract: AdminUiPageContract;
   rows: ActionCenterObligation[];
+  stateCounts?: ReadonlyMap<WorkState, number>;
   showAllColumns?: boolean;
   drawerHrefForRow?: (row: ActionCenterObligation) => string;
 }) {
@@ -200,12 +217,13 @@ export function WorkBoard({
     <div className="taskboard" role="group" aria-label={copy(pageContract, "section.work_board.aria")} tabIndex={0}>
       {columns.map((column) => {
         const col = byColumn.get(column.key) ?? [];
+        const count = columnCount(column, stateCounts) ?? col.length;
         return (
           <div className="tcol" data-st={column.key} key={column.key}>
             <div className="tcolh">
               <span className="sw" style={{ background: TONE_SWATCH[column.tone] }} />
               {column.label}
-              <span className="n">{col.length}</span>
+              <span className="n">{count}</span>
             </div>
             <div className="tcards">
               {col.length ? (

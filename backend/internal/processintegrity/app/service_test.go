@@ -15,11 +15,13 @@ type fakeRepo struct {
 	found        bool
 	listCalls    int
 	countCalls   int
+	listQueries  []domain.Query
 	countQueries []domain.Query
 }
 
-func (f *fakeRepo) ListRows(context.Context, domain.Query) (domain.ListResult, error) {
+func (f *fakeRepo) ListRows(_ context.Context, q domain.Query) (domain.ListResult, error) {
 	f.listCalls++
+	f.listQueries = append(f.listQueries, q)
 	return f.result, nil
 }
 
@@ -34,6 +36,35 @@ func (f *fakeRepo) CountByWorkState(_ context.Context, q domain.Query) ([]domain
 
 func (f *fakeRepo) GetRow(context.Context, domain.Query, string) (domain.Row, bool, error) {
 	return f.row, f.found, nil
+}
+
+func TestActionCenterIncludesClosedHistoryInBoardTotals(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := NewService(repo).WithClock(func() time.Time {
+		return time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	})
+
+	if _, err := svc.ActionCenter(context.Background(), domain.Query{TenantID: "tenant-1"}); err != nil {
+		t.Fatalf("action center: %v", err)
+	}
+	if len(repo.listQueries) != 1 || !repo.listQueries[0].IncludeCompleted {
+		t.Fatalf("default Action Center query must include closed completed history, got queries=%+v", repo.listQueries)
+	}
+
+	if _, err := svc.ActionCenterCounts(context.Background(), domain.Query{TenantID: "tenant-1"}); err != nil {
+		t.Fatalf("action center counts: %v", err)
+	}
+	if len(repo.countQueries) != 1 || !repo.countQueries[0].IncludeCompleted {
+		t.Fatalf("default Action Center counts must include closed completed history, got queries=%+v", repo.countQueries)
+	}
+
+	completed := domain.WorkStateCompleted
+	if _, err := svc.ActionCenter(context.Background(), domain.Query{TenantID: "tenant-1", WorkState: &completed}); err != nil {
+		t.Fatalf("completed action center: %v", err)
+	}
+	if len(repo.listQueries) != 2 || !repo.listQueries[1].IncludeCompleted {
+		t.Fatalf("completed work-state filter must include closed history, got queries=%+v", repo.listQueries)
+	}
 }
 
 func TestControlTowerUsesFilteredCountsAndAlerts(t *testing.T) {

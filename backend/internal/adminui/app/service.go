@@ -532,7 +532,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.work_board_detail":             "No vaccination obligations yet — the board fills once a protocol is published and a vaccination SOP exists. Columns below show the work-state shell.",
 			"empty.work_board_filtered":           "No Action Center rows match these filters.",
 			"empty.unavailable":                   "Action Center is unavailable — resolve the error above, then reload.",
-			"note.board_paging":                   "Paged over the first 200 rows for these filters; chip counts are server-authoritative totals. Narrow by scope, severity, or work state for exact working sets.",
+			"note.board_paging":                   "Board cards are sampled per bucket for this page; chip and lane counts are server-authoritative totals. Narrow by scope, severity, or work state for exact working sets.",
 			"reason.no_recorded_dose_verify":      "No recorded dose to verify yet.",
 			"reason.no_recorded_dose_rework":      "No recorded dose to rework yet.",
 			"reason.no_sop_review_handle":         "SOP review handle required before verification can be reviewed.",
@@ -2486,7 +2486,7 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				ID: "work_state_board_columns",
 				Options: []domain.Option{
 					option("pending", "Pending", "", "info"),
-					option("ontime", "On-time", "", "ok"),
+					option("ontime", "Done", "", "ok"),
 					option("late", "Late", "", "warn"),
 					option("skipped", "Skipped — silent", "", "dng"),
 					option("deviated", "Deviated", "", "pur"),
