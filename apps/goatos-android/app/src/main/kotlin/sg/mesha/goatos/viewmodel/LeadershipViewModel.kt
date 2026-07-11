@@ -92,8 +92,11 @@ class LeadershipViewModel @Inject constructor(
         adherenceDto: ProtocolAdherenceResponseDto?,
     ): LeadershipUiState {
         val base = sampleLeadershipState()
-        val coverage = adherenceDto?.summary?.adherencePercent?.toInt()
-            ?: if (summary.processIntact) 100 else (100 - summary.openGapCount).coerceIn(0, 100)
+        // Process integrity is ONE deterministic value from the control-tower summary (the
+        // hero's own source): intact → 100, else reduced by open-gap count. It must NOT be
+        // prefixed with the adherence % — that is a different metric that intermittently
+        // returned null, which flipped the hero between ~39% and 100% across reloads.
+        val coverage = if (summary.processIntact) 100 else (100 - summary.openGapCount).coerceIn(0, 100)
         val decisions = alerts.map { alert ->
             DecisionRow(
                 id = alert.obligationId.ifBlank { alert.rowId },

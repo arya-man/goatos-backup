@@ -23,6 +23,7 @@ import sg.mesha.goatos.feature.calendar.CalendarSegmentKind
 import sg.mesha.goatos.feature.calendar.CalendarTone
 import sg.mesha.goatos.feature.calendar.CalendarUiState
 import sg.mesha.goatos.feature.calendar.CalendarWeekDay
+import sg.mesha.goatos.feature.calendar.DaySheetUiState
 import sg.mesha.goatos.ui.calendarPlaceholder
 import sg.mesha.goatos.ui.sampleCalendarState
 import java.time.DayOfWeek
@@ -39,7 +40,9 @@ import javax.inject.Inject
  * vaccination calendar via [CalendarRepository.events] and maps it in [toCalendarUiState].
  * An empty real response shows an honest empty state and a failure shows an honest error
  * state — a fabricated sample calendar is NEVER shown as if it were live. Segment switch is
- * purely local; day/item taps are navigation, routed by the nav host.
+ * purely local; a day tap is ALSO purely local (mock `sel=day; renderWeek()` / `openDay(d)`)
+ * — it re-scopes the week list or opens/updates the month day-sheet, never navigates. Item
+ * taps are navigation, routed by the nav host.
  */
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
@@ -49,14 +52,28 @@ class CalendarViewModel @Inject constructor(
     private val _state = MutableStateFlow(calendarPlaceholder("Loading…"))
     val state: StateFlow<CalendarUiState> = _state.asStateFlow()
 
+    /**
+     * Raw events from the last successful [load], retained so a day tap can filter to
+     * that day's real drives (mock's in-memory `DR[day]` map) without a second network
+     * round trip. Never used to fabricate a day's content — a day with no matching event
+     * simply filters to an empty list, which renders the honest empty state.
+     */
+    private var loadedEvents: List<CalendarEventDto> = emptyList()
+
     init {
         load()
     }
 
     fun load() = viewModelScope.launch {
         runCatching { repo.events() }
-            .onSuccess { dto -> _state.value = dto.toCalendarUiState() ?: calendarPlaceholder("No drives scheduled") }
-            .onFailure { _state.value = calendarPlaceholder("Couldn't load the calendar right now.") }
+            .onSuccess { dto ->
+                loadedEvents = dto.items
+                _state.value = dto.toCalendarUiState() ?: calendarPlaceholder("No drives scheduled")
+            }
+            .onFailure {
+                loadedEvents = emptyList()
+                _state.value = calendarPlaceholder("Couldn't load the calendar right now.")
+            }
     }
 
     fun onEvent(event: CalendarEvent) {
@@ -64,11 +81,49 @@ class CalendarViewModel @Inject constructor(
             is CalendarEvent.SelectSegment ->
                 _state.update { it.copy(selectedSegmentId = event.segmentId) }
             CalendarEvent.Refresh -> load()
-            // Day/item taps are navigation — handled by the nav host.
-            is CalendarEvent.TapDay,
+            is CalendarEvent.TapDay -> selectDay(event.dateKey)
+            // Item taps are navigation — handled by the nav host.
             is CalendarEvent.TapItem -> Unit
         }
     }
+
+    /**
+     * A day tap is in-screen selection only (mock: week strip does `sel=day; renderWeek()`,
+     * month grid does `openDay(d)`) — it never navigates. Whichever segment is active decides
+     * what the tap means: WEEK re-scopes [CalendarUiState.weekItems] and the selected-date
+     * label to the tapped day; MONTH builds/updates [CalendarUiState.daySheet] for that day.
+     * Both read only [loadedEvents] — an empty day renders an honest empty state.
+     */
+    private fun selectDay(dateKey: String) {
+        val date = runCatching { LocalDate.parse(dateKey) }.getOrNull() ?: return
+        val current = _state.value
+        val isMonth = current.segments.firstOrNull { it.id == current.selectedSegmentId }?.kind ==
+            CalendarSegmentKind.Month
+        if (isMonth) {
+            _state.update { s ->
+                s.copy(
+                    monthDays = s.monthDays.map { day -> day.copy(isSelected = day.dateKey == dateKey) },
+                    daySheet = DaySheetUiState(
+                        title = daySheetTitle(date),
+                        items = itemsForDate(date),
+                        emptyLabel = "No drives scheduled this day",
+                    ),
+                )
+            }
+        } else {
+            _state.update { s ->
+                s.copy(
+                    weekDays = s.weekDays.map { day -> day.copy(isSelected = day.dateKey == dateKey) },
+                    selectedDateLabel = dateLabel(date),
+                    weekItems = itemsForDate(date),
+                )
+            }
+        }
+    }
+
+    /** The real, currently-loaded events due on [date] — never fabricated. */
+    private fun itemsForDate(date: LocalDate): List<CalendarItem> =
+        loadedEvents.filter { parseLocalDate(it.dueAt) == date }.map { it.toCalendarItem() }
 
     private fun CalendarEventListResponseDto.toCalendarUiState(): CalendarUiState? {
         if (items.isEmpty() && presentation.viewTabs.isEmpty()) return null
@@ -84,11 +139,13 @@ class CalendarViewModel @Inject constructor(
                 },
             )
         }
+        val today = LocalDate.now(KOLKATA)
         val weekDays = buildWeekDays(items)
-        val todayLabel = LocalDate.now(KOLKATA).let {
-            "Today · ${it.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} ${it.dayOfMonth} ${it.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)}"
-        }
-        val weekItems = items.map { it.toCalendarItem() }
+        val todayLabel = dateLabel(today)
+        // Initial week list is scoped to TODAY's real due events (mirrors the mock's default
+        // `sel=today`) — never the whole week dumped at once; a day tap re-scopes this via
+        // [selectDay].
+        val weekItems = itemsForDate(today)
         val monthDays = buildMonthDays(items)
         val monthLabel = YearMonth.now(KOLKATA).let {
             "${it.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} ${it.year}"
@@ -144,6 +201,20 @@ class CalendarViewModel @Inject constructor(
             target = target,
         )
     }
+
+    /**
+     * "Today · Tue 7 Jul" for the actual day, else just "Tue 7 Jul" — mirrors the mock's
+     * `(sel===7?'Today · ':'')+WD[sel]+' '+sel+' Jul'` day label used above the week list.
+     */
+    private fun dateLabel(date: LocalDate, today: LocalDate = LocalDate.now(KOLKATA)): String {
+        val base = "${date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} " +
+            "${date.dayOfMonth} ${date.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)}"
+        return if (date == today) "Today · $base" else base
+    }
+
+    /** "8 July" — mirrors the mock's day-sheet title `d+' '+M.nm`. */
+    private fun daySheetTitle(date: LocalDate): String =
+        "${date.dayOfMonth} ${date.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)}"
 }
 
 private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
