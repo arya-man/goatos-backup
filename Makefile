@@ -222,3 +222,10 @@ docker-cleanup-goatos-execute:
 
 docker-storage-scripts-test:
 	bash tools/dev/test-docker-storage-scripts.sh
+
+# Run the Android dev app on a USB device (physical phone or emulator) against the
+# local backend on :8080 — mints+validates a fresh dev token, builds, installs,
+# tunnels (adb reverse), and launches. See docs/runbooks/android-dev-device.md.
+.PHONY: android-dev-run
+android-dev-run:
+	bash tools/dev/android-dev-run.sh
