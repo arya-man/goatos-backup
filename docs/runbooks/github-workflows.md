@@ -548,9 +548,9 @@ Publishes CI and E2E report categories to GitHub Pages as one combined site:
 ```text
 /screenshot-gallery/  every mobile screen, rendered fresh via Paparazzi
 /nav-graph/           Compose Navigation routes + navigate() edges (Mermaid)
-/e2e-report/          vaccination kernel-story E2E report (19 stories: A-N
-                      core kernel behavior plus event-driven-chain + edge-
-                      dataset stories O/P/Q/R/T)
+/e2e-report/          vaccination kernel-story E2E report (story count is read
+                      from the generated report; currently 38 production-path
+                      stories with direct derived-state seeding forbidden)
 /e2e-hrms-report/     HRMS roster/RBAC kernel-story E2E report
 /scale-audit-e2e-report/
                       scale-audit fix E2E report plus the staging-certification

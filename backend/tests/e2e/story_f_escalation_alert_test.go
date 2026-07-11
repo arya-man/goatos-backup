@@ -5,7 +5,7 @@ import (
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
-	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
 // TestKernelStoryF_EscalationAlert drives the escalation path: when a dose obligation crosses
@@ -26,31 +26,23 @@ func TestKernelStoryF_EscalationAlert(t *testing.T) {
 			"the dose onto a new obligation with a new due date; the missed obligation stays missed.")
 	defer story.Finish()
 
-	versionID, ruleID := fx.PublishSimpleProtocol("vaccination.e2e.story_f", 21, 14, nil)
+	fx.PublishSimpleProtocol("vaccination.e2e.story_f", 21, 14, nil)
 
 	const goatID = "e1000000-0000-4000-8000-0000000000f1"
-	fx.SeedGoat(GoatSpec{GoatID: goatID})
+	dob := time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)
+	fx.SeedGoat(GoatSpec{GoatID: goatID, DOB: &dob})
 
-	story.Step("Seed goat and protocol",
+	story.Step("Create source fixtures and publish the protocol",
 		"One goat, one vaccination protocol (21-day offset, 14-day window). "+
-			"Obligation will be manually seeded to track escalation.")
+			"The goat.created consumer creates the obligation while its due window is open.")
 
-	// Seed an obligation that is in-buffer (overdue but not yet missed)
+	// Generate an obligation while its due window is open, then fast-forward past the window.
 	asOf := time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC) // sweep as-of date (after window closes)
 	dueDate := time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC)
-	windowEnd := dueDate.AddDate(0, 0, 14) // 2026-07-10
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, dueDate)
+	oblID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goatID)
 
-	oblID, _, err := fx.Obl.InsertObligation(fx.Ctx, obldomain.NewObligation{
-		TenantID: fxTenant, ProtocolVersionID: versionID, RuleID: ruleID,
-		TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: fxPark,
-		DueAt: dueDate, WindowEnd: &windowEnd, Status: "scheduled",
-		IdempotencyKey: "e2e-story-f-buffer", Sequence: 1,
-	})
-	if err != nil {
-		t.Fatalf("seed obligation: %v", err)
-	}
-
-	story.Step("Seed in-buffer obligation",
+	story.Step("Generate the in-buffer obligation through goat.created",
 		"Obligation due 2026-06-26, window 2026-07-10. As-of date 2026-07-11 (after window closes), "+
 			"the obligation is overdue and its window is closed (now eligible to be marked missed).")
 
@@ -88,7 +80,7 @@ func TestKernelStoryF_EscalationAlert(t *testing.T) {
 	story.Assert("the new obligation is scheduled", finalStatus == "scheduled", "status=%q", finalStatus)
 
 	finalDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE obligation_id=$1`, newOblID)
-	story.Assert("new due date set by leadership", finalDue.Equal(newDue),
+	story.Assert("new due date set by leadership", sameDay(finalDue, newDue),
 		"due=%s expected=%s", finalDue.Format("2006-01-02"), newDue.Format("2006-01-02"))
 
 	story.Step("Leadership reworks missed dose onto a new obligation",

@@ -5,21 +5,13 @@ import (
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
-	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
 // TestKernelStoryA_MissedBufferReschedule drives the obligation kernel's due-window arithmetic
-// directly against the obligation repository/sweeper, the same way
-// backend/internal/obligation/adapters/postgres/sweeper_integration_test.go and
-// recovery_cancel_integration_test.go do, rather than through birth-age generation math.
-//
-// That choice is deliberate: GenerationService's missed-dose catch-up policy (see
-// applyMissedDosePolicy in internal/vaccination/app/generation.go) re-dates a badly-overdue
-// birth-age obligation to "today" (or defers it) the moment generation runs, precisely so a stale,
-// still-"scheduled" obligation is never produced by the front door once its window has closed. The
-// only way to exercise "an obligation sat scheduled past its due window and nobody acted on it" is
-// to seed it directly and let the SWEEPER (not generation) discover it -- which is exactly what the
-// obligation package's own sweeper tests do.
+// through the production goat.created generator before fast-forwarding the sweeper clock. Generating
+// while each window is still open creates the legitimate scheduled state; advancing asOf later proves
+// the missed transition without sleeps or direct obligation seeding.
 func TestKernelStoryA_MissedBufferReschedule(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-a", "Missed vs in-buffer vs reschedule",
@@ -29,42 +21,28 @@ func TestKernelStoryA_MissedBufferReschedule(t *testing.T) {
 			"dose is then put back on the calendar.")
 	defer story.Finish()
 
-	versionID, ruleID := fx.PublishSimpleProtocol("vaccination.e2e.story_a", 21, 14, nil)
+	fx.PublishSimpleProtocol("vaccination.e2e.story_a", 21, 14, nil)
 
 	const goatMissed = "e1000000-0000-4000-8000-0000000000a1"
 	const goatBuffer = "e1000000-0000-4000-8000-0000000000a2"
-	fx.SeedGoat(GoatSpec{GoatID: goatMissed})
-	fx.SeedGoat(GoatSpec{GoatID: goatBuffer})
+	missedDOB := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	bufferDOB := time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)
+	fx.SeedGoat(GoatSpec{GoatID: goatMissed, DOB: &missedDOB})
+	fx.SeedGoat(GoatSpec{GoatID: goatBuffer, DOB: &bufferDOB})
 
-	story.Step("Seed one stale dose and one in-buffer dose",
+	story.Step("Generate one stale dose and one in-buffer dose",
 		"G-Missed's dose was due 2026-05-22 with its 14-day window closing 2026-06-05 (long since crossed). "+
 			"G-Buffer's dose was due 2026-06-26 with its window closing 2026-07-10 (overdue, but still open). "+
-			"Both obligations are inserted directly against the obligation repository, mirroring "+
-			"sweeper_integration_test.go's own seeding pattern.")
+			"Both obligations are created by goat.created while their windows are still open.")
 
 	missedDue := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
-	missedWindowEnd := missedDue.AddDate(0, 0, 14)
-	missedObl, applied, err := fx.Obl.InsertObligation(fx.Ctx, obldomain.NewObligation{
-		TenantID: fxTenant, ProtocolVersionID: versionID, RuleID: ruleID,
-		TargetType: "goat", TargetID: goatMissed, ScopeType: "park", ScopeID: fxPark,
-		DueAt: missedDue, WindowEnd: &missedWindowEnd, Status: "scheduled",
-		IdempotencyKey: "e2e-story-a-missed", Sequence: 1,
-	})
-	if err != nil || !applied {
-		t.Fatalf("seed missed obligation: applied=%v err=%v", applied, err)
-	}
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatMissed, missedDue)
+	missedObl := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goatMissed)
 
 	bufferDue := time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC)
 	bufferWindowEnd := bufferDue.AddDate(0, 0, 14)
-	bufferObl, applied, err := fx.Obl.InsertObligation(fx.Ctx, obldomain.NewObligation{
-		TenantID: fxTenant, ProtocolVersionID: versionID, RuleID: ruleID,
-		TargetType: "goat", TargetID: goatBuffer, ScopeType: "park", ScopeID: fxPark,
-		DueAt: bufferDue, WindowEnd: &bufferWindowEnd, Status: "scheduled",
-		IdempotencyKey: "e2e-story-a-buffer", Sequence: 1,
-	})
-	if err != nil || !applied {
-		t.Fatalf("seed buffer obligation: applied=%v err=%v", applied, err)
-	}
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatBuffer, bufferDue)
+	bufferObl := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goatBuffer)
 
 	sweepAsOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	story.Step("Run the obligation sweeper's missed-dose pass",
@@ -91,8 +69,8 @@ func TestKernelStoryA_MissedBufferReschedule(t *testing.T) {
 	// immutable closed history, same as completed/waived/canceled/superseded. A later policy
 	// correction must create new work or a rework/correction record -- it must never rewrite the
 	// closed row. So RescheduleObligationByID on a 'missed' target does NOT flip the missed row back
-	// to 'scheduled' in place: it inserts a brand-new obligation (fresh id, status 'scheduled', the
-	// new due date, unbatched) via the same InsertObligationInstance path the SM-1 generator uses, and
+	// to 'scheduled' in place: the production rework repository creates a brand-new obligation (fresh
+	// id, status 'scheduled', the new due date, unbatched), and
 	// leaves G-Missed's original row completely untouched (status, due_at, row_version, and its own
 	// event history all unchanged). The new row's audit event carries
 	// `superseded_missed_obligation_id` pointing back at G-Missed's obligation -- there is no
@@ -115,14 +93,14 @@ func TestKernelStoryA_MissedBufferReschedule(t *testing.T) {
 		missedStatusAfter == "missed", "status=%q", missedStatusAfter)
 
 	missedDueAfter := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, missedObl)
-	story.Assert("G-Missed's original due date is untouched", missedDueAfter.Equal(missedDue),
+	story.Assert("G-Missed's original due date is untouched", sameDay(missedDueAfter, missedDue),
 		"due_at=%s want=%s", missedDueAfter.Format("2006-01-02"), missedDue.Format("2006-01-02"))
 
 	newStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, newObl)
 	story.Assert("the new obligation is scheduled", newStatus == "scheduled", "status=%q", newStatus)
 
 	newDueAt := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, newObl)
-	story.Assert("the new obligation carries the new calendar date", newDueAt.Equal(newDue),
+	story.Assert("the new obligation carries the new calendar date", sameDay(newDueAt, newDue),
 		"due_at=%s want=%s", newDueAt.Format("2006-01-02"), newDue.Format("2006-01-02"))
 
 	// RescheduleObligationByID deliberately records event_type='scheduled' (not a new

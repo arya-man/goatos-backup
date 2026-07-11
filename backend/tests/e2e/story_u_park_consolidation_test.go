@@ -5,7 +5,7 @@ import (
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
-	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
 // TestKernelStoryU_ParkConsolidationMerge drives Batch story B: singleton goats in separate sheds
@@ -18,38 +18,25 @@ func TestKernelStoryU_ParkConsolidationMerge(t *testing.T) {
 	defer story.Finish()
 
 	const (
-		shedA   = "f6000000-0000-4000-8000-000000000001"
-		shedB   = "f6000000-0000-4000-8000-000000000002"
-		stageA  = "f6000000-0000-4000-8000-00000000000a"
-		stageB  = "f6000000-0000-4000-8000-00000000000b"
-		goatA   = "f6000000-0000-4000-8000-000000000010"
-		goatB   = "f6000000-0000-4000-8000-000000000011"
+		shedA  = "f6000000-0000-4000-8000-000000000001"
+		shedB  = "f6000000-0000-4000-8000-000000000002"
+		stageA = "f6000000-0000-4000-8000-00000000000a"
+		stageB = "f6000000-0000-4000-8000-00000000000b"
+		goatA  = "f6000000-0000-4000-8000-000000000010"
+		goatB  = "f6000000-0000-4000-8000-000000000011"
 	)
 
 	fx.SeedAdultShed(shedA, "E2E-U-A", stageA, "K1-UA")
 	fx.SeedAdultShed(shedB, "E2E-U-B", stageB, "K1-UB")
-	versionID, ruleID := fx.PublishSimpleProtocol("vaccination.e2e.story_u", 21, 7, nil)
+	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_u", 21, 7, nil)
 
-	dob := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	dob := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
 	fx.SeedGoat(GoatSpec{GoatID: goatA, ShedID: shedA, DOB: &dob})
 	fx.SeedGoat(GoatSpec{GoatID: goatB, ShedID: shedB, DOB: &dob})
 
 	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
-	win := due.AddDate(0, 0, 7)
-	for _, row := range []struct {
-		goatID, shedID, key string
-	}{
-		{goatA, shedA, "e2e-story-u-a"},
-		{goatB, shedB, "e2e-story-u-b"},
-	} {
-		if _, applied, err := fx.Obl.InsertObligation(fx.Ctx, obldomain.NewObligation{
-			TenantID: fxTenant, ProtocolVersionID: versionID, RuleID: ruleID,
-			TargetType: "goat", TargetID: row.goatID, ScopeType: "shed", ScopeID: row.shedID,
-			DueAt: due, WindowEnd: &win, Status: "scheduled",
-			IdempotencyKey: row.key, Sequence: 1,
-		}); err != nil || !applied {
-			t.Fatalf("seed %s: applied=%v err=%v", row.key, applied, err)
-		}
+	for _, goatID := range []string{goatA, goatB} {
+		fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, due)
 	}
 
 	story.Step("Sweep with park consolidation enabled",

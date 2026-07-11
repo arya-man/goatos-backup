@@ -48,10 +48,10 @@ func TestKernelStoryV_SweepClinicalDefer(t *testing.T) {
 	}
 
 	story.Step("Goat turns sick after doses were scheduled",
-		"Health changes after generation; the open dose is still scheduled until SM-4 clinical recheck runs.")
-	fx.exec("mark sick", `UPDATE goats SET health_status='sick' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, sickID)
+		"The production identity command emits goat.health.changed; its vaccination consumer defers the open dose before SM-4 can batch it.")
+	fx.ChangeGoatHealth(sickID, "sick", "story-v-sick", now)
 	preStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, sickID)
-	story.Assert("pre-sweep obligation is still scheduled", preStatus == "scheduled", "status=%q", preStatus)
+	story.Assert("identity event recheck already deferred the obligation", preStatus == "deferred", "status=%q", preStatus)
 
 	story.Step("Sweep defers sick goat and batches only healthy shed-mates",
 		"deferBlockedSweepCandidates runs before batching; sick scheduled rows must not enter the drive.")
@@ -61,7 +61,7 @@ func TestKernelStoryV_SweepClinicalDefer(t *testing.T) {
 	story.Assert("only two healthy goats batched", sweepRes.Obligations == 2, "obligations=%d", sweepRes.Obligations)
 
 	postStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, sickID)
-	story.Assert("sick goat deferred at sweep time", postStatus == "deferred", "status=%q", postStatus)
+	story.Assert("sick goat remains deferred after sweep", postStatus == "deferred", "status=%q", postStatus)
 	sickBatch := fx.scanText(`SELECT COALESCE(batch_id::text, '') FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, sickID)
 	story.Assert("deferred sick goat is not on the batch", sickBatch == "", "batch_id=%q", sickBatch)
 }

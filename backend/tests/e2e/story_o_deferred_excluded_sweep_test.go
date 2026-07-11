@@ -13,17 +13,17 @@ import (
 func TestKernelStoryO_DeferredExcludedFromSweep(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-o", "Deferred goat excluded from shed drive sweep",
-		"Three goats share a shed. One is held (deferred) for quarantine; two are healthy and due. "+
+		"Three goats share a shed. One is held after becoming sick; two are healthy and due. "+
 			"The sweeper must batch only the two healthy goats — the deferred dose must stay unbatched.")
 	defer story.Finish()
 
 	const (
-		shedID  = "f0000000-0000-4000-8000-000000000001"
-		stageID = "f0000000-0000-4000-8000-000000000002"
-		held    = "f0000000-0000-4000-8000-000000000010"
+		shedID   = "f0000000-0000-4000-8000-000000000001"
+		stageID  = "f0000000-0000-4000-8000-000000000002"
+		held     = "f0000000-0000-4000-8000-000000000010"
 		healthy1 = "f0000000-0000-4000-8000-000000000011"
 		healthy2 = "f0000000-0000-4000-8000-000000000012"
-		itemID  = "f0000000-0000-4000-8000-000000000020"
+		itemID   = "f0000000-0000-4000-8000-000000000020"
 	)
 
 	fx.SeedShed(shedID, "E2E-O", stageID)
@@ -47,11 +47,9 @@ func TestKernelStoryO_DeferredExcludedFromSweep(t *testing.T) {
 	story.Assert("generation ran without error", err == nil, "err=%v", err)
 	story.Assert("three doses generated", res.Generated == 3, "generated=%d", res.Generated)
 
-	story.Step("Hold one goat in quarantine",
-		"The held goat enters quarantine; its open dose must defer and stay out of drive batching.")
-	fx.exec("mark held goat quarantine", `UPDATE goats SET health_status='quarantine' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, held)
-	deferRes, err := gen.GenerateForGoat(fx.Ctx, fxTenant, held, now.Add(24*time.Hour))
-	story.Assert("recheck deferred the held goat", err == nil && deferRes.Deferred == 1, "deferred=%d err=%v", deferRes.Deferred, err)
+	story.Step("Hold one goat through the identity health path",
+		"The goat becomes sick through the production command; goat.health.changed reaches the vaccination recheck and keeps it out of drive batching.")
+	fx.ChangeGoatHealth(held, "sick", "story-o-sick", now.Add(24*time.Hour))
 
 	heldStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, held)
 	story.Assert("held goat obligation is deferred", heldStatus == "deferred", "status=%q", heldStatus)

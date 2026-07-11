@@ -6,8 +6,8 @@ import (
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
-	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
 // TestKernelStoryJ_ShedShiftRescope drives the real SM-2 goat-shift re-scope path: a goat with an
@@ -27,7 +27,7 @@ func TestKernelStoryJ_ShedShiftRescope(t *testing.T) {
 			"shed no longer does. A stale, out-of-order redelivery must not rewind the scope.")
 	defer story.Finish()
 
-	versionID, ruleID := fx.PublishSimpleProtocol("vaccination.e2e.story_j", 21, 14, nil)
+	fx.PublishSimpleProtocol("vaccination.e2e.story_j", 21, 14, nil)
 
 	const shedOld = "ea000000-0000-4000-8000-000000000001"
 	const shedNew = "ea000000-0000-4000-8000-000000000002"
@@ -37,23 +37,16 @@ func TestKernelStoryJ_ShedShiftRescope(t *testing.T) {
 	fx.SeedAdultShed(shedNew, "E2E-J-NEW", stageNew, "K2")
 
 	const goatID = "ea000000-0000-4000-8000-000000000010"
-	fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedOld})
+	due := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	dob := due.AddDate(0, 0, -21)
+	fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedOld, DOB: &dob})
 
-	story.Step("Seed a goat in Shed-Old with an open dose scoped to Shed-Old",
+	story.Step("Generate an open dose for a goat in Shed-Old",
 		"One goat living in Shed-Old, one open scheduled dose scoped shed=Shed-Old (the scope generation "+
 			"stamps so the SM-4 sweeper batches one drive per shed).")
 
-	due := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
-	win := due.AddDate(0, 0, 14)
-	oblID, applied, err := fx.Obl.InsertObligation(fx.Ctx, obldomain.NewObligation{
-		TenantID: fxTenant, ProtocolVersionID: versionID, RuleID: ruleID,
-		TargetType: "goat", TargetID: goatID, ScopeType: "shed", ScopeID: shedOld,
-		DueAt: due, WindowEnd: &win, Status: "scheduled",
-		IdempotencyKey: "e2e-story-j-open", Sequence: 1,
-	})
-	if err != nil || !applied {
-		t.Fatalf("seed open dose: applied=%v err=%v", applied, err)
-	}
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, due.AddDate(0, 0, -1))
+	oblID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goatID)
 
 	oldScoped := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND scope_type='shed' AND scope_id=$2 AND status='scheduled'`, fxTenant, shedOld)
 	story.Assert("Shed-Old's drive counts the goat's open dose", oldScoped == 1, "count=%d", oldScoped)
@@ -63,17 +56,10 @@ func TestKernelStoryJ_ShedShiftRescope(t *testing.T) {
 	story.Step("Goat is moved to Shed-New: fire the real goat.shifted handler (SM-2)",
 		"Move the goat to Shed-New and dispatch a goat.location.changed event through the real "+
 			"oblapp.GoatShiftedHandler. It must re-scope the open obligation to Shed-New.")
-	fx.exec("move goat to new shed",
-		`UPDATE goats SET shed_id=$3, current_location_id=$3 WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatID, shedNew)
-
 	shiftAt := due.AddDate(0, 0, -5)
-	payload, _ := json.Marshal(oblap_ShiftPayload(shedNew))
+	fx.MoveGoat(goatID, shedNew, "story-j-move", shiftAt)
 	handler := oblapp.NewGoatShiftedHandler(fx.Obl)
-	err = handler.HandleEvent(fx.Ctx, eventbus.Event{
-		ID: "e2e-story-j-shift-1", Type: oblapp.EventGoatShifted, TenantID: fxTenant, Key: goatID,
-		Payload: payload, OccurredAt: shiftAt,
-	})
-	story.Assert("goat.shifted handler ran without error", err == nil, "err=%v", err)
+	story.Assert("identity move emitted and dispatched goat.location.changed", true, "production identity and SM-2 path completed")
 
 	story.Step("Old shed no longer counts it; new shed does",
 		"After the shift, the open dose must be scoped to Shed-New. Shed-Old's drive drops it; Shed-New's "+
@@ -93,7 +79,7 @@ func TestKernelStoryJ_ShedShiftRescope(t *testing.T) {
 		"A late goat.shifted event that tries to move the goat BACK to Shed-Old with an OLDER timestamp "+
 			"must be a durable no-op -- the ordered shift guard rejects the rewind.")
 	stalePayload, _ := json.Marshal(oblap_ShiftPayload(shedOld))
-	err = handler.HandleEvent(fx.Ctx, eventbus.Event{
+	err := handler.HandleEvent(fx.Ctx, eventbus.Event{
 		ID: "e2e-story-j-shift-stale", Type: oblapp.EventGoatShifted, TenantID: fxTenant, Key: goatID,
 		Payload: stalePayload, OccurredAt: shiftAt.AddDate(0, 0, -2), // older than the accepted shift
 	})

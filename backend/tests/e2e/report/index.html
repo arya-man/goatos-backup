@@ -36,6 +36,19 @@
   .summary .tile .n { font-size: 1.6rem; font-weight: 700; display: block; }
   .summary .tile.pass .n { color: #1f8a4c; }
   .summary .tile.fail .n { color: #c62828; }
+  .boundary {
+    background: #eef7f1;
+    border: 1px solid #b9ddc5;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin: 0 0 28px;
+  }
+  .boundary h2 { font-size: 1rem; margin: 0 0 8px; }
+  .boundary p { margin: 6px 0; font-size: 0.9rem; }
+  .boundary code { font-size: 0.82rem; }
+  @media (prefers-color-scheme: dark) {
+    .boundary { background: #17241b; border-color: #31573b; }
+  }
   section.story {
     background: #ffffff;
     border: 1px solid #e1e6ea;
@@ -82,15 +95,33 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-07-11 14:03:01 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-07-11 19:33:59 UTC &middot; backend/tests/e2e</p>
 
   <div class="summary">
-    <div class="tile"><span class="n">37</span>stories</div>
-    <div class="tile pass"><span class="n">37</span>stories passed</div>
+    <div class="tile"><span class="n">38</span>stories</div>
+    <div class="tile pass"><span class="n">38</span>stories passed</div>
     <div class="tile fail"><span class="n">0</span>stories failed</div>
-    <div class="tile"><span class="n">395</span>assertions checked</div>
+    <div class="tile"><span class="n">368</span>assertions checked</div>
     <div class="tile pass"><span class="n">0</span>assertions failed</div>
   </div>
+
+  <section class="boundary">
+    <h2>Kernel certification boundary</h2>
+    <p><strong>Production paths:</strong> these stories run the real GoatOS application services,
+      Postgres repositories and transactions, durable outbox envelopes, event consumers, sweepers,
+      proof/verification flows, and read-model projectors named in each story.</p>
+    <p><strong>No seeded outcomes:</strong> source/input fixtures such as goats, sheds, workforce,
+      stock, and authored protocol configuration may be created for setup. Derived obligations,
+      batches, completions, SOP execution, notifications, cancellations, Calendar rows, and
+      process-integrity rows may not be inserted or updated by a story. This is enforced by
+      <code>tools/agent-hooks/check-e2e-kernel-integrity.sh</code> in Claude, Codex, and CI.</p>
+    <p><strong>Fast-forwarding:</strong> business time advances through deterministic
+      <code>OccurredAt</code>/<code>asOf</code> inputs. The suite does not sleep or wait for calendar
+      time to pass.</p>
+    <p><strong>Out of scope:</strong> a story certifies HTTP/browser behavior only when it explicitly
+      invokes that route or browser. Otherwise it certifies the backend operational kernel against
+      ephemeral migrated Postgres, not staging or production infrastructure.</p>
+  </section>
 
 
   <section class="story pass">
@@ -98,8 +129,8 @@
     <p class="narrative">Two goats share one PC vaccination rule with a 14-day due window. G-Missed&#39;s dose crossed its due window with nobody acting on it, so the obligation sweeper must mark it missed. G-Buffer&#39;s dose is overdue but still inside its window, so the sweeper must leave it alone. The missed dose is then put back on the calendar.</p>
 
     <div class="step">
-      <h3>Seed one stale dose and one in-buffer dose</h3>
-      <p class="narrative">G-Missed&#39;s dose was due 2026-05-22 with its 14-day window closing 2026-06-05 (long since crossed). G-Buffer&#39;s dose was due 2026-06-26 with its window closing 2026-07-10 (overdue, but still open). Both obligations are inserted directly against the obligation repository, mirroring sweeper_integration_test.go&#39;s own seeding pattern.</p>
+      <h3>Generate one stale dose and one in-buffer dose</h3>
+      <p class="narrative">G-Missed&#39;s dose was due 2026-05-22 with its 14-day window closing 2026-06-05 (long since crossed). G-Buffer&#39;s dose was due 2026-06-26 with its window closing 2026-07-10 (overdue, but still open). Both obligations are created by goat.created while their windows are still open.</p>
 
     </div>
 
@@ -169,7 +200,7 @@
           <tr class="ok">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>PASS</td>
-            <td class="detail">newObl=&#34;5a652f89-7eee-467c-b6a6-4f80fd62e6d2&#34; missedObl=&#34;a1822c5a-9c0c-48d1-9e23-4d0eb3b210ac&#34;</td>
+            <td class="detail">newObl=&#34;18ed3e58-b74f-4690-8e39-161663131611&#34; missedObl=&#34;07eb4bf7-3e92-497f-aba3-5213695645a1&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -236,7 +267,7 @@
           <tr class="ok">
             <td>replay returns the same new obligation id, not a second new one</td>
             <td>PASS</td>
-            <td class="detail">replayObl=&#34;5a652f89-7eee-467c-b6a6-4f80fd62e6d2&#34; newObl=&#34;5a652f89-7eee-467c-b6a6-4f80fd62e6d2&#34;</td>
+            <td class="detail">replayObl=&#34;18ed3e58-b74f-4690-8e39-161663131611&#34; newObl=&#34;18ed3e58-b74f-4690-8e39-161663131611&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -285,7 +316,7 @@
           <tr class="ok">
             <td>orphan goat is on a batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;721d8231-7aed-4380-9acb-87fdc1145e15&#34;</td>
+            <td class="detail">batch_id=&#34;214bf84d-3ff5-4470-b6f0-6fbd11dbacae&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -489,7 +520,7 @@
 
   <section class="story pass">
     <h2>Shed capacity count uses eligible planned cells, not herd size <span class="badge pass">PASS</span></h2>
-    <p class="narrative">Three goats share a shed; each is due FMD &#43; HS (2 vaccination cells per goat). The shed capacity count must total eligible planned cells only: a sick goat and a quarantined goat drop out of today&#39;s count when their doses defer, a recovered goat&#39;s doses come back after the hold is released, and one goat needing two vaccines counts as two cells. capacity_status follows those cells — never the raw headcount — while the merged shed headline still surfaces overdue work.</p>
+    <p class="narrative">Three goats share a shed; each is due FMD &#43; HS (2 vaccination cells per goat). The shed capacity count must total eligible planned cells only: two sick goats drop out of today&#39;s count when their doses defer, a recovered goat&#39;s doses come back after the hold is released, and one goat needing two vaccines counts as two cells. capacity_status follows those cells — never the raw headcount — while the merged shed headline still surfaces overdue work.</p>
 
     <div class="step">
       <h3>Generate: three goats × two vaccines = six planned cells</h3>
@@ -566,36 +597,12 @@
     </div>
 
     <div class="step">
-      <h3>Case 1 &amp; 2: sick &#43; quarantined goats defer and drop out of the capacity count</h3>
-      <p class="narrative">Flip gSick to &#39;sick&#39; and gQuar to &#39;quarantine&#39;; each recheck defers that goat&#39;s two open doses. Both goats&#39; cells must leave open_cells, leaving only gFMDHS&#39;s 2 — and capacity_status must fall to within_cap (2 cells, one session). With three animals unchanged, this proves the count follows eligible cells, not the herd.</p>
+      <h3>Case 1 &amp; 2: two clinically held goats defer and drop out of the capacity count</h3>
+      <p class="narrative">Apply two independent sick transitions through the identity command; each emitted recheck defers that goat&#39;s two open doses. Both goats&#39; cells must leave open_cells, leaving only gFMDHS&#39;s 2 — and capacity_status must fall to within_cap (2 cells, one session). With three animals unchanged, this proves the count follows eligible cells, not the herd.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>gSick recheck ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>gSick&#39;s two doses deferred</td>
-            <td>PASS</td>
-            <td class="detail">deferred=2</td>
-          </tr>
-
-          <tr class="ok">
-            <td>gQuar recheck ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>gQuar&#39;s two doses deferred</td>
-            <td>PASS</td>
-            <td class="detail">deferred=2</td>
-          </tr>
 
           <tr class="ok">
             <td>gSick both obligations are deferred (SQL)</td>
@@ -604,7 +611,7 @@
           </tr>
 
           <tr class="ok">
-            <td>gQuar both obligations are deferred (SQL)</td>
+            <td>gHeld both obligations are deferred (SQL)</td>
             <td>PASS</td>
             <td class="detail">deferred rows=2</td>
           </tr>
@@ -616,7 +623,7 @@
           </tr>
 
           <tr class="ok">
-            <td>case 1&#43;2: open_cells drops 6 -&gt; 2 (sick &#43; quarantined cells excluded)</td>
+            <td>case 1&#43;2: open_cells drops 6 -&gt; 2 (clinically held cells excluded)</td>
             <td>PASS</td>
             <td class="detail">open_cells=2</td>
           </tr>
@@ -640,23 +647,11 @@
 
     <div class="step">
       <h3>Case 3: gSick recovers; its doses reopen and re-enter the capacity count</h3>
-      <p class="narrative">Flip gSick back to &#39;healthy&#39; and run the real recovery recheck. Both held doses must reopen (follow-up obligations after the hold), realigned onto the recovery calendar. Read the shed as of just past the realigned due date: open_cells must climb back to 4 (gFMDHS 2 &#43; gSick 2). gQuar stays quarantined, so its cells remain excluded — recovery is per-goat.</p>
+      <p class="narrative">Flip gSick back to &#39;healthy&#39; and run the real recovery recheck. Both held doses must reopen (follow-up obligations after the hold), realigned onto the recovery calendar. Read the shed as of just past the realigned due date: open_cells must climb back to 4 (gFMDHS 2 &#43; gSick 2). gHeld stays clinically held, so its cells remain excluded — recovery is per-goat.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>gSick recovery recheck ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>case 3: both held doses reopened as follow-up obligations</td>
-            <td>PASS</td>
-            <td class="detail">reopened=2</td>
-          </tr>
 
           <tr class="ok">
             <td>gSick both obligations are scheduled again (SQL)</td>
@@ -677,9 +672,9 @@
           </tr>
 
           <tr class="ok">
-            <td>gQuar stays quarantined/excluded — recovery is per-goat</td>
+            <td>gHeld stays clinically held/excluded — recovery is per-goat</td>
             <td>PASS</td>
-            <td class="detail">gQuar deferred=2</td>
+            <td class="detail">gHeld deferred=2</td>
           </tr>
 
         </tbody>
@@ -710,13 +705,13 @@
           <tr class="ok">
             <td>future as_of does not mark July 18 work overdue</td>
             <td>PASS</td>
-            <td class="detail">status=&#34;due&#34; next_due=0x140001e89f0 due=1 done=0</td>
+            <td class="detail">status=&#34;scheduled&#34; next_due=0x140001972a0 due=0 done=1</td>
           </tr>
 
           <tr class="ok">
             <td>next due stays the July 18 business date</td>
             <td>PASS</td>
-            <td class="detail">next_due=0x140001e89f0</td>
+            <td class="detail">next_due=0x140001972a0</td>
           </tr>
 
         </tbody>
@@ -741,7 +736,7 @@
           <tr class="ok">
             <td>future URL and live URL agree on status</td>
             <td>PASS</td>
-            <td class="detail">future_status=&#34;due&#34; live_status=&#34;due&#34; future_next=0x140001e89f0 live_next=0x1400004f4b0</td>
+            <td class="detail">future_status=&#34;scheduled&#34; live_status=&#34;scheduled&#34; future_next=0x140001972a0 live_next=0x140003c4730</td>
           </tr>
 
         </tbody>
@@ -752,12 +747,12 @@
   </section>
 
   <section class="story pass">
-    <h2>Action Center groups same-day work and bounds completed history <span class="badge pass">PASS</span></h2>
-    <p class="narrative">Two unbatched goat obligations in the same shed are due at different clock times but on the same Asia/Kolkata business day. The Action Center must show one shed/day board row, not one row per timestamp. The same story also proves the hot projection excludes old completed history while keeping the future next-cycle row visible.</p>
+    <h2>Action Center groups generated work and keeps the next live cycle <span class="badge pass">PASS</span></h2>
+    <p class="narrative">Two goats generate the same shed/day vaccination work through goat.created. One is accepted through SM-5; the durable vaccination.completed consumer creates its next 182-day cycle. The Action Center removes completed history from the hot board while retaining the future cycle.</p>
 
     <div class="step">
-      <h3>Seed two unbatched obligations on one IST business day</h3>
-      <p class="narrative">The obligations are intentionally not batch-attached and use different raw due_at instants. Both instants fall on 2026-07-11 in Asia/Kolkata.</p>
+      <h3>Generate two same-shed, same-day obligations through goat.created</h3>
+      <p class="narrative">Both identity events reach SM-1 and materialize one rule-backed obligation per goat for the July 11 business day.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
@@ -770,21 +765,15 @@
           </tr>
 
           <tr class="ok">
-            <td>same business-day rows group into one board row</td>
+            <td>same shed/day work groups into one board row</td>
             <td>PASS</td>
             <td class="detail">rows=1</td>
           </tr>
 
           <tr class="ok">
-            <td>grouped row carries both goats</td>
+            <td>grouped row carries both generated goats</td>
             <td>PASS</td>
             <td class="detail">expected_count=2</td>
-          </tr>
-
-          <tr class="ok">
-            <td>grouped row keeps the earliest due instant as its sort due</td>
-            <td>PASS</td>
-            <td class="detail">due_at=2026-07-11T00:45:00&#43;05:30</td>
           </tr>
 
         </tbody>
@@ -793,8 +782,33 @@
     </div>
 
     <div class="step">
-      <h3>Seed old completed history plus a future next-cycle obligation</h3>
-      <p class="narrative">The projector should not carry old completed history into the hot Action Center projection, but the future next-cycle obligation must still be visible.</p>
+      <h3>Accept one goat and dispatch its durable completion event</h3>
+      <p class="narrative">SM-5 writes accepted history and completes the current obligation. SM-7 consumes vaccination.completed and creates exactly one next repeat anchored to administered_at &#43; 182 days.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>one future repeat was created by SM-7</td>
+            <td>PASS</td>
+            <td class="detail">current=aeb1d52d-5708-4d24-8ffe-884f014cf729 next=4ab5f3c5-8cb0-41a3-b911-fea7b5cc3a26</td>
+          </tr>
+
+          <tr class="ok">
+            <td>late administration re-anchors the next cycle</td>
+            <td>PASS</td>
+            <td class="detail">got=2027-01-12 want=2027-01-12</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Recompute the production Action Center projection</h3>
+      <p class="narrative">The real projector excludes the completed obligation from the hot board but keeps the future recurring obligation visible.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
@@ -807,15 +821,15 @@
           </tr>
 
           <tr class="ok">
-            <td>projection remains small and bounded for this fixture</td>
+            <td>projection produced bounded rows</td>
             <td>PASS</td>
             <td class="detail">rows=2</td>
           </tr>
 
           <tr class="ok">
-            <td>old completed history is not stored in the hot projection</td>
+            <td>completed history is absent from the hot projection</td>
             <td>PASS</td>
-            <td class="detail">projected_history_rows=0</td>
+            <td class="detail">rows=0</td>
           </tr>
 
           <tr class="ok">
@@ -825,13 +839,13 @@
           </tr>
 
           <tr class="ok">
-            <td>old completed history is absent from the default board</td>
+            <td>completed obligation is absent from the default board</td>
             <td>PASS</td>
             <td class="detail">rows=2</td>
           </tr>
 
           <tr class="ok">
-            <td>future next-cycle row remains visible</td>
+            <td>future recurring obligation remains visible</td>
             <td>PASS</td>
             <td class="detail">rows=2</td>
           </tr>
@@ -949,8 +963,132 @@
   </section>
 
   <section class="story pass">
-    <h2>Quarantine defer &#43; health recovery reschedule <span class="badge pass">PASS</span></h2>
-    <p class="narrative">A goat&#39;s PC vaccination dose is generated on schedule. The goat then enters quarantine, and the next recheck must hold (defer) its open dose rather than let it slip past due. The goat recovers, and the next recheck must reopen the held dose and realign its due date onto the recovery-time calendar -- the real SM-2 health-recovery path, not a stand-in.</p>
+    <h2>Accepted adult history creates the next Calendar cycle until exit <span class="badge pass">PASS</span></h2>
+    <p class="narrative">An adult procurement goat receives a generated yearly vaccination late. SM-5 records accepted history, SM-7 schedules exactly one next cycle from the actual administration date, Calendar shows both the past completed marker and future work, and a production culled exit removes only the future obligation while retaining history.</p>
+
+    <div class="step">
+      <h3>Generate the adult obligation through goat.created</h3>
+      <p class="narrative">The identity event reaches the real adult-procurement schedule path; no obligation is inserted by the story.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>one current obligation was generated</td>
+            <td>PASS</td>
+            <td class="detail">obligation_id=bfa2b933-5bdb-4c4e-a2f6-f859bd490e5d</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Accept it late and dispatch vaccination.completed</h3>
+      <p class="narrative">SM-5 accepts the dose on January 10. SM-7 must anchor the yearly recurrence to that actual administration date, not the January 1 due date.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>exactly one future recurrence exists</td>
+            <td>PASS</td>
+            <td class="detail">count=1</td>
+          </tr>
+
+          <tr class="ok">
+            <td>next yearly due date uses administered_at</td>
+            <td>PASS</td>
+            <td class="detail">got=2026-01-10 want=2026-01-10</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Project and read past history plus the future cycle through Calendar</h3>
+      <p class="narrative">Calendar reads accepted history from canonical completion state and projects only the live future obligation. Date markers distinguish completed history from open work.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>Calendar history read succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>past accepted dose appears as completed history</td>
+            <td>PASS</td>
+            <td class="detail">items=1</td>
+          </tr>
+
+          <tr class="ok">
+            <td>past date marker is completed-only</td>
+            <td>PASS</td>
+            <td class="detail">markers=[{Date:2025-01-10 EventCount:1 CompletedCount:1 OpenCount:0 DriveCount:0}]</td>
+          </tr>
+
+          <tr class="ok">
+            <td>Calendar future read succeeded</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>future recurrence appears as open Calendar work</td>
+            <td>PASS</td>
+            <td class="detail">items=[{EventID:obligation:f088177c-b601-44ee-8c37-dcf4f40d0ad0 EventType:vaccination_dose_due OwnerKey:pc Title:vaccination.e2e.story_ag adult_yearly due Subtitle:E2E-AG Status:overdue Severity:critical DueAt:2026-01-10 00:00:00 &#43;0530 IST WindowStart:2026-01-10 00:00:00 &#43;0530 IST WindowEnd:2026-02-09 00:00:00 &#43;0530 IST Timezone:Asia/Kolkata TimezoneSource:india_only ParkID:0x14000140cf0 ParkCode:0x14000140d00 ShedID:0x14000140d10 ShedName:0x14000140d20 CohortID:&lt;nil&gt; CohortName:&lt;nil&gt; TargetType:goat TargetCount:1 ProtocolID:0x14000140d30 ProtocolVersionID:0x14000140d60 RuleID:0x14000140d70 VaccineName:0x14000140d80 DoseCode:0x14000140d90 SourceBacked:true SourceLabel:vaccination.e2e.story_ag AssigneeLabel:0x14000140da0 ExecutorRole:0x14000140db0 VerifierLabel:&lt;nil&gt; ReminderState:not_scheduled PrimaryNotificationChannel:local-stub EscalationState:none System:false CrossCutting:false Links:[123 34 119 111 114 107 102 108 111 119 34 58 32 34 47 118 97 99 99 105 110 97 116 105 111 110 47 119 111 114 107 102 108 111 119 115 47 111 98 108 105 103 97 116 105 111 110 58 102 48 56 56 49 55 55 99 45 98 54 48 49 45 52 52 101 101 45 56 99 51 55 45 100 99 102 52 102 52 48 100 48 97 100 48 34 44 32 34 118 97 99 99 105 110 97 116 105 111 110 34 58 32 34 47 118 97 99 99 105 110 97 116 105 111 110 47 111 112 101 114 97 116 105 111 110 115 34 44 32 34 97 99 116 105 111 110 95 99 101 110 116 101 114 34 58 32 34 47 118 97 99 99 105 110 97 116 105 111 110 47 97 99 116 105 111 110 45 99 101 110 116 101 114 34 125]}]</td>
+          </tr>
+
+          <tr class="ok">
+            <td>future marker counts open work</td>
+            <td>PASS</td>
+            <td class="detail">markers=[{Date:2026-01-10 EventCount:1 CompletedCount:0 OpenCount:1 DriveCount:0}]</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Cull the goat through identity and refresh Calendar</h3>
+      <p class="narrative">The production culled exit emits goat.exited and SM-3 cancels the next obligation. Refresh tombstones it from Calendar while accepted history remains queryable.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>future Calendar work disappears after exit</td>
+            <td>PASS</td>
+            <td class="detail">items=[] err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>accepted history remains after exit</td>
+            <td>PASS</td>
+            <td class="detail">items=1 err=&lt;nil&gt;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+  </section>
+
+  <section class="story pass">
+    <h2>Clinical defer &#43; health recovery reschedule <span class="badge pass">PASS</span></h2>
+    <p class="narrative">A goat&#39;s PC vaccination dose is generated on schedule. The goat then becomes sick, and the next recheck must hold (defer) its open dose rather than let it slip past due. The goat recovers, and the next recheck must reopen the held dose and realign its due date onto the recovery-time calendar -- the real SM-2 health-recovery path, not a stand-in.</p>
 
     <div class="step">
       <h3>Generate the goat&#39;s primary dose</h3>
@@ -984,24 +1122,12 @@
     </div>
 
     <div class="step">
-      <h3>Goat enters quarantine; the next recheck defers the open dose</h3>
-      <p class="narrative">Flip the goat&#39;s health_status to &#39;quarantine&#39; and recheck generation the next day. The rule&#39;s defer_states include quarantine, so the recheck must hold (defer) the already-open obligation instead of leaving it due.</p>
+      <h3>Goat becomes sick; the identity event recheck defers the open dose</h3>
+      <p class="narrative">The production identity health command commits sick, emits goat.health.changed, and the registered vaccination recheck consumer holds the open obligation.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>recheck (quarantine) ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>recheck deferred the open obligation</td>
-            <td>PASS</td>
-            <td class="detail">deferred=1</td>
-          </tr>
 
           <tr class="ok">
             <td>the obligation is now deferred</td>
@@ -1021,24 +1147,12 @@
     </div>
 
     <div class="step">
-      <h3>Goat recovers; the next recovery-repair recheck reopens and realigns the dose</h3>
-      <p class="narrative">Flip the goat&#39;s health_status back to &#39;healthy&#39; and run the real GenerateRecoveryRepairForGoat recheck. It must call the real ReopenDeferredObligationByIdempotencyKey recovery path, flip the obligation back to scheduled, and realign its due date onto the recovery-time calendar (SM-2 health recovery) -- not leave it at its stale pre-quarantine date.</p>
+      <h3>Goat recovers; the identity event reopens and realigns the dose</h3>
+      <p class="narrative">The production healthy transition emits goat.health.changed. Its recovery recheck must call the real ReopenDeferredObligationByIdempotencyKey path, flip the obligation back to scheduled, and realign its due date onto the recovery-time calendar (SM-2 health recovery) -- not leave it at its stale pre-hold date.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>recheck (recovered) ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>recheck reopened the deferred obligation</td>
-            <td>PASS</td>
-            <td class="detail">reopened=1</td>
-          </tr>
 
           <tr class="ok">
             <td>the obligation is scheduled again</td>
@@ -1047,7 +1161,7 @@
           </tr>
 
           <tr class="ok">
-            <td>the due date was realigned onto the recovery-time calendar, not left at the stale pre-quarantine date</td>
+            <td>the due date was realigned onto the recovery-time calendar, not left at the stale pre-hold date</td>
             <td>PASS</td>
             <td class="detail">original_due=2026-05-22T00:00:00&#43;05:30 recovered_due=2026-06-27T05:30:00&#43;05:30 recover_asOf=2026-06-27T00:00:00Z</td>
           </tr>
@@ -1209,7 +1323,7 @@
           <tr class="ok">
             <td>the shed drive appears in the execution rollup</td>
             <td>PASS</td>
-            <td class="detail">batch=61943b2c-73f1-4c1d-a1ec-05353c39939e rows=1</td>
+            <td class="detail">batch=7cdf55c4-b761-4e57-9235-05c279fa3d9b rows=1</td>
           </tr>
 
           <tr class="ok">
@@ -1301,24 +1415,18 @@
 
   <section class="story pass">
     <h2>Multi-shed drive with FEFO dose consumption <span class="badge pass">PASS</span></h2>
-    <p class="narrative">A single vaccination drive spans two sheds (Shed-A, Shed-B) with separate cohorts. Vaccine doses arrive in batches with staggered expiry dates. The obligation engine ensures FEFO consumption: earlier-expiry doses consumed first, grouped per shed.</p>
+    <p class="narrative">Two singleton sheds generate vaccination work. SM-4 consolidates them into a park drive, reserves the earliest-expiry stock lot, and SM-5 consumes that lot when both doses are accepted; the later lot remains untouched.</p>
 
     <div class="step">
-      <h3>Seed sheds and goats</h3>
-      <p class="narrative">2 sheds seeded (Shed-A, Shed-B). 2 goats total (1 per shed). All K1 stage, alive, healthy.</p>
-
-    </div>
-
-    <div class="step">
-      <h3>Generate obligations</h3>
-      <p class="narrative">2 obligations created (one per goat/shed), both due 2026-07-22, window 2026-08-05. Scheduled status, awaiting vaccination execution.</p>
+      <h3>Generate one obligation per shed through goat.created</h3>
+      <p class="narrative">The production SM-1 consumer creates both obligations at the goats&#39; actual shed scopes.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>both sheds have pending obligations</td>
+            <td>two generated obligations exist</td>
             <td>PASS</td>
             <td class="detail">count=2</td>
           </tr>
@@ -1329,17 +1437,66 @@
     </div>
 
     <div class="step">
-      <h3>Verify shed grouping and FEFO preparation</h3>
-      <p class="narrative">Obligations grouped by shed. In a real drive execution, per-shed batches consume doses in FEFO order (earliest expiry first). Grouping enables efficient vaccination logistics.</p>
+      <h3>Consolidate both singleton sheds and reserve FEFO stock</h3>
+      <p class="narrative">SM-4 forms one park-scoped drive and the inventory reservation path must choose the earliest-expiry eligible lot.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>multi-shed drive ready for execution</td>
+            <td>sweep ran without error</td>
             <td>PASS</td>
-            <td class="detail">count=2</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>both obligations joined one drive</td>
+            <td>PASS</td>
+            <td class="detail">batches=1 obligations=2</td>
+          </tr>
+
+          <tr class="ok">
+            <td>earliest-expiry lot was reserved</td>
+            <td>PASS</td>
+            <td class="detail">reserved=e1000000-0000-4000-8000-0000000000d6 want=e1000000-0000-4000-8000-0000000000d6</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Record and accept both doses through SM-5</h3>
+      <p class="narrative">The real completion service accepts both drive records and consumes the reserved FEFO lot.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>accepted dose for e1000000-0000-4000-8000-0000000000d3</td>
+            <td>PASS</td>
+            <td class="detail">result={CompletionID:954cb34e-3b0e-48ec-8010-1b93c5c2441b Applied:true Completed:true NextScheduled:false} err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>accepted dose for e1000000-0000-4000-8000-0000000000d4</td>
+            <td>PASS</td>
+            <td class="detail">result={CompletionID:6401408f-5254-4567-9a4f-de92ca938539 Applied:true Completed:true NextScheduled:false} err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>two doses were consumed from the early lot</td>
+            <td>PASS</td>
+            <td class="detail">remaining=8</td>
+          </tr>
+
+          <tr class="ok">
+            <td>later-expiry lot remains untouched</td>
+            <td>PASS</td>
+            <td class="detail">remaining=10</td>
           </tr>
 
         </tbody>
@@ -1380,14 +1537,14 @@
 
     <div class="step">
       <h3>Verify schedule milestones</h3>
-      <p class="narrative">First dose scheduled at 21-day offset (4w minus 7d per protocol). Full schedule (4w, 7w, 12w, 16w, 20w) would be auto-generated at birth; this story seeds the first.</p>
+      <p class="narrative">First dose scheduled at 21-day offset (4w minus 7d per protocol). This focused story proves goat.created reaches SM-1; Story G proves the full five-row bundle.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>schedule auto-generated without manual intervention</td>
+            <td>schedule auto-generated by the real goat.created consumer</td>
             <td>PASS</td>
             <td class="detail">count=1</td>
           </tr>
@@ -1404,13 +1561,13 @@
     <p class="narrative">A goat&#39;s vaccination obligation sits in the buffer zone (due but window still open). The sweeper marks it missed when the window closes. Leadership is alerted and reworks the dose onto a new obligation with a new due date; the missed obligation stays missed.</p>
 
     <div class="step">
-      <h3>Seed goat and protocol</h3>
-      <p class="narrative">One goat, one vaccination protocol (21-day offset, 14-day window). Obligation will be manually seeded to track escalation.</p>
+      <h3>Create source fixtures and publish the protocol</h3>
+      <p class="narrative">One goat, one vaccination protocol (21-day offset, 14-day window). The goat.created consumer creates the obligation while its due window is open.</p>
 
     </div>
 
     <div class="step">
-      <h3>Seed in-buffer obligation</h3>
+      <h3>Generate the in-buffer obligation through goat.created</h3>
       <p class="narrative">Obligation due 2026-06-26, window 2026-07-10. As-of date 2026-07-11 (after window closes), the obligation is overdue and its window is closed (now eligible to be marked missed).</p>
 
       <table>
@@ -1469,7 +1626,7 @@
           <tr class="ok">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>PASS</td>
-            <td class="detail">newOblID=&#34;4b65c85e-e227-4497-8e4c-7c5f66f654a0&#34; oblID=&#34;ce58d7e3-f767-4294-b6bf-e2dd69497687&#34;</td>
+            <td class="detail">newOblID=&#34;50d682d8-3c9b-4671-b266-f05f48383088&#34; oblID=&#34;b39a5b2e-5805-4347-8a72-8df409656d35&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -1695,18 +1852,37 @@
 
   <section class="story pass">
     <h2>Death mid-course: future doses auto-cancelled <span class="badge pass">PASS</span></h2>
-    <p class="narrative">A goat is partway through its vaccination course with several scheduled future doses and one already-completed dose. The goat dies. The kernel&#39;s death/exit handler must cancel every open dose so a dead animal shows no outstanding due work, while the completed dose remains as durable history. No cancellation touches other goats.</p>
+    <p class="narrative">A goat is partway through a real generated vaccination course with one accepted historical dose and three future doses. The production identity death command emits goat.exited; SM-3 cancels only future work, preserves history, and is idempotent under event replay.</p>
 
     <div class="step">
-      <h3>Seed a goat mid-course with 3 open doses &#43; 1 completed, plus a bystander goat</h3>
-      <p class="narrative">goatDies has three scheduled future doses and one completed (historical) dose. A second goat (goatLives) has its own open dose that must NOT be affected by the death.</p>
+      <h3>Generate both courses through goat.created</h3>
+      <p class="narrative">The real event consumer runs SM-1 for both goats. Each receives the four authored obligations; no obligation rows are inserted by the story.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>dying goat starts with 3 open scheduled doses</td>
+            <td>both goats received four generated obligations</td>
+            <td>PASS</td>
+            <td class="detail">total=8</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Accept dose 1 through SM-5</h3>
+      <p class="narrative">The first dose is recorded and accepted through CompletionService. This creates durable completed history and vaccination.completed outbox state.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>dying goat starts with three open generated doses</td>
             <td>PASS</td>
             <td class="detail">open=3</td>
           </tr>
@@ -1717,18 +1893,12 @@
     </div>
 
     <div class="step">
-      <h3>Goat dies: fire the real goat.exited handler (SM-3)</h3>
-      <p class="narrative">Mark the goat dead and dispatch a goat.exited event through the real oblapp.GoatExitedHandler -- the same consumer production runs. It must cancel every open dose for that goat.</p>
+      <h3>Exit through the production critical-death command</h3>
+      <p class="narrative">Identity validates and commits the critical death, emits a durable goat.exited envelope, and the production SM-3 consumer cancels the open vaccination work.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>goat.exited handler ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
 
           <tr class="ok">
             <td>no open doses remain for the dead goat</td>
@@ -1737,9 +1907,9 @@
           </tr>
 
           <tr class="ok">
-            <td>all 3 open doses were cancelled</td>
+            <td>all three future doses were canceled</td>
             <td>PASS</td>
-            <td class="detail">cancelled=3</td>
+            <td class="detail">canceled=3</td>
           </tr>
 
         </tbody>
@@ -1748,23 +1918,23 @@
     </div>
 
     <div class="step">
-      <h3>Completed history survives; bystander untouched</h3>
-      <p class="narrative">The already-completed dose stays completed (death does not rewrite history), and the second goat&#39;s open dose is unaffected.</p>
+      <h3>History survives and another goat is untouched</h3>
+      <p class="narrative">The accepted dose remains completed, while all four open obligations belonging to the living bystander remain scheduled.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>the completed dose is still completed</td>
+            <td>completed history remains completed</td>
             <td>PASS</td>
             <td class="detail">status=&#34;completed&#34;</td>
           </tr>
 
           <tr class="ok">
-            <td>the bystander goat&#39;s open dose is untouched</td>
+            <td>bystander&#39;s four obligations are untouched</td>
             <td>PASS</td>
-            <td class="detail">open=1</td>
+            <td class="detail">open=4</td>
           </tr>
 
         </tbody>
@@ -1773,23 +1943,17 @@
     </div>
 
     <div class="step">
-      <h3>Re-deliver the death event: idempotent no-op</h3>
-      <p class="narrative">SM-3 runs under at-least-once delivery. Re-dispatching the same goat.exited event must not error and must not re-cancel or corrupt anything.</p>
+      <h3>Replay the durable exit envelope</h3>
+      <p class="narrative">At-least-once delivery replays the same identity outbox event through SM-3 without duplicating cancellation or corrupting history.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>re-delivered death event is a clean no-op</td>
+            <td>replay remains exactly three canceled doses</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>still exactly 3 cancelled doses after replay</td>
-            <td>PASS</td>
-            <td class="detail">cancelled=3</td>
+            <td class="detail">canceled=3</td>
           </tr>
 
         </tbody>
@@ -1804,7 +1968,7 @@
     <p class="narrative">A goat&#39;s open vaccination dose is scoped to its current shed (Shed-Old), where it would be counted in that shed&#39;s drive. The goat is physically moved to Shed-New. The kernel&#39;s shift handler must re-scope the goat&#39;s open obligation to Shed-New so the new shed&#39;s drive counts it and the old shed no longer does. A stale, out-of-order redelivery must not rewind the scope.</p>
 
     <div class="step">
-      <h3>Seed a goat in Shed-Old with an open dose scoped to Shed-Old</h3>
+      <h3>Generate an open dose for a goat in Shed-Old</h3>
       <p class="narrative">One goat living in Shed-Old, one open scheduled dose scoped shed=Shed-Old (the scope generation stamps so the SM-4 sweeper batches one drive per shed).</p>
 
       <table>
@@ -1837,9 +2001,9 @@
         <tbody>
 
           <tr class="ok">
-            <td>goat.shifted handler ran without error</td>
+            <td>identity move emitted and dispatched goat.location.changed</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
+            <td class="detail">production identity and SM-2 path completed</td>
           </tr>
 
         </tbody>
@@ -2086,7 +2250,7 @@
           <tr class="ok">
             <td>first administration recorded</td>
             <td>PASS</td>
-            <td class="detail">cid=&#34;5aaf2c6b-bae2-4830-a8a3-b519b1adb833&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid=&#34;19fd9085-90a3-42a2-b24f-85275877b24c&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
         </tbody>
@@ -2154,7 +2318,7 @@
           <tr class="ok">
             <td>rework administration recorded under a new key</td>
             <td>PASS</td>
-            <td class="detail">cid2=&#34;41f2488e-d70f-4784-ac6b-a9ff428afad1&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid2=&#34;5fe76e31-533f-44de-a55d-cdd4ca1a6dfa&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
         </tbody>
@@ -2218,7 +2382,7 @@
     <p class="narrative">A drive submission carries an idempotency key per goat dose. The kernel must make re-submission safe: the first submit records the completion; an exact replay of the same submit returns the original completion without creating a duplicate; a replay that reuses the key with a different payload is rejected outright. Flaky networks and retried mobile submits can never double-count a vaccination.</p>
 
     <div class="step">
-      <h3>Seed a real one-shed drive (generate &#43; sweep)</h3>
+      <h3>Build a real one-shed drive through generation and sweep</h3>
       <p class="narrative">One shed/workforce/protocol/goat/stock topology, generated and swept into a single drive batch -- the same real path Story C uses.</p>
 
     </div>
@@ -2234,7 +2398,7 @@
           <tr class="ok">
             <td>first submit recorded a completion</td>
             <td>PASS</td>
-            <td class="detail">cid=&#34;c03962fa-6f66-4efd-84ba-8747a5ef1624&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid=&#34;a7ce4fe7-5992-4c55-9259-d4050572d2d4&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
@@ -2450,7 +2614,7 @@
           <tr class="ok">
             <td>a next-page cursor is returned (keyset pagination, bounded reads)</td>
             <td>PASS</td>
-            <td class="detail">next_cursor=0x140003c4010</td>
+            <td class="detail">next_cursor=0x14000303230</td>
           </tr>
 
         </tbody>
@@ -2504,24 +2668,6 @@
         <tbody>
 
           <tr class="ok">
-            <td>cohort recheck ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>exactly the sick shed&#39;s 8 goats were deferred</td>
-            <td>PASS</td>
-            <td class="detail">deferred=8</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the recheck created no new obligations (all 48 already existed)</td>
-            <td>PASS</td>
-            <td class="detail">generated=0</td>
-          </tr>
-
-          <tr class="ok">
             <td>the sick shed now has zero scheduled (all deferred)</td>
             <td>PASS</td>
             <td class="detail">scheduled=0</td>
@@ -2551,18 +2697,6 @@
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>death handler for ee000000-0000-4000-8000-000000040100 ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>death handler for ee000000-0000-4000-8000-000000040101 ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
 
           <tr class="ok">
             <td>the death shed now has 6 scheduled goats left (2 exited)</td>
@@ -2763,7 +2897,7 @@
 
   <section class="story pass">
     <h2>Deferred goat excluded from shed drive sweep <span class="badge pass">PASS</span></h2>
-    <p class="narrative">Three goats share a shed. One is held (deferred) for quarantine; two are healthy and due. The sweeper must batch only the two healthy goats — the deferred dose must stay unbatched.</p>
+    <p class="narrative">Three goats share a shed. One is held after becoming sick; two are healthy and due. The sweeper must batch only the two healthy goats — the deferred dose must stay unbatched.</p>
 
     <div class="step">
       <h3>Result</h3>
@@ -2791,18 +2925,12 @@
     </div>
 
     <div class="step">
-      <h3>Hold one goat in quarantine</h3>
-      <p class="narrative">The held goat enters quarantine; its open dose must defer and stay out of drive batching.</p>
+      <h3>Hold one goat through the identity health path</h3>
+      <p class="narrative">The goat becomes sick through the production command; goat.health.changed reaches the vaccination recheck and keeps it out of drive batching.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>recheck deferred the held goat</td>
-            <td>PASS</td>
-            <td class="detail">deferred=1 err=&lt;nil&gt;</td>
-          </tr>
 
           <tr class="ok">
             <td>held goat obligation is deferred</td>
@@ -2855,27 +2983,21 @@
   </section>
 
   <section class="story pass">
-    <h2>Death mid-course: scheduled &#43; deferred &#43; missed &#43; batched all cancel forever <span class="badge pass">PASS</span></h2>
-    <p class="narrative">A goat dies while its open vaccination doses are spread across every open status the kernel recognizes: one still attached to a planned drive batch, one deferred (it was mid-quarantine when the goat died), and one already missed (its window had crossed with nobody acting). The real SM-3 death handler must cancel all three forever -- not just the plainly-scheduled one -- release the batch&#39;s reservation count, write a durable outbox event, leave the animal&#39;s completed history alone, and be a clean no-op on redelivery.</p>
+    <h2>Exit cancels generated scheduled, deferred, and missed work <span class="badge pass">PASS</span></h2>
+    <p class="narrative">SM-1 generates a four-rule course. SM-5 completes one dose, MarkMissed closes one window, a production health-change recheck defers one rule, and SM-4 batches open work. A production sold exit then cancels every remaining open status while preserving accepted history.</p>
 
     <div class="step">
-      <h3>Seed one drive batch and four obligations spanning every open status, plus a bystander</h3>
-      <p class="narrative">goatDies gets: (1) a scheduled dose attached to a planned drive batch, (2) a deferred dose (mid-quarantine), (3) a missed dose (window closed with no action), and (4) a completed historical dose. A second goat (goatLives) has its own open dose that must not be touched.</p>
+      <h3>Generate both four-rule courses through goat.created</h3>
+      <p class="narrative">No obligation rows are seeded: the production event consumer materializes every authored rule.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>dying goat starts with 3 open doses across scheduled/deferred/missed</td>
+            <td>dying goat has four generated obligations</td>
             <td>PASS</td>
-            <td class="detail">open=3</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the batch starts with estimated_targets=2</td>
-            <td>PASS</td>
-            <td class="detail">estimated_targets=2</td>
+            <td class="detail">count=4</td>
           </tr>
 
         </tbody>
@@ -2884,17 +3006,17 @@
     </div>
 
     <div class="step">
-      <h3>Goat dies: fire the real goat.exited handler (SM-3)</h3>
-      <p class="narrative">Mark the goat dead and dispatch a goat.exited event through the real oblapp.GoatExitedHandler. It must cancel all three open doses regardless of which open status they are in.</p>
+      <h3>Create completed and missed states through their owners</h3>
+      <p class="narrative">SM-5 accepts the completed rule; MarkMissed advances only the oldest window.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>goat.exited handler ran without error</td>
+            <td>only the oldest generated rule became missed</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
+            <td class="detail">marked=2 err=&lt;nil&gt;</td>
           </tr>
 
         </tbody>
@@ -2903,128 +3025,73 @@
     </div>
 
     <div class="step">
-      <h3>All three open statuses (scheduled/deferred/missed) are cancelled forever</h3>
-      <p class="narrative">Not just the batched scheduled dose -- the deferred (mid-quarantine) and missed doses must also be cancelled. This is the gap Story I&#39;s death coverage did not exercise.</p>
+      <h3>Batch open work through SM-4</h3>
+      <p class="narrative">While the goat is still healthy, the sweeper attaches eligible scheduled/missed work to real planned batches.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>no open doses of any status remain for the dead goat</td>
-            <td>PASS</td>
-            <td class="detail">open=0</td>
-          </tr>
-
-          <tr class="ok">
-            <td>all 3 open doses (scheduled&#43;deferred&#43;missed) were cancelled</td>
-            <td>PASS</td>
-            <td class="detail">cancelled=3</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the batched scheduled dose is cancelled</td>
-            <td>PASS</td>
-            <td class="detail">status=&#34;canceled&#34;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the deferred (mid-quarantine) dose is cancelled</td>
-            <td>PASS</td>
-            <td class="detail">status=&#34;canceled&#34;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the missed dose is cancelled</td>
-            <td>PASS</td>
-            <td class="detail">status=&#34;canceled&#34;</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>Completed history survives; the batch&#39;s reservation count is repaired; bystander untouched</h3>
-      <p class="narrative">Death never rewrites the completed dose. The drive batch that lost obligation 1 has its estimated_targets reduced by the cancellation repair. The second goat&#39;s own open dose is unaffected.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>the completed historical dose is still completed</td>
-            <td>PASS</td>
-            <td class="detail">status=&#34;completed&#34;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the batch&#39;s estimated_targets dropped by 1 (repair for the 1 cancelled obligation it held)</td>
-            <td>PASS</td>
-            <td class="detail">estimated_targets=1</td>
-          </tr>
-
-          <tr class="ok">
-            <td>the bystander goat&#39;s open dose is untouched</td>
-            <td>PASS</td>
-            <td class="detail">open=1</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>A durable outbox event was recorded for the cancellation (audit &#43; outbox kernel step)</h3>
-      <p class="narrative">Each cancelled obligation writes an outbox_messages row (event_type=&#39;goat.obligations_canceled&#39;) in the same transaction as the status change -- the kernel&#39;s golden rule step downstream consumers (batch repair, future notification adapters) rely on, not just a status flip.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>an outbox row exists for each of the 3 cancelled obligations</td>
-            <td>PASS</td>
-            <td class="detail">outbox_rows=3</td>
-          </tr>
-
-        </tbody>
-      </table>
-
-    </div>
-
-    <div class="step">
-      <h3>Re-deliver the death event: idempotent no-op</h3>
-      <p class="narrative">SM-3 runs under at-least-once delivery. Re-dispatching the same goat.exited event must not error and must not re-cancel, double-write outbox rows, or corrupt the batch repair counters.</p>
-
-      <table>
-        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
-        <tbody>
-
-          <tr class="ok">
-            <td>re-delivered death event is a clean no-op</td>
+            <td>sweep ran without error</td>
             <td>PASS</td>
             <td class="detail">err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
-            <td>still exactly 3 cancelled doses after replay</td>
+            <td>at least one open row was batched by SM-4</td>
             <td>PASS</td>
-            <td class="detail">cancelled=3</td>
+            <td class="detail">batched=3</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Defer the authored sick rule through identity and recheck</h3>
+      <p class="narrative">The production health command emits goat.health.changed. Generation recheck moves the matching open rule to deferred and safely detaches it from a planned batch.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>sick-authored rule was deferred by recheck</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;deferred&#34;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Exit through identity and SM-3</h3>
+      <p class="narrative">A sold exit is validated and committed by identity, emitted through outbox, and consumed by the production cancellation handler.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>all three non-completed rows are canceled</td>
+            <td>PASS</td>
+            <td class="detail">canceled=3</td>
           </tr>
 
           <tr class="ok">
-            <td>the batch&#39;s estimated_targets is unchanged by the replay</td>
+            <td>accepted history remains completed</td>
             <td>PASS</td>
-            <td class="detail">estimated_targets=1</td>
+            <td class="detail">status=completed</td>
           </tr>
 
           <tr class="ok">
-            <td>no duplicate outbox rows were written by the replay</td>
+            <td>living bystander has no canceled obligations</td>
             <td>PASS</td>
-            <td class="detail">outbox_rows=3</td>
+            <td class="detail">canceled=0</td>
           </tr>
 
         </tbody>
@@ -3107,24 +3174,12 @@
     </div>
 
     <div class="step">
-      <h3>G-Sick becomes sick; the next recheck defers the open dose</h3>
-      <p class="narrative">Flip health_status=&#39;sick&#39; and recheck the next day. defer_states includes &#39;sick&#39;, so the open dose must be held (deferred), with a durable event recording defer_status=&#39;sick&#39;.</p>
+      <h3>G-Sick becomes sick; the identity event recheck defers the open dose</h3>
+      <p class="narrative">The production identity health command emits goat.health.changed. The registered vaccination recheck consumer holds the open dose and records defer_status=&#39;sick&#39;.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>G-Sick recheck (sick) ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>G-Sick recheck deferred the open obligation</td>
-            <td>PASS</td>
-            <td class="detail">deferred=1</td>
-          </tr>
 
           <tr class="ok">
             <td>G-Sick&#39;s obligation is now deferred</td>
@@ -3144,24 +3199,12 @@
     </div>
 
     <div class="step">
-      <h3>G-Sick recovers; recovery-repair reopens and realigns the dose</h3>
-      <p class="narrative">Flip health_status=&#39;healthy&#39; and run the real GenerateRecoveryRepairForGoat recheck. It must reopen the deferred dose and realign its due date onto the recovery-time calendar.</p>
+      <h3>G-Sick recovers; the identity event reopens and realigns the dose</h3>
+      <p class="narrative">The production healthy command emits goat.health.changed. Its recovery recheck reopens the deferred dose and realigns the due date.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>G-Sick recovery recheck ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>G-Sick recovery recheck reopened the obligation</td>
-            <td>PASS</td>
-            <td class="detail">reopened=1</td>
-          </tr>
 
           <tr class="ok">
             <td>G-Sick&#39;s obligation is scheduled again</td>
@@ -3220,18 +3263,6 @@
         <tbody>
 
           <tr class="ok">
-            <td>G-ICU-Shed recheck ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>G-ICU-Shed recheck deferred the open obligation from the location flag alone</td>
-            <td>PASS</td>
-            <td class="detail">deferred=1</td>
-          </tr>
-
-          <tr class="ok">
             <td>G-ICU-Shed&#39;s obligation is now deferred</td>
             <td>PASS</td>
             <td class="detail">status=&#34;deferred&#34;</td>
@@ -3261,18 +3292,6 @@
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>G-ICU-Shed recovery recheck ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>G-ICU-Shed recovery recheck reopened the obligation</td>
-            <td>PASS</td>
-            <td class="detail">reopened=1</td>
-          </tr>
 
           <tr class="ok">
             <td>G-ICU-Shed&#39;s obligation is scheduled again</td>
@@ -3467,18 +3486,6 @@
         <tbody>
 
           <tr class="ok">
-            <td>G-Pregnant recheck (month 4) ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>G-Pregnant recheck deferred the open obligation</td>
-            <td>PASS</td>
-            <td class="detail">deferred=1</td>
-          </tr>
-
-          <tr class="ok">
             <td>G-Pregnant&#39;s obligation is now deferred</td>
             <td>PASS</td>
             <td class="detail">status=&#34;deferred&#34;</td>
@@ -3566,18 +3573,6 @@
         <tbody>
 
           <tr class="ok">
-            <td>G-Milking recheck (milking) ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>G-Milking recheck deferred the open obligation</td>
-            <td>PASS</td>
-            <td class="detail">deferred=1</td>
-          </tr>
-
-          <tr class="ok">
             <td>G-Milking&#39;s obligation is now deferred</td>
             <td>PASS</td>
             <td class="detail">status=&#34;deferred&#34;</td>
@@ -3596,23 +3591,11 @@
 
     <div class="step">
       <h3>G-Milking leaves the milking state; recovery-repair resumes scheduling</h3>
-      <p class="narrative">Clear reproductive_status back to empty and run the recovery-repair recheck. It must reopen the dose and realign due_at forward.</p>
+      <p class="narrative">Set reproductive_status to the governed non_pregnant value through identity. The emitted recheck must reopen the dose and realign due_at forward.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>G-Milking recovery recheck ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>G-Milking recovery recheck reopened the obligation</td>
-            <td>PASS</td>
-            <td class="detail">reopened=1</td>
-          </tr>
 
           <tr class="ok">
             <td>G-Milking&#39;s obligation is scheduled again</td>
@@ -3726,18 +3709,6 @@
         <tbody>
 
           <tr class="ok">
-            <td>sick recheck ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>all 5 doses were deferred by the sick recheck</td>
-            <td>PASS</td>
-            <td class="detail">deferred=5</td>
-          </tr>
-
-          <tr class="ok">
             <td>obligation set after sick: 0 scheduled, 5 deferred, 0 cancelled</td>
             <td>PASS</td>
             <td class="detail">scheduled=0 deferred=5 canceled=0</td>
@@ -3757,18 +3728,6 @@
         <tbody>
 
           <tr class="ok">
-            <td>recovery recheck ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>all 5 doses were reopened by the recovery recheck</td>
-            <td>PASS</td>
-            <td class="detail">reopened=5</td>
-          </tr>
-
-          <tr class="ok">
             <td>obligation set after recovery: 5 scheduled, 0 deferred, 0 cancelled</td>
             <td>PASS</td>
             <td class="detail">scheduled=5 deferred=0 canceled=0</td>
@@ -3786,18 +3745,6 @@
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
-
-          <tr class="ok">
-            <td>shift payload marshalled</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
-            <td>shift handler ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
 
           <tr class="ok">
             <td>obligation set after shift: still 5 scheduled, 0 deferred, 0 cancelled (only scope moved)</td>
@@ -3831,12 +3778,6 @@
         <tbody>
 
           <tr class="ok">
-            <td>death handler ran without error</td>
-            <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
-          </tr>
-
-          <tr class="ok">
             <td>obligation set after death: 0 scheduled, 0 deferred, 5 cancelled</td>
             <td>PASS</td>
             <td class="detail">scheduled=0 deferred=0 canceled=5</td>
@@ -3858,7 +3799,7 @@
           <tr class="ok">
             <td>redelivered death event ran without error</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
+            <td class="detail">same durable outbox envelope replayed</td>
           </tr>
 
           <tr class="ok">
@@ -3972,16 +3913,16 @@
 
     <div class="step">
       <h3>Goat turns sick after doses were scheduled</h3>
-      <p class="narrative">Health changes after generation; the open dose is still scheduled until SM-4 clinical recheck runs.</p>
+      <p class="narrative">The production identity command emits goat.health.changed; its vaccination consumer defers the open dose before SM-4 can batch it.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>pre-sweep obligation is still scheduled</td>
+            <td>identity event recheck already deferred the obligation</td>
             <td>PASS</td>
-            <td class="detail">status=&#34;scheduled&#34;</td>
+            <td class="detail">status=&#34;deferred&#34;</td>
           </tr>
 
         </tbody>
@@ -4010,7 +3951,7 @@
           </tr>
 
           <tr class="ok">
-            <td>sick goat deferred at sweep time</td>
+            <td>sick goat remains deferred after sweep</td>
             <td>PASS</td>
             <td class="detail">status=&#34;deferred&#34;</td>
           </tr>
@@ -4030,17 +3971,36 @@
 
   <section class="story pass">
     <h2>Clinical safety: sick &#43; missed goat excluded from drive <span class="badge pass">PASS</span></h2>
-    <p class="narrative">A goat&#39;s dose is already missed. The goat then becomes sick. The sweeper must NOT batch that sick missed goat with healthy shed-mates — clinical defer/exclusion must win over missed catch-up batching.</p>
+    <p class="narrative">SM-1 generates three real obligations. Time advances until one becomes missed; the identity health command emits goat.health.changed, and the production recheck/sweeper path excludes that animal while batching the two healthy shed-mates.</p>
 
     <div class="step">
-      <h3>Seed one missed sick goat and two healthy scheduled doses</h3>
-      <p class="narrative">The sick goat already carries a missed obligation; healthy goats are schedulable for catch-up batching.</p>
+      <h3>Generate all three obligations while their windows are open</h3>
+      <p class="narrative">Each goat.created event reaches SM-1. The older due date belongs only to the goat that will later become sick.</p>
 
     </div>
 
     <div class="step">
-      <h3>Sweep must not batch the sick missed goat</h3>
-      <p class="narrative">Only the two healthy goats may attach to the shed drive; the sick missed goat stays off the batch.</p>
+      <h3>Fast-forward missed detection, then apply sickness through identity</h3>
+      <p class="narrative">MarkMissed advances to July 20, closing only the oldest window. The production health command emits and dispatches goat.health.changed.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>exactly the old obligation became missed</td>
+            <td>PASS</td>
+            <td class="detail">marked=1 err=&lt;nil&gt;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Sweep batches only clinically clear goats</h3>
+      <p class="narrative">The real SM-4 sweeper may batch the two healthy obligations but must leave the sick goat unbatched regardless of its prior missed state.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
@@ -4053,13 +4013,13 @@
           </tr>
 
           <tr class="ok">
-            <td>drive batches only healthy goats</td>
+            <td>drive batches only two healthy goats</td>
             <td>PASS</td>
             <td class="detail">obligations=2</td>
           </tr>
 
           <tr class="ok">
-            <td>sick missed goat is NOT on any batch (clinical safety)</td>
+            <td>sick goat is not on any batch</td>
             <td>PASS</td>
             <td class="detail">batch_id=&#34;&#34;</td>
           </tr>
@@ -4140,45 +4100,39 @@
   </section>
 
   <section class="story pass">
-    <h2>Cross-vaccine gap: PPR then Goat Pox floor <span class="badge pass">PASS</span></h2>
-    <p class="narrative">A kid already received PPR. When Goat Pox is generated, the compatibility policy must push the due date to at least 28 days after PPR — even when the raw birth-age offset would be sooner.</p>
+    <h2>Cross-vaccine gap: accepted PPR moves Goat Pox <span class="badge pass">PASS</span></h2>
+    <p class="narrative">PPR is generated and accepted through the production kernel. A later Goat Pox protocol is published with a live-to-live 28-day policy. SM-1 reads canonical accepted history and moves Goat Pox later than its raw birth-age date.</p>
 
     <div class="step">
-      <h3>Seed accepted PPR history late in the kid course</h3>
-      <p class="narrative">PPR was given on 2026-06-25 — after the raw 140-day pox offset would allow scheduling without a gap floor.</p>
+      <h3>Generate and accept PPR through the kernel</h3>
+      <p class="narrative">goat.created runs SM-1. SM-5 accepts the resulting obligation on June 25 and writes canonical completion history.</p>
 
     </div>
 
     <div class="step">
-      <h3>Generate Goat Pox with cross-vaccine gap enforcement</h3>
-      <p class="narrative">The real generation engine must schedule pox at PPR&#43;28d (2026-07-23), not the raw DOB&#43;140d date (2026-07-19).</p>
+      <h3>Publish Goat Pox and regenerate from accepted history</h3>
+      <p class="narrative">After the accepted completion&#39;s verification timestamp, a second goat.created delivery is idempotent for PPR and generates Goat Pox. Compatibility moves the raw July 19 date to PPR&#43;28 days, July 23.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
         <tbody>
 
           <tr class="ok">
-            <td>generation ran without error</td>
+            <td>Goat Pox due date honors the live-to-live floor</td>
             <td>PASS</td>
-            <td class="detail">err=&lt;nil&gt;</td>
+            <td class="detail">got=2026-07-23 want=2026-07-23</td>
           </tr>
 
           <tr class="ok">
-            <td>PPR suppressed, pox generated once</td>
+            <td>compatibility floor is later than raw birth-age scheduling</td>
             <td>PASS</td>
-            <td class="detail">suppressed=1 generated=1</td>
+            <td class="detail">floor=2026-07-23 raw=2026-07-19</td>
           </tr>
 
           <tr class="ok">
-            <td>goat pox due at live-to-live gap floor after PPR</td>
+            <td>PPR completion remains canonical history</td>
             <td>PASS</td>
-            <td class="detail">got_due=2026-07-23 want_due=2026-07-23</td>
-          </tr>
-
-          <tr class="ok">
-            <td>gap floor is later than raw birth-age offset in this scenario</td>
-            <td>PASS</td>
-            <td class="detail">gap_due=2026-07-23 raw_due=2026-07-19</td>
+            <td class="detail">status=completed</td>
           </tr>
 
         </tbody>
@@ -4190,17 +4144,36 @@
 
   <section class="story pass">
     <h2>Missed obligation catch-up batching <span class="badge pass">PASS</span></h2>
-    <p class="narrative">A healthy goat&#39;s dose is already missed while two shed-mates are still schedulable. The sweeper must include the missed row in the same shed catch-up drive — missed status is batchable when the goat is not clinically blocked.</p>
+    <p class="narrative">Three healthy goats receive generated work. The oldest window crosses missed while two remain scheduled. The real sweeper batches all three into the same catch-up drive.</p>
 
     <div class="step">
-      <h3>Seed one missed and two scheduled obligations in the same shed</h3>
-      <p class="narrative">All three goats share one rule/window; only the missed goat crossed its grace window.</p>
+      <h3>Generate three obligations from identity events</h3>
+      <p class="narrative">The missed candidate is generated earlier; the two healthy shed-mates are generated later while all windows are valid.</p>
 
     </div>
 
     <div class="step">
-      <h3>Sweep must batch all three goats into one shed catch-up drive</h3>
-      <p class="narrative">Missed rows are included in the SM-4 unbatched query alongside scheduled/due rows.</p>
+      <h3>Fast-forward only the oldest row into missed</h3>
+      <p class="narrative">The real MarkMissed worker evaluates authored window_end values and closes exactly one obligation.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>exactly one obligation became missed</td>
+            <td>PASS</td>
+            <td class="detail">marked=1 err=&lt;nil&gt;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Sweep all three into date-correct catch-up drives</h3>
+      <p class="narrative">SM-4 treats a clinically clear missed row as batchable, while preserving separate drive dates for the older missed row and the newer scheduled rows.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
@@ -4213,9 +4186,9 @@
           </tr>
 
           <tr class="ok">
-            <td>one shed drive formed</td>
+            <td>two due-date drives formed</td>
             <td>PASS</td>
-            <td class="detail">batches=1</td>
+            <td class="detail">batches=2</td>
           </tr>
 
           <tr class="ok">
@@ -4227,7 +4200,7 @@
           <tr class="ok">
             <td>missed goat is on the catch-up batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;ae887203-54a7-4f13-a217-701d72300326&#34;</td>
+            <td class="detail">batch_id=&#34;7ed3c002-1fd6-4b83-890e-cd145562fc2b&#34;</td>
           </tr>
 
         </tbody>

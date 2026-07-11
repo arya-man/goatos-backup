@@ -1758,6 +1758,7 @@ func insertProtocolRuleDimensionsTx(ctx context.Context, tx pgx.Tx, tenant pgtyp
 	}
 	results := tx.SendBatch(ctx, batch)
 	for idx, dim := range dimensions {
+		// scale-guard:ignore: consumes already-queued pgx batch results; this does not issue one network round trip per dimension.
 		if _, err := results.Exec(); err != nil {
 			_ = results.Close()
 			return fmt.Errorf("protocol: insert rule dimension %s (batch index %d): %w", dim.SelectorKey, idx, err)

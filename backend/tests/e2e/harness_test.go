@@ -19,16 +19,23 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
+	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
+	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
+	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
 	invpg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	invapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	oblpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
-	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	pipg "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/postgres"
 	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	vaccpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
+	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
 )
 
@@ -51,12 +58,14 @@ type Fixture struct {
 	Pool *pgxpool.Pool
 
 	Proto    *protopg.Repository
+	Identity *identityapp.Service
 	Obl      *oblpg.Repository
 	Vacc     *vaccpg.Repository
 	VaccExec *vaccexecpg.Repository
 	Proof    *proofpg.Repository
 	PI       *pipg.Repository
 	Inv      *invapp.Service
+	Calendar *calendarapp.Service
 }
 
 // NewFixture boots a fresh throwaway Postgres container (all committed migrations applied) and
@@ -75,12 +84,161 @@ func NewFixture(t *testing.T) *Fixture {
 		Pool: pool,
 
 		Proto:    protopg.NewRepository(pool, timeout),
+		Identity: identityapp.NewService(identitypg.NewRepository(pool, timeout)),
 		Obl:      oblpg.NewRepository(pool, timeout),
 		Vacc:     vaccpg.NewRepository(pool, timeout),
 		VaccExec: vaccexecpg.NewRepository(pool, timeout),
 		Proof:    proofpg.NewRepository(pool, timeout),
 		PI:       pipg.NewRepository(pool, timeout),
 		Inv:      invapp.NewService(invpg.NewRepository(pool, timeout)),
+		Calendar: calendarapp.NewService(calendarpg.NewRepository(pool, timeout)),
+	}
+}
+
+// PublishGoatEvent dispatches an identity-domain event through the real vaccination generation
+// handlers. Passing a deterministic occurredAt is how stories fast-forward business time without
+// wall-clock sleeps.
+func (f *Fixture) PublishGoatEvent(eventType, goatID string, occurredAt time.Time) {
+	f.T.Helper()
+	gen := vaccapp.NewGenerationService(f.Proto, f.Vacc, f.Obl)
+	bus := eventbus.NewInProcessBus()
+	vaccapp.NewGoatCreatedHandler(gen).Register(bus)
+	vaccapp.NewGoatRecheckHandler(gen).Register(bus)
+	if err := bus.Publish(f.Ctx, eventbus.Event{
+		ID:         "e2e:" + eventType + ":" + goatID + ":" + occurredAt.UTC().Format(time.RFC3339Nano),
+		Type:       eventType,
+		TenantID:   fxTenant,
+		Key:        goatID,
+		OccurredAt: occurredAt,
+	}); err != nil {
+		f.T.Fatalf("publish %s for %s: %v", eventType, goatID, err)
+	}
+}
+
+func (f *Fixture) goatRowVersion(goatID string) int {
+	f.T.Helper()
+	var version int
+	if err := f.Pool.QueryRow(f.Ctx,
+		`SELECT row_version FROM goats WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatID).Scan(&version); err != nil {
+		f.T.Fatalf("read goat row version %s: %v", goatID, err)
+	}
+	return version
+}
+
+// ChangeGoatHealth uses the production identity command, then delivers its durable outbox event to
+// the real vaccination recheck consumer.
+func (f *Fixture) ChangeGoatHealth(goatID, status, key string, occurredAt time.Time) {
+	f.T.Helper()
+	body, _ := json.Marshal(map[string]any{
+		"health_status": status,
+		"reason":        "E2E health transition through identity service",
+		"occurred_at":   occurredAt,
+		"evidence_refs": []map[string]string{{"evidence_type": "source_record", "evidence_id": "e2e-health-" + key}},
+		"row_version":   f.goatRowVersion(goatID),
+	})
+	if _, err := f.Identity.HealthGoat(f.Ctx, identityapp.HealthGoatInput{
+		TenantID: fxTenant, ActorID: fxParty, IdempotencyKey: key, TraceID: "trace-" + key,
+		GoatID: goatID, RawBody: body,
+	}); err != nil {
+		f.T.Fatalf("change goat health %s to %s: %v", goatID, status, err)
+	}
+	f.dispatchIdentityOutbox(goatID, vaccapp.EventGoatHealthChanged)
+}
+
+// ChangeGoatReproductive uses the production identity reproductive command and delivers its
+// durable event to the vaccination recheck consumer.
+func (f *Fixture) ChangeGoatReproductive(goatID, status, key string, occurredAt time.Time, breedingDate *time.Time) {
+	f.T.Helper()
+	bodyMap := map[string]any{
+		"reproductive_status": status,
+		"reason":              "E2E reproductive transition through identity service",
+		"occurred_at":         occurredAt,
+		"evidence_refs":       []map[string]string{{"evidence_type": "source_record", "evidence_id": "e2e-reproductive-" + key}},
+		"row_version":         f.goatRowVersion(goatID),
+	}
+	if breedingDate != nil {
+		bodyMap["breeding_date"] = breedingDate.Format("2006-01-02")
+	}
+	body, _ := json.Marshal(bodyMap)
+	if _, err := f.Identity.ReproductiveGoat(f.Ctx, identityapp.ReproductiveGoatInput{
+		TenantID: fxTenant, ActorID: fxParty, IdempotencyKey: key, TraceID: "trace-" + key,
+		GoatID: goatID, RawBody: body,
+	}); err != nil {
+		f.T.Fatalf("change goat reproductive status %s to %s: %v", goatID, status, err)
+	}
+	f.dispatchIdentityOutbox(goatID, vaccapp.EventGoatReproductiveChanged)
+}
+
+// MoveGoat uses the production identity move command and delivers the emitted location event to
+// both production consumers: obligation re-scope and vaccination recheck.
+func (f *Fixture) MoveGoat(goatID, shedID, key string, occurredAt time.Time) {
+	f.T.Helper()
+	body, _ := json.Marshal(map[string]any{
+		"park_id":       fxPark,
+		"shed_id":       shedID,
+		"reason":        "E2E shed move through identity service",
+		"occurred_at":   occurredAt,
+		"evidence_refs": []map[string]string{{"evidence_type": "source_record", "evidence_id": "e2e-move-" + key}},
+		"row_version":   f.goatRowVersion(goatID),
+	})
+	if _, err := f.Identity.MoveGoat(f.Ctx, identityapp.MoveGoatInput{
+		TenantID: fxTenant, ActorID: fxParty, IdempotencyKey: key, TraceID: "trace-" + key,
+		GoatID: goatID, RawBody: body,
+	}); err != nil {
+		f.T.Fatalf("move goat %s to %s: %v", goatID, shedID, err)
+	}
+	f.dispatchIdentityOutbox(goatID, vaccapp.EventGoatLocationChanged)
+}
+
+// ExitGoat uses the production identity exit command (including the critical-death guardrail path)
+// and delivers the emitted goat.exited envelope to SM-3.
+func (f *Fixture) ExitGoat(goatID, lifecycle, key string, occurredAt time.Time) {
+	f.T.Helper()
+	reasonByLifecycle := map[string]string{"dead": "died", "sold": "sold", "culled": "culled", "transferred": "transferred", "lost": "lost"}
+	exitReason := reasonByLifecycle[lifecycle]
+	body, _ := json.Marshal(map[string]any{
+		"lifecycle_status": lifecycle,
+		"exit_reason":      exitReason,
+		"reason":           "E2E lifecycle exit through identity service",
+		"occurred_at":      occurredAt,
+		"evidence_refs":    []map[string]string{{"evidence_type": "source_record", "evidence_id": "e2e-exit-" + key}},
+		"row_version":      f.goatRowVersion(goatID),
+	})
+	input := identityapp.ExitGoatInput{
+		TenantID: fxTenant, ActorID: fxParty, IdempotencyKey: key, TraceID: "trace-" + key,
+		GoatID: goatID, RawBody: body,
+	}
+	var err error
+	if lifecycle == "dead" {
+		_, err = f.Identity.CriticalDeathExit(f.Ctx, input)
+	} else {
+		_, err = f.Identity.ExitGoat(f.Ctx, input)
+	}
+	if err != nil {
+		f.T.Fatalf("exit goat %s as %s: %v", goatID, lifecycle, err)
+	}
+	f.dispatchIdentityOutbox(goatID, oblapp.EventGoatExited)
+}
+
+func (f *Fixture) dispatchIdentityOutbox(goatID, eventType string) {
+	f.T.Helper()
+	payload := f.scanText(`
+SELECT payload::text
+FROM outbox_messages
+WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type=$3
+ORDER BY created_at DESC
+LIMIT 1`, fxTenant, goatID, eventType)
+	event, err := eventbus.EventFromEnvelope([]byte(payload), eventbus.Event{})
+	if err != nil {
+		f.T.Fatalf("decode %s outbox for %s: %v", eventType, goatID, err)
+	}
+	bus := eventbus.NewInProcessBus()
+	gen := vaccapp.NewGenerationService(f.Proto, f.Vacc, f.Obl)
+	vaccapp.NewGoatRecheckHandler(gen).Register(bus)
+	oblapp.NewGoatShiftedHandler(f.Obl).Register(bus)
+	oblapp.NewGoatExitedHandler(f.Obl).Register(bus)
+	if err := bus.Publish(f.Ctx, event); err != nil {
+		f.T.Fatalf("dispatch %s for %s: %v", eventType, goatID, err)
 	}
 }
 
@@ -306,25 +464,58 @@ func (f *Fixture) PublishSimpleProtocol(code string, offsetDays, dueWindowDays i
 	return versionID, ruleID
 }
 
-// SeedAcceptedCompletion inserts a completed obligation plus an accepted+verified vaccination
-// completion row, mirroring generation_integration_test.go's seedGoatOSCompletion helper. Used by
-// cross-vaccine-gap and trusted-history suppression stories.
-func (f *Fixture) SeedAcceptedCompletion(versionID, ruleID, goatID, idempotencySuffix string, administered time.Time) {
+// AcceptObligation records and accepts a generated vaccination obligation through SM-5. It uses
+// the same atomic completion repository path that production uses, including obligation completion
+// and the durable vaccination.completed outbox event.
+func (f *Fixture) AcceptObligation(obligationID, goatID, idempotencySuffix string, administered time.Time) vaccapp.AcceptResult {
 	f.T.Helper()
-	verifiedAt := administered.Add(2 * time.Hour)
-	obID, applied, err := f.Obl.InsertObligation(f.Ctx, obldomain.NewObligation{
-		TenantID: fxTenant, ProtocolVersionID: versionID, RuleID: ruleID,
-		TargetType: "goat", TargetID: goatID, ScopeType: "tenant", ScopeID: fxTenant,
-		DueAt: administered.Add(48 * time.Hour), Status: "completed",
-		IdempotencyKey: "prior:" + idempotencySuffix, Sequence: 1,
-	})
-	if err != nil || !applied {
-		f.T.Fatalf("seed prior obligation %s: applied=%v err=%v", idempotencySuffix, applied, err)
+	versionID, scopeType, scopeID, sequence, err := f.Obl.GetBoosterContext(f.Ctx, fxTenant, obligationID)
+	if err != nil {
+		f.T.Fatalf("read booster context for %s: %v", obligationID, err)
 	}
-	f.exec("accepted completion "+idempotencySuffix, `
-INSERT INTO vaccination_completions (tenant_id, obligation_id, goat_id, doses, administered_at, status, verified_at, idempotency_key)
-VALUES ($1::uuid, $2::uuid, $3::uuid, 1, $4::timestamptz, 'accepted', $5::timestamptz, $6)`,
-		fxTenant, obID, goatID, administered, verifiedAt, "compl:"+idempotencySuffix)
+	doses := int32(1)
+	completion := vaccapp.NewCompletionService(vaccapp.NewService(f.Vacc), f.Obl, nil)
+	result, err := completion.Accept(f.Ctx, vaccapp.AcceptInput{
+		Completion: vaccdomain.NewCompletion{
+			TenantID: fxTenant, ObligationID: obligationID, GoatID: goatID, Doses: &doses,
+			RouteSite: "subcutaneous", AdministeredAt: administered,
+			IdempotencyKey: "e2e-accept:" + idempotencySuffix,
+		},
+		ProtocolVersionID: versionID,
+		ScopeType:         scopeType,
+		ScopeID:           scopeID,
+		RuleSequence:      sequence,
+	})
+	if err != nil || !result.Applied || !result.Completed {
+		f.T.Fatalf("accept generated obligation %s: result=%+v err=%v", obligationID, result, err)
+	}
+	return result
+}
+
+// DispatchVaccinationCompleted publishes the durable outbox envelope through the real in-process
+// event bus and production vaccination.completed handler. The expected next obligation is therefore
+// created by SM-7, never by test SQL.
+func (f *Fixture) DispatchVaccinationCompleted(obligationID string) {
+	f.T.Helper()
+	payload := f.scanText(`
+SELECT payload::text
+FROM outbox_messages
+WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='vaccination.completed'
+ORDER BY created_at DESC
+LIMIT 1`, fxTenant, obligationID)
+	event, err := eventbus.EventFromEnvelope([]byte(payload), eventbus.Event{})
+	if err != nil {
+		f.T.Fatalf("decode vaccination.completed outbox for %s: %v", obligationID, err)
+	}
+	booster := vaccapp.NewBoosterService(f.Proto, f.Obl).
+		WithGoatReader(f.Vacc).
+		WithCrossVaccineGapReader(f.Vacc)
+	handler := vaccapp.NewVaccinationCompletedHandler(vaccapp.NewService(f.Vacc), f.Obl, booster)
+	bus := eventbus.NewInProcessBus()
+	handler.Register(bus)
+	if err := bus.Publish(f.Ctx, event); err != nil {
+		f.T.Fatalf("publish vaccination.completed for %s: %v", obligationID, err)
+	}
 }
 
 // ---- Story narration / assertion recorder ----

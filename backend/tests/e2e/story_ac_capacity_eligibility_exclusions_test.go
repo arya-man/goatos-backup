@@ -15,7 +15,7 @@ import (
 // five distinct rules the CEO capacity view depends on:
 //
 //  1. a sick goat's cells are excluded from today's capacity count
-//  2. a quarantined goat's cells are excluded from today's capacity count
+//  2. a second clinically held goat's cells are excluded from today's capacity count
 //  3. a medically held goat generates follow-up obligations after hold release (they re-enter the count)
 //  4. one goat needing FMD + HS counts as 2 vaccination cells (capacity is vaccination-level, not animal-level)
 //  5. capacity_status is computed from eligible planned cells, not total herd size
@@ -26,7 +26,7 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-ac", "Shed capacity count uses eligible planned cells, not herd size",
 		"Three goats share a shed; each is due FMD + HS (2 vaccination cells per goat). The shed capacity "+
-			"count must total eligible planned cells only: a sick goat and a quarantined goat drop out of "+
+			"count must total eligible planned cells only: two sick goats drop out of "+
 			"today's count when their doses defer, a recovered goat's doses come back after the hold is "+
 			"released, and one goat needing two vaccines counts as two cells. capacity_status follows those "+
 			"cells — never the raw headcount — while the merged shed headline still surfaces overdue work.")
@@ -46,7 +46,7 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 		stageID = "ac000000-0000-4000-8000-00000000000a"
 		gFMDHS  = "ac000000-0000-4000-8000-000000000010" // healthy throughout — the always-counted goat
 		gSick   = "ac000000-0000-4000-8000-000000000011" // sick -> deferred -> recovered -> reopened
-		gQuar   = "ac000000-0000-4000-8000-000000000012" // quarantined -> deferred (stays out)
+		gHeld   = "ac000000-0000-4000-8000-000000000012" // second clinical hold -> deferred (stays out)
 	)
 	fx.SeedShed(shedID, "E2E-AC", stageID)
 
@@ -65,7 +65,7 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 	dob := asOf
 	fx.SeedGoat(GoatSpec{GoatID: gFMDHS, ShedID: shedID, DOB: &dob})
 	fx.SeedGoat(GoatSpec{GoatID: gSick, ShedID: shedID, DOB: &dob})
-	fx.SeedGoat(GoatSpec{GoatID: gQuar, ShedID: shedID, DOB: &dob})
+	fx.SeedGoat(GoatSpec{GoatID: gHeld, ShedID: shedID, DOB: &dob})
 
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
 
@@ -93,31 +93,24 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 	story.Assert("case 6: merged shed status remains overdue even when capacity needs review",
 		base.Status == vaccexecdomain.ShedStatusOverdue, "status=%q capacity=%q", base.Status, base.Capacity)
 
-	// ---- Case 1 + 2: sick and quarantined goats leave today's count. ----
-	story.Step("Case 1 & 2: sick + quarantined goats defer and drop out of the capacity count",
-		"Flip gSick to 'sick' and gQuar to 'quarantine'; each recheck defers that goat's two open doses. "+
+	// ---- Case 1 + 2: two clinically held goats leave today's count. ----
+	story.Step("Case 1 & 2: two clinically held goats defer and drop out of the capacity count",
+		"Apply two independent sick transitions through the identity command; each emitted recheck defers that goat's two open doses. "+
 			"Both goats' cells must leave open_cells, leaving only gFMDHS's 2 — and capacity_status must fall "+
 			"to within_cap (2 cells, one session). With three animals unchanged, this proves the count follows "+
 			"eligible cells, not the herd.")
 	holdAsOf := asOf // same business day: the dose is still exactly due, so the defer is clinical, not a catch-up
 
-	fx.exec("mark gSick sick", `UPDATE goats SET health_status='sick' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, gSick)
-	sickDefer, err := gen.GenerateForGoat(fx.Ctx, fxTenant, gSick, holdAsOf)
-	story.Assert("gSick recheck ran without error", err == nil, "err=%v", err)
-	story.Assert("gSick's two doses deferred", sickDefer.Deferred == 2, "deferred=%d", sickDefer.Deferred)
-
-	fx.exec("mark gQuar quarantine", `UPDATE goats SET health_status='quarantine' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, gQuar)
-	quarDefer, err := gen.GenerateForGoat(fx.Ctx, fxTenant, gQuar, holdAsOf)
-	story.Assert("gQuar recheck ran without error", err == nil, "err=%v", err)
-	story.Assert("gQuar's two doses deferred", quarDefer.Deferred == 2, "deferred=%d", quarDefer.Deferred)
+	fx.ChangeGoatHealth(gSick, "sick", "story-ac-sick-1", holdAsOf)
+	fx.ChangeGoatHealth(gHeld, "sick", "story-ac-sick-2", holdAsOf)
 
 	sickDeferred := fx.countRows(`SELECT COUNT(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='deferred'`, fxTenant, gSick)
-	quarDeferred := fx.countRows(`SELECT COUNT(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='deferred'`, fxTenant, gQuar)
+	heldDeferred := fx.countRows(`SELECT COUNT(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='deferred'`, fxTenant, gHeld)
 	story.Assert("gSick both obligations are deferred (SQL)", sickDeferred == 2, "deferred rows=%d", sickDeferred)
-	story.Assert("gQuar both obligations are deferred (SQL)", quarDeferred == 2, "deferred rows=%d", quarDeferred)
+	story.Assert("gHeld both obligations are deferred (SQL)", heldDeferred == 2, "deferred rows=%d", heldDeferred)
 
 	held := shedRow(fx, story, shedID, holdAsOf)
-	story.Assert("case 1+2: open_cells drops 6 -> 2 (sick + quarantined cells excluded)", held.OpenCells == 2, "open_cells=%d", held.OpenCells)
+	story.Assert("case 1+2: open_cells drops 6 -> 2 (clinically held cells excluded)", held.OpenCells == 2, "open_cells=%d", held.OpenCells)
 	story.Assert("headcount is still 3 while the count fell to 2 — exclusion is per-cell, not per-animal", held.Animals == 3, "animals=%d", held.Animals)
 	story.Assert("case 5: capacity_status is now within_cap (2 cells, 1 session) — cells, not 3 animals", held.Capacity == vaccexecdomain.CapacityWithinCap, "capacity=%q sessions=%d", held.Capacity, held.Sessions)
 
@@ -126,12 +119,9 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 		"Flip gSick back to 'healthy' and run the real recovery recheck. Both held doses must reopen "+
 			"(follow-up obligations after the hold), realigned onto the recovery calendar. Read the shed "+
 			"as of just past the realigned due date: open_cells must climb back to 4 (gFMDHS 2 + gSick 2). "+
-			"gQuar stays quarantined, so its cells remain excluded — recovery is per-goat.")
-	fx.exec("mark gSick healthy", `UPDATE goats SET health_status='healthy' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, gSick)
+			"gHeld stays clinically held, so its cells remain excluded — recovery is per-goat.")
 	recoverAsOf := holdAsOf.AddDate(0, 0, 3)
-	recover, err := gen.GenerateRecoveryRepairForGoat(fx.Ctx, fxTenant, gSick, recoverAsOf)
-	story.Assert("gSick recovery recheck ran without error", err == nil, "err=%v", err)
-	story.Assert("case 3: both held doses reopened as follow-up obligations", recover.Reopened == 2, "reopened=%d", recover.Reopened)
+	fx.ChangeGoatHealth(gSick, "healthy", "story-ac-recover", recoverAsOf)
 	sickReopened := fx.countRows(`SELECT COUNT(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='scheduled'`, fxTenant, gSick)
 	story.Assert("gSick both obligations are scheduled again (SQL)", sickReopened == 2, "scheduled rows=%d", sickReopened)
 
@@ -139,8 +129,8 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 	realignedDue := fx.scanTime(`SELECT MAX(due_at) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, gSick)
 	postRecovery := shedRow(fx, story, shedID, realignedDue.AddDate(0, 0, 1))
 	story.Assert("case 3: recovered follow-up doses re-enter open_cells -> 4 (gFMDHS 2 + gSick 2)", postRecovery.OpenCells == 4, "open_cells=%d", postRecovery.OpenCells)
-	quarStillDeferred := fx.countRows(`SELECT COUNT(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='deferred'`, fxTenant, gQuar)
-	story.Assert("gQuar stays quarantined/excluded — recovery is per-goat", quarStillDeferred == 2, "gQuar deferred=%d", quarStillDeferred)
+	heldStillDeferred := fx.countRows(`SELECT COUNT(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='deferred'`, fxTenant, gHeld)
+	story.Assert("gHeld stays clinically held/excluded — recovery is per-goat", heldStillDeferred == 2, "gHeld deferred=%d", heldStillDeferred)
 }
 
 // shedRow reads exactly one shed's ShedSummary projection (open_cells + capacity classification) from the

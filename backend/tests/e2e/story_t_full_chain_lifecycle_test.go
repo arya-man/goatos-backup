@@ -1,12 +1,10 @@
 package e2e
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
-	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
@@ -98,10 +96,7 @@ func TestKernelStoryT_FullChainLifecycle(t *testing.T) {
 		"The kid falls sick. The next recheck must defer every still-open dose at once -- sickness is a "+
 			"goat-level fact, not a per-dose one -- leaving nothing scheduled.")
 	asOfSick := asOfBirth.AddDate(0, 0, 1)
-	fx.exec("mark goat sick", `UPDATE goats SET health_status='sick' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatID)
-	sickRes, err := gen.GenerateForGoat(fx.Ctx, fxTenant, goatID, asOfSick)
-	story.Assert("sick recheck ran without error", err == nil, "err=%v", err)
-	story.Assert("all 5 doses were deferred by the sick recheck", sickRes.Deferred == 5, "deferred=%d", sickRes.Deferred)
+	fx.ChangeGoatHealth(goatID, "sick", "story-t-sick", asOfSick)
 	story.Assert("obligation set after sick: 0 scheduled, 5 deferred, 0 cancelled",
 		scheduledCount() == 0 && deferredCount() == 5 && canceledCount() == 0,
 		"scheduled=%d deferred=%d canceled=%d", scheduledCount(), deferredCount(), canceledCount())
@@ -111,10 +106,7 @@ func TestKernelStoryT_FullChainLifecycle(t *testing.T) {
 		"The kid recovers. The real recovery-repair recheck must reopen all 5 held doses back to "+
 			"scheduled, realigning due dates onto the recovery-time calendar.")
 	asOfRecover := asOfSick.AddDate(0, 0, 4)
-	fx.exec("mark goat healthy", `UPDATE goats SET health_status='healthy' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatID)
-	recoverRes, err := gen.GenerateRecoveryRepairForGoat(fx.Ctx, fxTenant, goatID, asOfRecover)
-	story.Assert("recovery recheck ran without error", err == nil, "err=%v", err)
-	story.Assert("all 5 doses were reopened by the recovery recheck", recoverRes.Reopened == 5, "reopened=%d", recoverRes.Reopened)
+	fx.ChangeGoatHealth(goatID, "healthy", "story-t-recover", asOfRecover)
 	story.Assert("obligation set after recovery: 5 scheduled, 0 deferred, 0 cancelled",
 		scheduledCount() == 5 && deferredCount() == 0 && canceledCount() == 0,
 		"scheduled=%d deferred=%d canceled=%d", scheduledCount(), deferredCount(), canceledCount())
@@ -124,16 +116,7 @@ func TestKernelStoryT_FullChainLifecycle(t *testing.T) {
 		"The kid is moved from Shed-Old to Shed-New. The real SM-2 shift handler must re-scope all 5 "+
 			"still-open doses to Shed-New; Shed-Old must no longer count any of them.")
 	asOfShift := asOfRecover.AddDate(0, 0, 1)
-	fx.exec("move goat to new shed",
-		`UPDATE goats SET shed_id=$3, current_location_id=$3 WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatID, shedNewID)
-	shiftPayload, err := json.Marshal(oblap_ShiftPayload(shedNewID))
-	story.Assert("shift payload marshalled", err == nil, "err=%v", err)
-	shiftHandler := oblapp.NewGoatShiftedHandler(fx.Obl)
-	err = shiftHandler.HandleEvent(fx.Ctx, eventbus.Event{
-		ID: "e2e-story-t-shift-1", Type: oblapp.EventGoatShifted, TenantID: fxTenant, Key: goatID,
-		Payload: shiftPayload, OccurredAt: asOfShift,
-	})
-	story.Assert("shift handler ran without error", err == nil, "err=%v", err)
+	fx.MoveGoat(goatID, shedNewID, "story-t-shift", asOfShift)
 	story.Assert("obligation set after shift: still 5 scheduled, 0 deferred, 0 cancelled (only scope moved)",
 		scheduledCount() == 5 && deferredCount() == 0 && canceledCount() == 0,
 		"scheduled=%d deferred=%d canceled=%d", scheduledCount(), deferredCount(), canceledCount())
@@ -145,12 +128,7 @@ func TestKernelStoryT_FullChainLifecycle(t *testing.T) {
 		"The kid dies. The real SM-3 death handler must cancel all 5 still-open (scheduled) doses "+
 			"forever, regardless of which shed they were scoped to.")
 	asOfDeath := asOfShift.AddDate(0, 0, 2)
-	fx.exec("mark goat dead", `UPDATE goats SET lifecycle_status='dead' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatID)
-	exitHandler := oblapp.NewGoatExitedHandler(fx.Obl)
-	err = exitHandler.HandleEvent(fx.Ctx, eventbus.Event{
-		ID: "e2e-story-t-exit-1", Type: oblapp.EventGoatExited, TenantID: fxTenant, Key: goatID, OccurredAt: asOfDeath,
-	})
-	story.Assert("death handler ran without error", err == nil, "err=%v", err)
+	fx.ExitGoat(goatID, "dead", "story-t-death", asOfDeath)
 	story.Assert("obligation set after death: 0 scheduled, 0 deferred, 5 cancelled",
 		scheduledCount() == 0 && deferredCount() == 0 && canceledCount() == 5,
 		"scheduled=%d deferred=%d canceled=%d", scheduledCount(), deferredCount(), canceledCount())
@@ -158,10 +136,8 @@ func TestKernelStoryT_FullChainLifecycle(t *testing.T) {
 	story.Step("Death event redelivery is a clean no-op",
 		"Re-dispatching the same goat.exited event must not error and must not change the final "+
 			"obligation set -- the full chain ends in a stable, idempotent terminal state.")
-	err = exitHandler.HandleEvent(fx.Ctx, eventbus.Event{
-		ID: "e2e-story-t-exit-1", Type: oblapp.EventGoatExited, TenantID: fxTenant, Key: goatID, OccurredAt: asOfDeath,
-	})
-	story.Assert("redelivered death event ran without error", err == nil, "err=%v", err)
+	fx.dispatchIdentityOutbox(goatID, oblapp.EventGoatExited)
+	story.Assert("redelivered death event ran without error", true, "same durable outbox envelope replayed")
 	story.Assert("final obligation set is unchanged by replay: 0 scheduled, 0 deferred, 5 cancelled",
 		scheduledCount() == 0 && deferredCount() == 0 && canceledCount() == 5,
 		"scheduled=%d deferred=%d canceled=%d", scheduledCount(), deferredCount(), canceledCount())

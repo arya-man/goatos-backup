@@ -72,7 +72,6 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 	story.Assert("one shed drive was formed", sweepRes.Batches == 1, "batches=%d", sweepRes.Batches)
 
 	batchID := fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2`, fxTenant, versionID)
-	fx.exec("assign operator to drive", `UPDATE obligation_batches SET conducted_by=$3 WHERE tenant_id=$1 AND batch_id=$2`, fxTenant, batchID, operatorID)
 	oblID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goatID)
 
 	story.Step("Capture the video proof for the drive",

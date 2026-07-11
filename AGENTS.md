@@ -245,6 +245,17 @@ Organization boundaries:
 Do:
 
 - Keep architecture facts in `context/`.
+- Treat every test or script labeled E2E as a production-path proof, never a
+  seeded readback. E2E fixtures may insert only external/input facts required to
+  start the scenario (for example tenant, herd animal, location, workforce,
+  inventory, or authored configuration). Obligations, batches, completions,
+  verification outcomes, SOP tasks/submissions, notifications/escalations,
+  cancellations, and Calendar/process-integrity projections must be produced by
+  the same service, API, durable event consumer, sweeper, or projector used in
+  production. A narrower test that intentionally seeds derived state must live
+  with the owning package as an integration/read-model test and must not appear
+  in an E2E report. `tools/agent-hooks/check-e2e-kernel-integrity.sh` enforces
+  this rule for both Claude and Codex and in CI.
 - Use `.agents/skills/goatos-build/SKILL.md` as the active agent reference map.
 - Use ports/adapters for replaceable vendors and tools.
 - Use OpenAPI REST/JSON for web/mobile app APIs.

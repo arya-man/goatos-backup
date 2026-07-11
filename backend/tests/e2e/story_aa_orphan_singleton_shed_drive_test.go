@@ -5,7 +5,7 @@ import (
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
-	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
 // TestKernelStoryAA_OrphanSingletonShedDrive drives Batch story B layer 3: when only one goat is
@@ -18,16 +18,16 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 	defer story.Finish()
 
 	const (
-		shedID = "ed000000-0000-4000-8000-000000000001"
+		shedID  = "ed000000-0000-4000-8000-000000000001"
 		stageID = "ed000000-0000-4000-8000-000000000002"
-		goatID = "ed000000-0000-4000-8000-000000000010"
-		itemID = "ed000000-0000-4000-8000-000000000020"
+		goatID  = "ed000000-0000-4000-8000-000000000010"
+		itemID  = "ed000000-0000-4000-8000-000000000020"
 	)
 
 	fx.SeedShed(shedID, "E2E-AA", stageID)
-	versionID, ruleID := fx.PublishSimpleProtocol("vaccination.e2e.story_aa", 21, 7, nil)
+	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_aa", 21, 7, nil)
 
-	dob := time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)
+	dob := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
 	fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedID, DOB: &dob})
 	fx.exec("vaccine item",
 		`INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
@@ -38,15 +38,7 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 		"ed000000-0000-4000-8000-000000000021", fxTenant, itemID, shedID)
 
 	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
-	win := due.AddDate(0, 0, 7)
-	if _, applied, err := fx.Obl.InsertObligation(fx.Ctx, obldomain.NewObligation{
-		TenantID: fxTenant, ProtocolVersionID: versionID, RuleID: ruleID,
-		TargetType: "goat", TargetID: goatID, ScopeType: "shed", ScopeID: shedID,
-		DueAt: due, WindowEnd: &win, Status: "scheduled",
-		IdempotencyKey: "e2e-story-aa-singleton", Sequence: 1,
-	}); err != nil || !applied {
-		t.Fatalf("seed singleton obligation: applied=%v err=%v", applied, err)
-	}
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, due)
 
 	story.Step("Sweep with park consolidation enabled but no merge partner",
 		"Layer 1 skips the singleton; layer 2 finds no park merge; layer 3 creates a shed micro-drive.")

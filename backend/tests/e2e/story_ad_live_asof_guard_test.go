@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	vaccexehttp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/http"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	vaccexecdomain "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -29,8 +29,6 @@ func TestKernelStoryAD_LiveAsOfGuard(t *testing.T) {
 
 	serverNow := time.Date(2026, 7, 11, 18, 15, 0, 0, biztime.DefaultLocation())
 	dueAt := time.Date(2026, 7, 18, 0, 0, 0, 0, biztime.DefaultLocation())
-	windowStart := biztime.BusinessDayStart(serverNow)
-	windowEnd := dueAt.AddDate(0, 0, 7)
 
 	const (
 		shedID  = "ad000000-0000-4000-8000-000000000001"
@@ -39,18 +37,10 @@ func TestKernelStoryAD_LiveAsOfGuard(t *testing.T) {
 	)
 
 	fx.SeedShed(shedID, "E2E-AD", stageID)
-	dob := serverNow.AddDate(0, 0, -45)
+	dob := dueAt.AddDate(0, 0, -21)
 	fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedID, DOB: &dob})
-	versionID, ruleID := fx.PublishSimpleProtocol("vaccination.e2e.story_ad", 21, 14, nil)
-	_, applied, err := fx.Obl.InsertObligation(fx.Ctx, obldomain.NewObligation{
-		TenantID: fxTenant, ProtocolVersionID: versionID, RuleID: ruleID,
-		TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: fxPark,
-		DueAt: dueAt, WindowStart: &windowStart, WindowEnd: &windowEnd,
-		Status: "scheduled", IdempotencyKey: "story-ad-live-asof-guard", Sequence: 1,
-	})
-	if err != nil || !applied {
-		t.Fatalf("seed live as_of obligation: applied=%v err=%v", applied, err)
-	}
+	fx.PublishSimpleProtocol("vaccination.e2e.story_ad", 21, 14, nil)
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, serverNow)
 
 	svc := vaccexecapp.NewService(fx.VaccExec)
 	handler := vaccexehttp.NewHandler(svc, nil).WithClock(func() time.Time { return serverNow })
@@ -66,7 +56,7 @@ func TestKernelStoryAD_LiveAsOfGuard(t *testing.T) {
 		return
 	}
 	story.Assert("future as_of does not mark July 18 work overdue",
-		row.Status == vaccexecdomain.ShedStatusDue,
+		row.Status == vaccexecdomain.ShedStatusScheduled,
 		"status=%q next_due=%v due=%d done=%d", row.Status, row.NextDue, row.Due, row.Done)
 	story.Assert("next due stays the July 18 business date",
 		row.NextDue != nil && *row.NextDue == "2026-07-18",

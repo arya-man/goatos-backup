@@ -63,7 +63,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash tools/agent-hooks/format-touched.sh && bash tools/agent-hooks/check-boundaries.sh && bash tools/agent-hooks/check-contract-drift.sh"
+            "command": "bash tools/agent-hooks/format-touched.sh && bash tools/agent-hooks/check-boundaries.sh && bash tools/agent-hooks/check-contract-drift.sh && bash tools/agent-hooks/check-e2e-kernel-integrity.sh"
           },
           {
             "type": "command",

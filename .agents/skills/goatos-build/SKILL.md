@@ -167,6 +167,14 @@ one product; this skill is the navigation layer.
   report must explain the scenario, setup/data, action/trigger, assertions,
   evidence source, and certification boundary; a one-line test name is not a
   report.
+- An E2E label is a certification claim: setup may seed source/input fixtures,
+  but the asserted business outcome must flow through the production
+  service/API/event/worker path. Never insert or update derived obligations,
+  batches, completions, SOP execution, notifications, escalations, Calendar
+  rows, or process-integrity rows in an E2E scenario. Put intentionally
+  derived-state-seeded coverage in the owning package as an integration or
+  read-model test instead. Run
+  `tools/agent-hooks/check-e2e-kernel-integrity.sh` before publishing.
 - Treat backend-driven UI contracts as a golden rule. Admin-web/operator-mobile
   must render backend-owned OpenAPI/app contracts for navigation, route labels,
   page/section titles, table columns, filter/sort/page-size semantics, chips,

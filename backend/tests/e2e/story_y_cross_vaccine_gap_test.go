@@ -7,59 +7,56 @@ import (
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
-// TestKernelStoryY_CrossVaccineGap drives scenario 12: after PPR is accepted, Goat Pox scheduling
-// must honor the live-to-live cross-vaccine gap floor (28 days), not only the raw birth-age offset.
+// TestKernelStoryY_CrossVaccineGap proves accepted PPR history created by SM-5 affects a later,
+// independently published Goat Pox rule through the production generation compatibility policy.
 func TestKernelStoryY_CrossVaccineGap(t *testing.T) {
 	fx := NewFixture(t)
-	story := NewStory(t, "story-y", "Cross-vaccine gap: PPR then Goat Pox floor",
-		"A kid already received PPR. When Goat Pox is generated, the compatibility policy must push "+
-			"the due date to at least 28 days after PPR — even when the raw birth-age offset would be sooner.")
+	story := NewStory(t, "story-y", "Cross-vaccine gap: accepted PPR moves Goat Pox",
+		"PPR is generated and accepted through the production kernel. A later Goat Pox protocol is "+
+			"published with a live-to-live 28-day policy. SM-1 reads canonical accepted history and moves "+
+			"Goat Pox later than its raw birth-age date.")
 	defer story.Finish()
 
 	const (
-		shedID = "ea000000-0000-4000-8000-000000000001"
+		shedID  = "ea000000-0000-4000-8000-000000000001"
 		stageID = "ea000000-0000-4000-8000-000000000002"
-		goatID = "ea000000-0000-4000-8000-000000000010"
+		goatID  = "ea000000-0000-4000-8000-000000000010"
 	)
-
 	fx.SeedShed(shedID, "E2E-Y", stageID)
 	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-	fx.exec("kid goat",
-		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, custodian_party_id, sex,
-		    current_location_id, park_id, shed_id, management_stage, dob, origin_type)
-		 VALUES ($1, $2, 'alive', 'healthy', 'goat', $3, 'female', $4, $5, $4, 'K1', $6::date, 'birth')`,
-		goatID, fxTenant, fxParty, shedID, fxPark, dob)
+	fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedID, DOB: &dob})
 
 	pprEligibility := `{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1"}}`
-	poxEligibility := `{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1"}}`
-	versionID, ruleIDs := fx.PublishScheduleProtocol("vaccination.e2e.story_y",
-		`{"compatibility_policy":{"live_to_live_gap_days":28}}`,
-		[]RuleSpec{
-			{DoseCode: "ppr", Sequence: 1, TriggerType: "birth_age", OffsetDays: 112, DueWindowDays: 14, EligibilityJSON: pprEligibility},
-			{DoseCode: "goat_pox", Sequence: 2, TriggerType: "birth_age", OffsetDays: 140, DueWindowDays: 14, EligibilityJSON: poxEligibility},
-		})
+	_, pprRules := fx.PublishScheduleProtocol("vaccination.e2e.story_y.ppr", "{}", []RuleSpec{{
+		DoseCode: "ppr", Sequence: 1, TriggerType: "birth_age", OffsetDays: 112,
+		DueWindowDays: 14, EligibilityJSON: pprEligibility,
+	}})
 
-	story.Step("Seed accepted PPR history late in the kid course",
-		"PPR was given on 2026-06-25 — after the raw 140-day pox offset would allow scheduling without a gap floor.")
+	story.Step("Generate and accept PPR through the kernel",
+		"goat.created runs SM-1. SM-5 accepts the resulting obligation on June 25 and writes canonical completion history.")
 	pprAt := time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC)
-	fx.SeedAcceptedCompletion(versionID, ruleIDs["ppr"], goatID, "story-y-ppr", pprAt)
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, pprAt.AddDate(0, 0, -1))
+	pprID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND rule_id=$3`, fxTenant, goatID, pprRules["ppr"])
+	fx.AcceptObligation(pprID, goatID, "story-y-ppr", pprAt)
 
-	story.Step("Generate Goat Pox with cross-vaccine gap enforcement",
-		"The real generation engine must schedule pox at PPR+28d (2026-07-23), not the raw DOB+140d date (2026-07-19).")
-	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
-	asOf := pprAt.AddDate(0, 0, 5)
-	res, err := gen.GenerateForGoat(fx.Ctx, fxTenant, goatID, asOf)
-	story.Assert("generation ran without error", err == nil, "err=%v", err)
-	story.Assert("PPR suppressed, pox generated once", res.SuppressedByTrustedHistory == 1 && res.Generated == 1,
-		"suppressed=%d generated=%d", res.SuppressedByTrustedHistory, res.Generated)
+	poxEligibility := `{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1"}}`
+	_, poxRules := fx.PublishScheduleProtocol("vaccination.e2e.story_y.pox",
+		`{"compatibility_policy":{"live_to_live_gap_days":28}}`, []RuleSpec{{
+			DoseCode: "goat_pox", Sequence: 1, TriggerType: "birth_age", OffsetDays: 140,
+			DueWindowDays: 14, EligibilityJSON: poxEligibility,
+		}})
 
+	story.Step("Publish Goat Pox and regenerate from accepted history",
+		"After the accepted completion's verification timestamp, a second goat.created delivery is idempotent for PPR and generates Goat Pox. Compatibility moves the raw July 19 date to PPR+28 days, July 23.")
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC))
 	wantDue := pprAt.AddDate(0, 0, 28)
-	gotDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND rule_id=$3`,
-		fxTenant, goatID, ruleIDs["goat_pox"])
-	story.Assert("goat pox due at live-to-live gap floor after PPR", sameDay(gotDue, wantDue),
-		"got_due=%s want_due=%s", gotDue.Format("2006-01-02"), wantDue.Format("2006-01-02"))
-
-	rawBirthAgeDue := dob.AddDate(0, 0, 140)
-	story.Assert("gap floor is later than raw birth-age offset in this scenario", wantDue.After(rawBirthAgeDue),
-		"gap_due=%s raw_due=%s", wantDue.Format("2006-01-02"), rawBirthAgeDue.Format("2006-01-02"))
+	gotDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND rule_id=$3`, fxTenant, goatID, poxRules["goat_pox"])
+	story.Assert("Goat Pox due date honors the live-to-live floor", sameDay(gotDue, wantDue),
+		"got=%s want=%s", gotDue.Format("2006-01-02"), wantDue.Format("2006-01-02"))
+	rawDue := dob.AddDate(0, 0, 140)
+	story.Assert("compatibility floor is later than raw birth-age scheduling", wantDue.After(rawDue),
+		"floor=%s raw=%s", wantDue.Format("2006-01-02"), rawDue.Format("2006-01-02"))
+	story.Assert("PPR completion remains canonical history",
+		fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, pprID) == "completed",
+		"status=%s", fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, pprID))
 }

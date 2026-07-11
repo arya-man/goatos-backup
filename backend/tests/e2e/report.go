@@ -54,7 +54,7 @@ type Report struct {
 var globalReport = &Report{GeneratedAt: time.Now().UTC()}
 
 // Add appends a finished story's result to the shared report. Safe for concurrent use, though the
-// three stories currently run sequentially (each owns a Docker container).
+// stories currently run sequentially (each owns a Docker container).
 func (r *Report) Add(s StoryResult) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -164,6 +164,19 @@ var reportTemplate = template.Must(template.New("report").Parse(`<!doctype html>
   .summary .tile .n { font-size: 1.6rem; font-weight: 700; display: block; }
   .summary .tile.pass .n { color: #1f8a4c; }
   .summary .tile.fail .n { color: #c62828; }
+  .boundary {
+    background: #eef7f1;
+    border: 1px solid #b9ddc5;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin: 0 0 28px;
+  }
+  .boundary h2 { font-size: 1rem; margin: 0 0 8px; }
+  .boundary p { margin: 6px 0; font-size: 0.9rem; }
+  .boundary code { font-size: 0.82rem; }
+  @media (prefers-color-scheme: dark) {
+    .boundary { background: #17241b; border-color: #31573b; }
+  }
   section.story {
     background: #ffffff;
     border: 1px solid #e1e6ea;
@@ -219,6 +232,24 @@ var reportTemplate = template.Must(template.New("report").Parse(`<!doctype html>
     <div class="tile"><span class="n">{{.AssertionCount}}</span>assertions checked</div>
     <div class="tile {{if gt .AssertionFailCount 0}}fail{{else}}pass{{end}}"><span class="n">{{.AssertionFailCount}}</span>assertions failed</div>
   </div>
+
+  <section class="boundary">
+    <h2>Kernel certification boundary</h2>
+    <p><strong>Production paths:</strong> these stories run the real GoatOS application services,
+      Postgres repositories and transactions, durable outbox envelopes, event consumers, sweepers,
+      proof/verification flows, and read-model projectors named in each story.</p>
+    <p><strong>No seeded outcomes:</strong> source/input fixtures such as goats, sheds, workforce,
+      stock, and authored protocol configuration may be created for setup. Derived obligations,
+      batches, completions, SOP execution, notifications, cancellations, Calendar rows, and
+      process-integrity rows may not be inserted or updated by a story. This is enforced by
+      <code>tools/agent-hooks/check-e2e-kernel-integrity.sh</code> in Claude, Codex, and CI.</p>
+    <p><strong>Fast-forwarding:</strong> business time advances through deterministic
+      <code>OccurredAt</code>/<code>asOf</code> inputs. The suite does not sleep or wait for calendar
+      time to pass.</p>
+    <p><strong>Out of scope:</strong> a story certifies HTTP/browser behavior only when it explicitly
+      invokes that route or browser. Otherwise it certifies the backend operational kernel against
+      ephemeral migrated Postgres, not staging or production infrastructure.</p>
+  </section>
 
   {{range .Stories}}
   <section class="story {{if .Pass}}pass{{else}}fail{{end}}">

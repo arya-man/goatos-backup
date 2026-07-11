@@ -67,12 +67,7 @@ func TestKernelStoryR_PregnancyAndMilkingDefer(t *testing.T) {
 			"skip_from=4/skip_through=5 window. The recheck must defer the open dose.")
 	checkAsOf1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	breedingDate := checkAsOf1.AddDate(0, 0, -100) // wholeDaysBetween = 100 -> month = 100/30 + 1 = 4
-	fx.exec("mark goat pregnant",
-		`UPDATE goats SET reproductive_status='pregnant', breeding_date=$3::date WHERE tenant_id=$1 AND goat_id=$2`,
-		fxTenant, goatPregnant, breedingDate)
-	pregGen2, err := gen.GenerateForGoat(fx.Ctx, fxTenant, goatPregnant, checkAsOf1)
-	story.Assert("G-Pregnant recheck (month 4) ran without error", err == nil, "err=%v", err)
-	story.Assert("G-Pregnant recheck deferred the open obligation", pregGen2.Deferred == 1, "deferred=%d", pregGen2.Deferred)
+	fx.ChangeGoatReproductive(goatPregnant, "pregnant", "story-r-pregnant", checkAsOf1, &breedingDate)
 
 	pregDeferredStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, pregOblID)
 	story.Assert("G-Pregnant's obligation is now deferred", pregDeferredStatus == "deferred", "status=%q", pregDeferredStatus)
@@ -115,10 +110,7 @@ func TestKernelStoryR_PregnancyAndMilkingDefer(t *testing.T) {
 			"this same version, per vaccination-rules.md's 'do not vaccinate milking-department animals "+
 			"during milking'.")
 	milkCheckAsOf1 := genAsOf.AddDate(0, 0, 40)
-	fx.exec("mark goat milking", `UPDATE goats SET reproductive_status='milking' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatMilking)
-	milkGen2, err := gen.GenerateForGoat(fx.Ctx, fxTenant, goatMilking, milkCheckAsOf1)
-	story.Assert("G-Milking recheck (milking) ran without error", err == nil, "err=%v", err)
-	story.Assert("G-Milking recheck deferred the open obligation", milkGen2.Deferred == 1, "deferred=%d", milkGen2.Deferred)
+	fx.ChangeGoatReproductive(goatMilking, "milking", "story-r-milking", milkCheckAsOf1, nil)
 
 	milkDeferredStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, milkOblID)
 	story.Assert("G-Milking's obligation is now deferred", milkDeferredStatus == "deferred", "status=%q", milkDeferredStatus)
@@ -126,13 +118,10 @@ func TestKernelStoryR_PregnancyAndMilkingDefer(t *testing.T) {
 	story.Assert("the durable defer event records defer_status='milking_window_hold'", milkDeferReason == "milking_window_hold", "defer_status=%q", milkDeferReason)
 
 	story.Step("G-Milking leaves the milking state; recovery-repair resumes scheduling",
-		"Clear reproductive_status back to empty and run the recovery-repair recheck. It must reopen "+
+		"Set reproductive_status to the governed non_pregnant value through identity. The emitted recheck must reopen "+
 			"the dose and realign due_at forward.")
-	fx.exec("clear milking state", `UPDATE goats SET reproductive_status='' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatMilking)
 	milkCheckAsOf2 := milkCheckAsOf1.AddDate(0, 0, 5)
-	milkGen3, err := gen.GenerateRecoveryRepairForGoat(fx.Ctx, fxTenant, goatMilking, milkCheckAsOf2)
-	story.Assert("G-Milking recovery recheck ran without error", err == nil, "err=%v", err)
-	story.Assert("G-Milking recovery recheck reopened the obligation", milkGen3.Reopened == 1, "reopened=%d", milkGen3.Reopened)
+	fx.ChangeGoatReproductive(goatMilking, "non_pregnant", "story-r-nonpregnant", milkCheckAsOf2, nil)
 	milkRecoveredStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, milkOblID)
 	story.Assert("G-Milking's obligation is scheduled again", milkRecoveredStatus == "scheduled", "status=%q", milkRecoveredStatus)
 	milkRecoveredDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, milkOblID)

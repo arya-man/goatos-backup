@@ -58,28 +58,20 @@ func TestKernelStoryQ_SickAndICULocationDefer(t *testing.T) {
 		fxTenant, goatSick, versionID)
 	sickOriginalDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, sickOblID)
 
-	story.Step("G-Sick becomes sick; the next recheck defers the open dose",
-		"Flip health_status='sick' and recheck the next day. defer_states includes 'sick', so the open "+
-			"dose must be held (deferred), with a durable event recording defer_status='sick'.")
-	fx.exec("mark goat sick", `UPDATE goats SET health_status='sick' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatSick)
+	story.Step("G-Sick becomes sick; the identity event recheck defers the open dose",
+		"The production identity health command emits goat.health.changed. The registered vaccination recheck consumer holds the open dose and records defer_status='sick'.")
 	sickDeferAsOf := genAsOf.AddDate(0, 0, 1)
-	sickGen2, err := gen.GenerateForGoat(fx.Ctx, fxTenant, goatSick, sickDeferAsOf)
-	story.Assert("G-Sick recheck (sick) ran without error", err == nil, "err=%v", err)
-	story.Assert("G-Sick recheck deferred the open obligation", sickGen2.Deferred == 1, "deferred=%d", sickGen2.Deferred)
+	fx.ChangeGoatHealth(goatSick, "sick", "story-q-sick", sickDeferAsOf)
 
 	sickDeferredStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, sickOblID)
 	story.Assert("G-Sick's obligation is now deferred", sickDeferredStatus == "deferred", "status=%q", sickDeferredStatus)
 	sickDeferStatus := fx.scanText(`SELECT payload->>'defer_status' FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='deferred'`, fxTenant, sickOblID)
 	story.Assert("the durable defer event records defer_status='sick' (not quarantine/icu)", sickDeferStatus == "sick", "defer_status=%q", sickDeferStatus)
 
-	story.Step("G-Sick recovers; recovery-repair reopens and realigns the dose",
-		"Flip health_status='healthy' and run the real GenerateRecoveryRepairForGoat recheck. It must "+
-			"reopen the deferred dose and realign its due date onto the recovery-time calendar.")
-	fx.exec("mark goat healthy", `UPDATE goats SET health_status='healthy' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatSick)
+	story.Step("G-Sick recovers; the identity event reopens and realigns the dose",
+		"The production healthy command emits goat.health.changed. Its recovery recheck reopens the deferred dose and realigns the due date.")
 	sickRecoverAsOf := sickDeferAsOf.AddDate(0, 0, 3)
-	sickGen3, err := gen.GenerateRecoveryRepairForGoat(fx.Ctx, fxTenant, goatSick, sickRecoverAsOf)
-	story.Assert("G-Sick recovery recheck ran without error", err == nil, "err=%v", err)
-	story.Assert("G-Sick recovery recheck reopened the obligation", sickGen3.Reopened == 1, "reopened=%d", sickGen3.Reopened)
+	fx.ChangeGoatHealth(goatSick, "healthy", "story-q-recover", sickRecoverAsOf)
 	sickRecoveredStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, sickOblID)
 	story.Assert("G-Sick's obligation is scheduled again", sickRecoveredStatus == "scheduled", "status=%q", sickRecoveredStatus)
 	sickRecoveredDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, sickOblID)
@@ -109,12 +101,8 @@ func TestKernelStoryQ_SickAndICULocationDefer(t *testing.T) {
 			"NOT touched -- it must still read 'healthy'. The recheck must defer the open dose purely "+
 			"because the goat's current location is ICU-flagged (deferredReason's g.LocationIsICU branch), "+
 			"recording defer_status='location_icu'.")
-	fx.exec("move goat into ICU shed",
-		`UPDATE goats SET shed_id=$3, current_location_id=$3 WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatICU, shedICUID)
 	icuDeferAsOf := genAsOf.AddDate(0, 0, 1)
-	icuGen2, err := gen.GenerateForGoat(fx.Ctx, fxTenant, goatICU, icuDeferAsOf)
-	story.Assert("G-ICU-Shed recheck ran without error", err == nil, "err=%v", err)
-	story.Assert("G-ICU-Shed recheck deferred the open obligation from the location flag alone", icuGen2.Deferred == 1, "deferred=%d", icuGen2.Deferred)
+	fx.MoveGoat(goatICU, shedICUID, "story-q-icu", icuDeferAsOf)
 
 	icuDeferredStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, icuOblID)
 	story.Assert("G-ICU-Shed's obligation is now deferred", icuDeferredStatus == "deferred", "status=%q", icuDeferredStatus)
@@ -128,12 +116,8 @@ func TestKernelStoryQ_SickAndICULocationDefer(t *testing.T) {
 	story.Step("G-ICU-Shed is moved back to a normal shed; recovery-repair reopens and realigns",
 		"Move the goat back to the normal (non-ICU) shed and run GenerateRecoveryRepairForGoat. It must "+
 			"reopen the held dose and realign due_at forward, exactly like a health recovery.")
-	fx.exec("move goat back to normal shed",
-		`UPDATE goats SET shed_id=$3, current_location_id=$3 WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatICU, shedNormalID)
 	icuRecoverAsOf := icuDeferAsOf.AddDate(0, 0, 3)
-	icuGen3, err := gen.GenerateRecoveryRepairForGoat(fx.Ctx, fxTenant, goatICU, icuRecoverAsOf)
-	story.Assert("G-ICU-Shed recovery recheck ran without error", err == nil, "err=%v", err)
-	story.Assert("G-ICU-Shed recovery recheck reopened the obligation", icuGen3.Reopened == 1, "reopened=%d", icuGen3.Reopened)
+	fx.MoveGoat(goatICU, shedNormalID, "story-q-icu-recover", icuRecoverAsOf)
 	icuRecoveredStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, icuOblID)
 	story.Assert("G-ICU-Shed's obligation is scheduled again", icuRecoveredStatus == "scheduled", "status=%q", icuRecoveredStatus)
 	icuRecoveredDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, icuOblID)

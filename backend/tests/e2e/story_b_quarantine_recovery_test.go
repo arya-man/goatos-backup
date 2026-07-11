@@ -7,25 +7,14 @@ import (
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
-// TestKernelStoryB_QuarantineDeferRecovery drives the real SM-2 health-defer/recovery path end to
-// end through the generation service, mirroring
-// internal/vaccination/adapters/postgres/generation_integration_test.go's
-// TestGoatRecheckDefersExistingScheduledObligation for the defer half, and adding the recovery half.
-//
-// The recovery recheck deliberately calls GenerateRecoveryRepairForGoat, NOT GenerateForGoat: the
-// generation service exposes two distinct single-goat entrypoints (see generation.go) --
-// GenerateForGoat (the plain goat.created path, generationOptions{}) and
-// GenerateRecoveryRepairForGoat (generationOptions{healthRecoveryAlign: true}, the same option the
-// real GoatRecheckHandler event consumer uses for goat.health.changed/goat.location.changed). Only
-// the recovery-repair path computes a RecoveryReschedule and realigns due_at on reopen; calling
-// GenerateForGoat here would still flip the obligation back to 'scheduled' correctly, but would
-// silently leave due_at at its stale pre-quarantine value. GenerateRecoveryRepairForGoat is a real,
-// wired production entrypoint (cmd/generate-vaccination-obligations/main.go's recovery-repair CLI
-// path), not a test-only shortcut.
-func TestKernelStoryB_QuarantineDeferRecovery(t *testing.T) {
+// TestKernelStoryB_ClinicalHoldRecovery drives the real SM-2 health-defer/recovery path through
+// Identity commands, their durable outbox envelopes, and the production vaccination recheck
+// consumer. The recovery consumer invokes the recovery-repair generation mode, which realigns the
+// reopened obligation's due date instead of leaving its pre-hold date in place.
+func TestKernelStoryB_ClinicalHoldRecovery(t *testing.T) {
 	fx := NewFixture(t)
-	story := NewStory(t, "story-b", "Quarantine defer + health recovery reschedule",
-		"A goat's PC vaccination dose is generated on schedule. The goat then enters quarantine, and the "+
+	story := NewStory(t, "story-b", "Clinical defer + health recovery reschedule",
+		"A goat's PC vaccination dose is generated on schedule. The goat then becomes sick, and the "+
 			"next recheck must hold (defer) its open dose rather than let it slip past due. The goat "+
 			"recovers, and the next recheck must reopen the held dose and realign its due date onto the "+
 			"recovery-time calendar -- the real SM-2 health-recovery path, not a stand-in.")
@@ -53,17 +42,11 @@ func TestKernelStoryB_QuarantineDeferRecovery(t *testing.T) {
 	originalStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, obligationID)
 	story.Assert("the generated obligation starts scheduled", originalStatus == "scheduled", "status=%q", originalStatus)
 
-	// --- Goat enters quarantine. ---
-	story.Step("Goat enters quarantine; the next recheck defers the open dose",
-		"Flip the goat's health_status to 'quarantine' and recheck generation the next day. The rule's "+
-			"defer_states include quarantine, so the recheck must hold (defer) the already-open obligation "+
-			"instead of leaving it due.")
-	fx.exec("mark goat quarantine", `UPDATE goats SET health_status='quarantine' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatID)
-
+	// --- Goat becomes sick. ---
+	story.Step("Goat becomes sick; the identity event recheck defers the open dose",
+		"The production identity health command commits sick, emits goat.health.changed, and the registered vaccination recheck consumer holds the open obligation.")
 	deferAsOf := genAsOf.AddDate(0, 0, 1)
-	res2, err := gen.GenerateForGoat(fx.Ctx, fxTenant, goatID, deferAsOf)
-	story.Assert("recheck (quarantine) ran without error", err == nil, "err=%v", err)
-	story.Assert("recheck deferred the open obligation", res2.Deferred == 1, "deferred=%d", res2.Deferred)
+	fx.ChangeGoatHealth(goatID, "sick", "story-b-sick", deferAsOf)
 
 	deferredStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, obligationID)
 	story.Assert("the obligation is now deferred", deferredStatus == "deferred", "status=%q", deferredStatus)
@@ -71,23 +54,18 @@ func TestKernelStoryB_QuarantineDeferRecovery(t *testing.T) {
 	story.Assert("a durable 'deferred' audit event was recorded", deferredEvents == 1, "events=%d", deferredEvents)
 
 	// --- Goat recovers. ---
-	story.Step("Goat recovers; the next recovery-repair recheck reopens and realigns the dose",
-		"Flip the goat's health_status back to 'healthy' and run the real GenerateRecoveryRepairForGoat "+
-			"recheck. It must call the real ReopenDeferredObligationByIdempotencyKey recovery path, flip "+
+	story.Step("Goat recovers; the identity event reopens and realigns the dose",
+		"The production healthy transition emits goat.health.changed. Its recovery recheck must call the real ReopenDeferredObligationByIdempotencyKey path, flip "+
 			"the obligation back to scheduled, and realign its due date onto the recovery-time calendar "+
-			"(SM-2 health recovery) -- not leave it at its stale pre-quarantine date.")
-	fx.exec("mark goat healthy", `UPDATE goats SET health_status='healthy' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, goatID)
-
+			"(SM-2 health recovery) -- not leave it at its stale pre-hold date.")
 	recoverAsOf := deferAsOf.AddDate(0, 0, 3)
-	res3, err := gen.GenerateRecoveryRepairForGoat(fx.Ctx, fxTenant, goatID, recoverAsOf)
-	story.Assert("recheck (recovered) ran without error", err == nil, "err=%v", err)
-	story.Assert("recheck reopened the deferred obligation", res3.Reopened == 1, "reopened=%d", res3.Reopened)
+	fx.ChangeGoatHealth(goatID, "healthy", "story-b-recover", recoverAsOf)
 
 	recoveredStatus := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, obligationID)
 	story.Assert("the obligation is scheduled again", recoveredStatus == "scheduled", "status=%q", recoveredStatus)
 
 	recoveredDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, obligationID)
-	story.Assert("the due date was realigned onto the recovery-time calendar, not left at the stale pre-quarantine date",
+	story.Assert("the due date was realigned onto the recovery-time calendar, not left at the stale pre-hold date",
 		!recoveredDue.Equal(originalDue) && recoveredDue.After(originalDue),
 		"original_due=%s recovered_due=%s recover_asOf=%s",
 		originalDue.Format(time.RFC3339), recoveredDue.Format(time.RFC3339), recoverAsOf.Format(time.RFC3339))

@@ -29,6 +29,9 @@ type RuleSpec struct {
 	TriggerType     string // "birth_age" | "post_arrival"
 	OffsetDays      int32
 	DueWindowDays   int32
+	MinGapDays      int32
+	Repeat          string
+	CatchUp         string
 	EligibilityJSON string // optional; default `{}`
 }
 
@@ -74,10 +77,18 @@ func (f *Fixture) PublishScheduleProtocol(code, ruleDSL string, rules []RuleSpec
 		if eligibility == "" {
 			eligibility = `{}`
 		}
+		repeat := r.Repeat
+		if repeat == "" {
+			repeat = "none"
+		}
+		catchUp := r.CatchUp
+		if catchUp == "" {
+			catchUp = "pc_approval"
+		}
 		rid, err := f.Proto.CreateRule(f.Ctx, protodomain.NewRule{
 			TenantID: fxTenant, ProtocolVersionID: versionID, DoseCode: r.DoseCode, Sequence: r.Sequence,
 			TriggerType: trigger, OffsetDays: r.OffsetDays, DueWindowDays: r.DueWindowDays,
-			Repeat: "none", CatchUp: "pc_approval",
+			MinGapDays: r.MinGapDays, Repeat: repeat, CatchUp: catchUp,
 			EligibilityJSON: []byte(eligibility), ProofPolicy: []byte(`{}`),
 		})
 		if err != nil {

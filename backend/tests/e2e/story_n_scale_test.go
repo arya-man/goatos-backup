@@ -6,7 +6,6 @@ import (
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
-	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	pidomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
@@ -144,13 +143,11 @@ func TestKernelStoryN_Scale(t *testing.T) {
 			"defer exactly that shed's goats and touch no others -- a dynamic event at scale is still a "+
 			"per-goat decision, not a per-shed or per-herd rewrite.")
 	sickShedID := shedIDs[0]
-	fx.exec("mark shed 0's goats sick",
-		`UPDATE goats SET health_status='sick' WHERE tenant_id=$1 AND shed_id=$2`, fxTenant, sickShedID)
 	recheckAsOf := now.AddDate(0, 0, 2)
-	recheckRes, err := gen.GenerateForVersion(fx.Ctx, fxTenant, versionID, recheckAsOf)
-	story.Assert("cohort recheck ran without error", err == nil, "err=%v", err)
-	story.Assert(fmt.Sprintf("exactly the sick shed's %d goats were deferred", goatsPerShed), recheckRes.Deferred == goatsPerShed, "deferred=%d", recheckRes.Deferred)
-	story.Assert("the recheck created no new obligations (all 48 already existed)", recheckRes.Generated == 0, "generated=%d", recheckRes.Generated)
+	for g := 0; g < goatsPerShed; g++ {
+		goatID := fmt.Sprintf("ee000000-0000-4000-8000-00000004%02d%02d", 0, g)
+		fx.ChangeGoatHealth(goatID, "sick", fmt.Sprintf("story-n-sick-%d", g), recheckAsOf)
+	}
 
 	sickShedScheduled := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND scope_type='shed' AND scope_id=$2 AND status='scheduled'`, fxTenant, sickShedID)
 	story.Assert("the sick shed now has zero scheduled (all deferred)", sickShedScheduled == 0, "scheduled=%d", sickShedScheduled)
@@ -172,14 +169,9 @@ func TestKernelStoryN_Scale(t *testing.T) {
 	deathShedID := shedIDs[1]
 	deadGoat1 := fmt.Sprintf("ee000000-0000-4000-8000-00000004%02d%02d", 1, 0)
 	deadGoat2 := fmt.Sprintf("ee000000-0000-4000-8000-00000004%02d%02d", 1, 1)
-	exitHandler := oblapp.NewGoatExitedHandler(fx.Obl)
 	exitAt := recheckAsOf.AddDate(0, 0, 1)
 	for _, deadGoat := range []string{deadGoat1, deadGoat2} {
-		fx.exec("mark goat dead", `UPDATE goats SET lifecycle_status='dead' WHERE tenant_id=$1 AND goat_id=$2`, fxTenant, deadGoat)
-		err := exitHandler.HandleEvent(fx.Ctx, eventbus.Event{
-			ID: "e2e-story-n-exit-" + deadGoat, Type: oblapp.EventGoatExited, TenantID: fxTenant, Key: deadGoat, OccurredAt: exitAt,
-		})
-		story.Assert(fmt.Sprintf("death handler for %s ran without error", deadGoat), err == nil, "err=%v", err)
+		fx.ExitGoat(deadGoat, "dead", "story-n-exit-"+deadGoat, exitAt)
 	}
 
 	deathShedScheduled := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND scope_type='shed' AND scope_id=$2 AND status='scheduled'`, fxTenant, deathShedID)

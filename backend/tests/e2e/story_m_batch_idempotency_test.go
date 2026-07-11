@@ -38,7 +38,7 @@ func TestKernelStoryM_BatchIdempotency(t *testing.T) {
 		lotID      = "ed000000-0000-4000-8000-000000000009"
 	)
 
-	story.Step("Seed a real one-shed drive (generate + sweep)",
+	story.Step("Build a real one-shed drive through generation and sweep",
 		"One shed/workforce/protocol/goat/stock topology, generated and swept into a single drive batch "+
 			"-- the same real path Story C uses.")
 	fx.SeedShed(shedID, "E2E-M", stageID)

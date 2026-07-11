@@ -5,17 +5,17 @@ import (
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
-	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
-// TestKernelStoryW_SickMissedSweepSafety guards Bug 1 from vaccination-vertical-bugs-and-contradictions.txt:
-// a goat with a MISSED obligation that becomes clinically sick must NOT be batched into an active
-// shed drive with healthy shed-mates. Clinical recheck must defer or exclude missed rows at sweep time.
+// TestKernelStoryW_SickMissedSweepSafety proves a generated missed dose cannot enter a drive after
+// the production health-change/recheck path marks the animal clinically blocked.
 func TestKernelStoryW_SickMissedSweepSafety(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-w", "Clinical safety: sick + missed goat excluded from drive",
-		"A goat's dose is already missed. The goat then becomes sick. The sweeper must NOT batch that "+
-			"sick missed goat with healthy shed-mates — clinical defer/exclusion must win over missed catch-up batching.")
+		"SM-1 generates three real obligations. Time advances until one becomes missed; the identity "+
+			"health command emits goat.health.changed, and the production recheck/sweeper path excludes that "+
+			"animal while batching the two healthy shed-mates.")
 	defer story.Finish()
 
 	const (
@@ -28,50 +28,39 @@ func TestKernelStoryW_SickMissedSweepSafety(t *testing.T) {
 	)
 
 	fx.SeedShed(shedID, "E2E-W", stageID)
-	versionID, ruleID := fx.PublishSimpleProtocol("vaccination.e2e.story_w", 21, 14, []string{"sick", "quarantine", "icu"})
-
-	now := time.Now().UTC()
-	dob := now.AddDate(0, 0, -53)
-	fx.SeedGoat(GoatSpec{GoatID: sickID, ShedID: shedID, DOB: &dob, Health: "sick"})
-	fx.SeedGoat(GoatSpec{GoatID: healthy1, ShedID: shedID, DOB: &dob})
-	fx.SeedGoat(GoatSpec{GoatID: healthy2, ShedID: shedID, DOB: &dob})
-	fx.exec("vaccine item",
-		`INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
-		 VALUES ($1, $2, 'VAC-E2E-W', 'E2E Story W vaccine', 'vaccine', 'dose')`, itemID, fxTenant)
-	fx.exec("vaccine stock",
-		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
-		 VALUES ($1, $2, $3, $4, 20, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`,
+	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_w", 21, 14, []string{"sick", "quarantine", "icu"})
+	now := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	sickDue := now.AddDate(0, 0, -20)
+	healthyDue := now.AddDate(0, 0, -10)
+	sickDOB := sickDue.AddDate(0, 0, -21)
+	healthyDOB := healthyDue.AddDate(0, 0, -21)
+	fx.SeedGoat(GoatSpec{GoatID: sickID, ShedID: shedID, DOB: &sickDOB})
+	fx.SeedGoat(GoatSpec{GoatID: healthy1, ShedID: shedID, DOB: &healthyDOB})
+	fx.SeedGoat(GoatSpec{GoatID: healthy2, ShedID: shedID, DOB: &healthyDOB})
+	fx.exec("vaccine item", `INSERT INTO inventory_items (item_id, tenant_id, item_code, name, category, base_unit)
+		VALUES ($1, $2, 'VAC-E2E-W', 'E2E Story W vaccine', 'vaccine', 'dose')`, itemID, fxTenant)
+	fx.exec("vaccine stock", `INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
+		VALUES ($1, $2, $3, $4, 20, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`,
 		"f8000000-0000-4000-8000-000000000021", fxTenant, itemID, shedID)
 
-	story.Step("Seed one missed sick goat and two healthy scheduled doses",
-		"The sick goat already carries a missed obligation; healthy goats are schedulable for catch-up batching.")
-	due := now.AddDate(0, 0, -10)
-	win := due.AddDate(0, 0, 14)
-	for _, row := range []struct {
-		goatID, key, status string
-	}{
-		{sickID, "e2e-story-w-missed", "missed"},
-		{healthy1, "e2e-story-w-h1", "scheduled"},
-		{healthy2, "e2e-story-w-h2", "scheduled"},
-	} {
-		_, applied, err := fx.Obl.InsertObligation(fx.Ctx, obldomain.NewObligation{
-			TenantID: fxTenant, ProtocolVersionID: versionID, RuleID: ruleID,
-			TargetType: "goat", TargetID: row.goatID, ScopeType: "shed", ScopeID: shedID,
-			DueAt: due, WindowEnd: &win, Status: row.status,
-			IdempotencyKey: row.key, Sequence: 1,
-		})
-		if err != nil || !applied {
-			t.Fatalf("seed %s: applied=%v err=%v", row.key, applied, err)
-		}
-	}
+	story.Step("Generate all three obligations while their windows are open",
+		"Each goat.created event reaches SM-1. The older due date belongs only to the goat that will later become sick.")
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, sickID, sickDue)
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, healthy1, healthyDue)
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, healthy2, healthyDue)
 
-	story.Step("Sweep must not batch the sick missed goat",
-		"Only the two healthy goats may attach to the shed drive; the sick missed goat stays off the batch.")
+	story.Step("Fast-forward missed detection, then apply sickness through identity",
+		"MarkMissed advances to July 20, closing only the oldest window. The production health command emits and dispatches goat.health.changed.")
 	sweeper := oblapp.NewSweeperService(fx.Obl, nil, fx.Inv)
+	marked, err := sweeper.MarkMissed(fx.Ctx, fxTenant, now)
+	story.Assert("exactly the old obligation became missed", err == nil && marked == 1, "marked=%d err=%v", marked, err)
+	fx.ChangeGoatHealth(sickID, "sick", "story-w-sick", now)
+
+	story.Step("Sweep batches only clinically clear goats",
+		"The real SM-4 sweeper may batch the two healthy obligations but must leave the sick goat unbatched regardless of its prior missed state.")
 	sweepRes, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, oblapp.SweepConfig{VaccineItemID: itemID, DosesPerGoat: 1}, now.AddDate(0, 0, 1))
 	story.Assert("sweep ran without error", err == nil, "err=%v", err)
-	story.Assert("drive batches only healthy goats", sweepRes.Obligations == 2, "obligations=%d", sweepRes.Obligations)
-
+	story.Assert("drive batches only two healthy goats", sweepRes.Obligations == 2, "obligations=%d", sweepRes.Obligations)
 	sickBatch := fx.scanText(`SELECT COALESCE(batch_id::text, '') FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, sickID)
-	story.Assert("sick missed goat is NOT on any batch (clinical safety)", sickBatch == "", "batch_id=%q", sickBatch)
+	story.Assert("sick goat is not on any batch", sickBatch == "", "batch_id=%q", sickBatch)
 }
