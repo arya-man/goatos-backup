@@ -1320,18 +1320,28 @@ func TestShedSummaryReadsSeededShed(t *testing.T) {
 	}
 }
 
-func TestShedSummaryOverdueOutranksSplit(t *testing.T) {
+func TestShedSummaryOverdueOutranksCapacityHeadlines(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
 	seedVaccinationExecutionProjection(t, ctx, pool)
+	execProjectionSQL(t, ctx, pool, "tight capacity config", `
+INSERT INTO vaccination_capacity_config (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy)
+VALUES ($1, 2, 'tenant', 1, 'split_within_safe_window_then_mark_needs_review')
+ON CONFLICT (tenant_id) DO UPDATE
+  SET max_per_day = EXCLUDED.max_per_day,
+      capacity_scope = EXCLUDED.capacity_scope,
+      max_buffer_days = EXCLUDED.max_buffer_days,
+      overflow_policy = EXCLUDED.overflow_policy,
+      row_version = vaccination_capacity_config.row_version + 1,
+      updated_at = now()`, testTenant)
 
 	batchID := "72000000-0000-4000-8000-000000000001"
 	insertProjectionBatch(t, ctx, pool, batchID, "planned")
 	asOf := time.Date(2026, 7, 11, 18, 0, 0, 0, time.UTC)
-	for i := 1; i <= 101; i++ {
+	for i := 1; i <= 5; i++ {
 		goatID := fmt.Sprintf("71000000-0000-4000-8000-%012d", i)
 		obligationID := fmt.Sprintf("73000000-0000-4000-8000-%012d", i)
 		insertProjectionGoat(t, ctx, pool, goatID, testShed, testPark)
@@ -1356,11 +1366,11 @@ func TestShedSummaryOverdueOutranksSplit(t *testing.T) {
 	if found == nil {
 		t.Fatalf("seeded shed %s not present in summary rows", testShed)
 	}
-	if found.Sessions <= 1 || found.Capacity != domain.CapacityOverCap {
-		t.Fatalf("setup failed: sessions=%d capacity=%q, want over-cap split setup", found.Sessions, found.Capacity)
+	if found.Sessions <= 2 || found.Capacity != domain.CapacityBreach {
+		t.Fatalf("setup failed: sessions=%d capacity=%q, want capacity-breach setup", found.Sessions, found.Capacity)
 	}
 	if found.Status != domain.ShedStatusOverdue {
-		t.Fatalf("status = %q, want overdue to outrank split when any animal is late", found.Status)
+		t.Fatalf("status = %q, want overdue to outrank capacity breach when any animal is late", found.Status)
 	}
 
 	overdueStatus := domain.ShedStatusOverdue
@@ -1378,19 +1388,34 @@ func TestShedSummaryOverdueOutranksSplit(t *testing.T) {
 		t.Fatalf("overdue filter did not include shed with overdue animals")
 	}
 
-	splitStatus := domain.ShedStatusSplit
-	splitRows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
+	needsReviewStatus := domain.ShedStatusNeedsReview
+	needsReviewRows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
 		TenantID:  testTenant,
 		AsOf:      asOf,
 		DueBefore: asOf.Add(30 * 24 * time.Hour),
-		Status:    &splitStatus,
+		Status:    &needsReviewStatus,
 		Limit:     50,
 	})
 	if err != nil {
-		t.Fatalf("ShedSummary(split filter): %v", err)
+		t.Fatalf("ShedSummary(needs_review filter): %v", err)
 	}
-	if shedSummaryByShed(splitRows, testShed) != nil {
-		t.Fatalf("split filter hid an overdue shed; capacity split must not steal overdue headline status")
+	if shedSummaryByShed(needsReviewRows, testShed) != nil {
+		t.Fatalf("needs_review status filter included an overdue shed; capacity breach must not steal overdue headline status")
+	}
+
+	breachCapacity := domain.CapacityBreach
+	breachRows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
+		TenantID:  testTenant,
+		AsOf:      asOf,
+		DueBefore: asOf.Add(30 * 24 * time.Hour),
+		Capacity:  &breachCapacity,
+		Limit:     50,
+	})
+	if err != nil {
+		t.Fatalf("ShedSummary(capacity_breach filter): %v", err)
+	}
+	if shedSummaryByShed(breachRows, testShed) == nil {
+		t.Fatalf("capacity_breach filter must still include the overdue shed on the capacity axis")
 	}
 }
 

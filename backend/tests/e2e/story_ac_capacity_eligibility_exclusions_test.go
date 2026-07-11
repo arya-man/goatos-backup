@@ -14,11 +14,12 @@ import (
 // live Postgres, with genuine generated + recheck-deferred + recovery-reopened obligations, and asserts
 // five distinct rules the CEO capacity view depends on:
 //
-//	1. a sick goat's cells are excluded from today's capacity count
-//	2. a quarantined goat's cells are excluded from today's capacity count
-//	3. a medically held goat generates follow-up obligations after hold release (they re-enter the count)
-//	4. one goat needing FMD + HS counts as 2 vaccination cells (capacity is vaccination-level, not animal-level)
-//	5. capacity_status is computed from eligible planned cells, not total herd size
+//  1. a sick goat's cells are excluded from today's capacity count
+//  2. a quarantined goat's cells are excluded from today's capacity count
+//  3. a medically held goat generates follow-up obligations after hold release (they re-enter the count)
+//  4. one goat needing FMD + HS counts as 2 vaccination cells (capacity is vaccination-level, not animal-level)
+//  5. capacity_status is computed from eligible planned cells, not total herd size
+//  6. the merged shed headline can stay overdue while capacity_status is capacity_breach
 //
 // Three goats share ONE shed; every goat is on a 2-dose (FMD + HS) version, so each contributes 2 cells.
 func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
@@ -28,7 +29,7 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 			"count must total eligible planned cells only: a sick goat and a quarantined goat drop out of "+
 			"today's count when their doses defer, a recovered goat's doses come back after the hold is "+
 			"released, and one goat needing two vaccines counts as two cells. capacity_status follows those "+
-			"cells — never the raw headcount.")
+			"cells — never the raw headcount — while the merged shed headline still surfaces overdue work.")
 	defer story.Finish()
 
 	// Small tenant cap so capacity_status is sensitive to the exact cell count: 2 vaccinations/day, 1 buffer
@@ -41,11 +42,11 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 		 WHERE tenant_id = $1`, fxTenant)
 
 	const (
-		shedID   = "ac000000-0000-4000-8000-000000000001"
-		stageID  = "ac000000-0000-4000-8000-00000000000a"
-		gFMDHS   = "ac000000-0000-4000-8000-000000000010" // healthy throughout — the always-counted goat
-		gSick    = "ac000000-0000-4000-8000-000000000011" // sick -> deferred -> recovered -> reopened
-		gQuar    = "ac000000-0000-4000-8000-000000000012" // quarantined -> deferred (stays out)
+		shedID  = "ac000000-0000-4000-8000-000000000001"
+		stageID = "ac000000-0000-4000-8000-00000000000a"
+		gFMDHS  = "ac000000-0000-4000-8000-000000000010" // healthy throughout — the always-counted goat
+		gSick   = "ac000000-0000-4000-8000-000000000011" // sick -> deferred -> recovered -> reopened
+		gQuar   = "ac000000-0000-4000-8000-000000000012" // quarantined -> deferred (stays out)
 	)
 	fx.SeedShed(shedID, "E2E-AC", stageID)
 
@@ -82,12 +83,15 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 	story.Step("Capacity count = eligible cells, not headcount",
 		"The shed has 3 alive animals but 6 open vaccination cells. open_cells must read 6 (the planner "+
 			"input), and capacity_status must classify off those 6 cells: ceil(6 / cap 2) = 3 sessions > the "+
-			"2-day window => needs review. A headcount-based count (3 animals) would only be over_cap.")
+			"2-day window => needs review. A headcount-based count (3 animals) would only be over_cap. "+
+			"Because these cells are already late in the as-of read model, the merged shed status stays overdue.")
 	base := shedRow(fx, story, shedID, asOf)
 	story.Assert("shed has 3 alive animals", base.Animals == 3, "animals=%d", base.Animals)
 	story.Assert("case 4/5: open_cells counts vaccinations (6), not animals (3)", base.OpenCells == 6, "open_cells=%d animals=%d", base.OpenCells, base.Animals)
 	story.Assert("case 5: capacity_status is driven by the 6 cells (needs review), not the 3 animals (would be over_cap)",
 		base.Capacity == vaccexecdomain.CapacityBreach, "capacity=%q sessions=%d", base.Capacity, base.Sessions)
+	story.Assert("case 6: merged shed status remains overdue even when capacity needs review",
+		base.Status == vaccexecdomain.ShedStatusOverdue, "status=%q capacity=%q", base.Status, base.Capacity)
 
 	// ---- Case 1 + 2: sick and quarantined goats leave today's count. ----
 	story.Step("Case 1 & 2: sick + quarantined goats defer and drop out of the capacity count",

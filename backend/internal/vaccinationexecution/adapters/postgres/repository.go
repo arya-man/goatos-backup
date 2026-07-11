@@ -1034,8 +1034,8 @@ func shedSummaryOrderBy(sort domain.ShedSummarySort) string {
 		return "next_due ASC NULLS LAST, park_name ASC, shed_name ASC"
 	default: // ShedSortStatus — merged-status priority (most urgent first), then park, then shed.
 		return "CASE shed_status " +
-			"WHEN 'needs_review' THEN 0 " +
-			"WHEN 'overdue' THEN 1 " +
+			"WHEN 'overdue' THEN 0 " +
+			"WHEN 'needs_review' THEN 1 " +
 			"WHEN 'split' THEN 2 " +
 			"WHEN 'due' THEN 3 " +
 			"WHEN 'scheduled' THEN 4 " +
@@ -1317,8 +1317,8 @@ classified AS (
       ELSE 'capacity_breach'
     END AS capacity_status,
     CASE
-      WHEN sessions > ($10::int + 1) THEN 'needs_review'  -- capacity breach
       WHEN overdue_animals > 0 THEN 'overdue'
+      WHEN sessions > ($10::int + 1) THEN 'needs_review'  -- capacity breach with no late animal
       WHEN sessions > 1 THEN 'split'                       -- over cap, safely split
       WHEN due_animals > 0 THEN 'due'
       WHEN scheduled_animals > 0 THEN 'scheduled'

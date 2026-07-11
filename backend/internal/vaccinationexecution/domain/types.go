@@ -396,7 +396,7 @@ type CoverageResponse struct {
 // ShedStatus is the CEO-friendly merged headline shown in the shed row Status column. It folds the
 // capacity state and the vaccination state into ONE label by priority (highest first):
 //
-//	needs_review (capacity breach) > overdue > split (safely split across days) > due > scheduled > on_track
+//	overdue > needs_review (capacity breach with no late animal) > split (safely split across days) > due > scheduled > on_track
 //
 // This is the INTERNAL machine vocabulary; the CEO UI renders the backend-provided label (never the raw
 // token, never the word "state"). "within_cap" never appears here — a shed that fits in one day falls
@@ -404,8 +404,8 @@ type CoverageResponse struct {
 type ShedStatus string
 
 const (
-	ShedStatusNeedsReview ShedStatus = "needs_review" // capacity breach — highest priority
 	ShedStatusOverdue     ShedStatus = "overdue"      // >=1 overdue animal
+	ShedStatusNeedsReview ShedStatus = "needs_review" // capacity breach with no late animal
 	ShedStatusSplit       ShedStatus = "split"        // safely split across multiple days (over cap), none overdue
 	ShedStatusDue         ShedStatus = "due"          // >=1 due animal, none overdue
 	ShedStatusScheduled   ShedStatus = "scheduled"    // only future scheduled work, nothing due
@@ -475,7 +475,7 @@ type ShedSummaryResponse struct {
 type ShedSummarySort string
 
 const (
-	ShedSortStatus     ShedSummarySort = "status"       // DEFAULT: merged status priority (needs_review > overdue > split > due > scheduled > on_track), then park, then shed
+	ShedSortStatus     ShedSummarySort = "status"       // DEFAULT: merged status priority (overdue > needs_review > split > due > scheduled > on_track), then park, then shed
 	ShedSortParkShed   ShedSummarySort = "park_shed"    // park name, then shed name (alphabetical)
 	ShedSortDueDesc    ShedSummarySort = "due_desc"     // most due animals first
 	ShedSortAnimalDesc ShedSummarySort = "animals_desc" // largest sheds first

@@ -573,7 +573,7 @@ func (h *Handler) ListShedSummary(w http.ResponseWriter, r *http.Request) {
 	if status := query.Get("status"); status != "" {
 		shedStatus := vaccexecd.ShedStatus(status)
 		if !allowedShedStatuses[shedStatus] {
-			h.badRequest(w, r, "invalid_status", "status must be needs_review, overdue, split, due, scheduled, or on_track")
+			h.badRequest(w, r, "invalid_status", "status must be overdue, needs_review, split, due, scheduled, or on_track")
 			return
 		}
 		q.Status = &shedStatus

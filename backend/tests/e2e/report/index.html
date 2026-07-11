@@ -82,13 +82,13 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-07-11 13:32:11 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-07-11 14:03:01 UTC &middot; backend/tests/e2e</p>
 
   <div class="summary">
-    <div class="tile"><span class="n">36</span>stories</div>
-    <div class="tile pass"><span class="n">36</span>stories passed</div>
+    <div class="tile"><span class="n">37</span>stories</div>
+    <div class="tile pass"><span class="n">37</span>stories passed</div>
     <div class="tile fail"><span class="n">0</span>stories failed</div>
-    <div class="tile"><span class="n">384</span>assertions checked</div>
+    <div class="tile"><span class="n">395</span>assertions checked</div>
     <div class="tile pass"><span class="n">0</span>assertions failed</div>
   </div>
 
@@ -169,7 +169,7 @@
           <tr class="ok">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>PASS</td>
-            <td class="detail">newObl=&#34;6e0af8b8-bb41-4f47-97b7-de77d5d38649&#34; missedObl=&#34;4cbf8d25-ae4e-4e5e-aabc-3bb623ef9c50&#34;</td>
+            <td class="detail">newObl=&#34;5a652f89-7eee-467c-b6a6-4f80fd62e6d2&#34; missedObl=&#34;a1822c5a-9c0c-48d1-9e23-4d0eb3b210ac&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -236,7 +236,7 @@
           <tr class="ok">
             <td>replay returns the same new obligation id, not a second new one</td>
             <td>PASS</td>
-            <td class="detail">replayObl=&#34;6e0af8b8-bb41-4f47-97b7-de77d5d38649&#34; newObl=&#34;6e0af8b8-bb41-4f47-97b7-de77d5d38649&#34;</td>
+            <td class="detail">replayObl=&#34;5a652f89-7eee-467c-b6a6-4f80fd62e6d2&#34; newObl=&#34;5a652f89-7eee-467c-b6a6-4f80fd62e6d2&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -285,7 +285,7 @@
           <tr class="ok">
             <td>orphan goat is on a batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;b1514ee0-655f-4222-8549-ad5adc6b5485&#34;</td>
+            <td class="detail">batch_id=&#34;721d8231-7aed-4380-9acb-87fdc1145e15&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -489,7 +489,7 @@
 
   <section class="story pass">
     <h2>Shed capacity count uses eligible planned cells, not herd size <span class="badge pass">PASS</span></h2>
-    <p class="narrative">Three goats share a shed; each is due FMD &#43; HS (2 vaccination cells per goat). The shed capacity count must total eligible planned cells only: a sick goat and a quarantined goat drop out of today&#39;s count when their doses defer, a recovered goat&#39;s doses come back after the hold is released, and one goat needing two vaccines counts as two cells. capacity_status follows those cells — never the raw headcount.</p>
+    <p class="narrative">Three goats share a shed; each is due FMD &#43; HS (2 vaccination cells per goat). The shed capacity count must total eligible planned cells only: a sick goat and a quarantined goat drop out of today&#39;s count when their doses defer, a recovered goat&#39;s doses come back after the hold is released, and one goat needing two vaccines counts as two cells. capacity_status follows those cells — never the raw headcount — while the merged shed headline still surfaces overdue work.</p>
 
     <div class="step">
       <h3>Generate: three goats × two vaccines = six planned cells</h3>
@@ -524,7 +524,7 @@
 
     <div class="step">
       <h3>Capacity count = eligible cells, not headcount</h3>
-      <p class="narrative">The shed has 3 alive animals but 6 open vaccination cells. open_cells must read 6 (the planner input), and capacity_status must classify off those 6 cells: ceil(6 / cap 2) = 3 sessions &gt; the 2-day window =&gt; needs review. A headcount-based count (3 animals) would only be over_cap.</p>
+      <p class="narrative">The shed has 3 alive animals but 6 open vaccination cells. open_cells must read 6 (the planner input), and capacity_status must classify off those 6 cells: ceil(6 / cap 2) = 3 sessions &gt; the 2-day window =&gt; needs review. A headcount-based count (3 animals) would only be over_cap. Because these cells are already late in the as-of read model, the merged shed status stays overdue.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
@@ -552,6 +552,12 @@
             <td>case 5: capacity_status is driven by the 6 cells (needs review), not the 3 animals (would be over_cap)</td>
             <td>PASS</td>
             <td class="detail">capacity=&#34;capacity_breach&#34; sessions=3</td>
+          </tr>
+
+          <tr class="ok">
+            <td>case 6: merged shed status remains overdue even when capacity needs review</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;overdue&#34; capacity=&#34;capacity_breach&#34;</td>
           </tr>
 
         </tbody>
@@ -704,13 +710,13 @@
           <tr class="ok">
             <td>future as_of does not mark July 18 work overdue</td>
             <td>PASS</td>
-            <td class="detail">status=&#34;due&#34; next_due=0x140001234b0 due=1 done=0</td>
+            <td class="detail">status=&#34;due&#34; next_due=0x140001e89f0 due=1 done=0</td>
           </tr>
 
           <tr class="ok">
             <td>next due stays the July 18 business date</td>
             <td>PASS</td>
-            <td class="detail">next_due=0x140001234b0</td>
+            <td class="detail">next_due=0x140001e89f0</td>
           </tr>
 
         </tbody>
@@ -735,7 +741,7 @@
           <tr class="ok">
             <td>future URL and live URL agree on status</td>
             <td>PASS</td>
-            <td class="detail">future_status=&#34;due&#34; live_status=&#34;due&#34; future_next=0x140001234b0 live_next=0x14000123630</td>
+            <td class="detail">future_status=&#34;due&#34; live_status=&#34;due&#34; future_next=0x140001e89f0 live_next=0x1400004f4b0</td>
           </tr>
 
         </tbody>
@@ -828,6 +834,111 @@
             <td>future next-cycle row remains visible</td>
             <td>PASS</td>
             <td class="detail">rows=2</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+  </section>
+
+  <section class="story pass">
+    <h2>Capacity breach keeps Overdue as the shed headline <span class="badge pass">PASS</span></h2>
+    <p class="narrative">A shed with more open vaccination cells than the safe window can carry is still an overdue shed when any animal is late. The merged Status chip must show Overdue; the separate Capacity chip must still show Needs review so managers can find the capacity breach.</p>
+
+    <div class="step">
+      <h3>Generate six due vaccination cells</h3>
+      <p class="narrative">Three goats each need FMD and HS. With the tenant cap tightened to 2/day and a 1-day buffer, six open cells require three sessions, which exceeds the two-day safe window.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>both generation passes succeeded</td>
+            <td>PASS</td>
+            <td class="detail">errF=&lt;nil&gt; errH=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>six open cells generated</td>
+            <td>PASS</td>
+            <td class="detail">fmd=3 hs=3</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Read shed summary after the due day</h3>
+      <p class="narrative">On the next business day at least one animal is late. The capacity axis must remain capacity_breach, but the merged Status headline must be overdue.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>shed summary read without error</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>open_cells still counts all six due vaccination cells</td>
+            <td>PASS</td>
+            <td class="detail">open_cells=6</td>
+          </tr>
+
+          <tr class="ok">
+            <td>six cells at 2/day need three sessions</td>
+            <td>PASS</td>
+            <td class="detail">sessions=3</td>
+          </tr>
+
+          <tr class="ok">
+            <td>capacity axis is Needs review</td>
+            <td>PASS</td>
+            <td class="detail">capacity=&#34;capacity_breach&#34;</td>
+          </tr>
+
+          <tr class="ok">
+            <td>merged shed status is Overdue</td>
+            <td>PASS</td>
+            <td class="detail">status=&#34;overdue&#34;</td>
+          </tr>
+
+        </tbody>
+      </table>
+
+    </div>
+
+    <div class="step">
+      <h3>Filter axes stay independent</h3>
+      <p class="narrative">Status filtering follows the merged headline, while capacity filtering follows the capacity machine state. This keeps overdue visible without losing the Needs review capacity queue.</p>
+
+      <table>
+        <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
+        <tbody>
+
+          <tr class="ok">
+            <td>status=overdue includes the collision shed</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt; rows=1</td>
+          </tr>
+
+          <tr class="ok">
+            <td>status=needs_review does not steal the overdue shed</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt; rows=0</td>
+          </tr>
+
+          <tr class="ok">
+            <td>capacity=capacity_breach still includes the shed</td>
+            <td>PASS</td>
+            <td class="detail">err=&lt;nil&gt; rows=1</td>
           </tr>
 
         </tbody>
@@ -1098,7 +1209,7 @@
           <tr class="ok">
             <td>the shed drive appears in the execution rollup</td>
             <td>PASS</td>
-            <td class="detail">batch=cc0c9083-dc2b-43a0-a1ea-3fe8621d619e rows=1</td>
+            <td class="detail">batch=61943b2c-73f1-4c1d-a1ec-05353c39939e rows=1</td>
           </tr>
 
           <tr class="ok">
@@ -1358,7 +1469,7 @@
           <tr class="ok">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>PASS</td>
-            <td class="detail">newOblID=&#34;34285a9f-797a-4805-99f4-6dc17646684d&#34; oblID=&#34;2827c19f-30e0-46bb-aad7-c451608dd751&#34;</td>
+            <td class="detail">newOblID=&#34;4b65c85e-e227-4497-8e4c-7c5f66f654a0&#34; oblID=&#34;ce58d7e3-f767-4294-b6bf-e2dd69497687&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -1975,7 +2086,7 @@
           <tr class="ok">
             <td>first administration recorded</td>
             <td>PASS</td>
-            <td class="detail">cid=&#34;ad55befc-f01e-4d2b-af53-dd40c374e29b&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid=&#34;5aaf2c6b-bae2-4830-a8a3-b519b1adb833&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
         </tbody>
@@ -2043,7 +2154,7 @@
           <tr class="ok">
             <td>rework administration recorded under a new key</td>
             <td>PASS</td>
-            <td class="detail">cid2=&#34;d2de05e4-715d-440f-a93b-3ab9f1375b90&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid2=&#34;41f2488e-d70f-4784-ac6b-a9ff428afad1&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
         </tbody>
@@ -2123,7 +2234,7 @@
           <tr class="ok">
             <td>first submit recorded a completion</td>
             <td>PASS</td>
-            <td class="detail">cid=&#34;2593037f-560e-4dc4-a9e3-12ec217cb87a&#34; applied=true err=&lt;nil&gt;</td>
+            <td class="detail">cid=&#34;c03962fa-6f66-4efd-84ba-8747a5ef1624&#34; applied=true err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
@@ -2339,7 +2450,7 @@
           <tr class="ok">
             <td>a next-page cursor is returned (keyset pagination, bounded reads)</td>
             <td>PASS</td>
-            <td class="detail">next_cursor=0x14000118dd0</td>
+            <td class="detail">next_cursor=0x140003c4010</td>
           </tr>
 
         </tbody>
@@ -4116,7 +4227,7 @@
           <tr class="ok">
             <td>missed goat is on the catch-up batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;05eb5534-5f15-47c6-aa45-632d59d700c7&#34;</td>
+            <td class="detail">batch_id=&#34;ae887203-54a7-4f13-a217-701d72300326&#34;</td>
           </tr>
 
         </tbody>
