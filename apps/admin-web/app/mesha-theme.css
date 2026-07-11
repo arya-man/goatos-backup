@@ -470,6 +470,12 @@
   /* Shed-wise vaccination table (10 cols): widen Manager/Backup (cols 8,9) for names; scrolls on narrow. */
   .main table.shed-summary-table{min-width:1080px}
   .main table.shed-summary-table th:nth-child(8),.main table.shed-summary-table td:nth-child(8),.main table.shed-summary-table th:nth-child(9),.main table.shed-summary-table td:nth-child(9){min-width:140px}
+  /* Numeric cols (Animals/Due/Done/Sessions = 3-6) + Next due (col 7) carry plain text with no ClipText,
+     so the global .celllink overflow-wrap:anywhere breaks "93"->"9/3" and the date char-by-char once the
+     column narrows. Keep these cells single-line and give them room so auto-layout can't collapse them. */
+  .main table.shed-summary-table th:nth-child(3),.main table.shed-summary-table td:nth-child(3),.main table.shed-summary-table th:nth-child(4),.main table.shed-summary-table td:nth-child(4),.main table.shed-summary-table th:nth-child(5),.main table.shed-summary-table td:nth-child(5),.main table.shed-summary-table th:nth-child(6),.main table.shed-summary-table td:nth-child(6){min-width:64px}
+  .main table.shed-summary-table th:nth-child(7),.main table.shed-summary-table td:nth-child(7){min-width:118px}
+  .main table.shed-summary-table td:nth-child(3) .celllink,.main table.shed-summary-table td:nth-child(4) .celllink,.main table.shed-summary-table td:nth-child(5) .celllink,.main table.shed-summary-table td:nth-child(6) .celllink,.main table.shed-summary-table td:nth-child(7) .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.vaccination-status-matrix-table{min-width:860px}
   .main table.vaccination-status-matrix-table th:not(:first-child),.main table.vaccination-status-matrix-table td:not(:first-child){min-width:132px}
   .main table.vaccination-cohort-detail-table{min-width:980px}
