@@ -4,8 +4,10 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -86,14 +88,17 @@ class CalendarDayViewModel @Inject constructor(
         }
     }
 
-    private fun applyResource(resource: Resource<CalendarEventListResponseDto>) {
+    private suspend fun applyResource(resource: Resource<CalendarEventListResponseDto>) {
         val day = date
-        val items = if (day == null) {
-            emptyList()
-        } else {
-            resource.data?.items.orEmpty()
-                .filter { parseLocalDate(it.dueAt) == day }
-                .map { it.toCalendarItem() }
+        // Filter+map off the Main thread — the day window can carry a few hundred events.
+        val items = withContext(Dispatchers.Default) {
+            if (day == null) {
+                emptyList()
+            } else {
+                resource.data?.items.orEmpty()
+                    .filter { parseLocalDate(it.dueAt) == day }
+                    .map { it.toCalendarItem() }
+            }
         }
         _state.update { current ->
             current.copy(

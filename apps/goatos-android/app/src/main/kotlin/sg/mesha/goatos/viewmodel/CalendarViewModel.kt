@@ -3,8 +3,10 @@ package sg.mesha.goatos.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -70,7 +72,9 @@ class CalendarViewModel @Inject constructor(
      * round trip. Never used to fabricate a day's content — a day with no matching event
      * simply filters to an empty list, which renders the honest empty state.
      */
-    private var loadedEvents: List<CalendarEventDto> = emptyList()
+    // Each event paired with its due date parsed ONCE (Asia/Kolkata), so a week-strip day tap
+    // filters without re-parsing OffsetDateTime for every event.
+    private var loadedEvents: List<Pair<CalendarEventDto, LocalDate?>> = emptyList()
     private val today = LocalDate.now(KOLKATA)
     private val monthRange = calendarMonthRange(today)
     private val historyRange = calendarHistoryRange(today)
@@ -128,12 +132,20 @@ class CalendarViewModel @Inject constructor(
         _state.update { it.copy(isRefreshing = false, isOffline = results.any { result -> result.isFailure }) }
     }
 
-    private fun applyResource(resource: Resource<CalendarEventListResponseDto>) {
+    // The heavy transform — parsing every event's due date and building the month/week grids —
+    // runs on Dispatchers.Default so a large event set never blocks the UI frame (the month grid
+    // was previously an O(events^2) parse storm on the main thread, which froze the calendar and
+    // day taps). Only the tiny state.copy() touches Main.
+    private suspend fun applyResource(resource: Resource<CalendarEventListResponseDto>) {
         val dto = resource.data
-        loadedEvents = dto?.items.orEmpty()
         // dto non-null (even empty) -> a full calendar shell with an honest empty content area;
         // dto null only on a cold cache -> the loading skeleton. Never a blank collapse.
-        val base = dto?.toCalendarUiState() ?: calendarPlaceholder("Loading…")
+        val (base, dated) = withContext(Dispatchers.Default) {
+            val parsed = dto?.items.orEmpty().map { it to parseLocalDate(it.dueAt) }
+            val ui = dto?.toCalendarUiState(parsed) ?: calendarPlaceholder("Loading…")
+            ui to parsed
+        }
+        loadedEvents = dated
         _state.update { current ->
             base.copy(
                 isRefreshing = current.isRefreshing,
@@ -173,11 +185,14 @@ class CalendarViewModel @Inject constructor(
         }
     }
 
-    /** The real, currently-loaded events due on [date] — never fabricated. */
+    /** The real, currently-loaded events due on [date] — never fabricated. Filters the
+     *  pre-parsed [loadedEvents] (no re-parse per tap). */
     private fun itemsForDate(date: LocalDate): List<CalendarItem> =
-        loadedEvents.filter { parseLocalDate(it.dueAt) == date }.map { it.toCalendarItem() }
+        loadedEvents.filter { it.second == date }.map { it.first.toCalendarItem() }
 
-    private fun CalendarEventListResponseDto.toCalendarUiState(): CalendarUiState {
+    private fun CalendarEventListResponseDto.toCalendarUiState(
+        dated: List<Pair<CalendarEventDto, LocalDate?>>,
+    ): CalendarUiState {
         // Always returns a valid calendar shell — even for an empty response the segments and
         // the real current-week strip render, and the content area shows an honest empty state
         // (never a collapse to a bare header). Content lists are still built ONLY from real
@@ -194,13 +209,14 @@ class CalendarViewModel @Inject constructor(
                 },
             )
         }
-        val weekDays = buildWeekDays(items)
+        val weekDays = buildWeekDays(dated)
         val todayLabel = dateLabel(today)
         // Initial week list is scoped to TODAY's real due events (mirrors the mock's default
         // `sel=today`) — never the whole week dumped at once; a day tap re-scopes this via
-        // [selectDay].
-        val weekItems = itemsForDate(today)
-        val monthDays = buildMonthDays(items)
+        // [selectDay]. Reads the pre-parsed [dated] (loadedEvents is assigned on Main after this
+        // background transform returns, so it isn't available here yet).
+        val weekItems = dated.filter { it.second == today }.map { it.first.toCalendarItem() }
+        val monthDays = buildMonthDays(dated)
         val monthLabel = YearMonth.now(KOLKATA).let {
             "${it.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} ${it.year}"
         }
@@ -314,10 +330,10 @@ internal fun mergeCalendarResources(
  * dots derived from the events' [CalendarEventDto.dueAt]. Mirrors the mock's `#weekStrip`:
  * day letter + date + a dot on days that carry work; today is the highlighted cell.
  */
-private fun buildWeekDays(items: List<CalendarEventDto>): List<CalendarWeekDay> {
+private fun buildWeekDays(dated: List<Pair<CalendarEventDto, LocalDate?>>): List<CalendarWeekDay> {
     val today = LocalDate.now(KOLKATA)
     val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
-    val counts = items.mapNotNull { parseLocalDate(it.dueAt) }.groupingBy { it }.eachCount()
+    val counts = dated.mapNotNull { it.second }.groupingBy { it }.eachCount()
     return (0..6).map { offset ->
         val date = monday.plusDays(offset.toLong())
         val n = counts[date] ?: 0
@@ -339,26 +355,18 @@ private fun buildWeekDays(items: List<CalendarEventDto>): List<CalendarWeekDay> 
  * number and a dot on days that carry work from the events' [CalendarEventDto.dueAt].
  * Marks today and respects the dot tone based on event severity.
  */
-private fun buildMonthDays(items: List<CalendarEventDto>): List<CalendarMonthDay> {
+private fun buildMonthDays(dated: List<Pair<CalendarEventDto, LocalDate?>>): List<CalendarMonthDay> {
     val today = LocalDate.now(KOLKATA)
     val yearMonth = YearMonth.now(KOLKATA)
     val firstDay = yearMonth.atDay(1)
     val lastDay = yearMonth.atEndOfMonth()
 
-    // Map dates to their highest-severity tone (danger > warn > ok > neutral)
-    val dayTones = mutableMapOf<LocalDate, CalendarTone>()
-    items.mapNotNull { parseLocalDate(it.dueAt) }.forEach { date ->
-        if (date.month == today.month && date.year == today.year) {
-            val newTone = items.find { parseLocalDate(it.dueAt) == date }?.calendarTone()
-                ?: CalendarTone.Neutral
-            dayTones[date] = when {
-                dayTones[date] == CalendarTone.Danger -> CalendarTone.Danger
-                newTone == CalendarTone.Danger -> CalendarTone.Danger
-                dayTones[date] == CalendarTone.Warn -> CalendarTone.Warn
-                newTone == CalendarTone.Warn -> CalendarTone.Warn
-                else -> newTone
-            }
-        }
+    // Map dates to their highest-severity tone (danger > warn > ok > neutral) in a SINGLE pass
+    // over the pre-parsed events — was O(events^2) with a per-event OffsetDateTime re-parse.
+    val dayTones = HashMap<LocalDate, CalendarTone>()
+    for ((event, date) in dated) {
+        if (date == null || date.month != today.month || date.year != today.year) continue
+        dayTones[date] = mergeCalendarTone(dayTones[date], event.calendarTone())
     }
 
     // Leading blank cells (Sunday = 0, so firstDay.dayOfWeek.value - 1)
@@ -378,6 +386,13 @@ private fun buildMonthDays(items: List<CalendarEventDto>): List<CalendarMonthDay
     }
 
     return blanks + days
+}
+
+/** Highest-severity wins when several events share a day: danger > warn > (latest otherwise). */
+private fun mergeCalendarTone(existing: CalendarTone?, incoming: CalendarTone): CalendarTone = when {
+    existing == CalendarTone.Danger || incoming == CalendarTone.Danger -> CalendarTone.Danger
+    existing == CalendarTone.Warn || incoming == CalendarTone.Warn -> CalendarTone.Warn
+    else -> incoming
 }
 
 internal fun parseLocalDate(due: String): LocalDate? =
