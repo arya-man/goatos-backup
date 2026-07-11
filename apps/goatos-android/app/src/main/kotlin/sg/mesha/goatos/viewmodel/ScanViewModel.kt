@@ -70,8 +70,33 @@ class ScanViewModel @Inject constructor(
                 _state.update { current ->
                     current.copy(vaccineGroups = current.vaccineGroups.map { it.copy(active = it.id == event.groupId) })
                 }
-            ScanEvent.Tap, ScanEvent.OpenList, is ScanEvent.OpenTile -> Unit
+            is ScanEvent.OpenTile ->
+                // Toggle: tapping the already-active tile clears the filter (mock's
+                // Done/Pending/Skipped chips → scan-list overlay, folded onto the tile itself).
+                _state.update { current ->
+                    current.copy(selectedFilter = if (current.selectedFilter == event.status) null else event.status)
+                }
+            ScanEvent.OpenList ->
+                // Mock's "Tap Done · Pending · Skipped to see the animals" hint — opens the
+                // full (unfiltered) roster overlay; toggles closed on a second tap.
+                _state.update { current -> current.copy(rosterExpanded = !current.rosterExpanded) }
+            ScanEvent.Tap -> onManualTap()
             ScanEvent.Submit, ScanEvent.Back -> Unit // navigation — handled by the host.
+        }
+    }
+
+    /**
+     * The reader-ring tap (mock: `wrap.addEventListener('click', tap)`, which advances the
+     * scan and adds a feed row). Real hardware reads arrive via [reader]'s keyboard-wedge
+     * flow ([onTagRead]) regardless of this tap; the ring itself is the manual-confirm path
+     * for a shed with no reader paired/ready. It advances the next REAL pending roster row to
+     * done — never a fabricated tag/animal like the mock's random `rid()` — so the roster
+     * stays data-truthful. A no-op when nothing is left pending (mirrors the mock's idle tap).
+     */
+    private fun onManualTap() {
+        _state.update { s ->
+            val index = s.roster.indexOfFirst { it.status == ScanStatus.PENDING }
+            if (index < 0) s else markRowDone(s, index)
         }
     }
 
@@ -111,17 +136,7 @@ class ScanViewModel @Inject constructor(
             } else {
                 val row = s.roster[index]
                 when (row.status) {
-                    ScanStatus.PENDING -> {
-                        val roster = s.roster.toMutableList().also { it[index] = row.copy(status = ScanStatus.DONE, unsynced = true) }
-                        s.copy(
-                            roster = roster,
-                            feed = listOf(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE)) + s.feed,
-                            ringDone = (s.ringDone + 1).coerceAtMost(s.ringTotal),
-                            doneCount = s.doneCount + 1,
-                            pendingCount = (s.pendingCount - 1).coerceAtLeast(0),
-                            canSubmit = s.pendingCount - 1 <= 0,
-                        )
-                    }
+                    ScanStatus.PENDING -> markRowDone(s, index)
                     ScanStatus.DONE -> s
                     ScanStatus.SKIPPED -> s.copy(
                         feed = listOf(ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED)) + s.feed,
@@ -129,6 +144,21 @@ class ScanViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /** Shared by a real tag-match ([onTagRead]) and a manual ring tap ([onManualTap]): marks
+     * roster row [index] (already PENDING) DONE, pushes a feed row, and rolls the counts. */
+    private fun markRowDone(s: ScanUiState, index: Int): ScanUiState {
+        val row = s.roster[index]
+        val roster = s.roster.toMutableList().also { it[index] = row.copy(status = ScanStatus.DONE, unsynced = true) }
+        return s.copy(
+            roster = roster,
+            feed = listOf(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE)) + s.feed,
+            ringDone = (s.ringDone + 1).coerceAtMost(s.ringTotal),
+            doneCount = s.doneCount + 1,
+            pendingCount = (s.pendingCount - 1).coerceAtLeast(0),
+            canSubmit = s.pendingCount - 1 <= 0,
+        )
     }
 
     private fun statusOf(raw: String): ScanStatus {

@@ -105,3 +105,65 @@ func (r *T) f(ctx context.Context) { _, _ = r.pool.Query(ctx, keyset, nil) }
 		t.Errorf("clean keyset query should have no findings, got %+v", got)
 	}
 }
+
+func TestVersionScopedPruneNotFlagged(t *testing.T) {
+	// A whole-tenant wipe IS a full-mv-refresh; a version-scoped prune is NOT.
+	src := "package p\n" +
+		"const wipe = `DELETE FROM t_projection_rows WHERE tenant_id = $1`\n" +
+		"const prune = `DELETE FROM t_projection_rows WHERE tenant_id = $1 AND projection_version <> $2`\n"
+	repo, path := writeGo(t, src)
+	got := scanFile(repo, path)
+	n := rules(got)["full-mv-refresh"]
+	if n != 1 {
+		t.Fatalf("expected exactly 1 full-mv-refresh (wipe only, not the prune), got %d: %+v", n, got)
+	}
+	for _, f := range got {
+		if f.rule == "full-mv-refresh" && f.line != 2 {
+			t.Errorf("full-mv-refresh should flag the wipe (line 2), not the prune, got line %d", f.line)
+		}
+	}
+}
+
+func TestLoopNoCursorDetectionAndGuard(t *testing.T) {
+	// Infinite for{} paging a List* method with no cursor guard -> flagged.
+	bad := `package p
+
+import "context"
+
+type R struct{}
+func (R) ListThings(ctx context.Context, page int) ([]int, error) { return nil, nil }
+
+func run(ctx context.Context, r R, page int) {
+	for {
+		rows, _ := r.ListThings(ctx, page)
+		if len(rows) == 0 { break }
+	}
+}
+`
+	repo, path := writeGo(t, bad)
+	if got := rules(scanFile(repo, path)); got["loop-no-cursor"] == 0 {
+		t.Errorf("uncursored paging loop must trip loop-no-cursor, got %+v", got)
+	}
+
+	// Same loop but with a cursor/progress guard identifier -> clean.
+	good := `package p
+
+import "context"
+
+type R struct{}
+func (R) ListThings(ctx context.Context, after int) ([]int, error) { return nil, nil }
+
+func run(ctx context.Context, r R) {
+	after := 0
+	for {
+		rows, _ := r.ListThings(ctx, after)
+		if len(rows) == 0 { break }
+		after = rows[len(rows)-1]
+	}
+}
+`
+	repo, path = writeGo(t, good)
+	if got := rules(scanFile(repo, path)); got["loop-no-cursor"] != 0 {
+		t.Errorf("cursor-guarded loop must not trip loop-no-cursor, got %+v", got)
+	}
+}
