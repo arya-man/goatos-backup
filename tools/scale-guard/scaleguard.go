@@ -7,6 +7,11 @@
 //
 //   - n-plus-one         : a DB call (.Query/.QueryRow/.Exec/.SendBatch) inside a
 //     for/range loop body.
+//   - n-plus-one-fanout  : a ctx-taking call to an injected I/O dependency
+//     (repo/reader/port/client/roster/ownership) inside a for/range loop. The
+//     real driver call sits one adapter layer down, so the raw-driver n-plus-one
+//     rule cannot see it. This is the ShedSummary owner-enrichment class:
+//     "small data, still slow" = one round trip per row.
 //   - loop-no-cursor      : an infinite `for {}` that calls a paging repo method
 //     (List*/Fetch*/*Page) without any cursor/progress guard
 //     in the loop body — the park-consolidation hang class.
@@ -77,6 +82,15 @@ var (
 	pageMethodRe = regexp.MustCompile(`^(List|Fetch)|Page$|Chunk$`)
 	ignoreRe     = regexp.MustCompile(`scale-guard:ignore:\s*\S`)
 	godCTELimit  = 8
+	// n-plus-one-fanout: the receiver field of an in-loop ctx-taking call must
+	// name an injected I/O dependency (repo/reader/port/client/roster/proto/...)
+	// for the call to count as a round trip. Descriptive field naming is the
+	// codebase norm (s.repo, s.ownership, s.proto); an undescriptively-named
+	// dependency is missed here but caught by the raw-driver rule or a review.
+	depFieldRe = regexp.MustCompile(`(?i)(repo|repository|store|reader|writer|dao|conn|pool|client|gateway|remote|svc|service|ownership|owner|roster|adapter|port|proto|projector|loader|finder|resolver|lookup|queue|publisher|producer|consumer|sink|cache|source|backend)`)
+	// Known ctx-taking-but-not-I/O receivers (logging, tracing, metrics, config,
+	// context itself) are excluded so the rule stays high-precision.
+	noiseFieldRe = regexp.MustCompile(`(?i)^(log|logger|logs|slog|tracer|trace|span|meter|metric|metrics|obs|clock|ctx|context|cfg|config|opts|options)$`)
 )
 
 func main() {
@@ -210,18 +224,27 @@ func scanFile(repo, path string) []finding {
 			return true
 		}
 
-		// n-plus-one: a DB driver call inside the loop.
+		// n-plus-one (raw driver) and n-plus-one-fanout (cross-boundary) in the loop.
 		ast.Inspect(body, func(m ast.Node) bool {
 			call, ok := m.(*ast.CallExpr)
 			if !ok {
 				return true
 			}
 			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || !dbCallSel[sel.Sel.Name] {
+			if !ok {
 				return true
 			}
-			add("n-plus-one", call.Pos(),
-				fmt.Sprintf("DB call .%s(...) inside a loop; batch it (UNNEST / multi-row) or hoist out of the loop", sel.Sel.Name))
+			if dbCallSel[sel.Sel.Name] {
+				add("n-plus-one", call.Pos(),
+					fmt.Sprintf("DB call .%s(...) inside a loop; batch it (UNNEST / multi-row) or hoist out of the loop", sel.Sel.Name))
+				return true
+			}
+			// A ctx-first call to a named I/O dependency = one round trip per
+			// iteration even though the driver call is an adapter layer down.
+			if isFanoutCall(call, sel) {
+				add("n-plus-one-fanout", call.Pos(),
+					fmt.Sprintf("cross-boundary call .%s(ctx, ...) on dependency %q inside a loop; one round trip per row. Batch it (a single *ByIDs / = ANY($1) read) or hoist out of the loop", sel.Sel.Name, recvName(sel)))
+			}
 			return true
 		})
 
@@ -305,6 +328,47 @@ func scanFile(repo, path string) []finding {
 		return true
 	})
 	return out
+}
+
+// isFanoutCall reports whether an in-loop method call is a cross-boundary round
+// trip: its first argument is a context and its receiver names an injected I/O
+// dependency. Raw driver calls (Query/Exec/...) are handled by n-plus-one and
+// must not reach here.
+func isFanoutCall(call *ast.CallExpr, sel *ast.SelectorExpr) bool {
+	if dbCallSel[sel.Sel.Name] {
+		return false
+	}
+	if len(call.Args) == 0 || !isCtxArg(call.Args[0]) {
+		return false
+	}
+	name := recvName(sel)
+	if name == "" || noiseFieldRe.MatchString(name) {
+		return false
+	}
+	return depFieldRe.MatchString(name)
+}
+
+// recvName returns the receiver field/identifier name of a selector call:
+// "ownership" for s.ownership.ShedOwnership(...), "repo" for repo.Get(...).
+func recvName(sel *ast.SelectorExpr) string {
+	switch x := sel.X.(type) {
+	case *ast.Ident:
+		return x.Name
+	case *ast.SelectorExpr:
+		return x.Sel.Name
+	}
+	return ""
+}
+
+// isCtxArg reports whether an expression is a context argument (ctx / reqCtx /
+// groupCtx / c). The first-arg-is-context convention is the I/O boundary signal.
+func isCtxArg(e ast.Expr) bool {
+	id, ok := e.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	n := strings.ToLower(id.Name)
+	return n == "ctx" || n == "c" || strings.Contains(n, "ctx")
 }
 
 // ignoredLines returns the set of line numbers carrying a scale-guard:ignore.

@@ -55,6 +55,83 @@ const godCTE = "WITH a AS (SELECT 1), b AS (SELECT 1), c AS (SELECT 1), d AS (SE
 	}
 }
 
+func TestFanoutN1DetectionAndPrecision(t *testing.T) {
+	// The ShedSummary class: a ctx-taking call to an injected dependency inside a
+	// range loop. The driver .Query is an adapter layer down, so n-plus-one can't
+	// see it; n-plus-one-fanout must.
+	bad := `package p
+
+import (
+	"context"
+	"time"
+)
+
+type owner struct{}
+type dep interface {
+	ShedOwnership(ctx context.Context, tenantID, shedID, parkID string, at time.Time) (*owner, *owner, error)
+}
+type S struct {
+	ownership dep
+	log       interface{ InfoContext(context.Context, string) }
+}
+
+func (s *S) Summary(ctx context.Context, sheds []string) {
+	for _, id := range sheds {
+		s.log.InfoContext(ctx, "enriching")            // noise receiver: must NOT flag
+		_, _, _ = s.ownership.ShedOwnership(ctx, "t", id, "p", time.Now())
+	}
+}
+`
+	repo, path := writeGo(t, bad)
+	got := rules(scanFile(repo, path))
+	if got["n-plus-one-fanout"] != 1 {
+		t.Errorf("expected exactly 1 n-plus-one-fanout (the ownership call, not the logger), got %+v", got)
+	}
+	if got["n-plus-one"] != 0 {
+		t.Errorf("cross-boundary call is not a raw driver call; n-plus-one must stay 0, got %+v", got)
+	}
+
+	// Precision: batched-outside-loop + pure work must stay clean.
+	clean := `package p
+
+import "context"
+
+type S struct{ repo interface{ GetByIDs(context.Context, []string) error } }
+
+func (s *S) f(ctx context.Context, ids []string) {
+	_ = s.repo.GetByIDs(ctx, ids)
+	total := 0
+	for range ids {
+		total++
+	}
+	_ = total
+}
+`
+	repo, path = writeGo(t, clean)
+	if got := rules(scanFile(repo, path)); got["n-plus-one-fanout"] != 0 {
+		t.Errorf("batched-outside-loop + pure work must be clean, got %+v", got)
+	}
+}
+
+func TestFanoutInlineIgnoreSuppresses(t *testing.T) {
+	src := `package p
+
+import "context"
+
+type S struct{ roster interface{ Manager(context.Context, string) error } }
+
+func (s *S) f(ctx context.Context, ids []string) {
+	for _, id := range ids {
+		_ = s.roster.Manager(ctx, id) // scale-guard:ignore: bounded to <=4 parks
+	}
+}
+`
+	repo, path := writeGo(t, src)
+	if got := rules(scanFile(repo, path)); got["n-plus-one-fanout"] != 0 {
+		t.Errorf("inline ignore must suppress n-plus-one-fanout, got %+v", got)
+	}
+}
+
 func TestNoFalsePositiveOnOffsetErrorString(t *testing.T) {
 	// An "offset must be..." validation message is not a SQL OFFSET clause.
 	src := `package p

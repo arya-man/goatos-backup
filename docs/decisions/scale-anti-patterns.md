@@ -9,7 +9,13 @@ scoped, indexed, bounded, resumable, and measurable.
 `make scale-guard` blocks new static offenders for the highest-risk patterns:
 
 - compute-on-read god CTEs on request paths
-- N+1 database calls inside loops
+- N+1 database calls inside loops (raw driver calls)
+- N+1 fan-out: a ctx-taking call to an injected I/O dependency
+  (repo/reader/port/client/roster/ownership) inside a loop — the driver call is
+  one adapter layer down, invisible to the raw-driver N+1 check. The "small data,
+  still slow" class (one round trip per row): a 25-row page becomes 51 serial
+  reads. Fix by batching to a single `*ByIDs` / `= ANY($1)` read, as `ShedSummary`
+  now does with `ShedOwnerships`.
 - infinite paging loops without cursor/progress proof
 - deep `OFFSET` pagination where keyset pagination is required
 - tenant-wide projection delete/reinsert rebuilds

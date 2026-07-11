@@ -41,3 +41,22 @@ n-plus-one backend/internal/sop/adapters/postgres/repository.go 2
 n-plus-one backend/internal/inventory/adapters/postgres/repository.go 2
 n-plus-one backend/internal/locations/adapters/postgres/write.go 2
 n-plus-one backend/internal/bulkstatus/adapters/postgres/repository.go 1
+
+# --- n-plus-one-fanout: ctx-taking call to an injected I/O dependency inside a
+# loop; the driver call is an adapter layer down (added 2026-07-11 after the
+# ShedSummary owner-enrichment miss; ShedSummary itself is already fixed via
+# batched ShedOwnerships). 34 offenders / 9 files. BURN DOWN P1 (request/scale)
+# first. Verdicts are agent-verified against current HEAD.
+#
+# P1 REAL — request path / unbounded-by-animal; batch to *ByIDs / = ANY($1):
+n-plus-one-fanout backend/internal/vaccination/app/generation.go 8  # proto.GetVersion/ListRules per version; UNBOUNDED on herd reschedule + 2N/page
+n-plus-one-fanout backend/internal/proof/app/service.go 1           # GetProof per ref, POST /app/tasks/{id}/submissions, no API cap; add GetProofsByIDs
+# P1x3 inside a P2 file — sweeper batch spawn/reserve/count (~1000 calls at 1M/10% due):
+n-plus-one-fanout backend/internal/obligation/app/sweeper.go 13     # 3 real (spawn/reserve/count) + 10 bounded per-run (page/chunk)
+# P2/P3 bounded (per-run / capped) — annotate with scale-guard:ignore then drop:
+n-plus-one-fanout backend/internal/obligation/app/park_consolidation.go 3  # bounded by parks
+n-plus-one-fanout backend/internal/sop/app/service.go 4             # BOUNDED: admin retry, ListPending* cap=100
+n-plus-one-fanout backend/internal/bulkstatus/app/worker.go 2       # per-job BumpJobCounts; batch CASE/multi-row
+n-plus-one-fanout backend/internal/identity/app/service.go 1        # BOUNDED: merge-redirect chain, maxMergeRedirectHops=16
+n-plus-one-fanout backend/internal/identity/app/admin_goat.go 1     # P3: CreateAdminGoat admin bulk; batch to INSERT..SELECT
+n-plus-one-fanout backend/internal/protocol/app/publish.go 1        # P2: CreateRule per derived rule at publish; bounded by rule count
