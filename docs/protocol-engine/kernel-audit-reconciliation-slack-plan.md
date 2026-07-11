@@ -5,6 +5,38 @@ Date: 2026-07-11
 Slack target: `#goatos-audit` (`C0BGSJDD420`) in workspace `T091RHJF43E`
 Slack URL: https://app.slack.com/client/T091RHJF43E/C0BGSJDD420
 
+## 0. Existing Machinery And Orchestration
+
+This is not a greenfield audit fleet. Goat OS already has command-line workers,
+sweepers, reconcilers, seeders, imports, and validation tools under
+`backend/cmd`. `backend/cmd/kernel-audit` should become the orchestrator,
+normalizer, run ledger, finding ledger, repair requester, and Slack reporter. It
+must not duplicate existing business logic or quietly replace owning workers.
+
+| Existing command(s) | Current role | Audit decision |
+| --- | --- | --- |
+| `outbox-relay`, `outbox-dlq`, `domain-event-consumer`, `domain-event-processed-sweeper`, `idempotency-key-sweeper` | Event spine, durable delivery, dead-letter, processed-event, and idempotency hygiene. | Orchestrate and wrap. Kernel audit checks liveness, lag, parity, and repair outcomes, then asks these owners to retry/replay/reclaim through their existing paths. |
+| `obligation-sweeper`, `sweeper`, `calendar-reminder-sweeper`, `calendar-escalation-sweeper`, `calendar-vaccination-projector`, `notification-dispatcher`, `sop-review-fanout-retry`, `bulk-status-worker` | Time spine, due/missed state, reminders, escalations, calendar projection, notifications, SOP review fanout, and status fanout. | Orchestrate and wrap. Kernel audit detects missing or stale artifacts, records findings, and invokes the owning sweeper/dispatcher/worker contract. |
+| `vaccination-eligibility-rollup-recompute`, `inventory-batch-reconciler` | Derived vaccination eligibility and inventory batch reconciliation. | Orchestrate for current vaccination scope; verify aggregate parity after repair. |
+| `counts-mismatch-scan`, `counts-source-parity-check`, `counts-alias-coverage-check`, `counts-projection-recompute`, `counts-query-plan-check`, `counts-source-import`, `counts-workbook-mapping-check`, `counts-workbook-source-scan`, `location-profile-coverage-check`, `location-profile-source-import` | Counts, source, workbook, alias, location, and query-plan validation/recompute tools. | Run alongside and absorb only through a pack contract later. These remain source-quality and projection owners; kernel audit consumes their results and reports cross-kernel impact. |
+| `generate-vaccination-obligations`, `backfill-goat-created`, `seed-vaccination-trigger` | Replay/backfill/generation inputs for vaccination and goat-created flows. | Callable repair inputs only when wrapped by the owning vaccination/protocol service with idempotency. They are not private audit logic. |
+| `partition-maintainer` | Partition lifecycle and hot-table hygiene. | Orchestrate liveness and overdue maintenance checks; keep physical maintenance owned by this command. |
+| `api`, `legacy-god-sheet-sync` | Runtime API and legacy bridge. | Run alongside. Audit may use them as evidence/source comparison, but must not make legacy sync a canonical repair path. |
+| `migrate`, `mint-dev-token`, `seed-calendar-vaccination-dev`, `seed-dev-email-grants`, `seed-dev-grant`, `seed-position-duties`, `seed-roster-real`, `seed-shed-positions`, `seed-vaccination-real` | Migration, local/dev auth, and one-time seed/import tools. | Not audit runners. They may define source fixtures, permissions, and initial data that audit packs reference. |
+
+The implementation contract is:
+
+```text
+kernel-audit detects, records, requests, verifies, reports.
+Owning modules repair through their ports/services/commands.
+No cross-module SQL fixer.
+```
+
+Adoption note: this remains a proposed plan until linked from the canonical
+architecture/context index and agent skill references. Once adopted, Phase B
+implementation must conform to this orchestration, repair-boundary, liveness,
+and notification contract.
+
 ## 1. Purpose
 
 Goat OS is an event-driven operational kernel. A business fact such as birth,
@@ -60,6 +92,12 @@ graphs, and legacy repositories. Important source anchors:
 - `docs/preventive-care-vaccination/vaccination-rules.md`: vaccination timing,
   pregnancy holds, warm-up, trusted source, same-day compatibility, defer and
   recovery behavior.
+- `backend/internal/protocol/ports/ports.go`,
+  `backend/internal/protocol/adapters/postgres/repository.go`, and
+  `backend/migrations/postgres/000155_vaccination_capacity_config.sql`:
+  vaccination capacity publish is guarded by `ErrCapacityParityMismatch`,
+  transactional capacity upsert/parity check, and database checks for
+  `max_per_day >= 1` and `max_buffer_days >= 0`.
 - `docs/feed-direction/*`: feed direction requires safe counts/shifting input,
   pregnancy/warm-up/lactation signals, ration config, generation, packing,
   transport, consumption, wastage, proof, exception, and rework.
@@ -128,32 +166,65 @@ Slack implementation rule:
 - Store Slack bot token or webhook in Secret Manager, not in code.
 - Store channel ID `C0BGSJDD420` in environment/config, not as the only routing
   source.
-- Write a durable `notification_requests` or audit-report delivery row before
-  sending.
+- P0/P1 alerts always create durable notification/report requests through the
+  shared notification/reporting port before any Slack send is attempted.
+- `kernel_audit_slack_deliveries` is only the Slack delivery ledger. It is not
+  the source of alert state and must not become a private notification engine.
+- P2/P3 summaries can share the same durable report-request path; batch digest
+  delivery may use audit-report request rows, but still behind the shared
+  notification/reporting boundary.
 - Delivery retry/exhaustion must be visible and replay-safe.
 - Legacy Apps Script Slack patterns are reference only; do not extend them for
   Goat OS canonical reports.
+
+### 4.1 Liveness And Meta-Monitoring
+
+Audit has to be audited. Every expected sweep writes a `kernel_audit_runs`
+heartbeat with schedule key, tenant/scope window, started time, heartbeat time,
+deadline, completed time, status, code SHA, config hash, and report-delivery
+state.
+
+A small watchdog checks:
+
+- an expected run did not start by its due time;
+- a run is stuck in `running` beyond its deadline;
+- a run failed repeatedly or stopped heartbeating;
+- the daily digest was not requested or delivered;
+- Slack delivery exhausted retries;
+- the watchdog itself missed its own heartbeat.
+
+Meta-alert truth must live outside Slack. Slack is last-mile delivery only. P0/P1
+meta-alerts should also flow to Cloud Monitoring, email/PagerDuty-style webhook,
+or an operator incident channel so a Slack outage does not hide audit failure.
 
 ## 5. Core Data Model
 
 Add these concepts when implementation starts. Exact table names can change,
 but the responsibilities should not.
 
-| Concept | Purpose |
+Every audit table must be tenant-scoped and operationally scoped from day one.
+Hot reads must be index-backed by tenant, scope, status, severity, category, and
+time/cursor windows. A finding without `tenant_id` and explicit subject/scope is
+not acceptable because it cannot be routed, suppressed, repaired, or reported
+safely.
+
+| Concept | Purpose and minimum contract |
 | --- | --- |
-| `kernel_audit_invariant_versions` | Versioned registry of invariant packs. Each pack is tied to a category/module and source doc/code owner. |
-| `kernel_audit_runs` | One row per sweep, with run type, started/completed time, status, code SHA, config hash, input windows, and totals. |
-| `kernel_audit_findings` | Durable finding rows with invariant ID, subject, severity, status, owner, evidence, expected, actual, and first/last seen. |
-| `kernel_audit_repairs` | Repair attempts and outcomes, including idempotency key, before/after, affected rows, and rollback/replay notes. |
-| `kernel_audit_suppressions` | Explicit reviewed suppressions with scope, reason, expiry, approver, and source evidence. |
-| `kernel_audit_slack_deliveries` | Delivery ledger for Slack messages, retry state, payload hash, permalink if available, and exhausted-delivery reason. |
+| `kernel_audit_invariant_versions` | Versioned registry of invariant packs. Each pack is tied to tenant/category/module/source owner, rule source, code owner, and pack hash. |
+| `kernel_audit_runs` | One row per sweep with `tenant_id`, run type, operational scope, schedule key, started/heartbeat/deadline/completed time, status, code SHA, config hash, input windows, watermarks, skipped scopes, and totals. Hot indexes: `(tenant_id, status, started_at)`, `(tenant_id, schedule_key, deadline_at)`, and `(tenant_id, scope_type, scope_id, started_at)`. |
+| `kernel_audit_findings` | Durable finding rows with `tenant_id`, `run_id`, invariant ID, category, subject type/id, scope type/id, severity, status, owner, evidence, expected, actual, first/last seen, and resolution state. Hot indexes: `(tenant_id, status, severity, last_seen_at)`, `(tenant_id, category, status, last_seen_at)`, `(tenant_id, subject_type, subject_id)`, and a dedupe key. |
+| `kernel_audit_repairs` | Repair requests and outcomes with `tenant_id`, `run_id`, finding ID, owning module, repair port/command, idempotency key, before/after, affected rows, status, error, rollback/replay notes, and verifier result. Hot indexes: `(tenant_id, status, created_at)`, `(tenant_id, idempotency_key)`, and `(tenant_id, finding_id)`. |
+| `kernel_audit_suppressions` | Explicit reviewed suppressions with `tenant_id`, invariant/category, subject/scope, reason, expiry, approver, source evidence, and status. Hot indexes: `(tenant_id, status, expires_at)` and `(tenant_id, invariant_id, scope_type, scope_id)`. |
+| `kernel_audit_slack_deliveries` | Delivery ledger for Slack messages, retry state, durable notification/report request ID, payload hash, channel, permalink if available, and exhausted-delivery reason. Hot indexes: `(tenant_id, status, next_attempt_at)` and `(tenant_id, request_id)`. |
 
 Findings should flow into command lenses:
 
 - Control Tower: high-level exception and adherence health.
 - Action Center: owner-specific next actions and blocked fixes.
-- Protocol Adherence: rule/process-level failures.
-- Calendar: due, missed, blocked, snoozed, and escalation time state.
+- Protocol Adherence: rule/process-level failures, stale adherence
+  percentages, and denominator/numerator mismatches.
+- Calendar and workflow tickets: due, missed, blocked, snoozed, escalation,
+  assignee, ticket count, and ticket status state.
 - Operations Audit: durable state transitions, repairs, suppressions, and
   report deliveries.
 
@@ -168,10 +239,13 @@ business events it owns
 canonical tables it writes
 expected downstream artifacts
 allowed statuses and transitions
+obligation strategy and batch strategy
+notification, reminder, escalation, and reporting policy
 repairable derived gaps
 non-repairable business gaps
 owner role and escalation chain
 projection/read-model expectations
+metric, ticket, and command-lens expectations
 Slack summary fields
 scale bounds and indexes
 test fixtures and seed cases
@@ -182,30 +256,50 @@ Future automatic pickup depends on this rule:
 
 ```text
 If a PR adds or changes a domain event, protocol category, obligation strategy,
-status transition, notification policy, projection, or business rule, it must
-update or add the relevant audit pack in the same change.
+status transition, notification policy, projection/read model, metric,
+workflow ticket, calendar surface, or business rule, it must update or add the
+relevant audit pack in the same change.
 ```
 
-CI should eventually fail when it detects:
+CI should eventually fail from manifest/static detection when it detects:
 
 - new `protocol_definitions.category` without an audit pack;
 - new domain event schema without expected-artifact mapping;
+- new obligation strategy, batch strategy, or repair policy without invariant
+  coverage;
 - new obligation status or transition without an invariant update;
+- new notification, reminder, escalation, or reporting policy without delivery
+  and state coverage;
+- new projection/read model, metric, command-lens, workflow ticket, or calendar
+  surface without parity expectations;
+- new business rule or rule DSL path without detect/repair/non-repair policy;
 - new sweeper/worker without run-ledger and audit coverage;
 - new Slack/reporting route without delivery ledger and retry behavior;
 - future PRD/TRD missing an `Audit And Reconciliation` section.
 
 ## 7. Detection And Repair Classes
 
+Repair boundary:
+
+- `kernel-audit` owns audit runs, findings, repair requests, suppressions, and
+  report delivery ledgers.
+- Every business repair goes through the owning module's idempotent
+  repair port, service, or command.
+- The auditor records the finding, dispatches or requests the canonical repair,
+  verifies the result, and reports the outcome.
+- Direct SQL writes to another module's tables are forbidden unless the owning
+  module exposes that exact SQL path as its repair implementation.
+
 | Class | Detect | Auto-fix? | Rule |
 | --- | --- | --- | --- |
-| Missing derived obligation | Canonical fact and active rule imply an obligation, but no active row exists. | Yes | Insert/upsert with deterministic idempotency key and status event. |
-| Duplicate active obligation | More than one active obligation exists for same tenant/rule/target/due key. | Sometimes | Supersede/cancel duplicates only if deterministic winner is provable; otherwise process exception. |
-| Missing outbox event | Canonical transition committed but expected outbox row absent. | Sometimes | Create replay-safe repair event only when payload can be reconstructed exactly. |
-| Stuck outbox/consumer/DLQ | Age, retry count, or dead-letter state breaches policy. | Sometimes | Reclaim/retry known transient states; poison requires operator repair/discard reason. |
-| Missing projection/read-model row | Canonical truth exists, projection missing/stale. | Yes | Rebuild/upsert projection idempotently. |
-| Missing notification intent | Due/missed/escalated condition exists, no durable notification intent. | Yes | Create intent with dedupe key; do not mark delivery successful. |
-| Missing Slack delivery | Audit report row exists, Slack delivery absent/failed. | Yes | Retry delivery through notification adapter. |
+| Missing derived obligation | Canonical fact and active rule imply an obligation, but no active row exists. | Yes | Request the owning obligation/protocol/vaccination repair service to create the obligation with deterministic idempotency and status events; verify after. |
+| Duplicate active obligation | More than one active obligation exists for same tenant/rule/target/due key. | Sometimes | Request owning obligation repair to supersede/cancel duplicates only if deterministic winner is provable; otherwise process exception. |
+| Missing outbox event | Canonical transition committed but expected outbox row absent. | Sometimes | Request owning event publisher/outbox repair only when payload can be reconstructed exactly by that module. |
+| Stuck outbox/consumer/DLQ | Age, retry count, or dead-letter state breaches policy. | Sometimes | Request owning relay/consumer/DLQ repair command to reclaim/retry known transient states; poison requires operator repair/discard reason. |
+| Missing projection/read-model row | Canonical truth exists, projection missing/stale. | Yes | Request owning projection worker/recompute command to rebuild idempotently. |
+| Stale lens, metric, ticket, or calendar aggregate | Canonical work/finding/proof/notification state disagrees with Control Tower, Action Center, Protocol Adherence percentage, workflow tickets, or Calendar. | Yes | Request owning projection/reporting worker to rebuild aggregate from canonical rows; never edit displayed totals directly. |
+| Missing notification intent | Due/missed/escalated condition exists, no durable notification intent. | Yes | Create through shared notification/reporting port with dedupe key; do not mark delivery successful. |
+| Missing Slack delivery | Durable notification/report request exists, Slack delivery absent/failed. | Yes | Retry delivery through notification adapter; Slack ledger is delivery evidence only. |
 | Missing owner/assignee | Work exists but no source-backed owner/backfill. | No | Create process exception; never invent owner. |
 | Missing business source data | DOB, pregnancy date, source trust, shed/stage, proof, count, feed vector, or stock lot missing. | No | Fail closed; create source-data exception. |
 | Illegal status transition | Row moved out of allowed state machine. | No direct rewrite | Preserve evidence; create repair workflow or corrective work item. |
@@ -227,21 +321,34 @@ Detect:
   `proof_policy` where execution needs proof;
 - draft/inactive versions generating obligations;
 - rule DSL embedding animal snapshots or herd facts instead of policy;
+- published `rule_dsl.capacity` differs from the derived
+  `vaccination_capacity_config` row for that tenant;
+- capacity values that violate storage invariants, such as `max_per_day < 1`
+  or `max_buffer_days < 0`, appear in any published path;
+- an `ErrCapacityParityMismatch`-class publish rollback leaves a visible
+  partially published version or capacity row;
 - impact preview not generated or not reviewed before activation;
 - new protocol category not listed in audit pack registry.
 
 Auto-fix:
 
-- rebuild derived scope-resolution rows;
-- refresh protocol list/read projections;
-- retry missing publish outbox only when payload can be reconstructed exactly.
+- ask the protocol-owned repair/recompute path to rebuild derived
+  scope-resolution rows;
+- ask the protocol-owned projection path to refresh protocol list/read
+  projections;
+- retry missing publish outbox only through the protocol publisher/outbox repair
+  path when payload can be reconstructed exactly;
+- repair capacity read-model drift only when the published rule version is
+  authoritative and the protocol parity repair path proves the capacity row is
+  the only stale derived artifact.
 
 Do not auto-fix:
 
 - publish/retire rules;
 - infer missing SOP binding;
 - widen scope from park to tenant;
-- invent approval or rule source evidence.
+- invent approval or rule source evidence;
+- bypass the atomic protocol publish transaction or its capacity parity guard.
 
 Slack:
 
@@ -277,12 +384,17 @@ Detect:
 
 Auto-fix:
 
-- create missing obligations from canonical fact plus active rule;
-- reopen deferred obligation after recovery if deterministic;
-- cancel open obligations after exit event;
-- regenerate booster from accepted completion event;
-- rebuild vaccination eligibility rollups and command-lens projections;
-- create missing notification intent for due/missed/escalated state.
+- request the vaccination/obligation repair service to create missing
+  obligations from canonical fact plus active rule;
+- request the owning obligation repair path to reopen deferred work after
+  recovery when deterministic;
+- request the owning obligation repair path to cancel open work after exit
+  event;
+- request the vaccination booster generator to regenerate booster work from an
+  accepted completion event;
+- request vaccination eligibility rollup and command-lens projection recompute;
+- create missing notification intent through the shared
+  notification/reporting port for due/missed/escalated state.
 
 Do not auto-fix:
 
@@ -315,11 +427,14 @@ Detect:
 
 Auto-fix:
 
-- create missing planned batch/task for due rows if deterministic;
-- rebuild task/read-model projections;
-- retry replay-safe proof fanout or projection update;
-- create missing notification intent for proof pending, verification pending,
-  rejected proof, or missed execution.
+- request the owning execution/obligation service to create missing planned
+  batch/task rows for due work when deterministic;
+- request task/read-model projection rebuild;
+- retry replay-safe proof fanout or projection update through the SOP/proof
+  owner;
+- create missing notification intent through the shared
+  notification/reporting port for proof pending, verification pending, rejected
+  proof, or missed execution.
 
 Do not auto-fix:
 
@@ -346,9 +461,10 @@ Detect:
 
 Auto-fix:
 
-- reclaim stale relay leases;
-- retry transient failed outbox rows;
-- replay deduped event handlers when idempotency proves no duplicate effects;
+- request the owning outbox relay to reclaim stale relay leases;
+- request the owning outbox/DLQ command to retry transient failed rows;
+- request the owning consumer to replay deduped handlers when idempotency proves
+  no duplicate effects;
 - create operator-visible DLQ repair finding.
 
 Do not auto-fix:
@@ -376,10 +492,11 @@ Detect:
 
 Auto-fix:
 
-- promote due rows by bounded indexed windows;
-- create missing reminder/escalation intent with dedupe key;
-- retry notification delivery through adapter circuit breaker;
-- rebuild missed/due projections.
+- request the owning sweeper to promote due rows by bounded indexed windows;
+- create missing reminder/escalation intent through the shared
+  notification/reporting port with dedupe key;
+- retry notification delivery through the shared adapter circuit breaker;
+- request missed/due projection rebuild.
 
 Do not auto-fix:
 
@@ -404,7 +521,7 @@ Detect:
 
 Auto-fix:
 
-- rebuild audit read projections where source rows exist;
+- request Operations Audit projection rebuild where source rows exist;
 - create audit-run finding for missing audit source.
 
 Do not auto-fix:
@@ -432,10 +549,10 @@ Detect:
 
 Auto-fix:
 
-- rerun bounded projection recompute;
-- rerun mismatch scan;
-- refresh readiness evidence ledger;
-- rebuild read projections.
+- invoke the counts/location owning commands for bounded projection recompute;
+- invoke the counts mismatch scan owner;
+- request readiness evidence ledger refresh through the feed/counts owner;
+- request read-projection rebuild.
 
 Do not auto-fix:
 
@@ -468,10 +585,12 @@ Detect:
 
 Auto-fix:
 
-- rerun feed readiness and generation preview;
-- rebuild feed read-model buckets;
-- supersede stale open Diff work when deterministic;
-- retry notification intent for blocked/shortfall/rework states.
+- request feed readiness and generation preview through the feed owner;
+- request feed read-model bucket rebuild;
+- request stale open Diff work supersede/cancel through the feed obligation
+  repair path when deterministic;
+- create or retry notification intent through the shared
+  notification/reporting port for blocked/shortfall/rework states.
 
 Do not auto-fix:
 
@@ -500,10 +619,10 @@ Detect:
 
 Auto-fix:
 
-- replay accepted-intake handoff to create missing deterministic downstream
+- request procurement handoff replay to create missing deterministic downstream
   obligations;
-- cancel open obligations for rejected/exited animals;
-- rebuild procurement/vaccination handoff projections.
+- request obligation repair to cancel open work for rejected/exited animals;
+- request procurement/vaccination handoff projection rebuild.
 
 Do not auto-fix:
 
@@ -529,7 +648,7 @@ Detect:
 
 Auto-fix:
 
-- refresh roster coverage/read projections;
+- request workforce/HRMS projection refresh for roster coverage and read models;
 - create missing owner-gap process exception.
 
 Do not auto-fix:
@@ -556,9 +675,9 @@ Detect:
 
 Auto-fix:
 
-- retry safe mobile sync/outbox submissions;
-- refresh bootstrap/admin UI contract cache;
-- rebuild projections.
+- request mobile sync owner to retry safe outbox submissions;
+- request admin/bootstrap owner to refresh UI contract cache;
+- request owning projection rebuild.
 
 Do not auto-fix:
 
@@ -575,6 +694,10 @@ Slack:
 Each future feature must add its own pack before implementation is called done.
 Minimum pack expectations:
 
+All repair policies below mean "through the owning module's repair
+port/service/command, then verified by kernel audit." They are shorthand, not
+permission for `kernel-audit` to write directly into module tables.
+
 | Future feature | Must detect | Repair policy |
 | --- | --- | --- |
 | Birth and abortion | Birth fact without animal identity, dam linkage, vaccination schedule, kid count/projection, proof/review, or exception. | Create derived obligations/projections; source gaps become exception. |
@@ -586,6 +709,8 @@ Minimum pack expectations:
 | Movement and shifting | Movement fact without location history, obligation re-scope, count projection, feed projection, and proof. | Re-scope open work; ambiguous movement becomes exception. |
 | Farmer network | Contract/source event without onboarding tasks, verification, payment/procurement linkage, and proof. | Derived tasks only; no invented partner truth. |
 | Sales/allocation/promise safety | Booking/allocation without eligibility check, health/feed/withdrawal monitoring, double-book prevention, or replacement task. | Recompute promise risk; never allocate by inference. |
+| Workflow tickets and calendar | Business work without ticket/calendar state, stale ticket counts, missing assignee/escalation, or mismatched Calendar/Action Center/Protocol Adherence totals. | Rebuild derived ticket/calendar/protocol-adherence projections through owning reporting ports; no direct metric edits. |
+| HRMS, attendance, and payroll | Attendance, leave, role, capability, shift, payroll, or roster fact without owner/backfill recalculation, work reassignment, notification, audit, or read-model update. | Recompute workforce/HRMS projections and owner-gap exceptions through HRMS/workforce ports; never infer attendance, approval, or payroll truth. |
 | Finance/payments | Payment obligation without source invoice/event, approval, reconciliation, or ledger state. | Rebuild derived read models; no payment truth from Slack text. |
 | AI analyst | AI recommendation without evidence, confidence, reviewer, and non-mutating proposal state. | Never auto-apply AI output; create review proposal only. |
 
@@ -609,7 +734,8 @@ Overall:
 Critical:
 1. P1 vaccination.birth_missing_obligation
    18 accepted animal-created facts had no matching vaccination obligation.
-   Repair: 18 obligations created idempotently.
+   Repair: 18 obligations requested through vaccination repair service and
+   verified idempotently.
    Owner: Preventive Care Director
 
 2. P1 feed.safe_input_blocked
@@ -656,6 +782,8 @@ Top issue: feed safe input blocked for tomorrow in 2 sheds.
 
 - Build read-only inventory of events, protocol categories, obligation rules,
   worker commands, projections, notifications, and command-lens APIs.
+- Classify existing `backend/cmd/*` jobs as orchestrate/wrap, run alongside,
+  callable repair input, or non-audit seed/migration/dev tooling.
 - Create initial audit packs for protocol, vaccination, execution, event spine,
   sweeper, notifications, operations audit, counts/shifting, feed readiness,
   procurement handoff, workforce, admin-web, and mobile sync.
@@ -663,17 +791,21 @@ Top issue: feed safe input blocked for tomorrow in 2 sheds.
 
 ### Phase B - Read-only runner
 
-- Implement `backend/cmd/kernel-audit` in report-only mode.
+- Implement `backend/cmd/kernel-audit` in report-only mode as orchestrator,
+  normalizer, run ledger, finding ledger, and reporter.
 - Record `kernel_audit_runs` and `kernel_audit_findings`.
+- Add expected-run liveness heartbeats and watchdog alerts before auto-repair.
 - Cover vaccination and event-spine invariants first.
 - No auto-repair in this phase.
 
 ### Phase C - Deterministic repair
 
-- Add repair allowlist for derived artifacts only:
+- Add repair allowlist for derived artifacts only, executed through owning
+  module repair ports/services/commands:
   missing obligations, stale projections, missing notification intents, stale
   relay leases, and replay-safe outbox repair.
 - Every repair writes `kernel_audit_repairs`, audit/history, and idempotency key.
+- Every repair has a verifier query and explicit owner module.
 - Same-key different-payload is a conflict, never a repair.
 
 ### Phase D - Slack delivery
@@ -681,12 +813,14 @@ Top issue: feed safe input blocked for tomorrow in 2 sheds.
 - Add Slack delivery adapter behind notification/reporting port.
 - Use Secret Manager for token/webhook.
 - Route daily digest and P0/P1 alerts to `C0BGSJDD420`.
-- Add delivery retry/exhausted visibility.
+- Add delivery retry/exhausted visibility in `kernel_audit_slack_deliveries`.
+- Keep P0/P1 alert state in durable notification/report requests, not in the
+  Slack delivery ledger.
 
 ### Phase E - Future-feature enforcement
 
-- Add CI checks for new event/category/status/worker/projection without audit
-  pack update.
+- Add CI checks for new event/category/status/worker/projection/metric/ticket/
+  calendar/notification/business-rule surfaces without audit pack update.
 - Add codegen or manifest validation so audit runner picks up new packs.
 - Require audit-pack status in phase closeout.
 
@@ -713,6 +847,20 @@ The audit runner must follow the same high-scale rules as the kernel:
 - query-plan validation for hot checks;
 - clear freshness envelope for report data.
 
+### Reconciliation Strategy
+
+Routine audits use event-window deltas first: new or changed domain events,
+status events, outbox rows, obligation rows, proof rows, notification requests,
+projection updates, and repair outcomes since the last good watermark.
+
+Aggregate parity checks compare bounded counts by tenant, category, scope,
+status, due bucket, protocol version, and command-lens bucket. When parity
+fails, the runner scans only the changed scope or partition needed to identify
+subjects. Partitioned deep scans run on a slower schedule with tenant fairness,
+cursor checkpoints, and explicit skipped-scope reasons. A routine sweep must not
+scan the whole herd, all tickets, all calendar rows, or all HRMS/workforce rows
+just because one invariant changed.
+
 An audit finding is not allowed to be based on stale or partial data without
 saying so. Reports must include input windows, projection freshness, source
 watermarks, and skipped/deferred scan reasons.
@@ -723,8 +871,11 @@ watermarks, and skipped/deferred scan reasons.
 - Do not use Slack as canonical truth.
 - Do not let AI agents apply business fixes.
 - Do not create one private audit cron per module.
+- Do not let `kernel-audit` re-own existing sweepers, relays, dispatchers,
+  generators, or projection rebuilders.
 - Do not write repairs directly to another module's tables outside owning
   service/port boundaries.
+- Do not use `kernel_audit_slack_deliveries` as canonical alert state.
 - Do not turn daily digest into a noisy dump of every P3 hygiene issue.
 
 ## 15. Acceptance Criteria
@@ -732,17 +883,23 @@ watermarks, and skipped/deferred scan reasons.
 The plan is implemented when:
 
 1. Four scheduled audit sweeps run daily with durable run rows.
-2. Daily Slack digest reaches `#goatos-audit`.
-3. P0/P1 findings alert promptly and link to Operations Audit/Action Center.
-4. Vaccination birth/procurement/completion/exit/defer/recovery cases reconcile
+2. Expected-run watchdogs alert when sweeps, daily digest, Slack delivery, or
+   the watchdog itself miss heartbeat/deadline.
+3. Daily Slack digest reaches `#goatos-audit`.
+4. P0/P1 findings alert promptly through durable notification/report requests
+   and link to Operations Audit/Action Center.
+5. Vaccination birth/procurement/completion/exit/defer/recovery cases reconcile
    expected-vs-actual obligations and projections.
-5. Event spine, outbox, DLQ, sweepers, notification intent, and projection
+6. Event spine, outbox, DLQ, sweepers, notification intent, and projection
    freshness are covered.
-6. Auto-repair is restricted to deterministic derived artifacts and fully
+7. Auto-repair is restricted to deterministic derived artifacts, executed
+   through owning module repair ports/services/commands, verified, and fully
    audited.
-7. Missing source truth creates process exceptions, not fabricated data.
-8. Feed Direction and every future feature can register an audit pack before it
-   ships.
-9. CI blocks new kernel events/categories/statuses/workers without audit
-   coverage.
-10. High-scale validation proves audit scans are bounded and tenant-fair.
+8. Missing source truth creates process exceptions, not fabricated data.
+9. Protocol Adherence percentages, ticket counts, notification state, calendar
+   state, and command-lens projections reconcile from canonical state.
+10. Feed Direction, HRMS/workforce, and every future feature can register an
+   audit pack before it ships.
+11. CI blocks new kernel events/categories/statuses/workers/projections/metrics/
+   tickets/calendar surfaces/business rules without audit coverage.
+12. High-scale validation proves audit scans are bounded and tenant-fair.
