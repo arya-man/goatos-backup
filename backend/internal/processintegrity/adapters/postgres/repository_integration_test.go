@@ -362,6 +362,54 @@ INSERT INTO process_integrity_projection_rows (
 	}
 }
 
+func TestProcessIntegrityProjectionPruneExhaustsMultipleBatches(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("initial RecomputeProjection: %v", err)
+	}
+	execPI(t, ctx, pool, "insert stale projection rows spanning multiple prune batches", `
+INSERT INTO process_integrity_projection_rows (
+  tenant_id, category, row_id, sort_priority, process_key, obligation_id, due_at,
+  expected_count, work_state, severity, owner_state, process_intact,
+  projection_version, projected_at, updated_at
+)
+SELECT
+  $1::uuid, 'vaccination', 'stale-row-' || g::text, 99, 'stale-row-' || g::text,
+  'stale-obligation-' || g::text, $2::timestamptz, 1, 'due', 'watch', 'assigned', false,
+  -1, now(), now()
+FROM generate_series(1, 7) AS g`, piTenant, asOf)
+
+	repo.pruneOldProjectionRowsWithBatchSize(ctx, piTenant, 2)
+
+	var staleRows int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM process_integrity_projection_rows WHERE tenant_id = $1::uuid AND projection_version = -1`, piTenant).Scan(&staleRows); err != nil {
+		t.Fatalf("count stale projection rows: %v", err)
+	}
+	if staleRows != 0 {
+		t.Fatalf("stale projection rows = %d, want all batches pruned", staleRows)
+	}
+	var servingRows int
+	if err := pool.QueryRow(ctx, `
+SELECT COUNT(*)::int
+FROM process_integrity_projection_rows rows
+JOIN process_integrity_projection_state state
+  ON state.tenant_id = rows.tenant_id
+ AND state.serving_projection_version = rows.projection_version
+WHERE rows.tenant_id = $1::uuid`, piTenant).Scan(&servingRows); err != nil {
+		t.Fatalf("count serving projection rows: %v", err)
+	}
+	if servingRows == 0 {
+		t.Fatal("serving projection rows were pruned")
+	}
+}
+
 func TestProcessIntegrityProjectionReadableDuringStaleAndRebuildStates(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

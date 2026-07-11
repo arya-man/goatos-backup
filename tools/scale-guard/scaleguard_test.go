@@ -107,19 +107,20 @@ func (r *T) f(ctx context.Context) { _, _ = r.pool.Query(ctx, keyset, nil) }
 }
 
 func TestVersionScopedPruneNotFlagged(t *testing.T) {
-	// A whole-tenant wipe IS a full-mv-refresh; a version-scoped prune is NOT.
+	// Whole-tenant and range wipes ARE full-mv-refresh; a version-scoped prune is NOT.
 	src := "package p\n" +
 		"const wipe = `DELETE FROM t_projection_rows WHERE tenant_id = $1`\n" +
+		"const rangeWipe = `DELETE FROM t_projection_rows WHERE tenant_id = $1 AND projection_version > 0`\n" +
 		"const prune = `DELETE FROM t_projection_rows WHERE tenant_id = $1 AND projection_version <> $2`\n"
 	repo, path := writeGo(t, src)
 	got := scanFile(repo, path)
 	n := rules(got)["full-mv-refresh"]
-	if n != 1 {
-		t.Fatalf("expected exactly 1 full-mv-refresh (wipe only, not the prune), got %d: %+v", n, got)
+	if n != 2 {
+		t.Fatalf("expected exactly 2 full-mv-refresh findings (wipe/range wipe, not prune), got %d: %+v", n, got)
 	}
 	for _, f := range got {
-		if f.rule == "full-mv-refresh" && f.line != 2 {
-			t.Errorf("full-mv-refresh should flag the wipe (line 2), not the prune, got line %d", f.line)
+		if f.rule == "full-mv-refresh" && f.line == 4 {
+			t.Errorf("full-mv-refresh must not flag the version-scoped prune, got line %d", f.line)
 		}
 	}
 }

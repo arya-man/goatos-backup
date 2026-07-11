@@ -6,18 +6,18 @@
 // services, and worker repo methods) and reports:
 //
 //   - n-plus-one         : a DB call (.Query/.QueryRow/.Exec/.SendBatch) inside a
-//                          for/range loop body.
+//     for/range loop body.
 //   - loop-no-cursor      : an infinite `for {}` that calls a paging repo method
-//                          (List*/Fetch*/*Page) without any cursor/progress guard
-//                          in the loop body — the park-consolidation hang class.
+//     (List*/Fetch*/*Page) without any cursor/progress guard
+//     in the loop body — the park-consolidation hang class.
 //   - offset-pagination  : an OFFSET clause in a SQL string literal (use keyset).
 //   - full-mv-refresh     : DELETE FROM <...projection...> WHERE tenant_id with NO
-//                          projection_version guard = a stop-the-world whole-tenant
-//                          rebuild. A version-scoped prune (projection_version <>)
-//                          is fine and is NOT flagged.
+//     projection_version guard = a stop-the-world whole-tenant
+//     rebuild. A version-scoped prune (projection_version <>)
+//     is fine and is NOT flagged.
 //   - non-sargable-like   : lower(col) LIKE '%..%' (unindexable leading wildcard).
 //   - god-cte             : a single SQL literal with too many "x AS (" CTEs on a
-//                          request path (compute-on-read; move to a read model).
+//     request path (compute-on-read; move to a read model).
 //
 // Two escape hatches keep it usable:
 //
@@ -70,8 +70,9 @@ var (
 	sargableRe = regexp.MustCompile(`(?is)lower\s*\([^)]*\)\s+LIKE\s+'%`)
 	delProjRe  = regexp.MustCompile(`(?is)DELETE\s+FROM\s+[a-z_]*projection[a-z_]*\b[^;]*\btenant_id`)
 	// A version-scoped prune (build-new / flip / drop-old generations) is the
-	// APPROVED pattern, not a whole-tenant wipe. Do not flag it.
-	versionGuardRe = regexp.MustCompile(`(?i)projection_version\s*(<>|!=|<|>)`)
+	// APPROVED pattern, not a whole-tenant wipe. Do not treat range predicates
+	// like projection_version > 0 as safe; those can still delete the serving set.
+	versionPruneGuardRe = regexp.MustCompile(`(?i)projection_version\s*(<>|!=)`)
 	// Paging repo methods whose loops must prove forward progress.
 	pageMethodRe = regexp.MustCompile(`^(List|Fetch)|Page$|Chunk$`)
 	// Identifiers whose presence in a loop body signals a cursor/progress guard.
@@ -264,7 +265,7 @@ func scanFile(repo, path string) []finding {
 			add("offset-pagination", lit.Pos(),
 				"OFFSET in SQL; deep offsets scan-and-discard. Use keyset/cursor pagination")
 		}
-		if delProjRe.MatchString(v) && !versionGuardRe.MatchString(v) {
+		if delProjRe.MatchString(v) && !versionPruneGuardRe.MatchString(v) {
 			add("full-mv-refresh", lit.Pos(),
 				"whole-tenant projection DELETE with no projection_version guard = stop-the-world rebuild. Use version-swap (build new, flip, prune old)")
 		}

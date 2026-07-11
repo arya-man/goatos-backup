@@ -17,15 +17,14 @@ import (
 )
 
 const (
-	defaultQueryTimeout       = 3 * time.Second
-	defaultClosedHistoryAge   = 14 * 24 * time.Hour
-	defaultProjectionFresh    = 5 * time.Minute
-	defaultLimit              = 100
-	maxLimit                  = 500
-	countQueryArgCount        = 15
-	rowsQueryArgCount         = 20
-	projectionPruneBatchSize  = 5000
-	projectionPruneMaxBatches = 25
+	defaultQueryTimeout      = 3 * time.Second
+	defaultClosedHistoryAge  = 14 * 24 * time.Hour
+	defaultProjectionFresh   = 5 * time.Minute
+	defaultLimit             = 100
+	maxLimit                 = 500
+	countQueryArgCount       = 15
+	rowsQueryArgCount        = 20
+	projectionPruneBatchSize = 5000
 )
 
 type Repository struct {
@@ -341,7 +340,7 @@ ON CONFLICT (tenant_id) DO UPDATE SET
 		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: commit projection recompute: %w", err)
 	}
 	committed = true
-	r.pruneOldProjectionRows(ctx, req.TenantID, projectionVersion)
+	r.pruneOldProjectionRows(ctx, req.TenantID)
 	return domain.ProjectionRecomputeResult{
 		TenantID:           req.TenantID,
 		ProjectionVersion:  projectionVersion,
@@ -394,28 +393,39 @@ SET freshness_status = 'red',
 WHERE tenant_id = $1::uuid`, tenantID, message)
 }
 
-func (r *Repository) pruneOldProjectionRows(ctx context.Context, tenantID string, servingVersion int64) {
-	if strings.TrimSpace(tenantID) == "" || servingVersion <= 0 {
+func (r *Repository) pruneOldProjectionRows(ctx context.Context, tenantID string) {
+	r.pruneOldProjectionRowsWithBatchSize(ctx, tenantID, projectionPruneBatchSize)
+}
+
+func (r *Repository) pruneOldProjectionRowsWithBatchSize(ctx context.Context, tenantID string, batchSize int32) {
+	if strings.TrimSpace(tenantID) == "" || batchSize <= 0 {
 		return
 	}
-	for batch := 0; batch < projectionPruneMaxBatches; batch++ {
+	for {
 		tag, err := r.pool.Exec(ctx, `
-WITH doomed AS (
-  SELECT process_integrity_projection_row_id
-  FROM process_integrity_projection_rows
+WITH serving AS (
+  SELECT serving_projection_version
+  FROM process_integrity_projection_state
   WHERE tenant_id = $1::uuid
-    AND projection_version <> $2::bigint
-  ORDER BY projection_version, process_integrity_projection_row_id
-  LIMIT $3::int
+    AND serving_projection_version IS NOT NULL
+),
+doomed AS (
+  SELECT rows.process_integrity_projection_row_id
+  FROM process_integrity_projection_rows rows
+  JOIN serving ON true
+  WHERE rows.tenant_id = $1::uuid
+    AND rows.projection_version <> serving.serving_projection_version
+  ORDER BY rows.projection_version, rows.process_integrity_projection_row_id
+  LIMIT $2::int
 )
 DELETE FROM process_integrity_projection_rows rows
 USING doomed
 WHERE rows.process_integrity_projection_row_id = doomed.process_integrity_projection_row_id`,
-			tenantID, servingVersion, projectionPruneBatchSize)
+			tenantID, batchSize)
 		if err != nil {
 			return
 		}
-		if tag.RowsAffected() < projectionPruneBatchSize {
+		if tag.RowsAffected() < int64(batchSize) {
 			return
 		}
 	}
