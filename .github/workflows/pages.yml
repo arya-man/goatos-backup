@@ -422,8 +422,6 @@ jobs:
             a.card p{margin:6px 0 0;font-size:13px;color:#8aa196}
           </style></head><body>
           <h1>Goat OS — CI reports</h1>
-          <a class="card" href="scale-audit-e2e-report/index.html"><b>Scale/performance E2E report</b>
-            <p>Scale-audit fixes, latency gates, and the explicit 1M staging-certification boundary.</p></a>
           <a class="card" href="screenshot-gallery/index.html"><b>Mobile screenshot gallery</b>
             <p>Every screen, rendered fresh via Paparazzi.</p></a>
           <a class="card" href="nav-graph/index.html"><b>Mobile nav-graph</b>
@@ -432,6 +430,8 @@ jobs:
             <p>${{ needs.e2e-report.outputs.passed }}/${{ needs.e2e-report.outputs.total }} stories: core kernel behavior plus event-driven-chain + edge-dataset coverage.</p></a>
           <a class="card" href="e2e-hrms-report/index.html"><b>HRMS roster/RBAC kernel-story E2E report</b>
             <p>${{ needs.e2e-hrms-report.outputs.passed }}/${{ needs.e2e-hrms-report.outputs.total }} stories: position → leave → effective-backup coverage → temporary execute capability → vaccination-owner resolution / escalation.</p></a>
+          <a class="card" href="scale-audit-e2e-report/index.html"><b>Scale/performance E2E report</b>
+            <p>Scale-audit fixes, latency gates, and the explicit 1M staging-certification boundary.</p></a>
           </body></html>
           HTML
       - uses: actions/download-artifact@v4

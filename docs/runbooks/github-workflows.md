@@ -719,6 +719,21 @@ When adding or changing workflows:
 Do not let workflow behavior live only in `.github/workflows/*.yml`.
 
 When any feature, fix, audit, or scale gate generates an E2E result, commit the
-report and wire it into this Pages report site before handoff. Reuse an
-existing category when it fits; otherwise add a new Pages category and document
-whether the result is local-only, staging certification, or production proof.
+report and wire it into this Pages report site before handoff. The report must
+be visible as a card/list item on the root CI reports index
+(`https://vgoats.github.io/goatos/`), not only reachable through a standalone
+URL. Reuse an existing category when it fits: for example, vaccination kernel
+stories belong inside `/e2e-report/`, HRMS roster/RBAC stories belong inside
+`/e2e-hrms-report/`, and mobile visual E2E proof belongs inside
+`/screenshot-gallery/`. Do not add a second root card for a test that is part of
+an existing category. Add a new Pages category and root card only when the E2E
+result is a genuinely new report family; document whether that result is
+local-only, staging certification, or production proof.
+
+Every E2E detail page must match the existing report style: self-contained HTML,
+title/subtitle, summary tiles, pass/fail/pending badges, sections/steps, and
+readable code/evidence blocks. Do not ship raw markdown, a bare `<pre>` page,
+screenshots-only proof, an Actions artifact, a local scratchpad, or a chat paste
+as the final E2E report. Before declaring the report published, verify both the
+root card and the detail page with `curl`; when GitHub Pages cache is stale, use
+a `?v=<commit-sha>` cache-busting URL in the handoff evidence.

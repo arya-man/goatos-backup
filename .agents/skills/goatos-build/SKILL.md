@@ -156,6 +156,14 @@ one product; this skill is the navigation layer.
 - Keep AI as proposer/triage, never canonical authority.
 - Preserve module boundaries in the Go modular monolith.
 - Keep frontend/mobile behind app APIs and generated clients.
+- Publish every feature/fix/audit/scale E2E result into the GitHub Pages CI
+  reports site before handoff. It must be a visible card/list item on the root
+  report index (`https://vgoats.github.io/goatos/`) and a styled report page
+  matching the existing E2E report shell (summary tiles, badges, sections, code
+  blocks). If the E2E belongs to an existing category, update that category's
+  report instead of creating a new root card; create a new card only for a
+  genuinely new report category. A standalone deep link, raw markdown dump,
+  attachment, scratchpad, or chat paste is not an accepted E2E report.
 - Treat backend-driven UI contracts as a golden rule. Admin-web/operator-mobile
   must render backend-owned OpenAPI/app contracts for navigation, route labels,
   page/section titles, table columns, filter/sort/page-size semantics, chips,

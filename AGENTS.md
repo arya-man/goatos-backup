@@ -325,13 +325,23 @@ Do:
   "1M-proven" (gates run at ~1k rows — see the ADR's runtime-gap section).
 - E2E publishing rule for Codex, Claude, and every feature agent: any generated
   E2E result for a feature, fix, audit, or scale gate must be committed inside
-  this repo and surfaced on the GitHub Pages CI report site before handoff. Do
-  not leave E2E reports only in `/tmp`, scratchpads, attachments, local
-  `.codex/` or `.claude/` folders, or chat. Reuse an existing Pages report
-  category when it fits; otherwise add a category to
-  `.github/workflows/pages.yml` and document it in
-  `docs/runbooks/github-workflows.md`. State clearly when a report is local E2E
-  only and not staging or production certification.
+  this repo and surfaced on the GitHub Pages CI report site before handoff. The
+  report must appear as a card/list item on the main CI reports index
+  (`https://vgoats.github.io/goatos/`), not only as a standalone deep link.
+  If the E2E belongs to an existing category (for example a vaccination kernel
+  story belongs inside `/e2e-report/`), add it inside that category's report;
+  do not create another root card. Create a new root card only for a genuinely
+  new report category, then wire that category in `.github/workflows/pages.yml`
+  and document it in `docs/runbooks/github-workflows.md`. The detail page must
+  follow the existing E2E report visual contract: self-contained HTML with
+  title/subtitle, summary tiles, pass/fail/pending badges, report sections, and
+  readable code/evidence blocks. Do not publish raw markdown, a bare
+  `<pre>`, screenshots-only evidence, or a hidden artifact as the final report.
+  Do not leave E2E reports only in `/tmp`, scratchpads, attachments, local
+  `.codex/` or `.claude/` folders, or chat. State clearly when a report is local
+  E2E only and not staging or production certification. Before handoff, verify
+  the live root index and the report URL with `curl`; if GitHub Pages caching is
+  in play, include a `?v=<commit-sha>` cache-busting URL plus the workflow run.
 - Treat the operational kernel as the golden rule for every feature. Read
   `context/architecture/operational-kernel.md` before designing or implementing
   triggers, obligations, reminders, notifications, deadlines, escalations,
