@@ -68,7 +68,8 @@ Secret Manager admin access or database credentials.
 ```text
 main -> stg pull request:
   .github/workflows/stg-pr-gate.yml
-  Runs backend DB/API/migration gates, admin-web build gates, and stg release APK build.
+  Runs backend DB/API/migration gates, admin-web build gates, and stg release APK
+  build/unit/Paparazzi checks.
 
 push/merge to stg:
   .github/workflows/stg-deploy.yml
