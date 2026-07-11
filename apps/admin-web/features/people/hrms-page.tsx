@@ -28,7 +28,7 @@ export function HRMSPage({ tab: initialTab, pageContract }: HRMSPageProps) {
   const timetableLabel = pageContract?.tables?.find((t) => t.id === 'timetable')?.title ?? 'Timetable';
 
   return (
-    <section className="screen" data-screen="people">
+    <section className="screen on" data-screen="people">
       <div className="subtabs">
         <button
           data-screen="people"

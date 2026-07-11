@@ -23,6 +23,30 @@ type ListPositionsParams struct {
 	Limit             int
 }
 
+// UpdatePositionCommand edits a seat's attributes in place. Each optional
+// column carries a Set<Field> flag: when false the column is left unchanged;
+// when true the paired value is written (empty string clears a nullable
+// column). RowVersion is the optimistic-lock guard. IdempotencyKey is the
+// client request-level replay key (empty = non-idempotent).
+type UpdatePositionCommand struct {
+	TenantID       string
+	ActorID        string
+	PositionID     string
+	RowVersion     int
+	IdempotencyKey string
+
+	SetPositionTier bool
+	PositionTier    string
+	SetBackupGroup  bool
+	BackupGroupCode string
+	SetWeekOff      bool
+	WeekOffWeekday  string
+	SetValidTo      bool
+	ValidTo         string
+	SetStatus       bool
+	Status          string
+}
+
 type ApplyLeaveCommand struct {
 	TenantID string
 	ActorID  string
@@ -98,6 +122,16 @@ type ListCoverageParams struct {
 // app.RosterService's CapabilityGranter dependency.
 type RosterRepository interface {
 	CreatePosition(ctx context.Context, cmd CreatePositionCommand) (domain.Position, error)
+	// UpdatePosition edits an active seat's attributes in place (never its
+	// holder). Optimistically locked on cmd.RowVersion; returns ErrConflict
+	// when the row_version does not match (or the seat is not active), and
+	// ErrNotFound when no such position exists in the tenant. The returned bool
+	// is true on an exact idempotent replay (the original updated row is
+	// returned without re-running the update).
+	UpdatePosition(ctx context.Context, cmd UpdatePositionCommand) (domain.Position, bool, error)
+	// GetPositionByID returns a single enriched seat by id within the tenant, or
+	// ErrNotFound. Backs the position profile drawer read.
+	GetPositionByID(ctx context.Context, tenantID, positionID string) (domain.Position, error)
 	ListPositions(ctx context.Context, params ListPositionsParams) ([]domain.Position, error)
 	// GetActivePositionByCode returns the active seat holder for
 	// (scope, position_code) valid at `at`, or ErrNotFound if the seat is
@@ -140,6 +174,13 @@ type RosterRepository interface {
 	// row's id.
 	IsMemberOnApprovedLeave(ctx context.Context, tenantID, workforceMemberID string, at time.Time) (bool, string, error)
 
+	// HasApprovedLeaveInWindow reports whether the member has an approved (or
+	// escalation_required) absence overlapping the half-open window
+	// [startsAt, endsAt) -- not just a single instant -- and that row's id.
+	// Used to reject a backup who is free at a coverage window's start but
+	// absent on a later day of it (design doc S4.7).
+	HasApprovedLeaveInWindow(ctx context.Context, tenantID, workforceMemberID string, startsAt, endsAt time.Time) (bool, string, error)
+
 	// ListBackupConfig returns all backup slot configurations for a scope,
 	// joined with their configured holder names.
 	ListBackupConfig(ctx context.Context, params ListBackupConfigParams) ([]domain.BackupConfig, error)
@@ -153,8 +194,33 @@ type RosterRepository interface {
 	// GetOperatorCoverage returns the current coverage (leave/week-off) for an operator, if any.
 	GetOperatorCoverage(ctx context.Context, tenantID, workforceMemberID string, at time.Time) (*domain.Coverage, error)
 
+	// GetHolderCoverage returns the currently-in-effect coverage record for a
+	// position HOLDER who is themselves absent (their seat is being covered
+	// right now, covering_member = the resolved replacement), or (nil, nil) when
+	// the holder is present. Distinct from GetOperatorCoverage, which returns the
+	// records where the member is the COVERER. Backs the profile drawer's
+	// active_coverage field.
+	GetHolderCoverage(ctx context.Context, tenantID, workforceMemberID string, at time.Time) (*domain.Coverage, error)
+
 	// GetMemberForActor resolves a user_id to an operator profile, used for IDOR validation and identity resolution (P1).
 	GetMemberForActor(ctx context.Context, tenantID, actorID string) (domain.OperatorProfile, error)
+
+	// ResolveExecuteCapability returns the execution capability code a temporary
+	// backup grant confers when covering positionCode, read from
+	// position_module_duties (migration 000157) at `at`: the capability_code
+	// recorded on that position's active, in-effect module duty. Returns "" (no
+	// error) when the covered position has no built-module capability mapping --
+	// the coverage/leave/escalation flow still resolves, only the
+	// execution-permission side effect is a no-op. Replaces the previously
+	// hardcoded positionExecuteCapability Go map (design doc S4.6).
+	ResolveExecuteCapability(ctx context.Context, tenantID, positionCode string, at time.Time) (string, error)
+
+	// ListDutiesForPositions returns the active, in-effect module duties (from
+	// position_module_duties, migration 000157) for each of positionCodes at
+	// `at`, keyed by position_code. Batched (single query) to avoid an N+1 read
+	// when enriching a page of positions. Position codes with no duties are
+	// simply absent from the map.
+	ListDutiesForPositions(ctx context.Context, tenantID string, positionCodes []string, at time.Time) (map[string][]domain.PositionDuty, error)
 }
 
 // CapabilityGranter is the slice of the existing ports.Repository the roster

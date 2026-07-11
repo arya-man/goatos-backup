@@ -31,6 +31,7 @@ var _ ports.CapabilityGranter = (*Repository)(nil)
 // operations.
 const (
 	idemScopePositionCreate = "position.create"
+	idemScopePositionUpdate = "position.update"
 	idemScopeLeaveApply     = "leave.apply"
 	idemScopeLeaveApprove   = "leave.approve"
 	idemScopeLeaveResolve   = "leave.resolve_coverage"
@@ -172,9 +173,105 @@ WHERE p.tenant_id = $1::uuid AND p.position_id = $2::uuid
 LIMIT 1`, cmd.TenantID, positionID)
 }
 
+// UpdatePosition edits an active seat's attributes in place. Each optional
+// column is guarded by a Set<Field> flag so an unset field is left untouched;
+// nullable columns are cleared when their flag is set with an empty value.
+// Optimistically locked on row_version (ErrConflict on mismatch/non-active),
+// request-idempotent, and audited -- all in one tx.
+func (r *Repository) UpdatePosition(ctx context.Context, cmd ports.UpdatePositionCommand) (domain.Position, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Position{}, false, err
+	}
+	defer rollback(ctx, tx)
+
+	idemKey := cmd.IdempotencyKey
+	fingerprint := requestFingerprint(
+		cmd.PositionID, fmt.Sprintf("%d", cmd.RowVersion),
+		fmt.Sprintf("%t", cmd.SetPositionTier), cmd.PositionTier,
+		fmt.Sprintf("%t", cmd.SetBackupGroup), cmd.BackupGroupCode,
+		fmt.Sprintf("%t", cmd.SetWeekOff), cmd.WeekOffWeekday,
+		fmt.Sprintf("%t", cmd.SetValidTo), cmd.ValidTo,
+		fmt.Sprintf("%t", cmd.SetStatus), cmd.Status,
+	)
+	reservation, err := reserveIdempotency(ctx, tx, cmd.TenantID, idemScopePositionUpdate, idemKey, fingerprint)
+	if err != nil {
+		return domain.Position{}, false, err
+	}
+	if !reservation.proceed {
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Position{}, false, err
+		}
+		pos, err := r.GetPositionByID(contextWithoutCancel(ctx), cmd.TenantID, cmd.PositionID)
+		return pos, true, err
+	}
+
+	tag, err := tx.Exec(ctx, `
+UPDATE workforce_positions
+SET position_tier     = CASE WHEN $4 THEN $5 ELSE position_tier END,
+    backup_group_code = CASE WHEN $6 THEN nullif($7, '') ELSE backup_group_code END,
+    week_off_weekday  = CASE WHEN $8 THEN nullif($9, '') ELSE week_off_weekday END,
+    valid_to          = CASE WHEN $10 THEN nullif($11, '')::timestamptz ELSE valid_to END,
+    status            = CASE WHEN $12 THEN $13 ELSE status END,
+    updated_at = now(), row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND position_id = $2::uuid AND row_version = $3 AND status = 'active'`,
+		cmd.TenantID, cmd.PositionID, cmd.RowVersion,
+		cmd.SetPositionTier, cmd.PositionTier,
+		cmd.SetBackupGroup, cmd.BackupGroupCode,
+		cmd.SetWeekOff, cmd.WeekOffWeekday,
+		cmd.SetValidTo, cmd.ValidTo,
+		cmd.SetStatus, cmd.Status)
+	if err != nil {
+		return domain.Position{}, false, mapWriteErr(err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Distinguish "no such row in tenant" (404) from "row_version stale /
+		// not active" (409) so the caller returns the right status.
+		var exists bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (SELECT 1 FROM workforce_positions WHERE tenant_id = $1::uuid AND position_id = $2::uuid)`,
+			cmd.TenantID, cmd.PositionID).Scan(&exists); err != nil {
+			return domain.Position{}, false, err
+		}
+		if !exists {
+			return domain.Position{}, false, ports.ErrNotFound
+		}
+		return domain.Position{}, false, ports.ErrConflict
+	}
+	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "roster.position.update", "workforce_position", cmd.PositionID, nil, map[string]any{
+		"row_version": cmd.RowVersion,
+	}); err != nil {
+		return domain.Position{}, false, err
+	}
+	if err := completeIdempotency(ctx, tx, cmd.TenantID, idemScopePositionUpdate, idemKey, "workforce_position", cmd.PositionID); err != nil {
+		return domain.Position{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Position{}, false, err
+	}
+	pos, err := r.GetPositionByID(contextWithoutCancel(ctx), cmd.TenantID, cmd.PositionID)
+	return pos, false, err
+}
+
+func (r *Repository) GetPositionByID(ctx context.Context, tenantID, positionID string) (domain.Position, error) {
+	return r.queryOnePosition(ctx, `
+WHERE p.tenant_id = $1::uuid AND p.position_id = $2::uuid
+LIMIT 1`, tenantID, positionID)
+}
+
 func (r *Repository) ListPositions(ctx context.Context, params ports.ListPositionsParams) ([]domain.Position, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	// The default People roster ("Position & Coverage") lists the human-configured
+	// NAMED seats. Derived shed-ownership seats (scope_type='shed',
+	// position_code='shed_manager') are a vaccination read-model materialization --
+	// one per shed, holder derived from the park PC Manager -- read through the
+	// vaccination OwnershipAdapter/ShedManager path, NOT this roster list. Left in,
+	// they flood the roster (170 sheds -> a handful of managers repeated). Exclude
+	// them UNLESS the caller explicitly scopes to shed or asks for that code, so a
+	// deliberate `?scope_type=shed`/`?position_code=shed_manager` query still works.
 	rows, err := r.pool.Query(ctx, positionSelectSQL(`
 WHERE p.tenant_id = $1::uuid
   AND ($2 = '' OR p.workforce_member_id = $2::uuid)
@@ -182,6 +279,7 @@ WHERE p.tenant_id = $1::uuid
   AND ($4 = '' OR p.scope_id = $4::uuid)
   AND ($5 = '' OR p.position_code = $5)
   AND ($6 = '' OR p.status = $6)
+  AND ($3 <> '' OR $5 <> '' OR NOT (p.scope_type = 'shed' AND p.position_code = 'shed_manager'))
 ORDER BY p.status, p.scope_type, p.scope_id, p.position_code
 LIMIT $7`), params.TenantID, params.WorkforceMemberID, params.ScopeType, params.ScopeID, params.PositionCode, params.Status, params.Limit)
 	if err != nil {
@@ -229,6 +327,77 @@ SELECT EXISTS (
 		return false, err
 	}
 	return exists, nil
+}
+
+// ---- Position module duties (position_module_duties, migration 000157) ------
+
+// ResolveExecuteCapability returns the execution capability code a temporary
+// backup grant confers when covering positionCode: the capability_code recorded
+// on that position's active, in-effect module duty. Replaces the previously
+// hardcoded positionExecuteCapability Go map (design doc S4.6). Filters on
+// capability_code IS NOT NULL rather than duty_type='execute' because the
+// capability_code column IS the "what execution permission does covering this
+// seat confer" fact -- a manager-tier duty (e.g. preventive_care_manager
+// manages pc.vaccination and personally executes it) carries the execute
+// capability on its 'manage' row, and resolving must return it to keep the
+// coverage/leave/escalation behavior identical to the old map. Returns "" (no
+// error) when the covered position has no capability-bearing duty.
+func (r *Repository) ResolveExecuteCapability(ctx context.Context, tenantID, positionCode string, at time.Time) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var capabilityCode pgtype.Text
+	err := r.pool.QueryRow(ctx, `
+SELECT capability_code
+FROM position_module_duties
+WHERE tenant_id = $1::uuid AND position_code = $2 AND status = 'active'
+  AND capability_code IS NOT NULL
+  AND effective_from <= $3::timestamptz AND (effective_to IS NULL OR effective_to > $3::timestamptz)
+ORDER BY effective_from DESC
+LIMIT 1`, tenantID, positionCode, at).Scan(&capabilityCode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !capabilityCode.Valid {
+		return "", nil
+	}
+	return capabilityCode.String, nil
+}
+
+// ListDutiesForPositions returns the active, in-effect module duties for each
+// of positionCodes at `at`, keyed by position_code. Batched into a single query
+// (positionCodes passed as a text array) to avoid an N+1 read when enriching a
+// page of positions.
+func (r *Repository) ListDutiesForPositions(ctx context.Context, tenantID string, positionCodes []string, at time.Time) (map[string][]domain.PositionDuty, error) {
+	out := map[string][]domain.PositionDuty{}
+	if len(positionCodes) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT position_code, module_code, duty_type, capability_code
+FROM position_module_duties
+WHERE tenant_id = $1::uuid AND position_code = ANY($2) AND status = 'active'
+  AND effective_from <= $3::timestamptz AND (effective_to IS NULL OR effective_to > $3::timestamptz)
+ORDER BY position_code, module_code, duty_type`, tenantID, positionCodes, at)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var positionCode string
+		var duty domain.PositionDuty
+		var capabilityCode pgtype.Text
+		if err := rows.Scan(&positionCode, &duty.ModuleCode, &duty.DutyType, &capabilityCode); err != nil {
+			return nil, err
+		}
+		duty.CapabilityCode = textPtr(capabilityCode)
+		out[positionCode] = append(out[positionCode], duty)
+	}
+	return out, rows.Err()
 }
 
 // ---- Leave / absence (workforce_absences reuse) -----------------------------
@@ -488,6 +657,32 @@ LIMIT 1`, tenantID, workforceMemberID, at).Scan(&absenceID)
 	return true, absenceID, nil
 }
 
+// HasApprovedLeaveInWindow reports whether the member has an approved (or
+// escalation_required) absence OVERLAPPING the half-open window [startsAt, endsAt)
+// -- not just a single instant. Absence windows are themselves half-open
+// [starts_at, ends_at), so two windows overlap iff absence.starts_at < endsAt AND
+// absence.ends_at > startsAt. This catches a backup who is free at the window's
+// start but absent on a later day of it (design doc S4.7).
+func (r *Repository) HasApprovedLeaveInWindow(ctx context.Context, tenantID, workforceMemberID string, startsAt, endsAt time.Time) (bool, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var absenceID string
+	err := r.pool.QueryRow(ctx, `
+SELECT absence_id::text
+FROM workforce_absences
+WHERE tenant_id = $1::uuid AND workforce_member_id = $2::uuid AND status IN ('approved', 'escalation_required')
+  AND starts_at < $4::timestamptz AND ends_at > $3::timestamptz
+ORDER BY absence_id
+LIMIT 1`, tenantID, workforceMemberID, startsAt, endsAt).Scan(&absenceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", err
+	}
+	return true, absenceID, nil
+}
+
 // ---- Backup config + coverage lists -----------------------------------------
 
 func (r *Repository) ListBackupConfig(ctx context.Context, params ports.ListBackupConfigParams) ([]domain.BackupConfig, error) {
@@ -558,7 +753,7 @@ JOIN workforce_positions p ON wa.workforce_member_id = p.workforce_member_id
 LEFT JOIN workforce_members wm ON wa.replacement_member_id = wm.workforce_member_id
 WHERE wa.tenant_id = $1::uuid
   AND ($2 = '' OR p.scope_type = $2)
-  AND ($3 = '' OR p.scope_id = $3::uuid)` + statusFilter + `
+  AND ($3 = '' OR p.scope_id = $3::uuid)`+statusFilter+`
 ORDER BY wa.starts_at DESC, wa.absence_id DESC
 LIMIT $4`, params.TenantID, params.ScopeType, params.ScopeID, params.Limit)
 	if err != nil {
@@ -627,6 +822,52 @@ WHERE wa.tenant_id = $1::uuid
 ORDER BY wa.starts_at DESC, wa.absence_id DESC
 LIMIT 1`, tenantID, workforceMemberID, at)
 
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items, err := scanCoverage(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	return &items[0], nil
+}
+
+// GetHolderCoverage returns the currently-in-effect coverage for a position
+// HOLDER who is themselves absent (their seat is being covered right now). Same
+// shape as GetOperatorCoverage but keyed on wa.workforce_member_id (the absent
+// person) rather than wa.replacement_member_id (the coverer), so covering_member
+// resolves to the replacement who covers them.
+func (r *Repository) GetHolderCoverage(ctx context.Context, tenantID, workforceMemberID string, at time.Time) (*domain.Coverage, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	rows, err := r.pool.Query(ctx, `
+SELECT
+  p.position_id::text,
+  p.position_code,
+  p.position_code as position_title,
+  COALESCE(wm.workforce_member_id::text, NULL) as covering_member_id,
+  COALESCE(wm.display_name, NULL) as covering_member_name,
+  wa.starts_at::text,
+  wa.ends_at::text,
+  'leave' as source,
+  NULL as escalation_state,
+  wa.status
+FROM workforce_absences wa
+JOIN workforce_positions p ON wa.workforce_member_id = p.workforce_member_id
+  AND wa.scope_type = p.scope_type AND wa.scope_id = p.scope_id
+LEFT JOIN workforce_members wm ON wa.replacement_member_id = wm.workforce_member_id
+WHERE wa.tenant_id = $1::uuid
+  AND wa.workforce_member_id = $2::uuid
+  AND wa.status IN ('approved', 'escalation_required')
+  AND wa.starts_at <= $3::timestamptz AND wa.ends_at > $3::timestamptz
+ORDER BY wa.starts_at DESC, wa.absence_id DESC
+LIMIT 1`, tenantID, workforceMemberID, at)
 	if err != nil {
 		return nil, err
 	}

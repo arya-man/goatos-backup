@@ -2,6 +2,7 @@
 
 import { getAdminApi } from '@/lib/api/client';
 import { useEffect, useState } from 'react';
+import { UserRound, X } from 'lucide-react';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { optionalCopy, type AdminUiPageContract } from '@/lib/admin-ui-contract';
 
@@ -19,6 +20,7 @@ interface Position extends BasePosition {
 
 type BackupConfig = AdminApiComponents['schemas']['BackupConfig'];
 type Coverage = AdminApiComponents['schemas']['Coverage'];
+type PositionProfile = AdminApiComponents['schemas']['PositionProfile'];
 
 interface PositionsPanelProps {
   pageContract?: AdminUiPageContract;
@@ -30,6 +32,33 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
   const [activeCoverages, setActiveCoverages] = useState<Coverage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Row-click profile drawer (mock: openPerson). getStaffPositionProfile returns the
+  // enriched seat + the coverage window currently covering its holder (null when present).
+  const [profile, setProfile] = useState<PositionProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  const openProfile = async (positionId: string) => {
+    setProfile(null);
+    setProfileError(null);
+    setProfileLoading(true);
+    try {
+      const res = await getAdminApi().getStaffPositionProfile(positionId);
+      setProfile(res.data.profile ?? null);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to load position profile');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const closeProfile = () => {
+    setProfile(null);
+    setProfileError(null);
+    setProfileLoading(false);
+  };
+  const drawerOpen = profileLoading || profileError !== null || profile !== null;
 
   // Contract-driven labels (from pageContract, fallback to defaults)
   // Note: /people page contract copy/labels are being moved to backend; falling back to sensible defaults until complete
@@ -102,7 +131,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
   const escalated = activeCoverages.filter(isEscalatedCoverage).length;
 
   return (
-    <div className="subpanel" data-sub="positions">
+    <div className="subpanel on" data-sub="positions">
       <div className="phead">
         <div>
           <div className="crumb">Team / <b>{positionsTableLabel}</b></div>
@@ -175,7 +204,20 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
                 </tr>
               ) : (
                 positions.map((pos) => (
-                  <tr key={pos.position_id} style={{ cursor: 'pointer' }}>
+                  <tr
+                    key={pos.position_id}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => openProfile(pos.position_id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openProfile(pos.position_id);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Open profile for ${pos.person_display_name || pos.position_code}`}
+                  >
                     <td>{pos.person_display_name || '—'}</td>
                     <td><span className="tag t-info">{pos.tier || pos.position_tier}</span></td>
                     <td><b>{pos.position_title || pos.position_code}</b></td>
@@ -294,6 +336,123 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
           </div>
         </div>
       </div>
+
+      {drawerOpen && (
+        <>
+          <div className="veil" onClick={closeProfile} aria-hidden="true" />
+          <aside className="drawer on" aria-label="Position & coverage profile">
+            <div className="dh">
+              <span className="fic" style={{ background: 'var(--brand-soft)', color: 'var(--brand-d)' }}>
+                <UserRound className="ic" aria-hidden="true" />
+              </span>
+              <div>
+                <div className="mt">Position &amp; coverage</div>
+                <h2>{profile?.position?.person_display_name || profile?.position?.position_title || 'Position profile'}</h2>
+              </div>
+              <span className="sp" style={{ flex: 1 }} />
+              <button type="button" className="iconbtn" onClick={closeProfile} aria-label="Close profile">
+                <X className="ic" />
+              </button>
+            </div>
+
+            <div className="dc">
+              {profileLoading && (
+                <div className="note">Loading profile…</div>
+              )}
+              {profileError && (
+                <div className="note" style={{ color: 'var(--danger)' }}>
+                  <svg className="ic" style={{ marginRight: 8 }}><use href="#i-warn" /></svg>
+                  {profileError}
+                </div>
+              )}
+              {profile && (() => {
+                const pos = profile.position;
+                const cov = profile.active_coverage ?? null;
+                const covEscalated = !!(cov && (cov.escalation_state || cov.source === 'escalation'));
+                const duties = pos.duties ?? [];
+                return (
+                  <>
+                    {/* RECORD anatomy = .metagrid (a 2-col grid of uppercase-key cells), never a flat stack. */}
+                    <div className="metagrid">
+                      <div>
+                        <div className="k">Operational position</div>
+                        <div className="v"><b>{pos.position_title || pos.position_code}</b></div>
+                      </div>
+                      <div>
+                        <div className="k">HR grade</div>
+                        <div className="v">{pos.hr_designation_grade || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="k">Tier</div>
+                        <div className="v"><span className="tag t-info">{pos.tier || pos.position_tier}</span></div>
+                      </div>
+                      <div>
+                        <div className="k">Center</div>
+                        <div className="v">{pos.center_label || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="k">Week OFF</div>
+                        <div className="v">{pos.week_off || pos.week_off_weekday || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="k">Backup group</div>
+                        <div className="v"><span className="tag t-mut">{pos.backup_group || pos.backup_group_code || '—'}</span></div>
+                      </div>
+                      <div>
+                        <div className="k">Scope</div>
+                        <div className="v">{pos.scope_type}</div>
+                      </div>
+                      <div>
+                        <div className="k">Status</div>
+                        <div className="v"><span className={`tag ${pos.status === 'active' ? 't-ok' : 't-warn'}`}>{pos.status}</span></div>
+                      </div>
+                    </div>
+
+                    {/* Coverage this period — ownership never changes; only due work reassigns for the window. */}
+                    <div className="b700" style={{ margin: '16px 0 6px' }}>Coverage — this period</div>
+                    {cov ? (
+                      <div className="fitem">
+                        <span className="fic" style={{ background: covEscalated ? 'var(--dangerx)' : 'var(--okx)', color: covEscalated ? 'var(--danger)' : 'var(--brand-d)' }}>
+                          <svg className="ic"><use href={covEscalated ? '#i-warn' : '#i-check'} /></svg>
+                        </span>
+                        <div className="tx">
+                          <b>{cov.covering_member_name || 'pending'}</b>
+                          <div className="mt">{cov.source}{covEscalated ? ' · escalated to Park Head' : ''}</div>
+                        </div>
+                        <span className={`tag ${covEscalated ? 't-dng' : 't-ok'}`}>{covEscalated ? 'escalated' : 'covered'}</span>
+                      </div>
+                    ) : (
+                      <div className="note">Present — no active leave/week-off coverage for this seat right now.</div>
+                    )}
+
+                    {/* Capabilities (effective-dated) = the position's module duties; a temporary backup grant confers each duty's execute capability. */}
+                    <div className="b700" style={{ margin: '16px 0 6px' }}>Capabilities <span className="muted small">(effective-dated · module duties)</span></div>
+                    {duties.length > 0 ? (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {duties.map((d, i) => (
+                          <span key={`${d.module_code}-${d.duty_type}-${i}`} className="tag t-info">
+                            {d.module_code} · {d.duty_type}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="note">No declared module duties for this position yet.</div>
+                    )}
+
+                    <div className="note" style={{ marginTop: 14 }}>
+                      Registered devices, app sessions, and the daily task checklist live in the operator mobile app, not the roster profile.
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            <div className="df">
+              <button type="button" className="btn" onClick={closeProfile}>Close</button>
+            </div>
+          </aside>
+        </>
+      )}
     </div>
   );
 }

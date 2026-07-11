@@ -128,8 +128,47 @@ jobs:
           path: backend/tests/e2e/report/index.html
           retention-days: 14
 
+  e2e-hrms-report:
+    runs-on: ubuntu-latest
+    env:
+      GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
+    outputs:
+      total: ${{ steps.story_count.outputs.total }}
+      passed: ${{ steps.story_count.outputs.passed }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Run the HRMS roster/RBAC kernel-story E2E harness
+        working-directory: backend
+        run: go test ./tests/e2e-hrms/... -run TestHRMS -v
+      - name: Compute story count from the generated report
+        id: story_count
+        # Never hardcode the story count here -- read it from the report's own summary tiles
+        # (rendered by backend/tests/e2e-hrms/report.go) so this workflow can't drift stale as
+        # stories are added or removed.
+        run: |
+          report="backend/tests/e2e-hrms/report/index.html"
+          total=$(grep -oE '<div class="tile"><span class="n">[0-9]+</span>stories</div>' "$report" | grep -oE '[0-9]+')
+          passed=$(grep -oE '<div class="tile pass"><span class="n">[0-9]+</span>stories passed</div>' "$report" | grep -oE '[0-9]+')
+          echo "total=$total" >> "$GITHUB_OUTPUT"
+          echo "passed=$passed" >> "$GITHUB_OUTPUT"
+      - name: Job summary
+        run: |
+          {
+            echo "### HRMS roster/RBAC kernel-story E2E report"
+            echo "${{ steps.story_count.outputs.passed }}/${{ steps.story_count.outputs.total }} stories — see the Pages artifact \`e2e-hrms-report\` below once deployed."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-hrms-report
+          path: backend/tests/e2e-hrms/report/index.html
+          retention-days: 14
+
   publish:
-    needs: [mobile-screenshots, nav-graph, e2e-report]
+    needs: [mobile-screenshots, nav-graph, e2e-report, e2e-hrms-report]
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -137,7 +176,7 @@ jobs:
     steps:
       - name: Assemble the combined site
         run: |
-          mkdir -p _site/screenshot-gallery _site/nav-graph _site/e2e-report
+          mkdir -p _site/screenshot-gallery _site/nav-graph _site/e2e-report _site/e2e-hrms-report
           cat > _site/index.html <<'HTML'
           <!doctype html><html lang="en"><head><meta charset="utf-8">
           <title>Goat OS Android + vaccination kernel — CI reports</title>
@@ -160,6 +199,8 @@ jobs:
             <p>Compose Navigation routes + navigate() edges.</p></a>
           <a class="card" href="e2e-report/index.html"><b>Vaccination kernel-story E2E report</b>
             <p>${{ needs.e2e-report.outputs.passed }}/${{ needs.e2e-report.outputs.total }} stories: core kernel behavior plus event-driven-chain + edge-dataset coverage.</p></a>
+          <a class="card" href="e2e-hrms-report/index.html"><b>HRMS roster/RBAC kernel-story E2E report</b>
+            <p>${{ needs.e2e-hrms-report.outputs.passed }}/${{ needs.e2e-hrms-report.outputs.total }} stories: position → leave → effective-backup coverage → temporary execute capability → vaccination-owner resolution / escalation.</p></a>
           </body></html>
           HTML
       - uses: actions/download-artifact@v4
@@ -174,6 +215,10 @@ jobs:
         with:
           name: e2e-report
           path: _site/e2e-report
+      - uses: actions/download-artifact@v4
+        with:
+          name: e2e-hrms-report
+          path: _site/e2e-hrms-report
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -2451,6 +2451,100 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/roster/positions/import:
+    post:
+      tags:
+        - HR Roster
+      operationId: importStaffPositions
+      summary: Bulk create/replace fixed position seats from a parsed timetable import.
+      description: >-
+        Accepts already-parsed rows (the caller does the file parsing) and applies each with the same
+        replace semantics and validation as a single createStaffPosition. Per-row outcomes are returned so a
+        partially-valid import still lands its valid rows. When an Idempotency-Key is supplied, each row is
+        deduplicated deterministically by (key, row index), so a retried import never double-inserts.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportPositionsRequest"
+      responses:
+        "200":
+          description: Per-row import outcome.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportPositionsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+  /admin/roster/positions/{position_id}:
+    get:
+      tags:
+        - HR Roster
+      operationId: getStaffPositionProfile
+      summary: Read the person/position profile drawer for a seat.
+      description: >-
+        Returns the enriched position seat plus its holder's currently-active coverage window (if any). Backs
+        the People position row-click drawer. A reports_to hierarchy pointer is intentionally not returned
+        because no such source column exists in the roster schema.
+      parameters:
+        - $ref: "#/components/parameters/PositionId"
+      responses:
+        "200":
+          description: Position profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PositionProfileResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+    patch:
+      tags:
+        - HR Roster
+      operationId: updateStaffPosition
+      summary: Edit a fixed position seat's attributes in place (not its holder).
+      description: >-
+        Mutates week-off, backup group, tier, validity, or status of an existing active seat. Reassigning the
+        holder is a separate replace via createStaffPosition. Optimistically locked on row_version; idempotent
+        via the Idempotency-Key header.
+      parameters:
+        - $ref: "#/components/parameters/PositionId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePositionRequest"
+      responses:
+        "200":
+          description: Updated position seat.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PositionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/roster/leave:
     get:
       tags:
@@ -2715,6 +2809,38 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - HR Roster
+      operationId: upsertBackupConfig
+      summary: Assign or replace the holder of a backup-slot seat for a backup group.
+      description: >-
+        Backs the People "Configure backup" action. A backup slot is a normal position row with
+        is_backup_slot=true; replace semantics end the prior holder of the (scope, backup_position_code) seat.
+        Idempotent via the Idempotency-Key header.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertBackupConfigRequest"
+      responses:
+        "200":
+          description: Created/replaced backup-slot seat.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PositionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/roster/coverage:
     get:
       tags:
@@ -2835,6 +2961,13 @@ components:
         format: uuid
     AbsenceId:
       name: absence_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PositionId:
+      name: position_id
       in: path
       required: true
       schema:
@@ -8573,6 +8706,7 @@ components:
           enum:
             - tenant
             - center
+            - shed
         scope_id:
           type: string
           format: uuid
@@ -8631,6 +8765,290 @@ components:
         updated_at:
           type: string
           format: date-time
+        person_display_name:
+          type:
+            - string
+            - "null"
+          description: Enriched at read time from workforce_members.display_name.
+        hr_designation_grade:
+          type:
+            - string
+            - "null"
+          description: Enriched HR designation grade (informational only, never drives access).
+        position_title:
+          type:
+            - string
+            - "null"
+          description: Enriched display title derived from position_code.
+        center_label:
+          type:
+            - string
+            - "null"
+          description: Enriched center/location label for center-scoped seats.
+        tier:
+          type:
+            - string
+            - "null"
+          description: Enriched alias of position_tier for display.
+        week_off:
+          type:
+            - string
+            - "null"
+          description: Enriched alias of week_off_weekday for display.
+        backup_group:
+          type:
+            - string
+            - "null"
+          description: Enriched alias of backup_group_code for display.
+        duties:
+          type: array
+          description: >-
+            Module duties this position performs (position_module_duties,
+            migration 000157). Enriched at read time; absent when the position
+            has no declared duties.
+          items:
+            $ref: "#/components/schemas/PositionDuty"
+    PositionDuty:
+      type: object
+      additionalProperties: false
+      required:
+        - module_code
+        - duty_type
+      properties:
+        module_code:
+          type: string
+          description: Operational module this position works, e.g. pc.vaccination.
+        duty_type:
+          type: string
+          enum:
+            - execute
+            - verify
+            - manage
+            - support
+        capability_code:
+          type:
+            - string
+            - "null"
+          description: >-
+            Execution capability a temporary backup grant confers when covering
+            this seat's duty. Null when the module is not built yet.
+    PositionProfile:
+      type: object
+      additionalProperties: false
+      description: >-
+        Person/position drawer read model. Composes the enriched Position seat
+        with its holder's currently-active coverage window (if any). Only
+        backend-available fields are exposed; a reports_to hierarchy pointer is
+        deliberately omitted because no such source column exists in the roster
+        schema today.
+      required:
+        - position
+      properties:
+        position:
+          $ref: "#/components/schemas/Position"
+        active_coverage:
+          oneOf:
+            - $ref: "#/components/schemas/Coverage"
+            - type: "null"
+          description: >-
+            The coverage window currently covering this seat's holder (leave or
+            week-off), or null when the holder is present / no coverage is active.
+    PositionProfileResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - profile
+        - trace_id
+      properties:
+        profile:
+          $ref: "#/components/schemas/PositionProfile"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    UpdatePositionRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        In-place edit of a fixed position seat's attributes (week-off, backup
+        group, tier, validity, status). Reassigning the HOLDER is a separate
+        replace operation (POST /admin/roster/positions), not this endpoint.
+        Optimistically locked on row_version.
+      required:
+        - row_version
+      properties:
+        row_version:
+          type: integer
+          minimum: 1
+        position_tier:
+          type:
+            - string
+            - "null"
+          enum:
+            - assistant
+            - manager
+            - head
+            - director
+            - cxo
+            - null
+        backup_group_code:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+        week_off_weekday:
+          type:
+            - string
+            - "null"
+          enum:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+            - null
+        valid_to:
+          type:
+            - string
+            - "null"
+          format: date-time
+        status:
+          type:
+            - string
+            - "null"
+          enum:
+            - active
+            - inactive
+            - ended
+            - null
+    UpsertBackupConfigRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Assign (or replace) the holder of a backup-slot seat for a backup group
+        at a scope. A backup slot is a normal workforce_positions row with
+        is_backup_slot=true; replace semantics end the prior holder. Idempotent
+        via the Idempotency-Key header.
+      required:
+        - scope_type
+        - scope_id
+        - backup_group_code
+        - backup_position_code
+        - position_tier
+        - workforce_member_id
+      properties:
+        workforce_member_id:
+          type: string
+          format: uuid
+        scope_type:
+          type: string
+          enum:
+            - tenant
+            - center
+            - shed
+        scope_id:
+          type: string
+          format: uuid
+        backup_group_code:
+          type: string
+          minLength: 1
+          maxLength: 80
+        backup_position_code:
+          type: string
+          minLength: 1
+          maxLength: 80
+        position_tier:
+          type: string
+          enum:
+            - assistant
+            - manager
+            - head
+            - director
+            - cxo
+        week_off_weekday:
+          type:
+            - string
+            - "null"
+          enum:
+            - monday
+            - tuesday
+            - wednesday
+            - thursday
+            - friday
+            - saturday
+            - sunday
+            - null
+    ImportPositionsRequest:
+      type: object
+      additionalProperties: false
+      description: >-
+        Bulk create/replace of fixed position seats from a parsed timetable
+        import. Each row follows the same replace semantics and validation as a
+        single POST /admin/roster/positions. When an Idempotency-Key is
+        supplied, each row is deduplicated deterministically by (key, row index)
+        so an interrupted import can be safely retried.
+      required:
+        - rows
+      properties:
+        rows:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/CreatePositionRequest"
+    ImportPositionsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - imported
+        - failed
+        - results
+        - trace_id
+      properties:
+        imported:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImportPositionResult"
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ImportPositionResult:
+      type: object
+      additionalProperties: false
+      required:
+        - index
+        - status
+      properties:
+        index:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum:
+            - created
+            - error
+        position_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        error_code:
+          type:
+            - string
+            - "null"
+        error_message:
+          type:
+            - string
+            - "null"
     PositionListResponse:
       type: object
       additionalProperties: false
@@ -8678,6 +9096,7 @@ components:
           enum:
             - tenant
             - center
+            - shed
         scope_id:
           type: string
           format: uuid

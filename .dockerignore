@@ -12,6 +12,8 @@
 **/*.tsbuildinfo
 **/*.log
 backend/seed-roster-real
+backend/seed-shed-positions
+backend/seed-position-duties
 
 *.env
 *.env.*

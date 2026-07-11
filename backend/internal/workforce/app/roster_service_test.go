@@ -280,6 +280,24 @@ func (f *fakeRosterRepo) IsMemberOnApprovedLeave(_ context.Context, _ string, wo
 	return false, "", nil
 }
 
+func (f *fakeRosterRepo) HasApprovedLeaveInWindow(_ context.Context, _ string, workforceMemberID string, startsAt, endsAt time.Time) (bool, string, error) {
+	for _, l := range f.leaves {
+		if l.WorkforceMemberID != workforceMemberID || (l.Status != domain.LeaveStatusApproved && l.Status != domain.LeaveStatusEscalationRequired) {
+			continue
+		}
+		starts, err1 := time.Parse(time.RFC3339, l.StartsAt)
+		ends, err2 := time.Parse(time.RFC3339, l.EndsAt)
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		// Half-open overlap: absence [starts, ends) vs window [startsAt, endsAt).
+		if starts.Before(endsAt) && ends.After(startsAt) {
+			return true, l.AbsenceID, nil
+		}
+	}
+	return false, "", nil
+}
+
 func (f *fakeRosterRepo) ListBackupConfig(_ context.Context, params ports.ListBackupConfigParams) ([]domain.BackupConfig, error) {
 	return []domain.BackupConfig{}, nil
 }
@@ -296,10 +314,105 @@ func (f *fakeRosterRepo) GetOperatorCoverage(_ context.Context, tenantID, workfo
 	return nil, nil
 }
 
+func (f *fakeRosterRepo) GetHolderCoverage(_ context.Context, tenantID, workforceMemberID string, at time.Time) (*domain.Coverage, error) {
+	return nil, nil
+}
+
+func (f *fakeRosterRepo) GetPositionByID(_ context.Context, _ string, positionID string) (domain.Position, error) {
+	if p, ok := f.positions[positionID]; ok {
+		return p, nil
+	}
+	return domain.Position{}, ports.ErrNotFound
+}
+
+func (f *fakeRosterRepo) UpdatePosition(_ context.Context, cmd ports.UpdatePositionCommand) (domain.Position, bool, error) {
+	fp := "position.update|" + cmd.PositionID + "|" + fmt.Sprintf("%d", cmd.RowVersion) + "|" +
+		fmt.Sprintf("%t|%s|%t|%s|%t|%s|%t|%s|%t|%s", cmd.SetPositionTier, cmd.PositionTier, cmd.SetBackupGroup, cmd.BackupGroupCode,
+			cmd.SetWeekOff, cmd.WeekOffWeekday, cmd.SetValidTo, cmd.ValidTo, cmd.SetStatus, cmd.Status)
+	proceed, resultID, err := f.reserveFakeIdem("position.update", cmd.IdempotencyKey, fp)
+	if err != nil {
+		return domain.Position{}, false, err
+	}
+	if !proceed {
+		return f.positions[resultID], true, nil
+	}
+	p, ok := f.positions[cmd.PositionID]
+	if !ok {
+		return domain.Position{}, false, ports.ErrNotFound
+	}
+	if p.Status != "active" || p.RowVersion != cmd.RowVersion {
+		return domain.Position{}, false, ports.ErrConflict
+	}
+	if cmd.SetPositionTier {
+		p.PositionTier = cmd.PositionTier
+	}
+	if cmd.SetBackupGroup {
+		if cmd.BackupGroupCode == "" {
+			p.BackupGroupCode = nil
+		} else {
+			v := cmd.BackupGroupCode
+			p.BackupGroupCode = &v
+		}
+	}
+	if cmd.SetWeekOff {
+		if cmd.WeekOffWeekday == "" {
+			p.WeekOffWeekday = nil
+		} else {
+			v := cmd.WeekOffWeekday
+			p.WeekOffWeekday = &v
+		}
+	}
+	if cmd.SetValidTo {
+		if cmd.ValidTo == "" {
+			p.ValidTo = nil
+		} else {
+			v := cmd.ValidTo
+			p.ValidTo = &v
+		}
+	}
+	if cmd.SetStatus {
+		p.Status = cmd.Status
+	}
+	p.RowVersion++
+	f.positions[cmd.PositionID] = p
+	f.completeFakeIdem("position.update", cmd.IdempotencyKey, fp, cmd.PositionID)
+	return p, false, nil
+}
+
 func (f *fakeRosterRepo) GetMemberForActor(_ context.Context, tenantID, actorID string) (domain.OperatorProfile, error) {
 	// For test purposes, return a minimal profile; tests that need this can override
 	loc := rosterCenter
 	return domain.OperatorProfile{OperatorID: testActor, PrimaryLocationID: &loc}, nil
+}
+
+// fakePositionDuties mirrors the seeded position_module_duties rows (migration
+// 000157) the DB-backed ResolveExecuteCapability / ListDutiesForPositions read.
+// Keyed by position_code; the fake keeps the coverage engine's derived-execute
+// behavior identical to the previously hardcoded positionExecuteCapability map
+// (only preventive_care_manager carries the built-module capability today).
+var fakePositionDuties = map[string][]domain.PositionDuty{
+	"preventive_care_manager": {{ModuleCode: "pc.vaccination", DutyType: "manage", CapabilityCode: stringPtr("vaccination.execute")}},
+	"feeding_manager":         {{ModuleCode: "feed.direction", DutyType: "manage"}},
+	"feeding_am1":             {{ModuleCode: "feed.direction", DutyType: "execute"}},
+}
+
+func (f *fakeRosterRepo) ResolveExecuteCapability(_ context.Context, _ string, positionCode string, _ time.Time) (string, error) {
+	for _, duty := range fakePositionDuties[positionCode] {
+		if duty.CapabilityCode != nil && *duty.CapabilityCode != "" {
+			return *duty.CapabilityCode, nil
+		}
+	}
+	return "", nil
+}
+
+func (f *fakeRosterRepo) ListDutiesForPositions(_ context.Context, _ string, positionCodes []string, _ time.Time) (map[string][]domain.PositionDuty, error) {
+	out := map[string][]domain.PositionDuty{}
+	for _, code := range positionCodes {
+		if duties, ok := fakePositionDuties[code]; ok {
+			out[code] = duties
+		}
+	}
+	return out, nil
 }
 
 // fakeCapabilityGranter is an in-memory fake of ports.CapabilityGranter
@@ -444,6 +557,36 @@ func TestRosterApproveLeaveEscalatesWhenBackupAlsoUnavailable(t *testing.T) {
 	}
 	if leave.ReplacementMemberID != nil {
 		t.Fatalf("replacement_member_id = %v, want nil (never auto-assign a different functional manager)", leave.ReplacementMemberID)
+	}
+}
+
+// Regression (window-overlap bug): the backup is FREE on the covered leave's first
+// day but ABSENT on a later day of the window. Probing only the window start (the
+// old bug) would wrongly assign the backup for a window it cannot fully cover; the
+// window-overlap check must escalate instead.
+func TestRosterApproveLeaveEscalatesWhenBackupAbsentLaterInWindow(t *testing.T) {
+	svc, _, _ := rosterFixture(t)
+	ctx := context.Background()
+	// Backup Manager is on leave only 2026-08-04 -- free on 2026-08-03 (the covered
+	// manager's window start) but absent on day 2 of that window.
+	applied, err := svc.ApplyLeave(ctx, testTenant, testActor, domain.ApplyStaffLeaveRequest{
+		WorkforceMemberID: memberBackupManager, ScopeType: "center", ScopeID: rosterCenter,
+		ReasonCode: "personal", StartsOn: "2026-08-04", EndsOn: "2026-08-04",
+	}, "trace-leave-backup")
+	if err != nil {
+		t.Fatalf("ApplyLeave(backup): %v", err)
+	}
+	if _, err := svc.ApproveLeave(ctx, testTenant, testActor, applied.Leave.AbsenceID, domain.ApproveStaffLeaveRequest{RowVersion: 1}, "trace-approve-backup"); err != nil {
+		t.Fatalf("ApproveLeave(backup): %v", err)
+	}
+
+	leave := applyAndApproveLeave(t, svc, memberPCM) // covers 2026-08-03..2026-08-05
+
+	if leave.Status != domain.LeaveStatusEscalationRequired {
+		t.Fatalf("status = %q, want escalation_required (backup absent on a later day of the window)", leave.Status)
+	}
+	if leave.ReplacementMemberID != nil {
+		t.Fatalf("replacement_member_id = %v, want nil (backup cannot cover the whole window)", leave.ReplacementMemberID)
 	}
 }
 

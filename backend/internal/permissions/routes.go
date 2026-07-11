@@ -180,6 +180,10 @@ var protectedRoutes = []Route{
 	// task coverage (#4), and the vaccination-ownership resolution read.
 	{OperationID: "listStaffPositions", Method: "GET", Pattern: "/admin/roster/positions", Permissions: []string{RosterRead}},
 	{OperationID: "createStaffPosition", Method: "POST", Pattern: "/admin/roster/positions", Permissions: []string{RosterManage}},
+	{OperationID: "importStaffPositions", Method: "POST", Pattern: "/admin/roster/positions/import", Permissions: []string{RosterManage}},
+	{OperationID: "getStaffPositionProfile", Method: "GET", Pattern: "/admin/roster/positions/{position_id}", Permissions: []string{RosterRead}},
+	{OperationID: "updateStaffPosition", Method: "PATCH", Pattern: "/admin/roster/positions/{position_id}", Permissions: []string{RosterManage}},
+	{OperationID: "upsertBackupConfig", Method: "POST", Pattern: "/admin/roster/backup-config", Permissions: []string{RosterManage}},
 	{OperationID: "applyStaffLeave", Method: "POST", Pattern: "/admin/roster/leave", Permissions: []string{RosterManage}},
 	{OperationID: "approveStaffLeave", Method: "POST", Pattern: "/admin/roster/leave/{absence_id}/approve", Permissions: []string{RosterManage}},
 	{OperationID: "resolveStaffLeaveCoverage", Method: "POST", Pattern: "/admin/roster/leave/{absence_id}/resolve-coverage", Permissions: []string{RosterManage}},

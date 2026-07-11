@@ -135,6 +135,18 @@ one product; this skill is the navigation layer.
 - Lock to the user-approved slice. Shared/generic infrastructure may be built
   only to serve that slice, and visible UI/API handoffs must not present future
   verticals as live product.
+- **No fake business truth (always on, all layers).** Never invent ownership,
+  assignments, mappings, counts, statuses, owners, or any business fact in
+  runtime code, seeds, importers, migrations, or generated data. A missing source
+  of truth becomes exactly one of: (a) a reviewed mapping, (b) a clearly-labeled
+  provisional seed fixture that a preflight can reject, or (c) an explicit
+  blocker. Round-robin / even-spread / "pick a plausible default" are acceptable
+  ONLY as a one-time data-fill strategy that emits a reviewable artifact tagged
+  provisional + needs_review — never inside an apply/runtime path. Preflights and
+  imports must FAIL (non-zero) until every required row has an explicit, reviewed
+  source. Reference pattern: `backend/cmd/seed-shed-positions` (`-generate-provisional`
+  writes the artifact; `-mapping` applies it; `-strict` blocks gaps AND unreviewed
+  provisional rows).
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the

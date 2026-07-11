@@ -1220,6 +1220,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/roster/positions/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk create/replace fixed position seats from a parsed timetable import.
+         * @description Accepts already-parsed rows (the caller does the file parsing) and applies each with the same replace semantics and validation as a single createStaffPosition. Per-row outcomes are returned so a partially-valid import still lands its valid rows. When an Idempotency-Key is supplied, each row is deduplicated deterministically by (key, row index), so a retried import never double-inserts.
+         */
+        post: operations["importStaffPositions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/roster/positions/{position_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the person/position profile drawer for a seat.
+         * @description Returns the enriched position seat plus its holder's currently-active coverage window (if any). Backs the People position row-click drawer. A reports_to hierarchy pointer is intentionally not returned because no such source column exists in the roster schema.
+         */
+        get: operations["getStaffPositionProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit a fixed position seat's attributes in place (not its holder).
+         * @description Mutates week-off, backup group, tier, validity, or status of an existing active seat. Reassigning the holder is a separate replace via createStaffPosition. Optimistically locked on row_version; idempotent via the Idempotency-Key header.
+         */
+        patch: operations["updateStaffPosition"];
+        trace?: never;
+    };
     "/admin/roster/leave": {
         parameters: {
             query?: never;
@@ -1325,7 +1369,11 @@ export interface paths {
         /** List backup group configurations by center. */
         get: operations["listBackupConfig"];
         put?: never;
-        post?: never;
+        /**
+         * Assign or replace the holder of a backup-slot seat for a backup group.
+         * @description Backs the People "Configure backup" action. A backup slot is a normal position row with is_backup_slot=true; replace semantics end the prior holder of the (scope, backup_position_code) seat. Idempotent via the Idempotency-Key header.
+         */
+        post: operations["upsertBackupConfig"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3222,7 +3270,7 @@ export interface components {
             /** Format: uuid */
             workforce_member_id: string;
             /** @enum {string} */
-            scope_type: "tenant" | "center";
+            scope_type: "tenant" | "center" | "shed";
             /** Format: uuid */
             scope_id: string;
             position_code: string;
@@ -3243,6 +3291,87 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description Enriched at read time from workforce_members.display_name. */
+            person_display_name?: string | null;
+            /** @description Enriched HR designation grade (informational only, never drives access). */
+            hr_designation_grade?: string | null;
+            /** @description Enriched display title derived from position_code. */
+            position_title?: string | null;
+            /** @description Enriched center/location label for center-scoped seats. */
+            center_label?: string | null;
+            /** @description Enriched alias of position_tier for display. */
+            tier?: string | null;
+            /** @description Enriched alias of week_off_weekday for display. */
+            week_off?: string | null;
+            /** @description Enriched alias of backup_group_code for display. */
+            backup_group?: string | null;
+            /** @description Module duties this position performs (position_module_duties, migration 000157). Enriched at read time; absent when the position has no declared duties. */
+            duties?: components["schemas"]["PositionDuty"][];
+        };
+        PositionDuty: {
+            /** @description Operational module this position works, e.g. pc.vaccination. */
+            module_code: string;
+            /** @enum {string} */
+            duty_type: "execute" | "verify" | "manage" | "support";
+            /** @description Execution capability a temporary backup grant confers when covering this seat's duty. Null when the module is not built yet. */
+            capability_code?: string | null;
+        };
+        /** @description Person/position drawer read model. Composes the enriched Position seat with its holder's currently-active coverage window (if any). Only backend-available fields are exposed; a reports_to hierarchy pointer is deliberately omitted because no such source column exists in the roster schema today. */
+        PositionProfile: {
+            position: components["schemas"]["Position"];
+            /** @description The coverage window currently covering this seat's holder (leave or week-off), or null when the holder is present / no coverage is active. */
+            active_coverage?: components["schemas"]["Coverage"] | null;
+        };
+        PositionProfileResponse: {
+            profile: components["schemas"]["PositionProfile"];
+            trace_id: string;
+        };
+        /** @description In-place edit of a fixed position seat's attributes (week-off, backup group, tier, validity, status). Reassigning the HOLDER is a separate replace operation (POST /admin/roster/positions), not this endpoint. Optimistically locked on row_version. */
+        UpdatePositionRequest: {
+            row_version: number;
+            /** @enum {string|null} */
+            position_tier?: "assistant" | "manager" | "head" | "director" | "cxo" | null;
+            backup_group_code?: string | null;
+            /** @enum {string|null} */
+            week_off_weekday?: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday" | null;
+            /** Format: date-time */
+            valid_to?: string | null;
+            /** @enum {string|null} */
+            status?: "active" | "inactive" | "ended" | null;
+        };
+        /** @description Assign (or replace) the holder of a backup-slot seat for a backup group at a scope. A backup slot is a normal workforce_positions row with is_backup_slot=true; replace semantics end the prior holder. Idempotent via the Idempotency-Key header. */
+        UpsertBackupConfigRequest: {
+            /** Format: uuid */
+            workforce_member_id: string;
+            /** @enum {string} */
+            scope_type: "tenant" | "center" | "shed";
+            /** Format: uuid */
+            scope_id: string;
+            backup_group_code: string;
+            backup_position_code: string;
+            /** @enum {string} */
+            position_tier: "assistant" | "manager" | "head" | "director" | "cxo";
+            /** @enum {string|null} */
+            week_off_weekday?: "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday" | null;
+        };
+        /** @description Bulk create/replace of fixed position seats from a parsed timetable import. Each row follows the same replace semantics and validation as a single POST /admin/roster/positions. When an Idempotency-Key is supplied, each row is deduplicated deterministically by (key, row index) so an interrupted import can be safely retried. */
+        ImportPositionsRequest: {
+            rows: components["schemas"]["CreatePositionRequest"][];
+        };
+        ImportPositionsResponse: {
+            imported: number;
+            failed: number;
+            results: components["schemas"]["ImportPositionResult"][];
+            trace_id: string;
+        };
+        ImportPositionResult: {
+            index: number;
+            /** @enum {string} */
+            status: "created" | "error";
+            /** Format: uuid */
+            position_id?: string | null;
+            error_code?: string | null;
+            error_message?: string | null;
         };
         PositionListResponse: {
             items: components["schemas"]["Position"][];
@@ -3256,7 +3385,7 @@ export interface components {
             /** Format: uuid */
             workforce_member_id: string;
             /** @enum {string} */
-            scope_type: "tenant" | "center";
+            scope_type: "tenant" | "center" | "shed";
             /** Format: uuid */
             scope_id: string;
             position_code: string;
@@ -3503,6 +3632,7 @@ export interface components {
         LocationId: string;
         OperatorId: string;
         AbsenceId: string;
+        PositionId: string;
         SOPId: string;
         SOPVersionId: string;
         TaskId: string;
@@ -5974,6 +6104,94 @@ export interface operations {
             409: components["responses"]["WriteConflict"];
         };
     };
+    importStaffPositions: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportPositionsRequest"];
+            };
+        };
+        responses: {
+            /** @description Per-row import outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportPositionsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    getStaffPositionProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                position_id: components["parameters"]["PositionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Position profile. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PositionProfileResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+        };
+    };
+    updateStaffPosition: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                position_id: components["parameters"]["PositionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePositionRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated position seat. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PositionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
     listStaffLeave: {
         parameters: {
             query?: {
@@ -6171,6 +6389,36 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    upsertBackupConfig: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertBackupConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Created/replaced backup-slot seat. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PositionResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
         };
     };
     listCoverage: {

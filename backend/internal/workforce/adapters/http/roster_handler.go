@@ -34,6 +34,10 @@ func NewRosterHandler(service *app.RosterService, log ...*slog.Logger) *RosterHa
 func RegisterRoster(mux *http.ServeMux, h *RosterHandler) {
 	mux.HandleFunc("GET /admin/roster/positions", h.ListPositions)
 	mux.HandleFunc("POST /admin/roster/positions", h.CreatePosition)
+	mux.HandleFunc("POST /admin/roster/positions/import", h.ImportPositions)
+	mux.HandleFunc("GET /admin/roster/positions/{position_id}", h.GetPositionProfile)
+	mux.HandleFunc("PATCH /admin/roster/positions/{position_id}", h.UpdatePosition)
+	mux.HandleFunc("POST /admin/roster/backup-config", h.UpsertBackupConfig)
 	mux.HandleFunc("POST /admin/roster/leave", h.ApplyLeave)
 	mux.HandleFunc("POST /admin/roster/leave/{absence_id}/approve", h.ApproveLeave)
 	mux.HandleFunc("POST /admin/roster/leave/{absence_id}/resolve-coverage", h.ResolveLeaveCoverage)
@@ -73,6 +77,47 @@ func (h *RosterHandler) CreatePosition(w http.ResponseWriter, r *http.Request) {
 		ActorID:  actorID(r),
 		Body:     body,
 	}, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *RosterHandler) GetPositionProfile(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetPositionProfile(r.Context(), tenantID(r), r.PathValue("position_id"), traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *RosterHandler) UpdatePosition(w http.ResponseWriter, r *http.Request) {
+	var body domain.UpdatePositionRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if key := idempotencyKeyHeader(r); key != "" {
+		body.IdempotencyKey = &key
+	}
+	result, err := h.service.UpdatePosition(r.Context(), tenantID(r), actorID(r), r.PathValue("position_id"), body, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *RosterHandler) UpsertBackupConfig(w http.ResponseWriter, r *http.Request) {
+	var body domain.UpsertBackupConfigRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if key := idempotencyKeyHeader(r); key != "" {
+		body.IdempotencyKey = &key
+	}
+	result, err := h.service.UpsertBackupConfig(r.Context(), tenantID(r), actorID(r), body, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *RosterHandler) ImportPositions(w http.ResponseWriter, r *http.Request) {
+	var body domain.ImportPositionsRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if key := idempotencyKeyHeader(r); key != "" {
+		body.IdempotencyKey = &key
+	}
+	result, err := h.service.ImportPositions(r.Context(), tenantID(r), actorID(r), body, traceID(r))
 	h.respond(w, r, result, err)
 }
 

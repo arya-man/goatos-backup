@@ -84,3 +84,16 @@ graphify-out/cache/
 /ai-telemetry.html
 
 wiki/
+
+# Claude subagent worktrees (isolation:worktree) — local scratch, never commit
+.claude/worktrees/
+
+# compiled cmd binaries accidentally produced by `go build ./cmd/<x>` (no /...)
+# in the module root — build artifacts, never commit
+/backend/seed-shed-positions
+/backend/seed-roster-real
+/backend/seed-position-duties
+
+# provisional shed->manager fixture (round-robin fill, contains staff names) —
+# local seed input, replace with a reviewed source; never commit
+/backend/cmd/seed-shed-positions/shed_manager_mapping.csv

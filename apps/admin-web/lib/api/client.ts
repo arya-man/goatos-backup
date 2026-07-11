@@ -3,11 +3,6 @@
 
 import type { AdminApiComponents, AdminApiPaths } from '@goatos/api-client';
 
-interface ApiResponse<T> {
-  data?: T;
-  error?: string;
-}
-
 /**
  * getAdminApi returns a client-side API object that can fetch roster and other admin endpoints.
  * It automatically includes the bearer token from the page context.
@@ -30,10 +25,8 @@ export function getAdminApi() {
       if (!response.ok) {
         throw new Error(`Failed to fetch positions: ${response.statusText}`);
       }
-      const data = (await response.json()) as ApiResponse<
-        AdminApiComponents['schemas']['PositionListResponse']
-      >;
-      return data;
+      const body = (await response.json()) as AdminApiComponents['schemas']['PositionListResponse'];
+      return { data: body };
     },
 
     async listBackupConfig(
@@ -52,11 +45,11 @@ export function getAdminApi() {
       if (!response.ok) {
         throw new Error(`Failed to fetch backup config: ${response.statusText}`);
       }
-      const data = (await response.json()) as ApiResponse<{
+      const body = (await response.json()) as {
         items: AdminApiComponents['schemas']['BackupConfig'][];
         trace_id: string;
-      }>;
-      return data;
+      };
+      return { data: body };
     },
 
     async listCoverage(
@@ -75,11 +68,80 @@ export function getAdminApi() {
       if (!response.ok) {
         throw new Error(`Failed to fetch coverage: ${response.statusText}`);
       }
-      const data = (await response.json()) as ApiResponse<{
+      const body = (await response.json()) as {
         items: AdminApiComponents['schemas']['Coverage'][];
         trace_id: string;
-      }>;
-      return data;
+      };
+      return { data: body };
+    },
+
+    // getStaffPositionProfile backs the People position row-click drawer: the
+    // enriched seat plus its holder's currently-active coverage window.
+    async getStaffPositionProfile(positionId: string) {
+      const response = await fetch(`/api/admin/roster/positions/${encodeURIComponent(positionId)}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch position profile: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['PositionProfileResponse'];
+      return { data: body };
+    },
+
+    // updateStaffPosition edits a seat's attributes in place (not its holder).
+    // Optimistically locked on row_version; idempotent via the Idempotency-Key
+    // header (a fresh key is minted per attempt unless the caller supplies one
+    // to make a retry safe).
+    async updateStaffPosition(
+      positionId: string,
+      requestBody: AdminApiComponents['schemas']['UpdatePositionRequest'],
+      idempotencyKey: string = crypto.randomUUID()
+    ) {
+      const response = await fetch(`/api/admin/roster/positions/${encodeURIComponent(positionId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to update position: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['PositionResponse'];
+      return { data: body };
+    },
+
+    // upsertBackupConfig backs the People "Configure backup" action: assign or
+    // replace the holder of a backup-slot seat for a backup group at a scope.
+    async upsertBackupConfig(
+      requestBody: AdminApiComponents['schemas']['UpsertBackupConfigRequest'],
+      idempotencyKey: string = crypto.randomUUID()
+    ) {
+      const response = await fetch('/api/admin/roster/backup-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to configure backup: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['PositionResponse'];
+      return { data: body };
+    },
+
+    // importStaffPositions backs the Timetable "Import sheet" action: bulk
+    // create/replace seats from already-parsed rows. The batch key makes a
+    // retried import safe (each row is deduplicated by key + row index).
+    async importStaffPositions(
+      requestBody: AdminApiComponents['schemas']['ImportPositionsRequest'],
+      idempotencyKey: string = crypto.randomUUID()
+    ) {
+      const response = await fetch('/api/admin/roster/positions/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify(requestBody),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to import positions: ${response.statusText}`);
+      }
+      const body = (await response.json()) as AdminApiComponents['schemas']['ImportPositionsResponse'];
+      return { data: body };
     },
   };
 }

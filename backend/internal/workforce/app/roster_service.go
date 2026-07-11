@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,14 +44,13 @@ func NewRosterService(repo ports.RosterRepository, capabilities ports.Capability
 	return &RosterService{repo: repo, capabilities: capabilities, now: time.Now}
 }
 
-// positionExecuteCapability maps a covered position_code to the capability
-// code its temporary backup grant carries (S4.6). Only pc.vaccination is a
-// BUILT module today (scope-lock); positions without a built-module mapping
-// simply get no temporary capability grant -- coverage/leave/escalation still
-// resolve correctly, only the execution-permission side-effect is a no-op.
-var positionExecuteCapability = map[string]string{
-	"preventive_care_manager": "vaccination.execute",
-}
+// The covered-position -> execute-capability mapping that a temporary backup
+// grant carries (S4.6) is now DB-backed: RosterRepository.
+// ResolveExecuteCapability reads it from position_module_duties (migration
+// 000157), replacing the previously hardcoded positionExecuteCapability Go map.
+// Positions without a built-module capability mapping simply get no temporary
+// capability grant -- coverage/leave/escalation still resolve correctly, only
+// the execution-permission side-effect is a no-op.
 
 // vaccinationPositionCode is the only position the ownership-resolution read
 // (ResolveVaccinationOwner) needs today -- scope-lock: pc.vaccination is the
@@ -183,6 +183,180 @@ func (s *RosterService) ListPositions(ctx context.Context, params ports.ListPosi
 		return nil, err
 	}
 	return &domain.PositionListResponse{Items: enriched, TraceID: traceID}, nil
+}
+
+// UpdatePosition edits a fixed seat's attributes in place (never its holder --
+// reassigning a holder is CreatePosition's replace path). Nil request fields are
+// left unchanged; a non-nil empty nullable field clears that column. Optimistic
+// lock on row_version, idempotent, audited.
+func (s *RosterService) UpdatePosition(ctx context.Context, tenantID, actorID, positionID string, body domain.UpdatePositionRequest, traceID string) (*domain.PositionResponse, error) {
+	if err := validateTenantAndActor(tenantID, actorID); err != nil {
+		return nil, err
+	}
+	positionID = strings.TrimSpace(positionID)
+	if !uuidutil.IsUUIDString(positionID) {
+		return nil, BadRequest("invalid_position_id", "position_id must be a UUID")
+	}
+	if body.RowVersion <= 0 {
+		return nil, BadRequest("invalid_row_version", "row_version is required")
+	}
+	cmd := ports.UpdatePositionCommand{
+		TenantID:       tenantID,
+		ActorID:        actorID,
+		PositionID:     positionID,
+		RowVersion:     body.RowVersion,
+		IdempotencyKey: ptrString(body.IdempotencyKey),
+	}
+	if body.PositionTier != nil {
+		v := strings.TrimSpace(*body.PositionTier)
+		if !validPositionTier(v) {
+			return nil, BadRequest("invalid_position_tier", "position_tier must be assistant, manager, head, director, or cxo")
+		}
+		cmd.SetPositionTier, cmd.PositionTier = true, v
+	}
+	if body.BackupGroupCode != nil {
+		v := strings.TrimSpace(*body.BackupGroupCode)
+		cmd.SetBackupGroup, cmd.BackupGroupCode = true, v
+	}
+	if body.WeekOffWeekday != nil {
+		v := strings.ToLower(strings.TrimSpace(*body.WeekOffWeekday))
+		if v != "" && !validWeekdayName(v) {
+			return nil, BadRequest("invalid_week_off_weekday", "week_off_weekday must be a full lowercase weekday name")
+		}
+		cmd.SetWeekOff, cmd.WeekOffWeekday = true, v
+	}
+	if body.ValidTo != nil {
+		v := strings.TrimSpace(*body.ValidTo)
+		if v != "" {
+			if _, err := time.Parse(time.RFC3339, v); err != nil {
+				return nil, BadRequest("invalid_valid_to", "valid_to must be RFC3339")
+			}
+		}
+		cmd.SetValidTo, cmd.ValidTo = true, v
+	}
+	if body.Status != nil {
+		v := strings.TrimSpace(*body.Status)
+		if !validPositionStatus(v) {
+			return nil, BadRequest("invalid_status", "status must be active, inactive, or ended")
+		}
+		cmd.SetStatus, cmd.Status = true, v
+	}
+	item, _, err := s.repo.UpdatePosition(ctx, cmd)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	enriched, err := s.enrichPositions(ctx, tenantID, []domain.Position{item})
+	if err != nil {
+		return nil, err
+	}
+	return &domain.PositionResponse{Position: enriched[0], TraceID: traceID}, nil
+}
+
+// GetPositionProfile backs the People position row-click drawer: the enriched
+// seat plus its holder's currently-active coverage window (nil when present).
+func (s *RosterService) GetPositionProfile(ctx context.Context, tenantID, positionID, traceID string) (*domain.PositionProfileResponse, error) {
+	if err := validateTenant(tenantID); err != nil {
+		return nil, err
+	}
+	positionID = strings.TrimSpace(positionID)
+	if !uuidutil.IsUUIDString(positionID) {
+		return nil, BadRequest("invalid_position_id", "position_id must be a UUID")
+	}
+	item, err := s.repo.GetPositionByID(ctx, tenantID, positionID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	enriched, err := s.enrichPositions(ctx, tenantID, []domain.Position{item})
+	if err != nil {
+		return nil, err
+	}
+	profile := domain.PositionProfile{Position: enriched[0]}
+	coverage, err := s.repo.GetHolderCoverage(ctx, tenantID, enriched[0].WorkforceMemberID, s.now())
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	profile.ActiveCoverage = coverage
+	return &domain.PositionProfileResponse{Profile: profile, TraceID: traceID}, nil
+}
+
+// UpsertBackupConfig assigns/replaces the holder of a backup-slot seat. It is a
+// thin, intent-revealing wrapper over CreatePosition's replace path with
+// is_backup_slot forced true (the backup config IS the set of is_backup_slot
+// positions), so all tenant/scope/member validation and idempotency are reused.
+func (s *RosterService) UpsertBackupConfig(ctx context.Context, tenantID, actorID string, body domain.UpsertBackupConfigRequest, traceID string) (*domain.PositionResponse, error) {
+	if err := validateTenantAndActor(tenantID, actorID); err != nil {
+		return nil, err
+	}
+	body.BackupGroupCode = strings.TrimSpace(body.BackupGroupCode)
+	body.BackupPositionCode = strings.TrimSpace(body.BackupPositionCode)
+	if body.BackupGroupCode == "" {
+		return nil, BadRequest("invalid_backup_group_code", "backup_group_code is required")
+	}
+	if body.BackupPositionCode == "" {
+		return nil, BadRequest("invalid_backup_position_code", "backup_position_code is required")
+	}
+	create := domain.CreatePositionRequest{
+		WorkforceMemberID: body.WorkforceMemberID,
+		ScopeType:         body.ScopeType,
+		ScopeID:           body.ScopeID,
+		PositionCode:      body.BackupPositionCode,
+		PositionTier:      body.PositionTier,
+		IsBackupSlot:      true,
+		BackupGroupCode:   &body.BackupGroupCode,
+		WeekOffWeekday:    body.WeekOffWeekday,
+		IdempotencyKey:    body.IdempotencyKey,
+	}
+	return s.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: tenantID, ActorID: actorID, Body: create}, traceID)
+}
+
+// ImportPositions bulk-applies parsed timetable rows, each with the same
+// validation and replace semantics as a single CreatePosition. Per-row outcomes
+// are returned so a partially-valid import still lands its valid rows. When a
+// batch Idempotency-Key is supplied, each row is deduplicated deterministically
+// by (key, row index) so a retried import never double-inserts.
+func (s *RosterService) ImportPositions(ctx context.Context, tenantID, actorID string, body domain.ImportPositionsRequest, traceID string) (*domain.ImportPositionsResponse, error) {
+	if err := validateTenantAndActor(tenantID, actorID); err != nil {
+		return nil, err
+	}
+	if len(body.Rows) == 0 {
+		return nil, BadRequest("invalid_rows", "at least one row is required")
+	}
+	if len(body.Rows) > 500 {
+		return nil, BadRequest("too_many_rows", "at most 500 rows per import")
+	}
+	batchKey := ptrString(body.IdempotencyKey)
+	resp := &domain.ImportPositionsResponse{
+		Results: make([]domain.ImportPositionResult, 0, len(body.Rows)),
+		TraceID: traceID,
+	}
+	for i := range body.Rows {
+		row := body.Rows[i]
+		if batchKey != "" {
+			derived := batchKey + ":" + strconv.Itoa(i)
+			row.IdempotencyKey = &derived
+		}
+		res := domain.ImportPositionResult{Index: i}
+		created, err := s.CreatePosition(ctx, ports.CreatePositionCommand{TenantID: tenantID, ActorID: actorID, Body: row}, traceID)
+		if err != nil {
+			res.Status = "error"
+			var appErr *Error
+			if errors.As(err, &appErr) {
+				code, message := appErr.Code, appErr.Message
+				res.ErrorCode, res.ErrorMessage = &code, &message
+			} else {
+				code, message := "internal_error", "row import failed"
+				res.ErrorCode, res.ErrorMessage = &code, &message
+			}
+			resp.Failed++
+		} else {
+			res.Status = "created"
+			id := created.Position.PositionID
+			res.PositionID = &id
+			resp.Imported++
+		}
+		resp.Results = append(resp.Results, res)
+	}
+	return resp, nil
 }
 
 // ---- Leave / absence (workforce_absences reuse) --------------------------
@@ -495,8 +669,9 @@ func (s *RosterService) isPositionHolderUnavailable(ctx context.Context, tenantI
 // Returns true if the holder has any approved leave overlapping the window,
 // or any day in the window matches their recurring week-off.
 func (s *RosterService) isPositionHolderUnavailableInWindow(ctx context.Context, tenantID string, position domain.Position, startsAt, endsAt time.Time) (bool, error) {
-	// Check for approved leave overlapping the window
-	onLeave, _, err := s.repo.IsMemberOnApprovedLeave(ctx, tenantID, position.WorkforceMemberID, startsAt)
+	// Approved leave overlapping ANY part of the window (not just its start) --
+	// a backup free on day 1 but absent on day 2 is still unavailable.
+	onLeave, _, err := s.repo.HasApprovedLeaveInWindow(ctx, tenantID, position.WorkforceMemberID, startsAt, endsAt)
 	if err != nil {
 		return false, mapRepoErr(err)
 	}
@@ -504,10 +679,13 @@ func (s *RosterService) isPositionHolderUnavailableInWindow(ctx context.Context,
 		return true, nil
 	}
 
-	// Check each day in the window for week-off match
+	// Any day in the half-open window [startsAt, endsAt) matching the recurring
+	// week-off. endsAt is EXCLUSIVE to match the leave window convention
+	// (workforce_absences.ends_at is exclusive), so a window ending at a day
+	// boundary does not count that boundary day.
 	if position.WeekOffWeekday != nil {
 		weekOff := *position.WeekOffWeekday
-		for d := startsAt; !d.After(endsAt); d = d.AddDate(0, 0, 1) {
+		for d := startsAt; d.Before(endsAt); d = d.AddDate(0, 0, 1) {
 			if weekdayName(d) == weekOff {
 				return true, nil
 			}
@@ -527,8 +705,11 @@ func (s *RosterService) isPositionHolderUnavailableInWindow(ctx context.Context,
 // same window (maintainer 2026-07-10: write/notify once when leave and
 // week-off land on the same day).
 func (s *RosterService) grantTemporaryExecuteCapability(ctx context.Context, tenantID, actorID, positionCode, memberID, scopeType, scopeID string, startsAt, endsAt time.Time) error {
-	capCode, ok := positionExecuteCapability[positionCode]
-	if !ok {
+	capCode, err := s.repo.ResolveExecuteCapability(ctx, tenantID, positionCode, startsAt)
+	if err != nil {
+		return mapRepoErr(err)
+	}
+	if capCode == "" {
 		return nil
 	}
 	validFrom := startsAt.UTC().Format(time.RFC3339)
@@ -777,6 +958,24 @@ func (s *RosterService) GetMyCoverage(ctx context.Context, tenantID, actorID, tr
 // enrichPositions populates display fields (position_title, tier, week_off, backup_group)
 // from Position domain fields already loaded via repository JOINs.
 func (s *RosterService) enrichPositions(ctx context.Context, tenantID string, positions []domain.Position) ([]domain.Position, error) {
+	// Batch-read module duties (position_module_duties, migration 000157) for the
+	// distinct position codes on this page, so the API can expose each position's
+	// duties without an N+1 read.
+	codeSet := map[string]struct{}{}
+	for i := range positions {
+		if positions[i].PositionCode != "" {
+			codeSet[positions[i].PositionCode] = struct{}{}
+		}
+	}
+	codes := make([]string, 0, len(codeSet))
+	for code := range codeSet {
+		codes = append(codes, code)
+	}
+	dutiesByCode, err := s.repo.ListDutiesForPositions(ctx, tenantID, codes, s.now())
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+
 	for i := range positions {
 		// Position title: prettified position_code
 		title := formatPositionCode(positions[i].PositionCode)
@@ -787,6 +986,10 @@ func (s *RosterService) enrichPositions(ctx context.Context, tenantID string, po
 		positions[i].WeekOff = positions[i].WeekOffWeekday
 		// Backup group: backup_group_code
 		positions[i].BackupGroup = positions[i].BackupGroupCode
+		// Duties: module_code / duty_type / capability_code (000157)
+		if duties, ok := dutiesByCode[positions[i].PositionCode]; ok {
+			positions[i].Duties = duties
+		}
 	}
 	return positions, nil
 }
@@ -844,6 +1047,15 @@ func validRosterScope(tenantID, scopeType, scopeID string) bool {
 func validPositionTier(tier string) bool {
 	switch tier {
 	case domain.PositionTierAssistant, domain.PositionTierManager, domain.PositionTierHead, domain.PositionTierDirector, domain.PositionTierCXO:
+		return true
+	default:
+		return false
+	}
+}
+
+func validPositionStatus(status string) bool {
+	switch status {
+	case "active", "inactive", "ended":
 		return true
 	default:
 		return false

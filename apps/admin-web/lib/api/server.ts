@@ -1350,6 +1350,18 @@ export async function listStaffPositions(
   );
 }
 
+export type PositionProfileResponse = AdminApiComponents["schemas"]["PositionProfileResponse"];
+
+export async function getStaffPositionProfile(
+  positionId: string,
+): Promise<ApiResult<PositionProfileResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/roster/positions/${encodeURIComponent(positionId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<PositionProfileResponse>(path, { cache: "no-store" }));
+}
+
 export async function listBackupConfig(
   params: BackupConfigQuery = {},
 ): Promise<ApiResult<BackupConfigListResponse>> {

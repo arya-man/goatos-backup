@@ -68,7 +68,7 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
   const backupPositions = positions.filter(p => p.is_backup_slot && p.status === 'active');
 
   return (
-    <div className="subpanel" data-sub="timetable">
+    <div className="subpanel on" data-sub="timetable">
       <div className="phead">
         <div>
           <div className="crumb">Team / <b>Timetable</b></div>

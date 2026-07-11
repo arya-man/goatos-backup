@@ -220,6 +220,33 @@ Review checkpoints:
       idempotently without duplicate obligations, fabricated completions, or
       loss of useful proof/review signals.
 
+## No fabricated business truth (always on — code, seeds, imports, migrations, generated data)
+
+This is not limited to legacy replacement above. ANY change that supplies a
+business fact without a real source is a finding. Ownership, assignments,
+mappings, counts, statuses, owners, and completions must trace to a reviewed
+source; a missing source becomes a reviewed mapping, a clearly-labeled
+provisional fixture a preflight can reject, or an explicit blocker — never a
+silent invention.
+
+Review checkpoints:
+- [ ] **No runtime/apply path invents data.** Round-robin, even-spread, modulo
+      distribution, "pick the first/any plausible owner", or hardcoded default
+      owners/managers/assignees in service, worker, importer, migration, or
+      request-handling code is a finding. Such strategies are allowed ONLY in a
+      one-time data-fill tool that writes a reviewable artifact and touches no
+      live tables.
+- [ ] **Provisional data is labeled and rejectable.** Seed/fixture rows that are
+      not reviewed carry provenance (`assignment_source`/`source_ref`/`confidence`/
+      `needs_review`) and a `--strict`/preflight mode fails non-zero on gaps AND on
+      unreviewed-provisional rows. "reviewed" must require an explicit signal set,
+      not merely "not tagged provisional".
+- [ ] **Missing mapping surfaces as a gap, never auto-filled.** A shed/goat/task/
+      record with no explicit owner reads as an honest gap in the UI and blocks a
+      production preflight, rather than being back-filled by code.
+- [ ] Reference pattern to match: `backend/cmd/seed-shed-positions`
+      (`-generate-provisional` → artifact; `-mapping` → apply-only; `-strict` → block).
+
 ## Vaccination execution edge cases
 
 For vaccination, reviewers must check the complete execution loop, not just

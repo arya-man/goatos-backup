@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
@@ -20,6 +22,23 @@ const (
 	rosterBackupMember = "96000000-0000-4000-8000-000000000002"
 )
 
+// seedPreventiveCareDuty inserts the preventive_care_manager module duty
+// (position_module_duties, migration 000157) that RosterRepository.
+// ResolveExecuteCapability now reads to decide the vaccination.execute backup
+// grant -- the DB-backed replacement for the removed hardcoded
+// positionExecuteCapability map. Mirrors what backend/cmd/seed-position-duties
+// derives for this seat (pc.vaccination / manage / vaccination.execute).
+func seedPreventiveCareDuty(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code)
+VALUES ($1::uuid, 'preventive_care_manager', 'pc.vaccination', 'manage', 'vaccination.execute')
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from) DO NOTHING`,
+		rosterTenant); err != nil {
+		t.Fatalf("seed position_module_duties: %v", err)
+	}
+}
+
 func TestRosterPositionAndLeaveCoverageWithDockerPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -33,6 +52,7 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 		rosterTenant, rosterPCMMember, rosterBackupMember); err != nil {
 		t.Fatalf("seed workforce_members: %v", err)
 	}
+	seedPreventiveCareDuty(t, ctx, pool)
 
 	repo := NewRepository(pool, 5*time.Second)
 	svc := workforceapp.NewRosterService(repo, repo)
@@ -296,6 +316,160 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 	}
 }
 
+// TestRosterUpdatePositionAndProfileWithDockerPostgres exercises the Phase
+// Contract-Client write/read additions against real Postgres: in-place attribute
+// edit (partial CASE update + optimistic lock + null-clearing), request-level
+// idempotency (first / exact replay / same-key-different-payload), the profile
+// drawer read, the backup-config upsert (replace semantics on a backup slot),
+// and the bulk import (partial success + per-row idempotency).
+func TestRosterUpdatePositionAndProfileWithDockerPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint) VALUES
+  ($2, $1, 'ROSTER-PCM-01', 'Preventive Care Manager', 'active', 'other'),
+  ($3, $1, 'ROSTER-BKP-01', 'Backup Manager', 'active', 'other')`,
+		rosterTenant, rosterPCMMember, rosterBackupMember); err != nil {
+		t.Fatalf("seed workforce_members: %v", err)
+	}
+	seedPreventiveCareDuty(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	svc := workforceapp.NewRosterService(repo, repo)
+
+	backupGroup := "manager_backup"
+	created, err := svc.CreatePosition(ctx, ports.CreatePositionCommand{
+		TenantID: rosterTenant, ActorID: rosterActor,
+		Body: domain.CreatePositionRequest{
+			WorkforceMemberID: rosterPCMMember, ScopeType: "center", ScopeID: rosterCenterScope,
+			PositionCode: "preventive_care_manager", PositionTier: "manager", BackupGroupCode: &backupGroup,
+		},
+	}, "t-create")
+	if err != nil {
+		t.Fatalf("CreatePosition: %v", err)
+	}
+	posID := created.Position.PositionID
+
+	// In-place edit: set a week-off and bump tier; leave backup_group untouched.
+	weekOff := "sunday"
+	newTier := "head"
+	updKey := "idem-update-001"
+	updated, err := svc.UpdatePosition(ctx, rosterTenant, rosterActor, posID, domain.UpdatePositionRequest{
+		RowVersion: 1, WeekOffWeekday: &weekOff, PositionTier: &newTier, IdempotencyKey: &updKey,
+	}, "t-update")
+	if err != nil {
+		t.Fatalf("UpdatePosition: %v", err)
+	}
+	if updated.Position.WeekOffWeekday == nil || *updated.Position.WeekOffWeekday != "sunday" {
+		t.Fatalf("week_off_weekday = %v, want sunday", updated.Position.WeekOffWeekday)
+	}
+	if updated.Position.PositionTier != "head" {
+		t.Fatalf("position_tier = %q, want head", updated.Position.PositionTier)
+	}
+	if updated.Position.BackupGroupCode == nil || *updated.Position.BackupGroupCode != backupGroup {
+		t.Fatalf("backup_group_code = %v, want unchanged %q", updated.Position.BackupGroupCode, backupGroup)
+	}
+	if updated.Position.RowVersion != 2 {
+		t.Fatalf("row_version = %d, want 2", updated.Position.RowVersion)
+	}
+
+	// Exact idempotent replay returns the original without a second bump.
+	replay, err := svc.UpdatePosition(ctx, rosterTenant, rosterActor, posID, domain.UpdatePositionRequest{
+		RowVersion: 1, WeekOffWeekday: &weekOff, PositionTier: &newTier, IdempotencyKey: &updKey,
+	}, "t-update-replay")
+	if err != nil {
+		t.Fatalf("UpdatePosition replay: %v", err)
+	}
+	if replay.Position.RowVersion != 2 {
+		t.Fatalf("replay row_version = %d, want 2 (no second update)", replay.Position.RowVersion)
+	}
+
+	// Same key, different payload -> idempotency conflict.
+	otherTier := "director"
+	if _, err := svc.UpdatePosition(ctx, rosterTenant, rosterActor, posID, domain.UpdatePositionRequest{
+		RowVersion: 1, PositionTier: &otherTier, IdempotencyKey: &updKey,
+	}, "t-update-conflict"); err == nil {
+		t.Fatal("same-key/different-payload UpdatePosition must be rejected")
+	} else {
+		var appErr *workforceapp.Error
+		if !errors.As(err, &appErr) || appErr.Code != "idempotency_conflict" {
+			t.Fatalf("expected idempotency_conflict, got %v", err)
+		}
+	}
+
+	// Stale row_version (no idempotency key) -> write conflict.
+	if _, err := svc.UpdatePosition(ctx, rosterTenant, rosterActor, posID, domain.UpdatePositionRequest{
+		RowVersion: 1, PositionTier: &otherTier,
+	}, "t-update-stale"); err == nil {
+		t.Fatal("stale row_version UpdatePosition must be rejected")
+	} else {
+		var appErr *workforceapp.Error
+		if !errors.As(err, &appErr) || appErr.Code != "write_conflict" {
+			t.Fatalf("expected write_conflict, got %v", err)
+		}
+	}
+
+	// Clear the week-off (non-nil empty pointer) at the current row_version.
+	clear := ""
+	cleared, err := svc.UpdatePosition(ctx, rosterTenant, rosterActor, posID, domain.UpdatePositionRequest{
+		RowVersion: 2, WeekOffWeekday: &clear,
+	}, "t-update-clear")
+	if err != nil {
+		t.Fatalf("UpdatePosition clear: %v", err)
+	}
+	if cleared.Position.WeekOffWeekday != nil {
+		t.Fatalf("week_off_weekday = %v, want nil after clear", cleared.Position.WeekOffWeekday)
+	}
+
+	// Profile drawer read: enriched seat + duties, no active coverage.
+	profile, err := svc.GetPositionProfile(ctx, rosterTenant, posID, "t-profile")
+	if err != nil {
+		t.Fatalf("GetPositionProfile: %v", err)
+	}
+	if profile.Profile.Position.PositionID != posID {
+		t.Fatalf("profile position_id = %s, want %s", profile.Profile.Position.PositionID, posID)
+	}
+	if len(profile.Profile.Position.Duties) == 0 {
+		t.Fatal("expected enriched duties on the profile (pc.vaccination)")
+	}
+	if profile.Profile.ActiveCoverage != nil {
+		t.Fatalf("active_coverage = %v, want nil (holder present)", profile.Profile.ActiveCoverage)
+	}
+
+	// Backup-config upsert creates a backup-slot seat; replace semantics move
+	// the holder on a second upsert.
+	bc, err := svc.UpsertBackupConfig(ctx, rosterTenant, rosterActor, domain.UpsertBackupConfigRequest{
+		WorkforceMemberID: rosterBackupMember, ScopeType: "center", ScopeID: rosterCenterScope,
+		BackupGroupCode: backupGroup, BackupPositionCode: "backup_manager", PositionTier: "manager",
+	}, "t-backup")
+	if err != nil {
+		t.Fatalf("UpsertBackupConfig: %v", err)
+	}
+	if !bc.Position.IsBackupSlot {
+		t.Fatal("upserted backup config must be an is_backup_slot seat")
+	}
+
+	// Bulk import: one valid new seat + one invalid row (bad scope) -> partial
+	// success with a per-row error.
+	imp, err := svc.ImportPositions(ctx, rosterTenant, rosterActor, domain.ImportPositionsRequest{
+		Rows: []domain.CreatePositionRequest{
+			{WorkforceMemberID: rosterPCMMember, ScopeType: "center", ScopeID: rosterCenterScope, PositionCode: "health_kidding_manager", PositionTier: "manager"},
+			{WorkforceMemberID: rosterPCMMember, ScopeType: "bogus", ScopeID: rosterCenterScope, PositionCode: "cleaning_am1", PositionTier: "assistant"},
+		},
+	}, "t-import")
+	if err != nil {
+		t.Fatalf("ImportPositions: %v", err)
+	}
+	if imp.Imported != 1 || imp.Failed != 1 {
+		t.Fatalf("import imported=%d failed=%d, want 1/1", imp.Imported, imp.Failed)
+	}
+	if imp.Results[1].Status != "error" || imp.Results[1].ErrorCode == nil {
+		t.Fatalf("expected row 1 to be an error with a code, got %+v", imp.Results[1])
+	}
+}
+
 func TestRosterApplyLeaveIdempotencyWithDockerPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -362,6 +536,7 @@ INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, dis
 		rosterTenant, rosterPCMMember, rosterBackupMember); err != nil {
 		t.Fatalf("seed workforce_members: %v", err)
 	}
+	seedPreventiveCareDuty(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 	svc := workforceapp.NewRosterService(repo, repo)
 
