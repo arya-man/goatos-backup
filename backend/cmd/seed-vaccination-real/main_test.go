@@ -187,6 +187,39 @@ func mustKolkata(t *testing.T) *time.Location {
 	return loc
 }
 
+func TestVaccinationMatrixUsesNextCycleOnlyForRepeatRows(t *testing.T) {
+	raw, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("vaccinationMatrixRuleDSL: %v", err)
+	}
+	var payload struct {
+		Schedule []struct {
+			TriggerType string `json:"trigger_type"`
+			Repeat      string `json:"repeat"`
+			CatchUp     string `json:"catch_up"`
+		} `json:"schedule"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("unmarshal matrix: %v", err)
+	}
+	var repeats int
+	for _, row := range payload.Schedule {
+		if row.TriggerType == "after_previous_completion" && row.Repeat != "none" {
+			repeats++
+			if row.CatchUp != "next_cycle" {
+				t.Fatalf("repeat row catch_up=%q, want next_cycle", row.CatchUp)
+			}
+			continue
+		}
+		if row.CatchUp != "immediate" {
+			t.Fatalf("primary/booster row catch_up=%q, want immediate", row.CatchUp)
+		}
+	}
+	if repeats != len(vaccineOrder) {
+		t.Fatalf("repeat rows=%d, want %d", repeats, len(vaccineOrder))
+	}
+}
+
 type seedPartialGenerationErr struct{}
 
 func (seedPartialGenerationErr) Error() string {

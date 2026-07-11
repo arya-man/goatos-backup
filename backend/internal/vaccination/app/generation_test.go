@@ -1258,6 +1258,25 @@ func TestGenerateAppliesMissedDosePolicy(t *testing.T) {
 		}
 	})
 
+	t.Run("next cycle never materializes a past repeat inside its old window", func(t *testing.T) {
+		proto := &generationProtoFake{rules: []protodomain.Rule{{
+			RuleID: "rule-n-days-window", DoseCode: "dose-1", Sequence: 1,
+			TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 30, MinGapDays: 182, Repeat: "every_n_days", CatchUp: "next_cycle",
+		}}}
+		obl := &generationObligationFake{seen: map[string]bool{}}
+		result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate future repeat: %v", err)
+		}
+		wantDue := businessDayStart(time.Date(2026, time.July, 9, 0, 0, 0, 0, time.UTC))
+		if result.Generated != 1 || len(obl.inserted) != 1 || !obl.inserted[0].DueAt.Equal(wantDue) {
+			t.Fatalf("result=%#v inserted=%#v, want next future repeat %s", result, obl.inserted, wantDue)
+		}
+		if !obl.inserted[0].DueAt.After(asOf) {
+			t.Fatalf("next-cycle repeat due=%s must be after as_of=%s", obl.inserted[0].DueAt, asOf)
+		}
+	})
+
 	t.Run("next cycle evidence uses advanced cycle fence", func(t *testing.T) {
 		originalDue := time.Date(2026, time.January, 8, 0, 0, 0, 0, time.UTC)
 		wantDue := businessDayStart(time.Date(2027, time.January, 8, 0, 0, 0, 0, time.UTC))

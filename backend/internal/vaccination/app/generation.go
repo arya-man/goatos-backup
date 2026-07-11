@@ -1472,14 +1472,14 @@ func nextRepeatCycle(rule protodomain.Rule, due, asOf time.Time) (time.Time, boo
 		if interval <= 0 {
 			return time.Time{}, false
 		}
-		next := due
-		for !businessDayStart(next).AddDate(0, 0, int(rule.DueWindowDays)).After(asOf) {
+		next := businessDayStart(due)
+		for !next.After(asOf) {
 			next = businessDayStart(next).AddDate(0, 0, int(interval))
 		}
 		return next, true
 	case "yearly":
-		next := due
-		for !businessDayStart(next).AddDate(0, 0, int(rule.DueWindowDays)).After(asOf) {
+		next := businessDayStart(due)
+		for !next.After(asOf) {
 			next = businessDayStart(next).AddDate(1, 0, 0)
 		}
 		return next, true

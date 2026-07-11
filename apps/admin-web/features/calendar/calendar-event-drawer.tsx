@@ -160,6 +160,7 @@ export function CalendarEventDrawer({
   // Per-render idempotency keys: a double-submit of the SAME rendered form replays (no duplicate action).
   const nudgeKey = randomUUID();
   const snoozeKey = randomUUID();
+  const isClosedHistory = event.status === "completed" || event.status === "canceled";
   // snooze_until (default +24h) is computed in the snooze server action — Date.now() is an impure call and
   // is not allowed on the render path.
 
@@ -459,23 +460,27 @@ export function CalendarEventDrawer({
 
         {/* Footer — Send nudge / Snooze are real idempotent backend actions; Open drive/workflow deep-links. */}
         <div className="df">
-          <form action={sendNudgeAction} style={{ flex: 1, display: "flex" }}>
-            <input type="hidden" name="event_id" value={event.event_id} />
-            <input type="hidden" name="idempotency_key" value={nudgeKey} />
-            <input type="hidden" name="return_to" value={returnTo} />
-            <button type="submit" className="btn p" style={{ flex: 1 }}>
-              <Bell className="ic" aria-hidden="true" />
-              {copy(pageContract, "action.send_nudge")}
-            </button>
-          </form>
-          <form action={snoozeAction}>
-            <input type="hidden" name="event_id" value={event.event_id} />
-            <input type="hidden" name="idempotency_key" value={snoozeKey} />
-            <input type="hidden" name="return_to" value={returnTo} />
-            <button type="submit" className="btn">
-              {copy(pageContract, "action.snooze")}
-            </button>
-          </form>
+          {!isClosedHistory ? (
+            <>
+              <form action={sendNudgeAction} style={{ flex: 1, display: "flex" }}>
+                <input type="hidden" name="event_id" value={event.event_id} />
+                <input type="hidden" name="idempotency_key" value={nudgeKey} />
+                <input type="hidden" name="return_to" value={returnTo} />
+                <button type="submit" className="btn p" style={{ flex: 1 }}>
+                  <Bell className="ic" aria-hidden="true" />
+                  {copy(pageContract, "action.send_nudge")}
+                </button>
+              </form>
+              <form action={snoozeAction}>
+                <input type="hidden" name="event_id" value={event.event_id} />
+                <input type="hidden" name="idempotency_key" value={snoozeKey} />
+                <input type="hidden" name="return_to" value={returnTo} />
+                <button type="submit" className="btn">
+                  {copy(pageContract, "action.snooze")}
+                </button>
+              </form>
+            </>
+          ) : null}
           {primaryOpen ? (
             <Link href={primaryOpen.href} className="btn">
               {primaryOpen.label}

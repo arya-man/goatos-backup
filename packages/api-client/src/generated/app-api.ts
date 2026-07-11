@@ -1839,7 +1839,7 @@ export interface components {
         /** @enum {string} */
         CalendarSeverity: "info" | "warning" | "critical";
         /** @enum {string} */
-        CalendarEventType: "vaccination_dose_due" | "vaccination_drive" | "vaccination_campaign" | "vaccination_booster_due" | "vaccination_defer_review" | "vaccination_evidence_review" | "vaccination_proof_verification" | "vaccination_rework_due" | "vaccine_stock_readiness" | "vaccine_cold_chain_check" | "vaccine_reorder_expiry_grn" | "pc_stock_anti_misuse" | "vaccination_config_activation_review";
+        CalendarEventType: "vaccination_dose_due" | "vaccination_drive" | "vaccination_history" | "vaccination_campaign" | "vaccination_booster_due" | "vaccination_defer_review" | "vaccination_evidence_review" | "vaccination_proof_verification" | "vaccination_rework_due" | "vaccine_stock_readiness" | "vaccine_cold_chain_check" | "vaccine_reorder_expiry_grn" | "pc_stock_anti_misuse" | "vaccination_config_activation_review";
         CalendarJSONBlock: {
             [key: string]: unknown;
         };
@@ -1979,7 +1979,16 @@ export interface components {
             source: "api";
             presentation: components["schemas"]["CalendarPresentation"];
             items: components["schemas"]["CalendarEvent"][];
+            date_markers: components["schemas"]["CalendarDateMarker"][];
             next_cursor: string | null;
+        };
+        CalendarDateMarker: {
+            /** Format: date */
+            date: string;
+            event_count: number;
+            completed_count: number;
+            open_count: number;
+            drive_count: number;
         };
         CalendarHistoryItem: {
             history_id: string;
@@ -4582,6 +4591,8 @@ export interface operations {
                 date_from?: string;
                 /** @description Inclusive date; API rejects ranges greater than 45 days. */
                 date_to?: string;
+                /** @description Include bounded per-day counts for complete month-grid rendering. */
+                include_date_markers?: boolean;
                 cursor?: string;
                 limit?: number;
             };

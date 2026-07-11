@@ -17,6 +17,7 @@ import {
   ownerScopeLabel,
   presentationQueryToSearch,
   type CalendarEvent,
+  type CalendarDateMarker,
   type CalendarOwnerFilter,
   type CalendarOwnerPresentationTab,
   type CalendarPresentation,
@@ -117,14 +118,19 @@ export async function VaccinationCalendarPage({
   const anchorKey = asOf ? asOf.slice(0, 10) : today;
   const pickerWindow = monthWindow(anchorKey);
 
-  const [list, pickerList, detail, targets] = await Promise.all([
+  const [list, pickerList, historyList, detail, targets] = await Promise.all([
     getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom: asOf ? asOf.slice(0, 10) : undefined }),
-    getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom: pickerWindow.dateFrom, dateTo: pickerWindow.dateTo }),
+    getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom: pickerWindow.dateFrom, dateTo: pickerWindow.dateTo, includeDateMarkers: true }),
+    asOf
+      ? getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, status: "completed", dateFrom: asOf.slice(0, 10), dateTo: asOf.slice(0, 10), limit: 200 })
+      : Promise.resolve(null),
     selectedEventId ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),
     selectedEventId ? getCalendarDriveTargets(selectedEventId, { cursor: targetsCursor, limit: 10 }) : Promise.resolve(null),
   ]);
 
-  const events = list.ok ? list.data.items : [];
+  const openEvents = list.ok ? list.data.items : [];
+  const historyEvents = historyList?.ok ? historyList.data.items : [];
+  const events = Array.from(new Map([...historyEvents, ...openEvents].map((event) => [event.event_id, event])).values());
   const pickerEvents = pickerList.ok ? pickerList.data.items : events;
   if (list.ok && !list.data.presentation) {
     throw new Error(copy(pageContract, "error.presentation_missing"));
@@ -174,6 +180,7 @@ export async function VaccinationCalendarPage({
             <summary>{optionLabel(pageContract, "calendar_view_tabs", "month")}</summary>
             <CalendarDatePicker
               events={pickerEvents}
+              dateMarkers={pickerList.ok ? pickerList.data.date_markers : []}
               anchorKey={anchorKey}
               today={today}
               ownerMeta={ownerMeta}
@@ -473,6 +480,7 @@ function WeekView({
 // ── Compact month picker ───────────────────────────────────────────────────────────────────────────
 function CalendarDatePicker({
   events,
+  dateMarkers,
   anchorKey,
   today,
   ownerMeta,
@@ -482,6 +490,7 @@ function CalendarDatePicker({
   dateHref,
 }: {
   events: CalendarEvent[];
+  dateMarkers: CalendarDateMarker[];
   anchorKey: string;
   today: string;
   ownerMeta: OwnerPresentationMap;
@@ -502,6 +511,7 @@ function CalendarDatePicker({
     bucket.push(e);
     byDate.set(key, bucket);
   }
+  const markersByDate = new Map(dateMarkers.map((marker) => [marker.date, marker]));
 
   const firstDow = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -535,18 +545,24 @@ function CalendarDatePicker({
         {cells.map((cell, i) => {
           if (cell === null) return <span key={`out-${i}`} className="calpicker-day out" />;
           const dayEvents = byDate.get(cell.key) ?? [];
-          const hasDrive = dayEvents.some((e) => e.event_type === "vaccination_drive");
+          const marker = markersByDate.get(cell.key);
+          const hasDrive = marker ? marker.drive_count > 0 : dayEvents.some((e) => e.event_type === "vaccination_drive");
+          const hasHistory = marker ? marker.completed_count > 0 : dayEvents.some((e) => e.status === "completed");
+          const hasOpenWork = marker ? marker.open_count > 0 : dayEvents.some((e) => e.status !== "completed" && e.status !== "canceled");
           const owners = Array.from(new Set(dayEvents.map((e) => e.owner_key))).slice(0, 3);
-          const eventCountLabel = dayEvents.length > 99 ? "99+" : String(dayEvents.length);
+          const eventCount = marker?.event_count ?? dayEvents.length;
+          const eventCountLabel = eventCount > 99 ? "99+" : String(eventCount);
           return (
             <Link
               key={cell.key}
               href={dateHref(cell.key)}
               replace
               scroll={false}
-              className={`calpicker-day${cell.key === today ? " today" : ""}${cell.key === anchorKey ? " selected" : ""}${dayEvents.length ? " has-events" : ""}${hasDrive ? " has-drive" : ""}`}
+              className={`calpicker-day${cell.key === today ? " today" : ""}${cell.key === anchorKey ? " selected" : ""}${eventCount ? " has-events" : ""}${hasDrive ? " has-drive" : ""}${hasHistory ? " has-history" : ""}${hasOpenWork ? " has-open-work" : ""}`}
               title={
-                dayEvents.length
+                marker
+                  ? `${marker.completed_count} completed · ${marker.open_count} open`
+                  : dayEvents.length
                   ? dayEvents
                       .slice(0, 4)
                       .map((e) => `${timeOf(e.due_at)} ${eventTypeMeta(e.event_type, presentation).label} - ${e.title}`)
@@ -555,7 +571,7 @@ function CalendarDatePicker({
               }
             >
               <span>{cell.day}</span>
-              {dayEvents.length ? <b>{eventCountLabel}</b> : null}
+              {eventCount ? <b>{eventCountLabel}</b> : null}
               {owners.length ? (
                 <i>
                   {owners.map((owner) => (
@@ -570,6 +586,7 @@ function CalendarDatePicker({
       <div className="calpicker-note">
         <span className="calpicker-dot drive" /> {copy(pageContract, "calendar.picker.drive_hint")}
         <span className="calpicker-dot other" /> {copy(pageContract, "calendar.picker.other_hint")}
+        <span className="calpicker-dot history" /> {copy(pageContract, "calendar.picker.history_hint")}
         <span className="sp" />
         <span>{presentation.month.as_of_hint}</span>
       </div>

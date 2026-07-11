@@ -12,6 +12,11 @@ future due dates.
   history. If a matching published rule exists, seed it as an
   accepted/verified administration, then let the vaccination kernel compute the
   next open obligation from that administered date and the published schedule.
+  For recurring doses, seed the rule with `catch_up: next_cycle`: advance from
+  that completion until the due date is strictly after the backend business
+  date, even when an older dose window has not closed yet. Primary and booster
+  doses that were never completed retain their explicit immediate catch-up
+  policy.
   If no matching rule exists yet, keep the date as visible history/config-gap
   evidence and do not fabricate a rule, obligation, or completion.
 - A source date after the backend business date is future source intent or
@@ -42,6 +47,12 @@ Example with backend business date `2026-07-11`:
   repeat intervals, compatibility gaps, defer rules, and catch-up behavior.
 - The obligation kernel owns generated future obligations. Seeders must not
   hand-roll future schedules that duplicate or bypass the kernel.
+- Calendar owns a bounded read of accepted completion history for the selected
+  date range. Closed doses do not have to remain in the hot projection merely
+  to appear as completed history. Its bounded date-marker summary must preserve
+  every completed and future/open date even when goat-level rows exceed the
+  event page limit. Completed-only dates use the purple history color, while
+  dates containing both history and open work use the mixed state.
 - `vaccination_capacity_config` owns session splitting and needs-review
   classification. Changing cap, buffer, scope, or overflow policy requires
   regenerating or re-reading future planning state against the new config.
@@ -91,7 +102,13 @@ At minimum, this contract is guarded by:
 
 - `backend/cmd/seed-vaccination-real/main_test.go`: source dates on or before
   the business date import as completed history, while future business dates do
-  not.
+  not; only recurring rules use `next_cycle` catch-up.
+- `backend/internal/vaccination/app/generation_test.go`: a recurring completion
+  advances to a due date strictly after the backend business date, including
+  when the preceding historical window would still be open.
+- `backend/internal/calendar/adapters/postgres/repository_integration_test.go`:
+  accepted historical doses remain listable and drillable without a retained
+  hot projection row.
 - Full kernel story suite: `go test ./backend/tests/e2e/... -run TestKernelStor -v`.
 
 Do not push a seed change that bypasses these gates.

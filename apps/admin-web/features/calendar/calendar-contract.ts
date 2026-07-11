@@ -23,6 +23,7 @@ import {
 export type CalendarDriveTarget = AppApiComponents["schemas"]["CalendarDriveTarget"];
 export type CalendarDriveTargetListResponse = AppApiComponents["schemas"]["CalendarDriveTargetListResponse"];
 export type CalendarEvent = AppApiComponents["schemas"]["CalendarEvent"];
+export type CalendarDateMarker = AppApiComponents["schemas"]["CalendarDateMarker"];
 export type CalendarEventDetail = AppApiComponents["schemas"]["CalendarEventDetail"];
 export type CalendarEventListResponse = AppApiComponents["schemas"]["CalendarEventListResponse"];
 export type CalendarHistoryItem = AppApiComponents["schemas"]["CalendarHistoryItem"];
@@ -221,6 +222,7 @@ export function ownerColor(ownerKey: string, ownerMeta: OwnerPresentationMap): s
 export const EVENT_TYPE_ICON: Record<CalendarEventType, LucideIcon> = {
   vaccination_dose_due: Syringe,
   vaccination_drive: Syringe,
+  vaccination_history: ShieldCheck,
   vaccination_campaign: CalendarClock,
   vaccination_booster_due: Syringe,
   vaccination_defer_review: ShieldAlert,

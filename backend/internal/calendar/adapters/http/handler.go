@@ -255,9 +255,10 @@ func (h *Handler) ResolveEscalation(w stdhttp.ResponseWriter, r *stdhttp.Request
 func (h *Handler) listQuery(w stdhttp.ResponseWriter, r *stdhttp.Request) (domain.Query, bool) {
 	query := r.URL.Query()
 	q := domain.Query{
-		TenantID: tenantID(r),
-		OwnerKey: query.Get("owner_key"),
-		Scope:    calendarScope(r, permissions.CalendarRead),
+		TenantID:           tenantID(r),
+		OwnerKey:           query.Get("owner_key"),
+		IncludeDateMarkers: query.Get("include_date_markers") == "true",
+		Scope:              calendarScope(r, permissions.CalendarRead),
 	}
 	if raw := query.Get("park_id"); raw != "" {
 		q.ParkID = &raw

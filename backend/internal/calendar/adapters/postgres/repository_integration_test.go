@@ -1385,6 +1385,117 @@ FROM notification_requests
 WHERE tenant_id=$1::uuid AND calendar_event_id=$2`, 1, testTenantID, oldEventID)
 }
 
+func TestCalendarListsOldAcceptedVaccinationHistoryWithoutHotProjection(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		protocolID  = "86000000-0000-4000-8000-000000000931"
+		versionID   = "86000000-0000-4000-8000-000000000932"
+		ruleID      = "86000000-0000-4000-8000-000000000933"
+		obligationA = "86000000-0000-4000-8000-000000000934"
+		obligationB = "86000000-0000-4000-8000-000000000935"
+		completionA = "86000000-0000-4000-8000-000000000936"
+		completionB = "86000000-0000-4000-8000-000000000937"
+	)
+	administeredAt := time.Date(2025, time.December, 9, 3, 30, 0, 0, time.UTC)
+	completedStatus := domain.StatusCompleted
+	seedCalendarLocations(t, ctx, pool, testParkA, testShedA)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationA, administeredAt)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, obligationB, administeredAt.Add(20*time.Minute))
+	seedCalendarGoat(t, ctx, pool, obligationA)
+	if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET park_id=$2::uuid, shed_id=$3::uuid, current_location_id=$3::uuid, updated_at=now()
+	WHERE tenant_id=$1::uuid AND goat_id IN ($4::uuid, $5::uuid)`,
+		testTenantID, testParkA, testShedA, obligationA, obligationB); err != nil {
+		t.Fatalf("locate history goats: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type='goat', target_id=obligation_id, scope_type='shed', scope_id=$2::uuid,
+    status='completed', completed_at=due_at, updated_at=now()
+	WHERE tenant_id=$1::uuid AND obligation_id IN ($3::uuid, $4::uuid)`,
+		testTenantID, testShedA, obligationA, obligationB); err != nil {
+		t.Fatalf("complete history obligations: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, verified_at,
+  verified_by, status, idempotency_key
+) VALUES
+	  ($2::uuid, $1::uuid, $3::uuid, $3::uuid, $6::timestamptz, $6::timestamptz, $5::uuid, 'accepted', 'calendar-history-a'),
+	  ($7::uuid, $1::uuid, $4::uuid, $4::uuid, $8::timestamptz, $8::timestamptz, $5::uuid, 'accepted', 'calendar-history-b')`,
+		testTenantID, completionA, obligationA, obligationB, testActorID,
+		administeredAt, completionB, administeredAt.Add(20*time.Minute)); err != nil {
+		t.Fatalf("seed accepted vaccination history: %v", err)
+	}
+
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID:           testTenantID,
+		OwnerKey:           domain.OwnerAll,
+		Status:             &completedStatus,
+		DateFrom:           administeredAt.Add(-time.Hour),
+		DateTo:             administeredAt.Add(24 * time.Hour),
+		Limit:              20,
+		IncludeDateMarkers: true,
+		Scope:              domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents history: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("history items=%d, want one shed/rule/day group: %#v", len(list.Items), list.Items)
+	}
+	history := list.Items[0]
+	if history.EventType != domain.EventVaccinationHistory || history.Status != domain.StatusCompleted || history.TargetCount != 2 {
+		t.Fatalf("history event=%#v, want completed history with two targets", history)
+	}
+	if len(list.DateMarkers) != 1 || list.DateMarkers[0].Date != "2025-12-09" || list.DateMarkers[0].CompletedCount != 2 || list.DateMarkers[0].OpenCount != 0 {
+		t.Fatalf("history date markers=%#v, want one completed marker with two administrations", list.DateMarkers)
+	}
+	assertCount(t, ctx, pool, "old history not copied to hot projection", `
+SELECT count(*) FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2`, 0, testTenantID, history.EventID)
+
+	detail, err := repo.GetEventDetail(ctx, domain.EventQuery{
+		TenantID: testTenantID,
+		EventID:  history.EventID,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("GetEventDetail history: %v", err)
+	}
+	if detail.Event.TargetCount != 2 || detail.Event.Status != domain.StatusCompleted || !strings.Contains(string(detail.Execution), `"completed_count": 2`) {
+		t.Fatalf("history detail=%#v execution=%s", detail.Event, detail.Execution)
+	}
+
+	openEventID := "calendar:86000000-0000-4000-8000-000000000938"
+	openDueAt := administeredAt.Add(8 * 24 * time.Hour)
+	seedCalendarProjection(t, ctx, pool, openEventID, openDueAt, "not_scheduled")
+	markerList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID:           testTenantID,
+		OwnerKey:           domain.OwnerAll,
+		DateFrom:           administeredAt.Add(-time.Hour),
+		DateTo:             openDueAt.Add(time.Hour),
+		Limit:              1,
+		IncludeDateMarkers: true,
+		Scope:              domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents open work with date markers: %v", err)
+	}
+	if len(markerList.Items) != 1 || markerList.Items[0].EventID != openEventID {
+		t.Fatalf("default items=%#v, want only open work (history is fetched explicitly)", markerList.Items)
+	}
+	if len(markerList.DateMarkers) != 2 || markerList.DateMarkers[0].CompletedCount != 2 || markerList.DateMarkers[1].OpenCount != 1 {
+		t.Fatalf("date markers=%#v, want history and future dates independent of item pagination", markerList.DateMarkers)
+	}
+}
+
 func TestCalendarConfigActivationReviewNudgeIsActionable(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

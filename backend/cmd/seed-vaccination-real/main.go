@@ -1700,7 +1700,12 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				MinGapDays:          spec.RevaccinationDays,
 				Repeat:              "every_n_days",
 				RepeatUntilAfterAge: "-",
-				CatchUp:             "immediate",
+				// Imported accepted history is a cutover anchor. If one or more old
+				// repeat cycles have already elapsed, the kernel advances to the next
+				// future cycle instead of turning the imported administration into a
+				// synthetic late card at seed time. Primary/booster rows keep their
+				// immediate catch-up behavior.
+				CatchUp: "next_cycle",
 			}
 			rowSchedule = append(rowSchedule, cell)
 			schedule = append(schedule, cell)

@@ -764,6 +764,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.picker.next_month":              "Next month",
 			"calendar.picker.drive_hint":              "drive day",
 			"calendar.picker.other_hint":              "other due work",
+			"calendar.picker.history_hint":            "completed history",
 			"calendar.new_event.label":                "New event",
 			"calendar.new_event.disabled_reason":      "Calendar events are generated from configured obligations. Create a campaign/catch-up via Config or the Preventive Care (PC) catch-up path - not a free-form Calendar entry.",
 			"calendar.empty.ok":                       "Configured vaccination drives, boosters, proof/rework, and stock gates will appear here when due.",
@@ -3279,6 +3280,7 @@ func calendarOptionGroups() []domain.OptionGroup {
 			Options: []domain.Option{
 				option("vaccination_dose_due", "Dose due", "", ""),
 				option("vaccination_drive", "Shed / cohort drive", "", ""),
+				option("vaccination_history", "Completed vaccination history", "", ""),
 				option("vaccination_campaign", "Campaign / catch-up", "", ""),
 				option("vaccination_booster_due", "Booster due", "", ""),
 				option("vaccination_defer_review", "Defer / waiver review", "", ""),

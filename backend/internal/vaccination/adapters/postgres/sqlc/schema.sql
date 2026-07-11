@@ -9558,6 +9558,13 @@ CREATE INDEX vaccination_completions_batch_idx ON public.vaccination_completions
 
 
 --
+-- Name: vaccination_completions_accepted_history_calendar_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_completions_accepted_history_calendar_idx ON public.vaccination_completions USING btree (tenant_id, administered_at, obligation_id) WHERE (status = 'accepted'::text);
+
+
+--
 -- Name: vaccination_completions_goat_history_idx; Type: INDEX; Schema: public; Owner: -
 --
 

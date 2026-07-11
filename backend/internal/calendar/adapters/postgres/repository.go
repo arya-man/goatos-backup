@@ -85,6 +85,27 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	if err := rows.Err(); err != nil {
 		return domain.CalendarEventListResponse{}, err
 	}
+	rows.Close()
+	dateMarkers := []domain.CalendarDateMarker{}
+	if q.IncludeDateMarkers {
+		markerRows, err := r.pool.Query(ctx, calendarDateMarkersSQL,
+			q.TenantID, ownerKey, status, parkID, shedID, q.DateFrom, q.DateTo.Add(24*time.Hour),
+			tenantWide, parkIDs, shedIDs)
+		if err != nil {
+			return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: list date markers: %w", err)
+		}
+		defer markerRows.Close()
+		for markerRows.Next() {
+			var marker domain.CalendarDateMarker
+			if err := markerRows.Scan(&marker.Date, &marker.EventCount, &marker.CompletedCount, &marker.OpenCount, &marker.DriveCount); err != nil {
+				return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: scan date marker: %w", err)
+			}
+			dateMarkers = append(dateMarkers, marker)
+		}
+		if err := markerRows.Err(); err != nil {
+			return domain.CalendarEventListResponse{}, err
+		}
+	}
 	var next *string
 	if len(items) > limit {
 		items = items[:limit]
@@ -95,7 +116,7 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 		}
 		next = &cursor
 	}
-	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, NextCursor: next}, nil
+	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, NextCursor: next}, nil
 }
 
 func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (domain.CalendarEventDetail, error) {
@@ -105,7 +126,12 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	event, err := scanCalendarEventWithDetail(r.pool.QueryRow(ctx, calendarDetailSQL, q.TenantID, q.EventID, tenantWide, parkIDs, shedIDs), &detailRaw, &linksRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.CalendarEventDetail{}, ports.ErrNotFound
+		if obligationID, ok := completedHistoryObligationID(q.EventID); ok {
+			event, err = scanCalendarEventWithDetail(r.pool.QueryRow(ctx, calendarCompletedHistoryDetailSQL, q.TenantID, obligationID, q.EventID, tenantWide, parkIDs, shedIDs), &detailRaw, &linksRaw)
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.CalendarEventDetail{}, ports.ErrNotFound
+		}
 	}
 	if err != nil {
 		return domain.CalendarEventDetail{}, fmt.Errorf("calendar: get detail: %w", err)
@@ -1370,19 +1396,53 @@ func (r *Repository) PruneClosedVaccinationProjection(ctx context.Context, tenan
 func (r *Repository) eventExists(ctx context.Context, tenantID, eventID string, scope domain.ScopeFilter) error {
 	var exists bool
 	tenantWide, parkIDs, shedIDs := scopeArgs(scope)
+	obligationID, historyID := completedHistoryObligationID(eventID)
 	if err := r.pool.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM calendar_event_projections
   WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
     AND system = false
     AND ($3::bool OR park_id::text = ANY($4::text[]) OR shed_id::text = ANY($5::text[]))
-)`, tenantID, eventID, tenantWide, parkIDs, shedIDs).Scan(&exists); err != nil {
+  UNION ALL
+  SELECT 1
+  FROM obligation_instances oi
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id AND oi.target_type = 'goat' AND g.goat_id = oi.target_id
+  WHERE $6::bool
+    AND oi.tenant_id = $1::uuid
+    AND oi.obligation_id = $7::uuid
+    AND oi.status = 'completed'
+    AND ($3::bool OR g.park_id::text = ANY($4::text[]) OR g.shed_id::text = ANY($5::text[]))
+    AND EXISTS (
+      SELECT 1
+      FROM vaccination_completions c
+      WHERE c.tenant_id = oi.tenant_id
+        AND c.obligation_id = oi.obligation_id
+        AND c.status = 'accepted'
+    )
+)`, tenantID, eventID, tenantWide, parkIDs, shedIDs, historyID, obligationID).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
 		return ports.ErrNotFound
 	}
 	return nil
+}
+
+func completedHistoryObligationID(eventID string) (string, bool) {
+	eventID = strings.TrimSpace(eventID)
+	if !strings.HasPrefix(eventID, "obligation:") {
+		return "00000000-0000-0000-0000-000000000000", false
+	}
+	id := strings.TrimPrefix(eventID, "obligation:")
+	if _, err := domain.ParseDriveEventID(eventID); err == nil || id == "" {
+		return "00000000-0000-0000-0000-000000000000", false
+	}
+	// ValidateEventID owns the UUID syntax contract for obligation event ids.
+	if err := domain.ValidateEventID(eventID); err != nil {
+		return "00000000-0000-0000-0000-000000000000", false
+	}
+	return id, true
 }
 
 func (r *Repository) notificationActionByID(ctx context.Context, tenantID, eventID, requestID string) (domain.CalendarActionResponse, error) {
@@ -1599,7 +1659,71 @@ func calendarOutboxEnvelope(tenantID, eventID, eventType, schemaRef, aggregateTy
 }
 
 const calendarListSQL = `
-WITH candidates AS (
+WITH completed_history AS (
+  SELECT
+    'obligation:' || min(oi.obligation_id::text) AS event_id,
+    'vaccination_history'::text AS event_type,
+    'pc'::text AS owner_key,
+    pd.name || ' ' || pr.dose_code || ' completed' AS title,
+    COALESCE(shed.name, park.location_code, 'Accepted vaccination history') AS subtitle,
+    'completed'::text AS status,
+    'info'::text AS severity,
+    min(vc.administered_at) AS due_at,
+    min(vc.administered_at) AS window_start,
+    max(vc.administered_at) AS window_end,
+    'Asia/Kolkata'::text AS timezone,
+    'india_only'::text AS timezone_source,
+    g.park_id::text AS park_id,
+    park.location_code AS park_code,
+    g.shed_id::text AS shed_id,
+    shed.name AS shed_name,
+    NULL::text AS cohort_id,
+    NULL::text AS cohort_name,
+    'goat'::text AS target_type,
+    count(*)::int AS target_count,
+    pd.protocol_id::text AS protocol_id,
+    pv.protocol_version_id::text AS protocol_version_id,
+    pr.rule_id::text AS rule_id,
+    pd.name AS vaccine_name,
+    pr.dose_code,
+    true AS source_backed,
+    'Accepted vaccination administration history'::text AS source_label,
+    'Completed history'::text AS assignee_label,
+    'pc_vaccinator'::text AS executor_role,
+    'Accepted at source cutover'::text AS verifier_label,
+    'not_scheduled'::text AS reminder_state,
+    ''::text AS primary_notification_channel,
+    'none'::text AS escalation_state,
+    false AS system,
+    false AS cross_cutting,
+    jsonb_build_object('vaccination', '/vaccination') AS links
+	FROM vaccination_completions vc
+	JOIN obligation_instances oi
+	  ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id AND oi.target_type = 'goat' AND g.goat_id = oi.target_id
+  LEFT JOIN locations park
+    ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
+  LEFT JOIN locations shed
+    ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
+  WHERE vc.tenant_id = $1::uuid
+    AND vc.status = 'accepted'
+    AND oi.status = 'completed'
+    AND pd.category = 'vaccination'
+    AND vc.administered_at >= $6::timestamptz
+    AND vc.administered_at < $7::timestamptz
+  GROUP BY
+    g.park_id, park.location_code, g.shed_id, shed.name,
+    pd.protocol_id, pv.protocol_version_id, pr.rule_id, pd.name, pr.dose_code,
+    (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date
+),
+candidates AS (
   (
     SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
            window_end, timezone, timezone_source, park_id::text, park_code, shed_id::text, shed_name,
@@ -1615,6 +1739,10 @@ WITH candidates AS (
       AND ($2::text = '' OR owner_key = $2::text)
       AND ($3::text = '' OR status = $3::text)
       AND ($3::text <> '' OR status NOT IN ('completed', 'canceled'))
+      -- Accepted per-goat completions come from the bounded canonical-history
+      -- branch below. Keep completed drive/batch projections, but do not emit a
+      -- second copy of the same completed dose from the hot projection.
+      AND ($3::text <> 'completed' OR event_type <> 'vaccination_dose_due')
       AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
       AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
       AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))
@@ -1647,6 +1775,26 @@ WITH candidates AS (
     ORDER BY due_at ASC, event_id ASC
     LIMIT $10
   )
+
+  UNION
+
+  (
+    SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
+           window_end, timezone, timezone_source, park_id, park_code, shed_id, shed_name,
+           cohort_id, cohort_name, target_type, target_count, protocol_id,
+           protocol_version_id, rule_id, vaccine_name, dose_code, source_backed,
+           source_label, assignee_label, executor_role, verifier_label, reminder_state,
+           primary_notification_channel, escalation_state, system, cross_cutting, links
+    FROM completed_history
+    WHERE ($2::text = '' OR owner_key = $2::text)
+      AND $3::text = 'completed'
+      AND ($4::text = '' OR park_id = $4::text)
+      AND ($5::text = '' OR shed_id = $5::text)
+      AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))
+      AND ($11::bool OR park_id = ANY($12::text[]) OR shed_id = ANY($13::text[]))
+    ORDER BY due_at ASC, event_id ASC
+    LIMIT $10
+  )
 )
 SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
        window_end, timezone, timezone_source, park_id, park_code, shed_id, shed_name,
@@ -1657,6 +1805,68 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
 FROM candidates
 ORDER BY due_at ASC, event_id ASC
 LIMIT $10`
+
+const calendarDateMarkersSQL = `
+WITH marker_rows AS (
+  SELECT
+    ((due_at AT TIME ZONE 'Asia/Kolkata')::date)::text AS marker_date,
+    count(*)::bigint AS event_count,
+    count(*) FILTER (WHERE status = 'completed')::bigint AS completed_count,
+    count(*) FILTER (WHERE status NOT IN ('completed', 'canceled'))::bigint AS open_count,
+    count(*) FILTER (WHERE event_type = 'vaccination_drive')::bigint AS drive_count
+  FROM calendar_event_projections
+  WHERE tenant_id = $1::uuid
+    AND slice_key = 'vaccination'
+    AND system = false
+    AND ($2::text = '' OR owner_key = $2::text)
+    AND ($3::text = '' OR status = $3::text)
+    AND ($3::text <> '' OR status NOT IN ('completed', 'canceled'))
+    AND NOT (status = 'completed' AND event_type = 'vaccination_dose_due')
+    AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
+    AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
+    AND due_at >= $6::timestamptz
+    AND due_at < $7::timestamptz
+    AND ($8::bool OR park_id::text = ANY($9::text[]) OR shed_id::text = ANY($10::text[]))
+  GROUP BY (due_at AT TIME ZONE 'Asia/Kolkata')::date
+
+  UNION ALL
+
+  SELECT
+    ((vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date)::text AS marker_date,
+    count(*)::bigint AS event_count,
+    count(*)::bigint AS completed_count,
+    0::bigint AS open_count,
+    0::bigint AS drive_count
+  FROM vaccination_completions vc
+  JOIN obligation_instances oi
+    ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id AND oi.target_type = 'goat' AND g.goat_id = oi.target_id
+  WHERE vc.tenant_id = $1::uuid
+    AND vc.status = 'accepted'
+    AND oi.status = 'completed'
+    AND pd.category = 'vaccination'
+    AND ($2::text = '' OR $2::text = 'pc')
+    AND ($3::text = '' OR $3::text = 'completed')
+    AND ($4::text = '' OR g.park_id = nullif($4::text, '')::uuid)
+    AND ($5::text = '' OR g.shed_id = nullif($5::text, '')::uuid)
+    AND vc.administered_at >= $6::timestamptz
+    AND vc.administered_at < $7::timestamptz
+    AND ($8::bool OR g.park_id::text = ANY($9::text[]) OR g.shed_id::text = ANY($10::text[]))
+  GROUP BY (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date
+)
+SELECT marker_date,
+       sum(event_count)::int,
+       sum(completed_count)::int,
+       sum(open_count)::int,
+       sum(drive_count)::int
+FROM marker_rows
+GROUP BY marker_date
+ORDER BY marker_date`
 
 const calendarDetailSQL = `
 SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
@@ -1669,6 +1879,113 @@ FROM calendar_event_projections
 WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
   AND system = false
   AND ($3::bool OR park_id::text = ANY($4::text[]) OR shed_id::text = ANY($5::text[]))`
+
+const calendarCompletedHistoryDetailSQL = `
+WITH anchor AS (
+  SELECT
+    oi.rule_id,
+    g.park_id,
+    g.shed_id,
+    (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date AS administered_day
+  FROM vaccination_completions vc
+  JOIN obligation_instances oi
+    ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id AND oi.target_type = 'goat' AND g.goat_id = oi.target_id
+  WHERE vc.tenant_id = $1::uuid
+    AND vc.status = 'accepted'
+    AND oi.obligation_id = $2::uuid
+    AND oi.status = 'completed'
+),
+members AS (
+  SELECT oi.*, vc.administered_at, g.park_id, g.shed_id
+  FROM anchor a
+  JOIN vaccination_completions vc
+    ON vc.tenant_id = $1::uuid
+   AND vc.status = 'accepted'
+   AND (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date = a.administered_day
+  JOIN obligation_instances oi
+    ON oi.tenant_id = vc.tenant_id
+   AND oi.obligation_id = vc.obligation_id
+   AND oi.rule_id = a.rule_id
+   AND oi.status = 'completed'
+   AND oi.target_type = 'goat'
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+   AND g.park_id IS NOT DISTINCT FROM a.park_id
+   AND g.shed_id IS NOT DISTINCT FROM a.shed_id
+),
+grouped AS (
+  SELECT
+    $3::text AS event_id,
+    'vaccination_history'::text AS event_type,
+    'pc'::text AS owner_key,
+    pd.name || ' ' || pr.dose_code || ' completed' AS title,
+    COALESCE(shed.name, park.location_code, 'Accepted vaccination history') AS subtitle,
+    'completed'::text AS status,
+    'info'::text AS severity,
+    min(m.administered_at) AS due_at,
+    min(m.administered_at) AS window_start,
+    max(m.administered_at) AS window_end,
+    'Asia/Kolkata'::text AS timezone,
+    'india_only'::text AS timezone_source,
+    m.park_id::text AS park_id,
+    park.location_code AS park_code,
+    m.shed_id::text AS shed_id,
+    shed.name AS shed_name,
+    NULL::text AS cohort_id,
+    NULL::text AS cohort_name,
+    'goat'::text AS target_type,
+    count(*)::int AS target_count,
+    pd.protocol_id::text AS protocol_id,
+    pv.protocol_version_id::text AS protocol_version_id,
+    pr.rule_id::text AS rule_id,
+    pd.name AS vaccine_name,
+    pr.dose_code,
+    true AS source_backed,
+    'Accepted vaccination administration history'::text AS source_label,
+    'Completed history'::text AS assignee_label,
+    'pc_vaccinator'::text AS executor_role,
+    'Accepted at source cutover'::text AS verifier_label,
+    'not_scheduled'::text AS reminder_state,
+    ''::text AS primary_notification_channel,
+    'none'::text AS escalation_state,
+    false AS system,
+    false AS cross_cutting,
+    jsonb_build_object('vaccination', '/vaccination') AS links,
+    jsonb_build_object(
+      'summary', jsonb_build_object('owner', 'PC', 'target_count', count(*), 'history', true),
+      'source_and_rule', jsonb_build_object('protocol_version_id', pv.protocol_version_id, 'rule_id', pr.rule_id, 'source_backed', true),
+      'execution', jsonb_build_object('work_state', 'completed', 'completed_count', count(*)),
+      'stock', jsonb_build_object(),
+      'proof', jsonb_build_object('state', 'accepted'),
+      'verification', jsonb_build_object('state', 'accepted'),
+      'notification_channels', jsonb_build_array(),
+      'notification_policy', jsonb_build_object('nudge_allowed', false),
+      'links', jsonb_build_object('vaccination', '/vaccination')
+    ) AS detail
+  FROM members m
+  JOIN protocol_versions pv
+    ON pv.tenant_id = m.tenant_id AND pv.protocol_version_id = m.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  JOIN protocol_rules pr
+    ON pr.tenant_id = m.tenant_id AND pr.rule_id = m.rule_id
+  LEFT JOIN locations park
+    ON park.tenant_id = m.tenant_id AND park.location_id = m.park_id
+  LEFT JOIN locations shed
+    ON shed.tenant_id = m.tenant_id AND shed.location_id = m.shed_id
+  GROUP BY m.park_id, park.location_code, m.shed_id, shed.name,
+    pd.protocol_id, pv.protocol_version_id, pr.rule_id, pd.name, pr.dose_code
+)
+SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
+       window_end, timezone, timezone_source, park_id, park_code, shed_id, shed_name,
+       cohort_id, cohort_name, target_type, target_count, protocol_id,
+       protocol_version_id, rule_id, vaccine_name, dose_code, source_backed,
+       source_label, assignee_label, executor_role, verifier_label, reminder_state,
+       primary_notification_channel, escalation_state, system, cross_cutting, links, detail
+FROM grouped
+WHERE ($4::bool OR park_id = ANY($5::text[]) OR shed_id = ANY($6::text[]))`
 
 const calendarHistorySQL = `
 WITH history AS (

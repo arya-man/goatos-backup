@@ -45,6 +45,7 @@ const (
 const (
 	EventVaccinationDoseDue                = "vaccination_dose_due"
 	EventVaccinationDrive                  = "vaccination_drive"
+	EventVaccinationHistory                = "vaccination_history"
 	EventVaccinationCampaign               = "vaccination_campaign"
 	EventVaccinationBoosterDue             = "vaccination_booster_due"
 	EventVaccinationDeferReview            = "vaccination_defer_review"
@@ -102,7 +103,18 @@ type CalendarEventListResponse struct {
 	Source       string               `json:"source"`
 	Presentation CalendarPresentation `json:"presentation"`
 	Items        []CalendarEvent      `json:"items"`
+	DateMarkers  []CalendarDateMarker `json:"date_markers"`
 	NextCursor   *string              `json:"next_cursor"`
+}
+
+// CalendarDateMarker is the bounded month-grid summary. It keeps the calendar
+// complete at herd scale without paging every goat-level event into the UI.
+type CalendarDateMarker struct {
+	Date           string `json:"date"`
+	EventCount     int    `json:"event_count"`
+	CompletedCount int    `json:"completed_count"`
+	OpenCount      int    `json:"open_count"`
+	DriveCount     int    `json:"drive_count"`
 }
 
 type CalendarPresentation struct {
@@ -272,16 +284,17 @@ type CalendarActionResponse struct {
 }
 
 type Query struct {
-	TenantID string
-	ParkID   *string
-	ShedID   *string
-	OwnerKey string
-	Status   *string
-	DateFrom time.Time
-	DateTo   time.Time
-	Cursor   *CalendarCursor
-	Limit    int
-	Scope    ScopeFilter
+	TenantID           string
+	ParkID             *string
+	ShedID             *string
+	OwnerKey           string
+	Status             *string
+	DateFrom           time.Time
+	DateTo             time.Time
+	Cursor             *CalendarCursor
+	Limit              int
+	IncludeDateMarkers bool
+	Scope              ScopeFilter
 }
 
 type EventQuery struct {
