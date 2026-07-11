@@ -192,6 +192,10 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 	requestHash := manualCampaignRequestHash(req, asOfProvided)
 	run, result, err := h.campaign.GenerateManualCampaignForVersionWithHTTPRun(r.Context(), tenantID(r), req.ProtocolVersionID, req.CampaignID, asOf, idempotencyKey, requestHash)
 	if err != nil {
+		if errors.Is(err, domain.ErrFutureManualCampaign) {
+			h.badRequest(w, r, "future_as_of", "as_of cannot be in the future for a mutating manual campaign")
+			return
+		}
 		if errors.Is(err, vaccports.ErrIdempotencyConflict) {
 			h.conflict(w, r, "idempotency_conflict", "Idempotency-Key was reused with a different manual campaign request")
 			return

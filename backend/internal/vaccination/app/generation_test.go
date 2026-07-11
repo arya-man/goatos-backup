@@ -184,6 +184,46 @@ func TestManualCampaignHTTPRunReplaysByIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestManualCampaignHandlerRejectsFutureOccurredAtBeforeStartingRun(t *testing.T) {
+	ctx := context.Background()
+	proto := &generationProtoFake{}
+	goats := &generationGoatFake{}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	runs := &generationRunRecorderFake{byKey: map[string]domain.GenerationRun{}}
+	gen := NewGenerationService(proto, goats, obl).WithGenerationRunRecorder(runs)
+	handler := NewManualCampaignHandler(gen)
+
+	err := handler.HandleEvent(ctx, eventbus.Event{
+		Type:       EventManualCampaignRequested,
+		TenantID:   "tenant-1",
+		OccurredAt: time.Now().Add(48 * time.Hour),
+		Payload:    []byte(`{"protocol_version_id":"version-1","campaign_id":"catchup"}`),
+	})
+	if !errors.Is(err, domain.ErrFutureManualCampaign) {
+		t.Fatalf("err=%v, want future manual campaign error", err)
+	}
+	if len(runs.startInputs) != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("future event started work: startInputs=%#v inserted=%#v", runs.startInputs, obl.inserted)
+	}
+}
+
+func TestManualCampaignHTTPRunRejectsFutureAsOfBeforeStartingRun(t *testing.T) {
+	ctx := context.Background()
+	proto := &generationProtoFake{}
+	goats := &generationGoatFake{}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	runs := &generationRunRecorderFake{byKey: map[string]domain.GenerationRun{}}
+	gen := NewGenerationService(proto, goats, obl).WithGenerationRunRecorder(runs)
+
+	_, _, err := gen.GenerateManualCampaignForVersionWithHTTPRun(ctx, "tenant-1", "version-1", "catchup", time.Now().Add(48*time.Hour), "manual-key-future", "hash-future")
+	if !errors.Is(err, domain.ErrFutureManualCampaign) {
+		t.Fatalf("err=%v, want future manual campaign error", err)
+	}
+	if len(runs.startInputs) != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("future HTTP run started work: startInputs=%#v inserted=%#v", runs.startInputs, obl.inserted)
+	}
+}
+
 func TestManualCampaignHTTPRunPoisonGoatFailsRunAfterCountingFailure(t *testing.T) {
 	ctx := context.Background()
 	proto := &generationProtoFake{rules: []protodomain.Rule{

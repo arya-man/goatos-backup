@@ -10,6 +10,7 @@ var (
 	ErrStockGateBlocked      = errors.New("vaccination: stock gate blocked")
 	ErrStockMovementConflict = errors.New("vaccination: stock movement idempotency conflict")
 	ErrCompletionNotOpen     = errors.New("vaccination: completion obligation is not open")
+	ErrFutureManualCampaign  = errors.New("vaccination: manual campaign as_of is in the future")
 )
 
 // NewCompletion is the input to record one administered dose against an obligation.
