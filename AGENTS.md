@@ -350,6 +350,20 @@ Do:
   was it followed, where did it break, who owns next action, what is due by
   when, what evidence proves it, and what alert/escalation fires when a deadline
   is crossed.
+- Treat every Android READ screen as offline-first with Room as the single source
+  of truth for the UI (hard rule — Claude, Codex, and humans). Backend owns the data;
+  on-device, the screen renders from Room and the network refresh runs in the
+  background (stale-while-revalidate): persist every backend read response to Room,
+  have the repository expose a `Flow` the ViewModel observes, refresh-on-open to upsert
+  Room (which re-emits), and show a sync/stale indicator — NEVER a blank/loading wall
+  on re-entry when cached data exists. A network-only read repository (a thin
+  `api.xxx()` pass-through with no Room persistence) is BANNED for screen-facing reads;
+  new read models ship with their Room entity + DAO + Flow from day one. Do not call
+  the app "offline-first" until the read models are cached (bootstrap + the write
+  outbox already are; Calendar/Control-Tower/Execution/Adherence/Insights must be
+  migrated). Full rule + the NetworkBoundResource pattern:
+  `docs/decisions/android-offline-first.md`; refs the Android data-layer + offline-first
+  architecture guides.
 - Treat idempotency as a mandatory write-path contract for every mutating API,
   worker, importer, webhook, state transition, outbox producer/consumer, server
   action, and UI-triggered write. Each write path must accept or derive a stable
