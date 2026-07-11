@@ -26,6 +26,8 @@ jobs:
           make ai-doctor
           bash tools/agent-hooks/check-boundaries.sh
           bash tools/agent-hooks/check-contract-drift.sh
+      - name: Scale anti-pattern guard
+        run: make scale-guard
       - name: Large file guard
         run: |
           found="$(

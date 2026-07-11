@@ -21,9 +21,9 @@ tables.
      DATABASE_URL="$DATABASE_URL" go run ./cmd/process-integrity-latency-check \
        -iterations 10 \
        -warmup 1 \
-       -max-action-center-p95 1200ms \
-       -max-control-tower-p95 1200ms \
-       -max-protocol-adherence-p95 1200ms \
+       -max-action-center-p95 1000ms \
+       -max-control-tower-p95 1000ms \
+       -max-protocol-adherence-p95 1000ms \
        -max-count-p95 250ms
      ```
    - Purpose: measures repository/service latency directly against Postgres.
@@ -52,6 +52,8 @@ tables.
        --concurrency 1
      ```
    - Purpose: measures p50/p90/p95/p99 for real HTTP endpoints.
+   - Gate floor: hot-path p90 and p95 must stay under `1000ms`; counts stay
+     tighter (`p90=250ms`, `p95=500ms`).
    - Vaccination-slice coverage includes Control Tower, Action Center,
      Protocol Adherence, Calendar, plus the live vaccinationexecution CTE reads:
      `/vaccination/execution`, `/vaccination/operations`, and

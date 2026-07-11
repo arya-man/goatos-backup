@@ -3,13 +3,13 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const defaultEndpoints = [
-  { name: "control_tower", method: "GET", path: "/control-tower/vaccination?category=vaccination", p95_ms: 1200, p99_ms: 2500 },
-  { name: "action_center", method: "GET", path: "/vaccination/action-center?category=vaccination&limit=50", p95_ms: 1200, p99_ms: 2500 },
-  { name: "protocol_adherence", method: "GET", path: "/vaccination/adherence?category=vaccination&limit=50", p95_ms: 1200, p99_ms: 2500 },
-  { name: "calendar_vaccination", method: "GET", path: "/calendar/vaccination/events?limit=50", p95_ms: 1200, p99_ms: 2500 },
-  { name: "vaccination_execution", method: "GET", path: "/vaccination/execution?limit=50", p95_ms: 1200, p99_ms: 2500 },
-  { name: "vaccination_operations", method: "GET", path: "/vaccination/operations?limit=50", p95_ms: 1200, p99_ms: 2500 },
-  { name: "vaccination_shed_summary", method: "GET", path: "/vaccination/sheds?limit=50", p95_ms: 1200, p99_ms: 2500 },
+  { name: "control_tower", method: "GET", path: "/control-tower/vaccination?category=vaccination", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
+  { name: "action_center", method: "GET", path: "/vaccination/action-center?category=vaccination&limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
+  { name: "protocol_adherence", method: "GET", path: "/vaccination/adherence?category=vaccination&limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
+  { name: "calendar_vaccination", method: "GET", path: "/calendar/vaccination/events?limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
+  { name: "vaccination_execution", method: "GET", path: "/vaccination/execution?limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
+  { name: "vaccination_operations", method: "GET", path: "/vaccination/operations?limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
+  { name: "vaccination_shed_summary", method: "GET", path: "/vaccination/sheds?limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
 ];
 
 const args = parseArgs(process.argv.slice(2));
@@ -89,10 +89,11 @@ async function runEndpoint(endpoint) {
     p95_ms: percentile(samples, 95),
     p99_ms: percentile(samples, 99),
     max_ms: percentile(samples, 100),
-    p95_threshold_ms: Number(endpoint.p95_ms ?? 1200),
+    p90_threshold_ms: Number(endpoint.p90_ms ?? 1000),
+    p95_threshold_ms: Number(endpoint.p95_ms ?? 1000),
     p99_threshold_ms: Number(endpoint.p99_ms ?? 2500),
   };
-  result.passed = result.failures === 0 && result.p95_ms <= result.p95_threshold_ms && result.p99_ms <= result.p99_threshold_ms;
+  result.passed = result.failures === 0 && result.p90_ms <= result.p90_threshold_ms && result.p95_ms <= result.p95_threshold_ms && result.p99_ms <= result.p99_threshold_ms;
   return result;
 }
 

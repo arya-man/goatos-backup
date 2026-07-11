@@ -299,6 +299,39 @@ Do:
   path, or UI data flow, check the scale shape: tenant/run scoped, indexed,
   chunked or paginated, bounded in memory/goroutines, idempotent for retries,
   and covered by query-plan validation when it touches large tables.
+- NEVER write these scale anti-patterns in `backend/internal/**` (request paths,
+  app services, worker repo methods). They are fast at ~1k rows and fatal at 1M.
+  Each is machine-blocked by `make scale-guard` (CI `guardrails` job); named,
+  explained, and given its approved alternative in
+  `docs/decisions/scale-anti-patterns.md`. The rule underneath all of them:
+  **compute-on-write (projections), never compute-on-read.**
+  - **compute-on-read / god-CTE** — reconstructing derived state from raw
+    event/instance tables per request via a big multi-CTE query. Use a
+    materialized read model updated on write; the request does an indexed lookup.
+  - **full (stop-the-world) MV refresh** — `DELETE FROM <projection> WHERE
+    tenant_id` + full reinsert. Use incremental (outbox-delta) maintenance, or a
+    version-swap; never whole-tenant delete+reinsert.
+  - **N+1 query** — a `.Query/.QueryRow/.Exec/.SendBatch` inside a `for`/`range`.
+    Use one set-based statement (`UNNEST`, `INSERT ... SELECT`, `CASE` bulk update).
+  - **OFFSET pagination** — `LIMIT/OFFSET` with a growable offset. Use keyset/cursor.
+  - **non-SARGable predicate** — `lower(col) LIKE '%x%'` / function on an indexed
+    column. Use a normalized column, expression index, or `pg_trgm` GIN.
+  - **polling full scan / unbounded worker tick** — copy the keyset-chunked
+    `FOR UPDATE SKIP LOCKED` claim used by the obligation/idempotency sweepers.
+  - **non-terminating pagination loop** — a read-page loop with no cursor advance.
+    Guarantee forward progress (monotonic cursor or exclude processed rows).
+  If a case is genuinely bounded, annotate it `// scale-guard:ignore: <reason>`;
+  do not disable the guard. A green latency gate today means "correct shape", not
+  "1M-proven" (gates run at ~1k rows — see the ADR's runtime-gap section).
+- E2E publishing rule for Codex, Claude, and every feature agent: any generated
+  E2E result for a feature, fix, audit, or scale gate must be committed inside
+  this repo and surfaced on the GitHub Pages CI report site before handoff. Do
+  not leave E2E reports only in `/tmp`, scratchpads, attachments, local
+  `.codex/` or `.claude/` folders, or chat. Reuse an existing Pages report
+  category when it fits; otherwise add a category to
+  `.github/workflows/pages.yml` and document it in
+  `docs/runbooks/github-workflows.md`. State clearly when a report is local E2E
+  only and not staging or production certification.
 - Treat the operational kernel as the golden rule for every feature. Read
   `context/architecture/operational-kernel.md` before designing or implementing
   triggers, obligations, reminders, notifications, deadlines, escalations,

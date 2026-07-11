@@ -41,6 +41,7 @@ Do tests pass?
 Can admin-web lint, typecheck, pass mock-fidelity guards, build, and keep the bearer token out of the client bundle?
 Are API contracts still valid?
 Did we accidentally commit a huge/private file?
+Did we accidentally add a new million-animal scale anti-pattern?
 Can a brand-new Postgres database be built from our migrations?
 Can sqlc regenerate typed DB code from that schema?
 Do important SQL queries still use the expected indexes?
@@ -198,6 +199,43 @@ admin-web direct data-source access instead of Goat OS backend API access
 admin-web rendered/user-facing code using old or internal product labels instead
 of Mesha visible branding
 ```
+
+### Step 4b: Scale Anti-Pattern Guard
+
+Command:
+
+```text
+make scale-guard
+```
+
+Purpose:
+
+```text
+Statically block the million-animal scale anti-patterns catalogued in
+docs/decisions/scale-anti-patterns.md from re-entering main. Runs the
+zero-dependency Go analyzer in tools/scale-guard over backend/internal/**.
+```
+
+It blocks these query shapes on request/worker paths: compute-on-read god-CTEs,
+N+1 loops (a DB call inside a for/range), OFFSET pagination, whole-tenant
+projection delete+reinsert, and non-sargable `lower(col) LIKE '%..%'`. It fails
+only on NEW offenders — pre-existing debt is tracked in
+`tools/scale-guard/baseline.txt` (a burn-down list; delete a line when the code
+is fixed). A genuinely-bounded case may carry an inline
+`// scale-guard:ignore: <reason>`.
+
+If this fails, it usually means:
+
+```text
+a new read/list/dashboard query reconstructs state per request instead of
+reading a projection; a DB call was placed inside a loop; OFFSET was used
+instead of keyset pagination; a projection was rebuilt with a whole-tenant
+delete+reinsert; or an unindexable lower()+LIKE search was added.
+```
+
+Note: this guard checks query SHAPE, not runtime cost. It does not replace the
+plan/latency gates (Step 8), which today run at ~1k rows — a green run means
+"correct shape", not "1M-proven".
 
 ### Step 5: Large File Guard
 
@@ -505,7 +543,7 @@ adding, if genuinely missing) a design-system token.
 
 ## pages.yml
 
-Publishes three CI-generated reports to GitHub Pages as one combined site:
+Publishes CI and E2E report categories to GitHub Pages as one combined site:
 
 ```text
 /screenshot-gallery/  every mobile screen, rendered fresh via Paparazzi
@@ -513,20 +551,24 @@ Publishes three CI-generated reports to GitHub Pages as one combined site:
 /e2e-report/          vaccination kernel-story E2E report (19 stories: A-N
                       core kernel behavior plus event-driven-chain + edge-
                       dataset stories O/P/Q/R/T)
+/e2e-hrms-report/     HRMS roster/RBAC kernel-story E2E report
+/scale-audit-e2e-report/
+                      scale-audit fix E2E report plus the staging-certification
+                      boundary for the 1M gate
 ```
 
 Runs on:
 
 ```text
 push to main touching apps/goatos-android/**, backend/tests/e2e/**,
-  backend/internal/**, the nav-graph/gallery generator scripts, or this
-  workflow file
+  backend/internal/**, scale/perf/E2E report inputs, the nav-graph/gallery
+  generator scripts, AGENTS.md, or this workflow file
 a daily cron at 03:00 UTC (the screenshot gallery and E2E report are meant
   to stay fresh even with no code change that day)
 workflow_dispatch (manual run from the Actions tab)
 ```
 
-Four jobs:
+Five report jobs plus one publisher:
 
 ```text
 mobile-screenshots  installs a JDK + the Android SDK platform for
@@ -539,14 +581,19 @@ nav-graph            tools/android/generate-nav-graph.py — no Android build
 e2e-report           starts Docker-based ephemeral Postgres (same pgtest
                      harness the backend integration tests use) via
                      go test ./backend/tests/e2e/... -run TestKernelStor -v
-publish              downloads all three artifacts, assembles _site/ with a
-                     linking index page, and deploys via
-                     actions/deploy-pages
+e2e-hrms-report      runs the HRMS roster/RBAC E2E harness and publishes the
+                     generated story report
+scale-audit-e2e-report
+                     renders context/execution/scale-audit-fix-e2e-report-
+                     2026-07-11.md into a Pages category so local E2E proof
+                     and certification boundaries are visible in GitHub
+publish              downloads all report artifacts, assembles _site/ with a
+                     linking index page, and deploys via actions/deploy-pages
 ```
 
 **One-time repo setting required**: Settings -> Pages -> Build and
 deployment -> Source must be set to **"GitHub Actions"** (not "Deploy from a
-branch"). Until that is set, the three report-building jobs still succeed and
+branch"). Until that is set, the report-building jobs still succeed and
 their artifacts are downloadable from the run's Summary/Artifacts panel, but
 the `publish` job fails at the `actions/deploy-pages` step because there is no
 configured Pages environment to deploy into.
@@ -557,7 +604,9 @@ the runner — check the uploaded `screenshot-gallery` artifact and the
 `recordPaparazziDevDebug` log first. A failure in `e2e-report` means one of
 the kernel-story assertions broke — read the failing `story.Assert`
 message, it is written to explain the business expectation in plain English,
-not just the SQL/Go that checked it.
+not just the SQL/Go that checked it. A failure in `scale-audit-e2e-report`
+usually means the committed markdown report moved or was deleted without
+updating the Pages category.
 
 ## stg-pr-gate.yml
 
@@ -668,3 +717,8 @@ When adding or changing workflows:
 ```
 
 Do not let workflow behavior live only in `.github/workflows/*.yml`.
+
+When any feature, fix, audit, or scale gate generates an E2E result, commit the
+report and wire it into this Pages report site before handoff. Reuse an
+existing category when it fits; otherwise add a new Pages category and document
+whether the result is local-only, staging certification, or production proof.

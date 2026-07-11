@@ -1,12 +1,14 @@
 name: pages
 
-# Publishes three CI-generated reports to GitHub Pages, combined under one site:
+# Publishes CI-generated reports to GitHub Pages, combined under one site:
 #   /screenshot-gallery/  Paparazzi golden images for every mobile screen (:app ScreenshotTest)
 #                         plus every role's nav chrome + landing (:app RoleChromeScreenshotTest)
 #   /nav-graph/           Compose Navigation routes + navigate() edges (Mermaid)
 #   /e2e-report/          Backend vaccination kernel-story E2E report (story count grows over time —
 #                         read from the generated report itself, never hardcoded here; see e2e-report
 #                         job's "Compute story count from the generated report" step)
+#   /e2e-hrms-report/     HRMS roster/RBAC kernel-story E2E report
+#   /scale-audit-e2e-report/  Scale-audit fix E2E report and certification boundary
 # Runs on every push to main that touches the relevant paths, AND on a daily cron so the
 # screenshot gallery and E2E report stay fresh even without a code change (data/timing drift,
 # flaky-test detection). See docs/runbooks/github-workflows.md.
@@ -23,8 +25,13 @@ on:
       - "apps/goatos-android/**"
       - "backend/tests/e2e/**"
       - "backend/internal/**"
+      - "context/execution/scale-audit-fix-e2e-report-2026-07-11.md"
+      - "docs/runbooks/performance-gates.md"
+      - "tools/perf/**"
+      - "tools/scale-guard/**"
       - "tools/android/generate-nav-graph.py"
       - "tools/android/build-screenshot-gallery.py"
+      - "AGENTS.md"
       - ".github/workflows/pages.yml"
   schedule:
     # 03:00 UTC daily — screenshot gallery + E2E report (the two jobs the task calls out for a
@@ -167,8 +174,65 @@ jobs:
           path: backend/tests/e2e-hrms/report/index.html
           retention-days: 14
 
+  scale-audit-e2e-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Render the scale-audit E2E report page
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import html
+
+          src = Path("context/execution/scale-audit-fix-e2e-report-2026-07-11.md")
+          text = src.read_text(encoding="utf-8")
+          dest = Path("pages/scale-audit-e2e-report")
+          dest.mkdir(parents=True, exist_ok=True)
+          dest.joinpath("index.html").write_text(f"""<!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Scale Audit Fix E2E Report</title>
+            <style>
+              :root {{ color-scheme: dark light; }}
+              body {{
+                margin: 0;
+                padding: 36px;
+                background: #0a0f0c;
+                color: #e7ede9;
+                font: 15px/1.58 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              }}
+              main {{ max-width: 960px; margin: 0 auto; }}
+              pre {{
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                background: #0d1310;
+                border: 1px solid #232b26;
+                border-radius: 12px;
+                padding: 22px;
+                overflow-x: auto;
+              }}
+            </style>
+          </head>
+          <body><main><pre>{html.escape(text)}</pre></main></body>
+          </html>
+          """, encoding="utf-8")
+          PY
+      - name: Job summary
+        run: |
+          {
+            echo "### Scale audit fix E2E report"
+            echo "Published local/backend E2E proof and explicit staging-certification boundary."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scale-audit-e2e-report
+          path: pages/scale-audit-e2e-report/index.html
+          retention-days: 14
+
   publish:
-    needs: [mobile-screenshots, nav-graph, e2e-report, e2e-hrms-report]
+    needs: [mobile-screenshots, nav-graph, e2e-report, e2e-hrms-report, scale-audit-e2e-report]
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -176,7 +240,7 @@ jobs:
     steps:
       - name: Assemble the combined site
         run: |
-          mkdir -p _site/screenshot-gallery _site/nav-graph _site/e2e-report _site/e2e-hrms-report
+          mkdir -p _site/screenshot-gallery _site/nav-graph _site/e2e-report _site/e2e-hrms-report _site/scale-audit-e2e-report
           cat > _site/index.html <<'HTML'
           <!doctype html><html lang="en"><head><meta charset="utf-8">
           <title>Goat OS Android + vaccination kernel — CI reports</title>
@@ -201,6 +265,8 @@ jobs:
             <p>${{ needs.e2e-report.outputs.passed }}/${{ needs.e2e-report.outputs.total }} stories: core kernel behavior plus event-driven-chain + edge-dataset coverage.</p></a>
           <a class="card" href="e2e-hrms-report/index.html"><b>HRMS roster/RBAC kernel-story E2E report</b>
             <p>${{ needs.e2e-hrms-report.outputs.passed }}/${{ needs.e2e-hrms-report.outputs.total }} stories: position → leave → effective-backup coverage → temporary execute capability → vaccination-owner resolution / escalation.</p></a>
+          <a class="card" href="scale-audit-e2e-report/index.html"><b>Scale audit fix E2E report</b>
+            <p>Verified local/backend proof for the scale-audit fixes, with the staging 1M certification boundary called out explicitly.</p></a>
           </body></html>
           HTML
       - uses: actions/download-artifact@v4
@@ -219,6 +285,10 @@ jobs:
         with:
           name: e2e-hrms-report
           path: _site/e2e-hrms-report
+      - uses: actions/download-artifact@v4
+        with:
+          name: scale-audit-e2e-report
+          path: _site/scale-audit-e2e-report
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1,0 +1,54 @@
+# scale-guard baseline — pre-existing scale anti-pattern debt.
+#
+# Format: "<rule> <relpath>:<line>"  (a trailing "# comment" is ignored).
+# The guard blocks any offender NOT listed here; entries here are known debt
+# that predates the guard. BURN THIS DOWN — every removed line is a real
+# scale fix. When you fix one, delete its line (the guard warns on stale
+# entries). Add a new line ONLY to accept genuinely-bounded existing code,
+# never to wave through new work — new code must be fixed or carry an inline
+# `// scale-guard:ignore: <reason>`.
+#
+# Severity tags reference the 2026-07-11 million-animal audit
+# (docs/decisions/scale-anti-patterns.md).
+
+# --- god-cte: compute-on-read / big CTE on a read or projector path ---
+god-cte backend/internal/processintegrity/adapters/postgres/repository.go:720   # P0: canonical fallback base CTE; kill via incremental projector
+god-cte backend/internal/vaccinationexecution/adapters/postgres/repository.go:1155  # P1: live-recompute shed/exec reads; needs a read model
+god-cte backend/internal/calendar/adapters/postgres/repository.go:1777          # projector backfill (RefreshVaccinationProjection), paged+upsert; acceptable off request path
+
+# --- offset-pagination: use keyset/cursor instead ---
+offset-pagination backend/internal/processintegrity/adapters/postgres/repository.go:1503  # P1: maxOffset=50000 deep-scan; move to keyset
+offset-pagination backend/internal/processintegrity/adapters/postgres/repository.go:1632  # P1: same read path
+offset-pagination backend/internal/vaccinationexecution/adapters/postgres/repository.go:1155  # bounded: OFFSET is over sheds (~hundreds), not animals
+offset-pagination backend/internal/locations/adapters/postgres/repository.go:34  # P1: /admin/locations deep offset; move to keyset
+
+# --- non-sargable-like: lower(col) LIKE '%..%' is unindexable ---
+non-sargable-like backend/internal/locations/adapters/postgres/repository.go:34  # P1: alias search; add expr/trigram index or normalized column
+non-sargable-like backend/internal/workforce/adapters/postgres/repository.go:36  # P2: roster search; same fix
+
+# --- n-plus-one: DB call inside a loop; batch or hoist ---
+# procurement intake/arrival (P2): real N+1 but bounded by load size (dozens-hundreds/load), not 1M-per-call
+n-plus-one backend/internal/procurement/adapters/postgres/repository.go:1128
+n-plus-one backend/internal/procurement/adapters/postgres/repository.go:1155
+n-plus-one backend/internal/procurement/adapters/postgres/repository.go:1306
+n-plus-one backend/internal/procurement/adapters/postgres/repository.go:1337
+n-plus-one backend/internal/procurement/adapters/postgres/repository.go:1378
+n-plus-one backend/internal/procurement/adapters/postgres/repository.go:1388
+# outbox relay (P2): per-message Mark* updates; batch with a CASE / multi-row update
+n-plus-one backend/internal/outbox/adapters/postgres/repository.go:133
+n-plus-one backend/internal/outbox/adapters/postgres/repository.go:147
+n-plus-one backend/internal/outbox/adapters/postgres/repository.go:544
+# obligation sweep write loops (P1/P2): batch idempotency+event inserts via UNNEST
+n-plus-one backend/internal/obligation/adapters/postgres/repository.go:1235
+n-plus-one backend/internal/obligation/adapters/postgres/repository.go:2399
+n-plus-one backend/internal/obligation/adapters/postgres/repository.go:2581
+# processintegrity projector write loop (tracked with the P0 projector rework)
+n-plus-one backend/internal/processintegrity/adapters/postgres/repository.go:402
+# sop / inventory / locations-write / bulkstatus: bounded chunk/write loops, verify-then-burn
+n-plus-one backend/internal/sop/adapters/postgres/repository.go:1012
+n-plus-one backend/internal/sop/adapters/postgres/repository.go:1074
+n-plus-one backend/internal/inventory/adapters/postgres/repository.go:854
+n-plus-one backend/internal/inventory/adapters/postgres/repository.go:874
+n-plus-one backend/internal/locations/adapters/postgres/write.go:1298
+n-plus-one backend/internal/locations/adapters/postgres/write.go:1314
+n-plus-one backend/internal/bulkstatus/adapters/postgres/repository.go:187
