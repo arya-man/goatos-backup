@@ -16,6 +16,7 @@ func TestKernelStoryP_DeathCancelsScheduledDeferredMissed(t *testing.T) {
 		"SM-1 generates a four-rule course. SM-5 completes one dose, MarkMissed closes one window, a "+
 			"production health-change recheck defers one rule, and SM-4 batches open work. A production sold "+
 			"exit then cancels every remaining open status while preserving accepted history.")
+	story.Certify("backend kernel + SOP proof/submission/review + durable exit consumer")
 	defer story.Finish()
 
 	const (
@@ -46,7 +47,7 @@ func TestKernelStoryP_DeathCancelsScheduledDeferredMissed(t *testing.T) {
 	story.Step("Create completed and missed states through their owners",
 		"SM-5 accepts the completed rule; MarkMissed advances only the oldest window.")
 	completedID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND rule_id=$3`, fxTenant, goatDies, ruleIDs["completed"])
-	fx.AcceptObligation(completedID, goatDies, "story-p-completed", dob.AddDate(0, 0, 11))
+	completeVaccinationObligationThroughSOP(t, fx, versionID, completedID, shedID, []string{goatDies}, dob.AddDate(0, 0, 11), "story-p-completed")
 	sweeper := oblapp.NewSweeperService(fx.Obl, nil, nil)
 	marked, err := sweeper.MarkMissed(fx.Ctx, fxTenant, dob.AddDate(0, 0, 20))
 	story.Assert("only the oldest generated rule became missed", err == nil && marked == 2, "marked=%d err=%v", marked, err)

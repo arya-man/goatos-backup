@@ -19,6 +19,7 @@ func TestKernelStoryAG_RecurringCalendarLifecycle(t *testing.T) {
 			"history, SM-7 schedules exactly one next cycle from the actual administration date, Calendar "+
 			"shows both the past completed marker and future work, and a production culled exit removes only "+
 			"the future obligation while retaining history.")
+	story.Certify("backend kernel + SOP proof/submission/review + outbox relay/consumer")
 	defer story.Finish()
 
 	const (
@@ -30,7 +31,7 @@ func TestKernelStoryAG_RecurringCalendarLifecycle(t *testing.T) {
 	entry := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	dob := entry.AddDate(-2, 0, 0)
 	fx.SeedProcurementGoat(goatID, shedID, entry, "A1", dob)
-	_, ruleIDs := fx.PublishScheduleProtocol("vaccination.e2e.story_ag", "{}", []RuleSpec{{
+	versionID, ruleIDs := fx.PublishScheduleProtocol("vaccination.e2e.story_ag", "{}", []RuleSpec{{
 		DoseCode: "adult_yearly", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 0,
 		DueWindowDays: 30, Repeat: "yearly", CatchUp: "next_cycle",
 	}})
@@ -45,7 +46,7 @@ func TestKernelStoryAG_RecurringCalendarLifecycle(t *testing.T) {
 	story.Step("Accept it late and dispatch vaccination.completed",
 		"SM-5 accepts the dose on January 10. SM-7 must anchor the yearly recurrence to that actual administration date, not the January 1 due date.")
 	administeredAt := time.Date(2025, 1, 10, 9, 30, 0, 0, time.UTC)
-	fx.AcceptObligation(currentID, goatID, "story-ag-current", administeredAt)
+	completeVaccinationObligationThroughSOP(t, fx, versionID, currentID, shedID, []string{goatID}, administeredAt, "story-ag-current")
 	fx.DispatchVaccinationCompleted(currentID)
 	nextID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND rule_id=$3 AND status='scheduled'`,
 		fxTenant, goatID, ruleIDs["adult_yearly"])

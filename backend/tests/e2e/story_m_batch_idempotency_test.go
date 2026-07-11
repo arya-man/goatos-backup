@@ -6,17 +6,17 @@ import (
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
-	"github.com/vgoats/goatos/backend/internal/vaccination/ports"
+	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
+	sopports "github.com/vgoats/goatos/backend/internal/sop/ports"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
-	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 // TestKernelStoryM_BatchIdempotency drives the drive-submission idempotency contract through the
-// REAL RecordCompletion write path, covering the three cases the platform mandates for every write
-// (see AGENTS.md idempotency rule): first call applies; exact replay (same key + same payload)
-// returns the original result with no duplicate side effect; same key + DIFFERENT payload is rejected
-// (ErrIdempotencyConflict) with no new side effect. A re-submitted drive must never double-complete
-// a goat or double-consume a dose.
+// real SOP submission entrypoint and VaccinationSubmissionBridge. It covers the three cases the
+// platform mandates for every write: first submit materializes one recorded dose; exact replay
+// returns the original submission with no duplicate completion; same key + DIFFERENT payload is
+// rejected with no new side effect. A retried mobile drive submit must never double-record a goat.
 func TestKernelStoryM_BatchIdempotency(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-m", "Batch idempotency: re-submit a drive, no duplicate completions",
@@ -59,51 +59,74 @@ func TestKernelStoryM_BatchIdempotency(t *testing.T) {
 	if _, err := gen.GenerateForVersion(fx.Ctx, fxTenant, versionID, now); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	sweeper := oblapp.NewSweeperService(fx.Obl, nil, fx.Inv)
-	if _, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, oblapp.SweepConfig{VaccineItemID: itemID, DosesPerGoat: 1}, now.AddDate(0, 0, 1)); err != nil {
+	sopHarness := newVaccinationSOPHarness(t, fx)
+	sweeper := oblapp.NewSweeperService(fx.Obl, storyAATaskCreator{service: sopHarness.Service, actorID: operatorID}, fx.Inv)
+	if _, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, oblapp.SweepConfig{
+		SOPVersionID: canonicalVaccinationSOPVersion, VaccineItemID: itemID, DosesPerGoat: 1,
+	}, now.AddDate(0, 0, 1)); err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
 	batchID := fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2`, fxTenant, versionID)
 	oblID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goatID)
+	taskID := fx.scanText(`SELECT sop_task_id::text FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
+	story.Assert("sweeper created the executable SOP task", taskID != "", "task_id=%q", taskID)
 
-	svc := vaccapp.NewService(fx.Vacc)
-	doses := int32(1)
-	batch, lot := batchID, lotID
 	const key = "e2e-story-m-submit"
-	submit := func(routeSite string) (string, bool, error) {
-		return svc.RecordCompletion(fx.Ctx, vaccdomain.NewCompletion{
-			TenantID: fxTenant, ObligationID: oblID, GoatID: goatID, BatchID: &batch,
-			VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: routeSite, AdministeredAt: now,
-			ColdChainVerified: true, Status: "recorded", IdempotencyKey: key,
-		})
+	body, err := sopHarness.submissionRequest(taskID, shedID, operatorID, lotID, []string{goatID}, now, key, "subcutaneous")
+	if err != nil {
+		t.Fatalf("create canonical proof/submission body: %v", err)
+	}
+	submit := func(request sopdomain.SubmitTaskRequest, trace string) (*sopdomain.SubmissionResponse, error) {
+		return sopHarness.Service.SubmitTask(fx.Ctx, sopports.SubmitTaskCommand{
+			TenantID: fxTenant, ActorID: operatorID, TaskID: taskID, Body: request,
+		}, trace)
 	}
 
 	story.Step("First submit applies",
-		"The drive's dose submission records one completion under its idempotency key.")
-	cid1, applied1, err := submit("SC")
-	story.Assert("first submit recorded a completion", err == nil && applied1 && cid1 != "", "cid=%q applied=%v err=%v", cid1, applied1, err)
-	afterFirst := fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND idempotency_key=$2`, fxTenant, key)
+		"Canonical proof and the per-goat form enter through SOP SubmitTask; the submission bridge records exactly one completion.")
+	first, err := submit(body, "story-m-first")
+	firstSubmissionID := ""
+	if first != nil {
+		firstSubmissionID = first.Submission.SubmissionID
+	}
+	story.Assert("first SOP submit recorded a completion", err == nil && firstSubmissionID != "", "submission_id=%q err=%v", firstSubmissionID, err)
+	if err != nil {
+		return
+	}
+	afterFirst := fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2::uuid`, fxTenant, oblID)
 	story.Assert("exactly one completion row exists", afterFirst == 1, "rows=%d", afterFirst)
 
 	story.Step("Exact replay is a durable no-op",
-		"Re-submitting the identical payload under the same key must NOT create a second completion "+
-			"(applied=false), and the completion count stays at one.")
-	_, applied2, err := submit("SC")
+		"Re-submitting the identical SOP payload under the same key returns the original submission and does not re-run a completed fanout.")
+	replay, err := submit(body, "story-m-replay")
 	story.Assert("exact replay ran without error", err == nil, "err=%v", err)
-	story.Assert("exact replay did not apply a new side effect (applied=false)", !applied2, "applied=%v", applied2)
-	afterReplay := fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND idempotency_key=$2`, fxTenant, key)
+	replaySubmissionID := ""
+	if replay != nil {
+		replaySubmissionID = replay.Submission.SubmissionID
+	}
+	story.Assert("exact replay returned the original SOP submission", replaySubmissionID == firstSubmissionID,
+		"first=%q replay=%q", firstSubmissionID, replaySubmissionID)
+	afterReplay := fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2::uuid`, fxTenant, oblID)
 	story.Assert("still exactly one completion row after exact replay", afterReplay == 1, "rows=%d", afterReplay)
+	story.Assert("still exactly one durable SOP submission", fx.countRows(`SELECT count(*) FROM sop_submissions WHERE tenant_id=$1 AND task_id=$2::uuid AND idempotency_key=$3`, fxTenant, taskID, key) == 1,
+		"task=%s key=%s", taskID, key)
 
 	story.Step("Same key, DIFFERENT payload is rejected",
-		"Reusing the key with a changed payload (route site SC → IM) must be rejected with an "+
-			"idempotency conflict and must NOT create or mutate any completion.")
-	_, applied3, err := submit("IM")
-	story.Assert("same-key-different-payload is rejected with ErrIdempotencyConflict", errors.Is(err, ports.ErrIdempotencyConflict), "err=%v", err)
-	story.Assert("the rejected replay applied nothing", !applied3, "applied=%v", applied3)
-	afterConflict := fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND idempotency_key=$2`, fxTenant, key)
+		"Reusing the SOP key with a changed route/site must be rejected with an idempotency conflict and must not mutate the bridged completion.")
+	conflictBody := body
+	conflictBody.Answers = make(map[string]any, len(body.Answers))
+	for field, value := range body.Answers {
+		conflictBody.Answers[field] = value
+	}
+	conflictBody.Answers["route_site"] = "intramuscular"
+	_, err = submit(conflictBody, "story-m-conflict")
+	var conflictErr *sopapp.Error
+	story.Assert("same-key-different-payload is rejected with the SOP idempotency_conflict contract",
+		errors.As(err, &conflictErr) && conflictErr.Code == "idempotency_conflict", "err=%v", err)
+	afterConflict := fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2::uuid`, fxTenant, oblID)
 	story.Assert("still exactly one completion row after the rejected replay", afterConflict == 1, "rows=%d", afterConflict)
-	routeStored := fx.scanText(`SELECT route_site FROM vaccination_completions WHERE tenant_id=$1 AND idempotency_key=$2`, fxTenant, key)
-	story.Assert("the original payload is intact (route unchanged by the rejected replay)", routeStored == "SC", "route_site=%q", routeStored)
+	routeStored := fx.scanText(`SELECT route_site FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2::uuid`, fxTenant, oblID)
+	story.Assert("the original payload is intact (route unchanged by the rejected replay)", routeStored == "subcutaneous", "route_site=%q", routeStored)
 
 	story.Step("No duplicate obligation completion downstream",
 		"The obligation still maps to exactly one recorded completion -- the drive cannot double-complete "+

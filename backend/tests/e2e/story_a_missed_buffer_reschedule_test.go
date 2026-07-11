@@ -19,6 +19,7 @@ func TestKernelStoryA_MissedBufferReschedule(t *testing.T) {
 			"due window with nobody acting on it, so the obligation sweeper must mark it missed. G-Buffer's "+
 			"dose is overdue but still inside its window, so the sweeper must leave it alone. The missed "+
 			"dose is then put back on the calendar.")
+	story.Certify("backend kernel + production reschedule HTTP handler")
 	defer story.Finish()
 
 	fx.PublishSimpleProtocol("vaccination.e2e.story_a", 21, 14, nil)
@@ -79,12 +80,13 @@ func TestKernelStoryA_MissedBufferReschedule(t *testing.T) {
 	newDue := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
 	newWindowEnd := newDue.AddDate(0, 0, 14)
 	story.Step("Rework the missed dose onto a new calendar date",
-		"Call the real RescheduleObligationByID repository method on G-Missed's obligation. It must "+
+		"Call the production app reschedule HTTP endpoint on G-Missed's obligation. It must "+
 			"create a brand-new obligation for 2026-07-15 and leave the missed row untouched, never "+
 			"mutate the missed row back to scheduled.")
-	newObl, isReplay, err := fx.Obl.RescheduleObligationByID(fx.Ctx, fxTenant, missedObl, "e2e-story-a-reschedule", newDue, newDue, &newWindowEnd, newDue.AddDate(0, 0, -14))
-	story.Assert("RescheduleObligationByID ran without error", err == nil, "err=%v", err)
-	story.Assert("this was a first-time apply, not an idempotent replay", !isReplay, "isReplay=%v", isReplay)
+	rescheduled, statusCode, detail := rescheduleObligationViaHTTP(t, fx, missedObl, "e2e-story-a-reschedule", newDue, newDue, &newWindowEnd)
+	newObl := rescheduled.ObligationID
+	story.Assert("reschedule endpoint returned 200", statusCode == 200, "%s", detail)
+	story.Assert("this was a first-time apply, not an idempotent replay", !rescheduled.IdempotentReplay, "isReplay=%v", rescheduled.IdempotentReplay)
 	story.Assert("a brand-new obligation was created rather than the missed row being reused",
 		newObl != "" && newObl != missedObl, "newObl=%q missedObl=%q", newObl, missedObl)
 
@@ -122,9 +124,10 @@ func TestKernelStoryA_MissedBufferReschedule(t *testing.T) {
 		"Calling RescheduleObligationByID again with the exact same idempotency key and payload must "+
 			"replay the original result (same new obligation id) without creating a second obligation "+
 			"or touching the missed row again.")
-	replayObl, replayIsReplay, err := fx.Obl.RescheduleObligationByID(fx.Ctx, fxTenant, missedObl, "e2e-story-a-reschedule", newDue, newDue, &newWindowEnd, newDue.AddDate(0, 0, -14))
-	story.Assert("replay ran without error", err == nil, "err=%v", err)
-	story.Assert("replay is flagged as a replay, not a fresh apply", replayIsReplay, "isReplay=%v", replayIsReplay)
+	replay, replayStatus, replayDetail := rescheduleObligationViaHTTP(t, fx, missedObl, "e2e-story-a-reschedule", newDue, newDue, &newWindowEnd)
+	replayObl := replay.ObligationID
+	story.Assert("replay endpoint returned 200", replayStatus == 200, "%s", replayDetail)
+	story.Assert("replay is flagged as a replay, not a fresh apply", replay.IdempotentReplay, "isReplay=%v", replay.IdempotentReplay)
 	story.Assert("replay returns the same new obligation id, not a second new one", replayObl == newObl,
 		"replayObl=%q newObl=%q", replayObl, newObl)
 

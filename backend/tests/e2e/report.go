@@ -14,9 +14,12 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
+
+const undeclaredCertification = "UNDECLARED"
 
 // AssertionResult is one pass/fail check inside a story step.
 type AssertionResult struct {
@@ -36,11 +39,12 @@ type StepResult struct {
 // StoryResult is one full kernel story (one Go test function), with a plain-English narrative and
 // its ordered steps.
 type StoryResult struct {
-	ID        string
-	Title     string
-	Narrative string
-	Steps     []StepResult
-	Pass      bool
+	ID            string
+	Title         string
+	Narrative     string
+	Certification string
+	Steps         []StepResult
+	Pass          bool
 }
 
 // Report collects every kernel story recorded in this package (each test runs against its own
@@ -68,7 +72,16 @@ func (r *Report) snapshot() reportView {
 		GeneratedAt: r.GeneratedAt.Format("2006-01-02 15:04:05 MST"),
 		Stories:     append([]StoryResult(nil), r.Stories...),
 	}
-	for _, s := range view.Stories {
+	for i := range view.Stories {
+		s := &view.Stories[i]
+		s.Certification = strings.TrimSpace(s.Certification)
+		if s.Certification == "" {
+			s.Certification = undeclaredCertification
+			s.Pass = false
+			view.CertificationMissingCount++
+		} else {
+			view.CertificationCount++
+		}
 		if s.Pass {
 			view.PassCount++
 		} else {
@@ -84,6 +97,22 @@ func (r *Report) snapshot() reportView {
 		}
 	}
 	return view
+}
+
+// CertificationCompleteness reports whether every raw StoryResult declared the highest surface it
+// actually entered. TestMain uses it as a package-level gate after rendering, so a missing surface
+// remains visible as UNDECLARED in the HTML but still fails the E2E run.
+func (r *Report) CertificationCompleteness() (declared, missing int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, story := range r.Stories {
+		if strings.TrimSpace(story.Certification) == "" {
+			missing++
+		} else {
+			declared++
+		}
+	}
+	return declared, missing
 }
 
 // WriteHTML renders every story collected so far into a single, self-contained HTML file at path
@@ -118,12 +147,14 @@ func stripTrailingWhitespace(b []byte) []byte {
 }
 
 type reportView struct {
-	GeneratedAt        string
-	Stories            []StoryResult
-	PassCount          int
-	FailCount          int
-	AssertionCount     int
-	AssertionFailCount int
+	GeneratedAt               string
+	Stories                   []StoryResult
+	PassCount                 int
+	FailCount                 int
+	AssertionCount            int
+	AssertionFailCount        int
+	CertificationCount        int
+	CertificationMissingCount int
 }
 
 var reportTemplate = template.Must(template.New("report").Parse(`<!doctype html>
@@ -200,6 +231,8 @@ var reportTemplate = template.Must(template.New("report").Parse(`<!doctype html>
   }
   .badge.pass { background: #1f8a4c; }
   .badge.fail { background: #c62828; }
+  .certification { display: inline-block; margin: 0 0 10px; padding: 3px 9px; border-radius: 999px; background: #e7eef8; color: #254f87; font-size: 0.76rem; font-weight: 650; }
+  @media (prefers-color-scheme: dark) { .certification { background: #1c304a; color: #a8c7f0; } }
   .story .narrative { color: #444d54; margin-top: 0; }
   @media (prefers-color-scheme: dark) { .story .narrative { color: #b7c0c7; } }
   .step { margin-top: 18px; padding-top: 14px; border-top: 1px dashed #dfe4e8; }
@@ -231,6 +264,7 @@ var reportTemplate = template.Must(template.New("report").Parse(`<!doctype html>
     <div class="tile fail"><span class="n">{{.FailCount}}</span>stories failed</div>
     <div class="tile"><span class="n">{{.AssertionCount}}</span>assertions checked</div>
     <div class="tile {{if gt .AssertionFailCount 0}}fail{{else}}pass{{end}}"><span class="n">{{.AssertionFailCount}}</span>assertions failed</div>
+    <div class="tile {{if gt .CertificationMissingCount 0}}fail{{else}}pass{{end}}"><span class="n">{{.CertificationCount}}/{{len .Stories}}</span>certification surfaces declared</div>
   </div>
 
   <section class="boundary">
@@ -249,11 +283,14 @@ var reportTemplate = template.Must(template.New("report").Parse(`<!doctype html>
     <p><strong>Out of scope:</strong> a story certifies HTTP/browser behavior only when it explicitly
       invokes that route or browser. Otherwise it certifies the backend operational kernel against
       ephemeral migrated Postgres, not staging or production infrastructure.</p>
+    <p><strong>Certification completeness:</strong> every rendered story must declare a non-empty
+      certified surface. Missing declarations render as <code>UNDECLARED</code> and fail the E2E run.</p>
   </section>
 
   {{range .Stories}}
   <section class="story {{if .Pass}}pass{{else}}fail{{end}}">
     <h2>{{.Title}} <span class="badge {{if .Pass}}pass{{else}}fail{{end}}">{{if .Pass}}PASS{{else}}FAIL{{end}}</span></h2>
+    <div class="certification">Certified surface: {{.Certification}}</div>
     <p class="narrative">{{.Narrative}}</p>
     {{range .Steps}}
     <div class="step">

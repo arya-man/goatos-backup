@@ -1,14 +1,28 @@
 package e2e
 
 import (
+	"bytes"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	pidomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
+	prooflocal "github.com/vgoats/goatos/backend/internal/proof/adapters/storage/local"
+	proofapp "github.com/vgoats/goatos/backend/internal/proof/app"
 	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
+	sophttp "github.com/vgoats/goatos/backend/internal/sop/adapters/http"
+	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
+	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
+	sopports "github.com/vgoats/goatos/backend/internal/sop/ports"
+	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
-	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccexecdomain "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
@@ -31,6 +45,7 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 			"the drive. Before the verifier reviews the proof, the control tower shows an open "+
 			"verification-pending alert (not process-intact). Once the verifier accepts both doses, the "+
 			"control tower shows the drive completed and the alert cleared.")
+	story.Certify("backend kernel + SOP proof/submission/review")
 	defer story.Finish()
 
 	const (
@@ -75,8 +90,10 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 	story.Assert("generation ran without error", err == nil, "err=%v", err)
 	story.Assert("both goats' doses were generated", genRes.Generated == 2, "generated=%d", genRes.Generated)
 
-	sweeper := oblapp.NewSweeperService(fx.Obl, nil, fx.Inv)
-	sweepCfg := oblapp.SweepConfig{VaccineItemID: itemID, DosesPerGoat: 1}
+	sopRepo := soppg.NewRepository(fx.Pool, 5*time.Second)
+	sopService := sopapp.NewService(sopRepo)
+	sweeper := oblapp.NewSweeperService(fx.Obl, storyAATaskCreator{service: sopService, actorID: operatorID}, fx.Inv)
+	sweepCfg := oblapp.SweepConfig{SOPVersionID: canonicalVaccinationSOPVersion, VaccineItemID: itemID, DosesPerGoat: 1}
 	dueBefore := now.AddDate(0, 0, 1)
 	sweepRes, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, sweepCfg, dueBefore)
 	story.Assert("sweep ran without error", err == nil, "err=%v", err)
@@ -84,54 +101,64 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 	story.Assert("both obligations were attached to that drive", sweepRes.Obligations == 2, "obligations=%d", sweepRes.Obligations)
 
 	batchID := fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2`, fxTenant, versionID)
+	taskID := fx.scanText(`SELECT sop_task_id::text FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
+	story.Assert("sweeper created the executable SOP task", taskID != "", "task_id=%q", taskID)
 
-	obl1 := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goat1)
-	obl2 := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goat2)
-
-	story.Step("Capture proof for the drive",
-		"Upload and complete a real proof artifact (video) scoped to the batch/shed via the standalone "+
-			"proof kernel component -- the same CreateProof/CompleteProof path SOP submissions use.")
-	shedSubject := shedID
-	proof, err := fx.Proof.CreateProof(fx.Ctx, proofdomain.CreateUpload{
-		TenantID: fxTenant, ProofType: "video", MimeType: "video/mp4",
-		ScopeType: "batch", ScopeID: batchID, SubjectType: "shed", SubjectID: &shedSubject,
-		Metadata: map[string]any{"story": "kernel-story-c"},
-	}, "local")
-	story.Assert("proof upload was created", err == nil, "err=%v", err)
-	completedProof, err := fx.Proof.CompleteProof(fx.Ctx, proofdomain.CompleteUpload{
-		TenantID: fxTenant, ProofID: proof.ProofID,
-		ContentHash: "sha256:kernel-story-c", MimeType: "video/mp4", SizeBytes: 4096,
-	})
-	story.Assert("proof upload was completed", err == nil, "err=%v", err)
-	story.Assert("the completed proof artifact is durable (upload_state=completed)", completedProof.UploadState == "completed", "upload_state=%q", completedProof.UploadState)
-
-	story.Step("Execute the drive: administer both doses",
-		"Record both goats' completions against the drive batch and the reserved vaccine lot (status "+
-			"'recorded' -- administered, awaiting verification).")
-	svc := vaccapp.NewService(fx.Vacc)
-	completion := vaccapp.NewCompletionService(svc, fx.Obl, fx.Inv)
-	doses := int32(1)
-	record := func(obligationID, goatID, key string) string {
-		t.Helper()
-		batch, lot := batchID, lotID
-		cid, applied, err := svc.RecordCompletion(fx.Ctx, vaccdomain.NewCompletion{
-			TenantID: fxTenant, ObligationID: obligationID, GoatID: goatID, BatchID: &batch,
-			VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: "SC", AdministeredAt: now,
-			ColdChainVerified: true, Status: "recorded", IdempotencyKey: key,
-		})
-		if err != nil || !applied || cid == "" {
-			t.Fatalf("record completion for %s: cid=%q applied=%v err=%v", goatID, cid, applied, err)
+	story.Step("Capture canonical proof and submit both administrations",
+		"The operator completes all three task-bound videos and the canonical SOP form. Submission fanout, not test code, records one completion per goat.")
+	proofService := proofapp.NewService(fx.Proof, prooflocal.New(t.TempDir(), "story-c-proof-secret"))
+	proofRefs := make([]sopdomain.ProofReference, 0, 3)
+	proofIDs := make(map[string]string, 3)
+	for _, subject := range []string{"shed", "vial_lot", "administration"} {
+		var subjectID *string
+		if subject == "shed" {
+			subjectID = storyAAPtrString(shedID)
 		}
-		return cid
+		target, proofErr := proofService.CreateUpload(fx.Ctx, proofdomain.CreateUpload{
+			TenantID: fxTenant, ProofType: "video", MimeType: "video/mp4", ScopeType: "task", ScopeID: taskID,
+			SubjectType: subject, SubjectID: subjectID, UploadedBy: storyAAPtrString(operatorID), Metadata: map[string]any{"story": "C"},
+		})
+		story.Assert("proof registered for "+subject, proofErr == nil, "err=%v", proofErr)
+		if proofErr != nil {
+			continue
+		}
+		_, proofErr = proofService.StoreUpload(fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString("story-c-"+subject))
+		story.Assert("proof binary completed for "+subject, proofErr == nil, "err=%v", proofErr)
+		proofRefs = append(proofRefs, sopdomain.ProofReference{ProofID: target.Proof.ProofID})
+		proofIDs[subject] = target.Proof.ProofID
 	}
-	cid1 := record(obl1, goat1, "e2e-story-c-g1")
-	cid2 := record(obl2, goat2, "e2e-story-c-g2")
+	vaccinationService := vaccapp.NewService(fx.Vacc)
+	verifyBus := eventbus.NewInProcessBus()
+	vaccapp.NewVerificationHandler(vaccapp.NewCompletionService(vaccinationService, fx.Obl, fx.Inv)).Register(verifyBus)
+	sopService.WithProofValidator(proofService).
+		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService)).
+		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, verifyBus))
+	submitted, err := sopService.SubmitTask(fx.Ctx, sopports.SubmitTaskCommand{
+		TenantID: fxTenant, ActorID: operatorID, TaskID: taskID,
+		Body: sopdomain.SubmitTaskRequest{SOPVersionID: canonicalVaccinationSOPVersion, IdempotencyKey: "story-c-submit", ProofRefs: proofRefs,
+			Answers: map[string]any{
+				"vaccine_lot_id": lotID, "cold_chain_verified": true, "goat_ids": []any{goat1, goat2},
+				"dose_ml_given": 1.0, "doses": 1, "route_site": "subcutaneous", "administered_at": now.Format(time.RFC3339),
+				"adverse_reaction": false, "shed_video": proofIDs["shed"], "vial_lot_video": proofIDs["vial_lot"],
+				"administration_video": proofIDs["administration"],
+			}},
+	}, "story-c-submit")
+	story.Assert("canonical two-goat submission succeeded", err == nil, "err=%v", err)
+	if err != nil {
+		return
+	}
+	story.Assert("submission fanout recorded both doses", fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND batch_id=$2::uuid AND status='recorded'`, fxTenant, batchID) == 2, "batch=%s", batchID)
 
 	story.Step("Control tower shows the open verification-pending alert",
 		"Before the verifier reviews anything, the process-integrity control tower must show this "+
 			"shed/rule row as verification_pending and NOT process-intact -- the real open gap a "+
 			"director would see on Control Tower.")
 	preAsOf := time.Now().UTC().Add(2 * time.Hour)
+	_, err = fx.PI.RecomputeProjection(fx.Ctx, pidomain.ProjectionRecomputeRequest{TenantID: fxTenant, AsOf: preAsOf})
+	story.Assert("production process-integrity projector refreshed the serving version", err == nil, "err=%v", err)
+	if err != nil {
+		return
+	}
 	preResult, err := fx.PI.ListRows(fx.Ctx, pidomain.Query{
 		TenantID: fxTenant, AsOf: preAsOf, DueBefore: now.AddDate(0, 0, 1), Limit: 10,
 	})
@@ -166,20 +193,42 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 		}
 	}
 
-	story.Step("Verifier accepts both doses",
-		"The verifier reviews and accepts both recorded completions -- consuming the reserved doses and "+
-			"completing both obligations.")
-	ar1, err := completion.AcceptExisting(fx.Ctx, vaccapp.AcceptExistingInput{TenantID: fxTenant, CompletionID: cid1})
-	story.Assert("accept goat 1's dose ran without error", err == nil, "err=%v", err)
-	story.Assert("goat 1's dose was accepted and its obligation completed", ar1.Applied && ar1.Completed, "applied=%v completed=%v", ar1.Applied, ar1.Completed)
-	ar2, err := completion.AcceptExisting(fx.Ctx, vaccapp.AcceptExistingInput{TenantID: fxTenant, CompletionID: cid2})
-	story.Assert("accept goat 2's dose ran without error", err == nil, "err=%v", err)
-	story.Assert("goat 2's dose was accepted and its obligation completed", ar2.Applied && ar2.Completed, "applied=%v completed=%v", ar2.Applied, ar2.Completed)
+	story.Step("Director accepts the task through the admin-web HTTP review route",
+		"One independent scoped web review reaches the SOP handler, passes route permissions and task-scope review grants, then fans out to both recorded completions, consuming reserved doses and completing both obligations.")
+	grantSource := storyAAGrantSource{byActor: map[string][]permissions.ActiveGrant{
+		verifierID: {{Role: permissions.RoleDirector, ScopeType: "tenant", ScopeID: fxTenant}},
+	}}
+	auth, authErr := httpmiddleware.NewAuthMiddleware(httpmiddleware.AuthConfig{
+		Mode: httpmiddleware.AuthModeDevHeaders, DevHeadersAllowed: true, Environment: "test",
+	}, nil, grantSource, nil)
+	if authErr != nil {
+		t.Fatalf("build auth middleware: %v", authErr)
+	}
+	mux := http.NewServeMux()
+	sophttp.Register(mux, sophttp.NewHandler(sopService))
+	app := auth.Wrap(mux)
+	body := fmt.Sprintf(`{"reason":"all proof accepted","row_version":%d}`, submitted.Task.RowVersion)
+	req := httptest.NewRequest(http.MethodPost, "/admin/tasks/"+taskID+"/verify", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(httpmiddleware.TenantContextHeader, fxTenant)
+	req.Header.Set("X-GoatOS-Actor-ID", verifierID)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	story.Assert("Director admin-web review route succeeded", rec.Code == http.StatusOK, "HTTP=%d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		return
+	}
+	story.Assert("task accepted and both obligations completed", fx.scanText(`SELECT state FROM sop_tasks WHERE tenant_id=$1 AND task_id=$2::uuid`, fxTenant, taskID) == "accepted" && fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND batch_id=$2::uuid AND status='completed'`, fxTenant, batchID) == 2, "task=%s", taskID)
 
 	story.Step("Control tower alert clears",
 		"After both doses are verified, the same control-tower row must now read as completed and "+
 			"process-intact -- the alert has cleared with no manual dismissal.")
 	postAsOf := time.Now().UTC().Add(2 * time.Hour)
+	_, err = fx.PI.RecomputeProjection(fx.Ctx, pidomain.ProjectionRecomputeRequest{TenantID: fxTenant, AsOf: postAsOf})
+	story.Assert("production projector refreshed the accepted completion state", err == nil, "err=%v", err)
+	if err != nil {
+		return
+	}
 	postResult, err := fx.PI.ListRows(fx.Ctx, pidomain.Query{
 		TenantID: fxTenant, AsOf: postAsOf, DueBefore: now.AddDate(0, 0, 1), Limit: 10, IncludeCompleted: true,
 	})

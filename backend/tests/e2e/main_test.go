@@ -24,6 +24,13 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(code)
 	}
+	declared, missing := globalReport.CertificationCompleteness()
+	if missing > 0 {
+		fmt.Fprintf(os.Stderr, "e2e: certification completeness failed: declared=%d missing=%d\n", declared, missing)
+		if code == 0 {
+			code = 1
+		}
+	}
 	if abs, err := filepath.Abs(reportRelPath); err == nil {
 		fmt.Printf("\nKernel story report: %s\n", abs)
 	} else {

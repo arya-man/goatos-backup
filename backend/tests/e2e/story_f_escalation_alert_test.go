@@ -24,6 +24,7 @@ func TestKernelStoryF_EscalationAlert(t *testing.T) {
 		"A goat's vaccination obligation sits in the buffer zone (due but window still open). "+
 			"The sweeper marks it missed when the window closes. Leadership is alerted and reworks "+
 			"the dose onto a new obligation with a new due date; the missed obligation stays missed.")
+	story.Certify("backend kernel + production reschedule HTTP handler")
 	defer story.Finish()
 
 	fx.PublishSimpleProtocol("vaccination.e2e.story_f", 21, 14, nil)
@@ -65,10 +66,10 @@ func TestKernelStoryF_EscalationAlert(t *testing.T) {
 	// Leadership reworks the missed obligation onto a new one.
 	newDue := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
 	newWindowEnd := newDue.AddDate(0, 0, 14)
-	newOblID, isReplay, err := fx.Obl.RescheduleObligationByID(fx.Ctx, fxTenant, oblID, "e2e-story-f-reschedule",
-		newDue, newDue, &newWindowEnd, newDue.AddDate(0, 0, -14))
-	story.Assert("RescheduleObligationByID succeeded", err == nil, "err=%v", err)
-	story.Assert("first-time reschedule (not idempotent replay)", !isReplay, "isReplay=%v", isReplay)
+	rescheduled, statusCode, detail := rescheduleObligationViaHTTP(t, fx, oblID, "e2e-story-f-reschedule", newDue, newDue, &newWindowEnd)
+	newOblID := rescheduled.ObligationID
+	story.Assert("production reschedule endpoint succeeded", statusCode == 200, "%s", detail)
+	story.Assert("first-time reschedule (not idempotent replay)", !rescheduled.IdempotentReplay, "isReplay=%v", rescheduled.IdempotentReplay)
 	story.Assert("a brand-new obligation was created rather than the missed row being reused",
 		newOblID != "" && newOblID != oblID, "newOblID=%q oblID=%q", newOblID, oblID)
 

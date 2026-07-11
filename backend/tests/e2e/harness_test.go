@@ -14,20 +14,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
+	domainconsumerpg "github.com/vgoats/goatos/backend/internal/domainconsumer/adapters/postgres"
+	domainconsumerapp "github.com/vgoats/goatos/backend/internal/domainconsumer/app"
+	domainconsumerwiring "github.com/vgoats/goatos/backend/internal/domainconsumer/wiring"
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
 	invpg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	invapp "github.com/vgoats/goatos/backend/internal/inventory/app"
 	oblpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
-	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
+	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
+	outboxports "github.com/vgoats/goatos/backend/internal/outbox/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	pipg "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/postgres"
 	proofpg "github.com/vgoats/goatos/backend/internal/proof/adapters/postgres"
@@ -35,7 +42,6 @@ import (
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	vaccpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
-	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
 )
 
@@ -66,6 +72,25 @@ type Fixture struct {
 	PI       *pipg.Repository
 	Inv      *invapp.Service
 	Calendar *calendarapp.Service
+	Consumer *domainconsumerapp.Service
+	Relay    *outboxapp.Service
+}
+
+// e2eConsumerPublisher is the in-memory transport seam between the production outbox relay and
+// production domain consumer. It preserves the real envelope, attributes, processed-event store,
+// retry result, and published-state transition while avoiding a network dependency on Pub/Sub.
+type e2eConsumerPublisher struct{ consumer *domainconsumerapp.Service }
+
+func (p e2eConsumerPublisher) Publish(ctx context.Context, message outboxports.PublishMessage) error {
+	return p.consumer.HandleMessage(ctx, domainconsumerapp.Message{
+		ID:   message.OutboxID,
+		Data: message.Payload,
+		Attributes: map[string]string{
+			"outbox_id": message.OutboxID, "event_id": message.EventID,
+			"event_type": message.EventType, "tenant_id": message.TenantID,
+		},
+		DeliveryAttempt: 1,
+	})
 }
 
 // NewFixture boots a fresh throwaway Postgres container (all committed migrations applied) and
@@ -78,40 +103,80 @@ func NewFixture(t *testing.T) *Fixture {
 	t.Cleanup(pool.Close)
 
 	const timeout = 5 * time.Second
+	proto := protopg.NewRepository(pool, timeout)
+	identity := identityapp.NewService(identitypg.NewRepository(pool, timeout))
+	obl := oblpg.NewRepository(pool, timeout)
+	vacc := vaccpg.NewRepository(pool, timeout)
+	bus := domainconsumerwiring.BuildDomainBus(pool, timeout, nil)
+	validator, err := outboxapp.NewEnvelopeValidator(filepath.Join("..", "..", "..", "contracts", "jsonschema", "domain-event-envelope.schema.json"))
+	if err != nil {
+		t.Fatalf("load production domain-event envelope schema: %v", err)
+	}
+	consumer := domainconsumerapp.NewService(bus, validator).
+		WithProcessedEventStore(domainconsumerpg.NewProcessedEventStore(pool, timeout))
+	relay := outboxapp.NewService(outboxpg.NewRepository(pool, timeout), e2eConsumerPublisher{consumer: consumer}, validator, outboxapp.Config{
+		Limit: 100, MaxAttempts: 5, BackoffBase: time.Millisecond, BackoffMax: time.Millisecond,
+	})
 	return &Fixture{
 		T:    t,
 		Ctx:  ctx,
 		Pool: pool,
 
-		Proto:    protopg.NewRepository(pool, timeout),
-		Identity: identityapp.NewService(identitypg.NewRepository(pool, timeout)),
-		Obl:      oblpg.NewRepository(pool, timeout),
-		Vacc:     vaccpg.NewRepository(pool, timeout),
+		Proto:    proto,
+		Identity: identity,
+		Obl:      obl,
+		Vacc:     vacc,
 		VaccExec: vaccexecpg.NewRepository(pool, timeout),
 		Proof:    proofpg.NewRepository(pool, timeout),
 		PI:       pipg.NewRepository(pool, timeout),
 		Inv:      invapp.NewService(invpg.NewRepository(pool, timeout)),
 		Calendar: calendarapp.NewService(calendarpg.NewRepository(pool, timeout)),
+		Consumer: consumer,
+		Relay:    relay,
 	}
 }
 
-// PublishGoatEvent dispatches an identity-domain event through the real vaccination generation
-// handlers. Passing a deterministic occurredAt is how stories fast-forward business time without
-// wall-clock sleeps.
+// PublishGoatEvent injects an allowed initial-input envelope through the production domain
+// consumer. Passing a deterministic occurredAt fast-forwards business time without wall-clock
+// sleeps; all derived obligations still come from the registered production handler.
 func (f *Fixture) PublishGoatEvent(eventType, goatID string, occurredAt time.Time) {
 	f.T.Helper()
-	gen := vaccapp.NewGenerationService(f.Proto, f.Vacc, f.Obl)
-	bus := eventbus.NewInProcessBus()
-	vaccapp.NewGoatCreatedHandler(gen).Register(bus)
-	vaccapp.NewGoatRecheckHandler(gen).Register(bus)
-	if err := bus.Publish(f.Ctx, eventbus.Event{
-		ID:         "e2e:" + eventType + ":" + goatID + ":" + occurredAt.UTC().Format(time.RFC3339Nano),
-		Type:       eventType,
-		TenantID:   fxTenant,
-		Key:        goatID,
-		OccurredAt: occurredAt,
+	eventID := uuid.NewString()
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":        eventID,
+		"event_type":      eventType,
+		"schema_version":  "1.0.0",
+		"schema_ref":      "contracts/jsonschema/domain-event-envelope.schema.json",
+		"aggregate_type":  "goat",
+		"aggregate_id":    goatID,
+		"occurred_at":     occurredAt.UTC().Format(time.RFC3339Nano),
+		"recorded_at":     occurredAt.UTC().Format(time.RFC3339Nano),
+		"producer":        map[string]any{"service": "goatos-e2e", "module": "fixture-input"},
+		"idempotency_key": "e2e-input:" + eventType + ":" + goatID + ":" + occurredAt.UTC().Format(time.RFC3339Nano),
+		"actor":           map[string]any{"actor_type": "system_rule", "actor_ref": "e2e-initial-input"},
+		"subject_type":    "goat",
+		"subject_id":      goatID,
+		"visibility_scope": map[string]any{
+			"tenant_id": fxTenant,
+		},
+		"evidence_refs": []map[string]string{},
+		"payload":       map[string]any{"goat_id": goatID},
+		"trace_id":      "trace-e2e-input-" + eventID,
+	})
+	if err != nil {
+		f.T.Fatalf("encode %s fixture envelope for %s: %v", eventType, goatID, err)
+	}
+	if err := f.Consumer.HandleMessage(f.Ctx, domainconsumerapp.Message{
+		ID:   "fixture-" + eventID,
+		Data: envelope,
+		Attributes: map[string]string{
+			"event_id":   eventID,
+			"event_type": eventType,
+			"tenant_id":  fxTenant,
+		},
+		DeliveryAttempt: 1,
 	}); err != nil {
-		f.T.Fatalf("publish %s for %s: %v", eventType, goatID, err)
+		f.T.Fatalf("consume %s fixture envelope for %s: %v", eventType, goatID, err)
 	}
 }
 
@@ -222,23 +287,65 @@ func (f *Fixture) ExitGoat(goatID, lifecycle, key string, occurredAt time.Time) 
 
 func (f *Fixture) dispatchIdentityOutbox(goatID, eventType string) {
 	f.T.Helper()
-	payload := f.scanText(`
-SELECT payload::text
+	f.dispatchOutbox(goatID, eventType)
+}
+
+// dispatchOutbox feeds a real durable outbox envelope through the production domain-consumer
+// service. This exercises schema validation, durable processed-event claim/dedupe/finalization,
+// and the same registered business handlers used by the deployed subscriber. Pub/Sub transport
+// ACK/NACK itself is covered at its adapter seam; a non-nil service error is what makes it NACK.
+func (f *Fixture) dispatchOutbox(aggregateID, eventType string) {
+	f.T.Helper()
+	var outboxID string
+	var payload []byte
+	var status string
+	if err := f.Pool.QueryRow(f.Ctx, `
+SELECT outbox_id::text, payload, status
 FROM outbox_messages
 WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type=$3
 ORDER BY created_at DESC
-LIMIT 1`, fxTenant, goatID, eventType)
-	event, err := eventbus.EventFromEnvelope([]byte(payload), eventbus.Event{})
-	if err != nil {
-		f.T.Fatalf("decode %s outbox for %s: %v", eventType, goatID, err)
+LIMIT 1`, fxTenant, aggregateID, eventType).Scan(&outboxID, &payload, &status); err != nil {
+		f.T.Fatalf("read %s outbox for %s: %v", eventType, aggregateID, err)
 	}
-	bus := eventbus.NewInProcessBus()
-	gen := vaccapp.NewGenerationService(f.Proto, f.Vacc, f.Obl)
-	vaccapp.NewGoatRecheckHandler(gen).Register(bus)
-	oblapp.NewGoatShiftedHandler(f.Obl).Register(bus)
-	oblapp.NewGoatExitedHandler(f.Obl).Register(bus)
-	if err := bus.Publish(f.Ctx, event); err != nil {
-		f.T.Fatalf("dispatch %s for %s: %v", eventType, goatID, err)
+	if status != "published" {
+		result, err := f.Relay.RunUntilDrained(f.Ctx)
+		if err != nil {
+			f.T.Fatalf("relay %s outbox for %s: %v", eventType, aggregateID, err)
+		}
+		status = f.scanText(`SELECT status FROM outbox_messages WHERE tenant_id=$1 AND outbox_id=$2`, fxTenant, outboxID)
+		if status != "published" {
+			f.T.Fatalf("relay %s outbox for %s: status=%s result=%+v", eventType, aggregateID, status, result)
+		}
+	}
+	// A first call exercises the durable consumer through the Relay path.
+	if status == "published" {
+		if err := f.Consumer.HandleMessage(f.Ctx, domainconsumerapp.Message{
+			ID:   outboxID,
+			Data: payload,
+			Attributes: map[string]string{
+				"outbox_id":  outboxID,
+				"event_type": eventType,
+				"tenant_id":  fxTenant,
+			},
+			DeliveryAttempt: 1,
+		}); err != nil {
+			f.T.Fatalf("consume %s outbox for %s: %v", eventType, aggregateID, err)
+		}
+	}
+
+	// A second call deliberately models Pub/Sub redelivery of the same envelope.
+	// The production consumer must skip it through its durable dedupe row.
+	if err := f.Consumer.HandleMessage(f.Ctx, domainconsumerapp.Message{
+		ID:   outboxID,
+		Data: payload,
+		Attributes: map[string]string{
+			"outbox_id":  outboxID,
+			"event_type": eventType,
+			"tenant_id":  fxTenant,
+		},
+		DeliveryAttempt: 1,
+	}); err != nil {
+		f.T.Fatalf("consume %s outbox for %s: %v", eventType, aggregateID, err)
 	}
 }
 
@@ -464,58 +571,11 @@ func (f *Fixture) PublishSimpleProtocol(code string, offsetDays, dueWindowDays i
 	return versionID, ruleID
 }
 
-// AcceptObligation records and accepts a generated vaccination obligation through SM-5. It uses
-// the same atomic completion repository path that production uses, including obligation completion
-// and the durable vaccination.completed outbox event.
-func (f *Fixture) AcceptObligation(obligationID, goatID, idempotencySuffix string, administered time.Time) vaccapp.AcceptResult {
-	f.T.Helper()
-	versionID, scopeType, scopeID, sequence, err := f.Obl.GetBoosterContext(f.Ctx, fxTenant, obligationID)
-	if err != nil {
-		f.T.Fatalf("read booster context for %s: %v", obligationID, err)
-	}
-	doses := int32(1)
-	completion := vaccapp.NewCompletionService(vaccapp.NewService(f.Vacc), f.Obl, nil)
-	result, err := completion.Accept(f.Ctx, vaccapp.AcceptInput{
-		Completion: vaccdomain.NewCompletion{
-			TenantID: fxTenant, ObligationID: obligationID, GoatID: goatID, Doses: &doses,
-			RouteSite: "subcutaneous", AdministeredAt: administered,
-			IdempotencyKey: "e2e-accept:" + idempotencySuffix,
-		},
-		ProtocolVersionID: versionID,
-		ScopeType:         scopeType,
-		ScopeID:           scopeID,
-		RuleSequence:      sequence,
-	})
-	if err != nil || !result.Applied || !result.Completed {
-		f.T.Fatalf("accept generated obligation %s: result=%+v err=%v", obligationID, result, err)
-	}
-	return result
-}
-
-// DispatchVaccinationCompleted publishes the durable outbox envelope through the real in-process
-// event bus and production vaccination.completed handler. The expected next obligation is therefore
-// created by SM-7, never by test SQL.
+// DispatchVaccinationCompleted consumes the durable envelope through the production consumer and
+// vaccination.completed handler. The next obligation is created by SM-7, never by test SQL.
 func (f *Fixture) DispatchVaccinationCompleted(obligationID string) {
 	f.T.Helper()
-	payload := f.scanText(`
-SELECT payload::text
-FROM outbox_messages
-WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='vaccination.completed'
-ORDER BY created_at DESC
-LIMIT 1`, fxTenant, obligationID)
-	event, err := eventbus.EventFromEnvelope([]byte(payload), eventbus.Event{})
-	if err != nil {
-		f.T.Fatalf("decode vaccination.completed outbox for %s: %v", obligationID, err)
-	}
-	booster := vaccapp.NewBoosterService(f.Proto, f.Obl).
-		WithGoatReader(f.Vacc).
-		WithCrossVaccineGapReader(f.Vacc)
-	handler := vaccapp.NewVaccinationCompletedHandler(vaccapp.NewService(f.Vacc), f.Obl, booster)
-	bus := eventbus.NewInProcessBus()
-	handler.Register(bus)
-	if err := bus.Publish(f.Ctx, event); err != nil {
-		f.T.Fatalf("publish vaccination.completed for %s: %v", obligationID, err)
-	}
+	f.dispatchOutbox(obligationID, "vaccination.completed")
 }
 
 // ---- Story narration / assertion recorder ----
@@ -532,7 +592,16 @@ type Story struct {
 // shared report.
 func NewStory(t *testing.T, id, title, narrative string) *Story {
 	t.Helper()
-	return &Story{t: t, result: StoryResult{ID: id, Title: title, Narrative: narrative, Pass: true}}
+	return &Story{t: t, result: StoryResult{ID: id, Title: title, Narrative: narrative, Certification: "backend kernel", Pass: true}}
+}
+
+// Certify declares the highest surface this story actually enters through. It is rendered in the
+// Pages report so a kernel story can never be mistaken for HTTP, browser, or Android proof.
+func (s *Story) Certify(surface string) {
+	s.t.Helper()
+	if surface != "" {
+		s.result.Certification = surface
+	}
 }
 
 // Step opens a new narrated step. Subsequent Assert calls attach to this step until the next Step.

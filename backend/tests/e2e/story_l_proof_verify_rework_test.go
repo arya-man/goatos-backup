@@ -1,13 +1,21 @@
 package e2e
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	prooflocal "github.com/vgoats/goatos/backend/internal/proof/adapters/storage/local"
+	proofapp "github.com/vgoats/goatos/backend/internal/proof/app"
 	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
+	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
+	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
+	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
+	sopports "github.com/vgoats/goatos/backend/internal/sop/ports"
+	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
-	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccexecdomain "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
@@ -28,6 +36,7 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 			"consumed, and coverage does not advance. The operator re-administers (rework, fresh key) and the "+
 			"verifier ACCEPTS the re-work. Only now does the obligation complete, stock is consumed, and "+
 			"coverage counts. Verified evidence, not mere administration, is what closes the loop.")
+	story.Certify("backend kernel + SOP proof/submission/rework/review")
 	defer story.Finish()
 
 	const (
@@ -66,49 +75,74 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 	story.Assert("generation ran without error", err == nil, "err=%v", err)
 	story.Assert("the goat's dose was generated", genRes.Generated == 1, "generated=%d", genRes.Generated)
 
-	sweeper := oblapp.NewSweeperService(fx.Obl, nil, fx.Inv)
-	sweepRes, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, oblapp.SweepConfig{VaccineItemID: itemID, DosesPerGoat: 1}, now.AddDate(0, 0, 1))
+	sopRepo := soppg.NewRepository(fx.Pool, 5*time.Second)
+	sopService := sopapp.NewService(sopRepo)
+	sweeper := oblapp.NewSweeperService(fx.Obl, storyAATaskCreator{service: sopService, actorID: operatorID}, fx.Inv)
+	sweepRes, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, oblapp.SweepConfig{SOPVersionID: canonicalVaccinationSOPVersion, VaccineItemID: itemID, DosesPerGoat: 1}, now.AddDate(0, 0, 1))
 	story.Assert("sweep ran without error", err == nil, "err=%v", err)
 	story.Assert("one shed drive was formed", sweepRes.Batches == 1, "batches=%d", sweepRes.Batches)
 
 	batchID := fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2`, fxTenant, versionID)
 	oblID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goatID)
+	taskID := fx.scanText(`SELECT sop_task_id::text FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
+	story.Assert("sweeper created executable SOP task", taskID != "", "task_id=%q", taskID)
 
-	story.Step("Capture the video proof for the drive",
-		"Upload and complete a real video proof artifact scoped to the batch/shed via the proof kernel -- "+
-			"the evidence the verifier will review.")
-	shedSubject := shedID
-	proof, err := fx.Proof.CreateProof(fx.Ctx, proofdomain.CreateUpload{
-		TenantID: fxTenant, ProofType: "video", MimeType: "video/mp4",
-		ScopeType: "batch", ScopeID: batchID, SubjectType: "shed", SubjectID: &shedSubject,
-		Metadata: map[string]any{"story": "kernel-story-l"},
-	}, "local")
-	story.Assert("proof upload created", err == nil, "err=%v", err)
-	completedProof, err := fx.Proof.CompleteProof(fx.Ctx, proofdomain.CompleteUpload{
-		TenantID: fxTenant, ProofID: proof.ProofID, ContentHash: "sha256:kernel-story-l", MimeType: "video/mp4", SizeBytes: 4096,
-	})
-	story.Assert("proof upload completed (durable evidence)", err == nil && completedProof.UploadState == "completed", "err=%v state=%q", err, completedProof.UploadState)
-
-	svc := vaccapp.NewService(fx.Vacc)
-	completion := vaccapp.NewCompletionService(svc, fx.Obl, fx.Inv)
-	doses := int32(1)
-	verifier := verifierID
-
-	story.Step("Operator administers the dose (recorded, awaiting verification)",
-		"Record the dose against the drive/lot with status 'recorded' -- administered, not yet verified.")
-	batch, lot := batchID, lotID
-	cid1, applied, err := svc.RecordCompletion(fx.Ctx, vaccdomain.NewCompletion{
-		TenantID: fxTenant, ObligationID: oblID, GoatID: goatID, BatchID: &batch,
-		VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: "SC", AdministeredAt: now,
-		ColdChainVerified: true, Status: "recorded", IdempotencyKey: "e2e-story-l-attempt-1",
-	})
-	story.Assert("first administration recorded", err == nil && applied && cid1 != "", "cid=%q applied=%v err=%v", cid1, applied, err)
+	story.Step("Operator uploads canonical proof and submits the first administration",
+		"All three task-bound proof videos and the exact goat/form payload pass through the SOP submission bridge, which records the completion.")
+	proofService := proofapp.NewService(fx.Proof, prooflocal.New(t.TempDir(), "story-l-proof-secret"))
+	proofRefs := make([]sopdomain.ProofReference, 0, 3)
+	proofIDs := make(map[string]string, 3)
+	for _, subject := range []string{"shed", "vial_lot", "administration"} {
+		var subjectID *string
+		if subject == "shed" {
+			subjectID = storyAAPtrString(shedID)
+		}
+		target, proofErr := proofService.CreateUpload(fx.Ctx, proofdomain.CreateUpload{
+			TenantID: fxTenant, ProofType: "video", MimeType: "video/mp4", ScopeType: "task", ScopeID: taskID,
+			SubjectType: subject, SubjectID: subjectID, UploadedBy: storyAAPtrString(operatorID), Metadata: map[string]any{"story": "L"},
+		})
+		story.Assert("proof registered for "+subject, proofErr == nil, "err=%v", proofErr)
+		if proofErr != nil {
+			continue
+		}
+		_, proofErr = proofService.StoreUpload(fx.Ctx, fxTenant, target.Proof.ProofID, "video/mp4", bytes.NewBufferString("story-l-"+subject))
+		story.Assert("proof binary completed for "+subject, proofErr == nil, "err=%v", proofErr)
+		proofRefs = append(proofRefs, sopdomain.ProofReference{ProofID: target.Proof.ProofID})
+		proofIDs[subject] = target.Proof.ProofID
+	}
+	vaccinationService := vaccapp.NewService(fx.Vacc)
+	verifyBus := eventbus.NewInProcessBus()
+	vaccapp.NewVerificationHandler(vaccapp.NewCompletionService(vaccinationService, fx.Obl, fx.Inv)).Register(verifyBus)
+	sopService.WithProofValidator(proofService).
+		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService)).
+		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, verifyBus))
+	answers := map[string]any{
+		"vaccine_lot_id": lotID, "cold_chain_verified": true, "goat_ids": []any{goatID},
+		"dose_ml_given": 1.0, "doses": 1, "route_site": "subcutaneous", "administered_at": now.Format(time.RFC3339),
+		"adverse_reaction": false, "shed_video": proofIDs["shed"], "vial_lot_video": proofIDs["vial_lot"],
+		"administration_video": proofIDs["administration"],
+	}
+	first, err := sopService.SubmitTask(fx.Ctx, sopports.SubmitTaskCommand{
+		TenantID: fxTenant, ActorID: operatorID, TaskID: taskID,
+		Body: sopdomain.SubmitTaskRequest{SOPVersionID: canonicalVaccinationSOPVersion, IdempotencyKey: "story-l-attempt-1", Answers: answers, ProofRefs: proofRefs},
+	}, "story-l-submit-1")
+	story.Assert("first SOP administration recorded", err == nil, "err=%v", err)
+	if err != nil {
+		return
+	}
 
 	story.Step("Verifier REJECTS the proof (rework): obligation stays open, no coverage, no consume",
 		"The verifier finds the video unclear and rejects the recorded dose. The obligation must stay open, "+
 			"the completed/coverage count must stay 0, and the reserved stock must not be consumed.")
-	rej, err := completion.RejectExisting(fx.Ctx, fxTenant, cid1, "video_unclear_rework", &verifier)
-	story.Assert("reject ran without error", err == nil && rej.Applied, "applied=%v err=%v", rej.Applied, err)
+	reworked, err := sopService.ReworkTask(fx.Ctx, sopports.ReviewTaskCommand{
+		TenantID: fxTenant, ActorID: verifierID, TaskID: taskID,
+		Body:         sopdomain.ReviewTaskRequest{Reason: "video_unclear_rework", RowVersion: first.Task.RowVersion},
+		ReviewGrants: []sopports.ReviewGrant{{ScopeType: "park", ScopeID: fxPark}},
+	}, "story-l-rework")
+	story.Assert("SOP rework review ran without error", err == nil && reworked != nil && reworked.Task.State == "rework_requested", "err=%v", err)
+	if err != nil {
+		return
+	}
 
 	statusAfterReject := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, oblID)
 	story.Assert("obligation is still open after rejection (not completed)", statusAfterReject != "completed", "status=%q", statusAfterReject)
@@ -122,22 +156,28 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 	story.Assert("execution rollup query ran (post-reject)", err == nil, "err=%v", err)
 	story.Assert("coverage has NOT advanced after rejection (0 completed)", execCompletedForBatch(execRowsPre, batchID) == 0, "completed=%d", execCompletedForBatch(execRowsPre, batchID))
 
-	story.Step("Operator reworks: re-administers with a fresh idempotency key",
+	story.Step("Operator reworks through the same SOP task with a fresh idempotency key",
 		"After rework the operator records the dose again under a new idempotency key -- a distinct "+
 			"administration attempt, not a replay of the rejected one.")
-	cid2, applied2, err := svc.RecordCompletion(fx.Ctx, vaccdomain.NewCompletion{
-		TenantID: fxTenant, ObligationID: oblID, GoatID: goatID, BatchID: &batch,
-		VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: "SC", AdministeredAt: now,
-		ColdChainVerified: true, Status: "recorded", IdempotencyKey: "e2e-story-l-attempt-2",
-	})
-	story.Assert("rework administration recorded under a new key", err == nil && applied2 && cid2 != "" && cid2 != cid1, "cid2=%q applied=%v err=%v", cid2, applied2, err)
+	second, err := sopService.SubmitTask(fx.Ctx, sopports.SubmitTaskCommand{
+		TenantID: fxTenant, ActorID: operatorID, TaskID: taskID,
+		Body: sopdomain.SubmitTaskRequest{SOPVersionID: canonicalVaccinationSOPVersion, IdempotencyKey: "story-l-attempt-2", Answers: answers, ProofRefs: proofRefs},
+	}, "story-l-submit-2")
+	story.Assert("rework administration recorded under a new key", err == nil, "err=%v", err)
+	if err != nil {
+		return
+	}
 
 	story.Step("Verifier ACCEPTS the rework: obligation completes, stock consumed, coverage counts",
 		"The verifier accepts the re-worked dose. Only now does the obligation complete, the reserved dose "+
 			"is consumed, and the execution rollup shows coverage advance to 1.")
-	acc, err := completion.AcceptExisting(fx.Ctx, vaccapp.AcceptExistingInput{TenantID: fxTenant, CompletionID: cid2})
-	story.Assert("accept ran without error", err == nil, "err=%v", err)
-	story.Assert("the reworked dose was accepted and the obligation completed", acc.Applied && acc.Completed, "applied=%v completed=%v", acc.Applied, acc.Completed)
+	accepted, err := sopService.VerifyTask(fx.Ctx, sopports.ReviewTaskCommand{
+		TenantID: fxTenant, ActorID: verifierID, TaskID: taskID,
+		Body:         sopdomain.ReviewTaskRequest{Reason: "corrected proof accepted", RowVersion: second.Task.RowVersion},
+		ReviewGrants: []sopports.ReviewGrant{{ScopeType: "park", ScopeID: fxPark}},
+	}, "story-l-accept")
+	story.Assert("SOP accept ran without error", err == nil, "err=%v", err)
+	story.Assert("the reworked dose was accepted and the obligation completed", err == nil && accepted.Task.State == "accepted", "state=%v", accepted)
 
 	statusFinal := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, oblID)
 	story.Assert("obligation is now completed", statusFinal == "completed", "status=%q", statusFinal)

@@ -15,6 +15,7 @@ func TestKernelStoryY_CrossVaccineGap(t *testing.T) {
 		"PPR is generated and accepted through the production kernel. A later Goat Pox protocol is "+
 			"published with a live-to-live 28-day policy. SM-1 reads canonical accepted history and moves "+
 			"Goat Pox later than its raw birth-age date.")
+	story.Certify("backend kernel + SOP proof/submission/review")
 	defer story.Finish()
 
 	const (
@@ -27,7 +28,7 @@ func TestKernelStoryY_CrossVaccineGap(t *testing.T) {
 	fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedID, DOB: &dob})
 
 	pprEligibility := `{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1"}}`
-	_, pprRules := fx.PublishScheduleProtocol("vaccination.e2e.story_y.ppr", "{}", []RuleSpec{{
+	pprVersionID, pprRules := fx.PublishScheduleProtocol("vaccination.e2e.story_y.ppr", "{}", []RuleSpec{{
 		DoseCode: "ppr", Sequence: 1, TriggerType: "birth_age", OffsetDays: 112,
 		DueWindowDays: 14, EligibilityJSON: pprEligibility,
 	}})
@@ -37,7 +38,7 @@ func TestKernelStoryY_CrossVaccineGap(t *testing.T) {
 	pprAt := time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC)
 	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, pprAt.AddDate(0, 0, -1))
 	pprID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND rule_id=$3`, fxTenant, goatID, pprRules["ppr"])
-	fx.AcceptObligation(pprID, goatID, "story-y-ppr", pprAt)
+	completeVaccinationObligationThroughSOP(t, fx, pprVersionID, pprID, shedID, []string{goatID}, pprAt, "story-y-ppr")
 
 	poxEligibility := `{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1"}}`
 	_, poxRules := fx.PublishScheduleProtocol("vaccination.e2e.story_y.pox",

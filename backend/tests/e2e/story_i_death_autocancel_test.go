@@ -17,9 +17,10 @@ func TestKernelStoryI_DeathAutoCancel(t *testing.T) {
 		"A goat is partway through a real generated vaccination course with one accepted historical dose "+
 			"and three future doses. The production identity death command emits goat.exited; SM-3 cancels "+
 			"only future work, preserves history, and is idempotent under event replay.")
+	story.Certify("backend kernel + SOP proof/submission/review + durable exit consumer")
 	defer story.Finish()
 
-	_, ruleIDs := fx.PublishScheduleProtocol("vaccination.e2e.story_i", "{}", []RuleSpec{
+	versionID, ruleIDs := fx.PublishScheduleProtocol("vaccination.e2e.story_i", "{}", []RuleSpec{
 		{DoseCode: "dose_1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 0, DueWindowDays: 14},
 		{DoseCode: "dose_2", Sequence: 2, TriggerType: "birth_age", OffsetDays: 56, DueWindowDays: 14},
 		{DoseCode: "dose_3", Sequence: 3, TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 14},
@@ -28,10 +29,14 @@ func TestKernelStoryI_DeathAutoCancel(t *testing.T) {
 
 	const goatDies = "e9000000-0000-4000-8000-000000000001"
 	const goatLives = "e9000000-0000-4000-8000-000000000002"
+	const shedID = "e9000000-0000-4000-8000-000000000003"
+	const stageID = "e9000000-0000-4000-8000-000000000004"
 	base := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	dob := base.AddDate(0, 0, -28)
-	fx.SeedGoat(GoatSpec{GoatID: goatDies, DOB: &dob})
-	fx.SeedGoat(GoatSpec{GoatID: goatLives, DOB: &dob})
+	livesDOB := base
+	fx.SeedShed(shedID, "E2E-I", stageID)
+	fx.SeedGoat(GoatSpec{GoatID: goatDies, ShedID: shedID, DOB: &dob})
+	fx.SeedGoat(GoatSpec{GoatID: goatLives, ShedID: shedID, DOB: &livesDOB})
 
 	story.Step("Generate both courses through goat.created",
 		"The real event consumer runs SM-1 for both goats. Each receives the four authored obligations; no obligation rows are inserted by the story.")
@@ -45,7 +50,7 @@ func TestKernelStoryI_DeathAutoCancel(t *testing.T) {
 		"The first dose is recorded and accepted through CompletionService. This creates durable completed history and vaccination.completed outbox state.")
 	completedObl := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND rule_id=$3`,
 		fxTenant, goatDies, ruleIDs["dose_1"])
-	fx.AcceptObligation(completedObl, goatDies, "story-i-completed", dob.AddDate(0, 0, 2))
+	completeVaccinationObligationThroughSOP(t, fx, versionID, completedObl, shedID, []string{goatDies}, dob.AddDate(0, 0, 2), "story-i-completed")
 	openBefore := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='scheduled'`, fxTenant, goatDies)
 	story.Assert("dying goat starts with three open generated doses", openBefore == 3, "open=%d", openBefore)
 
@@ -70,4 +75,15 @@ func TestKernelStoryI_DeathAutoCancel(t *testing.T) {
 	fx.dispatchIdentityOutbox(goatDies, oblapp.EventGoatExited)
 	canceledReplay := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='canceled'`, fxTenant, goatDies)
 	story.Assert("replay remains exactly three canceled doses", canceledReplay == 3, "canceled=%d", canceledReplay)
+	processedStatus := fx.scanText(`
+SELECT p.status
+FROM domain_event_processed_events p
+JOIN outbox_messages o
+  ON o.tenant_id = p.tenant_id
+ AND o.payload->>'event_id' = p.event_id
+WHERE o.tenant_id=$1 AND o.aggregate_id=$2 AND o.event_type=$3 AND p.subscription_id='direct'
+ORDER BY o.created_at DESC
+LIMIT 1`, fxTenant, goatDies, oblapp.EventGoatExited)
+	story.Assert("consumer replay is deduplicated by a durable processed-event record",
+		processedStatus == "processed", "processed_event_status=%q", processedStatus)
 }

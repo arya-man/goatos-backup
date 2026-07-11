@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
@@ -40,6 +41,7 @@ type ProcessedEvent struct {
 	SubscriptionID  string
 	MessageID       string
 	DeliveryAttempt int
+	ClaimToken      string
 	Now             time.Time
 }
 
@@ -107,7 +109,6 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 	}
 	var processed ProcessedEvent
 	claimed := false
-	dispatched := false
 	defer func() {
 		if p := recover(); p != nil {
 			if s.log != nil {
@@ -119,14 +120,16 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 					slog.String("outbox_id", message.Attributes["outbox_id"]),
 				)
 			}
-			if dispatched {
-				err = nil
-			} else {
-				err = fmt.Errorf("domain consumer panic")
-			}
+			err = fmt.Errorf("domain consumer panic")
 		}
-		if err != nil && claimed && !dispatched && s.processedStore != nil {
-			_ = s.processedStore.MarkFailed(ctx, processed, err.Error())
+		if err != nil && claimed && s.processedStore != nil {
+			// Pub/Sub may cancel the delivery context as the callback is ending. Failure evidence must
+			// still get a short independent chance to commit before we NACK the message.
+			failureCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			defer cancel()
+			if markErr := s.processedStore.MarkFailed(failureCtx, processed, err.Error()); markErr != nil {
+				err = errors.Join(err, fmt.Errorf("domain consumer failed-state finalization: %w", markErr))
+			}
 		}
 	}()
 	if s.validator == nil {
@@ -149,6 +152,7 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 		SubscriptionID:  firstNonEmpty(subscriptionID, "direct"),
 		MessageID:       message.ID,
 		DeliveryAttempt: message.DeliveryAttempt,
+		ClaimToken:      uuid.NewString(),
 		Now:             s.now().UTC(),
 	}
 	if s.processedStore != nil {
@@ -177,22 +181,8 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 	}
 	if err := s.bus.Publish(ctx, event); err != nil {
 		if eventbus.IsPermanentError(err) {
-			if claimed {
-				if markErr := s.processedStore.MarkProcessed(ctx, processed); markErr != nil {
-					if s.log != nil {
-						s.log.ErrorContext(ctx, "domain_event_permanent_failure_finalization_failed",
-							slog.String("message_id", message.ID),
-							slog.String("event_id", processed.EventID),
-							slog.String("event_type", event.Type),
-							slog.String("tenant_id", event.TenantID),
-							slog.Any("error", markErr),
-						)
-					}
-					return nil
-				}
-			}
 			if s.log != nil {
-				s.log.WarnContext(ctx, "domain_event_permanent_failure_acked",
+				s.log.WarnContext(ctx, "domain_event_permanent_failure_nacked_for_dlq",
 					slog.String("message_id", message.ID),
 					slog.String("event_id", processed.EventID),
 					slog.String("event_type", event.Type),
@@ -200,11 +190,10 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 					slog.Any("error", err),
 				)
 			}
-			return nil
+			return fmt.Errorf("domain event permanent dispatch %s/%s: %w", event.Type, event.Key, err)
 		}
 		return fmt.Errorf("domain event dispatch %s/%s: %w", event.Type, event.Key, err)
 	}
-	dispatched = true
 	if claimed {
 		if markErr := s.processedStore.MarkProcessed(ctx, processed); markErr != nil {
 			if s.log != nil {
@@ -216,7 +205,7 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 					slog.Any("error", markErr),
 				)
 			}
-			return nil
+			return fmt.Errorf("domain event processed finalization %s/%s: %w", event.Type, event.Key, markErr)
 		}
 	}
 	if s.log != nil {

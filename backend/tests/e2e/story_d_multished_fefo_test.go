@@ -5,8 +5,9 @@ import (
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
+	sopports "github.com/vgoats/goatos/backend/internal/sop/ports"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
-	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 // TestKernelStoryD_MultiShedFEFO proves real generation, park consolidation, stock reservation,
@@ -29,10 +30,14 @@ func TestKernelStoryD_MultiShedFEFO(t *testing.T) {
 		itemID   = "e1000000-0000-4000-8000-0000000000d5"
 		earlyLot = "e1000000-0000-4000-8000-0000000000d6"
 		lateLot  = "e1000000-0000-4000-8000-0000000000d7"
+		operator = "e1000000-0000-4000-8000-0000000000d8"
+		parkHead = "e1000000-0000-4000-8000-0000000000d9"
+		verifier = "e1000000-0000-4000-8000-0000000000df"
 	)
 
 	fx.SeedShed(shedAID, "E2E-D-A", stageA)
 	fx.SeedAdultShed(shedBID, "E2E-D-B", stageB, "K1-DB")
+	fx.SeedWorkforce(operator, parkHead, verifier, shedAID)
 	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_d", 21, 14, nil)
 	due := time.Now().UTC().AddDate(0, 0, 10)
 	dob := due.AddDate(0, 0, -21)
@@ -55,35 +60,44 @@ func TestKernelStoryD_MultiShedFEFO(t *testing.T) {
 	story.Step("Consolidate both singleton sheds and reserve FEFO stock",
 		"SM-4 forms one park-scoped drive and the inventory reservation path must choose the earliest-expiry eligible lot.")
 	cfg := defaultParkSweepConfig()
+	cfg.SOPVersionID = canonicalVaccinationSOPVersion
 	cfg.VaccineItemID = itemID
 	cfg.DosesPerGoat = 1
-	sweeper := oblapp.NewSweeperService(fx.Obl, nil, fx.Inv)
+	sopHarness := newVaccinationSOPHarness(t, fx)
+	sweeper := oblapp.NewSweeperService(fx.Obl, storyAATaskCreator{service: sopHarness.Service, actorID: operator}, fx.Inv)
 	result, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, cfg, due.AddDate(0, 0, 1))
 	story.Assert("sweep ran without error", err == nil, "err=%v", err)
 	story.Assert("both obligations joined one drive", result.Batches == 1 && result.Obligations == 2, "batches=%d obligations=%d", result.Batches, result.Obligations)
 	batchID := fx.scanText(`SELECT batch_id::text FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2`, fxTenant, versionID)
+	taskID := fx.scanText(`SELECT sop_task_id::text FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
+	story.Assert("park drive has an executable SOP task", taskID != "", "task_id=%q", taskID)
 	reservedLot := fx.scanText(`SELECT lot_id::text FROM inventory_stock_movements WHERE tenant_id=$1 AND batch_id=$2 AND movement_type='reserve' ORDER BY occurred_at, movement_id LIMIT 1`, fxTenant, batchID)
 	story.Assert("earliest-expiry lot was reserved", reservedLot == earlyLot, "reserved=%s want=%s", reservedLot, earlyLot)
 
-	story.Step("Record and accept both doses through SM-5",
-		"The real completion service accepts both drive records and consumes the reserved FEFO lot.")
-	service := vaccapp.NewService(fx.Vacc)
-	completion := vaccapp.NewCompletionService(service, fx.Obl, fx.Inv)
-	doses := int32(1)
-	for _, row := range []struct{ goatID, key string }{{goatA, "story-d-a"}, {goatB, "story-d-b"}} {
-		obligationID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, row.goatID)
-		batch, lot := batchID, reservedLot
-		completionID, applied, recordErr := service.RecordCompletion(fx.Ctx, vaccdomain.NewCompletion{
-			TenantID: fxTenant, ObligationID: obligationID, GoatID: row.goatID, BatchID: &batch,
-			VaccineInventoryLotID: &lot, Doses: &doses, RouteSite: "subcutaneous",
-			AdministeredAt: due, ColdChainVerified: true, Status: "recorded", IdempotencyKey: row.key,
-		})
-		if recordErr != nil || !applied {
-			t.Fatalf("record %s: applied=%v err=%v", row.goatID, applied, recordErr)
-		}
-		accepted, acceptErr := completion.AcceptExisting(fx.Ctx, vaccapp.AcceptExistingInput{TenantID: fxTenant, CompletionID: completionID})
-		story.Assert("accepted dose for "+row.goatID, acceptErr == nil && accepted.Completed, "result=%+v err=%v", accepted, acceptErr)
+	story.Step("Submit canonical proof and accept both doses through SOP review fanout",
+		"One per-goat park-drive submission enters through the vaccination SOP bridge. An independent scoped review invokes SM-5 for both records and consumes the reserved FEFO lot.")
+	submitted, err := sopHarness.submit(taskID, shedAID, operator, reservedLot, []string{goatA, goatB}, due, "story-d-submit", "subcutaneous")
+	story.Assert("canonical multi-goat SOP submission succeeded", err == nil, "err=%v", err)
+	if err != nil {
+		return
 	}
+	story.Assert("submission fanout recorded both doses", fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND batch_id=$2::uuid AND status='recorded'`, fxTenant, batchID) == 2,
+		"batch=%s", batchID)
+	reviewed, err := sopHarness.Service.VerifyTask(fx.Ctx, sopports.ReviewTaskCommand{
+		TenantID: fxTenant, ActorID: verifier, TaskID: taskID,
+		Body:         sopdomain.ReviewTaskRequest{Reason: "multi-shed proof accepted", RowVersion: submitted.Task.RowVersion},
+		ReviewGrants: []sopports.ReviewGrant{{ScopeType: "park", ScopeID: fxPark}},
+	}, "story-d-verify")
+	reviewedState := ""
+	if reviewed != nil {
+		reviewedState = reviewed.Task.State
+	}
+	story.Assert("independent SOP review accepted the park drive", err == nil && reviewedState == "accepted", "state=%q err=%v", reviewedState, err)
+	if err != nil {
+		return
+	}
+	story.Assert("both obligations completed through review fanout", fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND batch_id=$2::uuid AND status='completed'`, fxTenant, batchID) == 2,
+		"batch=%s", batchID)
 
 	earlyRemaining := fx.scanText(`SELECT quantity_in_stock::text FROM inventory_stock WHERE tenant_id=$1 AND stock_id=$2`, fxTenant, earlyLot)
 	lateRemaining := fx.scanText(`SELECT quantity_in_stock::text FROM inventory_stock WHERE tenant_id=$1 AND stock_id=$2`, fxTenant, lateLot)

@@ -2,6 +2,7 @@
 
 Status: Accepted
 Date: 2026-06-27
+Amended: 2026-07-12 (bounded completed operational history)
 
 ## Context
 
@@ -46,10 +47,20 @@ owner or executable role exists
 human action is required
 ```
 
-Read-model data is not a Calendar event. Census totals, coverage percentages,
-passport history, KPI cards, static tables, source records, and analytics
-charts stay in module screens, Control Tower, Insights, or Goat Passport unless
-they create a dated human action.
+This admission rule owns active/future work. Calendar may also render a bounded,
+read-only record of an accepted operational completion on the date it happened.
+That history row is not new work: it has no owner action, reminder, escalation,
+or mutable Calendar lifecycle. It must be derived at read time from the canonical
+accepted completion and its completed obligation, never inserted as a fixture or
+invented as a second completion/projection row.
+
+Other read-model data is not a Calendar event. Census totals, coverage
+percentages, full passport history, KPI cards, static tables, source records,
+and analytics charts stay in module screens, Control Tower, Insights, or Goat
+Passport unless they create a dated human action. Calendar history is a bounded
+date-oriented operational lens (what was due, what happened, what remains), not
+the animal's longitudinal record. Goat Passport remains the complete per-animal
+history and audit surface.
 
 Pure system jobs are not Calendar events. A sweeper, replay, idempotency worker,
 projection refresh, or promise-safety monitor should carry `system: true` and
@@ -161,6 +172,7 @@ Current Calendar-eligible vaccination events:
 | Shed/cohort vaccination drive | `pc` | `obligation_batches` grouped from due vaccination obligations | This is the worker-facing work unit. The event owner is the vaccinator/health worker or assigned execution role. |
 | Manual campaign / catch-up drive | `pc` | Published/manual-campaign protocol rule or explicit Preventive Care approved catch-up batch | Must be source-backed or explicitly approved; no fabricated history. |
 | Booster due after accepted completion | `pc` | SM-7 generation from accepted `vaccination_completions.administered_at` | Due date is based on actual administration time, not planned date. |
+| Accepted vaccination completion history | `pc` | Bounded read of accepted `vaccination_completions` joined to its completed `obligation_instances` row | Read-only past marker/event on the actual `administered_at` date. It creates no action, reminder, or second canonical row. Full per-animal history remains in Goat Passport. |
 | Vaccination defer / waiver review due | `pc` | Dated Preventive Care (PC) review task derived from a blocked/deferred obligation | Applies to medical defer states such as sick, ICU, quarantine, adverse reaction review, or Preventive Care approved waiver. No event if the state is only a passive flag. |
 | Historical or procurement holding-park vaccination evidence review due | `pc` | Procurement/intake evidence plus Preventive Care (PC) backfill/review workflow | Source-side vaccination history is evidence only. It becomes Calendar work only when a Preventive Care (PC) reviewer has a due action to accept/reject it under the vaccination contract. |
 | Vaccination proof verification due | `pc` | SOP task/submission verification due work, when it has `due_at` and verifier owner | Only appears if it is a dated human verifier action. Otherwise it stays in Action Center / Protocol Adherence. |
@@ -177,7 +189,9 @@ Vaccination data that must not create Calendar events:
 - draft protocol versions.
 - static status-matrix cells.
 - coverage percentages, overdue counts, and KPI cards.
-- Goat Passport vaccination history.
+- full Goat Passport vaccination history or an unbounded per-animal history
+  ledger. Calendar may show only the bounded accepted operational-completion
+  lens defined above.
 - blocked gaps; these stay in Action Center / Control Tower until an owner
   exists.
 - background sweepers/replays/generation jobs with no human owner.
@@ -230,3 +244,10 @@ Examples:
   maps to `feed`; `director_reporting` should derive `cross_cutting: true`.
 - The top bar owns park/date scope. Calendar may filter by date/window and park,
   but should not duplicate scope chips inside every event section.
+- Past navigation must remain bounded and cursor-paginated. Web may navigate
+  prior months by issuing bounded month/week/day queries; mobile may expose a
+  deliberately bounded recent-history window. Neither client may treat a capped
+  first page as the complete result.
+- Initial fixtures may seed source/input facts only. They must never seed a
+  Calendar history row, date marker, completion, obligation, cancellation, or
+  projection to make this lens appear populated.
