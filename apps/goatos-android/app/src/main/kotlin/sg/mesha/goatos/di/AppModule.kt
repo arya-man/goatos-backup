@@ -109,6 +109,7 @@ object AppModule {
                 }
             },
             tenantIdProvider = { BuildConfig.TENANT_ID },
+            localeProvider = { runBlocking { sessionStore.currentLanguage() } },
         )
 
     @Provides

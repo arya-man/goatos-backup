@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/localization"
 )
 
 type contextKey string
@@ -13,6 +14,7 @@ const (
 	traceIDKey    contextKey = "trace_id"
 	tenantIDKey   contextKey = "tenant_id"
 	actorIDKey    contextKey = "actor_id"
+	localeTagKey  contextKey = "locale_tag"
 	authGrantsKey contextKey = "auth_grants"
 )
 
@@ -40,6 +42,15 @@ func ActorIDFromContext(ctx context.Context) string {
 	return v
 }
 
+// LocaleTagFromContext returns the normalized app locale attached to the request.
+func LocaleTagFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(localeTagKey).(string)
+	if v == "" {
+		return localization.DefaultTag
+	}
+	return localization.Normalize(v)
+}
+
 // WithTenantID attaches a tenant scope to a context.
 func WithTenantID(ctx context.Context, tenantID string) context.Context {
 	return context.WithValue(ctx, tenantIDKey, tenantID)
@@ -48,6 +59,11 @@ func WithTenantID(ctx context.Context, tenantID string) context.Context {
 // WithActorID attaches an actor/user scope to a context.
 func WithActorID(ctx context.Context, actorID string) context.Context {
 	return context.WithValue(ctx, actorIDKey, actorID)
+}
+
+// WithLocaleTag attaches a normalized locale tag to a context.
+func WithLocaleTag(ctx context.Context, tag string) context.Context {
+	return context.WithValue(ctx, localeTagKey, localization.Normalize(tag))
 }
 
 // AuthGrantsFromContext returns the active authorization grants attached by AuthMiddleware.

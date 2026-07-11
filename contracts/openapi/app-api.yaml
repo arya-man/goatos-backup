@@ -79,6 +79,8 @@ paths:
       operationId: appBootstrap
       summary: Return the Android bootstrap manifest for the authenticated operator.
       parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+        - $ref: "#/components/parameters/GoatOSLocale"
         - name: device_id
           in: query
           required: false
@@ -2447,6 +2449,8 @@ paths:
         traceability echo. Supports conditional GET: a matching If-None-Match returns 304 with no
         body. Side-effect-free; no FCM push is wired by this endpoint (poll/ETag only).
       parameters:
+        - $ref: "#/components/parameters/AcceptLanguage"
+        - $ref: "#/components/parameters/GoatOSLocale"
         - name: If-None-Match
           in: header
           required: false
@@ -2526,6 +2530,22 @@ components:
         type: string
         minLength: 8
         maxLength: 200
+    AcceptLanguage:
+      name: Accept-Language
+      in: header
+      required: false
+      description: Standard language preference used to localize backend-owned labels/copy. Supported app languages are en, hi, kn, and te; unsupported values fall back to en.
+      schema:
+        type: string
+        examples: ["hi-IN, en;q=0.8"]
+    GoatOSLocale:
+      name: X-GoatOS-Locale
+      in: header
+      required: false
+      description: Exact Goat OS app language selected by the user. Takes precedence over Accept-Language for backend-owned labels/copy.
+      schema:
+        type: string
+        enum: [en, hi, kn, te]
     ProtocolId:
       name: protocol_id
       in: path

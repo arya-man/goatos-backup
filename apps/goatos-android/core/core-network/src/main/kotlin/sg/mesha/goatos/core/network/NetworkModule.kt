@@ -1,9 +1,10 @@
 package sg.mesha.goatos.core.network
 
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
-import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import okhttp3.Response
 import retrofit2.HttpException
@@ -40,6 +41,10 @@ import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 
 const val TENANT_CONTEXT_HEADER: String = "X-GoatOS-Tenant-ID"
+const val LOCALE_CONTEXT_HEADER: String = "X-GoatOS-Locale"
+const val ACCEPT_LANGUAGE_HEADER: String = "Accept-Language"
+private const val DEFAULT_LOCALE_TAG: String = "en"
+private val localeTagPattern = Regex("^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$")
 
 /**
  * Retrofit surface for the app API. One method per consumed endpoint. Paths are
@@ -299,17 +304,19 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
 }
 
 /**
- * Adds `Authorization: Bearer <token>` from a supplied provider. No token is stored
- * here — the provider reads the current session token (DataStore) each request, so
- * a refreshed token is picked up without rebuilding the client.
+ * Adds per-request auth, tenant, and locale headers from supplied providers. No token is
+ * stored here — the provider reads the current session token (DataStore) each request, so
+ * a refreshed token or changed app language is picked up without rebuilding the client.
  */
 class BearerAuthInterceptor(
     private val tokenProvider: () -> String?,
     private val tenantIdProvider: () -> String? = { null },
+    private val localeProvider: () -> String? = { null },
 ) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val token = tokenProvider()
         val tenantId = tenantIdProvider()
+        val localeTag = normalizedLocaleTag(localeProvider())
         val builder = chain.request().newBuilder()
         if (!token.isNullOrBlank()) {
             builder.header("Authorization", "Bearer $token")
@@ -317,6 +324,8 @@ class BearerAuthInterceptor(
         if (!tenantId.isNullOrBlank()) {
             builder.header(TENANT_CONTEXT_HEADER, tenantId)
         }
+        builder.header(ACCEPT_LANGUAGE_HEADER, acceptLanguageValue(localeTag))
+        builder.header(LOCALE_CONTEXT_HEADER, localeTag)
         return chain.proceed(builder.build())
     }
 }
@@ -332,9 +341,10 @@ object NetworkFactory {
     fun okHttp(
         tokenProvider: () -> String?,
         tenantIdProvider: () -> String? = { null },
+        localeProvider: () -> String? = { null },
     ): OkHttpClient =
         OkHttpClient.Builder()
-            .addInterceptor(BearerAuthInterceptor(tokenProvider, tenantIdProvider))
+            .addInterceptor(BearerAuthInterceptor(tokenProvider, tenantIdProvider, localeProvider))
             // Explicit bounds — never rely on the platform/OkHttp defaults (a stuck socket on a
             // field 2G link must fail and let the outbox back off, not hang the drain coroutine).
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -355,6 +365,19 @@ object NetworkFactory {
         baseUrl: String,
         tokenProvider: () -> String?,
         tenantIdProvider: () -> String? = { null },
+        localeProvider: () -> String? = { null },
     ): AppApi =
-        RetrofitAppApi(retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider)).create())
+        RetrofitAppApi(retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider)).create())
 }
+
+private fun normalizedLocaleTag(raw: String?): String {
+    val tag = raw
+        ?.trim()
+        ?.replace('_', '-')
+        ?.takeIf { it.isNotBlank() && localeTagPattern.matches(it) }
+        ?: DEFAULT_LOCALE_TAG
+    return tag.lowercase(Locale.ROOT)
+}
+
+private fun acceptLanguageValue(localeTag: String): String =
+    if (localeTag == DEFAULT_LOCALE_TAG) DEFAULT_LOCALE_TAG else "$localeTag, $DEFAULT_LOCALE_TAG;q=0.8"

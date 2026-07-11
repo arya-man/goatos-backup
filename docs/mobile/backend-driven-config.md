@@ -81,6 +81,12 @@ GET /app/bootstrap
 GET /app/config?since=<revision>   → 200 {delta since revision} (optional optimization)
 ```
 
+- **Locale headers**: every mobile API call sends the persisted app language as
+  `X-GoatOS-Locale: <en|hi|kn|te>` plus standard `Accept-Language` (for example
+  `hi, en;q=0.8`). Backend-owned strings in bootstrap/config/read payloads must
+  be composed for that locale, falling back to English only when no supported
+  translation exists. Static client-only strings still live in Android locale
+  resources.
 - **ETag / If-None-Match**: the client caches the ETag; a 304 means "nothing
   changed" (cheap poll). A 200 delivers the new config + revision.
 - **Firebase Remote Config** is a *fallback / global kill-switch* only (e.g.

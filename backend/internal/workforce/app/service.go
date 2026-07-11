@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/localization"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/workforce/domain"
 	"github.com/vgoats/goatos/backend/internal/workforce/ports"
@@ -327,10 +328,11 @@ func (s *Service) HeartbeatDevice(ctx context.Context, cmd ports.HeartbeatDevice
 	return &domain.DeviceResponse{Device: item, TraceID: traceID}, nil
 }
 
-func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, traceID string) (*domain.BootstrapResponse, error) {
+func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, localeTag, traceID string) (*domain.BootstrapResponse, error) {
 	if err := validateTenantAndActor(tenantID, actorID); err != nil {
 		return nil, err
 	}
+	localeTag = localization.Normalize(localeTag)
 	profile, grants, err := s.activeProfileAndGrants(ctx, tenantID, actorID)
 	if err != nil {
 		return nil, err
@@ -368,9 +370,9 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, tr
 			"proof_capture":  hasCapability(caps, "media.video_capture"),
 			"animal_id_scan": hasCapability(caps, "animal_id.scan"),
 		},
-		VisibleNavigation:       visibleNavigationFor(grants),
+		VisibleNavigation:       visibleNavigationFor(grants, localeTag),
 		NavChrome:               navChromeFor(grants),
-		TaskQueueDescriptors:    queuesFor(caps),
+		TaskQueueDescriptors:    queuesFor(caps, localeTag),
 		PinnedSOPVersions:       []domain.BootstrapSOPVersion{},
 		SupportedFieldTypes:     []string{"text", "number", "date_time", "boolean", "select", "multiselect", "goat_scan", "animal_id_scan", "goat_lookup", "shed_picker", "photo_proof", "video_proof"},
 		SupportedRuleOperators:  []string{"visible_if", "required_if", "enabled_if", "proof_required_if", "block_submission_if", "repeat_for_each_goat"},
@@ -583,25 +585,6 @@ var leadershipGrantRoles = map[string]bool{
 	permissions.RoleVerifier:    true,
 }
 
-// leadershipNavigation is the fixed backend-owned mobile nav for a leadership
-// principal. The client adds a "You" tab locally; the backend owns exactly
-// these three so Overview/Overdue/Reschedule stay reachable.
-var leadershipNavigation = []domain.BootstrapNavigationItem{
-	{Key: "leadership", Label: "Overview", Href: "/leadership"},
-	{Key: "calendar", Label: "Calendar", Href: "/calendar"},
-	{Key: "alerts", Label: "Alerts", Href: "/alerts"},
-}
-
-// operatorNavigation is the fixed backend-owned mobile nav for a field operator:
-// Drives (the shed execution flow) first, then Calendar, then Alerts. The client
-// adds "You" locally and lands on Calendar.
-// There is no Overview/Home for operators — they execute, they don't oversee.
-var operatorNavigation = []domain.BootstrapNavigationItem{
-	{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-	{Key: "calendar", Label: "Calendar", Href: "/calendar"},
-	{Key: "alerts", Label: "Alerts", Href: "/alerts"},
-}
-
 // isLeadershipPrincipal reports whether any active grant carries a
 // leadership-tier role, regardless of the grant's scope (a park-scoped Park
 // Head or Health Manager is still leadership for their park, not an
@@ -615,33 +598,11 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 	return false
 }
 
-// visibleNavigationFor picks the leadership nav for a leadership principal and
-// otherwise returns the fixed field-operator nav.
-func visibleNavigationFor(grants []domain.GrantSummary) []domain.BootstrapNavigationItem {
-	if isLeadershipPrincipal(grants) {
-		return leadershipNavigation
-	}
-	return operatorNavigation
-}
-
 // navChromeFor keeps mobile on bottom-bar chrome; module boundaries no longer
 // drives a drawer/sidebar threshold.
 func navChromeFor(grants []domain.GrantSummary) string {
 	_ = grants
 	return domain.NavChromeMinimal
-}
-
-func queuesFor(caps []domain.CapabilityAssignment) []domain.BootstrapTaskQueue {
-	items := []domain.BootstrapTaskQueue{
-		{Key: "assigned", Label: "Assigned work", RequiredCapabilities: []string{}},
-	}
-	if hasCapability(caps, "movement.execute") {
-		items = append(items, domain.BootstrapTaskQueue{Key: "shifting", Label: "Shifting", RequiredCapabilities: []string{"movement.execute"}})
-	}
-	if hasCapability(caps, "proof.verify") {
-		items = append(items, domain.BootstrapTaskQueue{Key: "proof_review", Label: "Proof review", RequiredCapabilities: []string{"proof.verify"}})
-	}
-	return items
 }
 
 func optionSourcesFor(grants []domain.GrantSummary) []domain.BootstrapOptionSource {
