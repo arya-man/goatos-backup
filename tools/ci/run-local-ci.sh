@@ -46,11 +46,8 @@ run_guardrails() {
   step "scale-guard self-test"    bash -c 'cd tools/scale-guard && go test ./...'
   step "clinical-defer-guard"     make clinical-defer-guard
   step "mobile-guard"             make mobile-guard
-  step "large-file guard"         bash -c '
-    found="$(while IFS= read -r -d "" f; do [ -f "$f" ] || continue;
-      case "$(basename "$f")" in package-lock.json|pnpm-lock.yaml) continue;; esac
-      [ "$(wc -c <"$f")" -gt 5242880 ] && printf "./%s\n" "$f"; done < <(git ls-files -z))"
-    if [ -n "$found" ]; then echo "$found"; echo "Files >5MB need a storage decision."; exit 1; fi'
+  step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
+  step "large-file guard"         node tools/ci/check-large-files.mjs
   step "go test ./..."            bash -c 'cd backend && go test ./...'
   step "sqlc-check"               make sqlc-check
   step "validate-sqlc-plans"      make validate-sqlc-plans
