@@ -15,7 +15,7 @@ const RE = /\b([a-zA-Z_][\w.]*[Rr]ole)\s*(==|!=)|(==|!=)\s*[A-Za-z_]*Role\.|when
 // hardcoded disabled/blocked reason literal — a disabled reason is backend-owned (golden rule).
 const REASON_RE = /\b(disabledReason|blockedReason|disabled_reason|blockReason)\s*=\s*"[^"]/;
 // preview/sample/debug sources may hold literal reasons for @Preview — not production truth.
-const isPreviewSrc = (rel) => /Sample|Preview|Screenshot|/src\/debug\//i.test(rel) || /ScreenSamples/.test(rel);
+const isPreviewSrc = (rel) => /(Sample|Preview|Screenshot|\/src\/debug\/)/i.test(rel);
 const isComment = (l) => { const t = l.trim(); return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*"); };
 function scan(rel) {
   const abs = resolve(repo, rel); let text; try { text = readFileSync(abs, "utf8"); } catch { return []; }
