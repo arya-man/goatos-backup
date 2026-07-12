@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -18,19 +19,24 @@ import (
 //	per-day     = cap vaccinations (last day the remainder); a day beyond allowedDays is capacity_breach
 //
 // start is the shed's next-due instant; session dates are consecutive Asia/Kolkata calendar days from it.
-func PlanSessions(cells int, cfg domain.CapacityConfig, start time.Time) (int, domain.CapacityStatus, []domain.PlannedSession) {
-	capPerDay := cfg.MaxPerDay
-	if capPerDay < 1 {
-		capPerDay = 1
+//
+// Config is validate-or-reject (AGENTS.md): an out-of-range capacity value is REJECTED with an error, never
+// silently coerced to a default the author never entered. cfg is authored config already validated at
+// publish time (protocol publish rejects max_per_day < 1 / max_buffer_days < 0); this is the fail-loud
+// backstop for any invalid value that still reaches the planner.
+func PlanSessions(cells int, cfg domain.CapacityConfig, start time.Time) (int, domain.CapacityStatus, []domain.PlannedSession, error) {
+	if cfg.MaxPerDay < 1 {
+		return 0, "", nil, fmt.Errorf("invalid capacity config: max_per_day must be >= 1, got %d", cfg.MaxPerDay)
 	}
+	if cfg.MaxBufferDays < 0 {
+		return 0, "", nil, fmt.Errorf("invalid capacity config: max_buffer_days must be >= 0, got %d", cfg.MaxBufferDays)
+	}
+	capPerDay := cfg.MaxPerDay
 	if cells <= 0 {
-		return 0, domain.CapacityWithinCap, []domain.PlannedSession{}
+		return 0, domain.CapacityWithinCap, []domain.PlannedSession{}, nil
 	}
 	sessions := (cells + capPerDay - 1) / capPerDay // ceil
 	allowedDays := cfg.MaxBufferDays + 1
-	if allowedDays < 1 {
-		allowedDays = 1
-	}
 
 	status := domain.CapacityWithinCap
 	switch {
@@ -64,5 +70,5 @@ func PlanSessions(cells int, cfg domain.CapacityConfig, start time.Time) (int, d
 			Capacity:     perDay,
 		})
 	}
-	return sessions, status, planned
+	return sessions, status, planned, nil
 }

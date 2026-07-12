@@ -54,7 +54,10 @@ func TestPlanSessionsSplitsAndClassifies(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			n, status, planned := PlanSessions(c.cells, cfg, start)
+			n, status, planned, err := PlanSessions(c.cells, cfg, start)
+			if err != nil {
+				t.Fatalf("PlanSessions: %v", err)
+			}
 			if n != c.wantN {
 				t.Errorf("sessions = %d, want %d", n, c.wantN)
 			}
@@ -89,7 +92,10 @@ func TestPlanSessionsSplitsAndClassifies(t *testing.T) {
 func TestPlanSessionsDatesAreConsecutive(t *testing.T) {
 	cfg := domain.CapacityConfig{MaxPerDay: 100, MaxBufferDays: 3}
 	start := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
-	_, _, planned := PlanSessions(300, cfg, start)
+	_, _, planned, err := PlanSessions(300, cfg, start)
+	if err != nil {
+		t.Fatalf("PlanSessions: %v", err)
+	}
 	wantDates := []string{"2026-07-18", "2026-07-19", "2026-07-20"}
 	for i, d := range wantDates {
 		if planned[i].Date != d {

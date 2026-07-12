@@ -727,7 +727,10 @@ func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.Operat
 	if p.NextDue != nil {
 		start = *p.NextDue
 	}
-	_, _, planned := PlanSessions(p.OpenCells, cfg, start)
+	_, _, planned, err := PlanSessions(p.OpenCells, cfg, start)
+	if err != nil {
+		return domain.ShedDetailResponse{}, false, err
+	}
 
 	opsQ := q
 	opsQ.ParkID = nil

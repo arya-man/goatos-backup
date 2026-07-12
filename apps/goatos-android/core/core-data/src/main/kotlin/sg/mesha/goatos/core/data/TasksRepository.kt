@@ -70,11 +70,13 @@ class DefaultTasksRepository(
 
     override suspend fun taskDetail(taskId: String): TaskDetail = api.getAppTask(taskId).toDomain()
 
+    // offline-first-guard:ignore: Room-backed — reads taskDetailDao.observe(); heuristic misses the dao read through the .map/toResource helper.
     override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
         taskDetailDao.observe(taskId)
             .map { entity -> entity.toResource(taskId) }
             .flowOn(Dispatchers.Default)
 
+    // offline-first-guard:ignore: Room-backed — upserts via taskDetailDao.upsert() inside runCatching; heuristic misses the upsert through the runCatching block.
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {
         val dto = api.getAppTask(taskId)
         taskDetailDao.upsert(

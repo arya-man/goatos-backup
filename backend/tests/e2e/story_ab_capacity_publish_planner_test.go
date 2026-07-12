@@ -115,7 +115,8 @@ func TestKernelStoryAB_CapacityPublishPlannerParity(t *testing.T) {
 	// within_cap: 10 cells at cap 10 = 1 session (fits in a single day).
 	story.Step("Within cap → one day",
 		"A shed with 10 open vaccination cells fits in a single day at the 10/day cap: within_cap.")
-	nWithin, statusWithin, _ := vaccexecapp.PlanSessions(10, cfg, start)
+	nWithin, statusWithin, _, errWithin := vaccexecapp.PlanSessions(10, cfg, start)
+	story.Assert("within-cap planner returns no error", errWithin == nil, "err=%v", errWithin)
 	story.Assert("within-cap load is one session", nWithin == 1, "sessions=%d", nWithin)
 	story.Assert("within-cap classified within_cap", statusWithin == vaccexecdomain.CapacityWithinCap, "status=%q", statusWithin)
 
@@ -123,7 +124,8 @@ func TestKernelStoryAB_CapacityPublishPlannerParity(t *testing.T) {
 	story.Step("Over cap but inside the window → split",
 		"80 cells split into 8 daily sessions — exactly the safe window for buffer 7 (7 + 1). This boundary "+
 			"is bound to the PUBLISHED buffer: a smaller buffer would push this same load to Needs review.")
-	nSplit, statusSplit, sessionsSplit := vaccexecapp.PlanSessions(80, cfg, start)
+	nSplit, statusSplit, sessionsSplit, errSplit := vaccexecapp.PlanSessions(80, cfg, start)
+	story.Assert("over-cap planner returns no error", errSplit == nil, "err=%v", errSplit)
 	story.Assert("over-cap load splits into 8 sessions", nSplit == 8, "sessions=%d", nSplit)
 	story.Assert("over-cap classified over_cap (Split)", statusSplit == vaccexecdomain.CapacityOverCap, "status=%q", statusSplit)
 	story.Assert("every split day stays within the safe window", allWithinWindow(sessionsSplit),
@@ -133,7 +135,8 @@ func TestKernelStoryAB_CapacityPublishPlannerParity(t *testing.T) {
 	story.Step("Past the window → Needs review",
 		"90 cells need 9 daily sessions — one past the 8-day safe window — so the planner flags capacity_breach "+
 			"(Needs review). Same cap, one dose more than Split: the window edge is exactly buffer 7.")
-	nBreach, statusBreach, _ := vaccexecapp.PlanSessions(90, cfg, start)
+	nBreach, statusBreach, _, errBreach := vaccexecapp.PlanSessions(90, cfg, start)
+	story.Assert("breach planner returns no error", errBreach == nil, "err=%v", errBreach)
 	story.Assert("past-window load needs 9 sessions", nBreach == 9, "sessions=%d", nBreach)
 	story.Assert("past-window classified capacity_breach (Needs review)", statusBreach == vaccexecdomain.CapacityBreach, "status=%q", statusBreach)
 }
