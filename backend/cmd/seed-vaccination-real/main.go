@@ -986,10 +986,12 @@ SELECT
   (SELECT count(*)
    FROM goats g
    WHERE g.tenant_id = $1::uuid
+     AND g.lifecycle_status <> 'inactive'
      AND g.breed_id IS NULL),
   (SELECT count(*)
    FROM goats g
    WHERE g.tenant_id = $1::uuid
+     AND g.lifecycle_status <> 'inactive'
      AND NOT EXISTS (
        SELECT 1 FROM goat_identifiers gi
        WHERE gi.tenant_id = g.tenant_id
@@ -1128,7 +1130,8 @@ func (p purgeCounts) total() int {
 //   - old per-vaccine "Real herd import" protocol configs, which are retired so Config shows the
 //     canonical vaccination.matrix seed only;
 //   - synthetic fixture goats (display_id like 'G-0000NN');
-//   - junk-named sheds ('Chain Proof%', 'Rework Proof%', 'Trusted History%');
+//   - junk-named proof/trigger sheds ('Chain Proof%', 'Rework Proof%',
+//     'Trusted History%', 'Trigger Shed%') and every goat still located in them;
 //   - stale junk calendar_event_projections rows (junk protocol / junk title / junk shed).
 //
 // It NEVER touches real goats, real sheds (Castro/Godel/Gandhi/...), workforce, or the
@@ -1140,9 +1143,14 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 
 	// Junk id subqueries (tenant-scoped). Evaluated fresh by each statement; parents are always
 	// deleted after their children so these still resolve while children are being removed.
-	junkGoats := `(SELECT goat_id FROM goats WHERE tenant_id = $1 AND display_id ~ '^G-0000[0-9]{2}$')`
 	junkSheds := `(SELECT location_id FROM locations WHERE tenant_id = $1 AND location_type = 'shed'
-		AND (name ILIKE '%Chain Proof%' OR name ILIKE '%Rework Proof%' OR name ILIKE '%Trusted History%'))`
+		AND (name ILIKE '%Chain Proof%' OR name ILIKE '%Rework Proof%' OR name ILIKE '%Trusted History%'
+			OR name ILIKE '%Trigger Shed%'))`
+	junkGoats := `(SELECT goat_id FROM goats WHERE tenant_id = $1 AND (
+		display_id ~ '^G-0000[0-9]{2}$'
+		OR shed_id IN ` + junkSheds + `
+		OR current_location_id IN ` + junkSheds + `
+	))`
 	junkObls := `(SELECT oi.obligation_id FROM obligation_instances oi
 		JOIN protocol_versions pv ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
 		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
@@ -1295,7 +1303,8 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 		pc.OtherChildRows += n
 	}
 	n, err = exec("locations (junk sheds)", `DELETE FROM locations WHERE tenant_id = $1 AND location_type = 'shed'
-		AND (name ILIKE '%Chain Proof%' OR name ILIKE '%Rework Proof%' OR name ILIKE '%Trusted History%')`)
+		AND (name ILIKE '%Chain Proof%' OR name ILIKE '%Rework Proof%' OR name ILIKE '%Trusted History%'
+			OR name ILIKE '%Trigger Shed%')`)
 	if err != nil {
 		return pc, err
 	}
