@@ -67,6 +67,17 @@ context/README.md
 .agents/skills/goatos-build/SKILL.md
 ```
 
+For any request to fix, continue, or close the consolidated audit findings,
+also load both files before code changes:
+
+```text
+context/repo-audits/last-35-commits-consolidated-bug-ledger.md
+context/repo-audits/consolidated-ledger-defect-closure-program.md
+```
+
+The first file is the live queue; the second defines the proof and CI bar for
+changing a row to fixed.
+
 Then load only the needed reference:
 
 ```text

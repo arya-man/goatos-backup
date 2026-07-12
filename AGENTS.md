@@ -77,6 +77,22 @@ The private source/wiki may contain that branch, but GoatOS ignores it. Mothers
 are kept vaccinated operationally, and every kid uses the approved standard
 schedule in `docs/preventive-care-vaccination/vaccination-rules.md`.
 
+## Consolidated Defect-Ledger Closure (Mandatory)
+
+When asked to fix/continue/close the consolidated audit ledger or its bugs, read
+both of these before editing:
+
+- `context/repo-audits/last-35-commits-consolidated-bug-ledger.md`
+- `context/repo-audits/consolidated-ledger-defect-closure-program.md`
+
+Select one highest-priority unblocked root defect (or an inseparable cluster),
+reconstruct the live count from the file, and follow the closure program across
+every affected backend, SQL, API, admin-web, Android, architecture, performance,
+memory, retry, pagination, security, E2E, observability, and CI/CD layer. Do not
+mark a row fixed until its current-SHA proof packet and independent Claude/Codex
+counter-review pass. Merge duplicate-root evidence instead of inflating counts.
+`CLAUDE.md` and `CODEX.md` remain thin shims to this shared rule.
+
 Read first:
 
 - `context/README.md`

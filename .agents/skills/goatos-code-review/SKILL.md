@@ -98,6 +98,20 @@ clean the rest is:
    ports the mock; passes `check:mock-fidelity`. (`references/frontend.md`)
 8. **Maintainability** — small focused files, explicit errors, tests.
 
+## Consolidated-ledger closure gate
+
+When a change claims to fix any row in
+`context/repo-audits/last-35-commits-consolidated-bug-ledger.md`, load and apply
+`context/repo-audits/consolidated-ledger-defect-closure-program.md` in addition
+to every layer reference selected above. Review the current-SHA proof packet,
+not only the diff. Reject the closure claim if any applicable real-Postgres,
+retry/idempotency, pagination, contract/API, admin-web, Android Room/offline,
+logout, performance/memory, authorization, architecture, observability, guard
+self-test, ordinary-PR CI, or independent-counter axis is missing. Confirm that
+duplicate-root evidence was merged and every ledger count/status summary was
+reconciled mechanically. A compile, typecheck, screenshot, mock-only test,
+missing/skipped workflow, or prose report is not closure proof.
+
 ## Volatile anchors — verify, don't trust the list below
 
 These are the checks whose values move. For each, the review action is "open the

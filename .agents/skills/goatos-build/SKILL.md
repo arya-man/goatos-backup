@@ -132,6 +132,11 @@ one product; this skill is the navigation layer.
 ## Must
 
 - Read wide, write narrow.
+- For any consolidated-ledger fix, read
+  `context/repo-audits/last-35-commits-consolidated-bug-ledger.md` and obey
+  `context/repo-audits/consolidated-ledger-defect-closure-program.md`. Work one
+  root batch at a time; do not claim closure without its current-SHA proof
+  packet, required CI gates, and independent counter-review.
 - Lock to the user-approved slice. Shared/generic infrastructure may be built
   only to serve that slice, and visible UI/API handoffs must not present future
   verticals as live product.

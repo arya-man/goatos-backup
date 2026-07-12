@@ -207,7 +207,14 @@ context/frontend/
   existing UI reuse, missing screens, role navigation, Android operator surface
 
 context/repo-audits/
-  current repo inventory and migration notes
+  current repo inventory, migration notes, consolidated defect ledger, and the
+  mandatory cross-layer defect-closure program
+
+Consolidated last-35-commits bug ledger
+  context/repo-audits/last-35-commits-consolidated-bug-ledger.md
+
+Mandatory proof, anti-pattern, performance, mobile, and CI closure program
+  context/repo-audits/consolidated-ledger-defect-closure-program.md
 
 context/agents/
   Codex/Claude context structure, agent files, protocol decisions, skill bundles
