@@ -9,12 +9,40 @@ counts as fixed**.
 ## Small Prompt for a New Session
 
 ```text
-Fix the next highest-priority unblocked item in the consolidated Goat OS bug ledger under the mandatory defect-closure program; do not mark it fixed until its proof packet and independent counter-review pass.
+Execute the consolidated Goat OS ledger-closure program. Act as coordinator: parallelize only independent, non-overlapping findings; integrate proof-backed fixes; require independent counter-review; and keep the one canonical ledger current. Stop with one clean PR-ready branch; do not merge or deploy.
 ```
 
 `AGENTS.md` routes that prompt to this file and the live ledger. Never copy the
 ledger count into the prompt: reconstruct it from the checked-out file and
 current HEAD because the count will change.
+
+## Parallel Agent Execution Contract
+
+Parallel work is allowed only when it reduces elapsed time without creating
+competing truth or overlapping edits:
+
+1. One coordinator owns the integration branch, assignment map, canonical
+   ledger, status/count edits, integration, and final PR handoff.
+2. Before spawning workers, the coordinator maps dependencies and affected
+   files from current code. Parallelize only root findings with disjoint
+   production paths and tests. Shared contracts, migrations, generated code,
+   CI workflows, common fixtures, and ledger edits are serialized.
+3. Give each worker explicit finding IDs, file ownership, an isolated
+   branch/worktree, and the required proof axes. Reserve one available agent
+   slot for the coordinator. If overlap appears, stop the conflicting worker
+   and sequence the work.
+4. Workers must not edit the canonical ledger/count, merge, push to `main` or
+   `stg`, deploy, or absorb unrelated cleanup. They return a focused commit,
+   failing-before evidence, the completed proof packet, and known limitations.
+5. The coordinator counter-reviews the claimed root fix against current code,
+   integrates it, reruns impacted proof on the integrated HEAD, and only then
+   updates the ledger. A worker's green test or self-review is not closure.
+6. Duplicate-root discoveries merge into one row. Cross-layer fixes that cannot
+   be split safely stay with one owner even if they touch backend, contract,
+   web, Android, SQL, or CI together.
+7. End with one clean, pushed, PR-ready branch plus exact current-SHA proof.
+   Opening, merging, deploying, or changing the existing `main -> stg` PR
+   requires a separate explicit instruction.
 
 ## 1. Start From Ground Truth
 
