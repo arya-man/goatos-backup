@@ -13,6 +13,7 @@
     <string name="nav_overview">ಅವಲೋಕನ</string>
     <string name="nav_calendar">ಕ್ಯಾಲೆಂಡರ್</string>
     <string name="nav_alerts">ಎಚ್ಚರಿಕೆಗಳು</string>
+    <string name="nav_verify">ಪರಿಶೀಲನೆ</string>
     <string name="lang_sheet_title">ಭಾಷೆ ಆಯ್ಕೆಮಾಡಿ</string>
     <string name="lang_sheet_subtitle">ಈ ಫೋನ್‌ನ ಪ್ರತಿ ಪರದೆಗೆ ಉಳಿಸಲಾಗಿದೆ</string>
     <string name="lang_sheet_footer">ತಂಡ ಬೆಳೆದಂತೆ ಹೆಚ್ಚಿನ ಭಾಷೆಗಳನ್ನು ಸೇರಿಸಲಾಗುತ್ತದೆ</string>
@@ -49,6 +50,7 @@
     <string name="sync_optype_shed">ಶೆಡ್ ದಾಖಲೆ</string>
     <string name="sync_optype_proof">ವೀಡಿಯೊ ಪ್ರೂಫ್</string>
     <string name="sync_optype_reschedule">ಮರುನಿಗದಿ</string>
+    <string name="sync_optype_verification_verdict">ಪರಿಶೀಲನಾ ತೀರ್ಪು</string>
 
     <string name="sync_notification_channel_name">ಬ್ಯಾಕ್‌ಗ್ರೌಂಡ್ ಸಿಂಕ್</string>
     <string name="sync_notification_channel_description">ಆ್ಯಪ್ ಮುಚ್ಚಿದ್ದರೂ, ವ್ಯಾಕ್ಸಿನೇಷನ್ ಪ್ರೂಫ್ ವೀಡಿಯೊಗಳು ಮತ್ತು ಡ್ರೈವ್ ಸಲ್ಲಿಕೆಗಳು ಬ್ಯಾಕ್‌ಗ್ರೌಂಡ್‌ನಲ್ಲಿ ಅಪ್‌ಲೋಡ್ ಆಗುವ ಪ್ರಗತಿಯನ್ನು ತೋರಿಸುತ್ತದೆ.</string>

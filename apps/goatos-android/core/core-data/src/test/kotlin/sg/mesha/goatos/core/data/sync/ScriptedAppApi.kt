@@ -9,6 +9,8 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 
 /**
  * Test double for [AppApi]: delegates to [FakeAppApi] by default (via Kotlin interface
@@ -20,6 +22,12 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     var submitAppTaskFn: (suspend (String, String, SubmitTaskRequestDto) -> SubmissionResponseDto)? = null
     var rescheduleObligationFn: (suspend (String, String, RescheduleObligationRequestDto) -> RescheduleObligationResponseDto)? = null
     var registerProofFn: (suspend (String, ProofUploadRequestDto) -> ProofUploadResponseDto)? = null
+    var submitVerificationVerdictFn: (suspend (String, String, VerificationVerdictRequestDto) -> VerificationVerdictResponseDto)? = null
+
+    /** (itemId, header Idempotency-Key) for every [submitVerificationVerdict] call — same
+     *  same-key-on-retry assertion shape as [submitCalls]. */
+    val verdictCalls: MutableList<Pair<String, String>> =
+        java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
 
     /** Scripts the binary-PUT + complete step ([AppApi.uploadProofBlob]) — the hook a test
      *  installs to act as a fake object store: assert the (proofId, uploadUrl, filePath) it was
@@ -58,6 +66,16 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
 
     override suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto =
         registerProofFn?.invoke(idempotencyKey, request) ?: delegate.registerProof(idempotencyKey, request)
+
+    override suspend fun submitVerificationVerdict(
+        itemId: String,
+        idempotencyKey: String,
+        request: VerificationVerdictRequestDto,
+    ): VerificationVerdictResponseDto {
+        verdictCalls += itemId to idempotencyKey
+        return submitVerificationVerdictFn?.invoke(itemId, idempotencyKey, request)
+            ?: delegate.submitVerificationVerdict(itemId, idempotencyKey, request)
+    }
 
     override suspend fun uploadProofBlob(
         proofId: String,

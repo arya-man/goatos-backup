@@ -43,6 +43,9 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 
 const val TENANT_CONTEXT_HEADER: String = "X-GoatOS-Tenant-ID"
 const val LOCALE_CONTEXT_HEADER: String = "X-GoatOS-Locale"
@@ -211,6 +214,24 @@ interface AppApiService {
     suspend fun getAppConfig(
         @Header("If-None-Match") eTag: String?,
     ): RetrofitResponse<AppConfigResponseDto>
+
+    // TODO(verification-contract): the `verification` bounded context is being built in
+    // parallel (context/architecture/verification-module-design.md); route/DTO shape is
+    // hand-derived from that design doc, not yet in contracts/openapi/app-api.yaml. Swap for
+    // the generated client once published.
+    @GET("verification/queue")
+    suspend fun listVerificationQueue(
+        @Query("category") category: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): VerificationQueueResponseDto
+
+    @POST("verification/items/{item_id}/verdict")
+    suspend fun submitVerificationVerdict(
+        @Path("item_id") itemId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: VerificationVerdictRequestDto,
+    ): VerificationVerdictResponseDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic.
@@ -401,6 +422,18 @@ class RetrofitAppApi(
         if (!response.isSuccessful) throw HttpException(response)
         return response.body()
     }
+
+    override suspend fun listVerificationQueue(
+        category: String?,
+        cursor: String?,
+        limit: Int?,
+    ): VerificationQueueResponseDto = service.listVerificationQueue(category, cursor, limit)
+
+    override suspend fun submitVerificationVerdict(
+        itemId: String,
+        idempotencyKey: String,
+        request: VerificationVerdictRequestDto,
+    ): VerificationVerdictResponseDto = service.submitVerificationVerdict(itemId, idempotencyKey, request)
 }
 
 /**

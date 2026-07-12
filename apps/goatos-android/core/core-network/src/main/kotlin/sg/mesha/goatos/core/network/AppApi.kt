@@ -29,6 +29,9 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 
 // Wire DTOs for the nav slice of GET /app/bootstrap. The response (BootstrapResponse)
 // carries many more fields; with ignoreUnknownKeys the client only binds the ones it
@@ -317,6 +320,28 @@ interface AppApi {
     suspend fun getAppConfig(
         eTag: String? = null,
     ): AppConfigResponseDto?
+
+    /** GET /verification/queue — the standalone Verifier section's media queue
+     *  (context/architecture/verifier-app-and-flow.md), keyset-paginated (~20/page) and
+     *  filtered to [category] (`vaccine`/`feed_direction`/`diagnosis`/`death_post_mortem`/
+     *  `breeding`/…, `null` = every category this verifier is assigned). CONTRACT NOTE: the
+     *  backend `verification` bounded context is being built in parallel — see the TODO on
+     *  [sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto]. */
+    suspend fun listVerificationQueue(
+        category: String? = null,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): VerificationQueueResponseDto
+
+    /** POST /verification/items/{item_id}/verdict — the verifier's approve/reject + reason
+     *  action (`verification.review` permission). Drained through the offline-sync outbox
+     *  with a stable [idempotencyKey] exactly like [verifyAppTask]/[reworkAppTask], so a
+     *  server-committed-but-client-unrecorded replay never double-submits a verdict. */
+    suspend fun submitVerificationVerdict(
+        itemId: String,
+        idempotencyKey: String,
+        request: VerificationVerdictRequestDto,
+    ): VerificationVerdictResponseDto
 }
 
 /**
@@ -482,6 +507,18 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ): VaccinationCoverageResponseDto = VaccinationCoverageResponseDto()
 
     override suspend fun getAppConfig(eTag: String?): AppConfigResponseDto? = AppConfigResponseDto()
+
+    override suspend fun listVerificationQueue(
+        category: String?,
+        cursor: String?,
+        limit: Int?,
+    ): VerificationQueueResponseDto = VerificationQueueResponseDto()
+
+    override suspend fun submitVerificationVerdict(
+        itemId: String,
+        idempotencyKey: String,
+        request: VerificationVerdictRequestDto,
+    ): VerificationVerdictResponseDto = VerificationVerdictResponseDto()
 }
 
 /**

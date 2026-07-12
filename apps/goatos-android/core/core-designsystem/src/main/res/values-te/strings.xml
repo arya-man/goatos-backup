@@ -13,6 +13,7 @@
     <string name="nav_overview">అవలోకనం</string>
     <string name="nav_calendar">క్యాలెండర్</string>
     <string name="nav_alerts">హెచ్చరికలు</string>
+    <string name="nav_verify">ధృవీకరణ</string>
     <string name="lang_sheet_title">భాషను ఎంచుకోండి</string>
     <string name="lang_sheet_subtitle">ఈ ఫోన్‌లోని ప్రతి స్క్రీన్‌కు ఉంచబడింది</string>
     <string name="lang_sheet_footer">బృందం పెరిగే కొద్దీ మరిన్ని భాషలు జోడించబడతాయి</string>
@@ -49,6 +50,7 @@
     <string name="sync_optype_shed">షెడ్ రికార్డు</string>
     <string name="sync_optype_proof">వీడియో ప్రూఫ్</string>
     <string name="sync_optype_reschedule">పునఃషెడ్యూల్</string>
+    <string name="sync_optype_verification_verdict">ధృవీకరణ నిర్ణయం</string>
 
     <string name="sync_notification_channel_name">బ్యాక్‌గ్రౌండ్ సింక్</string>
     <string name="sync_notification_channel_description">యాప్ మూసివేసినా, వ్యాక్సినేషన్ ప్రూఫ్ వీడియోలు మరియు డ్రైవ్ సమర్పణలు బ్యాక్‌గ్రౌండ్‌లో అప్‌లోడ్ అవుతున్న పురోగతిని చూపుతుంది.</string>

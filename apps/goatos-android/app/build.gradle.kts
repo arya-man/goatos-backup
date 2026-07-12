@@ -163,6 +163,7 @@ dependencies {
     implementation(project(":feature:feature-record"))
     implementation(project(":feature:feature-profile"))
     implementation(project(":feature:feature-timetable"))
+    implementation(project(":feature:feature-verify"))
 
     implementation(libs.hilt.android)
     implementation(libs.hilt.navigation.compose)

@@ -7,6 +7,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 
 /** Shared JSON codec for outbox payload/result blobs — lenient so a field added later never
  *  breaks decode of an already-queued row (mirrors [sg.mesha.goatos.core.data.BootstrapCache]). */
@@ -55,4 +56,13 @@ data class VerifyTaskPayload(
 data class ReworkTaskPayload(
     @SerialName("task_id") val taskId: String,
     @SerialName("request") val request: ReviewTaskRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.VERIFICATION_VERDICT].
+ *  The standalone Verifier section's approve/reject + reason action
+ *  (context/architecture/verifier-app-and-flow.md). */
+@Serializable
+data class VerificationVerdictPayload(
+    @SerialName("item_id") val itemId: String,
+    @SerialName("request") val request: VerificationVerdictRequestDto,
 )

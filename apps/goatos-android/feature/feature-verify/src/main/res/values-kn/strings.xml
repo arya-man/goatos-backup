@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="verify_queue_title">ವೀಡಿಯೊ ಪರಿಶೀಲನೆ</string>
+    <string name="verify_queue_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
+    <string name="verify_queue_empty">ಸರತಿ ಖಾಲಿ ಇದೆ</string>
+    <string name="verify_queue_empty_subtitle">ಇದೀಗ ಪರಿಶೀಲಿಸಲು ಯಾವುದೇ ಬಾಕಿ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
+    <string name="verify_queue_load_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಮಾಡಿ</string>
+    <string name="verify_queue_loading_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+
+    <string name="verify_detail_close">ಮುಚ್ಚಿ</string>
+    <string name="verify_detail_context_title">ಸಂದರ್ಭ</string>
+    <string name="verify_detail_shed_label">ಶೆಡ್</string>
+    <string name="verify_detail_park_label">ಪಾರ್ಕ್</string>
+    <string name="verify_detail_operator_label">ಆಪರೇಟರ್</string>
+    <string name="verify_detail_captured_label">ಸೆರೆಹಿಡಿಯಲಾಗಿದೆ</string>
+    <string name="verify_detail_no_media">ಈ ಐಟಂಗೆ ಯಾವುದೇ ವೀಡಿಯೊ ಲಗತ್ತಿಸಿಲ್ಲ</string>
+    <string name="verify_detail_approve">ಅನುಮೋದಿಸಿ</string>
+    <string name="verify_detail_reject">ತಿರಸ್ಕರಿಸಿ</string>
+    <string name="verify_detail_already_decided">ಈಗಾಗಲೇ ನಿರ್ಧರಿಸಲಾಗಿದೆ — ಮತ್ತಷ್ಟು ಕ್ರಮ ಅಗತ್ಯವಿಲ್ಲ</string>
+    <string name="verify_detail_submitting">ಸಲ್ಲಿಸಲಾಗುತ್ತಿದೆ…</string>
+
+    <string name="verify_reject_dialog_title">ಕಾರಣದೊಂದಿಗೆ ತಿರಸ್ಕರಿಸಿ</string>
+    <string name="verify_reject_dialog_subtitle">ಪ್ರಾಧಿಕಾರ ಈ ಉಲ್ಲಂಘನೆಯ ಬಗ್ಗೆ ಕ್ರಮ ತೆಗೆದುಕೊಳ್ಳಲು ಕಾರಣ ಅಗತ್ಯವಿದೆ</string>
+    <string name="verify_reject_dialog_placeholder">ಏನು ತಪ್ಪಾಯಿತು?</string>
+    <string name="verify_reject_dialog_confirm">ತಿರಸ್ಕಾರವನ್ನು ಖಚಿತಪಡಿಸಿ</string>
+    <string name="verify_reject_dialog_cancel">ರದ್ದುಮಾಡಿ</string>
+    <string name="verify_reject_dialog_error_required">ತಿರಸ್ಕರಿಸುವ ಮೊದಲು ಕಾರಣ ನಮೂದಿಸಿ</string>
+
+    <string name="verify_status_pending">ಬಾಕಿ ಇದೆ</string>
+    <string name="verify_status_approved">ಅನುಮೋದಿಸಲಾಗಿದೆ</string>
+    <string name="verify_status_rejected">ತಿರಸ್ಕರಿಸಲಾಗಿದೆ</string>
+    <string name="verify_category_all">ಎಲ್ಲಾ</string>
+</resources>

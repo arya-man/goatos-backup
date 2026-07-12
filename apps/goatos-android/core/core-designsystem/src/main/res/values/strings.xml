@@ -17,6 +17,7 @@
     <string name="nav_overview">Overview</string>
     <string name="nav_calendar">Calendar</string>
     <string name="nav_alerts">Alerts</string>
+    <string name="nav_verify">Verify</string>
 
     <!-- Language picker sheet (ovl-language) chrome. -->
     <string name="lang_sheet_title">Choose language</string>
@@ -63,6 +64,7 @@
     <string name="sync_optype_shed">Shed record</string>
     <string name="sync_optype_proof">Video proof</string>
     <string name="sync_optype_reschedule">Reschedule</string>
+    <string name="sync_optype_verification_verdict">Verification verdict</string>
 
     <!-- MOB-002 background upload foreground service notification (UploadForegroundService,
          docs/mobile/proof-capture-sync-and-e2e.md §3 "Background sync survives app close"). -->

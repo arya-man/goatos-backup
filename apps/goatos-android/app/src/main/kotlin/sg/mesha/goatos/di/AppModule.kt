@@ -33,6 +33,7 @@ import sg.mesha.goatos.core.data.DefaultControlTowerRepository
 import sg.mesha.goatos.core.data.DefaultExecutionRepository
 import sg.mesha.goatos.core.data.DefaultTasksRepository
 import sg.mesha.goatos.core.data.DefaultVaccinationInsightsRepository
+import sg.mesha.goatos.core.data.DefaultVerificationRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.LogoutCoordinator
@@ -42,6 +43,7 @@ import sg.mesha.goatos.core.data.RosterRepository
 import sg.mesha.goatos.core.data.ScreenCacheStore
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.VaccinationInsightsRepository
+import sg.mesha.goatos.core.data.VerificationRepository
 import sg.mesha.goatos.core.data.buildGoatDatabase
 import sg.mesha.goatos.core.data.cache.AdherenceCacheDao
 import sg.mesha.goatos.core.data.cache.CalendarCacheDao
@@ -54,6 +56,7 @@ import sg.mesha.goatos.core.data.cache.RosterCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
+import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
@@ -153,6 +156,9 @@ object AppModule {
 
     @Provides
     fun provideProofCaptureDao(db: GoatDatabase): ProofCaptureDao = db.proofCaptureDao()
+
+    @Provides
+    fun provideVerificationQueueCacheDao(db: GoatDatabase): VerificationQueueCacheDao = db.verificationQueueCacheDao()
 
     @Provides
     @Singleton
@@ -256,6 +262,13 @@ object AppModule {
         timetableDao: RosterTimetableCacheDao,
         coverageDao: RosterCoverageCacheDao,
     ): RosterRepository = DefaultRosterRepository(api, timetableDao, coverageDao)
+
+    @Provides
+    @Singleton
+    fun provideVerificationRepository(
+        api: AppApi,
+        dao: VerificationQueueCacheDao,
+    ): VerificationRepository = DefaultVerificationRepository(api, dao)
 
     // --- MOB-002 capture (docs/mobile/proof-capture-sync-and-e2e.md) -------------------
     // Room-first SSOT behind Submit's `goat_scan`/`video_proof` recording-form controls.

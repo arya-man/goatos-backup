@@ -207,6 +207,7 @@ class SyncEngine(
         OutboxOpType.PROOF_UPLOAD -> dispatchProofUpload(item)
         OutboxOpType.VERIFY_TASK -> dispatchVerifyTask(item)
         OutboxOpType.REWORK_TASK -> dispatchReworkTask(item)
+        OutboxOpType.VERIFICATION_VERDICT -> dispatchVerificationVerdict(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -305,6 +306,15 @@ class SyncEngine(
     private suspend fun dispatchReworkTask(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<ReworkTaskPayload>(item.payloadJson)
         val response = api.reworkAppTask(payload.taskId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    /** The standalone Verifier section's approve/reject + reason verdict
+     *  (context/architecture/verifier-app-and-flow.md). Same idempotent-replay contract as
+     *  every other dispatch* here: the row's stored key is reused verbatim on every retry. */
+    private suspend fun dispatchVerificationVerdict(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<VerificationVerdictPayload>(item.payloadJson)
+        val response = api.submitVerificationVerdict(payload.itemId, item.idempotencyKey, payload.request)
         return syncJson.encodeToString(response)
     }
 

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="verify_queue_title">वीडियो सत्यापन</string>
+    <string name="verify_queue_refresh">रीफ़्रेश करें</string>
+    <string name="verify_queue_empty">कतार खाली है</string>
+    <string name="verify_queue_empty_subtitle">अभी सत्यापित करने के लिए कोई वीडियो लंबित नहीं है</string>
+    <string name="verify_queue_load_more">और लोड करें</string>
+    <string name="verify_queue_loading_more">और लोड हो रहे हैं…</string>
+
+    <string name="verify_detail_close">बंद करें</string>
+    <string name="verify_detail_context_title">संदर्भ</string>
+    <string name="verify_detail_shed_label">शेड</string>
+    <string name="verify_detail_park_label">पार्क</string>
+    <string name="verify_detail_operator_label">ऑपरेटर</string>
+    <string name="verify_detail_captured_label">कैप्चर किया गया</string>
+    <string name="verify_detail_no_media">इस आइटम में कोई वीडियो संलग्न नहीं है</string>
+    <string name="verify_detail_approve">स्वीकृत करें</string>
+    <string name="verify_detail_reject">अस्वीकार करें</string>
+    <string name="verify_detail_already_decided">पहले ही निर्णय लिया जा चुका — आगे कोई कार्रवाई आवश्यक नहीं</string>
+    <string name="verify_detail_submitting">सबमिट हो रहा…</string>
+
+    <string name="verify_reject_dialog_title">कारण सहित अस्वीकार करें</string>
+    <string name="verify_reject_dialog_subtitle">प्राधिकरण इस उल्लंघन पर कार्रवाई कर सके, इसके लिए कारण आवश्यक है</string>
+    <string name="verify_reject_dialog_placeholder">क्या गलत हुआ?</string>
+    <string name="verify_reject_dialog_confirm">अस्वीकृति की पुष्टि करें</string>
+    <string name="verify_reject_dialog_cancel">रद्द करें</string>
+    <string name="verify_reject_dialog_error_required">अस्वीकार करने से पहले एक कारण दर्ज करें</string>
+
+    <string name="verify_status_pending">लंबित</string>
+    <string name="verify_status_approved">स्वीकृत</string>
+    <string name="verify_status_rejected">अस्वीकृत</string>
+    <string name="verify_category_all">सभी</string>
+</resources>

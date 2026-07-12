@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="verify_queue_title">వీడియో ధృవీకరణ</string>
+    <string name="verify_queue_refresh">రిఫ్రెష్ చేయండి</string>
+    <string name="verify_queue_empty">క్యూ ఖాళీగా ఉంది</string>
+    <string name="verify_queue_empty_subtitle">ప్రస్తుతం ధృవీకరించడానికి పెండింగ్‌లో వీడియోలు లేవు</string>
+    <string name="verify_queue_load_more">మరిన్ని లోడ్ చేయండి</string>
+    <string name="verify_queue_loading_more">మరిన్ని లోడ్ అవుతున్నాయి…</string>
+
+    <string name="verify_detail_close">మూయి</string>
+    <string name="verify_detail_context_title">సందర్భం</string>
+    <string name="verify_detail_shed_label">షెడ్</string>
+    <string name="verify_detail_park_label">పార్క్</string>
+    <string name="verify_detail_operator_label">ఆపరేటర్</string>
+    <string name="verify_detail_captured_label">క్యాప్చర్ చేయబడింది</string>
+    <string name="verify_detail_no_media">ఈ అంశానికి వీడియో జోడించబడలేదు</string>
+    <string name="verify_detail_approve">ఆమోదించండి</string>
+    <string name="verify_detail_reject">తిరస్కరించండి</string>
+    <string name="verify_detail_already_decided">ఇప్పటికే నిర్ణయించబడింది — తదుపరి చర్య అవసరం లేదు</string>
+    <string name="verify_detail_submitting">సమర్పిస్తోంది…</string>
+
+    <string name="verify_reject_dialog_title">కారణంతో తిరస్కరించండి</string>
+    <string name="verify_reject_dialog_subtitle">అధికారం ఈ ఉల్లంఘనపై చర్య తీసుకోవడానికి కారణం అవసరం</string>
+    <string name="verify_reject_dialog_placeholder">ఏమి తప్పు జరిగింది?</string>
+    <string name="verify_reject_dialog_confirm">తిరస్కరణను నిర్ధారించండి</string>
+    <string name="verify_reject_dialog_cancel">రద్దు చేయండి</string>
+    <string name="verify_reject_dialog_error_required">తిరస్కరించే ముందు కారణం నమోదు చేయండి</string>
+
+    <string name="verify_status_pending">పెండింగ్‌లో ఉంది</string>
+    <string name="verify_status_approved">ఆమోదించబడింది</string>
+    <string name="verify_status_rejected">తిరస్కరించబడింది</string>
+    <string name="verify_category_all">అన్నీ</string>
+</resources>

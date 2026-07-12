@@ -122,6 +122,9 @@ object MeshaIcons {
         "leadership", "home", "dhome", "overview" -> Home
         "alerts", "notifications" -> Bell
         "you", "profile", "settings" -> User
+        // Standalone Verifier section (context/architecture/verifier-app-and-flow.md) — its
+        // one job is a video-verification queue, so the Video glyph is its nav icon.
+        "verify", "verification", "video_verification" -> Video
         else -> Syringe
     }
 }

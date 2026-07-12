@@ -18,6 +18,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -104,6 +105,18 @@ interface SyncRepository {
     suspend fun enqueueReworkTask(
         taskId: String,
         reason: String,
+        rowVersion: Int,
+    ): AppResult<String>
+
+    /** Enqueues the standalone Verifier section's approve/reject + reason verdict
+     *  (context/architecture/verifier-app-and-flow.md). [reason] is mandatory for
+     *  `decision = "rejected"` — enforced by the caller (VerifyDetailViewModel) before this
+     *  is ever called, mirrored server-side. [groupKey] is the verification item id so two
+     *  verdicts on the SAME item never race out of order; different items drain concurrently. */
+    suspend fun enqueueVerificationVerdict(
+        itemId: String,
+        decision: String,
+        reason: String?,
         rowVersion: Int,
     ): AppResult<String>
 
@@ -249,6 +262,26 @@ class DefaultSyncRepository(
             groupKey = taskId,
             idempotencyKey = idempotencyKey,
             payloadJson = syncJson.encodeToString(ReworkTaskPayload(taskId = taskId, request = ReviewTaskRequestDto(reason = reason, rowVersion = rowVersion))),
+        )
+    }
+
+    override suspend fun enqueueVerificationVerdict(
+        itemId: String,
+        decision: String,
+        reason: String?,
+        rowVersion: Int,
+    ): AppResult<String> {
+        val idempotencyKey = "$itemId-verdict-${System.currentTimeMillis()}"
+        return enqueue(
+            opType = OutboxOpType.VERIFICATION_VERDICT,
+            groupKey = itemId,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(
+                VerificationVerdictPayload(
+                    itemId = itemId,
+                    request = VerificationVerdictRequestDto(decision = decision, reason = reason, rowVersion = rowVersion),
+                ),
+            ),
         )
     }
 
