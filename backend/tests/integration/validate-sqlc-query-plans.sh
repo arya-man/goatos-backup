@@ -1228,6 +1228,15 @@ ORDER BY
 LIMIT 50 OFFSET 0;"
 }
 
+validate_vaccination_execution_projection_read_plan() {
+  explain_must_use_index "VaccinationExecutionProjectionRead" 'Seq Scan on vaccination_execution_projection_rows' "EXPLAIN (COSTS OFF)
+SELECT sort_row_key FROM vaccination_execution_projection_rows
+WHERE tenant_id='00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version=1::bigint AND work_state='overdue'
+  AND (sort_rank,sort_due_micros,sort_row_key) > (0,0,'')
+ORDER BY sort_rank,sort_due_micros,sort_row_key LIMIT 201;"
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -1265,5 +1274,6 @@ validate_operations_audit_plans
 validate_calendar_vaccination_plans
 validate_herd_register_summary_plan
 validate_vaccination_shed_projection_plan
+validate_vaccination_execution_projection_read_plan
 
 echo "Validated current hot-path query plans"

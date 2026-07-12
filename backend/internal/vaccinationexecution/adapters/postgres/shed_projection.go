@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -45,14 +46,17 @@ func (r *Repository) RecomputeShedProjection(ctx context.Context, req domain.She
 	if asOf.IsZero() {
 		asOf = time.Now().In(biztime.DefaultLocation())
 	}
-	dueBefore := asOf.Add(defaultExecutionHorizon)
+	dueBefore := req.DueBefore
+	if dueBefore.IsZero() {
+		dueBefore = asOf.Add(defaultExecutionHorizon)
+	}
 
 	var projectionVersion int64
 	var projectedAt time.Time
 	if err := r.pool.QueryRow(ctx, `SELECT (extract(epoch FROM now()) * 1000)::bigint, now()`).Scan(&projectionVersion, &projectedAt); err != nil {
 		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: stamp: %w", err)
 	}
-	if err := r.markShedProjectionRebuilding(ctx, req.TenantID, projectionVersion, projectedAt, asOf); err != nil {
+	if err := r.markShedProjectionRebuilding(ctx, req.TenantID, projectionVersion, projectedAt, asOf, dueBefore); err != nil {
 		return domain.ShedProjectionRecomputeResult{}, err
 	}
 	committed := false
@@ -91,10 +95,10 @@ WHERE tenant_id = $1::uuid
 
 	if _, err := tx.Exec(ctx, `
 INSERT INTO vaccination_shed_projection_state (
-  tenant_id, projection_version, serving_projection_version, projected_at, as_of, row_count,
+  tenant_id, projection_version, serving_projection_version, projected_at, as_of, due_before, row_count,
   freshness_status, serving_state, last_error, updated_at
 ) VALUES (
-  $1::uuid, $2::bigint, $2::bigint, $3::timestamptz, $4::timestamptz, $5::bigint,
+  $1::uuid, $2::bigint, $2::bigint, $3::timestamptz, $4::timestamptz, $5::timestamptz, $6::bigint,
   'green', 'fresh', NULL, now()
 )
 ON CONFLICT (tenant_id) DO UPDATE SET
@@ -102,12 +106,13 @@ ON CONFLICT (tenant_id) DO UPDATE SET
   serving_projection_version = EXCLUDED.serving_projection_version,
   projected_at = EXCLUDED.projected_at,
   as_of = EXCLUDED.as_of,
+  due_before = EXCLUDED.due_before,
   row_count = EXCLUDED.row_count,
   freshness_status = EXCLUDED.freshness_status,
   serving_state = EXCLUDED.serving_state,
   last_error = NULL,
   updated_at = now()`,
-		req.TenantID, projectionVersion, projectedAt, asOf, rowCount); err != nil {
+		req.TenantID, projectionVersion, projectedAt, asOf, dueBefore, rowCount); err != nil {
 		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: upsert state: %w", err)
 	}
 
@@ -130,13 +135,13 @@ ON CONFLICT (tenant_id) DO UPDATE SET
 	return result, nil
 }
 
-func (r *Repository) markShedProjectionRebuilding(ctx context.Context, tenantID string, projectionVersion int64, projectedAt, asOf time.Time) error {
+func (r *Repository) markShedProjectionRebuilding(ctx context.Context, tenantID string, projectionVersion int64, projectedAt, asOf, dueBefore time.Time) error {
 	if _, err := r.pool.Exec(ctx, `
 INSERT INTO vaccination_shed_projection_state (
-  tenant_id, projection_version, serving_projection_version, projected_at, as_of, row_count,
+  tenant_id, projection_version, serving_projection_version, projected_at, as_of, due_before, row_count,
   freshness_status, serving_state, last_error, updated_at
 ) VALUES (
-  $1::uuid, $2::bigint, NULL, $3::timestamptz, $4::timestamptz, 0,
+  $1::uuid, $2::bigint, NULL, $3::timestamptz, $4::timestamptz, $5::timestamptz, 0,
   'unknown', 'rebuilding', NULL, now()
 )
 ON CONFLICT (tenant_id) DO UPDATE SET
@@ -146,7 +151,7 @@ ON CONFLICT (tenant_id) DO UPDATE SET
   END,
   serving_state = 'rebuilding',
   last_error = NULL,
-  updated_at = now()`, tenantID, projectionVersion, projectedAt, asOf); err != nil {
+  updated_at = now()`, tenantID, projectionVersion, projectedAt, asOf, dueBefore); err != nil {
 		return fmt.Errorf("vaccination execution: recompute shed projection: mark rebuilding: %w", err)
 	}
 	return nil
@@ -269,14 +274,107 @@ WHERE tenant_id = $1::uuid
 	return servingVersion, servingVersion > 0
 }
 
-// vaccinationShedProjectionInsertSQL is the ONLY place in this codebase that still reconstructs shed
-// status from raw obligation/goat/capacity-config history via a big CTE chain (alive/completions/
-// asof_terminal/raw/effective/due_agg/shed_rows/scored/classified) -- and it is deliberately off the
-// request path: RecomputeShedProjection runs it on a schedule (or via the recompute CLI/Cloud Run Job)
-// to materialize vaccination_shed_projection_rows, which ShedSummary (repository.go) then reads via an
-// indexed lookup. This keeps the codebase honest: the god-CTE pattern still exists exactly once, as a
-// projector, never as a live read.
-// scale-guard:ignore: off-request projector recompute only (RecomputeShedProjection), never on the ShedSummary request path (repository.go reads the indexed vaccination_shed_projection_rows table, C35-002).
+func (r *Repository) compatibleShedProjection(ctx context.Context, tenantID string, asOf, dueBefore time.Time, historical bool) (int64, *domain.ProjectionFreshness, bool) {
+	var version int64
+	var projectedAt, projectedAsOf time.Time
+	var status string
+	err := r.pool.QueryRow(ctx, `
+SELECT serving_projection_version,projected_at,as_of,freshness_status
+FROM vaccination_shed_projection_state
+WHERE tenant_id=$1::uuid AND serving_projection_version IS NOT NULL
+  AND serving_state IN ('fresh','stale','rebuilding')
+  AND (
+    ($4::boolean AND as_of=$2::timestamptz AND due_before=$3::timestamptz)
+    OR
+    (NOT $4::boolean AND as_of <= $2::timestamptz
+      AND $2::timestamptz-as_of <= $5::interval
+      AND (as_of AT TIME ZONE 'Asia/Kolkata')::date=($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+      AND (due_before AT TIME ZONE 'Asia/Kolkata')::date=($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date)
+  )`, tenantID, asOf, dueBefore, historical, maxVaccinationProjectionLiveLag.String()).Scan(&version, &projectedAt, &projectedAsOf, &status)
+	if err != nil || version <= 0 {
+		return 0, nil, false
+	}
+	lag := asOf.Sub(projectedAsOf)
+	if lag < 0 {
+		lag = 0
+	}
+	return version, &domain.ProjectionFreshness{ProjectionVersion: version, ProjectedAt: projectedAt, AsOf: projectedAsOf, Status: status, LagSeconds: int64(lag.Seconds())}, true
+}
+
+func (r *Repository) listShedProjection(ctx context.Context, q domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	asOf := q.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	dueBefore := q.DueBefore
+	if dueBefore.IsZero() {
+		dueBefore = asOf.Add(defaultExecutionHorizon)
+	}
+	version, freshness, ok := r.compatibleShedProjection(ctx, q.TenantID, asOf, dueBefore, q.HistoricalAsOf)
+	if !ok {
+		return nil, domain.ErrProjectionUnavailable
+	}
+	status, capacity := "", ""
+	if q.Status != nil {
+		status = string(*q.Status)
+	}
+	if q.Capacity != nil {
+		capacity = string(*q.Capacity)
+	}
+	query := strings.Replace(shedProjectionReadSQL, "__ORDER_BY__", shedSummaryOrderBy(q.Sort), 1)
+	rows, err := r.pool.Query(ctx, query, q.TenantID, version, optStr(q.ParkID), optStr(q.ShedID), optStr(q.Search), status, capacity, limit, q.Offset)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: shed projection read: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.ShedSummaryProjection{}
+	for rows.Next() {
+		var row domain.ShedSummaryProjection
+		var lastDone, nextDue pgtype.Timestamptz
+		var capacityStatus, shedStatus string
+		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &row.TotalCount); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan shed projection: %w", err)
+		}
+		row.Capacity, row.Status = domain.CapacityStatus(capacityStatus), domain.ShedStatus(shedStatus)
+		row.LastDone, row.NextDue, row.Freshness = timePtr(lastDone), timePtr(nextDue), freshness
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+const shedProjectionReadSQL = `
+SELECT park_id,park_name,shed_id,shed_name,animals,due_animals,open_cells,sessions,
+  capacity_status,shed_status,last_done,next_due,COUNT(*) OVER()::bigint
+FROM vaccination_shed_projection_rows
+WHERE tenant_id=$1::uuid AND projection_version=$2::bigint
+  AND ($3::text='' OR park_id=$3) AND ($4::text='' OR shed_id=$4)
+  AND ($5::text='' OR shed_name ILIKE '%'||$5||'%' OR park_name ILIKE '%'||$5||'%')
+  AND ($6::text='' OR shed_status=$6) AND ($7::text='' OR capacity_status=$7)
+ORDER BY __ORDER_BY__ LIMIT $8 OFFSET $9;`
+
+// vaccinationShedProjectionInsertSQL replays the exact same alive/completions/asof_terminal/raw/
+// effective/due_agg/shed_rows/scored/classified chain as shedSummarySQL (repository.go), with the
+// park/shed/search/status/capacity filters and LIMIT/OFFSET removed -- this is a full, unfiltered
+// per-tenant materialization, not a filtered page. Keeping the two chains textually independent (rather
+// than sharing a Go string fragment) mirrors how vaccinationExecutionSQL/vaccinationOperationsSQL already
+// duplicate similar CTE shapes in this package; it also means this file can never accidentally change
+// ShedSummary's live request-path behavior.
+// scale-guard:ignore: off-request projector recompute only (RecomputeShedProjection); ShedSummary's own request-path god-CTE stays the baselined C35-002 debt in repository.go until the explicit read flip.
 const vaccinationShedProjectionInsertSQL = `
 WITH alive AS (
   SELECT g.shed_id AS shed_uuid, COUNT(*)::bigint AS animals

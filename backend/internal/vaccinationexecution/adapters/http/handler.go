@@ -141,6 +141,7 @@ func (h *Handler) VaccinationOperations(w http.ResponseWriter, r *http.Request) 
 		}
 		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
+		q.HistoricalAsOf = parsed.Before(asOf)
 	}
 	if dueBefore := query.Get("due_before"); dueBefore != "" {
 		parsed, err := time.Parse(time.RFC3339, dueBefore)
@@ -272,6 +273,7 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		q.AsOf = parsed
 		// Re-anchor the default horizon to as_of; an explicit due_before below still wins.
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
+		q.HistoricalAsOf = parsed.Before(asOf)
 	}
 	if parkID := query.Get("park_id"); parkID != "" {
 		if !uuidutil.IsUUIDString(parkID) {
@@ -578,6 +580,7 @@ func (h *Handler) VaccinationCoverage(w http.ResponseWriter, r *http.Request) {
 		}
 		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
+		q.HistoricalAsOf = parsed.Before(asOf)
 	}
 	if dueBefore := query.Get("due_before"); dueBefore != "" {
 		parsed, err := time.Parse(time.RFC3339, dueBefore)
@@ -658,6 +661,7 @@ func (h *Handler) ListShedSummary(w http.ResponseWriter, r *http.Request) {
 		}
 		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
+		q.HistoricalAsOf = parsed.Before(asOf)
 	}
 	if parkID := query.Get("park_id"); parkID != "" {
 		if !uuidutil.IsUUIDString(parkID) {
@@ -765,6 +769,7 @@ func (h *Handler) GetShedDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
+		q.HistoricalAsOf = parsed.Before(asOf)
 	}
 	detail, found, err := h.reader.ShedDetail(r.Context(), shedID, q)
 	if err != nil {
@@ -855,6 +860,11 @@ func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, vaccexecd.ErrProjectionUnavailable) {
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+			errorEnvelope{Code: "projection_unavailable", Message: "vaccination read model is temporarily unavailable", TraceID: traceID(r)}, err)
+		return
+	}
 	httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 		errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
 }
