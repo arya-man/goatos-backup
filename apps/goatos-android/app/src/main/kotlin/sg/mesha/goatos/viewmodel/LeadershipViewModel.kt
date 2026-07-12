@@ -52,6 +52,8 @@ class LeadershipViewModel @Inject constructor(
     private val insights: VaccinationInsightsRepository,
 ) : ViewModel() {
 
+    private var gapsNextCursor: String? = null
+
     private val _state = MutableStateFlow(leadershipPlaceholder("Loading overview…"))
     val state: StateFlow<LeadershipUiState> = _state.asStateFlow()
 
@@ -144,6 +146,19 @@ class LeadershipViewModel @Inject constructor(
         }
     }
 
+    /** Appends one bounded keyset page into the same Room-backed gaps cache. */
+    fun loadMoreGaps() = viewModelScope.launch {
+        val cursor = gapsNextCursor ?: return@launch
+        if (_gapsState.value.isLoadingMore) return@launch
+        _gapsState.update { it.copy(isLoadingMore = true) }
+        val result = insights.appendGaps(cursor = cursor, limit = GAPS_LIMIT)
+        if (result.isFailure) {
+            _gapsState.update { current ->
+                current.copy(isLoadingMore = false, isOffline = true)
+            }
+        }
+    }
+
     /**
      * Doses-given (per-vaccine coverage) overlay — cache-first, mirrors [loadGaps]. The
      * observeCoverage collector in [init] keeps [dosesState] fed from Room; this drives the
@@ -174,12 +189,16 @@ class LeadershipViewModel @Inject constructor(
      *  is present, and carry the sync clock — never blow away cached rows on a null emission. */
     private fun applyGapsResource(resource: Resource<VaccinationGapsResponseDto>) {
         val dto = resource.data
+        gapsNextCursor = dto?.nextCursor
         _gapsState.update { current ->
             val items = dto?.toGapRows() ?: current.items
             current.copy(
                 items = items,
                 isLoading = if (resource.hasData) false else current.isLoading,
                 errorMessage = if (resource.hasData) null else current.errorMessage,
+                hasMore = !dto?.nextCursor.isNullOrBlank(),
+                isLoadingMore = false,
+                isOffline = if (resource.hasData) false else current.isOffline,
                 lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
             )
         }
@@ -251,12 +270,14 @@ data class OverlayLoadState<T>(
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val hasMore: Boolean = false,
 )
 
 /** Overlay read page sizes — must match between observeX (init collectors) and refreshX
  *  (loadGaps/loadDosesGiven) so the cache-first stream and the refresh share one cache key. */
-private const val GAPS_LIMIT = 50
-private const val COVERAGE_LIMIT = 50
+private const val GAPS_LIMIT = 20
+private const val COVERAGE_LIMIT = 50 // mobile-guard:ignore: bounded vaccine protocol catalog, not an animal list
 
 // Data gaps are strictly per-animal: one card per goat (display id + physical tags + reason).
 // No rows → empty list → the sheet shows its empty state. There is no by-reason aggregate card.

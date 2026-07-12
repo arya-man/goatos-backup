@@ -55,6 +55,8 @@
     <string name="gaps_note">ಕಾಣೆಯಾದ ಡೇಟಾ ಭರ್ತಿಯಾಗುವವರೆಗೆ ಈ ಪ್ರಾಣಿಗಳನ್ನು ಕವರೇಜ್ %ನಿಂದ ಹೊರಗಿಡಲಾಗುತ್ತದೆ. ಉಳಿದೆಲ್ಲವೂ ಸಂಪೂರ್ಣವಾಗಿ ಟ್ರ್ಯಾಕ್ ಆಗುತ್ತದೆ.</string>
     <string name="gaps_tag1_label">ಟ್ಯಾಗ್ 1</string>
     <string name="gaps_tag2_label">ಟ್ಯಾಗ್ 2</string>
+    <string name="gaps_load_more">ಇನ್ನಷ್ಟು ಪ್ರಾಣಿಗಳನ್ನು ಲೋಡ್ ಮಾಡಿ</string>
+    <string name="gaps_loading_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
     <string name="doses_footer">ಪ್ರತಿ ಡೋಸ್ ವೀಡಿಯೊ ಪ್ರೂಫ್‌ನೊಂದಿಗೆ ಪರಿಶೀಲಿಸಿದ ಶೆಡ್ ದಾಖಲೆಯಾಗಿದೆ</string>
     <string name="doses_empty">ಈ ಸ್ಕೋಪ್‌ಗೆ ಯಾವುದೇ ಲಸಿಕೆ ಡೇಟಾ ಲಭ್ಯವಿಲ್ಲ.</string>
 </resources>

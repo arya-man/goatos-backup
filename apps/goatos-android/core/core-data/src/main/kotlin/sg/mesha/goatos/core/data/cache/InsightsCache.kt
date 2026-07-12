@@ -24,6 +24,9 @@ interface InsightsGapsCacheDao {
     @Query("SELECT * FROM insights_gaps_cache WHERE cacheKey = :cacheKey")
     fun observe(cacheKey: String): Flow<InsightsGapsCacheEntity?>
 
+    @Query("SELECT * FROM insights_gaps_cache WHERE cacheKey = :cacheKey")
+    suspend fun get(cacheKey: String): InsightsGapsCacheEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: InsightsGapsCacheEntity)
 }

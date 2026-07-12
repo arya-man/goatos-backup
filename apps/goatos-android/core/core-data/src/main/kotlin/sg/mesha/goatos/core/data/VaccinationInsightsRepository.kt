@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -15,6 +17,7 @@ import sg.mesha.goatos.core.data.cache.InsightsGapsCacheEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationGapRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
 
 /**
@@ -49,6 +52,13 @@ interface VaccinationInsightsRepository {
         cursor: String? = null,
     ): Result<Unit>
 
+    /** Fetches the next keyset page and merges it into the observed first-page Room row. */
+    suspend fun appendGaps(
+        cursor: String,
+        parkId: String? = null,
+        limit: Int? = null,
+    ): Result<Unit>
+
     suspend fun coverage(
         parkId: String? = null,
         asOf: String? = null,
@@ -80,6 +90,8 @@ class DefaultVaccinationInsightsRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : VaccinationInsightsRepository {
+    private val gapsAppendMutex = Mutex()
+
     override suspend fun gaps(
         parkId: String?,
         limit: Int?,
@@ -103,6 +115,34 @@ class DefaultVaccinationInsightsRepository(
         val dto = gaps(parkId, limit, cursor)
         val key = cacheKey(parkId, limit?.toString(), cursor)
         gapsDao.upsert(InsightsGapsCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+    }
+
+    override suspend fun appendGaps(
+        cursor: String,
+        parkId: String?,
+        limit: Int?,
+    ): Result<Unit> = runCatching {
+        gapsAppendMutex.withLock {
+            val key = cacheKey(parkId, limit?.toString(), null)
+            val current = gapsDao.get(key)
+                ?.let { json.decodeFromString<VaccinationGapsResponseDto>(it.dtoJson) }
+                ?: throw VaccinationGapsCursorException("data-gap continuation has no cached first page")
+            if (current.nextCursor != cursor) {
+                throw VaccinationGapsCursorException("data-gap cursor is stale or belongs to another scope")
+            }
+
+            val page = gaps(parkId = parkId, limit = limit, cursor = cursor)
+            if (page.nextCursor == cursor) {
+                throw VaccinationGapsCursorException("data-gap backend returned a non-advancing cursor")
+            }
+            gapsDao.upsert(
+                InsightsGapsCacheEntity(
+                    cacheKey = key,
+                    dtoJson = json.encodeToString(mergeVaccinationGapsPage(current, page)),
+                    updatedAt = clock(),
+                ),
+            )
+        }
     }
 
     override suspend fun coverage(
@@ -145,3 +185,16 @@ class DefaultVaccinationInsightsRepository(
             lastSyncedAt = this?.updatedAt,
         )
 }
+
+class VaccinationGapsCursorException(message: String) : IllegalStateException(message)
+
+internal fun mergeVaccinationGapsPage(
+    current: VaccinationGapsResponseDto,
+    page: VaccinationGapsResponseDto,
+): VaccinationGapsResponseDto = page.copy(
+    parkId = page.parkId ?: current.parkId,
+    rows = (current.rows + page.rows).distinctBy { it.stableGapIdentity() },
+)
+
+private fun VaccinationGapRowDto.stableGapIdentity(): String =
+    goatId.ifBlank { displayId.ifBlank { listOf(parkId, shedId, reasonCode).joinToString("|") } }

@@ -540,10 +540,13 @@ data class GapRow(
 fun DataGapsSheet(
     gapsData: List<GapRow> = emptyList(),
     isLoading: Boolean = false,
+    isLoadingMore: Boolean = false,
+    hasMore: Boolean = false,
     errorMessage: String? = null,
     isRefreshing: Boolean = false,
     lastSyncedAt: Long? = null,
     isOffline: Boolean = false,
+    onLoadMore: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     OverlaySheet(
@@ -601,6 +604,29 @@ fun DataGapsSheet(
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     GapTagChip(stringResource(DesignSystemR.string.gaps_tag1_label), gap.tag1, Modifier.weight(1f))
                                     GapTagChip(stringResource(DesignSystemR.string.gaps_tag2_label), gap.tag2, Modifier.weight(1f))
+                                }
+                            }
+                        }
+                        if (hasMore) {
+                            item(key = "load-more-gaps") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .border(1.dp, OverlayTokens.hair, RoundedCornerShape(12.dp))
+                                        .clickable(enabled = !isLoadingMore, onClick = onLoadMore)
+                                        .padding(vertical = 12.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = stringResource(
+                                            if (isLoadingMore) DesignSystemR.string.gaps_loading_more
+                                            else DesignSystemR.string.gaps_load_more,
+                                        ),
+                                        color = if (isLoadingMore) OverlayTokens.muted else OverlayTokens.brandD,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.W700,
+                                    )
                                 }
                             }
                         }

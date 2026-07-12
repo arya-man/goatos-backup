@@ -55,6 +55,8 @@
     <string name="gaps_note">తప్పిపోయిన డేటా నింపే వరకు ఈ జంతువులు కవరేజ్ % నుండి మినహాయించబడతాయి. మిగతావన్నీ పూర్తిగా ట్రాక్ చేయబడతాయి.</string>
     <string name="gaps_tag1_label">ట్యాగ్ 1</string>
     <string name="gaps_tag2_label">ట్యాగ్ 2</string>
+    <string name="gaps_load_more">మరిన్ని జంతువులను లోడ్ చేయండి</string>
+    <string name="gaps_loading_more">మరిన్ని లోడ్ అవుతున్నాయి…</string>
     <string name="doses_footer">ప్రతి డోసు వీడియో ప్రూఫ్‌తో ధృవీకరించిన షెడ్ రికార్డు</string>
     <string name="doses_empty">ఈ స్కోప్‌కు టీకా డేటా అందుబాటులో లేదు.</string>
 </resources>

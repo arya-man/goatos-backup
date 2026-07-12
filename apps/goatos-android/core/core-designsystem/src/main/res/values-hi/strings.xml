@@ -55,6 +55,8 @@
     <string name="gaps_note">जब तक छूटा हुआ डेटा नहीं भरा जाता, ये पशु कवरेज % से बाहर रहते हैं। बाकी सब पूरी तरह ट्रैक किया जाता है।</string>
     <string name="gaps_tag1_label">टैग 1</string>
     <string name="gaps_tag2_label">टैग 2</string>
+    <string name="gaps_load_more">और पशु लोड करें</string>
+    <string name="gaps_loading_more">और लोड हो रहे हैं…</string>
     <string name="doses_footer">हर खुराक वीडियो प्रूफ़ के साथ एक सत्यापित शेड रिकॉर्ड है</string>
     <string name="doses_empty">इस स्कोप के लिए कोई टीकाकरण डेटा उपलब्ध नहीं है।</string>
 </resources>

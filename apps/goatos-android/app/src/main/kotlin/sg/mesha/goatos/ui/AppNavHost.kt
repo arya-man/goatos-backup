@@ -420,10 +420,13 @@ fun AppNavHost(
                 DataGapsSheet(
                     gapsData = gapsState.items,
                     isLoading = gapsState.isLoading,
+                    isLoadingMore = gapsState.isLoadingMore,
+                    hasMore = gapsState.hasMore,
                     errorMessage = gapsState.errorMessage,
                     isRefreshing = gapsState.isRefreshing,
                     lastSyncedAt = gapsState.lastSyncedAt,
                     isOffline = gapsState.isOffline,
+                    onLoadMore = vm::loadMoreGaps,
                     onDismiss = { showGaps = false },
                 )
             }

@@ -71,6 +71,8 @@
     <string name="gaps_note">These animals are excluded from the coverage % until the missing data is filled. Everything else is fully tracked.</string>
     <string name="gaps_tag1_label">Tag 1</string>
     <string name="gaps_tag2_label">Tag 2</string>
+    <string name="gaps_load_more">Load more animals</string>
+    <string name="gaps_loading_more">Loading more…</string>
     <string name="doses_footer">Every dose is a verified shed record with video proof</string>
     <string name="doses_empty">No vaccination data available for this scope.</string>
 </resources>
