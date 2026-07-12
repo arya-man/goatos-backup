@@ -816,6 +816,65 @@ func TestVaccinationOperationsAggregatesCohortsAndDedupesRework(t *testing.T) {
 	}
 }
 
+func TestVaccinationOperationsOrdersCohortsByVisibleNamesAndPaginates(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	const (
+		zuluPark  = "60000000-0000-4000-8000-000000000001" // UUID sorts first; visible name must sort last.
+		zuluShed  = "60000000-0000-4000-8000-000000000002"
+		zuluGoat  = "60000000-0000-4000-8000-000000000003"
+		zuluBatch = "60000000-0000-4000-8000-000000000004"
+		zuluObl   = "60000000-0000-4000-8000-000000000005"
+	)
+	execProjectionSQL(t, ctx, pool, "zulu park", `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+VALUES ($1,$2,'park','PARK-ZULU','Zulu Park','active')`, zuluPark, testTenant)
+	execProjectionSQL(t, ctx, pool, "zulu shed", `
+INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+VALUES ($1,$2,'shed','SHED-ZULU','Zulu Shed',$3,'active')`, zuluShed, testTenant, zuluPark)
+	insertProjectionGoat(t, ctx, pool, zuluGoat, zuluShed, zuluPark)
+	execProjectionSQL(t, ctx, pool, "zulu batch", `
+INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
+VALUES ($1,$2,$3,'shed',$4,'in_progress',DATE '2026-06-24',$5)`, zuluBatch, testTenant, testVersion, zuluShed, testOperator)
+	execProjectionSQL(t, ctx, pool, "zulu obligation", `
+INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
+  target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+VALUES ($1,$2,$3,$4,$5,'goat',$6,'shed',$7,TIMESTAMPTZ '2026-06-24 00:00:00+00','due','ops-human-order-zulu',1)`,
+		zuluObl, testTenant, testVersion, testRule, zuluBatch, zuluGoat, zuluShed)
+
+	svc := vaccexecapp.NewService(NewRepository(pool, 5*time.Second))
+	query := domain.OperationsQuery{
+		TenantID: testTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 1,
+	}
+	page1, err := svc.VaccinationOperations(ctx, query)
+	if err != nil {
+		t.Fatalf("VaccinationOperations page1: %v", err)
+	}
+	if len(page1.Cohorts) != 1 || page1.Cohorts[0].ParkName != "CBE Park" || page1.NextCursor == nil {
+		t.Fatalf("page1 = %#v, want CBE Park followed by a cursor", page1)
+	}
+	cursor, err := domain.DecodeOperationsCursor(*page1.NextCursor)
+	if err != nil {
+		t.Fatalf("DecodeOperationsCursor: %v", err)
+	}
+	if cursor.ParkName != "CBE Park" || cursor.ShedName != "K1 Shed" {
+		t.Fatalf("cursor names = %q/%q, want visible page boundary", cursor.ParkName, cursor.ShedName)
+	}
+	query.Cursor = &cursor
+	page2, err := svc.VaccinationOperations(ctx, query)
+	if err != nil {
+		t.Fatalf("VaccinationOperations page2: %v", err)
+	}
+	if len(page2.Cohorts) != 1 || page2.Cohorts[0].ParkName != "Zulu Park" {
+		t.Fatalf("page2 = %#v, want Zulu Park with no skip/duplicate", page2)
+	}
+}
+
 // TestVaccinationOperationsAsOfExcludesFutureCompletions proves true as_of on the dose state: a dose
 // ACCEPTED after as_of must not count (last_dose stays nil, accepted=0), and moving as_of past the dose
 // makes it count. This is the "rows/events after as_of must not count" + "last_dose = latest accepted

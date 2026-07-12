@@ -167,9 +167,11 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 	if q.Limit > 0 && len(cohorts) > q.Limit {
 		last := cohorts[q.Limit-1]
 		encoded, err := domain.EncodeOperationsCursor(domain.OperationsCursor{
-			ParkID: last.ParkID,
-			ShedID: last.ShedID,
-			Stage:  last.Stage,
+			ParkID:   last.ParkID,
+			ParkName: last.ParkName,
+			ShedID:   last.ShedID,
+			ShedName: last.ShedName,
+			Stage:    last.Stage,
 		})
 		if err != nil {
 			return domain.OperationsResponse{}, err

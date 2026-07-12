@@ -223,13 +223,17 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	if q.ShedID != nil {
 		shedID = *q.ShedID
 	}
-	cursorParkID, cursorShedID, cursorStage := "", "", ""
+	cursorParkID, cursorParkName, cursorShedID, cursorShedName, cursorStage := "", "", "", "", ""
 	if q.Cursor != nil {
 		cursorParkID = q.Cursor.ParkID
+		cursorParkName = q.Cursor.ParkName
 		cursorShedID = q.Cursor.ShedID
+		cursorShedName = q.Cursor.ShedName
 		cursorStage = q.Cursor.Stage
 	}
-	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL, q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit)
+	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL,
+		q.TenantID, asOf, dueBefore, parkID, shedID,
+		cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: list operations: %w", err)
 	}
@@ -811,7 +815,23 @@ LIMIT ($5::int + 1);
 // current verification status. A dose administered before as_of but accepted after as_of is bounded out of
 // "completed" via completed_at, but its as_of verification sub-state is not yet reconstructed.
 const vaccinationOperationsSQL = `
-WITH completions AS (
+WITH cursor_location AS (
+  -- Cursors emitted before the human-order fix carry IDs/stage only. Resolve
+  -- their names from the same tenant so those short-lived cursors remain valid;
+  -- new cursors embed names to keep the comparison stable across page requests.
+  SELECT
+    COALESCE(NULLIF($10::text, ''), park.name) AS park_name,
+    COALESCE(NULLIF($11::text, ''), shed.name) AS shed_name
+  FROM locations park
+  JOIN locations shed
+    ON shed.tenant_id = park.tenant_id
+   AND shed.location_id = NULLIF($7::text, '')::uuid
+   AND shed.location_type = 'shed'
+  WHERE park.tenant_id = $1::uuid
+    AND park.location_id = NULLIF($6::text, '')::uuid
+    AND park.location_type = 'park'
+),
+completions AS (
   -- Collapse completion history to ONE effective row per obligation. Migration 000082 dropped the hard
   -- one-row uniqueness and keeps rejected/reversed attempts as immutable history alongside at most one
   -- active (recorded/accepted) row, so joining vaccination_completions directly fans out and double-counts
@@ -961,10 +981,23 @@ cohort_page AS (
     AND ($5::text = '' OR effective.shed_uuid = NULLIF($5, '')::uuid)
     AND (
       $6::text = ''
-      OR (effective.park_uuid, effective.shed_uuid, effective.stage) > (NULLIF($6, '')::uuid, NULLIF($7, '')::uuid, $8::text)
+      OR (
+        lower(park.name) COLLATE "C", park.name COLLATE "C", effective.park_uuid,
+        lower(shed.name) COLLATE "C", shed.name COLLATE "C", effective.shed_uuid,
+        effective.stage COLLATE "C"
+      ) > (
+        SELECT
+          lower(cursor_location.park_name) COLLATE "C", cursor_location.park_name COLLATE "C", NULLIF($6, '')::uuid,
+          lower(cursor_location.shed_name) COLLATE "C", cursor_location.shed_name COLLATE "C", NULLIF($7, '')::uuid,
+          $8::text COLLATE "C"
+        FROM cursor_location
+      )
     )
-  GROUP BY effective.park_uuid, effective.shed_uuid, effective.stage
-  ORDER BY effective.park_uuid ASC, effective.shed_uuid ASC, effective.stage ASC
+  GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effective.stage
+  ORDER BY
+    lower(park.name) COLLATE "C" ASC, park.name COLLATE "C" ASC, effective.park_uuid ASC,
+    lower(shed.name) COLLATE "C" ASC, shed.name COLLATE "C" ASC, effective.shed_uuid ASC,
+    effective.stage COLLATE "C" ASC
   LIMIT $9
 )
 SELECT
@@ -1005,7 +1038,11 @@ JOIN locations park
  AND park.location_type = 'park'
  AND park.status = 'active'
 GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effective.stage, effective.protocol_id, effective.protocol_name
-ORDER BY effective.park_uuid ASC, effective.shed_uuid ASC, effective.stage ASC, effective.protocol_name ASC, effective.protocol_id ASC;
+ORDER BY
+  lower(park.name) COLLATE "C" ASC, park.name COLLATE "C" ASC, effective.park_uuid ASC,
+  lower(shed.name) COLLATE "C" ASC, shed.name COLLATE "C" ASC, effective.shed_uuid ASC,
+  effective.stage COLLATE "C" ASC,
+  effective.protocol_name COLLATE "C" ASC, effective.protocol_id ASC;
 `
 
 // ScanRoster returns per-animal vaccination obligations scoped by shed, with RFID tags and vaccine labels.

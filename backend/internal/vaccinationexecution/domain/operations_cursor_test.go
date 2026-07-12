@@ -4,9 +4,11 @@ import "testing"
 
 func TestOperationsCursorRoundTrip(t *testing.T) {
 	want := OperationsCursor{
-		ParkID: "30000000-0000-4000-8000-000000000001",
-		ShedID: "40000000-0000-4000-8000-000000000001",
-		Stage:  "K1",
+		ParkID:   "30000000-0000-4000-8000-000000000001",
+		ParkName: "CBE Park",
+		ShedID:   "40000000-0000-4000-8000-000000000001",
+		ShedName: "K1 Shed",
+		Stage:    "K1",
 	}
 	encoded, err := EncodeOperationsCursor(want)
 	if err != nil {
