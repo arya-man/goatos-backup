@@ -8610,6 +8610,13 @@ CREATE UNIQUE INDEX herd_register_goat_projection_display_uidx ON public.herd_re
 
 
 --
+-- Name: herd_register_goat_projection_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX herd_register_goat_projection_scope_idx ON public.herd_register_goat_projection USING btree (tenant_id, lifecycle_status, park_id, breed, sex, display_id);
+
+
+--
 -- Name: herd_register_summary_projection_scope_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9321,6 +9328,13 @@ CREATE INDEX outbox_messages_tenant_status_attempt_idx ON public.outbox_messages
 --
 
 CREATE UNIQUE INDEX outbox_messages_vaccination_completed_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = 'vaccination.completed'::text);
+
+
+--
+-- Name: planned_batch_finalization_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX planned_batch_finalization_keyset_idx ON public.obligation_batches USING btree (tenant_id, protocol_version_id, created_at, batch_id) WHERE (status = 'planned'::text);
 
 
 --
