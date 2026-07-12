@@ -510,7 +510,23 @@ Only these routes are current implemented product routes:
 /config
 /sops
 /goats/{goat_id}
+/verification               Verification — authority review (Admin / Data Ops authority screen)
 ```
+
+`/verification` is the AUTHORITY act screen for the generic Verification vertical
+(`context/architecture/verification-module-design.md` + `verifier-app-and-flow.md`):
+Head/Director/CEO review the standalone Verifier's approve/reject media queue and
+act on the linked SOP task (rework / re-assign; penalty note is honestly
+disabled — no backend contract exists for it yet). It reads the parallel
+`feat/verification-backend` branch's `/verification/queue` contract (hand-typed
+in `lib/api/server.ts` until that branch merges and the client regenerates) and
+acts through the EXISTING `/admin/tasks/{task_id}` `/rework` `/assign` routes.
+It has no backend page contract yet (`requireAdminWebPageContract` would throw),
+so it renders from local literal copy — documented exception in
+`context/frontend/admin-web-backend-ui-contract.md`. It is not in the sidebar
+yet (nav is backend-composed from department module grants; no nav-registry
+contribution exists for Verification yet, same current state as
+`/operations/dlq`).
 
 Implemented top-level command route:
 
