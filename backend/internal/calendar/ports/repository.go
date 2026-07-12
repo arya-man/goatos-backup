@@ -151,7 +151,11 @@ type QueueRoleNotifications struct {
 	// EventKey scopes the idempotency key to the triggering event (e.g. "vaccination.verify.pending:"
 	// + completionID) so a replay of the SAME event never duplicates a recipient's row, while a
 	// DIFFERENT event (e.g. the rework that follows a later resubmission) gets its own rows.
-	EventKey   string
+	EventKey string
+	// Context is optional metadata to merge into the notification_requests.context JSON field
+	// and (for push_fcm) into the FCM data payload. May include type, obligation_id, park_id,
+	// shed_id, target, href, screen for deep-linking on mobile.
+	Context    map[string]string
 	Recipients []NotificationRecipient
 }
 
@@ -159,6 +163,7 @@ type QueueRoleNotifications struct {
 // vaccination completion_id for notification routing. Returned by ResolveVaccinationCompletionContext
 // to decouple the notification layer from importing internal/vaccination.
 type VaccinationCompletionContext struct {
+	CompletionID string // vaccination_completions.completion_id (stable for idempotency)
 	ObligationID string // obligation_instances.obligation_id
 	ParkID       string // obligation_instances.scope_id (when scope_type = 'center')
 	ScopeType    string // obligation_instances.scope_type (should be 'center' for parks)

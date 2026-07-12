@@ -313,6 +313,63 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 	if totalAfterAccepted != 2 {
 		t.Fatalf("total notification_requests rows after an 'accepted' event = %d, want 2 (unchanged -- no push on approval)", totalAfterAccepted)
 	}
+
+	// 5. Regression test for FIX 1: multiple completions on the same obligation each get their own
+	// notification row (NOT deduplicated). Seed a SECOND completion on the SAME obligation but for a
+	// different goat, then publish a rejection for that completion. Both completions should have their
+	// own operator+park_head notification_requests rows (4 total: 2 from #1, 2 new from #5).
+	vnCompletionID2 := "f9000000-0000-4000-8000-000000000032"
+	vnGoatID2 := "f9000000-0000-4000-8000-000000000098"
+
+	// Seed the second goat.
+	exec(t, ctx, pool, "goat 2",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)`,
+		vnGoatID2, vnTenant, vnCustodianParty, vnPark)
+
+	// Seed the second vaccination completion on the SAME obligation but different goat.
+	exec(t, ctx, pool, "vaccination completion 2",
+		`INSERT INTO vaccination_completions (
+		   completion_id, tenant_id, obligation_id, goat_id, status, administered_at,
+		   recorded_by, idempotency_key
+		 ) VALUES ($1, $2, $3, $5, 'recorded', now(), $4, 'vn-comp-idem-002')`,
+		vnCompletionID2, vnTenant, vnObligationID, vnOperatorMember, vnGoatID2)
+
+	// Publish rejection for the SECOND completion.
+	payload2, err := json.Marshal(notificationbridge.VerificationEvent{
+		CompletionID: vnCompletionID2,
+		VerifiedBy:   vnVerifierMember,
+		Reason:       "angle unclear",
+	})
+	if err != nil {
+		t.Fatalf("encode event 2: %v", err)
+	}
+	if err := bus.Publish(ctx, eventbus.Event{
+		Type:     notificationbridge.EventVaccinationVerifyRejected,
+		TenantID: vnTenant,
+		Key:      vnCompletionID2,
+		Payload:  payload2,
+	}); err != nil {
+		t.Fatalf("publish rejected event 2: %v", err)
+	}
+
+	// Verify: should now have 4 rows total (2 from first rejection, 2 from second rejection).
+	totalAfterSecondRejection := countRows(t, ctx, pool,
+		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1`, vnTenant)
+	if totalAfterSecondRejection != 4 {
+		t.Fatalf("total notification_requests rows after second rejection = %d, want 4 (2 from first + 2 new from second)", totalAfterSecondRejection)
+	}
+
+	// Verify: both rework rows should have the correct priority.
+	reworkRowsAfterSecond := queryRecipients(t, ctx, pool, vnTenant, "rework")
+	if len(reworkRowsAfterSecond) != 4 {
+		t.Fatalf("rework rows after second rejection = %d, want 4: %#v", len(reworkRowsAfterSecond), reworkRowsAfterSecond)
+	}
+	for _, r := range reworkRowsAfterSecond {
+		if r.priority != "high" {
+			t.Fatalf("rework priority = %q, want high (row=%#v)", r.priority, r)
+		}
+	}
 }
 
 type notificationRow struct {

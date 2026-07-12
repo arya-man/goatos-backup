@@ -228,6 +228,23 @@ func (g *Gateway) sendFCM(ctx context.Context, request domain.Request) error {
 		},
 		"data": fcmData(request),
 	}
+	// Parse context and merge fields into data, and set android priority if present.
+	if len(request.Context) > 0 {
+		var contextMap map[string]string
+		if err := json.Unmarshal(request.Context, &contextMap); err == nil {
+			data := message["data"].(map[string]string)
+			for key, value := range contextMap {
+				data[key] = value
+			}
+			// Set android priority from context if "priority" is present.
+			if priority, ok := contextMap["priority"]; ok && priority == "high" {
+				androidConfig := map[string]any{
+					"priority": "high",
+				}
+				message["android"] = androidConfig
+			}
+		}
+	}
 	if err := setFCMTarget(message, request.RecipientRef, g.config.FCMDefaultTopic); err != nil {
 		return err
 	}

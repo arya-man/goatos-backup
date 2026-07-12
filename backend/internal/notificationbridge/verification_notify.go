@@ -154,7 +154,14 @@ func (n *VerificationNotifier) HandleEvent(ctx context.Context, e eventbus.Event
 // ResolveMemberRecipients is scoped to one explicit member id (the executor) and
 // ResolvePositionRecipients is hardcoded to scopeCenter, never scope_type='tenant'.
 func (n *VerificationNotifier) notifyRework(ctx context.Context, tenantID string, completionCtx calendarports.VaccinationCompletionContext, reason string) error {
-	eventKey := "vaccination.verify.rejected:" + completionCtx.ObligationID + ":" + completionCtx.ParkID
+	// Idempotency key must include completion_id so multiple completions on the same obligation
+	// (each with distinct completion_id and possibly different goats) each get their own notification rows.
+	// If the same completion is replayed, the key stays the same (exact-replay dedup).
+	completionID := completionCtx.CompletionID
+	if completionID == "" {
+		return nil // No completion ID; should not happen after ResolveVaccinationCompletionContext succeeds.
+	}
+	eventKey := "vaccination.verify.rejected:" + completionID
 
 	var recipients []calendarports.NotificationRecipient
 
@@ -193,6 +200,15 @@ func (n *VerificationNotifier) notifyRework(ctx context.Context, tenantID string
 		body += " Reason: " + reason
 	}
 
+	// Build context fields for FCM deep-linking: type, obligation_id, park_id (all required),
+	// plus priority for android. The gateway will merge these into fcmData and set android priority.
+	notificationContext := map[string]string{
+		"type":           NotificationTypeRework,
+		"obligation_id":  completionCtx.ObligationID,
+		"park_id":        completionCtx.ParkID,
+		"priority":       priorityHigh,
+	}
+
 	_, err = n.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
 		CalendarEventID:  calendarEventIDForTask(completionCtx.SOPTaskID),
@@ -205,6 +221,7 @@ func (n *VerificationNotifier) notifyRework(ctx context.Context, tenantID string
 		Body:             body,
 		TraceID:          eventKey,
 		EventKey:         eventKey,
+		Context:          notificationContext,
 		Recipients:       recipients,
 	})
 	return err
