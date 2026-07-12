@@ -443,6 +443,31 @@ fun overduePlaceholder(message: String): OverdueUiState =
         rows = emptyList(),
     )
 
+// MOB-005: Submit's loading / no-task / task-load-failed states previously fell back to
+// sampleSubmitState() directly, leaking "Gandhi 1" / "Milking does" / "Thu 9 Jul" farm identity
+// onto a medical recording screen whenever the real task hadn't loaded (or failed to). Only
+// stable chrome (eyebrow/title/submit label) survives here — every operational identity field
+// is cleared, matching every other honest placeholder above.
+fun submitPlaceholder(): SubmitUiState = sampleSubmitState().copy(
+    shed = "",
+    cohort = "",
+    date = "",
+    groups = emptyList(),
+    formRunner = null,
+    syncState = SyncState.DRAFT,
+    syncLabel = "",
+    canSubmit = false,
+    syncProgress = 0f,
+    attemptCount = 0,
+    maxAttempts = 0,
+    lastError = null,
+    isLoadingTask = false,
+    isNoTaskAssigned = false,
+    isTaskLoadFailed = false,
+    isQueueFailed = false,
+    isRetryFailed = false,
+)
+
 // Timetable (HRMS shift roster, docs/hr/roster-rbac-design.md) — mirrors the mock's People ->
 // Timetable rows (mock/goatos-dashboard-mock.html data-sub="timetable"), minus the shift-TIME
 // field the EnrichedPosition contract does not expose (see TimetableViewModel's KDoc). The

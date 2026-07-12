@@ -22,13 +22,16 @@ import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
+import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
+import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 
 /**
  * The on-device SSOT database (docs/decisions/android-offline-first.md). v1 held only the
  * bootstrap cache; v2 (see [MIGRATION_1_2]) adds one JSON-blob-by-scope cache table per
  * screen-facing read model — Calendar, Control Tower, Execution (rows/shed/scan-roster),
  * Adherence, and Insights (gaps/coverage) — so every read screen observes Room instead of a
- * one-shot network call.
+ * one-shot network call. v3 (see [MIGRATION_2_3]) adds the task-detail cache (MOB-001) so the
+ * Scan -> Submit operator task read is offline-first too, not a network-only pass-through.
  */
 @Database(
     entities = [
@@ -43,8 +46,9 @@ import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
         InsightsCoverageCacheEntity::class,
         RosterTimetableCacheEntity::class,
         RosterCoverageCacheEntity::class,
+        TaskDetailCacheEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -59,4 +63,5 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun insightsCoverageCacheDao(): InsightsCoverageCacheDao
     abstract fun rosterTimetableCacheDao(): RosterTimetableCacheDao
     abstract fun rosterCoverageCacheDao(): RosterCoverageCacheDao
+    abstract fun taskDetailCacheDao(): TaskDetailCacheDao
 }

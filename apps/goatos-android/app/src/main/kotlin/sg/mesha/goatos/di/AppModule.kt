@@ -47,6 +47,7 @@ import sg.mesha.goatos.core.data.cache.InsightsGapsCacheDao
 import sg.mesha.goatos.core.data.cache.RosterCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
+import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
@@ -131,6 +132,9 @@ object AppModule {
     fun provideRosterCoverageCacheDao(db: GoatDatabase): RosterCoverageCacheDao = db.rosterCoverageCacheDao()
 
     @Provides
+    fun provideTaskDetailCacheDao(db: GoatDatabase): TaskDetailCacheDao = db.taskDetailCacheDao()
+
+    @Provides
     @Singleton
     fun provideScreenCacheStore(db: GoatDatabase): ScreenCacheStore = RoomScreenCacheStore(db)
 
@@ -202,7 +206,8 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideTasksRepository(api: AppApi): TasksRepository = DefaultTasksRepository(api)
+    fun provideTasksRepository(api: AppApi, dao: TaskDetailCacheDao): TasksRepository =
+        DefaultTasksRepository(api, dao)
 
     @Provides
     @Singleton

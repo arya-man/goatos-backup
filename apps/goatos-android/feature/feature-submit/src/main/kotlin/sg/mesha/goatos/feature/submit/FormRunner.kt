@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -25,6 +27,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +44,9 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 /** Render kind for one SOP form field (maps from core-data `FormFieldType` in the :app layer). */
 enum class FieldKindUi { BOOLEAN, NUMBER, TEXT, GOAT_SCAN, PICKER, VIDEO_PROOF, UNKNOWN }
 
+/** One selectable option for a [FieldKindUi.PICKER] field ([value] is submitted, [label] is shown). */
+data class FormPickerOptionUi(val value: String, val label: String)
+
 /** One render-ready field. The :app ViewModel maps `FormSpec` + current answers into these. */
 data class FormFieldUi(
     val key: String,
@@ -49,6 +58,7 @@ data class FormFieldUi(
     val scannedCount: Int = 0,        // goat_scan
     val proofCaptured: Boolean = false, // video_proof
     val selectedLabel: String = "",   // picker (human label of chosen option)
+    val options: List<FormPickerOptionUi> = emptyList(), // picker (selectable options)
     val error: String? = null,
 )
 
@@ -73,7 +83,7 @@ fun FormRunner(
     onToggle: (key: String, checked: Boolean) -> Unit,
     onText: (key: String, value: String) -> Unit,
     onScan: (key: String) -> Unit,
-    onPick: (key: String) -> Unit,
+    onPick: (key: String, value: String) -> Unit,
     onCaptureVideo: (key: String) -> Unit,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
@@ -99,13 +109,36 @@ fun FormRunner(
     }
 }
 
+/**
+ * Non-scrolling field list — the same field cards [FormRunner] draws, without owning a
+ * [LazyColumn]/header/submit bar of its own. Lets a host screen with a single scroll container
+ * (e.g. Submit's shed-record list, TRD §14 dumb-renderer: one scroll container per screen) embed
+ * the recording form inline via its own `items { }` block instead of nesting scrollables.
+ */
+@Composable
+fun FormFieldsColumn(
+    fields: List<FormFieldUi>,
+    onToggle: (key: String, checked: Boolean) -> Unit,
+    onText: (key: String, value: String) -> Unit,
+    onScan: (key: String) -> Unit,
+    onPick: (key: String, value: String) -> Unit,
+    onCaptureVideo: (key: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        fields.forEach { field ->
+            FieldCard(field, onToggle, onText, onScan, onPick, onCaptureVideo)
+        }
+    }
+}
+
 @Composable
 private fun FieldCard(
     field: FormFieldUi,
     onToggle: (String, Boolean) -> Unit,
     onText: (String, String) -> Unit,
     onScan: (String) -> Unit,
-    onPick: (String) -> Unit,
+    onPick: (String, String) -> Unit,
     onCaptureVideo: (String) -> Unit,
 ) {
     Column(
@@ -128,12 +161,7 @@ private fun FieldCard(
                 done = field.scannedCount > 0,
                 onClick = { onScan(field.key) },
             )
-            FieldKindUi.PICKER -> ActionControl(
-                text = field.selectedLabel.ifBlank { "Select…" },
-                icon = MeshaIcons.Chevron,
-                done = field.selectedLabel.isNotBlank(),
-                onClick = { onPick(field.key) },
-            )
+            FieldKindUi.PICKER -> PickerControl(field, onPick)
             FieldKindUi.VIDEO_PROOF -> ActionControl(
                 text = if (field.proofCaptured) "Video recorded" else "Record video proof",
                 icon = MeshaIcons.Video,
@@ -202,6 +230,33 @@ private fun TextControl(field: FormFieldUi, numeric: Boolean, onText: (String, S
             unfocusedContainerColor = MeshaColors.Surf,
         ),
     )
+}
+
+/** Real (not fire-only) picker: taps open a [DropdownMenu] over [field]'s backend-supplied
+ *  [FormFieldUi.options] and report the chosen option's VALUE — never a fabricated selection. A
+ *  field with no options (backend expects an out-of-band picker flow) stays inert on tap. */
+@Composable
+private fun PickerControl(field: FormFieldUi, onPick: (String, String) -> Unit) {
+    var expanded by remember(field.key) { mutableStateOf(false) }
+    Box {
+        ActionControl(
+            text = field.selectedLabel.ifBlank { "Select…" },
+            icon = MeshaIcons.Chevron,
+            done = field.selectedLabel.isNotBlank(),
+            onClick = { if (field.options.isNotEmpty()) expanded = true },
+        )
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            field.options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    onClick = {
+                        expanded = false
+                        onPick(field.key, option.value)
+                    },
+                )
+            }
+        }
+    }
 }
 
 @Composable

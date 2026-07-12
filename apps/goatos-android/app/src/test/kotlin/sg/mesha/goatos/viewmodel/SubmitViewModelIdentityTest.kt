@@ -3,6 +3,7 @@ package sg.mesha.goatos.viewmodel
 import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -16,6 +17,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.forms.FormSpec
@@ -57,6 +59,7 @@ class SubmitViewModelIdentityTest {
 private class CapturingTasksRepository : TasksRepository {
     var listCalls = 0
     var detailTaskId: String? = null
+    private val detailFlow = MutableStateFlow(Resource<TaskDetail>(data = null))
 
     override suspend fun tasks(state: String?, limit: Int?): TaskListResponseDto {
         listCalls++
@@ -69,6 +72,13 @@ private class CapturingTasksRepository : TasksRepository {
             task = TaskSummaryDto(taskId = taskId, sopVersionId = "sop-1", scopeId = "shed-1", rowVersion = 7),
             form = FormSpec.Empty,
         )
+    }
+
+    override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> = detailFlow
+
+    override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = runCatching {
+        val detail = taskDetail(taskId)
+        detailFlow.value = Resource(data = detail, lastSyncedAt = 1L)
     }
 }
 

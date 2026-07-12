@@ -98,12 +98,22 @@ data class SubmitUiState(
     val isQueueFailed: Boolean = false,
     /** True when a retry request failed (DEAD_LETTER state). */
     val isRetryFailed: Boolean = false,
+    /** MOB-002: the SOP `form_dsl` recording form for this task, rendered inline below the
+     *  shed-record summary. Null when the task's form has no fields to capture — the shed
+     *  record is then just the vaccine-group summary, as before. */
+    val formRunner: FormRunnerState? = null,
 )
 
 /** User intents. The ViewModel layer maps these to sync-engine commands. */
 sealed interface SubmitEvent {
     data object Submit : SubmitEvent
     data object Retry : SubmitEvent
+    /** Operator answered a boolean recording-form field (e.g. cold-chain verified). */
+    data class FormToggle(val key: String, val checked: Boolean) : SubmitEvent
+    /** Operator typed a text/number recording-form field. */
+    data class FormText(val key: String, val value: String) : SubmitEvent
+    /** Operator picked an option for a picker recording-form field (option VALUE, not label). */
+    data class FormPick(val key: String, val value: String) : SubmitEvent
 }
 
 // --- Goat OS dark tokens (exact values from docs/mobile/design-system.md). ---
@@ -193,6 +203,38 @@ fun SubmitScreen(
         ) {
             item {
                 RecordSummary(state)
+            }
+            state.formRunner?.let { runner ->
+                item {
+                    Text(
+                        text = runner.title,
+                        color = T.faint,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                    )
+                }
+                item {
+                    FormFieldsColumn(
+                        fields = runner.fields,
+                        onToggle = { key, checked -> onEvent(SubmitEvent.FormToggle(key, checked)) },
+                        onText = { key, value -> onEvent(SubmitEvent.FormText(key, value)) },
+                        onScan = { },
+                        onPick = { key, value -> onEvent(SubmitEvent.FormPick(key, value)) },
+                        onCaptureVideo = { },
+                    )
+                }
+                runner.blockedReason?.let { reason ->
+                    item {
+                        Text(
+                            text = reason,
+                            color = T.warn,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                    }
+                }
             }
             item {
                 Text(

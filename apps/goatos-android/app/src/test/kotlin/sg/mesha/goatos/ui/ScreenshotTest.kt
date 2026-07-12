@@ -107,7 +107,7 @@ class ScreenshotTest {
     fun form_runner() = shot("form_runner") {
         FormRunner(
             state = sampleFormRunnerState(),
-            onToggle = { _, _ -> }, onText = { _, _ -> }, onScan = {}, onPick = {}, onCaptureVideo = {}, onSubmit = {},
+            onToggle = { _, _ -> }, onText = { _, _ -> }, onScan = {}, onPick = { _, _ -> }, onCaptureVideo = {}, onSubmit = {},
         )
     }
 }
