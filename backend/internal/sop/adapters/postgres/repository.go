@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -409,37 +410,49 @@ func (r *Repository) CreateTasksForBatches(ctx context.Context, tenantID, sopVer
 		scopes[i] = t.ScopeType
 		scopeIDs[i] = t.ScopeID
 		contextBytes, _ := json.Marshal(map[string]any{
-			"created_by":              "obligation-sweeper",
-			"obligation_batch_id":     t.BatchID,
+			"created_by":          "obligation-sweeper",
+			"obligation_batch_id": t.BatchID,
 		})
 		contextJSONs[i] = string(contextBytes)
 	}
 
-	// Insert all tasks in one batch operation with conflict handling
-	rows, err := tx.Query(ctx, `
-INSERT INTO sop_tasks (
+	// Insert tasks and their audit rows in one set-based statement. The conflict
+	// target exactly matches migration 000101's partial expression index
+	// (context ->> text plus predicate); retries therefore create neither duplicate
+	// tasks nor duplicate create-audit rows.
+	var createdCount int
+	err = tx.QueryRow(ctx, `
+WITH input AS (
+  SELECT *
+  FROM UNNEST($5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[]) AS t(
+    batch_id, task_type, title, scope_type, scope_id, context
+  )
+),
+inserted AS (
+  INSERT INTO sop_tasks (
   tenant_id, sop_id, sop_version_id, task_type, title, description,
   state, scope_type, scope_id, priority, context, created_by
+  )
+  SELECT
+    $1::uuid, $2::uuid, $3::uuid, input.task_type, input.title, '',
+    'queued', input.scope_type, input.scope_id::uuid, 'normal', input.context::jsonb, $4::uuid
+  FROM input
+  ON CONFLICT (tenant_id, (context ->> 'obligation_batch_id'))
+    WHERE context ? 'obligation_batch_id'
+  DO NOTHING
+  RETURNING task_id, context ->> 'obligation_batch_id' AS batch_id
+),
+audited AS (
+  INSERT INTO audit_log (
+    tenant_id, actor_id, actor_type, action, resource_type, resource_id, metadata
+  )
+  SELECT
+    $1::uuid, $4::uuid, 'human', 'sop.task.create', 'sop_task', inserted.task_id,
+    jsonb_build_object('sop_version_id', $3::text, 'obligation_batch_id', inserted.batch_id)
+  FROM inserted
+  RETURNING resource_id
 )
-SELECT
-  $1::uuid,
-  $2::uuid,
-  $3::uuid,
-  t.task_type,
-  t.title,
-  '',
-  'queued',
-  t.scope_type,
-  t.scope_id::uuid,
-  'normal',
-  t.context::jsonb,
-  $4::uuid
-FROM UNNEST($5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[]) AS t(
-  batch_id, task_type, title, scope_type, scope_id, context
-)
-ON CONFLICT (tenant_id, context->'obligation_batch_id')
-DO NOTHING
-RETURNING task_id::text, context->'obligation_batch_id' as batch_id
+SELECT COUNT(*)::int FROM audited
 `,
 		tenantID,
 		version.SOPID,
@@ -451,33 +464,37 @@ RETURNING task_id::text, context->'obligation_batch_id' as batch_id
 		scopes,
 		scopeIDs,
 		contextJSONs,
-	)
+	).Scan(&createdCount)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve both newly inserted and pre-existing idempotent rows in one bounded
+	// query so a replay returns the same complete batch->task mapping.
+	rows, err := tx.Query(ctx, `
+SELECT task_id::text, context ->> 'obligation_batch_id' AS batch_id
+FROM sop_tasks
+WHERE tenant_id = $1::uuid
+  AND context ->> 'obligation_batch_id' = ANY($2::text[])
+ORDER BY context ->> 'obligation_batch_id'`, tenantID, batchIDs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	result := make(map[string]string)
+	result := make(map[string]string, len(tasks))
 	for rows.Next() {
 		var taskID, batchID string
 		if err := rows.Scan(&taskID, &batchID); err != nil {
 			return nil, err
 		}
-		// Strip JSON quotes from batchID
-		batchID = strings.Trim(batchID, `"`)
 		result[batchID] = taskID
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	// Insert audit records for created tasks
-	for _, t := range tasks {
-		if taskID, ok := result[t.BatchID]; ok {
-			if err := insertAudit(ctx, tx, tenantID, actorID, "sop.task.create", "sop_task", taskID, map[string]any{"sop_version_id": sopVersionID}); err != nil {
-				return nil, err
-			}
-		}
+	if len(result) != len(tasks) {
+		return nil, fmt.Errorf("sop: bulk task create resolved %d of %d batch ids (created %d)", len(result), len(tasks), createdCount)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -488,17 +505,11 @@ RETURNING task_id::text, context->'obligation_batch_id' as batch_id
 
 // getVersionForTaskCreation is a helper to resolve SOP version within a transaction
 func (r *Repository) getVersionForTaskCreation(ctx context.Context, tx pgx.Tx, tenantID, versionID string) (domain.SOPVersion, error) {
-	rows, err := tx.Query(ctx, `
-SELECT
-  sd.sop_id, sv.sop_version_id, sv.published_at, sv.retired_at, sv.status,
-  sv.major, sv.minor, sv.schema_version, sv.description, sv.published_by, sv.published_at
-FROM sop_definitions sd
-JOIN sop_versions sv ON sv.sop_id = sd.sop_id
-WHERE sd.tenant_id = $1::uuid
+	rows, err := tx.Query(ctx, versionSelectSQL(`
+WHERE sv.tenant_id = $1::uuid
   AND sv.sop_version_id = $2::uuid
   AND sv.status = 'published'
-LIMIT 1`,
-		tenantID, versionID)
+LIMIT 1`), tenantID, versionID)
 	if err != nil {
 		return domain.SOPVersion{}, err
 	}

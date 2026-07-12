@@ -56,3 +56,47 @@ WHERE tenant_id = $1::uuid
 		t.Fatalf("batch-keyed SOP task rows=%d, want 1", count)
 	}
 }
+
+func TestCreateTasksForBatchesIsSetBasedAndReplaySafe(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	const (
+		tenantID    = "00000000-0000-4000-8000-000000000001"
+		actorID     = "86000000-0000-4000-8000-000000101999"
+		sopVersion  = "b0000000-0000-4000-8000-000000000002"
+		firstBatch  = "86000000-0000-4000-8000-000000101101"
+		secondBatch = "86000000-0000-4000-8000-000000101102"
+	)
+	tasks := []domain.BatchTaskRequest{
+		{BatchID: firstBatch, TaskType: "vaccination", Title: "First drive", ScopeType: "tenant", ScopeID: tenantID},
+		{BatchID: secondBatch, TaskType: "vaccination", Title: "Second drive", ScopeType: "tenant", ScopeID: tenantID},
+	}
+	first, err := repo.CreateTasksForBatches(ctx, tenantID, sopVersion, actorID, tasks)
+	if err != nil {
+		t.Fatalf("CreateTasksForBatches first: %v", err)
+	}
+	if len(first) != 2 || first[firstBatch] == "" || first[secondBatch] == "" {
+		t.Fatalf("first mapping = %#v, want both batches", first)
+	}
+	replay, err := repo.CreateTasksForBatches(ctx, tenantID, sopVersion, actorID, tasks)
+	if err != nil {
+		t.Fatalf("CreateTasksForBatches replay: %v", err)
+	}
+	if replay[firstBatch] != first[firstBatch] || replay[secondBatch] != first[secondBatch] {
+		t.Fatalf("replay mapping = %#v, want stable %#v", replay, first)
+	}
+	var taskCount, auditCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM sop_tasks WHERE tenant_id=$1::uuid AND context->>'obligation_batch_id'=ANY($2::text[])`, tenantID, []string{firstBatch, secondBatch}).Scan(&taskCount); err != nil {
+		t.Fatalf("count tasks: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM audit_log WHERE tenant_id=$1::uuid AND action='sop.task.create' AND metadata->>'obligation_batch_id'=ANY($2::text[])`, tenantID, []string{firstBatch, secondBatch}).Scan(&auditCount); err != nil {
+		t.Fatalf("count audits: %v", err)
+	}
+	if taskCount != 2 || auditCount != 2 {
+		t.Fatalf("task/audit rows = %d/%d, want exactly 2/2 after replay", taskCount, auditCount)
+	}
+}
