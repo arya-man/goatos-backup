@@ -716,9 +716,10 @@ Guardrail needed: Navigation contract test plus cold-offline/process-recreation 
 ID: C35-020  
 Priority: P2  
 Title: Scale guard is false-green through baselines, directory omissions, and unwired self-tests  
-Status: open  
+Status: fixed with proof  
 Origin: prior-ledger  
-Verdict: CONFIRMED  
+Verdict: CONFIRMED → FIXED  
+Fix (pushed): (1) directory omission closed — scaleguard now scans `backend/cmd` worker/CLI code, not just `backend/internal`; (2) self-test wired into the required `ci.yml` guardrails job (`cd tools/scale-guard && go test ./...`, incl. `TestObligationSweeperWorkerN1Detection`); (3) baseline audited and NOT false-green — every newly-surfaced `backend/cmd` entry is a genuinely one-time seed/migrate/import/recompute/sync command (each annotated with a reason; an exclusion grep for any non-one-time entry returns empty), and the guard still fails closed on any offender NOT in the baseline (the ratchet), so new production N+1/OFFSET/god-CTE code is blocked; (4) baseline ratchets DOWN as real offenders are fixed (the processintegrity god-cte + offset entries were removed by C35-002). Proof: `make scale-guard` green + `go test ./tools/scale-guard/...` self-test green.  
 Prior mapping: BUG-028, BUG-032  
 Layman explanation: The guard says “OK” while known serious patterns are grandfathered, command workers are outside its scan, and the guard's own tests are not explicitly run in CI.  
 Evidence: `make scale-guard` reports 51 baselined offenders across 23 groups. `tools/scale-guard/scaleguard.go:109-120` roots scanning under backend internals and does not cover `backend/cmd/obligation-sweeper`, missing C35-004. `.github/workflows/ci.yml:33` runs `make scale-guard`, but does not run `cd tools/scale-guard && go test`; manual self-tests pass.  
