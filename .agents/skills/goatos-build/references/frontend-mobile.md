@@ -189,3 +189,26 @@ old app/api BigQuery or Sheets routes
 
 Historical docs and git history may contain those names; treat them as
 archaeology, not active build instructions.
+
+## Android Motion & Transitions
+
+Canonical contract: `docs/mobile/transitions-and-motion.md` (M3 pattern → Goat OS
+surface map, motion tokens, and the current-code audit). Read it before adding or
+changing any Compose navigation transition, `AnimatedContent`, or bottom sheet.
+
+Hard rules (screen motion is spatial, never decorative):
+
+- **Drill = shared axis X.** Calendar → day → sheds → Scan → Submit, Overdue →
+  Reschedule, and any deeper navigation slide in from the end; Back is the mirror.
+  Always define `popEnterTransition`/`popExitTransition` as the reverse of
+  `enter`/`exit` (`AppNavHost` already sets this globally).
+- **Top-level tab switches = fade through, NOT slide.** Bottom-nav peers
+  (Calendar ↔ Overview ↔ Alerts ↔ You) are unrelated destinations with no
+  forward/back order — fade them. Do not let them inherit the drill slide.
+  (Known gap today: they currently slide; fix pattern is in the canonical doc.)
+- **Temporary/contextual surfaces = `ModalBottomSheet`.** Language, sync, scope
+  picker, data-gaps, doses-given, scan sub-sheets. Never hand-roll sheet offsets.
+- **Do not fade a drill step** (drill is the app's spatial spine) and **do not
+  force shared axis Y/Z** where the relationship does not call for it.
+- Prefer M3 **Emphasized** easing over the Compose `tween` default; opt into
+  **predictive back** (`android:enableOnBackInvokedCallback="true"`).

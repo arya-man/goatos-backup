@@ -236,3 +236,24 @@ A shared/reassigned device or role switch must not leak the prior principal's da
 - [ ] Sign-out wipes ALL app-owned state through one coordinator + deregisters device/FCM; caches principal-scoped; new persistence registers in the wipe inventory
 - [ ] Android contract changes are back-compat or versioned; consumed list endpoints carry keyset cursor
 - [ ] `make mobile-guard` run; whole-tree `--all` for a real pass (diff-scoped CI is blind to backend-induced anti-patterns); Android build actually ran if compile is claimed
+
+## Motion & transitions lens
+
+Contract: `docs/mobile/transitions-and-motion.md`. Fires when a change touches
+Compose navigation transitions (`AppNavHost`), `AnimatedContent`/`Crossfade`, or a
+`ModalBottomSheet`. Motion is a spatial signal, so a wrong transition is a real
+finding, not a nit.
+
+- [ ] **Drill navigation slides (shared axis X), not fades** — deeper navigation
+      uses `slideIntoContainer(Start)`; Back reverses via `pop*` (`End`). Flag a
+      faded drill or a missing/asymmetric `popEnter`/`popExit`.
+- [ ] **Top-level tab switches fade through, not slide** — bottom-nav peers
+      (Calendar/Overview/Alerts/You) must not inherit the drill slide (invents a
+      false forward/back order). Flag a peer swap that slides. This is the known
+      standing gap — re-verify `AppNavHost` at review time.
+- [ ] **Contextual surfaces use `ModalBottomSheet`** — no hand-rolled slide-up
+      offset/`animateFloatAsState` sheet substitutes.
+- [ ] **No forced shared axis Y/Z** where the relationship doesn't call for it;
+      no decorative animation that contradicts the spatial model.
+- [ ] Polish (note, don't block): Emphasized easing over `tween` default;
+      predictive-back opt-in.
