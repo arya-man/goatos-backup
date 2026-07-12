@@ -1,6 +1,6 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Current closure state after the counter-fix batch: **41 tracked, 22 fixed with proof, 19 open — 1 P0, 12 P1, 5 P2, 1 P3.** Fixed rows are C35-001/003/004/007/008/009/010/011/013/014/015/016/019/020/023/024/025, FIXCHK-001/002/003, NEW-E2E-001, and CL-004. C35-011 (mobile verify/rework) + C35-019 (record offline-first single read) closed together. C35-001 closed the Android logout (shared LogoutCoordinator full clean-slate wipe + device deregister). C35-013 fully closed all three process-integrity read surfaces with keyset pagination. C35-024 closed the domain-consumer replay. C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). FIXCHK-001 now authorizes intended app-vaccination park grants and clamps reschedule mutation/replay to those parks. FIXCHK-002 now uses one India business date for both SQL FEFO ordering and response disabled state. C35-002 and C35-005 remain explicitly partial/open; no partial is counted closed.
+> Current closure state after the counter-fix batch: **41 tracked, 24 fixed with proof, 17 open — 1 P0, 12 P1, 3 P2, 1 P3.** Fixed rows are C35-001/003/004/007/008/009/010/011/013/014/015/016/019/020/023/024/025, FIXCHK-001/002/003, NEW-E2E-001, CL-004, C35-017, and C35-022. C35-011 (mobile verify/rework) + C35-019 (record offline-first single read) closed together. C35-001 closed the Android logout (shared LogoutCoordinator full clean-slate wipe + device deregister). C35-013 fully closed all three process-integrity read surfaces with keyset pagination. C35-024 closed the domain-consumer replay. C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). FIXCHK-001 now authorizes intended app-vaccination park grants and clamps reschedule mutation/replay to those parks. FIXCHK-002 now uses one India business date for both SQL FEFO ordering and response disabled state. C35-002 and C35-005 remain explicitly partial/open; no partial is counted closed.
 >
 > **Live multi-agent ownership snapshot — 2026-07-12 22:34 IST.** This block is the collision-prevention source of truth until the owning coordinator replaces it on `main`. Claude's active wave owns C35-002 (vaccination-execution projection repair), C35-005 (herd-register bounded reader/SSR), and C35-017+C35-022 (Android cache bounds/corruption recovery). Claude's requested next wave owns the eight otherwise-unassigned findings in six clusters: C35-006+C35-018+MOB-003 (bounded scan-roster cursor/Room paging), MOB-006 (outbox prune and bounded observation), MOB-007 (offline timetable/coverage Room truth), C35-012 (release-evidence availability/local-equivalent closure while hosted billing is unavailable), C35-021 (architecture graph refresh), and CL-004 (remove the unused domain-consumer claim token). Codex owns three disjoint Android clusters: MOB-004+MOB-009+MOB-010+MOB-011 (Calendar/Execution Room, threading, lifecycle and stable-key cluster), MOB-008 (leadership pagination), and MOB-001+MOB-002+MOB-005 (offline Scan/Submit, required form/proof and mock-state removal). All 20 open rows now have an owner. Workers use isolated branches/worktrees, must not edit this ledger, and must not push `main`; coordinators integrate sequentially, update this block and the counts, and push the exact accepted SHA. Any agent starting from an older SHA must fetch `origin/main` and re-read this block before claiming work.
 >
@@ -667,7 +667,7 @@ Fix/proof: The guard scans the whole admin-web TSX tree, recognizes cross-bounda
 ID: C35-017  
 Priority: P2  
 Title: Android JSON caches have no TTL, row/byte cap, eviction, or principal scope  
-Status: open  
+Status: FIXED + PUSHED (bounded cache TTL/cap/eviction)  
 Origin: prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-024; mobile fetch backlog  
@@ -774,7 +774,7 @@ Guardrail needed: Session/review gate that reports graph baseline SHA and blocks
 ID: C35-022  
 Priority: P2  
 Title: Corrupt Android cache blobs become false loading or empty state forever  
-Status: open  
+Status: FIXED + PUSHED (corrupt-blob quarantine)  
 Origin: prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-031  
@@ -789,6 +789,7 @@ Why it survives / why downgraded: Offline-first behavior must handle the exact c
 E2E / guardrail status: missing; cache tests cover valid decode, not corrupted/schema-old rows.  
 Fix sketch: Version envelopes, classify decode errors, quarantine/delete corrupt rows, surface stale/error state, and attempt bounded migration/refetch.  
 Guardrail needed: Repository contract tests injecting corrupt and old-schema JSON in offline and online modes.
+Fix (pushed, C35-017 + C35-022 together): new shared `core-data/.../cache/JsonBlobCacheSupport.kt` — `readCachedJson` deletes/quarantines a cache row on decode failure OR past a hard 7-day TTL and reports `wasQuarantined` (distinguishes corrupt/expired-will-repopulate from genuine cold miss, so a bad blob no longer collapses to loading/empty forever), and `enforceCacheBounds()` (via a shared `JsonBlobCacheDao`) evicts oldest-by-updatedAt rows beyond a 200-row / 5MB-per-table cap with forward-progress-guaranteed loops. Wired into all 8 blob caches (Calendar/ControlTower/Adherence/Execution rows+shed+scanRoster/Insights gaps+coverage) + Bootstrap; uses the existing `updatedAt` column so NO schema/migration change (GoatDatabase stays v2). Principal scoping left to the landed LogoutCoordinator (no dup). Proof: `make android-doctor` OK; the exact ci-local android job `:app:compileStgReleaseKotlin :app:testStgReleaseUnitTest` + `core-data` compile/unit — BUILD SUCCESSFUL on the integrated tree (54 core-data tests incl. corrupt-quarantine, clean-miss-vs-quarantine, TTL-expiry, row-cap + byte-cap eviction). Landing also repaired a `:app:testStgReleaseUnitTest` compile break (a C35-011+019 regression: `NoopSyncRepository` test mock missing the new `enqueueVerifyTask`/`enqueueReworkTask` overrides).
 
 ### C35-023
 
