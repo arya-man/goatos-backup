@@ -1,6 +1,15 @@
 # Last 35 Commits Consolidated Bug Ledger
 
 > Reconciliation status: **UPDATED for HEAD `d2a7fbcf` — 40 open (2 P0, 19 P1, 15 P2, 4 P3).** Codex wrote C35-001…C35-025; Claude counter-reviewed them and added CL-001…CL-004 (Codex countered CL-001/002/003 by evidence — all conceded by Claude; CL-004 survives P3). Codex then ran a dedicated whole-app Android pass (L0→L3 nav, paging, Room SSOT, network→Room→UI, offline/empty/error, lifecycle, memory, prior-fix verification) and added MOB-001…MOB-011. **Claude independently counter-reviewed all 11 MOB findings against HEAD, and Codex accepts those counters after rechecking the code.** A later fixed/not-fixed check found FIXCHK-001…FIXCHK-004. Counter-review confirms FIXCHK-001/002/003 as independent open defects; FIXCHK-004's behavior is real but is the same root already recorded by C35-006/C35-018, so its exact transport evidence is merged there and it is not double-counted. Claude's own new-bug hunt found nothing beyond the 11 and the already-tracked ScanViewModel-1000 (C35-006/018); its UI-side hypothesis was correctly cleared (23 actual `collectAsStateWithLifecycle(...)` call sites, 0 plain `collectAsState(...)` calls), so MOB-010 is VM-side only. Claude's tentative NEW-M3 marker concern is countered: marker aggregation is deliberately independent of the `limit=1` item page and has direct integration proof. See §5. One canonical ledger; no competing list; no product code fixed (STOP RULE).
+
+> Closure execution: follow
+> `context/repo-audits/consolidated-ledger-defect-closure-program.md`. One
+> coordinator owns this ledger and its counts. Multiple agents may work only on
+> independent, non-overlapping findings in isolated branches/worktrees; workers
+> return focused commits and proof packets, and never edit this ledger. The
+> coordinator integrates, independently counter-reviews, reruns proof on the
+> integrated HEAD, and updates this one file. The reusable short kickoff prompt
+> and full parallel-agent contract live in the closure program.
 >
 > **Verdict on the 35 "fix" commits:** genuinely fixed with proof — BUG-012, BUG-013, BUG-015, seeded-history scope, history-vs-future semantics, kernel migrations 000162/163, repair service, undeclared-certification guard, handoff C1 (`RoleManager` compiles clean at HEAD). The later fixed/not-fixed pass reopens three independent residuals: app vaccination scoped grants (FIXCHK-001), FEFO UTC disabled-state drift (FIXCHK-002), and the weak cursor assertion (FIXCHK-003). Android scan-roster cursor transport is also missing, but FIXCHK-004 is merged into existing C35-006/C35-018 rather than counted twice. Everything else is either a band-aid (b7a8edc7 raised sweeper timeouts on unchanged serial N+1 code; BUG-030 fixed only the seed matrix not publish validation), a deferral (mobile close-flow, read models), or a false-green guardrail (scale-guard 51-offender baseline unchanged, mobile-guard diff-scoped, no ordinary-PR Android/latency gate). All retained rows are now peer-settled.
 
