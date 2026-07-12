@@ -209,16 +209,32 @@ func TestServiceKeepsBoundedLimitAndCursorTruth(t *testing.T) {
 
 type fakeRepo struct {
 	nudgeErr      error
+	listErr       error
 	listResp      domain.CalendarEventListResponse
 	lastListQuery domain.Query
 }
 
 func (f *fakeRepo) ListEvents(_ context.Context, q domain.Query) (domain.CalendarEventListResponse, error) {
 	f.lastListQuery = q
+	if f.listErr != nil {
+		return domain.CalendarEventListResponse{}, f.listErr
+	}
 	if f.listResp.Source != "" || f.listResp.NextCursor != nil || len(f.listResp.Items) > 0 {
 		return f.listResp, nil
 	}
 	return domain.CalendarEventListResponse{Source: domain.SourceAPI}, nil
+}
+
+func TestServiceMapsStaleCalendarProjectionToUnavailableError(t *testing.T) {
+	svc := NewService(&fakeRepo{listErr: ports.ErrProjectionStale})
+	_, err := svc.ListEvents(context.Background(), domain.Query{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		DateFrom: time.Now(), DateTo: time.Now().Add(24 * time.Hour),
+	})
+	var appErr Error
+	if !errors.As(err, &appErr) || appErr.Code != "projection_stale" {
+		t.Fatalf("err=%v, want projection_stale", err)
+	}
 }
 
 func (f *fakeRepo) GetEventDetail(context.Context, domain.EventQuery) (domain.CalendarEventDetail, error) {

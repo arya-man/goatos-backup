@@ -36,6 +36,78 @@ func testCalendarActorGrants() []ports.ActorGrant {
 	return []ports.ActorGrant{{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: testTenantID}}
 }
 
+func TestCalendarListRequiresFreshProjectionAndExposesVersion(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	q := domain.Query{TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: time.Now().Add(-time.Hour), DateTo: time.Now().Add(time.Hour), Limit: 10, Scope: domain.ScopeFilter{TenantWide: true}}
+	if _, err := repo.ListEvents(ctx, q); !errors.Is(err, ports.ErrProjectionUnavailable) {
+		t.Fatalf("missing projection error=%v, want ErrProjectionUnavailable", err)
+	}
+	seedCalendarProjectionState(t, ctx, pool)
+	got, err := repo.ListEvents(ctx, q)
+	if err != nil {
+		t.Fatalf("fresh projection list: %v", err)
+	}
+	if got.Projection.ProjectionVersion <= 0 || got.Projection.Stale || got.Projection.ServingState != "fresh" {
+		t.Fatalf("projection metadata=%+v", got.Projection)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE calendar_projection_state
+SET projected_at = now() - interval '6 minutes', freshness_status = 'yellow', serving_state = 'stale'
+WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, testTenantID); err != nil {
+		t.Fatalf("mark calendar projection stale: %v", err)
+	}
+	if _, err := repo.ListEvents(ctx, q); !errors.Is(err, ports.ErrProjectionStale) {
+		t.Fatalf("stale projection error=%v, want ErrProjectionStale", err)
+	}
+}
+
+func TestCalendarAcceptedHistoryRangePlanUsesPartialIndex(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := tx.Query(ctx, `EXPLAIN (COSTS OFF)
+SELECT obligation_id
+FROM vaccination_completions
+WHERE tenant_id = $1::uuid
+  AND status = 'accepted'
+  AND administered_at >= $2::timestamptz
+  AND administered_at < $3::timestamptz
+ORDER BY administered_at, obligation_id
+LIMIT 200`, testTenantID, time.Now().Add(-45*24*time.Hour), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var lines []string
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, line)
+	}
+	plan := strings.Join(lines, "\n")
+	if !strings.Contains(plan, "vaccination_completions_accepted_history_calendar_idx") {
+		t.Fatalf("accepted Calendar history plan missed bounded partial index:\n%s", plan)
+	}
+	if strings.Contains(plan, "Seq Scan on vaccination_completions") {
+		t.Fatalf("accepted Calendar history plan used sequential scan:\n%s", plan)
+	}
+}
+
 func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -2048,8 +2120,24 @@ func assertDriveTargets(t *testing.T, ctx context.Context, repo *Repository, eve
 	}
 }
 
+func seedCalendarProjectionState(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO calendar_projection_state (
+  tenant_id, slice_key, projection_version, projected_at, date_from, date_to,
+  freshness_status, serving_state
+) VALUES ($1::uuid, 'vaccination', (extract(epoch FROM now()) * 1000)::bigint, now(),
+  now() - interval '90 days', now() + interval '45 days', 'green', 'fresh')
+ON CONFLICT (tenant_id, slice_key) DO UPDATE SET
+  projection_version = EXCLUDED.projection_version,
+  projected_at = now(), freshness_status = 'green', serving_state = 'fresh', last_error = NULL`, testTenantID); err != nil {
+		t.Fatalf("seed calendar projection state: %v", err)
+	}
+}
+
 func seedCalendarProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string, dueAt time.Time, reminderState string) {
 	t.Helper()
+	seedCalendarProjectionState(t, ctx, pool)
 	_, err := pool.Exec(ctx, `
 INSERT INTO calendar_event_projections (
   tenant_id, event_id, slice_key, event_type, owner_key, title, subtitle, status, severity,
@@ -2077,6 +2165,7 @@ SET due_at = EXCLUDED.due_at,
 
 func seedScopedCalendarProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, sourceID, parkID, shedID string, system bool) {
 	t.Helper()
+	seedCalendarProjectionState(t, ctx, pool)
 	seedCalendarLocations(t, ctx, pool, parkID, shedID)
 	_, err := pool.Exec(ctx, `
 INSERT INTO calendar_event_projections (
@@ -2106,6 +2195,7 @@ SET park_id = EXCLUDED.park_id,
 
 func seedLegacyCatchupProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, sourceTargetID string, dueAt time.Time) {
 	t.Helper()
+	seedCalendarProjectionState(t, ctx, pool)
 	_, err := pool.Exec(ctx, `
 INSERT INTO calendar_event_projections (
   tenant_id, event_id, slice_key, event_type, owner_key, title, subtitle, status, severity,
@@ -2146,6 +2236,7 @@ SET status = 'active',
 
 func seedVaccinationObligation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, protocolID, versionID, ruleID, obligationID string, dueAt time.Time) {
 	t.Helper()
+	seedCalendarProjectionState(t, ctx, pool)
 	_, err := pool.Exec(ctx, `
 INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
 VALUES (

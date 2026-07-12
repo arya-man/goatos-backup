@@ -5633,6 +5633,31 @@ components:
           type: string
         all_owners_selected_label:
           type: string
+    CalendarProjectionMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - projection_version
+        - projected_at
+        - freshness_status
+        - serving_state
+        - stale
+      properties:
+        projection_version:
+          type: integer
+          format: int64
+          minimum: 1
+        projected_at:
+          type: string
+          format: date-time
+        freshness_status:
+          type: string
+          enum: [green, yellow, red, unknown]
+        serving_state:
+          type: string
+          enum: [never_synced, fresh, stale, rebuilding, failed]
+        stale:
+          type: boolean
     CalendarEventListResponse:
       type: object
       additionalProperties: false
@@ -5642,6 +5667,7 @@ components:
         - items
         - date_markers
         - next_cursor
+        - projection
       properties:
         source:
           type: string
@@ -5660,6 +5686,8 @@ components:
           type:
             - string
             - "null"
+        projection:
+          $ref: "#/components/schemas/CalendarProjectionMetadata"
     CalendarDateMarker:
       type: object
       additionalProperties: false

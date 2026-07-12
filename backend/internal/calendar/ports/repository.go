@@ -17,6 +17,8 @@ var (
 	ErrActiveSnoozeExists    = errors.New("calendar: active snooze exists")
 	ErrEventNotActionable    = errors.New("calendar: event is not actionable")
 	ErrInvalidReference      = errors.New("calendar: invalid reference")
+	ErrProjectionUnavailable = errors.New("calendar: projection unavailable")
+	ErrProjectionStale       = errors.New("calendar: projection stale")
 )
 
 type Repository interface {

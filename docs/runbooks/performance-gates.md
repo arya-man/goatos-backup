@@ -109,6 +109,18 @@ queue/worker is not implemented yet. Until that consumer lands, the API's
 five-minute fail-closed policy is the correctness boundary; a scheduler delay
 is visible as `projection_stale`, not hidden by request-time recompute.
 
+Calendar follows the same freshness boundary through
+`calendar_projection_state`: the off-request projector marks rebuilding before
+its bounded page loop, publishes a fresh version only after refresh/tombstone
+completion, and marks failures red. List responses expose that version and
+timestamp; missing, rebuilding, failed, or older-than-five-minute state returns
+a typed `503`. Accepted completion history remains a bounded canonical-history
+exception backed by
+`vaccination_completions_accepted_history_calendar_idx`. Calendar event rows do
+not yet use a multi-generation serving pointer, so a failed partial refresh is
+made unavailable rather than serving a claimed last-known-good generation; the
+dirty-scope/versioned Calendar worker is the remaining architecture follow-up.
+
 Manual process-integrity rebuild:
 
 ```bash

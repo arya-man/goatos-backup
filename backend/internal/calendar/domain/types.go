@@ -119,6 +119,15 @@ type CalendarEventListResponse struct {
 	Items        []CalendarEvent      `json:"items"`
 	DateMarkers  []CalendarDateMarker `json:"date_markers"`
 	NextCursor   *string              `json:"next_cursor"`
+	Projection   ProjectionMetadata   `json:"projection"`
+}
+
+type ProjectionMetadata struct {
+	ProjectionVersion int64     `json:"projection_version"`
+	ProjectedAt       time.Time `json:"projected_at"`
+	FreshnessStatus   string    `json:"freshness_status"`
+	ServingState      string    `json:"serving_state"`
+	Stale             bool      `json:"stale"`
 }
 
 // CalendarDateMarker is the bounded month-grid summary. It keeps the calendar

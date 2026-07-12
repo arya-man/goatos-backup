@@ -21,7 +21,10 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
-const defaultQueryTimeout = 3 * time.Second
+const (
+	defaultQueryTimeout    = 3 * time.Second
+	defaultProjectionFresh = 5 * time.Minute
+)
 
 type Repository struct {
 	pool    *pgxpool.Pool
@@ -40,6 +43,10 @@ var _ ports.Repository = (*Repository)(nil)
 func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.CalendarEventListResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	projection, err := r.servingProjection(ctx, q.TenantID)
+	if err != nil {
+		return domain.CalendarEventListResponse{}, err
+	}
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 100
@@ -117,7 +124,29 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 		}
 		next = &cursor
 	}
-	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, NextCursor: next}, nil
+	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, NextCursor: next, Projection: projection}, nil
+}
+
+func (r *Repository) servingProjection(ctx context.Context, tenantID string) (domain.ProjectionMetadata, error) {
+	var meta domain.ProjectionMetadata
+	err := r.pool.QueryRow(ctx, `
+SELECT projection_version, projected_at, freshness_status, serving_state
+FROM calendar_projection_state
+WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, tenantID).Scan(
+		&meta.ProjectionVersion, &meta.ProjectedAt, &meta.FreshnessStatus, &meta.ServingState,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ProjectionMetadata{}, ports.ErrProjectionUnavailable
+	}
+	if err != nil {
+		return domain.ProjectionMetadata{}, fmt.Errorf("calendar: read projection state: %w", err)
+	}
+	meta.Stale = meta.ProjectionVersion <= 0 || meta.ServingState != "fresh" || meta.FreshnessStatus != "green" ||
+		time.Since(meta.ProjectedAt) > defaultProjectionFresh || meta.ProjectedAt.After(time.Now().Add(time.Minute))
+	if meta.Stale {
+		return meta, ports.ErrProjectionStale
+	}
+	return meta, nil
 }
 
 func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (domain.CalendarEventDetail, error) {
@@ -1333,9 +1362,23 @@ func escalationReason(target escalationTarget, level int) string {
 	return fmt.Sprintf("calendar event %s overdue at level %d; status=%s due_at=%s", target.EventID, level, target.Status, target.DueAt.UTC().Format(time.RFC3339))
 }
 
-func (r *Repository) RefreshVaccinationProjection(ctx context.Context, in ports.RefreshVaccinationProjection) (int, error) {
+func (r *Repository) RefreshVaccinationProjection(ctx context.Context, in ports.RefreshVaccinationProjection) (result int, retErr error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	var projectionVersion int64
+	var projectedAt time.Time
+	if err := r.pool.QueryRow(ctx, `SELECT (extract(epoch FROM now()) * 1000)::bigint, now()`).Scan(&projectionVersion, &projectedAt); err != nil {
+		return 0, fmt.Errorf("calendar: projection stamp: %w", err)
+	}
+	if err := r.markProjectionRebuilding(ctx, in, projectionVersion, projectedAt); err != nil {
+		return 0, err
+	}
+	committed := false
+	defer func() {
+		if !committed && retErr != nil {
+			r.markProjectionFailed(in.TenantID, retErr)
+		}
+	}()
 	total := 0
 	var cursor *domain.CalendarCursor
 	for {
@@ -1353,7 +1396,56 @@ func (r *Repository) RefreshVaccinationProjection(ctx context.Context, in ports.
 	if err != nil {
 		return total, err
 	}
-	return total + tombstoned, nil
+	total += tombstoned
+	if _, err := r.pool.Exec(ctx, `
+UPDATE calendar_projection_state
+SET projection_version = $2::bigint,
+    projected_at = $3::timestamptz,
+    date_from = $4::timestamptz,
+    date_to = $5::timestamptz,
+    freshness_status = 'green',
+    serving_state = 'fresh',
+    last_error = NULL,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`,
+		in.TenantID, projectionVersion, projectedAt, in.DateFrom, in.DateTo); err != nil {
+		return total, fmt.Errorf("calendar: publish projection state: %w", err)
+	}
+	committed = true
+	return total, nil
+}
+
+func (r *Repository) markProjectionRebuilding(ctx context.Context, in ports.RefreshVaccinationProjection, version int64, projectedAt time.Time) error {
+	_, err := r.pool.Exec(ctx, `
+INSERT INTO calendar_projection_state (
+  tenant_id, slice_key, projection_version, projected_at, date_from, date_to,
+  freshness_status, serving_state, last_error, updated_at
+) VALUES ($1::uuid, 'vaccination', $2::bigint, $3::timestamptz, $4::timestamptz, $5::timestamptz,
+  'unknown', 'rebuilding', NULL, now())
+ON CONFLICT (tenant_id, slice_key) DO UPDATE SET
+  freshness_status = 'yellow', serving_state = 'rebuilding', last_error = NULL, updated_at = now()`,
+		in.TenantID, version, projectedAt, in.DateFrom, in.DateTo)
+	if err != nil {
+		return fmt.Errorf("calendar: mark projection rebuilding: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) markProjectionFailed(tenantID string, cause error) {
+	if cause == nil {
+		return
+	}
+	stateCtx, cancel := context.WithTimeout(context.Background(), r.timeout)
+	defer cancel()
+	message := cause.Error()
+	if len(message) > 2000 {
+		message = message[:2000]
+	}
+	_, _ = r.pool.Exec(stateCtx, `
+UPDATE calendar_projection_state
+SET freshness_status = 'red', serving_state = 'failed',
+    last_error = $2::text, updated_at = now()
+WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, tenantID, message)
 }
 
 type refreshProjectionPage struct {

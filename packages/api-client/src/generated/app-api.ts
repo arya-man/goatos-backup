@@ -2062,6 +2062,17 @@ export interface components {
             active_owner_color: string;
             all_owners_selected_label: string;
         };
+        CalendarProjectionMetadata: {
+            /** Format: int64 */
+            projection_version: number;
+            /** Format: date-time */
+            projected_at: string;
+            /** @enum {string} */
+            freshness_status: "green" | "yellow" | "red" | "unknown";
+            /** @enum {string} */
+            serving_state: "never_synced" | "fresh" | "stale" | "rebuilding" | "failed";
+            stale: boolean;
+        };
         CalendarEventListResponse: {
             /** @constant */
             source: "api";
@@ -2069,6 +2080,7 @@ export interface components {
             items: components["schemas"]["CalendarEvent"][];
             date_markers: components["schemas"]["CalendarDateMarker"][];
             next_cursor: string | null;
+            projection: components["schemas"]["CalendarProjectionMetadata"];
         };
         CalendarDateMarker: {
             /** Format: date */

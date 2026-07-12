@@ -410,6 +410,10 @@ func mapRepoError(err error) error {
 		return Conflict("event_not_actionable", "calendar event is not actionable")
 	case errors.Is(err, ports.ErrInvalidReference):
 		return BadRequest("invalid_reference", "calendar event references invalid source state")
+	case errors.Is(err, ports.ErrProjectionUnavailable):
+		return Unavailable("projection_unavailable", "calendar projection is temporarily unavailable")
+	case errors.Is(err, ports.ErrProjectionStale):
+		return Unavailable("projection_stale", "calendar projection is stale; retry after refresh")
 	default:
 		return Internal("calendar request failed")
 	}

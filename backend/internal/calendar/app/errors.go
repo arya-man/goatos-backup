@@ -28,3 +28,7 @@ func Conflict(code, message string) error {
 func Internal(message string) error {
 	return Error{Code: "internal_error", Message: message}
 }
+
+func Unavailable(code, message string) error {
+	return Error{Code: code, Message: message}
+}

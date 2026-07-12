@@ -333,6 +333,8 @@ func (h *Handler) writeAppError(w stdhttp.ResponseWriter, r *stdhttp.Request, er
 			status = stdhttp.StatusConflict
 		case "internal_error":
 			status = stdhttp.StatusInternalServerError
+		case "projection_unavailable", "projection_stale":
+			status = stdhttp.StatusServiceUnavailable
 		default:
 			status = stdhttp.StatusBadRequest
 		}
