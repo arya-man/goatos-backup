@@ -38,9 +38,23 @@ class SessionViewModelAuthTest {
     }
 
     @Test
-    fun `unrecognized failure falls back to the raw message`() {
+    fun `unrecognized failure never exposes raw provider text`() {
         val (reason, detail) = classifyAuthError(RuntimeException("boom"))
         assertEquals(LoginError.UNKNOWN, reason)
-        assertEquals("boom", detail)
+        assertNull(detail)
+    }
+
+    @Test
+    fun `wrapped invalid credential failure stays operator safe`() {
+        val wrapped = java.util.concurrent.ExecutionException(
+            "com.google.firebase.auth.FirebaseAuthInvalidCredentialsException: " +
+                "The supplied auth credential is incorrect, malformed or has expired.",
+            RuntimeException("The supplied auth credential is incorrect, malformed or has expired."),
+        )
+
+        val (reason, detail) = classifyAuthError(wrapped)
+
+        assertEquals(LoginError.INVALID_CREDENTIALS, reason)
+        assertNull(detail)
     }
 }
