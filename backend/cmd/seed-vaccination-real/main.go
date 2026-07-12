@@ -126,6 +126,7 @@ type stats struct {
 
 type oblIns struct {
 	obligationID, versionID, ruleID, goatID string
+	scopeType, scopeID                      string
 	dueAt                                   time.Time
 	windowStart                             *time.Time
 	status                                  string
@@ -579,6 +580,8 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	goatDOBByAnimalKey := map[string]*time.Time{}
 	goatEntryDateByAnimalKey := map[string]*time.Time{}
 	goatStageByAnimalKey := map[string]string{}
+	goatShedByAnimalKey := map[string]string{}
+	goatParkByAnimalKey := map[string]string{}
 	type goatIns struct {
 		goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
 		entryDate                                                                                                                                     string
@@ -597,10 +600,13 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		}
 		animalIdentifier1, animalIdentifier2 := identifierSlots(g.RFID, g.OldID, g.OldIDSuffix)
 		goatID := detUUID("goat", tenantID, animalKey)
+		parkID := parkByFarm[g.Farm]
 		goatIDByAnimalKey[animalKey] = goatID
 		goatLifecycleByAnimalKey[animalKey] = normalizeLifecycle(g.Status)
 		goatOriginTypeByAnimalKey[animalKey] = normalizeOriginType(g.OriginType)
 		goatStageByAnimalKey[animalKey] = normalizeStage(g.Stage, g.Age)
+		goatShedByAnimalKey[animalKey] = shedID
+		goatParkByAnimalKey[animalKey] = parkID
 
 		// Parse DOB for later use in schedule path resolution
 		var dobTime *time.Time
@@ -636,7 +642,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			age:               g.Age,
 			health:            normalizeHealth(g.Health),
 			shedID:            shedID,
-			parkID:            parkByFarm[g.Farm],
+			parkID:            parkID,
 			dob:               g.DOB,
 			entryDate:         entryDateValue,
 		})
@@ -745,6 +751,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 
 		oblID := detUUID("obligation", tenantID, c.AnimalKey, def.Code, doseCodeForPath)
 		oblIdem := "vacc-real-obl:" + c.AnimalKey + ":" + def.Code + ":" + doseCodeForPath
+		scopeType, scopeID := seedObligationScope(tenantID, goatParkByAnimalKey[c.AnimalKey], goatShedByAnimalKey[c.AnimalKey])
 
 		// Open (scheduled/due) vaccination obligations are blocked by the procurement
 		// exclusion guard for goats that are dead/sold/lost/culled/transferred/merged/inactive.
@@ -785,6 +792,8 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 					versionID:    versionID,
 					ruleID:       ruleID,
 					goatID:       goatID,
+					scopeType:    scopeType,
+					scopeID:      scopeID,
 					dueAt:        administeredAt,
 					status:       "completed",
 					completedAt:  &completedAt,
@@ -812,6 +821,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 				// Future dose -> scheduled at the sheet date.
 				obls = append(obls, oblIns{
 					obligationID: oblID, versionID: versionID, ruleID: ruleID, goatID: goatID,
+					scopeType: scopeType, scopeID: scopeID,
 					dueAt: administeredAt, status: "scheduled", sequence: c.Sequence, idem: oblIdem,
 				})
 				st.Scheduled++
@@ -826,9 +836,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id,
 				target_type, target_id, scope_type, scope_id, due_at, window_start, status, completed_at,
 				sequence, idempotency_key, created_at, updated_at)
-			VALUES ($1,$2,$3,$4,'goat',$5,'tenant',$2,$6,$7,$8,$9,$10,$11,now(),now())
+			VALUES ($1,$2,$3,$4,'goat',$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())
 			ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
-			o.obligationID, tenantID, o.versionID, o.ruleID, o.goatID, o.dueAt, o.windowStart,
+			o.obligationID, tenantID, o.versionID, o.ruleID, o.goatID, o.scopeType, o.scopeID, o.dueAt, o.windowStart,
 			o.status, o.completedAt, o.sequence, o.idem)
 	}); err != nil {
 		return st, fmt.Errorf("insert obligations: %w", err)
@@ -1069,6 +1079,16 @@ func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) e
 		return errors.New(strings.Join(problems, "; "))
 	}
 	return nil
+}
+
+func seedObligationScope(tenantID, parkID, shedID string) (scopeType, scopeID string) {
+	if strings.TrimSpace(shedID) != "" {
+		return "shed", shedID
+	}
+	if strings.TrimSpace(parkID) != "" {
+		return "park", parkID
+	}
+	return "tenant", tenantID
 }
 
 func printSeedSummary(st stats, genRes vaccinationdomain.GenerateResult) {

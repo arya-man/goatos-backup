@@ -77,6 +77,29 @@ func TestHistoryIdempotencyIncludesAdministeredSourceDate(t *testing.T) {
 	}
 }
 
+func TestSeedObligationScopePrefersAnimalLocation(t *testing.T) {
+	t.Run("shed scope wins for calendar-visible history", func(t *testing.T) {
+		scopeType, scopeID := seedObligationScope("tenant-1", "park-1", "shed-1")
+		if scopeType != "shed" || scopeID != "shed-1" {
+			t.Fatalf("scope = %s/%s, want shed/shed-1", scopeType, scopeID)
+		}
+	})
+
+	t.Run("park fallback keeps park-filtered history visible", func(t *testing.T) {
+		scopeType, scopeID := seedObligationScope("tenant-1", "park-1", "")
+		if scopeType != "park" || scopeID != "park-1" {
+			t.Fatalf("scope = %s/%s, want park/park-1", scopeType, scopeID)
+		}
+	})
+
+	t.Run("tenant fallback is last resort only", func(t *testing.T) {
+		scopeType, scopeID := seedObligationScope("tenant-1", "", "")
+		if scopeType != "tenant" || scopeID != "tenant-1" {
+			t.Fatalf("scope = %s/%s, want tenant/tenant-1", scopeType, scopeID)
+		}
+	})
+}
+
 func TestBuildEntryDateMappingUsesEntrySourcesOnly(t *testing.T) {
 	got := buildEntryDateMapping([]goatRecord{
 		{RFID: "rfid-dob-only", DOB: "2026-01-01"},
