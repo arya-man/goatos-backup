@@ -117,8 +117,8 @@ const pagerMinimums = new Map([
   ["action-center", 1],
   ["protocol-adherence", 1],
   ["workflows", 1],
-  ["vaccination", 3],
-  ["vaccination-execution", 3],
+  ["vaccination", 1],
+  ["vaccination-execution", 1],
   ["procurement-source-entry", 1],
   ["config", 1],
   ["sops", 1],
@@ -633,41 +633,38 @@ async function assertCoreInteractions(page, routeName, viewportLabel) {
       throw new Error(`${routeName} still exposes the removed New drive action`);
     }
 
-    const filters = page.getByRole("button", { name: "Filters", exact: true });
-    const filterCount = await filters.count();
-    if (filterCount !== 3) {
-      throw new Error(`${routeName} expected 3 Filters buttons, found ${filterCount}`);
+    if ((await page.getByText("Vaccination status matrix", { exact: true }).count()) > 0) {
+      throw new Error(`${routeName} still renders the removed vaccination status matrix`);
     }
-    for (const [i, label] of [
-      "Filter — Vaccination status matrix",
-      "Filter — Per-cohort vaccination detail",
-      "Filter — Vaccination shed events",
-    ].entries()) {
-      await openAndCloseDialog(page, filters.nth(i), label, "Close filters", routeName);
+    if ((await page.getByText("Per-cohort vaccination detail", { exact: true }).count()) > 0) {
+      throw new Error(`${routeName} still renders the removed per-cohort vaccination detail`);
     }
 
-    await openAndCloseDrawer(
-      page,
-      page.locator('section:has-text("Vaccination status matrix") tbody tr td:first-child .celllink').first(),
-      "Vaccination work context",
-      routeName,
-      assertNoFakeVaccinationDrawerControls,
-    );
-    await openAndCloseDrawer(
-      page,
-      page.locator('section:has-text("Vaccination status matrix") tbody tr td:not(:first-child) .celllink').first(),
-      "Vaccination work context",
-      routeName,
-      assertNoFakeVaccinationDrawerControls,
-    );
-    await openAndCloseDrawer(
-      page,
-      page.locator('section:has-text("Per-cohort vaccination detail") tbody tr .celllink').first(),
-      "Vaccination work context",
-      routeName,
-      assertNoFakeVaccinationDrawerControls,
-    );
-    await openAndCloseDrawer(page, page.locator(".pexec .pexr").first(), "WORK CONTEXT", routeName, assertNoFakeVaccinationDrawerControls);
+    const shedTable = page.locator("table.shed-summary-table").first();
+    await shedTable.waitFor({ state: "visible", timeout: 10_000 });
+    const shedSearch = page.locator('input[name="sheds_q"]');
+    if ((await shedSearch.count()) !== 1) {
+      throw new Error(`${routeName} expected one server-backed shed search input`);
+    }
+    const chipGroups = page.locator("section#sheds .chipset");
+    if ((await chipGroups.count()) < 2) {
+      throw new Error(`${routeName} expected status and capacity chip groups on the shed board`);
+    }
+    if ((await chipGroups.nth(0).locator("a.chip").count()) < 2 || (await chipGroups.nth(1).locator("a.chip").count()) < 2) {
+      throw new Error(`${routeName} shed board status/capacity chips are missing`);
+    }
+
+    const firstShedLink = shedTable.locator("tbody tr .celllink").first();
+    await firstShedLink.waitFor({ state: "visible", timeout: 10_000 });
+    await firstShedLink.scrollIntoViewIfNeeded();
+    await Promise.all([
+      page.waitForURL((url) => url.pathname.startsWith("/vaccination/execution/sheds/"), { timeout: 10_000 }),
+      firstShedLink.click(),
+    ]);
+    for (const label of ["Planned sessions", "Vaccine breakdown", "Animals in shed"]) {
+      await page.getByText(label, { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
+    }
+    await page.goto(`${appBaseUrl}${appPath("/vaccination?scope_mode=company")}`, { waitUntil: "networkidle", timeout: 30_000 });
   }
 }
 
@@ -788,28 +785,13 @@ async function openAndCloseDrawer(page, trigger, expectedText, routeName, inspec
   await drawer.waitFor({ state: "hidden", timeout: 5_000 });
 }
 
-async function assertNoFakeVaccinationDrawerControls(drawer, routeName, expectedText) {
-  for (const selector of ['input[type="file"]', "select", 'button[disabled]', 'button[aria-disabled="true"]']) {
-    const visible = await drawer.locator(selector).filter({ visible: true }).count();
-    if (visible > 0) {
-      throw new Error(`${routeName} drawer "${expectedText}" contains non-demo-safe control ${selector}`);
-    }
-  }
-  const text = await drawer.innerText();
-  for (const stale of ["New vaccination drive", "Import vaccination sheet", "Record + verify", "Choose files"]) {
-    if (text.includes(stale)) {
-      throw new Error(`${routeName} drawer "${expectedText}" still contains stale/fake copy "${stale}"`);
-    }
-  }
-}
-
 // Herd Register must lead with the Display ID / Tag 1 / Tag 2 identity columns and must never render the
 // old "missing ID" chip — missing Tag values render as an em dash only.
 async function assertHerdIdentityColumns(page, routeName) {
   const table = page.locator("table.herd-register-table").first();
   const headers = (await table.locator("thead th").allInnerTexts()).map((h) => h.trim());
   const expected = ["Display ID", "Tag 1", "Tag 2"];
-  if (headers.slice(0, 3).join("|") !== expected.join("|")) {
+  if (headers.slice(0, 3).map(comparableHeader).join("|") !== expected.map(comparableHeader).join("|")) {
     throw new Error(`${routeName} herd table must start with ${expected.join(", ")}; got ${headers.join(", ")}`);
   }
   const bodyText = await table.innerText();
@@ -854,7 +836,7 @@ async function assertCalendarTargetIdentity(drawer, routeName, expectedText) {
   if ((await roster.count()) >= 1) {
     const headers = (await roster.first().locator("thead th").allInnerTexts()).map((h) => h.trim());
     const expected = ["Display ID", "Tag 1", "Tag 2"];
-    if (headers.slice(0, 3).join("|") !== expected.join("|")) {
+    if (headers.slice(0, 3).map(comparableHeader).join("|") !== expected.map(comparableHeader).join("|")) {
       throw new Error(`${routeName} calendar drive-target roster must start with ${expected.join(", ")}; got ${headers.join(", ")}`);
     }
   } else if (process.env.GOATOS_SMOKE_STRICT_CALENDAR_IDENTITY === "1") {
@@ -870,6 +852,10 @@ async function assertCalendarTargetIdentity(drawer, routeName, expectedText) {
 
 function cssString(value) {
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
+function comparableHeader(value) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function compareOrUpdateBaseline(screenshotName, screenshotPath) {

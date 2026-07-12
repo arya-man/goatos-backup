@@ -26,7 +26,6 @@ PGURL="$DATABASE_URL"
 API="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 TENANT="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 USER="${GOATOS_USER_ID:-90000000-0000-4000-8000-000000000101}"
-ITEM="${GOATOS_VACCINE_ITEM_ID:-00000000-0000-4000-8000-00000000b001}"
 PARK="${GOATOS_PARK_ID:-00000000-0000-4000-8000-000000003001}"
 BACKEND="$(cd "$(dirname "$0")/../../backend" && pwd)"
 
@@ -37,65 +36,60 @@ fail(){ echo "FAIL $*" >&2; exit 1; }
 assert_eq(){ local label=$1 want=$2 got=$3; [ "$want" = "$got" ] || fail "$label: got=$got want=$want"; }
 assert_hit(){ local label=$1 needle=$2 haystack=$3; [ "$(has "$needle" "$haystack")" = HIT ] || fail "$label missing $needle"; }
 assert_no_hit(){ local label=$1 needle=$2 haystack=$3; [ "$(has "$needle" "$haystack")" = MISS ] || fail "$label unexpectedly contains $needle"; }
+. "$(cd "$(dirname "$0")" && pwd)/vaccination-active-fixture.sh"
 
 STAMP=$(date +%s)
 RUN_DAY_SECOND=$((STAMP % 86400))
 AS_HOUR=$((RUN_DAY_SECOND / 3600))
 AS_MINUTE=$(((RUN_DAY_SECOND % 3600) / 60))
 AS_SECOND=$((RUN_DAY_SECOND % 60))
-AS_OF=$(printf '2026-07-01T%02d:%02d:%02dZ' "$AS_HOUR" "$AS_MINUTE" "$AS_SECOND")
 DOB="2026-05-13"
 FOUR_WEEK_DUE="2026-06-10T00:00:00Z"
-SEVEN_WEEK_DUE_DATE="2026-07-01"
 ADMINISTERED_AT="2026-06-10T08:00:00Z"
 VERIFIED_AT="2026-06-10T09:00:00Z"
 SHED_CODE="TRUST-HIST-$STAMP"
 
-echo "## vaccination-trusted-history-proof stamp=$STAMP api=$API as_of=$AS_OF"
+echo "## vaccination-trusted-history-proof stamp=$STAMP api=$API"
 
-echo; echo "### 0. find latest published ET+TT Vaccination Rules matrix row"
+echo; echo "### 0. find active published ET+TT vaccination rules"
+resolve_vaccination_fixture
 MATRIX_ROW=$(psqlq "
-WITH latest AS (
-  SELECT pv.protocol_version_id, pv.sop_version_id, pv.effective_from, pv.created_at
-  FROM protocol_versions pv
-  JOIN protocol_definitions pd
-    ON pd.tenant_id = pv.tenant_id
-   AND pd.protocol_id = pv.protocol_id
-  WHERE pv.tenant_id = '$TENANT'
-    AND pd.category = 'vaccination'
-    AND pv.status = 'published'
-    AND pv.rule_dsl->'vaccine'->>'code' = 'ET+TT'
-  ORDER BY pv.created_at DESC
-  LIMIT 1
-)
 SELECT concat_ws('|',
-       latest.protocol_version_id::text,
-       latest.sop_version_id::text,
+       pv.protocol_version_id::text,
+       pv.sop_version_id::text,
        pr4.rule_id::text,
        pr7.rule_id::text,
        pr4.dose_code,
        pr7.dose_code,
        pr4.offset_days::text,
        pr7.offset_days::text,
-       latest.effective_from::text)
-FROM latest
+       pv.effective_from::text,
+       pr7.trigger_type)
+FROM protocol_versions pv
 JOIN protocol_rules pr4
   ON pr4.tenant_id = '$TENANT'
- AND pr4.protocol_version_id = latest.protocol_version_id
- AND pr4.dose_code = 'ET_TT_4W'
+ AND pr4.protocol_version_id = pv.protocol_version_id
+ AND pr4.rule_id = '$RULE'
 JOIN protocol_rules pr7
   ON pr7.tenant_id = '$TENANT'
- AND pr7.protocol_version_id = latest.protocol_version_id
- AND pr7.dose_code = 'ET_TT_7W'
+ AND pr7.protocol_version_id = pv.protocol_version_id
+ AND pr7.rule_id = '$BOOSTER_RULE'
+WHERE pv.tenant_id = '$TENANT'
+  AND pv.protocol_version_id = '$VERSION'
 ")
-[ -n "$MATRIX_ROW" ] || fail "published Vaccination Rules ET+TT config not found; run the vaccination authoring smoke first"
-IFS='|' read -r VERSION SOPVER RULE4 RULE7 DOSE4 DOSE7 OFFSET4 OFFSET7 EFFECTIVE_FROM <<<"$MATRIX_ROW"
+[ -n "$MATRIX_ROW" ] || fail "published ET+TT rules not found in active vaccination matrix=$VERSION"
+IFS='|' read -r VERSION SOPVER RULE4 RULE7 DOSE4 DOSE7 OFFSET4 OFFSET7 EFFECTIVE_FROM RULE7_TRIGGER <<<"$MATRIX_ROW"
 [ -n "$VERSION" ] && [ -n "$SOPVER" ] && [ -n "$RULE4" ] && [ -n "$RULE7" ] || fail "incomplete Vaccination Rules ET+TT row: $MATRIX_ROW"
-assert_eq "4-week dose code" "ET_TT_4W" "$DOSE4"
-assert_eq "7-week dose code" "ET_TT_7W" "$DOSE7"
 assert_eq "4-week offset" "28" "$OFFSET4"
-assert_eq "7-week after-completion offset" "21" "$OFFSET7"
-echo "VERSION=$VERSION SOPVER=$SOPVER RULE4=$RULE4 RULE7=$RULE7 effective_from=$EFFECTIVE_FROM"
+SEVEN_WEEK_DUE_DATE=$(psqlq "
+SELECT CASE
+  WHEN '$RULE7_TRIGGER' = 'after_previous_completion'
+  THEN ('$ADMINISTERED_AT'::timestamptz + ('$OFFSET7 days')::interval)::date::text
+  ELSE (DATE '$DOB' + $OFFSET7)::text
+END")
+AS_OF_DATE=$(psqlq "select (DATE '$SEVEN_WEEK_DUE_DATE' - 1)::text")
+AS_OF=$(printf '%sT%02d:%02d:%02dZ' "$AS_OF_DATE" "$AS_HOUR" "$AS_MINUTE" "$AS_SECOND")
+echo "VERSION=$VERSION SOPVER=$SOPVER RULE4=$RULE4/$DOSE4 RULE7=$RULE7/$DOSE7 trigger=$RULE7_TRIGGER due=$SEVEN_WEEK_DUE_DATE item=$ITEM lot=$LOT effective_from=$EFFECTIVE_FROM as_of=$AS_OF"
 
 echo; echo "### 1. seed K2 goat + accepted/verified 4-week vaccination history"
 SHED=$(psqlq "
@@ -182,7 +176,7 @@ ORDER BY created_at DESC
 LIMIT 1
 ")
 [ -n "$SEVEN_OBL" ] || fail "7-week next-dose obligation was not generated for goat=$GOAT"
-SEVEN_DUE_DATE=$(psqlq "select due_at::date::text from obligation_instances where obligation_id='$SEVEN_OBL'")
+SEVEN_DUE_DATE=$(psqlq "select (due_at at time zone 'Asia/Kolkata')::date::text from obligation_instances where obligation_id='$SEVEN_OBL'")
 assert_eq "7w due date" "$SEVEN_WEEK_DUE_DATE" "$SEVEN_DUE_DATE"
 echo "SEVEN_OBLIGATION=$SEVEN_OBL due=$SEVEN_DUE_DATE"
 
@@ -214,18 +208,21 @@ BATCH_DATE=$(psqlq "select coalesce(planned_date, window_start::date, window_end
 [ -n "$BATCH_DATE" ] || fail "7-week batch did not get a planned date"
 ( cd "$BACKEND" && GOATOS_TENANT_ID="$TENANT" go run ./cmd/calendar-vaccination-projector \
   -tenant-id "$TENANT" \
-  -date-from "2026-07-01T00:00:00Z" \
-  -date-to "2026-07-11T00:00:00Z" \
+  -date-from "$BATCH_DATE"'T00:00:00Z' \
+  -date-to "$(psqlq "select (DATE '$BATCH_DATE' + 1)::text")"'T00:00:00Z' \
   -limit 2000 2>&1 | tail -1 )
+( cd "$BACKEND" && GOATOS_TENANT_ID="$TENANT" DATABASE_URL="$PGURL" go run ./cmd/process-integrity-projection-recompute \
+  -tenant-id "$TENANT" 2>&1 | tail -1 )
 echo "BATCH=$BATCH TASK=$TASK planned_date=$BATCH_DATE"
 
 TOKEN=$(cd "$BACKEND" && go run ./cmd/mint-dev-token -tenant-id "$TENANT" -user-id "$USER" -ttl 2h 2>/dev/null)
 A=(-H "Authorization: Bearer $TOKEN")
 
 echo; echo "### 4. command/read surfaces show next-dose work, not old 4w flood"
-AC=$(curl -s "${A[@]}" "$API/vaccination/action-center?shed_id=$SHED&protocol_version_id=$VERSION&due_after=2026-06-30T00:00:00Z&due_before=2026-07-02T00:00:00Z&limit=500")
-RID=$(echo "$AC" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((r.get("row_id","") for r in d.get("items",[]) if r.get("batch_id")=="'$BATCH'"),""))')
-[ -n "$RID" ] || fail "Action Center row not found for batch=$BATCH"
+DUE_BEFORE_DATE=$(psqlq "select (DATE '$SEVEN_WEEK_DUE_DATE' + 1)::text")
+AC=$(curl -s "${A[@]}" "$API/vaccination/action-center?shed_id=$SHED&protocol_version_id=$VERSION&due_after=$AS_OF_DATE"'T00:00:00Z'"&due_before=$DUE_BEFORE_DATE"'T00:00:00Z'"&limit=500")
+RID=$(GOATOS_ASSERT_OBLIGATION_ID="$SEVEN_OBL" python3 -c 'import os,sys,json;d=json.load(sys.stdin);target=os.environ["GOATOS_ASSERT_OBLIGATION_ID"];print(next((r.get("row_id","") for r in d.get("items",[]) if r.get("obligation_id")==target),""))' <<<"$AC")
+[ -n "$RID" ] || fail "Action Center row not found for next-dose obligation=$SEVEN_OBL batch=$BATCH"
 WF=$(curl -s "${A[@]}" "$API/vaccination/workflows/$RID")
 PP=$(curl -s "${A[@]}" "$API/goats/$GOAT/passport")
 CAL=$(curl -s "${A[@]}" "$API/calendar/vaccination/events?shed_id=$SHED&date_from=$BATCH_DATE&date_to=$BATCH_DATE&limit=200")

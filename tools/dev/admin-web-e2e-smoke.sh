@@ -40,6 +40,8 @@ psqlq() {
   psql "$DATABASE_URL" -tAc "$1"
 }
 
+. "$repo_root/tools/dev/vaccination-active-fixture.sh"
+
 relay_once() {
   local limit="${1:-500}"
   (
@@ -142,6 +144,8 @@ echo "### seed: vaccination trigger baseline"
   cd "$backend_dir"
   go run ./cmd/seed-vaccination-trigger
 )
+resolve_vaccination_fixture
+echo "vaccination_fixture=$MATRIX_SUMMARY primary=$RULE_SUMMARY item=$ITEM"
 
 echo "### token: mint local bearer"
 GOATOS_BEARER_TOKEN="$(
@@ -158,13 +162,8 @@ npm --prefix "$repo_root/apps/admin-web" run check:herd-import-security | tee "$
 
 seed_open_vaccination_goat() {
   local stamp="$1"
-  local version="00000000-0000-4000-8000-00000000b051"
-  local sop_version="b0000000-0000-4000-8000-000000000002"
-  local vaccine_item="00000000-0000-4000-8000-00000000b001"
-  local vaccine_lot="00000000-0000-4000-8000-00000000b002"
-  local rule="00000000-0000-4000-8000-00000000b052"
   local proof_park="00000000-0000-4000-8000-000000003001"
-  local proof_shed="00000000-0000-4000-8000-000000003101"
+  local seed_shed="00000000-0000-4000-8000-000000003101"
   local entry_date
   local dob_day28
   entry_date="$(date -u +%F)"
@@ -173,6 +172,7 @@ seed_open_vaccination_goat() {
   else
     dob_day28="$(date -u -d "$entry_date - 28 days" +%F)"
   fi
+  entry_date="$dob_day28"
 
   local create
   create="$(
@@ -182,7 +182,7 @@ seed_open_vaccination_goat() {
       -H "Content-Type: application/json" \
       -X POST "$GOATOS_API_BASE_URL/admin/goats" \
       -d @- <<JSON
-{"animal_identifier_1":"SMOKE-OPEN-$stamp-A1","animal_identifier_2":"SMOKE-OPEN-$stamp-A2","species":"goat","park_id":"$proof_park","shed_id":"$proof_shed","sex":"female","dob":"$dob_day28","dob_estimated":true,"origin_type":"procured","entry_date":"$entry_date","management_stage":"K2","health_status":"healthy","evidence_refs":[{"evidence_type":"source_record","evidence_id":"smoke-open-$stamp"}]}
+{"animal_identifier_1":"SMOKE-OPEN-$stamp-A1","animal_identifier_2":"SMOKE-OPEN-$stamp-A2","species":"goat","park_id":"$proof_park","shed_id":"$seed_shed","sex":"female","breed":"all","dob":"$dob_day28","dob_estimated":true,"origin_type":"birth","entry_date":"$entry_date","management_stage":"K2","health_status":"healthy","reproductive_status":"open","evidence_refs":[{"evidence_type":"source_record","evidence_id":"smoke-open-$stamp"}]}
 JSON
   )"
   local goat_id
@@ -198,27 +198,32 @@ JSON
     GOATOS_TENANT_ID="$GOATOS_TENANT_ID" \
       go run ./cmd/obligation-sweeper \
         -tenant-id "$GOATOS_TENANT_ID" \
-        -version-id "$version" \
-        -sop-version-id "$sop_version" \
-        -vaccine-item-id "$vaccine_item" \
+        -version-id "$VERSION" \
+        -sop-version-id "$SOPVER" \
+        -vaccine-item-id "$ITEM" \
         -actor-id "$GOATOS_LOCAL_USER_ID" >/dev/null
   )
 
   local obligation_count
   obligation_count="$(
     psql "$DATABASE_URL" -tAc \
-      "select count(*) from obligation_instances where tenant_id='$GOATOS_TENANT_ID' and target_id='$goat_id' and protocol_version_id='$version' and rule_id='$rule'"
+      "select count(*) from obligation_instances where tenant_id='$GOATOS_TENANT_ID' and target_id='$goat_id' and protocol_version_id='$VERSION' and rule_id='$RULE'"
   )"
   if [ "$obligation_count" != "1" ]; then
     echo "open visual seed did not create exactly one obligation for goat=$goat_id; count=$obligation_count" >&2
     return 1
   fi
-  local obligation_id batch_id task_id administered_at
-  obligation_id="$(psqlq "select obligation_id from obligation_instances where tenant_id='$GOATOS_TENANT_ID' and target_id='$goat_id' and protocol_version_id='$version' and rule_id='$rule' limit 1")"
+  local obligation_id batch_id task_id due_before administered_at
+  obligation_id="$(psqlq "select obligation_id from obligation_instances where tenant_id='$GOATOS_TENANT_ID' and target_id='$goat_id' and protocol_version_id='$VERSION' and rule_id='$RULE' limit 1")"
   batch_id="$(psqlq "select batch_id from obligation_instances where tenant_id='$GOATOS_TENANT_ID' and obligation_id='$obligation_id'")"
   task_id="$(psqlq "select sop_task_id from obligation_batches where tenant_id='$GOATOS_TENANT_ID' and batch_id='$batch_id'")"
+  due_before="$(psqlq "select to_char((coalesce(window_end, due_at) + interval '2 days') at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') from obligation_instances where tenant_id='$GOATOS_TENANT_ID' and obligation_id='$obligation_id'")"
   if [ -z "$task_id" ]; then
     echo "open visual seed did not create a SOP task for goat=$goat_id batch=$batch_id" >&2
+    return 1
+  fi
+  if [ -z "$due_before" ]; then
+    echo "open visual seed could not resolve due_before horizon for obligation=$obligation_id" >&2
     return 1
   fi
 
@@ -252,8 +257,8 @@ JSON
       "$full_url" >/dev/null
     echo "$proof_id"
   }
-  local proof_shed proof_vial proof_admin submission completion_id
-  proof_shed="$(mkproof shed)"
+  local proof_shed_id proof_vial proof_admin submission completion_id
+  proof_shed_id="$(mkproof shed)"
   proof_vial="$(mkproof vial_lot)"
   proof_admin="$(mkproof administration)"
   submission="$(
@@ -262,7 +267,7 @@ JSON
       -H "Content-Type: application/json" \
       -X POST "$GOATOS_API_BASE_URL/app/tasks/$task_id/submissions" \
       -d @- <<JSON
-{"sop_version_id":"$sop_version","idempotency_key":"smoke-submit-$stamp","answers":{"vaccine_lot_id":"$vaccine_lot","cold_chain_verified":true,"shed_video":"$proof_shed","vial_lot_video":"$proof_vial","administration_video":"$proof_admin","goat_ids":["$goat_id"],"dose_ml_given":2,"route_site":"subcutaneous","administered_at":"$administered_at","adverse_reaction":false},"proof_refs":[{"proof_id":"$proof_shed","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$proof_vial","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$proof_admin","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
+{"sop_version_id":"$SOPVER","idempotency_key":"smoke-submit-$stamp","answers":{"vaccine_lot_id":"$LOT","cold_chain_verified":true,"shed_video":"$proof_shed_id","vial_lot_video":"$proof_vial","administration_video":"$proof_admin","goat_ids":["$goat_id"],"dose_ml_given":2,"route_site":"subcutaneous","administered_at":"$administered_at","adverse_reaction":false},"proof_refs":[{"proof_id":"$proof_shed_id","proof_type":"video","subject_type":"shed","upload_state":"completed"},{"proof_id":"$proof_vial","proof_type":"video","subject_type":"vial_lot","upload_state":"completed"},{"proof_id":"$proof_admin","proof_type":"video","subject_type":"administration","upload_state":"completed"}]}
 JSON
   )"
   if [ -z "$(echo "$submission" | jq_py 'd.get("submission",{}).get("submission_id","")')" ]; then
@@ -274,29 +279,43 @@ JSON
     echo "open visual seed did not create a recorded completion for goat=$goat_id task=$task_id" >&2
     return 1
   fi
+  (
+    cd "$backend_dir"
+    GOATOS_TENANT_ID="$GOATOS_TENANT_ID" DATABASE_URL="$DATABASE_URL" \
+      go run ./cmd/process-integrity-projection-recompute \
+        -tenant-id "$GOATOS_TENANT_ID" >/dev/null
+  )
   export GOATOS_SMOKE_GOAT_ID="$goat_id"
+  export GOATOS_SMOKE_SHED_ID="$seed_shed"
   export GOATOS_SMOKE_BATCH_ID="$batch_id"
   export GOATOS_SMOKE_TASK_ID="$task_id"
   export GOATOS_SMOKE_COMPLETION_ID="$completion_id"
-  echo "open visual goat=$goat_id obligation=$obligation_id batch=$batch_id task=$task_id completion=$completion_id"
+  export GOATOS_SMOKE_DUE_BEFORE="$due_before"
+  echo "open visual goat=$goat_id obligation=$obligation_id batch=$batch_id task=$task_id completion=$completion_id due_before=$due_before"
 }
 
 assert_open_vaccination_owner_chain_ready() {
   local batch_id="${GOATOS_SMOKE_BATCH_ID:-}"
+  local shed_id="${GOATOS_SMOKE_SHED_ID:-}"
+  local due_before="${GOATOS_SMOKE_DUE_BEFORE:-}"
   [ -n "$batch_id" ] || fail "open vaccination seed did not export GOATOS_SMOKE_BATCH_ID"
+  [ -n "$shed_id" ] || fail "open vaccination seed did not export GOATOS_SMOKE_SHED_ID"
+  [ -n "$due_before" ] || fail "open vaccination seed did not export GOATOS_SMOKE_DUE_BEFORE"
   export GOATOS_ASSERT_BATCH_ID="$batch_id"
 
-  local execution execution_count execution_state execution_operator execution_next
+  local execution drive_count execution_count execution_state execution_operator execution_next
   execution="$(
     curl -sS \
       -H "Authorization: Bearer $GOATOS_BEARER_TOKEN" \
-      "$GOATOS_API_BASE_URL/vaccination/execution?limit=200"
+      "$GOATOS_API_BASE_URL/vaccination/execution/sheds/$shed_id?work_state=verification_pending&due_before=$due_before&limit=500"
   )"
-  execution_count="$(echo "$execution" | jq_py 'len([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
-  [ "$execution_count" != "0" ] || fail "open vaccination batch $batch_id missing from /vaccination/execution"
-  execution_state="$(echo "$execution" | jq_py '(lambda rows: rows[0].get("workState", "") if rows else "")([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
-  execution_operator="$(echo "$execution" | jq_py '(lambda rows: ((rows[0].get("owner") or {}).get("operatorName") or "") if rows else "")([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
-  execution_next="$(echo "$execution" | jq_py '(lambda rows: rows[0].get("nextAction", "") if rows else "")([r for r in d.get("rows", []) if r.get("batchId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  drive_count="$(echo "$execution" | jq_py 'len([r for r in d.get("drives", []) if r.get("driveId") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  [ "$drive_count" != "0" ] || fail "open vaccination batch $batch_id missing from /vaccination/execution/sheds/$shed_id drive summary"
+  execution_count="$(echo "$execution" | jq_py 'len([r for r in d.get("rows", []) if (r.get("batchId") or r.get("driveId")) == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  [ "$execution_count" != "0" ] || fail "open vaccination batch $batch_id missing from /vaccination/execution/sheds/$shed_id rows"
+  execution_state="$(echo "$execution" | jq_py '(lambda rows: rows[0].get("workState", "") if rows else "")([r for r in d.get("rows", []) if (r.get("batchId") or r.get("driveId")) == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  execution_operator="$(echo "$execution" | jq_py '(lambda rows: ((rows[0].get("owner") or {}).get("operatorName") or "") if rows else "")([r for r in d.get("rows", []) if (r.get("batchId") or r.get("driveId")) == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
+  execution_next="$(echo "$execution" | jq_py '(lambda rows: rows[0].get("nextAction", "") if rows else "")([r for r in d.get("rows", []) if (r.get("batchId") or r.get("driveId")) == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
   [ "$execution_state" != "blocked" ] || fail "open vaccination execution batch $batch_id regressed to blocked"
   [ -n "$execution_operator" ] || fail "open vaccination execution batch $batch_id has no seeded operator"
   case "$execution_next" in
@@ -307,7 +326,7 @@ assert_open_vaccination_owner_chain_ready() {
   action="$(
     curl -sS \
       -H "Authorization: Bearer $GOATOS_BEARER_TOKEN" \
-      "$GOATOS_API_BASE_URL/vaccination/action-center?limit=200"
+      "$GOATOS_API_BASE_URL/vaccination/action-center?work_state=verification_pending&due_before=$due_before&limit=500"
   )"
   action_count="$(echo "$action" | jq_py 'len([r for r in (d.get("items") or d.get("rows") or []) if r.get("batch_id") == __import__("os").environ["GOATOS_ASSERT_BATCH_ID"]])')"
   [ "$action_count" != "0" ] || fail "open vaccination batch $batch_id missing from /vaccination/action-center"
@@ -322,7 +341,7 @@ assert_open_vaccination_owner_chain_ready() {
     *"Assign operator"*|*"Assign owner"*) fail "open vaccination action-center batch $batch_id still routes to owner assignment: $action_next" ;;
   esac
 
-  echo "vaccination owner-chain guard: batch=$batch_id execution=$execution_state operator=$execution_operator action=$action_state next=$action_next"
+  echo "vaccination owner-chain guard: batch=$batch_id due_before=$due_before execution=$execution_state operator=$execution_operator action=$action_state next=$action_next"
 }
 
 seed_procurement_warmup_load() {

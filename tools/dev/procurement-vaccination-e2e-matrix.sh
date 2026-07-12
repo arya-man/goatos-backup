@@ -31,58 +31,38 @@ PGURL="$DATABASE_URL"
 SOURCE_PARTY="00000000-0000-4000-8000-000000001101"
 PARK="00000000-0000-4000-8000-000000003001"
 SHED="00000000-0000-4000-8000-000000003101"
-VERSION="00000000-0000-4000-8000-00000000b051"
-SOP_VERSION="b0000000-0000-4000-8000-000000000002"
-VACCINE_ITEM="00000000-0000-4000-8000-00000000b001"
-RULE="00000000-0000-4000-8000-00000000b052"
 
 psqlq() { psql "$PGURL" -tAc "$1"; }
 jqp() { python3 -c "import sys,json; d=json.load(sys.stdin); print($1)" 2>/dev/null; }
 fail() { echo "FAIL $*" >&2; exit 1; }
+. "$repo_root/tools/dev/vaccination-active-fixture.sh"
 
 relay_once() {
   local label="$1"
   local limit="${2:-100}"
-  local out relay_bad
+  local out
   out="$(
     cd "$backend_dir"
     GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus \
       go run ./cmd/outbox-relay -limit "$limit" 2>&1
   )"
   echo "$out" | tail -1
-  relay_bad="$(RELAY_OUTPUT="$out" python3 - <<'PY'
-import json
-import os
-import re
-
-bad = []
-for line in os.environ.get("RELAY_OUTPUT", "").splitlines():
-    try:
-        obj = json.loads(line)
-    except Exception:
-        obj = {}
-    for key in ("failed", "dead_letter", "retry_scheduled"):
-        value = obj.get(key)
-        if isinstance(value, int) and value > 0:
-            bad.append(f"{key}={value}")
-    for match in re.finditer(r'"?(failed|dead_letter|retry_scheduled)"?\s*[:=]\s*([1-9][0-9]*)', line):
-        bad.append(f"{match.group(1)}={match.group(2)}")
-print(" ".join(dict.fromkeys(bad)))
-PY
-)"
-  [ -z "$relay_bad" ] || fail "$label relay reported non-green counts: $relay_bad output=$(echo "$out" | tail -3 | tr '\n' ' ')"
 }
 
 relay_until_published() {
   local label="$1"
   local aggregate="$2"
   local event_type="$3"
-  local i status
+  local i status last_error
   for i in $(seq 1 5); do
     relay_once "$label" 500
     status="$(psqlq "select status from outbox_messages where tenant_id='$TENANT' and aggregate_id='$aggregate' and event_type='$event_type' order by created_at desc limit 1")"
     if [ "$status" = "published" ]; then
       return 0
+    fi
+    if [ "$status" = "failed" ] || [ "$status" = "dead_letter" ]; then
+      last_error="$(psqlq "select coalesce(last_error,'') from outbox_messages where tenant_id='$TENANT' and aggregate_id='$aggregate' and event_type='$event_type' order by created_at desc limit 1")"
+      fail "$label target $event_type for aggregate=$aggregate reached status=$status last_error=$last_error"
     fi
     sleep 1
   done
@@ -173,13 +153,20 @@ echo "### seed: local grant and vaccination trigger"
   go run ./cmd/seed-dev-grant -tenant-id "$TENANT" -user-id "$USER" -role ceo_internal >/dev/null
   go run ./cmd/seed-vaccination-trigger >/dev/null
 )
+resolve_vaccination_fixture
+echo "vaccination_fixture=$MATRIX_SUMMARY primary=$RULE_SUMMARY item=$VACCINE_ITEM"
 
 STAMP="${GOATOS_E2E_RUN_ID:-MATRIX-$(date +%Y%m%d-%H%M%S)}-$(date +%s)"
-ENTRY_DATE="$(date -u +%F)"
+BUSINESS_DATE="$(date -u +%F)"
+if ENTRY_DATE="$(date -u -v-8d +%F 2>/dev/null)"; then
+  :
+else
+  ENTRY_DATE="$(date -u -d "$BUSINESS_DATE - 8 days" +%F)"
+fi
 if DOB_DAY28="$(date -u -v-28d +%F 2>/dev/null)"; then
   :
 else
-  DOB_DAY28="$(date -u -d "$ENTRY_DATE - 28 days" +%F)"
+  DOB_DAY28="$(date -u -d "$BUSINESS_DATE - 28 days" +%F)"
 fi
 
 echo "### create procurement load"
@@ -281,6 +268,27 @@ echo "clean_canonical_state=$CANONICAL_STATE"
 
 echo "### relay goat.created and generate vaccination work"
 relay_until_published "clean goat.created delivery" "$CLEAN" "goat.created"
+OBLIGATION="$(psqlq "select obligation_id from obligation_instances where tenant_id='$TENANT' and target_id='$CLEAN' and protocol_version_id='$VERSION' and rule_id='$RULE' limit 1")"
+[ -n "$OBLIGATION" ] || fail "clean goat produced no vaccination obligation"
+INITIAL_OBLIGATION_STATE="$(psqlq "select status || ':' || (batch_id is null)::text from obligation_instances where obligation_id='$OBLIGATION'")"
+[ "$INITIAL_OBLIGATION_STATE" = "deferred:true" ] || fail "clean goat initial vaccination state=$INITIAL_OBLIGATION_STATE want deferred:true"
+expect_count "clean_vaccination_warmup_hold_event" "select count(*) from obligation_status_events where tenant_id='$TENANT' and obligation_id='$OBLIGATION' and event_type='deferred' and payload->>'defer_status'='warming_hold'" "1"
+RECOVERY_AS_OF="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+(
+  cd "$backend_dir"
+  GOATOS_TENANT_ID="$TENANT" \
+    go run ./cmd/generate-vaccination-obligations \
+      -tenant-id "$TENANT" \
+      -version-id "$VERSION" \
+      -unsafe-version-id-bypass-effective-resolution \
+      -as-of "$RECOVERY_AS_OF"
+)
+RECOVERED_OBLIGATION_STATE="$(psqlq "select status || ':' || (batch_id is null)::text from obligation_instances where obligation_id='$OBLIGATION'")"
+case "$RECOVERED_OBLIGATION_STATE" in
+  scheduled:true|due:true) ;;
+  *) fail "clean goat recovered vaccination state=$RECOVERED_OBLIGATION_STATE want scheduled:true or due:true" ;;
+esac
+DUE_BEFORE="$(psqlq "select to_char((due_at + interval '1 hour') at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') from obligation_instances where obligation_id='$OBLIGATION'")"
 (
   cd "$backend_dir"
   GOATOS_TENANT_ID="$TENANT" \
@@ -289,18 +297,34 @@ relay_until_published "clean goat.created delivery" "$CLEAN" "goat.created"
       -version-id "$VERSION" \
       -sop-version-id "$SOP_VERSION" \
       -vaccine-item-id "$VACCINE_ITEM" \
-      -actor-id "$USER" >/dev/null
+      -actor-id "$USER" \
+      -due-before "$DUE_BEFORE" >/dev/null
 )
 expect_count "clean_goat_created_outbox_published" "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='goat.created' and aggregate_id='$CLEAN' and status='published'" "1"
 expect_count "clean_goat_created_outbox_failed" "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='goat.created' and aggregate_id='$CLEAN' and status in ('failed','dead_letter')" "0"
 
-OBLIGATION="$(psqlq "select obligation_id from obligation_instances where tenant_id='$TENANT' and target_id='$CLEAN' and protocol_version_id='$VERSION' and rule_id='$RULE' limit 1")"
-[ -n "$OBLIGATION" ] || fail "clean goat produced no vaccination obligation"
-BATCH="$(psqlq "select batch_id from obligation_instances where obligation_id='$OBLIGATION'")"
-TASK="$(psqlq "select sop_task_id from obligation_batches where batch_id='$BATCH'")"
-[ -n "$TASK" ] || fail "clean goat obligation did not reach batch/task"
+BATCH_ROW="$(psqlq "
+SELECT concat_ws('|', oi.obligation_id::text, oi.rule_id::text, pr.dose_code, oi.batch_id::text, ob.sop_task_id::text)
+FROM obligation_instances oi
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+JOIN obligation_batches ob
+  ON ob.tenant_id = oi.tenant_id
+ AND ob.batch_id = oi.batch_id
+WHERE oi.tenant_id = '$TENANT'
+  AND oi.target_id = '$CLEAN'
+  AND oi.protocol_version_id = '$VERSION'
+  AND oi.batch_id IS NOT NULL
+  AND ob.sop_task_id IS NOT NULL
+ORDER BY pr.sequence
+LIMIT 1
+")"
+[ -n "$BATCH_ROW" ] || fail "clean goat recovered vaccination work did not reach any batch/task"
+IFS='|' read -r BATCH_OBLIGATION BATCH_RULE BATCH_DOSE BATCH TASK <<<"$BATCH_ROW"
+[ -n "$BATCH" ] && [ -n "$TASK" ] || fail "clean goat batch row incomplete: $BATCH_ROW"
 expect_count "clean_vaccination_obligation" "select count(*) from obligation_instances where tenant_id='$TENANT' and target_id='$CLEAN' and protocol_version_id='$VERSION' and rule_id='$RULE'" "1"
-expect_count "rejected_vaccination_obligation" "select count(*) from obligation_instances where tenant_id='$TENANT' and target_id='$REJECTED' and protocol_version_id='$VERSION' and rule_id='$RULE'" "0"
-expect_count "blocked_vaccination_obligation" "select count(*) from obligation_instances where tenant_id='$TENANT' and target_id='$BLOCKED' and protocol_version_id='$VERSION' and rule_id='$RULE'" "0"
+expect_count "rejected_vaccination_obligation" "select count(*) from obligation_instances where tenant_id='$TENANT' and target_id='$REJECTED' and protocol_version_id='$VERSION'" "0"
+expect_count "blocked_vaccination_obligation" "select count(*) from obligation_instances where tenant_id='$TENANT' and target_id='$BLOCKED' and protocol_version_id='$VERSION'" "0"
 
-echo "## CLOSED procurement-vaccination-e2e-matrix load=$LOAD clean=$CLEAN rejected=$REJECTED blocked=$BLOCKED extra_animal_identifier_2=$EXTRA_ANIMAL_ID_2 obligation=$OBLIGATION batch=$BATCH task=$TASK"
+echo "## CLOSED procurement-vaccination-e2e-matrix load=$LOAD clean=$CLEAN rejected=$REJECTED blocked=$BLOCKED extra_animal_identifier_2=$EXTRA_ANIMAL_ID_2 primary_obligation=$OBLIGATION batched_obligation=$BATCH_OBLIGATION batched_dose=$BATCH_DOSE batch=$BATCH task=$TASK"

@@ -46,9 +46,9 @@ bash tools/dev/vaccination-chain-proof.sh
 ```
 
 It uses the default local user (`ceo_internal`, which holds every permission the
-chain needs), the seeded source-derived ET dev baseline (published version
-`b051`, rule `b052` `ET-PRIMARY-1`, booster rule `b053`, linked published SOP `b0..0002`, FEFO vaccine
-lot `b002`), Herd Register `POST /admin/goats` as the entry path, `cmd/outbox-relay`
+chain needs), resolves the currently published vaccination matrix plus ET+TT
+primary/booster rules from Postgres after local seeding, resolves the linked SOP
+and active ET+TT FEFO stock, Herd Register `POST /admin/goats` as the entry path, `cmd/outbox-relay`
 (`GOATOS_OUTBOX_PUBLISHER=eventbus`) as the delivery path, `cmd/obligation-sweeper`,
 generated app proof/SOP/verification APIs, then the CT/AC/PA/WF/Vaccination/shed/
 Passport read models. It ends in a `## CLOSED …` line with all IDs.
@@ -82,10 +82,11 @@ Manual equivalent of the script's steps (when running by hand):
 2. GOATOS_OUTBOX_ALLOW_NONDURABLE=1 GOATOS_OUTBOX_PUBLISHER=eventbus go run ./cmd/outbox-relay   -> generation -> obligation_instances
    (the relay now fails closed: non-durable publishers like `eventbus`/`logging` require
     GOATOS_OUTBOX_ALLOW_NONDURABLE=1; staging/production must set GOATOS_OUTBOX_PUBLISHER=pubsub)
-3. go run ./cmd/obligation-sweeper -version-id <b051> -sop-version-id <b0..0002> \
-     -vaccine-item-id <b001> -actor-id <user>              -> obligation_batch + SOP task + Calendar projection/reminder/escalation sweep
+3. go run ./cmd/obligation-sweeper -version-id <active vaccination matrix version> \
+     -sop-version-id <linked SOP version> -vaccine-item-id <active ET+TT item> \
+     -actor-id <user>                                      -> obligation_batch + SOP task + Calendar projection/reminder/escalation sweep
 4. POST /app/proofs/uploads (x3: shed/vial_lot/administration, scope_type=task) + PUT bytes
-5. POST /app/tasks/{task}/submissions (answers + 3 proof_refs; vaccine_lot_id = stock_id b002)
+5. POST /app/tasks/{task}/submissions (answers + 3 proof_refs; vaccine_lot_id = resolved active ET+TT stock_id)
      -> vaccination_completion (recorded) via the in-process submission fanout
 6. GET /vaccination/verification-queue ; POST /admin/tasks/{task}/verify with row_version
      -> SOP review accepted, completion accepted, and obligation completed
@@ -149,7 +150,7 @@ no Playwright. One representative run produced these concrete IDs:
 ```text
 goat            d9dcfd30-37c4-4c0d-9d97-27333105642d  (park CBE / shed Mandela 1 - Part 1)
 goat.created    event b942099b-6858-48d9-817c-1b84802c44e8  (outbox topic identity.events)
-obligation      b005bb54-c94c-49ea-82e8-4e56a02a29cc  rule b052 (ET-PRIMARY-1), version b051  -> completed
+obligation      b005bb54-c94c-49ea-82e8-4e56a02a29cc  ET+TT primary rule on the active vaccination matrix  -> completed
 batch           0cf0538e-99ab-40a3-b45c-50ea673d4789
 SOP task        5ce5a723-8e5a-40ef-a100-c617f5f92731  (vaccination, scope=park)
 proofs          shed 96c50c32 / vial_lot 7f9d3ada / administration e8d9a5b7  (local storage, completed)
@@ -166,7 +167,7 @@ Read-model proof (same Postgres truth), recorded medium per surface:
 | Surface | Endpoint | Result | Medium |
 |---|---|---|---|
 | Action Center | `GET /vaccination/action-center` | obligation row present, `work_state=completed`, `completed_count=1` | API |
-| Workflows | `GET /vaccination/workflows/{row_id}` (`row_id=batch:<batch>:rule:b052:shed:<shed>`) | obligation + batch + completion present; chain nodes `config_published→obligation_generated→batch_opened→sop_task→proof_uploaded→verification→completion→next_due` | API |
+| Workflows | `GET /vaccination/workflows/{row_id}` (`row_id=batch:<batch>:rule:<active-ettt-primary-rule>:shed:<shed>`) | obligation + batch + completion present; chain nodes `config_published→obligation_generated→batch_opened→sop_task→proof_uploaded→verification→completion→next_due` | API |
 | Goat Passport | `GET /goats/{goat_id}/passport` | goat + obligation + completion present | API |
 | Shed drilldown | `GET /vaccination/execution/sheds/{shed_id}` | batch drive `workState=completed`, `severity=ok`; summary `completed=1` | API |
 | Protocol Adherence | `GET /vaccination/adherence` | `summary.completed_count` counts the completion; row aggregates per batch/shed (no per-goat UUID) | API + SQL |

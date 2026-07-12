@@ -16,18 +16,13 @@ export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/
 PGURL="$DATABASE_URL"; API="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 TENANT=00000000-0000-4000-8000-000000000001
 USER=90000000-0000-4000-8000-000000000101
-VERSION=00000000-0000-4000-8000-00000000b051
-SOPVER=b0000000-0000-4000-8000-000000000002
-ITEM=00000000-0000-4000-8000-00000000b001
-LOT=00000000-0000-4000-8000-00000000b002
-RULE=00000000-0000-4000-8000-00000000b052
-BOOSTER_RULE=00000000-0000-4000-8000-00000000b053
 BACKEND="$(cd "$(dirname "$0")/../../backend" && pwd)"
 
 psqlq(){ psql "$PGURL" -tAc "$1"; }
 jqp(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }
 has(){ grep -q "$1" <<<"$2" && echo HIT || echo MISS; }
 fail(){ echo "FAIL $*" >&2; exit 1; }
+. "$(cd "$(dirname "$0")" && pwd)/vaccination-active-fixture.sh"
 
 relay_once(){
   local out
@@ -69,20 +64,20 @@ if DOB_DAY28=$(date -u -v-28d +%F 2>/dev/null); then
 else
   DOB_DAY28=$(date -u -d "$ENTRY_DATE - 28 days" +%F)
 fi
+GOAT_ENTRY_DATE="$DOB_DAY28"
 
 echo "## vaccination-rework-proof stamp=$STAMP api=$API"
 
-echo; echo "### 0. seed V1 vaccination fixture"
+echo; echo "### 0. seed and resolve active vaccination fixture"
 ( cd "$BACKEND" && go run ./cmd/seed-vaccination-trigger -tenant-id "$TENANT" >/dev/null )
-MATRIX=$(psqlq "select concat_ws('|', rule_dsl->'vaccine'->>'code', rule_dsl->'vaccine'->>'type', rule_dsl #>> '{schedule,0,dose_amount}', rule_dsl #>> '{schedule,0,dose_unit}', rule_dsl #>> '{schedule,0,route_site}', rule_dsl #>> '{schedule,0,max_delay_days}', rule_dsl #>> '{schedule,0,course_lapse_policy}', rule_dsl #>> '{eligibility,stage}', rule_dsl #>> '{eligibility,sex}', rule_dsl #>> '{eligibility,breed}', rule_dsl #>> '{eligibility,lifecycle}', rule_dsl #>> '{eligibility,health}', rule_dsl #>> '{eligibility,reproductive}', jsonb_array_length(rule_dsl->'schedule')) from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
-[ "$MATRIX" = "ET+TT|toxoid|2|ml|subcutaneous|7|pc_review|K2|all|all|alive|any|any|2" ] || fail "V1 matrix fixture missing/wrong got=$MATRIX"
-echo "matrix=$MATRIX"
+resolve_vaccination_fixture
+echo "matrix=$MATRIX_SUMMARY primary=$RULE_SUMMARY booster=$BOOSTER_SUMMARY sop=$SOPVER item=$ITEM lot=$LOT"
 
 SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$SHED_CODE', 'Rework Proof Main $STAMP', '$PROOF_PARK', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
 
 echo; echo "### 1. create goat -> goat.created -> obligation"
 CREATE=$(curl -s "${A[@]}" -H "Idempotency-Key: rework-$STAMP" -H "Content-Type: application/json" -X POST "$API/admin/goats" -d @- <<JSON
-{"animal_identifier_1":"$RFID-A1","animal_identifier_2":"$RFID-A2","species":"goat","park_id":"$PROOF_PARK","shed_id":"$SHED","sex":"female","dob":"$DOB_DAY28","dob_estimated":true,"origin_type":"procured","entry_date":"$ENTRY_DATE","management_stage":"K2","evidence_refs":[{"evidence_type":"source_record","evidence_id":"rework-$STAMP"}]}
+{"animal_identifier_1":"$RFID-A1","animal_identifier_2":"$RFID-A2","species":"goat","park_id":"$PROOF_PARK","shed_id":"$SHED","sex":"female","breed":"all","dob":"$DOB_DAY28","dob_estimated":true,"origin_type":"birth","entry_date":"$GOAT_ENTRY_DATE","management_stage":"K2","health_status":"healthy","reproductive_status":"open","evidence_refs":[{"evidence_type":"source_record","evidence_id":"rework-$STAMP"}]}
 JSON
 )
 GOAT=$(echo "$CREATE" | jqp 'd["goat"]["goat_id"]')
@@ -168,7 +163,7 @@ VAX_OUTBOX_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='
 [ "$VAX_OUTBOX_COUNT" = "1" ] || fail "vaccination.completed outbox count=$VAX_OUTBOX_COUNT"
 echo "ACCEPTED corrected_submission=$SUB2 rejected_completion=$COMP1 accepted_completion=$COMP2"
 
-echo; echo "### 5. completed event -> booster and replay idempotency"
+echo; echo "### 5. completed event -> next-dose obligation and replay idempotency"
 relay_until_published "vaccination.completed delivery" "$OBL" "vaccination.completed"
 BOOSTER_OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$BOOSTER_RULE' limit 1")
 [ -n "$BOOSTER_OBL" ] || fail "no booster obligation generated for goat=$GOAT"

@@ -20,9 +20,9 @@
 #   - DB migrated to head. `make dev-local` does NOT migrate; in particular migration
 #     000082 (sop_task_review_fanouts / sop_task_submission_fanouts) must be applied or the
 #     SOP submission step 500s with: relation "sop_task_submission_fanouts" does not exist.
-#   - seeded Preventive Care ET+TT matrix baseline (seed-vaccination-trigger): published version b051,
-#     rules b052 (ET_TT_4W, birth_age day 28) + b053 (ET_TT_7W, after_previous_completion +21d),
-#     linked published SOP b0..0002, FEFO vaccine lot b002.
+#   - seeded vaccination fixtures. The script resolves the currently published
+#     vaccination matrix/rules/stock from Postgres after seeding; it does not pin
+#     stale local proof UUIDs.
 #
 # This uses the source-derived local/dev baseline in
 # context/source-findings/preventive-care-vaccination-roster-stage-proposal.md. Production can replace it
@@ -37,14 +37,8 @@ PGURL="$DATABASE_URL"; API="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 TENANT=00000000-0000-4000-8000-000000000001
 USER=90000000-0000-4000-8000-000000000101
 PROOF_PARK=00000000-0000-4000-8000-000000003001
-VERSION=00000000-0000-4000-8000-00000000b051        # published Preventive Care ET+TT matrix baseline
 OLD_VERSION=00000000-0000-4000-8000-00000000b011    # retired ET+TT baseline; must not generate obligations
-SOPVER=b0000000-0000-4000-8000-000000000002         # linked published SOP version
-ITEM=00000000-0000-4000-8000-00000000b001           # vaccine inventory item
-LOT=00000000-0000-4000-8000-00000000b002            # inventory_stock.stock_id (FEFO lot ET-LOT-001 @ CBE)
-RULE=00000000-0000-4000-8000-00000000b052           # ET-PRIMARY-1 birth_age day-21 rule
 OLD_RULE=00000000-0000-4000-8000-00000000b012       # retired legacy ET primary rule
-BOOSTER_RULE=00000000-0000-4000-8000-00000000b053   # ET-BOOSTER-1 after_previous_completion +14d rule
 BACKEND="$(cd "$(dirname "$0")/../../backend" && pwd)"
 psqlq(){ psql "$PGURL" -tAc "$1"; }
 jqp(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }
@@ -84,6 +78,7 @@ assert_outbox_published(){
   not_published=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and aggregate_id='$aggregate' and event_type='$event_type' and status <> 'published'")
   [ "$not_published" = "0" ] || fail "$label outbox has non-published rows=$not_published"
 }
+. "$(cd "$(dirname "$0")" && pwd)/vaccination-active-fixture.sh"
 
 TOKEN=$(cd "$BACKEND" && go run ./cmd/mint-dev-token -tenant-id "$TENANT" -user-id "$USER" -ttl 2h 2>/dev/null)
 A=(-H "Authorization: Bearer $TOKEN")
@@ -97,24 +92,22 @@ if DOB_DAY28=$(date -u -v-28d +%F 2>/dev/null); then
 else
   DOB_DAY28=$(date -u -d "$ENTRY_DATE - 28 days" +%F)
 fi
+GOAT_ENTRY_DATE="$DOB_DAY28"
 echo "## vaccination-chain-proof stamp=$STAMP api=$API"
 
-echo; echo "### 0. Preventive Care ET+TT matrix fixture is present"
+echo; echo "### 0. active published vaccination matrix fixture is present"
 ( cd "$BACKEND" && go run ./cmd/seed-vaccination-trigger -tenant-id "$TENANT" >/dev/null )
-MATRIX=$(psqlq "select concat_ws('|', rule_dsl->'vaccine'->>'code', rule_dsl->'vaccine'->>'type', rule_dsl #>> '{schedule,0,dose_amount}', rule_dsl #>> '{schedule,0,dose_unit}', rule_dsl #>> '{schedule,0,route_site}', rule_dsl #>> '{schedule,0,max_delay_days}', rule_dsl #>> '{schedule,0,course_lapse_policy}', rule_dsl #>> '{eligibility,stage}', rule_dsl #>> '{eligibility,sex}', rule_dsl #>> '{eligibility,breed}', rule_dsl #>> '{eligibility,lifecycle}', rule_dsl #>> '{eligibility,health}', rule_dsl #>> '{eligibility,reproductive}', jsonb_array_length(rule_dsl->'schedule')) from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
-[ "$MATRIX" = "ET+TT|toxoid|2|ml|subcutaneous|7|pc_review|K2|all|all|alive|any|any|2" ] || fail "Preventive Care matrix fixture missing/wrong for version=$VERSION got=$MATRIX"
-MATRIX_REPRO_EXCLUSIONS=$(psqlq "select jsonb_array_length(rule_dsl #> '{eligibility,exclude_reproductive_states}') from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$VERSION'")
-[ "$MATRIX_REPRO_EXCLUSIONS" = "2" ] || fail "V1 matrix missing reproductive exclusions; count=$MATRIX_REPRO_EXCLUSIONS version=$VERSION"
+resolve_vaccination_fixture
 OLD_STATUS=$(psqlq "select status from protocol_versions where tenant_id='$TENANT' and protocol_version_id='$OLD_VERSION'")
 [ "$OLD_STATUS" = "retired" ] || fail "legacy ET baseline status=$OLD_STATUS, want retired for version=$OLD_VERSION"
-echo "matrix=$MATRIX"
+echo "matrix=$MATRIX_SUMMARY primary=$RULE_SUMMARY booster=$BOOSTER_SUMMARY sop=$SOPVER item=$ITEM lot=$LOT"
 BACKFILL_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$BACKFILL_SHED_CODE', 'Chain Proof Backfill $STAMP', '$PROOF_PARK', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
 MAIN_SHED=$(psqlq "insert into locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, country, state_region, timezone, status) values (gen_random_uuid(), '$TENANT', 'shed', '$MAIN_SHED_CODE', 'Chain Proof Main $STAMP', '$PROOF_PARK', 'IN', 'Tamil Nadu', 'Asia/Kolkata', 'active') returning location_id" | head -n 1)
 psqlq "insert into location_operational_attributes (tenant_id, location_id, usable_for_counts, usable_for_feed, usable_for_vaccination, usable_for_sop, is_holding, is_quarantine, is_icu, display_order, notes) values ('$TENANT', '$BACKFILL_SHED', true, true, true, true, false, false, false, 101, 'Chain proof isolated backfill shed'), ('$TENANT', '$MAIN_SHED', true, true, true, true, false, false, false, 102, 'Chain proof isolated main shed') on conflict (location_id) do update set usable_for_vaccination=true, usable_for_sop=true, updated_at=now()" >/dev/null
 echo "proof_park=$PROOF_PARK proof_sheds backfill=$BACKFILL_SHED_CODE/$BACKFILL_SHED main=$MAIN_SHED_CODE/$MAIN_SHED"
 
-echo; echo "### 0b. existing-goat backfill generates V1 due work"
-BACKFILL_GOAT=$(psqlq "insert into goats (goat_id, tenant_id, lifecycle_status, custodian_party_id, current_location_id, park_id, shed_id, management_stage, sex, dob, approx_dob, entry_date, species, origin_type) values (gen_random_uuid(), '$TENANT', 'alive', '00000000-0000-4000-8000-000000001001', '$BACKFILL_SHED', '$PROOF_PARK', '$BACKFILL_SHED', 'K2', 'female', DATE '$DOB_DAY28', DATE '$DOB_DAY28', DATE '$ENTRY_DATE', 'goat', 'procured') returning goat_id" | head -n 1)
+echo; echo "### 0b. existing-goat backfill generates active matrix due work"
+BACKFILL_GOAT=$(psqlq "insert into goats (goat_id, tenant_id, lifecycle_status, health_status, reproductive_status, custodian_party_id, current_location_id, park_id, shed_id, management_stage, sex, breed, dob, approx_dob, entry_date, species, origin_type) values (gen_random_uuid(), '$TENANT', 'alive', 'healthy', 'open', '00000000-0000-4000-8000-000000001001', '$BACKFILL_SHED', '$PROOF_PARK', '$BACKFILL_SHED', 'K2', 'female', 'all', DATE '$DOB_DAY28', DATE '$DOB_DAY28', DATE '$GOAT_ENTRY_DATE', 'goat', 'birth') returning goat_id" | head -n 1)
 BACKFILL_OUTBOX_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and aggregate_id='$BACKFILL_GOAT' and event_type='goat.created'")
 [ "$BACKFILL_OUTBOX_COUNT" = "0" ] || fail "backfill goat unexpectedly has goat.created outbox count=$BACKFILL_OUTBOX_COUNT"
 ( cd "$BACKEND" && GOATOS_TENANT_ID=$TENANT go run ./cmd/backfill-goat-created -tenant-id "$TENANT" -goat-id "$BACKFILL_GOAT" -limit 1 )
@@ -137,7 +130,7 @@ psqlq "update obligation_instances set status='canceled', updated_at=now() where
 
 echo; echo "### 1. Herd Register create  POST /admin/goats"
 CREATE=$(curl -s "${A[@]}" -H "Idempotency-Key: chain-$STAMP" -H "Content-Type: application/json" -X POST "$API/admin/goats" -d @- <<JSON
-{"animal_identifier_1":"$RFID-A1","animal_identifier_2":"$RFID-A2","species":"goat","park_id":"$PROOF_PARK","shed_id":"$MAIN_SHED","sex":"female","dob":"$DOB_DAY28","dob_estimated":true,"origin_type":"procured","entry_date":"$ENTRY_DATE","management_stage":"K2","evidence_refs":[{"evidence_type":"source_record","evidence_id":"chain-$STAMP"}]}
+{"animal_identifier_1":"$RFID-A1","animal_identifier_2":"$RFID-A2","species":"goat","park_id":"$PROOF_PARK","shed_id":"$MAIN_SHED","sex":"female","breed":"all","dob":"$DOB_DAY28","dob_estimated":true,"origin_type":"birth","entry_date":"$GOAT_ENTRY_DATE","management_stage":"K2","health_status":"healthy","reproductive_status":"open","evidence_refs":[{"evidence_type":"source_record","evidence_id":"chain-$STAMP"}]}
 JSON
 )
 GOAT=$(echo "$CREATE" | jqp 'd["goat"]["goat_id"]'); SHED=$(echo "$CREATE" | jqp 'd["goat"]["location_path"]["shed_id"]')
@@ -205,23 +198,24 @@ COMPLETE_STATE=$(psqlq "select c.status || ':' || o.status || ':' || (o.complete
 VAX_OUTBOX_COUNT=$(psqlq "select count(*) from outbox_messages where tenant_id='$TENANT' and event_type='vaccination.completed' and aggregate_id='$OBL'")
 [ "$VAX_OUTBOX_COUNT" = "1" ] || fail "step7 vaccination.completed outbox count=$VAX_OUTBOX_COUNT"
 
-echo; echo "### 7b. vaccination.completed -> same-vaccine booster obligation"
+echo; echo "### 7b. vaccination.completed -> ET+TT next-dose obligation"
 relay_until_published "vaccination.completed delivery" "$OBL" "vaccination.completed"
 BOOSTER_OBL=$(psqlq "select obligation_id from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$BOOSTER_RULE' limit 1")
 [ -n "$BOOSTER_OBL" ] || fail "step7b no booster obligation generated for goat=$GOAT rule=$BOOSTER_RULE"
 psql "$PGURL" -c "select obligation_id,status,due_at from obligation_instances where target_id='$GOAT' and protocol_version_id='$VERSION' and rule_id='$BOOSTER_RULE'"
 
 echo; echo "### 8. read models reflect the same Postgres truth"
-RID=$(curl -s "${A[@]}" "$API/vaccination/action-center?limit=500" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((r["row_id"] for r in d.get("items",[]) if r.get("batch_id")=="'$BATCH'"),""))')
+RID="batch:$BATCH:rule:$RULE:shed:$SHED"
 AC=$(curl -s "${A[@]}" "$API/vaccination/action-center?limit=500")
 WF=$(curl -s "${A[@]}" "$API/vaccination/workflows/$RID")
 PP=$(curl -s "${A[@]}" "$API/goats/$GOAT/passport")
 SD=$(curl -s "${A[@]}" "$API/vaccination/execution/sheds/$SHED")
-printf '%-26s %s\n' "Action Center (API):"    "obl:$(has "$OBL" "$AC")"
+printf '%-26s %s\n' "Action Center (API):"    "completed_obl_in_active_list:$(has "$OBL" "$AC")"
 printf '%-26s %s\n' "Workflows row (API):"    "row_id=$RID obl:$(has "$OBL" "$WF") comp:$(has "$COMP" "$WF")"
 printf '%-26s %s\n' "Goat Passport (API):"    "goat:$(has "$GOAT" "$PP") comp:$(has "$COMP" "$PP") obl:$(has "$OBL" "$PP")"
 printf '%-26s %s\n' "Shed drilldown (API):"   "batch-drive workState=$(echo "$SD" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((x.get("workState") for x in d.get("drives",[]) if x.get("driveId")=="'$BATCH'"),"MISS"))')"
 [ -n "$RID" ] || fail "Workflows row id not found for batch $BATCH"
+assert_hit "Workflows obligation" "$OBL" "$WF"
 assert_hit "Workflows completion" "$COMP" "$WF"
 assert_hit "Passport goat" "$GOAT" "$PP"
 assert_hit "Passport completion" "$COMP" "$PP"
