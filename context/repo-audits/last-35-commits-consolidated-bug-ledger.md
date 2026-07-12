@@ -1115,10 +1115,10 @@ Evidence: `backend/tests/e2e/story_c_batch_drive_verify_test.go:236` — "Contro
 Prod reachability: Control-tower alert projection for batch drives — a leadership exception surface.  
 Failure scenario: Either the control-tower alert row is no longer produced/persisted for a batch drive, or the assertion is time/date-sensitive (test ran 21:11 IST; India-business-calendar due/overdue windows are `now`-derived). Needs triage to tell a real projection regression from a flaky time-boundary assertion.  
 Business impact: If real, batch-drive exceptions may not surface in Control Tower; if flaky, it red-locks the whole `ci-local` `go test ./...` gate for every change.  
-Root-cause-or-band-aid verdict: Unfixed — untouched by this pass, recorded honestly rather than silently absorbed.  
-E2E / guardrail status: RED on the current tip; blocks the ci-local go-test gate until triaged.  
-Fix sketch: Reproduce with a pinned clock; if time-sensitive, stabilize the assertion window; if the alert row is genuinely missing, trace the control-tower projector for batch-drive alerts.  
-Guardrail needed: Deterministic-clock harness for the kernel E2E so `now`-derived assertions are reproducible.  
+Root-cause-or-band-aid verdict: Root projector defect fixed; this was not merely time-of-run flakiness.
+E2E / guardrail status: focused kernel story and full backend E2E suite green after the fix.
+Fix sketch: completed — recent completion time now keeps old-due completed work inside the closed-history projection window.
+Guardrail needed: retain the fixed business-flow E2E and later add pinned-clock boundary cases around the closed-history cutoff.
 Root cause (found by instrumenting the projection at the failure point): NOT time-of-run flakiness — a real projector defect. The two verified obligations had `due_at = 2026-06-09` (~33 days before now) but `completed_at ≈ now`. The projector's closed-history inclusion window in `processIntegrityBaseSQL` (`backend/internal/processintegrity/adapters/postgres/repository.go`) keyed recency off the DUE date (`oi.due_at >= as_of - 14d`) plus a historical `oi.completed_at > as_of` branch. A row completed near-now but with a due_at older than the 14-day window matched neither branch, so the whole control-tower row vanished from the projection at `as_of = now` (`totalProjRows = 0` after the post-verify recompute). Pre-completion it projected fine because open/overdue rows are always included regardless of age.  
 Fix (pushed): add a branch that pulls completed rows recent by COMPLETION time within the closed-history window — `OR (oi.status = 'completed' AND oi.completed_at >= $11 AND oi.completed_at <= $10)` ($11 = as_of − closed-history-age, $10 = as_of). The read filter still gates these (`IncludeCompleted` / `due_at >= $11`), so default open-work views don't leak old completed rows; adherence completed-counts get more correct. Proof: `TestKernelStoryC_BatchDriveVerifyControlTower` now passes (`totalProjRows = 1`, work_state=completed, process_intact=true), full `internal/processintegrity/...` green (incl. real-Postgres integration), full e2e suite green.
 
@@ -1269,7 +1269,7 @@ This backlog is deliberately **deferred until the root-bug closure wave finishes
 | Deferred ID | Gap to close later | Required later outcome |
 | --- | --- | --- |
 | VAL-GAP-001 | `go test ./...` starts many Docker/Postgres packages concurrently; each reapplies all migrations and the local run hit Go's 10-minute package timeout. | Shard DB packages or bound package concurrency, isolate/reuse test databases safely, preserve per-package timeouts, and make the broad local gate deterministic instead of blank for ten minutes. |
-| VAL-GAP-002 | NEW-E2E-001: the batch-drive Control Tower story returns zero alert rows. | Fix the projector or stabilize the clock boundary, then keep the business-flow E2E deterministic. |
+| VAL-GAP-002 | NEW-E2E-001's projector defect is fixed and the full E2E suite is green, but the closed-history cutoff still lacks a pinned-clock boundary matrix. | Add old-due/recent-completion, exactly-at-cutoff, before/after-as-of, and reopen/verify cases with a deterministic clock. |
 | VAL-GAP-003 | C35-012: remote Actions may start zero jobs because of organization billing/platform state. | Monitor missing/startup-failed checks and retain local same-runner proof without treating remote unavailability as a reason to stop fixing product bugs. |
 | VAL-GAP-004 | Current scale guard still carries 49 time-bounded known offenders. | Track owner/issue/expiry burn-down and never label a ratchet pass as scale certification. |
 | VAL-GAP-005 | Static guards can miss aliases, dynamic calls, multiline syntax, generated clients, or a new source tree. | Add whole-tree coverage manifests, adversarial self-tests, AST/call-graph checks where practical, and fail on unowned/unexpired coverage exceptions. |
@@ -1302,18 +1302,18 @@ Agents must use isolated branches/worktrees and must not edit the shared ledger,
 
 ## 9. Final Summary Table
 
-The common ledger contains the original 40 counted findings plus NEW-E2E-001, discovered during closure gating: **41 tracked, 12 fixed with proof, 29 open**. FIXCHK-004 remains merged into C35-006/C35-018 and is not double-counted. Claude additions CL-001…003 remain countered; CL-004 survives open. Every retained row is peer-reconciled.
+The common ledger contains the original 40 counted findings plus NEW-E2E-001, discovered during closure gating: **41 tracked, 13 fixed with proof, 28 open**. FIXCHK-004 remains merged into C35-006/C35-018 and is not double-counted. Claude additions CL-001…003 remain countered; CL-004 survives open. Every retained row is peer-reconciled.
 
 | Priority | Fixed with proof | Confirmed open | Plausible open | Open total |
 | --- | ---: | ---: | ---: | ---: |
 | P0 | 1 | 1 | 0 | 1 |
-| P1 | 4 | 16 | 0 | 16 |
+| P1 | 5 | 15 | 0 | 15 |
 | P2 | 5 | 9 | 1 (C35-024) | 10 |
 | P3 | 2 | 2 | 0 | 2 |
-| **Total** | **12** | **28** | **1** | **29** |
+| **Total** | **13** | **27** | **1** | **28** |
 
-**Fixed counted rows:** C35-003, C35-004, C35-007, C35-008, C35-010, C35-014, C35-015, C35-016, C35-020, C35-023, C35-025, and FIXCHK-003. **Still partial/open:** C35-002, C35-005, C35-013. NEW-E2E-001 is open and red-locks the broad Go gate until separately repaired. C35-012 remains an open remote-release-availability finding; it does not invalidate green local execution of the same checked-in job runner.
+**Fixed counted rows:** C35-003, C35-004, C35-007, C35-008, C35-010, C35-014, C35-015, C35-016, C35-020, C35-023, C35-025, FIXCHK-003, and NEW-E2E-001. **Still partial/open:** C35-002, C35-005, C35-013. C35-012 remains an open remote-release-availability finding; it does not invalidate green local execution of the same checked-in job runner.
 
 **Three guardrails carry the most leverage:** destructive logout certification (C35-001); current-SHA Room/paging/workflow/performance Android certification (C35-006/008/011/017/018/019 plus MOB-001…011); and current-SHA scale/latency + cross-boundary fanout gates (C35-002/004/005/007/009/013/014/015/016/020). FIXCHK-001 also needs a dedicated app scoped-grant route matrix.
 
-Final state: **ONE COMMON LEDGER. 41 tracked; 12 fixed; 29 open (1 P0, 16 P1, 10 P2, 2 P3).** The original 26 C35/CL rows, 11 MOB rows, 3 counted FIXCHK rows, and NEW-E2E-001 are reconciled here; FIXCHK-004 is merged and not counted twice. The audit STOP RULE applied only to the original audit; the closure program now authorizes these evidence-bound fixes.
+Final state: **ONE COMMON LEDGER. 41 tracked; 13 fixed; 28 open (1 P0, 15 P1, 10 P2, 2 P3).** The original 26 C35/CL rows, 11 MOB rows, 3 counted FIXCHK rows, and NEW-E2E-001 are reconciled here; FIXCHK-004 is merged and not counted twice. The audit STOP RULE applied only to the original audit; the closure program now authorizes these evidence-bound fixes.
