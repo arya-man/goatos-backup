@@ -2,6 +2,7 @@
 
 import { getAdminApi } from '@/lib/api/client';
 import { useEffect, useState } from 'react';
+import { ArrowRight, Clock3, Plus, TriangleAlert } from 'lucide-react';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { type AdminUiPageContract } from '@/lib/admin-ui-contract';
 
@@ -55,9 +56,7 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
   if (error) {
     return (
       <div style={{ padding: '16px', color: 'var(--danger)' }}>
-        <svg className="ic" style={{ marginRight: '8px' }}>
-          <use href="#i-warn" />
-        </svg>
+        <TriangleAlert className="ic" style={{ marginRight: '8px' }} aria-hidden="true" />
         Error: {error}
       </div>
     );
@@ -79,24 +78,18 @@ export function TimetablePanel({ pageContract }: TimetablePanelProps) {
         </div>
         <div className="sp"></div>
         <button className="btn" title="Import sheet" disabled aria-label="Import sheet (backend import contract pending)">
-          <svg className="ic" style={{ width: '13px' }}>
-            <use href="#i-arrow" />
-          </svg>
+          <ArrowRight className="ic" style={{ width: '13px' }} aria-hidden="true" />
           Import sheet
         </button>
         <button className="btn p" title="Edit position" disabled aria-label="Edit position (backend contract pending)">
-          <svg className="ic">
-            <use href="#i-plus" />
-          </svg>
+          <Plus className="ic" aria-hidden="true" />
           Edit position
         </button>
       </div>
 
       <div className="card">
         <div className="hd">
-          <svg className="ic" style={{ color: 'var(--brand)' }}>
-            <use href="#i-clock" />
-          </svg>
+          <Clock3 className="ic" style={{ color: 'var(--brand)' }} aria-hidden="true" />
           <h3>Position roster — regular + backup</h3>
           <div className="sp"></div>
           <span className="small muted">position · tier · center · week OFF · backup</span>

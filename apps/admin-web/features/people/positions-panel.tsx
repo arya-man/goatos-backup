@@ -2,7 +2,16 @@
 
 import { getAdminApi } from '@/lib/api/client';
 import { useEffect, useState } from 'react';
-import { UserRound, X } from 'lucide-react';
+import {
+  BookOpen,
+  Check,
+  Clock3,
+  Plus,
+  TriangleAlert,
+  UserRound,
+  Users,
+  X,
+} from 'lucide-react';
 import type { AdminApiComponents } from '@goatos/api-client';
 import { optionalCopy, type AdminUiPageContract } from '@/lib/admin-ui-contract';
 
@@ -114,9 +123,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
   if (error) {
     return (
       <div style={{ padding: '16px', color: 'var(--danger)' }}>
-        <svg className="ic" style={{ marginRight: '8px' }}>
-          <use href="#i-warn" />
-        </svg>
+        <TriangleAlert className="ic" style={{ marginRight: '8px' }} aria-hidden="true" />
         Error: {error}
       </div>
     );
@@ -141,17 +148,17 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
         </div>
         <div className="sp"></div>
         <button className="btn" title="How coverage works" disabled aria-label="How coverage works (backend contract pending)">
-          <svg className="ic"><use href="#i-book"/></svg>How coverage works
+          <BookOpen className="ic" aria-hidden="true" />How coverage works
         </button>
         <button className="btn p" title="Configure backup" disabled aria-label="Configure backup (backend contract pending)">
-          <svg className="ic"><use href="#i-plus"/></svg>Configure backup
+          <Plus className="ic" aria-hidden="true" />Configure backup
         </button>
       </div>
 
       <div className="grid g4" style={{ marginBottom: '16px' }}>
         <div className="kpi">
           <span className="acc" style={{ background: 'var(--brand)' }}></span>
-          <div className="lab"><svg className="ic"><use href="#i-people"/></svg>{kpiPositionsFilled}</div>
+          <div className="lab"><Users className="ic" aria-hidden="true" />{kpiPositionsFilled}</div>
           <div className="val">{positionsFilled}</div>
           <div className="dl">{positions.length} total rows</div>
         </div>
@@ -177,7 +184,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
 
       <div className="card" style={{ marginBottom: '16px' }}>
         <div className="hd">
-          <svg className="ic" style={{ color: 'var(--brand)' }}><use href="#i-people"/></svg>
+          <Users className="ic" style={{ color: 'var(--brand)' }} aria-hidden="true" />
           <h3>Positions — three independent axes</h3>
           <div className="sp"></div>
           <span className="pill b">tier · position · backup</span>
@@ -193,13 +200,12 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
                 <th>Week OFF</th>
                 <th>HR grade</th>
                 <th>Backup group</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
               {positions.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: '16px', color: 'var(--muted)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '16px', color: 'var(--muted)' }}>
                     No positions found
                   </td>
                 </tr>
@@ -226,11 +232,6 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
                     <td>{pos.week_off || (pos.week_off_weekday ? pos.week_off_weekday : '—')}</td>
                     <td>{pos.hr_designation_grade || '—'}</td>
                     <td><span className="tag t-mut">{pos.backup_group || pos.backup_group_code || '—'}</span></td>
-                    <td className="rowact">
-                      <span className="ia" title="Edit position (backend endpoint pending)" aria-disabled="true">
-                        <svg className="ic"><use href="#i-edit"/></svg>
-                      </span>
-                    </td>
                   </tr>
                 ))
               )}
@@ -245,7 +246,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
       <div className="grid g2">
         <div className="card">
           <div className="hd">
-            <svg className="ic" style={{ color: 'var(--brand)' }}><use href="#i-people"/></svg>
+            <Users className="ic" style={{ color: 'var(--brand)' }} aria-hidden="true" />
             <h3>Configured backup — per center × group</h3>
             <span className="small muted" style={{ marginLeft: 'auto' }}>two-tier · fixed slots</span>
           </div>
@@ -292,7 +293,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
 
         <div className="card">
           <div className="hd">
-            <svg className="ic" style={{ color: 'var(--amber)' }}><use href="#i-clock"/></svg>
+            <Clock3 className="ic" style={{ color: 'var(--amber)' }} aria-hidden="true" />
             <h3>Active coverage — this period</h3>
             <div className="sp"></div>
             <span className="pill">ownership unchanged · window only</span>
@@ -314,9 +315,11 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
                         color: isEscalated ? 'var(--danger)' : 'var(--brand-d)'
                       }}
                     >
-                      <svg className="ic">
-                        <use href={isEscalated ? '#i-warn' : '#i-check'} />
-                      </svg>
+                      {isEscalated ? (
+                        <TriangleAlert className="ic" aria-hidden="true" />
+                      ) : (
+                        <Check className="ic" aria-hidden="true" />
+                      )}
                     </span>
                     <div className="tx">
                       <b>{coverage.covered_position_title || coverage.covered_position_code}</b>
@@ -362,7 +365,7 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
               )}
               {profileError && (
                 <div className="note" style={{ color: 'var(--danger)' }}>
-                  <svg className="ic" style={{ marginRight: 8 }}><use href="#i-warn" /></svg>
+                  <TriangleAlert className="ic" style={{ marginRight: 8 }} aria-hidden="true" />
                   {profileError}
                 </div>
               )}
@@ -414,7 +417,11 @@ export function PositionsPanel({ pageContract }: PositionsPanelProps) {
                     {cov ? (
                       <div className="fitem">
                         <span className="fic" style={{ background: covEscalated ? 'var(--dangerx)' : 'var(--okx)', color: covEscalated ? 'var(--danger)' : 'var(--brand-d)' }}>
-                          <svg className="ic"><use href={covEscalated ? '#i-warn' : '#i-check'} /></svg>
+                          {covEscalated ? (
+                            <TriangleAlert className="ic" aria-hidden="true" />
+                          ) : (
+                            <Check className="ic" aria-hidden="true" />
+                          )}
                         </span>
                         <div className="tx">
                           <b>{cov.covering_member_name || 'pending'}</b>
