@@ -1,6 +1,6 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Current closure state after the counter-fix batch: **41 tracked, 15 fixed with proof, 26 open — 1 P0, 14 P1, 9 P2, 2 P3.** Fixed rows are C35-003/004/007/008/009/010/014/015/016/020/023/024/025, FIXCHK-003, and NEW-E2E-001. C35-024 closed the domain-consumer replay (durable at-most-once-publish marker). C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). NEW-E2E-001 (the +1 that took the tracked total 40→41) is now FIXED with proof — a real projector defect, see its row. C35-002, C35-005 and C35-013 remain explicitly partial/open; no partial is counted closed.
+> Current closure state after the counter-fix batch: **41 tracked, 16 fixed with proof, 25 open — 1 P0, 14 P1, 8 P2, 2 P3.** Fixed rows are C35-003/004/007/008/009/010/013/014/015/016/020/023/024/025, FIXCHK-003, and NEW-E2E-001. C35-013 fully closed (all 3 process-integrity read surfaces keyset). C35-024 closed the domain-consumer replay (durable at-most-once-publish marker). C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). NEW-E2E-001 (the +1 that took the tracked total 40→41) is now FIXED with proof — a real projector defect, see its row. C35-002 and C35-005 remain explicitly partial/open; no partial is counted closed.
 >
 > Closure detail (Claude, NEW-E2E-001 + the C35-015 gating pass): **NEW-E2E-001** — `TestKernelStoryC_BatchDriveVerifyControlTower` failed deterministically (control-tower alert row = 0); **ROOT-CAUSED + FIXED** — the projector's closed-history inclusion keyed recency off due-date not completion-time, so a near-now completion with an old due_at vanished from the projection; now green (`totalProjRows` 0→1, full `backend/tests/e2e/...` suite green). While gating **C35-015** on `make ci-local`, two PRE-EXISTING failures independent of C35-015 were also cleared: the stale sqlc schema snapshots (missing `herd_register_goat_projection_scope_idx`/`planned_batch_finalization_keyset_idx`) were regenerated + pushed → sqlc-check green; contract-drift was only a dirty-tree artifact (uncommitted generated client), green on commit.
 >
@@ -575,7 +575,7 @@ Guardrail needed: Branch protection that treats missing/skipped checks as blocki
 ID: C35-013  
 Priority: P2  
 Title: Action Center loads both tabs and retains OFFSET board debt  
-Status: open  
+Status: FIXED + PUSHED (all 3 read surfaces converted to keyset)  
 Origin: pre-existing / prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-020; scale anti-pattern backlog  
@@ -589,7 +589,8 @@ Counterargument: Parallel loading improves instant tab switching and page sizes 
 Why it survives / why downgraded: It doubles work for the common single-tab case and OFFSET cost grows with depth; P2 because each individual request is bounded.  
 E2E / guardrail status: false-green; the request-plan guard currently accepts/enforces both fetches.  
 Fix sketch: Fetch only the selected tab, cache/prefetch intentionally, and convert board paging to keyset cursor.  
-Guardrail needed: Request-count test per selected tab and prohibition on new backend OFFSET pagination.
+Guardrail needed: Request-count test per selected tab and prohibition on new backend OFFSET pagination.  
+Fix (pushed): the vestigial `OFFSET` is gone from the process-integrity read path and all THREE read surfaces that share `h.query()`+`ListRows` are now keyset. Backend: removed `OFFSET` from `processIntegrityProjectionRowsSQL`, dropped the offset arg (`rowsQueryArgCount` 20→19), removed `Query.Offset` + the handler `offset` param (a stray `offset` is now silently ignored, proven by `TestActionCenterIgnoresOffsetParam`); projector INSERT untouched. Frontend: board, Protocol Adherence, and Control Tower each converted to the verification-queue cursor-stack pattern (`ac_/adh_/ct_` `cursor`/`page`/`cursor_stack`), the dead `offset` params removed from all three `server.ts` fetchers, `pagination.ts` (`backendPage`/`maxPageFor`/`pageResult`) deleted, OpenAPI `offset` params removed from the 4 endpoints + client regenerated (the `/vaccination/sheds` offset stays — that's C35-020's surface). Proof: go build/vet + `go test ./internal/processintegrity/...` (incl. `TestListRowsUsesCursorAndKeepsFilteredTotal` — page-2-via-cursor returns the correct next window, no OFFSET); `make api-client-check`, `make scale-guard` (48 offenders, ratchet down from 49), admin-web `typecheck`/`lint`/`check:mock-fidelity` + request-plan-fanout — all green. (Two type errors the isolated worktree could not catch — a dangling `nextCursor` ref and an `undefined` cursor arg — were fixed on integration.)
 
 ### C35-014
 
