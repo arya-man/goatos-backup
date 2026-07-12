@@ -121,9 +121,21 @@ export async function VaccinationCalendarPage({
   const completedWindow = historyWindow(anchorKey);
   const listWindow = historyMode ? completedWindow : agendaWindow;
 
-  // Make a SINGLE bounded day-marker request for the picker month/week window to avoid overlapping
-  // duplicate marker fetches. The list endpoint is only for the agenda (week/history) with cursor pagination.
-  const [list, markers, detail, targets] = await Promise.all([ // request-plan:ignore: intentional dual call with different params (list vs markers)
+  // The month-marker request is useful only while the picker is open. Keep it
+  // concurrent with the agenda request when needed, but do not double-read the
+  // calendar API on every normal week/history navigation.
+  const markerRequest = datePickerOpen
+    ? getCalendarVaccinationEvents({
+        parkId,
+        ownerKey: requestedOwnerKey,
+        status: historyMode ? requestedStatus : undefined,
+        dateFrom: pickerWindow.dateFrom,
+        dateTo: pickerWindow.dateTo,
+        includeDateMarkers: true,
+        limit: 1,
+      })
+    : Promise.resolve(null);
+  const [list, markers, detail, targets] = await Promise.all([
     getCalendarVaccinationEvents({
       parkId,
       ownerKey: requestedOwnerKey,
@@ -132,21 +144,13 @@ export async function VaccinationCalendarPage({
       dateTo: listWindow.dateTo,
       cursor: listCursor,
     }),
-    getCalendarVaccinationEvents({
-      parkId,
-      ownerKey: requestedOwnerKey,
-      status: historyMode ? requestedStatus : undefined,
-      dateFrom: pickerWindow.dateFrom,
-      dateTo: pickerWindow.dateTo,
-      includeDateMarkers: true,
-      limit: 1, // Only markers needed; limit=1 tells backend to return markers without paginating items
-    }),
+    markerRequest,
     selectedEventId ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),
     selectedEventId && !historyMode ? getCalendarDriveTargets(selectedEventId, { cursor: targetsCursor, limit: 10 }) : Promise.resolve(null),
   ]);
 
   const events = list.ok ? list.data.items : [];
-  const pickerEvents = markers.ok ? markers.data.items : events;
+  const pickerEvents = markers?.ok ? markers.data.items : events;
   if (list.ok && !list.data.presentation) {
     throw new Error(copy(pageContract, "error.presentation_missing"));
   }
@@ -290,7 +294,7 @@ export async function VaccinationCalendarPage({
           <CalendarMonthPicker label={monthTabLabel} open={currentViewKey === "month"} closeHref={historyMode ? historyHref : weekHref}>
             <CalendarDatePicker
               events={pickerEvents}
-              dateMarkers={markers.ok ? markers.data.date_markers : []}
+              dateMarkers={markers?.ok ? markers.data.date_markers : []}
               anchorKey={anchorKey}
               today={today}
               ownerMeta={ownerMeta}
