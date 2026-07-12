@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	localDockerDatabaseHostsEnv  = "GOATOS_LOCAL_DOCKER_DATABASE_HOSTS"
 	devCloudSQLAllowEnv          = "GOATOS_ALLOW_DEV_CLOUDSQL_TARGET"
 	devCloudSQLConnectionNameEnv = "GOATOS_DEV_CLOUDSQL_CONNECTION_NAME"
 	devCloudSQLProjectID         = "goatos-dev"
@@ -46,10 +47,41 @@ func ValidateLocalDatabaseTarget(commandName, env, databaseURL string, allowedEn
 	if isCloudSQLTarget(databaseURL, cfg.ConnConfig.Host) {
 		return validateDevCloudSQLTarget(commandName, env, databaseURL, cfg.ConnConfig.Host)
 	}
-	if !IsLocalHost(cfg.ConnConfig.Host) {
+	if !IsLocalHost(cfg.ConnConfig.Host) && !isExplicitLocalDockerHost(env, cfg.ConnConfig.Host) {
 		return fmt.Errorf("refusing %s against non-local database host %q", commandName, cfg.ConnConfig.Host)
 	}
 	return nil
+}
+
+// isExplicitLocalDockerHost permits a named Compose-network Postgres service only
+// for GOATOS_ENV=local. Container DNS names do not resolve to loopback inside the
+// container, so local Docker callers must opt in to the exact hostname. This is
+// deliberately not available in dev/stg/prod and shared-target tokens are still
+// rejected before this function is reached.
+func isExplicitLocalDockerHost(env, host string) bool {
+	if strings.ToLower(strings.TrimSpace(env)) != "local" {
+		return false
+	}
+	host = strings.ToLower(strings.TrimSpace(strings.Trim(host, "[]")))
+	if host == "" || net.ParseIP(host) != nil || strings.ContainsAny(host, ". /:@") || !isDockerServiceName(host) {
+		return false
+	}
+	for _, allowed := range strings.Split(os.Getenv(localDockerDatabaseHostsEnv), ",") {
+		if host == strings.ToLower(strings.TrimSpace(allowed)) && !looksSharedUnsafeTarget(host) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDockerServiceName(host string) bool {
+	for _, char := range host {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '-' || char == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // ValidateDevCloudSQLDatabaseTarget rejects every target except the explicitly

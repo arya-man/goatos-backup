@@ -11,6 +11,33 @@ func TestValidateLocalDatabaseTargetAllowsLocalDatabase(t *testing.T) {
 	}
 }
 
+func TestValidateLocalDatabaseTargetAllowsExactOptedInComposeHostOnlyInLocal(t *testing.T) {
+	t.Setenv("GOATOS_LOCAL_DOCKER_DATABASE_HOSTS", "postgres, kernel-db")
+	localURL := "postgres://postgres:goatos@postgres:5432/goatos?sslmode=disable"
+	if err := ValidateLocalDatabaseTarget("migrate", "local", localURL); err != nil {
+		t.Fatalf("opted-in compose host rejected: %v", err)
+	}
+	if err := ValidateLocalDatabaseTarget("migrate", "dev", localURL); err == nil {
+		t.Fatal("compose host accepted outside GOATOS_ENV=local")
+	}
+	if err := ValidateLocalDatabaseTarget("migrate", "local", "postgres://postgres:goatos@postgres.internal:5432/goatos?sslmode=disable"); err == nil {
+		t.Fatal("non-exact compose host accepted")
+	}
+}
+
+func TestValidateLocalDatabaseTargetRejectsUnsafeComposeHostOptIn(t *testing.T) {
+	t.Setenv("GOATOS_LOCAL_DOCKER_DATABASE_HOSTS", "goatos-stg.internal,192.0.2.10,evil.example")
+	for _, databaseURL := range []string{
+		"postgres://postgres:goatos@goatos-stg.internal:5432/goatos?sslmode=disable",
+		"postgres://postgres:goatos@192.0.2.10:5432/goatos?sslmode=disable",
+		"postgres://postgres:goatos@evil.example:5432/goatos?sslmode=disable",
+	} {
+		if err := ValidateLocalDatabaseTarget("migrate", "local", databaseURL); err == nil {
+			t.Fatalf("unsafe compose opt-in accepted: %s", databaseURL)
+		}
+	}
+}
+
 func TestValidateLocalDatabaseTargetRejectsUnsafeTargets(t *testing.T) {
 	cases := []struct {
 		name string

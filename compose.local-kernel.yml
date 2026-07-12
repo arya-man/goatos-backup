@@ -1,0 +1,154 @@
+name: goatos-local-kernel
+
+x-kernel-environment: &kernel-environment
+  DATABASE_URL: postgres://postgres:goatos@postgres:5432/goatos?sslmode=disable
+  GOATOS_ENV: local
+  GOATOS_PG_QUERY_TIMEOUT: 10s
+  GOATOS_LOCAL_DOCKER_DATABASE_HOSTS: postgres
+  GOATOS_TENANT_ID: ${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}
+  GOATOS_SWEEPER_ACTOR_ID: ${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000101}
+  GOATOS_AUTH_MODE: bearer
+  GOATOS_AUTH_ISSUER: goatos-local
+  GOATOS_AUTH_AUDIENCE: goatos-api
+  GOATOS_AUTH_HS256_SECRET: ${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-secret-32-bytes-min}
+  GOATOS_AUTH_MAX_TOKEN_TTL: 24h
+  GOATOS_MEDIA_STORAGE: local
+  GOATOS_LOCAL_MEDIA_DIR: /var/lib/goatos/proofs
+  GOATOS_LOCAL_MEDIA_SIGNING_SECRET: ${GOATOS_LOCAL_MEDIA_SIGNING_SECRET:-goatos-local-proof-dev}
+  GOATOS_OBS_SINK: stdout_json
+  GOOGLE_CLOUD_PROJECT: ${GOATOS_LOCAL_PUBSUB_PROJECT_ID:-goatos-local}
+  GOATOS_PUBSUB_PROJECT_ID: ${GOATOS_LOCAL_PUBSUB_PROJECT_ID:-goatos-local}
+  GOATOS_OUTBOX_PUBLISHER: pubsub
+  GOATOS_OUTBOX_PUBSUB_TOPIC_ID: goatos-local-outbox-events
+  GOATOS_DOMAIN_EVENTS_SUBSCRIPTION_ID: goatos-local-domain-events
+  GOATOS_DOMAIN_EVENT_SCHEMA_PATH: /app/contracts/jsonschema/domain-event-envelope.schema.json
+  PUBSUB_EMULATOR_HOST: pubsub:8085
+  PUBSUB_PROJECT_ID: ${GOATOS_LOCAL_PUBSUB_PROJECT_ID:-goatos-local}
+
+x-backend-image: &backend-image
+  image: goatos-local-backend:${GOATOS_LOCAL_IMAGE_TAG:-dev}
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+
+x-kernel-dependencies: &kernel-dependencies
+  postgres:
+    condition: service_healthy
+  migrate:
+    condition: service_completed_successfully
+  pubsub-bootstrap:
+    condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: goatos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: goatos
+    ports:
+      - "127.0.0.1:${GOATOS_LOCAL_PG_PORT:-55432}:5432"
+    volumes:
+      - goatos-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d goatos"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  migrate:
+    image: goatos-local-migrate:${GOATOS_LOCAL_IMAGE_TAG:-dev}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgres://postgres:goatos@postgres:5432/goatos?sslmode=disable
+      GOATOS_ENV: local
+      GOATOS_LOCAL_DOCKER_DATABASE_HOSTS: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  pubsub:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command:
+      - gcloud
+      - beta
+      - emulators
+      - pubsub
+      - start
+      - --project=${GOATOS_LOCAL_PUBSUB_PROJECT_ID:-goatos-local}
+      - --host-port=0.0.0.0:8085
+    ports:
+      - "127.0.0.1:${GOATOS_LOCAL_PUBSUB_PORT:-8085}:8085"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8085'"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  pubsub-bootstrap:
+    image: curlimages/curl:8.12.1
+    environment:
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      PUBSUB_PROJECT_ID: ${GOATOS_LOCAL_PUBSUB_PROJECT_ID:-goatos-local}
+    volumes:
+      - ./tools/dev/pubsub-emulator-bootstrap.sh:/usr/local/bin/pubsub-emulator-bootstrap:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/pubsub-emulator-bootstrap"]
+    depends_on:
+      pubsub:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *backend-image
+    environment:
+      <<: *kernel-environment
+      GOATOS_HTTP_ADDR: :8080
+    ports:
+      - "127.0.0.1:${GOATOS_LOCAL_API_PORT:-8080}:8080"
+    volumes:
+      - goatos-proofs:/var/lib/goatos/proofs
+    depends_on: *kernel-dependencies
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  outbox-relay:
+    <<: *backend-image
+    environment: *kernel-environment
+    entrypoint: ["/bin/sh", "/tmp/local-kernel-loop.sh", "outbox-relay"]
+    volumes:
+      - ./tools/dev/local-kernel-loop.sh:/tmp/local-kernel-loop.sh:ro
+    depends_on: *kernel-dependencies
+    restart: unless-stopped
+
+  domain-event-consumer:
+    <<: *backend-image
+    environment: *kernel-environment
+    entrypoint: ["/app/bin/domain-event-consumer"]
+    depends_on: *kernel-dependencies
+    restart: unless-stopped
+
+  kernel-workers:
+    <<: *backend-image
+    environment:
+      <<: *kernel-environment
+      GOATOS_NOTIFICATION_DRY_RUN: "true"
+      GOATOS_SWEEPER_TIMEOUT: 45s
+      GOATOS_LOCAL_KERNEL_INTERVAL_SECONDS: ${GOATOS_LOCAL_KERNEL_INTERVAL_SECONDS:-300}
+    entrypoint: ["/bin/sh", "/tmp/local-kernel-loop.sh", "workers"]
+    volumes:
+      - ./tools/dev/local-kernel-loop.sh:/tmp/local-kernel-loop.sh:ro
+    depends_on: *kernel-dependencies
+    restart: unless-stopped
+
+volumes:
+  goatos-postgres:
+  goatos-proofs:

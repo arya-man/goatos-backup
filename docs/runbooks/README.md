@@ -7,6 +7,7 @@ Current runbooks:
 - [GitHub workflows](github-workflows.md)
 - [Google Cloud environments](google-cloud-environments.md)
 - [Local full-stack rehearsal](local-full-stack-rehearsal.md)
+- [Local GCP kernel parity](local-gcp-kernel-parity.md)
 - [Vaccination local business-chain proof (pre-E2E)](vaccination-local-business-chain.md)
 - [Local Docker storage](local-docker-storage.md)
 - [Observability](observability.md)

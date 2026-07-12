@@ -227,17 +227,21 @@ A feature is blocked before E2E when any of these are true:
 
 ## Local And Cloud Parity
 
-Local development may use stubs/adapters, but it must keep the same command and
-contract boundaries:
+Local development uses `compose.local-kernel.yml` to keep the same command and
+contract boundaries. The parity stack is a behavior proof, not a claim that a
+Google emulator certifies Google IAM, quotas, regional behavior, or managed
+service operations:
 
 ```text
 local:
-  Docker Postgres
-  API/admin-web/mobile app
-  outbox-relay with local/eventbus/Pub/Sub-emulator mode
-  sweeper/job binaries
-  notification/alert stub adapters
-  seed and E2E scripts
+  Docker Postgres 16
+  official Google Pub/Sub emulator + source topic/subscription/DLQ bootstrap
+  API with local filesystem proof-storage adapter
+  outbox-relay configured to Pub/Sub (never eventbus/logging in parity mode)
+  domain-event-consumer using the production Google Pub/Sub client
+  the same generator/sweeper/projector/notification binaries as Cloud Run Jobs
+  durable Postgres notification rows + periodic dry-run dispatcher
+  local parity smoke and duplicate-delivery proof
 
 cloud:
   Cloud SQL
@@ -251,9 +255,23 @@ cloud:
   notification/alert adapters
 ```
 
-Logging an outbox row is not delivery. A local E2E proof must exercise relay or
-in-process/eventbus delivery, trigger evaluation, sweeper/job behavior, read
-model refresh, and UI action paths.
+Logging an outbox row is not delivery. The canonical local parity smoke must
+exercise Postgres -> outbox relay -> official Pub/Sub emulator -> durable domain
+consumer -> domain effect, then replay the event and prove idempotent duplicate
+handling. It also runs the real sweeper/projector/notification binaries and
+checks their materialized effects.
+
+Cloud Tasks has no supported local API emulator. Goat OS therefore does not
+fake Cloud Tasks semantics. Local runs prove the durable Postgres notification
+intent plus the same dispatcher binary on a periodic loop; staging separately
+proves Cloud Tasks queue/IAM/OIDC/dispatch/retry behavior. Local proof storage
+uses the filesystem adapter through the same storage port; staging separately
+proves GCS signed URLs and IAM. Pub/Sub emulator proof does not prove IAM.
+
+`GOATOS_OBS_SINK=otlp|gcm` currently falls back to structured stdout, so an OTel
+collector is not part of the parity stack until the backend has a real OTLP
+exporter. Redis is intentionally absent because it is optional acceleration,
+not kernel truth. See `docs/runbooks/local-gcp-kernel-parity.md`.
 
 ## Current Vaccination Application
 

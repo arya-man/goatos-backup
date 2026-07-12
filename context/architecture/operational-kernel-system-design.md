@@ -200,6 +200,25 @@ execution, storage, and observability behind replaceable adapters.
 | Cache/leases | Redis/Memorystore when needed | Acceleration only; never canonical truth. |
 | Analytics | governed projections/BI boundary | Heavy analytics never run on hot operational API paths. |
 
+### Local GCP-kernel parity
+
+`compose.local-kernel.yml` is the executable laptop counterpart of this table:
+
+| Production boundary | Local behavior proof | Separate cloud proof still required |
+| --- | --- | --- |
+| Cloud SQL/Postgres | Postgres 16 container with the canonical migration binary | Cloud SQL IAM, HA, backups, pool sizing, scaled plans |
+| Pub/Sub + DLQ | Official Pub/Sub emulator, bootstrapped topic/subscription/DLQ, production publisher/subscriber clients | IAM, regional behavior, quotas, backlog alerts |
+| Cloud Run API/Jobs + Scheduler | Same built API and worker binaries; bounded local polling loops | Cloud Run identity, Scheduler invocation, autoscaling/timeouts |
+| Cloud Tasks | Durable notification intents plus periodic real dispatcher; no fake Cloud Tasks API | Queue IAM/OIDC, throttling, retry and dispatch in staging |
+| GCS signed proof media | Local filesystem adapter behind the proof-storage port | GCS signed URL, CORS, bucket IAM and retention in staging |
+| Cloud Logging/Monitoring/Trace | Structured stdout logs | Managed log/metric/trace export and alerts |
+| Memorystore | Not started by default | Add only when a measured cache/lease need exists |
+
+The local smoke must prove a real domain effect after
+`outbox -> Pub/Sub emulator -> domain-event-consumer`, not merely a publish log.
+It also republishes the same event ID and proves the durable consumer skips the
+duplicate without duplicating the obligation.
+
 ## Scale Model
 
 The kernel must hold up at one million goat operations and uneven farm load. The

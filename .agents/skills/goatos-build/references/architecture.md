@@ -55,6 +55,12 @@ Rules:
   sweepers, Cloud SQL/Postgres for canonical truth, GCS for media, Cloud
   Monitoring/Error Reporting and alert webhooks for incident-style escalation,
   and Redis/Memorystore only as cache/lease acceleration, never truth.
+- Local GCP-kernel behavior parity is executable through
+  `compose.local-kernel.yml` and `docs/runbooks/local-gcp-kernel-parity.md`:
+  official Pub/Sub emulator with the production publisher/subscriber, Docker
+  Postgres, and the same API/job binaries. Cloud Tasks/IAM/GCS managed behavior
+  remains a separate staging contract proof; do not introduce third-party
+  Kafka/Temporal/Cloud-Tasks fakes into the canonical kernel.
 - High-volume histories/events/audit tables are partition-aware. Idempotency
   lives in explicit idempotency-key records, not in client hope.
 - Workforce ops is a core Goat OS engine, not payroll HRMS: every task needs
