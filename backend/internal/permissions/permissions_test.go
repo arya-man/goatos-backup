@@ -51,6 +51,12 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleVerifier, AdminWebBootstrap, false},
 		{RoleParkHead, AdminWebBootstrap, false},
 		{RoleOperator, AdminWebBootstrap, false},
+		{RoleVerifier, VerificationReview, true},
+		{RoleCEOInternal, VerificationReview, true},
+		{RoleAdmin, VerificationReview, true},
+		{RoleOperator, VerificationReview, false},
+		{RoleParkHead, VerificationReview, false},
+		{RolePCDirector, VerificationReview, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.role+"/"+tt.permission, func(t *testing.T) {
@@ -227,6 +233,8 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"POST", "/admin/roster/leave/87000000-0000-4000-8000-000000000001/approve"},
 		{"POST", "/admin/roster/leave/87000000-0000-4000-8000-000000000001/resolve-coverage"},
 		{"GET", "/admin/roster/vaccination-owner"},
+		{"GET", "/verification/queue"},
+		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict"},
 	}
 	for _, route := range implemented {
 		if _, ok := Match(route.method, route.path); !ok {
@@ -413,5 +421,58 @@ func TestMultipleActiveGrantRolesUnionPermissions(t *testing.T) {
 	}
 	if !RolesAuthorize([]string{RoleOperator, RoleVerifier}, []string{TaskVerify}, false) {
 		t.Fatal("operator+verifier should authorize verifier-only task verification")
+	}
+}
+
+// TestVerificationQueueAndVerdictRoutesAreRegistered guards the generic Verification vertical's two
+// new routes (context/architecture/verification-module-design.md) and their exact permission gate.
+func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
+	for _, item := range []struct {
+		method      string
+		path        string
+		operationID string
+	}{
+		{"GET", "/verification/queue", "listVerificationQueue"},
+		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict", "recordVerificationVerdict"},
+	} {
+		route, ok := Match(item.method, item.path)
+		if !ok {
+			t.Fatalf("verification route is not registered: %s %s", item.method, item.path)
+		}
+		if route.OperationID != item.operationID {
+			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
+		}
+		if len(route.Permissions) != 1 || route.Permissions[0] != VerificationReview {
+			t.Fatalf("permissions=%v, want [%s]", route.Permissions, VerificationReview)
+		}
+	}
+}
+
+// TestVerificationSeparationOfDuty is the mandatory separation-of-duty gate from
+// context/architecture/org-role-model.md: capture (Operator/Manager) != verify (Verifier) != act
+// (Head/Director). An operator holding only capture permissions must NEVER be able to review/verdict
+// a verification item; the Verifier role must.
+func TestVerificationSeparationOfDuty(t *testing.T) {
+	route, ok := Match("POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict")
+	if !ok {
+		t.Fatal("recordVerificationVerdict route is not registered")
+	}
+	if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
+		t.Fatal("operator (capture role) must NOT authorize verification verdict — separation of duty violated")
+	}
+	if RolesAuthorize([]string{RoleParkHead}, route.Permissions, route.AdminOnly) {
+		t.Fatal("park head (act role) must NOT authorize verification verdict — separation of duty violated")
+	}
+	if RolesAuthorize([]string{RolePCDirector}, route.Permissions, route.AdminOnly) {
+		t.Fatal("pc_director (act role) must NOT authorize verification verdict — separation of duty violated")
+	}
+	if !RolesAuthorize([]string{RoleVerifier}, route.Permissions, route.AdminOnly) {
+		t.Fatal("verifier must authorize verification verdict")
+	}
+	if !RoleHasPermission(RoleVerifier, VerificationReview) {
+		t.Fatal("verifier role must hold verification.review")
+	}
+	if RoleHasPermission(RoleOperator, VerificationReview) {
+		t.Fatal("operator role must not hold verification.review")
 	}
 }

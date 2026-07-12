@@ -83,6 +83,11 @@ import (
 	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
 	vaccexecroster "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/roster"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
+	verificationhttp "github.com/vgoats/goatos/backend/internal/verification/adapters/http"
+	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
+	verificationproofmedia "github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
+	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
+	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 	workforcehttp "github.com/vgoats/goatos/backend/internal/workforce/adapters/http"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
@@ -313,6 +318,22 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationGeneration := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 	protocolService := protocolapp.NewService(protocolRepo)
 	protocolHandler := protocolhttp.NewHandler(protocolService, log)
+	// Generic Verification vertical (context/architecture/verification-module-design.md): a
+	// standalone bounded context producers plug into via the type registry. Media is resolved
+	// through the EXISTING proof signed-URL port, never proxied/duplicated.
+	verificationRepo := verificationpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	verificationMedia := verificationproofmedia.NewResolver(proofService)
+	verificationService := verificationapp.NewService(verificationRepo, verificationMedia)
+	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
+		Vertical:      "preventive_care",
+		Module:        "vaccination",
+		Category:      sopbridge.VaccinationVerificationCategory,
+		ExpectedMedia: []string{"video"},
+	}); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	verificationHandler := verificationhttp.NewHandler(verificationService, log)
 	bus := eventbus.NewInProcessBus()
 	obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 	obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
@@ -323,7 +344,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 	sopService.
-		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService)).
+		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
+			WithVerificationProducer(verificationService).
+			WithLogger(log)).
 		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, bus))
 	sopHandler := sophttp.NewHandler(sopService, log)
 	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log).
@@ -376,6 +399,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countshttp.Register(protectedMux, herdRegisterHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	passporthttp.Register(protectedMux, passportHandler)
+	verificationhttp.Register(protectedMux, verificationHandler)
 
 	// otelhttp owns real span creation for every protected request (server
 	// spans, W3C trace-context propagation); httpmiddleware.Metrics records

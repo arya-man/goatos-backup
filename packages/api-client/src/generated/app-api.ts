@@ -1135,6 +1135,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/verification/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the Verifier's keyset-paginated media queue (generic Verification vertical).
+         * @description The standalone Verifier section's queue: media items awaiting or already given a verdict, category/vertical/module filtered, oldest-captured-first. Gated on verification.review only (separation of duty from capture and act). Media is returned as streamed signed download URLs resolved via the existing proof storage port -- never inline bytes.
+         */
+        get: operations["listVerificationQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/items/{item_id}/verdict": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the Verifier's approve/reject decision on one verification item.
+         * @description Reject REQUIRES a non-empty reason (422 otherwise -- a syntactically valid request that fails the business rule). Optimistic concurrency via row_version. Approving does NOT complete or act on the underlying producer record (e.g. a vaccination obligation) -- the verifier's verdict is advisory input; the authority (Head/Director/CEO) acts separately via the existing /admin/tasks/{task_id}/verify|rework surface.
+         */
+        post: operations["recordVerificationVerdict"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3290,6 +3330,65 @@ export interface components {
         HerdRegisterSummaryResponse: {
             items: components["schemas"]["HerdRegisterSummaryCounts"][];
         };
+        /** @enum {string} */
+        VerificationItemStatus: "pending" | "approved" | "rejected";
+        VerificationSourceRef: {
+            module: string;
+            /** Format: uuid */
+            task_id?: string;
+            /** Format: uuid */
+            submission_id?: string;
+            ref_type: string;
+            ref_id: string;
+        };
+        VerificationMediaItem: {
+            proof_id: string;
+            /** Format: uri */
+            download_url: string;
+            mime_type?: string;
+            duration_ms?: number;
+        };
+        VerificationQueueItem: {
+            /** Format: uuid */
+            item_id: string;
+            vertical: string;
+            module: string;
+            category: string;
+            status: components["schemas"]["VerificationItemStatus"];
+            verdict_reason?: string;
+            /** Format: uuid */
+            operator_id?: string;
+            /** Format: uuid */
+            shed_id?: string;
+            /** Format: uuid */
+            park_id?: string;
+            /** Format: date-time */
+            captured_at: string;
+            /** Format: uuid */
+            verified_by?: string;
+            /** Format: date-time */
+            verified_at?: string;
+            row_version: number;
+            media: components["schemas"]["VerificationMediaItem"][];
+            source: components["schemas"]["VerificationSourceRef"];
+        };
+        VerificationQueueResponse: {
+            items: components["schemas"]["VerificationQueueItem"][];
+            next_cursor?: string;
+            trace_id: string;
+        };
+        /** @enum {string} */
+        VerificationDecision: "approved" | "rejected";
+        VerificationVerdictRequest: {
+            decision: components["schemas"]["VerificationDecision"];
+            /** @description Required (non-empty) when decision is rejected; 422 otherwise. */
+            reason?: string;
+            row_version: number;
+        };
+        VerificationVerdictResponse: {
+            item: components["schemas"]["VerificationQueueItem"];
+            trace_id: string;
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -5398,6 +5497,73 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    listVerificationQueue: {
+        parameters: {
+            query?: {
+                /** @description Verification type-registry category (e.g. vaccination_proof). Verifiers are assigned one or more categories. */
+                category?: string;
+                vertical?: string;
+                module?: string;
+                /** @description Defaults to pending. */
+                status?: components["schemas"]["VerificationItemStatus"];
+                cursor?: string;
+                /** @description Defaults to 20, capped at 100. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One keyset page of the verification queue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationQueueResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordVerificationVerdict: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerificationVerdictRequest"];
+            };
+        };
+        responses: {
+            /** @description Verdict recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationVerdictResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+            422: components["responses"]["UnprocessableEntity"];
             500: components["responses"]["ServerError"];
         };
     };

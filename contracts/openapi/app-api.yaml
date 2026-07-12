@@ -28,6 +28,7 @@ tags:
   - name: Calendar
   - name: Vaccination Passport
   - name: Herd Register
+  - name: Verification
 paths:
   /admin/tasks/review-fanouts/retry:
     post:
@@ -2694,6 +2695,119 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /verification/queue:
+    get:
+      tags:
+        - Verification
+      operationId: listVerificationQueue
+      summary: List the Verifier's keyset-paginated media queue (generic Verification vertical).
+      description: >-
+        The standalone Verifier section's queue: media items awaiting or already given a verdict,
+        category/vertical/module filtered, oldest-captured-first. Gated on verification.review only
+        (separation of duty from capture and act). Media is returned as streamed signed download
+        URLs resolved via the existing proof storage port -- never inline bytes.
+      parameters:
+        - name: category
+          in: query
+          required: false
+          description: Verification type-registry category (e.g. vaccination_proof). Verifiers are assigned one or more categories.
+          schema:
+            type: string
+            maxLength: 120
+        - name: vertical
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 120
+        - name: module
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 120
+        - name: status
+          in: query
+          required: false
+          description: Defaults to pending.
+          schema:
+            $ref: "#/components/schemas/VerificationItemStatus"
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          description: Defaults to 20, capped at 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: One keyset page of the verification queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationQueueResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /verification/items/{item_id}/verdict:
+    post:
+      tags:
+        - Verification
+      operationId: recordVerificationVerdict
+      summary: Record the Verifier's approve/reject decision on one verification item.
+      description: >-
+        Reject REQUIRES a non-empty reason (422 otherwise -- a syntactically valid request that fails
+        the business rule). Optimistic concurrency via row_version. Approving does NOT complete or act
+        on the underlying producer record (e.g. a vaccination obligation) -- the verifier's verdict is
+        advisory input; the authority (Head/Director/CEO) acts separately via the existing
+        /admin/tasks/{task_id}/verify|rework surface.
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerificationVerdictRequest"
+      responses:
+        "200":
+          description: Verdict recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationVerdictResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/ServerError"
 components:
@@ -8830,3 +8944,146 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/HerdRegisterSummaryCounts"
+    VerificationItemStatus:
+      type: string
+      enum:
+        - pending
+        - approved
+        - rejected
+    VerificationSourceRef:
+      type: object
+      additionalProperties: false
+      required:
+        - module
+        - ref_type
+        - ref_id
+      properties:
+        module:
+          type: string
+        task_id:
+          type: string
+          format: uuid
+        submission_id:
+          type: string
+          format: uuid
+        ref_type:
+          type: string
+        ref_id:
+          type: string
+    VerificationMediaItem:
+      type: object
+      additionalProperties: false
+      required:
+        - proof_id
+        - download_url
+      properties:
+        proof_id:
+          type: string
+        download_url:
+          type: string
+          format: uri
+        mime_type:
+          type: string
+        duration_ms:
+          type: integer
+          minimum: 0
+    VerificationQueueItem:
+      type: object
+      additionalProperties: false
+      required:
+        - item_id
+        - vertical
+        - module
+        - category
+        - status
+        - captured_at
+        - row_version
+        - media
+        - source
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        vertical:
+          type: string
+        module:
+          type: string
+        category:
+          type: string
+        status:
+          $ref: "#/components/schemas/VerificationItemStatus"
+        verdict_reason:
+          type: string
+        operator_id:
+          type: string
+          format: uuid
+        shed_id:
+          type: string
+          format: uuid
+        park_id:
+          type: string
+          format: uuid
+        captured_at:
+          type: string
+          format: date-time
+        verified_by:
+          type: string
+          format: uuid
+        verified_at:
+          type: string
+          format: date-time
+        row_version:
+          type: integer
+          minimum: 1
+        media:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationMediaItem"
+        source:
+          $ref: "#/components/schemas/VerificationSourceRef"
+    VerificationQueueResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationQueueItem"
+        next_cursor:
+          type: string
+        trace_id:
+          type: string
+    VerificationDecision:
+      type: string
+      enum:
+        - approved
+        - rejected
+    VerificationVerdictRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - decision
+        - row_version
+      properties:
+        decision:
+          $ref: "#/components/schemas/VerificationDecision"
+        reason:
+          type: string
+          description: Required (non-empty) when decision is rejected; 422 otherwise.
+        row_version:
+          type: integer
+          minimum: 1
+    VerificationVerdictResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - item
+        - trace_id
+      properties:
+        item:
+          $ref: "#/components/schemas/VerificationQueueItem"
+        trace_id:
+          type: string

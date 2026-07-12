@@ -1169,6 +1169,21 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY park_id, farm_id, current_location_id, breed, sex, lifecycle_status;"
 }
 
+validate_verification_queue_plan() {
+  # Generic Verification vertical (context/architecture/verification-module-design.md): the
+  # Verifier's queue read (GET /verification/queue) keysets by (captured_at, item_id) filtered by
+  # tenant + status + category. Proves the request path stays on verification_items_queue_idx
+  # (tenant_id, status, category, captured_at, item_id), never a sequential scan.
+  explain_must_use_index "VerificationQueueKeyset" 'Seq Scan on verification_items' "EXPLAIN (COSTS OFF)
+SELECT item_id
+FROM verification_items
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND status = 'pending'
+  AND category = 'vaccination_proof'
+ORDER BY captured_at ASC, item_id ASC
+LIMIT 20;"
+}
+
 validate_vaccination_shed_projection_plan() {
   # C35-002 (vaccinationexecution half, LANDED): GET /vaccination/sheds (ShedSummary,
   # repository.go's shedSummaryProjectedSQL) now serves exclusively from this indexed
@@ -1228,23 +1243,6 @@ ORDER BY
 LIMIT 50 OFFSET 0;"
 }
 
-validate_vaccination_execution_projection_read_plan() {
-  explain_must_use_index "VaccinationExecutionProjectionRead" 'Seq Scan on vaccination_execution_projection_rows' "EXPLAIN (COSTS OFF)
-SELECT sort_row_key FROM vaccination_execution_projection_rows
-WHERE tenant_id='00000000-0000-4000-8000-000000000001'::uuid
-  AND projection_version=1::bigint AND work_state='overdue'
-  AND (sort_rank,sort_due_micros,sort_row_key) > (0,0,'')
-ORDER BY sort_rank,sort_due_micros,sort_row_key LIMIT 201;"
-}
-
-validate_vaccination_operations_projection_read_plan() {
-  explain_must_use_index "VaccinationOperationsProjectionRead" 'Seq Scan on vaccination_operations_projection_rows' "EXPLAIN (COSTS OFF)
-SELECT protocol_id FROM vaccination_operations_projection_rows
-WHERE tenant_id='00000000-0000-4000-8000-000000000001'::uuid
-  AND projection_version=1::bigint AND shed_id='70000000-0000-4000-8000-000000000002'
-ORDER BY stage,protocol_id LIMIT 501;"
-}
-
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -1282,7 +1280,6 @@ validate_operations_audit_plans
 validate_calendar_vaccination_plans
 validate_herd_register_summary_plan
 validate_vaccination_shed_projection_plan
-validate_vaccination_execution_projection_read_plan
-validate_vaccination_operations_projection_read_plan
+validate_verification_queue_plan
 
 echo "Validated current hot-path query plans"

@@ -1,0 +1,236 @@
+// Package app implements the Verification module's use-cases: producers enqueue items, a Verifier
+// lists their category-filtered queue and records an approve/reject verdict.
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	"github.com/vgoats/goatos/backend/internal/verification/domain"
+	"github.com/vgoats/goatos/backend/internal/verification/ports"
+)
+
+const (
+	defaultQueueLimit = 20
+	maxQueueLimit     = 100
+)
+
+type Service struct {
+	repo     ports.Repository
+	media    ports.MediaResolver
+	registry *domain.Registry
+	now      func() time.Time
+}
+
+func NewService(repo ports.Repository, media ports.MediaResolver) *Service {
+	return &Service{repo: repo, media: media, registry: domain.NewRegistry(), now: time.Now}
+}
+
+// RegisterCategory adds one plug-and-play category entry (composition-time wiring; see
+// verification-module-design.md §2.3). CreateItem rejects any category that is not registered.
+func (s *Service) RegisterCategory(def domain.CategoryDefinition) error {
+	return s.registry.Register(def)
+}
+
+// Categories lists every registered category (admin-web/mobile filter chips read this).
+func (s *Service) Categories() []domain.CategoryDefinition {
+	return s.registry.List()
+}
+
+// CreateItem is the producer-facing API: any module (vaccination first; feed/diagnosis/death/
+// breeding later) calls this to enqueue one verification item. Verification never reaches into a
+// producer's tables — everything it needs travels in CreateItem.
+func (s *Service) CreateItem(ctx context.Context, in domain.CreateItem) (domain.CreateItemResult, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.Vertical = strings.TrimSpace(in.Vertical)
+	in.Module = strings.TrimSpace(in.Module)
+	in.Category = strings.TrimSpace(in.Category)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
+	in.Source.Module = strings.TrimSpace(in.Source.Module)
+	in.Source.RefType = strings.TrimSpace(in.Source.RefType)
+	in.Source.RefID = strings.TrimSpace(in.Source.RefID)
+	if !uuidutil.IsUUIDString(in.TenantID) {
+		return domain.CreateItemResult{}, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	if in.Vertical == "" || in.Module == "" || in.Category == "" {
+		return domain.CreateItemResult{}, BadRequest("invalid_item", "vertical, module, and category are required")
+	}
+	if _, ok := s.registry.Get(in.Category); !ok {
+		return domain.CreateItemResult{}, BadRequest("unknown_category", fmt.Sprintf("category %q is not registered", in.Category))
+	}
+	if in.Source.Module == "" || in.Source.RefType == "" || in.Source.RefID == "" {
+		return domain.CreateItemResult{}, BadRequest("invalid_source_ref", "source module, ref_type, and ref_id are required")
+	}
+	if len(in.MediaRefs) == 0 {
+		return domain.CreateItemResult{}, BadRequest("invalid_media", "at least one media reference is required")
+	}
+	if in.IdempotencyKey == "" {
+		return domain.CreateItemResult{}, BadRequest("invalid_idempotency_key", "idempotency_key is required")
+	}
+	if in.CapturedAt.IsZero() {
+		in.CapturedAt = s.now().UTC()
+	}
+	result, err := s.repo.CreateItem(ctx, in)
+	if err != nil {
+		return domain.CreateItemResult{}, mapRepoErr(err)
+	}
+	return result, nil
+}
+
+// QueueResult is one page of the verifier queue.
+type QueueResult struct {
+	Items      []domain.QueueRow
+	NextCursor *string
+}
+
+// ListQueue returns a keyset page (~20 default, ~100 max) of items, category/vertical/module/status
+// filtered, oldest-captured-first. Media for the whole page is resolved in ONE batched call.
+func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (QueueResult, error) {
+	params.TenantID = strings.TrimSpace(params.TenantID)
+	if !uuidutil.IsUUIDString(params.TenantID) {
+		return QueueResult{}, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	params.Category = strings.TrimSpace(params.Category)
+	params.Vertical = strings.TrimSpace(params.Vertical)
+	params.Module = strings.TrimSpace(params.Module)
+	params.Status = strings.TrimSpace(params.Status)
+	if params.Status == "" {
+		params.Status = domain.StatusPending
+	}
+	if !oneOf(params.Status, domain.StatusPending, domain.StatusApproved, domain.StatusRejected) {
+		return QueueResult{}, BadRequest("invalid_status", "status must be pending, approved, or rejected")
+	}
+	params.Limit = boundedLimit(params.Limit, maxQueueLimit)
+	requested := params.Limit
+	params.Limit++
+	items, err := s.repo.ListQueue(ctx, params)
+	if err != nil {
+		return QueueResult{}, mapRepoErr(err)
+	}
+	var next *string
+	if len(items) > requested {
+		items = items[:requested]
+		last := items[len(items)-1]
+		encoded, encErr := domain.EncodeCursor(domain.Cursor{CapturedAt: last.CapturedAt, ItemID: last.ItemID})
+		if encErr != nil {
+			return QueueResult{}, fmt.Errorf("verification: invalid pagination cursor: %w", encErr)
+		}
+		next = &encoded
+	}
+	return QueueResult{Items: s.resolveMedia(ctx, params.TenantID, items), NextCursor: next}, nil
+}
+
+// resolveMedia batch-resolves every distinct proof id referenced on the page in ONE call to the proof
+// storage signed-URL port (never a per-row lookup — bounded by page size x media-per-item).
+func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []domain.Item) []domain.QueueRow {
+	rows := make([]domain.QueueRow, len(items))
+	allProofIDs := make([]string, 0, len(items)*3)
+	seen := map[string]struct{}{}
+	for _, it := range items {
+		for _, id := range it.MediaRefs {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			allProofIDs = append(allProofIDs, id)
+		}
+	}
+	mediaByID := map[string]domain.MediaItem{}
+	if len(allProofIDs) > 0 && s.media != nil {
+		resolved, err := s.media.ResolveMedia(ctx, tenantID, allProofIDs)
+		if err == nil {
+			for _, m := range resolved {
+				mediaByID[m.ProofID] = m
+			}
+		}
+	}
+	for i, it := range items {
+		media := make([]domain.MediaItem, 0, len(it.MediaRefs))
+		for _, id := range it.MediaRefs {
+			if m, ok := mediaByID[id]; ok {
+				media = append(media, m)
+			}
+		}
+		rows[i] = domain.QueueRow{Item: it, Media: media}
+	}
+	return rows
+}
+
+// RecordVerdict applies the verifier's approve/reject decision with optimistic concurrency. Reject
+// REQUIRES a non-empty reason: 422 Unprocessable (syntactically valid, fails the business rule), also
+// enforced at the storage layer (verification_items_reject_reason_check).
+func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.Item, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.ItemID = strings.TrimSpace(in.ItemID)
+	in.Decision = strings.TrimSpace(in.Decision)
+	in.Reason = strings.TrimSpace(in.Reason)
+	in.VerifierID = strings.TrimSpace(in.VerifierID)
+	if !uuidutil.IsUUIDString(in.TenantID) || !uuidutil.IsUUIDString(in.ItemID) {
+		return domain.Item{}, BadRequest("invalid_item", "tenant_id and item_id must be UUIDs")
+	}
+	if !uuidutil.IsUUIDString(in.VerifierID) {
+		return domain.Item{}, BadRequest("invalid_verifier", "verifier id must be a UUID")
+	}
+	if in.Decision != domain.DecisionApproved && in.Decision != domain.DecisionRejected {
+		return domain.Item{}, BadRequest("invalid_decision", "decision must be approved or rejected")
+	}
+	if in.Decision == domain.DecisionRejected && in.Reason == "" {
+		return domain.Item{}, Unprocessable("reason_required", "a reason is required to reject a verification item")
+	}
+	if in.RowVersion < 1 {
+		return domain.Item{}, BadRequest("invalid_row_version", "row_version is required")
+	}
+	item, err := s.repo.RecordVerdict(ctx, in)
+	if err != nil {
+		return domain.Item{}, mapRepoErr(err)
+	}
+	return item, nil
+}
+
+// GetItem fetches one item by id (used by handlers/tests; not directly contract-exposed today).
+func (s *Service) GetItem(ctx context.Context, tenantID, itemID string) (domain.Item, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	itemID = strings.TrimSpace(itemID)
+	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(itemID) {
+		return domain.Item{}, BadRequest("invalid_item", "tenant_id and item_id must be UUIDs")
+	}
+	item, err := s.repo.GetItem(ctx, tenantID, itemID)
+	if err != nil {
+		return domain.Item{}, mapRepoErr(err)
+	}
+	return item, nil
+}
+
+func boundedLimit(requested, max int) int {
+	if requested <= 0 {
+		return defaultQueueLimit
+	}
+	if requested > max {
+		return max
+	}
+	return requested
+}
+
+func oneOf(value string, allowed ...string) bool {
+	for _, a := range allowed {
+		if value == a {
+			return true
+		}
+	}
+	return false
+}
+
+func mapRepoErr(err error) error {
+	switch {
+	case errors.Is(err, ports.ErrNotFound):
+		return NotFound("item_not_found", "verification item not found")
+	case errors.Is(err, ports.ErrConflict):
+		return Conflict("write_conflict", "verification item was modified by someone else")
+	default:
+		return err
+	}
+}
