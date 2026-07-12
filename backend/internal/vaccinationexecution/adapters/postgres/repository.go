@@ -219,14 +219,8 @@ func (r *Repository) RecomputeExecutionProjection(ctx context.Context, req domai
 		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: tenant id is required")
 	}
 	asOf := req.AsOf
-	if asOf.IsZero() {
-		asOf = time.Now().In(biztime.DefaultLocation())
-	}
 	dueBefore := req.DueBefore
-	if dueBefore.IsZero() {
-		dueBefore = asOf.Add(defaultExecutionHorizon)
-	}
-	closedAfter := asOf.Add(-defaultClosedHistoryAge)
+	var closedAfter time.Time
 	defer func() {
 		if retErr != nil {
 			r.markExecutionProjectionFailed(tenantID, asOf, dueBefore, closedAfter, retErr)
@@ -242,9 +236,16 @@ func (r *Repository) RecomputeExecutionProjection(ctx context.Context, req domai
 			_ = tx.Rollback(ctx)
 		}
 	}()
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 86168))`, tenantID); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 86170))`, tenantID); err != nil {
 		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: lock: %w", err)
 	}
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	if dueBefore.IsZero() {
+		dueBefore = asOf.Add(defaultExecutionHorizon)
+	}
+	closedAfter = asOf.Add(-defaultClosedHistoryAge)
 	var version int64
 	var projectedAt time.Time
 	if err := tx.QueryRow(ctx, `SELECT (extract(epoch FROM clock_timestamp())*1000000)::bigint, clock_timestamp()`).Scan(&version, &projectedAt); err != nil {
@@ -320,8 +321,9 @@ func (r *Repository) markExecutionProjectionFailed(tenantID string, asOf, dueBef
 INSERT INTO vaccination_execution_projection_state
   (tenant_id,projection_version,serving_projection_version,projected_at,as_of,due_before,closed_after,row_count,freshness_status,serving_state,last_error,updated_at)
 VALUES ($1::uuid,0,NULL,now(),$2,$3,$4,0,'red','failed',$5,now())
-ON CONFLICT (tenant_id) DO UPDATE SET freshness_status='red',
-  serving_state=CASE WHEN vaccination_execution_projection_state.serving_projection_version IS NULL THEN 'failed' ELSE 'stale' END,
+ON CONFLICT (tenant_id) DO UPDATE SET
+  freshness_status=CASE WHEN vaccination_execution_projection_state.serving_projection_version IS NULL THEN 'red' ELSE vaccination_execution_projection_state.freshness_status END,
+  serving_state=CASE WHEN vaccination_execution_projection_state.serving_projection_version IS NULL THEN 'failed' ELSE vaccination_execution_projection_state.serving_state END,
   last_error=EXCLUDED.last_error,updated_at=now()`, tenantID, asOf, dueBefore, closedAfter, message)
 }
 
@@ -450,13 +452,7 @@ func (r *Repository) RecomputeOperationsProjection(ctx context.Context, req doma
 		return domain.OperationsProjectionRecomputeResult{}, fmt.Errorf("vaccination operations projection: tenant id is required")
 	}
 	asOf := req.AsOf
-	if asOf.IsZero() {
-		asOf = time.Now().In(biztime.DefaultLocation())
-	}
 	dueBefore := req.DueBefore
-	if dueBefore.IsZero() {
-		dueBefore = asOf.Add(defaultExecutionHorizon)
-	}
 	defer func() {
 		if retErr != nil {
 			r.markOperationsProjectionFailed(tenantID, asOf, dueBefore, retErr)
@@ -472,8 +468,14 @@ func (r *Repository) RecomputeOperationsProjection(ctx context.Context, req doma
 			_ = tx.Rollback(ctx)
 		}
 	}()
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 86169))`, tenantID); err != nil {
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 86170))`, tenantID); err != nil {
 		return domain.OperationsProjectionRecomputeResult{}, err
+	}
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	if dueBefore.IsZero() {
+		dueBefore = asOf.Add(defaultExecutionHorizon)
 	}
 	var version int64
 	var projectedAt time.Time
@@ -523,7 +525,10 @@ func (r *Repository) markOperationsProjectionFailed(tenantID string, asOf, dueBe
 	_, _ = r.pool.Exec(ctx, `INSERT INTO vaccination_operations_projection_state
  (tenant_id,projection_version,serving_projection_version,projected_at,as_of,due_before,row_count,freshness_status,serving_state,last_error,updated_at)
  VALUES($1::uuid,0,NULL,now(),$2,$3,0,'red','failed',$4,now())
- ON CONFLICT(tenant_id) DO UPDATE SET freshness_status='red',serving_state=CASE WHEN vaccination_operations_projection_state.serving_projection_version IS NULL THEN 'failed' ELSE 'stale' END,last_error=EXCLUDED.last_error,updated_at=now()`, tenantID, asOf, dueBefore, message)
+ ON CONFLICT(tenant_id) DO UPDATE SET
+  freshness_status=CASE WHEN vaccination_operations_projection_state.serving_projection_version IS NULL THEN 'red' ELSE vaccination_operations_projection_state.freshness_status END,
+  serving_state=CASE WHEN vaccination_operations_projection_state.serving_projection_version IS NULL THEN 'failed' ELSE vaccination_operations_projection_state.serving_state END,
+  last_error=EXCLUDED.last_error,updated_at=now()`, tenantID, asOf, dueBefore, message)
 }
 
 func (r *Repository) pruneOldOperationsProjectionRows(ctx context.Context, tenantID string, version int64) error {

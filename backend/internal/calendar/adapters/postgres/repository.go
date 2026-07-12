@@ -145,7 +145,9 @@ WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, tenantID).Scan(
 	meta.Stale = meta.ProjectionVersion <= 0 || meta.ServingState != "fresh" || meta.FreshnessStatus != "green" ||
 		time.Since(meta.ProjectedAt) > defaultProjectionFresh || meta.ProjectedAt.After(time.Now().Add(time.Minute))
 	requestedToExclusive := dateTo.Add(24 * time.Hour)
-	if dateFrom.Before(projectedFrom) || requestedToExclusive.After(projectedTo) {
+	// Handler/business-date normalization can move equivalent boundaries by a
+	// few milliseconds. Keep strict coverage while tolerating clock-call skew.
+	if dateFrom.Before(projectedFrom.Add(-time.Minute)) || requestedToExclusive.After(projectedTo.Add(time.Minute)) {
 		meta.Stale = true
 	}
 	if meta.Stale {
@@ -1370,24 +1372,31 @@ func escalationReason(target escalationTarget, level int) string {
 func (r *Repository) RefreshVaccinationProjection(ctx context.Context, in ports.RefreshVaccinationProjection) (result int, retErr error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	var projectionVersion int64
-	var projectedAt time.Time
-	if err := r.pool.QueryRow(ctx, `SELECT (extract(epoch FROM now()) * 1000)::bigint, now()`).Scan(&projectionVersion, &projectedAt); err != nil {
-		return 0, fmt.Errorf("calendar: projection stamp: %w", err)
-	}
-	if err := r.markProjectionRebuilding(ctx, in, projectionVersion, projectedAt); err != nil {
-		return 0, err
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		return 0, fmt.Errorf("calendar: begin projection refresh: %w", err)
 	}
 	committed := false
 	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
 		if !committed && retErr != nil {
 			r.markProjectionFailed(in.TenantID, retErr)
 		}
 	}()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 86171))`, in.TenantID); err != nil {
+		return 0, fmt.Errorf("calendar: lock projection refresh: %w", err)
+	}
+	var projectionVersion int64
+	var projectedAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT (extract(epoch FROM clock_timestamp()) * 1000000)::bigint, clock_timestamp()`).Scan(&projectionVersion, &projectedAt); err != nil {
+		return 0, fmt.Errorf("calendar: projection stamp: %w", err)
+	}
 	total := 0
 	var cursor *domain.CalendarCursor
 	for {
-		page, err := r.refreshVaccinationProjectionPage(ctx, in, cursor)
+		page, err := r.refreshVaccinationProjectionPage(ctx, tx, in, cursor)
 		if err != nil {
 			return total, err
 		}
@@ -1397,24 +1406,33 @@ func (r *Repository) RefreshVaccinationProjection(ctx context.Context, in ports.
 		}
 		cursor = page.nextCursor
 	}
-	tombstoned, err := r.tombstoneVaccinationProjection(ctx, in)
+	tombstoned, err := r.tombstoneVaccinationProjection(ctx, tx, in)
 	if err != nil {
 		return total, err
 	}
 	total += tombstoned
-	if _, err := r.pool.Exec(ctx, `
-UPDATE calendar_projection_state
-SET projection_version = $2::bigint,
-    projected_at = $3::timestamptz,
-    date_from = $4::timestamptz,
-    date_to = $5::timestamptz,
-    freshness_status = 'green',
-    serving_state = 'fresh',
-    last_error = NULL,
-    updated_at = now()
-WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`,
+	if _, err := tx.Exec(ctx, `
+INSERT INTO calendar_projection_state (
+  tenant_id,slice_key,projection_version,projected_at,date_from,date_to,
+  freshness_status,serving_state,last_error,updated_at
+) VALUES (
+  $1::uuid,'vaccination',$2::bigint,$3::timestamptz,$4::timestamptz,$5::timestamptz,
+  'green','fresh',NULL,now()
+)
+ON CONFLICT (tenant_id,slice_key) DO UPDATE SET
+  projection_version=EXCLUDED.projection_version,
+  projected_at=EXCLUDED.projected_at,
+  date_from=EXCLUDED.date_from,
+  date_to=EXCLUDED.date_to,
+  freshness_status='green',
+  serving_state='fresh',
+  last_error=NULL,
+  updated_at=now()`,
 		in.TenantID, projectionVersion, projectedAt, in.DateFrom, in.DateTo); err != nil {
 		return total, fmt.Errorf("calendar: publish projection state: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return total, fmt.Errorf("calendar: commit projection refresh: %w", err)
 	}
 	committed = true
 	return total, nil
@@ -1428,7 +1446,9 @@ INSERT INTO calendar_projection_state (
 ) VALUES ($1::uuid, 'vaccination', $2::bigint, $3::timestamptz, $4::timestamptz, $5::timestamptz,
   'unknown', 'rebuilding', NULL, now())
 ON CONFLICT (tenant_id, slice_key) DO UPDATE SET
-  freshness_status = 'yellow', serving_state = 'rebuilding', last_error = NULL, updated_at = now()`,
+  -- Existing rows continue serving while the replacement is built in one
+  -- transaction. Do not turn every scheduled refresh into a read outage.
+  last_error = NULL, updated_at = now()`,
 		in.TenantID, version, projectedAt, in.DateFrom, in.DateTo)
 	if err != nil {
 		return fmt.Errorf("calendar: mark projection rebuilding: %w", err)
@@ -1448,7 +1468,8 @@ func (r *Repository) markProjectionFailed(tenantID string, cause error) {
 	}
 	_, _ = r.pool.Exec(stateCtx, `
 UPDATE calendar_projection_state
-SET freshness_status = 'red', serving_state = 'failed',
+SET freshness_status = CASE WHEN projection_version <= 0 THEN 'red' ELSE freshness_status END,
+    serving_state = CASE WHEN projection_version <= 0 THEN 'failed' ELSE serving_state END,
     last_error = $2::text, updated_at = now()
 WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, tenantID, message)
 }
@@ -1458,7 +1479,7 @@ type refreshProjectionPage struct {
 	nextCursor *domain.CalendarCursor
 }
 
-func (r *Repository) refreshVaccinationProjectionPage(ctx context.Context, in ports.RefreshVaccinationProjection, cursor *domain.CalendarCursor) (refreshProjectionPage, error) {
+func (r *Repository) refreshVaccinationProjectionPage(ctx context.Context, tx pgx.Tx, in ports.RefreshVaccinationProjection, cursor *domain.CalendarCursor) (refreshProjectionPage, error) {
 	var cursorDue any
 	cursorEventID := ""
 	if cursor != nil {
@@ -1468,7 +1489,7 @@ func (r *Repository) refreshVaccinationProjectionPage(ctx context.Context, in po
 	var count int
 	var lastDue pgtype.Timestamptz
 	var lastEventID string
-	if err := r.pool.QueryRow(ctx, calendarVaccinationProjectionRefreshSQL,
+	if err := tx.QueryRow(ctx, calendarVaccinationProjectionRefreshSQL,
 		in.TenantID, in.DateFrom, in.DateTo, in.Limit, cursorDue, cursorEventID).Scan(&count, &lastDue, &lastEventID); err != nil {
 		return refreshProjectionPage{}, fmt.Errorf("calendar: refresh vaccination projection: %w", err)
 	}
@@ -1479,9 +1500,9 @@ func (r *Repository) refreshVaccinationProjectionPage(ctx context.Context, in po
 	return page, nil
 }
 
-func (r *Repository) tombstoneVaccinationProjection(ctx context.Context, in ports.RefreshVaccinationProjection) (int, error) {
+func (r *Repository) tombstoneVaccinationProjection(ctx context.Context, tx pgx.Tx, in ports.RefreshVaccinationProjection) (int, error) {
 	var count int
-	if err := r.pool.QueryRow(ctx, calendarVaccinationProjectionTombstoneSQL,
+	if err := tx.QueryRow(ctx, calendarVaccinationProjectionTombstoneSQL,
 		in.TenantID, in.DateFrom, in.DateTo).Scan(&count); err != nil {
 		return 0, fmt.Errorf("calendar: tombstone vaccination projection: %w", err)
 	}

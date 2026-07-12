@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 )
@@ -567,6 +568,48 @@ func TestProcessIntegrityProjectionPruneReturnsDatabaseAndCancellationErrors(t *
 	cancel()
 	if err := repo.pruneOldProjectionRowsWithBatchSize(canceled, piTenant, 10); err == nil {
 		t.Fatal("canceled prune returned nil, want observable cancellation error")
+	}
+}
+
+func TestProcessIntegrityBuildPreservesFreshLastKnownGood(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Now().In(biztime.DefaultLocation()).Truncate(time.Millisecond)
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("RecomputeProjection: %v", err)
+	}
+	q := normalizeQuery(domain.Query{TenantID: piTenant, AsOf: asOf, DueBefore: asOf.Add(24 * time.Hour), Limit: 10})
+	if _, err := repo.ListRows(ctx, q); err != nil {
+		t.Fatalf("fresh serving projection: %v", err)
+	}
+	if err := repo.markProjectionRebuilding(ctx, piTenant, 999, time.Now(), asOf); err != nil {
+		t.Fatalf("markProjectionRebuilding: %v", err)
+	}
+	if _, err := repo.ListRows(ctx, q); err != nil {
+		t.Fatalf("last-known-good unavailable during rebuild: %v", err)
+	}
+	repo.markProjectionFailed(piTenant, errors.New("replacement build failed"))
+	if _, err := repo.ListRows(ctx, q); err != nil {
+		t.Fatalf("last-known-good unavailable after replacement failure: %v", err)
+	}
+	execPI(t, ctx, pool, "expire last-known-good", `
+UPDATE process_integrity_projection_state
+SET projected_at=$2::timestamptz,as_of=$2::timestamptz
+WHERE tenant_id=$1::uuid`, piTenant, asOf.Add(-6*time.Minute))
+	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
+		t.Fatalf("expired last-known-good error=%v, want ErrProjectionStale", err)
+	}
+	execPI(t, ctx, pool, "remove serving state", `DELETE FROM process_integrity_projection_state WHERE tenant_id=$1::uuid`, piTenant)
+	if err := repo.markProjectionRebuilding(ctx, piTenant, 1000, time.Now(), asOf); err != nil {
+		t.Fatalf("mark first bootstrap rebuilding: %v", err)
+	}
+	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionUnavailable) {
+		t.Fatalf("bootstrap without serving pointer error=%v, want ErrProjectionUnavailable", err)
 	}
 }
 

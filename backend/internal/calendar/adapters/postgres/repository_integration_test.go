@@ -54,6 +54,18 @@ func TestCalendarListRequiresFreshProjectionAndExposesVersion(t *testing.T) {
 	if got.Projection.ProjectionVersion <= 0 || got.Projection.Stale || got.Projection.ServingState != "fresh" {
 		t.Fatalf("projection metadata=%+v", got.Projection)
 	}
+	if err := repo.markProjectionRebuilding(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID, DateFrom: q.DateFrom, DateTo: q.DateTo, Limit: 10,
+	}, got.Projection.ProjectionVersion+1, time.Now()); err != nil {
+		t.Fatalf("mark replacement projection rebuilding: %v", err)
+	}
+	if _, err := repo.ListEvents(ctx, q); err != nil {
+		t.Fatalf("last-known-good unavailable during Calendar rebuild: %v", err)
+	}
+	repo.markProjectionFailed(testTenantID, errors.New("replacement Calendar build failed"))
+	if _, err := repo.ListEvents(ctx, q); err != nil {
+		t.Fatalf("last-known-good unavailable after Calendar build failure: %v", err)
+	}
 	outsideWindow := q
 	outsideWindow.DateFrom = time.Now().Add(46 * 24 * time.Hour)
 	outsideWindow.DateTo = time.Now().Add(47 * 24 * time.Hour)
@@ -484,11 +496,13 @@ func TestCalendarVaccinationProjectionRefreshBackfillsObligations(t *testing.T) 
 	obligationID := "86000000-0000-4000-8000-000000000804"
 	dueAt := time.Now().UTC().Add(4 * time.Hour)
 	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	projectionFrom := time.Now().UTC().Add(-time.Hour)
+	projectionTo := time.Now().UTC().Add(48 * time.Hour)
 
 	count, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
 		TenantID: testTenantID,
-		DateFrom: time.Now().UTC().Add(-time.Hour),
-		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		DateFrom: projectionFrom,
+		DateTo:   projectionTo,
 		Limit:    100,
 	})
 	if err != nil {
@@ -512,8 +526,8 @@ WHERE tenant_id = $1::uuid AND event_id = $2`,
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID,
 		OwnerKey: domain.OwnerAll,
-		DateFrom: time.Now().UTC().Add(-time.Hour),
-		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		DateFrom: projectionFrom,
+		DateTo:   projectionTo.Add(-24 * time.Hour),
 		Limit:    20,
 		Scope:    domain.ScopeFilter{TenantWide: true},
 	})

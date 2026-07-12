@@ -43,22 +43,8 @@ func (r *Repository) RecomputeShedProjection(ctx context.Context, req domain.She
 		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: capacity config: %w", err)
 	}
 	asOf := req.AsOf
-	if asOf.IsZero() {
-		asOf = time.Now().In(biztime.DefaultLocation())
-	}
 	dueBefore := req.DueBefore
-	if dueBefore.IsZero() {
-		dueBefore = asOf.Add(defaultExecutionHorizon)
-	}
 
-	var projectionVersion int64
-	var projectedAt time.Time
-	if err := r.pool.QueryRow(ctx, `SELECT (extract(epoch FROM now()) * 1000)::bigint, now()`).Scan(&projectionVersion, &projectedAt); err != nil {
-		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: stamp: %w", err)
-	}
-	if err := r.markShedProjectionRebuilding(ctx, req.TenantID, projectionVersion, projectedAt, asOf, dueBefore); err != nil {
-		return domain.ShedProjectionRecomputeResult{}, err
-	}
 	committed := false
 	defer func() {
 		// A post-commit maintenance failure must be visible, but must not mark the newly committed
@@ -78,6 +64,20 @@ func (r *Repository) RecomputeShedProjection(ctx context.Context, req domain.She
 			_ = tx.Rollback(ctx)
 		}
 	}()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 86170))`, req.TenantID); err != nil {
+		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: lock: %w", err)
+	}
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	if dueBefore.IsZero() {
+		dueBefore = asOf.Add(defaultExecutionHorizon)
+	}
+	var projectionVersion int64
+	var projectedAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT (extract(epoch FROM clock_timestamp()) * 1000000)::bigint, clock_timestamp()`).Scan(&projectionVersion, &projectedAt); err != nil {
+		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: stamp: %w", err)
+	}
 
 	if _, err := tx.Exec(ctx, vaccinationShedProjectionInsertSQL,
 		req.TenantID, asOf, dueBefore, cfg.MaxPerDay, cfg.MaxBufferDays, projectionVersion, projectedAt); err != nil {
@@ -145,11 +145,8 @@ INSERT INTO vaccination_shed_projection_state (
   'unknown', 'rebuilding', NULL, now()
 )
 ON CONFLICT (tenant_id) DO UPDATE SET
-  freshness_status = CASE
-    WHEN vaccination_shed_projection_state.row_count > 0 THEN 'yellow'
-    ELSE 'unknown'
-  END,
-  serving_state = 'rebuilding',
+  -- Rows for the new version are written beside the serving version. Preserve
+  -- last-known-good serving metadata until the atomic pointer flip commits.
   last_error = NULL,
   updated_at = now()`, tenantID, projectionVersion, projectedAt, asOf, dueBefore); err != nil {
 		return fmt.Errorf("vaccination execution: recompute shed projection: mark rebuilding: %w", err)
@@ -169,8 +166,8 @@ func (r *Repository) markShedProjectionFailed(tenantID string, cause error) {
 	}
 	_, _ = r.pool.Exec(stateCtx, `
 UPDATE vaccination_shed_projection_state
-SET freshness_status = 'red',
-    serving_state = 'failed',
+SET freshness_status = CASE WHEN serving_projection_version IS NULL THEN 'red' ELSE freshness_status END,
+    serving_state = CASE WHEN serving_projection_version IS NULL THEN 'failed' ELSE serving_state END,
     last_error = $2::text,
     updated_at = now()
 WHERE tenant_id = $1::uuid`, tenantID, message)

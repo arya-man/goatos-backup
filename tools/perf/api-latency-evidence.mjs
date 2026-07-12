@@ -9,6 +9,8 @@ export const REQUIRED_HOT_PATHS = Object.freeze([
   "action_center_counts",
   "protocol_adherence",
   "calendar_vaccination",
+  "calendar_vaccination_completed_history",
+  "calendar_vaccination_date_markers",
   "vaccination_execution",
   "vaccination_operations",
   "vaccination_shed_summary",

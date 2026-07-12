@@ -1671,6 +1671,21 @@ func TestVaccinationProjectionReadsRejectNonGreenServingState(t *testing.T) {
 	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore}); err != nil {
 		t.Fatalf("RecomputeOperationsProjection: %v", err)
 	}
+	if err := repo.markShedProjectionRebuilding(ctx, testTenant, 999, time.Now(), asOf, dueBefore); err != nil {
+		t.Fatalf("markShedProjectionRebuilding: %v", err)
+	}
+	repo.markShedProjectionFailed(testTenant, errors.New("replacement shed build failed"))
+	repo.markExecutionProjectionFailed(testTenant, asOf, dueBefore, asOf.Add(-defaultClosedHistoryAge), errors.New("replacement execution build failed"))
+	repo.markOperationsProjectionFailed(testTenant, asOf, dueBefore, errors.New("replacement operations build failed"))
+	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
+		t.Fatalf("shed last-known-good unavailable after replacement failure: %v", err)
+	}
+	if _, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
+		t.Fatalf("execution last-known-good unavailable after replacement failure: %v", err)
+	}
+	if _, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
+		t.Fatalf("operations last-known-good unavailable after replacement failure: %v", err)
+	}
 
 	for _, tc := range []struct {
 		name, servingState, freshnessStatus string

@@ -6,6 +6,8 @@
       "action_center_counts",
       "protocol_adherence",
       "calendar_vaccination",
+      "calendar_vaccination_completed_history",
+      "calendar_vaccination_date_markers",
       "vaccination_execution",
       "vaccination_operations",
       "vaccination_shed_summary"
@@ -20,6 +22,8 @@
         "vaccination_shed_summary"
       ],
       "canonical_1300_nonempty_latency_only": [
+        "calendar_vaccination_completed_history",
+        "calendar_vaccination_date_markers",
         "vaccination_execution",
         "vaccination_operations"
       ]
@@ -84,6 +88,26 @@
       "p99_ms": 1000,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "calendar_vaccination_completed_history",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?status=completed&limit=50",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "calendar_vaccination_date_markers",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?include_date_markers=true&limit=1",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "date_markers", "min": 1 }
     },
     {
       "name": "vaccination_execution",

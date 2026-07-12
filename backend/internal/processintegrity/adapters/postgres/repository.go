@@ -220,17 +220,6 @@ func (r *Repository) RecomputeProjection(ctx context.Context, req domain.Project
 		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: tenant id is required")
 	}
 	asOf := req.AsOf
-	if asOf.IsZero() {
-		asOf = time.Now().In(biztime.DefaultLocation())
-	}
-	var projectionVersion int64
-	var projectedAt time.Time
-	if err := r.pool.QueryRow(ctx, `SELECT (extract(epoch FROM now()) * 1000)::bigint, now()`).Scan(&projectionVersion, &projectedAt); err != nil {
-		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: projection stamp: %w", err)
-	}
-	if err := r.markProjectionRebuilding(ctx, req.TenantID, projectionVersion, projectedAt, asOf); err != nil {
-		return domain.ProjectionRecomputeResult{}, err
-	}
 	committed := false
 	defer func() {
 		// A post-commit maintenance failure must be visible, but must not mark the
@@ -250,6 +239,17 @@ func (r *Repository) RecomputeProjection(ctx context.Context, req domain.Project
 			_ = tx.Rollback(ctx)
 		}
 	}()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 86172))`, req.TenantID); err != nil {
+		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: lock projection recompute: %w", err)
+	}
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	var projectionVersion int64
+	var projectedAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT (extract(epoch FROM clock_timestamp()) * 1000000)::bigint, clock_timestamp()`).Scan(&projectionVersion, &projectedAt); err != nil {
+		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: projection stamp: %w", err)
+	}
 
 	if _, err := tx.Exec(ctx, processIntegrityProjectionInsertSQL, projectionBuildArgs(req.TenantID, asOf, projectionVersion, projectedAt)...); err != nil {
 		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: upsert projection rows: %w", err)
@@ -319,11 +319,8 @@ INSERT INTO process_integrity_projection_state (
   'unknown', 'rebuilding', NULL, now()
 )
 ON CONFLICT (tenant_id) DO UPDATE SET
-  freshness_status = CASE
-    WHEN process_integrity_projection_state.row_count > 0 THEN 'yellow'
-    ELSE 'unknown'
-  END,
-  serving_state = 'rebuilding',
+  -- A new version is built beside the serving version. Keep last-known-good
+  -- serving metadata untouched so reads do not 503 during every scheduled build.
   last_error = NULL,
   updated_at = now()`, tenantID, projectionVersion, projectedAt, asOf); err != nil {
 		return fmt.Errorf("processintegrity: mark projection rebuilding: %w", err)
@@ -343,8 +340,8 @@ func (r *Repository) markProjectionFailed(tenantID string, cause error) {
 	}
 	_, _ = r.pool.Exec(stateCtx, `
 UPDATE process_integrity_projection_state
-SET freshness_status = 'red',
-    serving_state = 'failed',
+SET freshness_status = CASE WHEN serving_projection_version IS NULL THEN 'red' ELSE freshness_status END,
+    serving_state = CASE WHEN serving_projection_version IS NULL THEN 'failed' ELSE serving_state END,
     last_error = $2::text,
     updated_at = now()
 WHERE tenant_id = $1::uuid`, tenantID, message)

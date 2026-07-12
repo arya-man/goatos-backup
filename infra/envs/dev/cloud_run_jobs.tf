@@ -66,7 +66,7 @@ locals {
       name                = "goatos-dev-obligation-sweeper"
       service_account_key = "obligation_sweeper"
       command             = ["/app/bin/obligation-sweeper"]
-      args                = ["-timeout=60s"]
+      args                = ["-timeout=60s", "-project-calendar=false", "-project-vaccination-read-models=true"]
       timeout             = "120s"
       memory              = "512Mi"
       cpu                 = "1"

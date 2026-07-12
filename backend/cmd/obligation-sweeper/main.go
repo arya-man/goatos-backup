@@ -318,7 +318,7 @@ func parseFlags(args []string) (config, error) {
 	fs.IntVar(&cfg.DosesPerGoat, "doses-per-goat", intEnv("GOATOS_SWEEPER_DOSES_PER_GOAT", 1), "doses reserved per goat")
 	calendarDateFromRaw := fs.String("calendar-date-from", getenv("GOATOS_SWEEPER_CALENDAR_DATE_FROM"), "RFC3339 calendar projection lower bound; default now minus 24h")
 	calendarDateToRaw := fs.String("calendar-date-to", getenv("GOATOS_SWEEPER_CALENDAR_DATE_TO"), "RFC3339 calendar projection upper bound; default now plus 45d")
-	fs.BoolVar(&cfg.ProjectCalendar, "project-calendar", boolEnv("GOATOS_SWEEPER_PROJECT_CALENDAR", true), "refresh Calendar vaccination projection after obligation sweep")
+	fs.BoolVar(&cfg.ProjectCalendar, "project-calendar", boolEnv("GOATOS_SWEEPER_PROJECT_CALENDAR", false), "repair-only Calendar projection refresh; the dedicated Calendar projector is the normal owner")
 	fs.BoolVar(&cfg.ProjectVaccinationReadModels, "project-vaccination-read-models", boolEnv("GOATOS_SWEEPER_PROJECT_VACCINATION_READ_MODELS", true), "refresh vaccination shed/execution/operations read models off-request")
 	fs.IntVar(&cfg.CalendarLimit, "calendar-limit", intEnv("GOATOS_SWEEPER_CALENDAR_LIMIT", 1000), "max Calendar projection rows to upsert")
 	fs.BoolVar(&cfg.SweepReminders, "sweep-reminders", boolEnv("GOATOS_SWEEPER_SWEEP_REMINDERS", true), "queue due Calendar reminders after projection refresh")
