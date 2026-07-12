@@ -74,7 +74,7 @@ const (
 )
 
 // AllVerticals is every vertical a tier can be scoped to, in the order
-// seeded into org_verticals (migration 000174_org_role_catalog.sql).
+// seeded into org_verticals (migration 000178_org_role_catalog.sql).
 var AllVerticals = []Vertical{
 	VerticalProcurement, VerticalPreventiveCare, VerticalBreeding, VerticalHealth,
 	VerticalGrowth, VerticalInfrastructure, VerticalFeed, VerticalMilk, VerticalSales,
@@ -84,7 +84,7 @@ var AllVerticals = []Vertical{
 // pair -- e.g. RoleKey(TierManager, VerticalFeed) == "manager_feed". This is
 // the string stored in user_scope_grants.role / auth_pending_email_grants.role
 // and validated against the org_role_catalog table
-// (migrations/postgres/000174_org_role_catalog.sql).
+// (migrations/postgres/000178_org_role_catalog.sql).
 func RoleKey(tier Tier, vertical Vertical) string {
 	return string(tier) + "_" + string(vertical)
 }
@@ -206,7 +206,7 @@ func ScopeIDsForPermission(grants []ActiveGrant, permission, scopeType string) [
 // table for why the flat roles and this tier catalog differ on purpose.
 //
 // Kept in sync with the Postgres-side org_tiers seed in
-// migrations/postgres/000174_org_role_catalog.sql by
+// migrations/postgres/000178_org_role_catalog.sql by
 // TestOrgRoleCatalogHasEntryForEveryComposedRole /
 // TestTierPermissionsCoverOnlyKnownPermissions in
 // permissions_orgrole_test.go.

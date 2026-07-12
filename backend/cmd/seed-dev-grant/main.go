@@ -177,7 +177,7 @@ func devMemberRoleHint(role string) string {
 		// Composite tier x vertical org role keys (e.g. "manager_feed",
 		// "director_health") are not individually listed in
 		// workforce_members_role_hint_check -- that CHECK stays a small,
-		// display-only HR enum (see migrations/postgres/000174_org_role_catalog.sql's
+		// display-only HR enum (see migrations/postgres/000178_org_role_catalog.sql's
 		// comment on why it is intentionally out of scope for the FK swap).
 		// Map by tier instead: ground tiers (Assistant Manager) hint
 		// "operator", everything above ground hints "supervisor".
