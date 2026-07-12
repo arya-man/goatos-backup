@@ -61,6 +61,12 @@
     <string name="sync_notification_waiting_title">अपलोड रुका हुआ है</string>
     <string name="sync_notification_waiting_text">%1$d आइटम प्रतीक्षा में हैं — ऑनलाइन होते ही अपने आप फिर से शुरू होगा।</string>
 
+    <string name="push_channel_vaccination_name">वैक्सीनेशन अलर्ट</string>
+    <string name="push_channel_vaccination_description">वैक्सीनेशन ड्राइव के लिए ओब्लिगेशन, एस्केलेशन और पुनर्निर्धारण अलर्ट।</string>
+    <string name="push_channel_general_name">सामान्य अलर्ट</string>
+    <string name="push_channel_general_description">अन्य मेशा ऐप सूचनाएं।</string>
+    <string name="push_default_title">मेशा</string>
+
     <string name="scope_footer">स्कोप नीचे के ड्राइव और बैकलॉग को भी फ़िल्टर करता है</string>
     <string name="gaps_footer">वेब डैशबोर्ड पर ठीक करें · Data Ops → Herd Register</string>
     <string name="gaps_empty">कोई डेटा अंतराल नहीं — सभी पशुओं की आवश्यक जानकारी मौजूद है।</string>

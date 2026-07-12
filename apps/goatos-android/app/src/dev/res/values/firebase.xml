@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Generated-equivalent Firebase options for the goatos-stg Firebase PROJECT's `dev`
+         Android client (sg.mesha.goatos.dev). The dev and stg Android apps both live in the
+         SAME Firebase project (goatos-stg) — verified — so every project-level value
+         (api key, sender id, project id, storage bucket, OAuth web client id) is identical to
+         app/src/stg/res/values/firebase.xml; only google_app_id differs, because that id is
+         scoped to THIS specific Android app registration (applicationId
+         sg.mesha.goatos.dev), not the project. See goatos AGENTS.md "Heva Firebase Auth
+         Pairing" note: the browser/app Firebase project and the backend custom-token project
+         must stay paired, or sign-in fails with auth/custom-token-mismatch. -->
+    <string name="google_app_id" translatable="false">1:514832198871:android:75bfe96d3aab9647f19492</string>
+    <string name="google_api_key" translatable="false">AIzaSyA8RmTTxegtjFO0z0ewZJ5ckyDxKguvHEk</string>
+    <string name="gcm_defaultSenderId" translatable="false">514832198871</string>
+    <string name="project_id" translatable="false">goatos-stg</string>
+    <string name="google_storage_bucket" translatable="false">goatos-stg.firebasestorage.app</string>
+    <string name="default_web_client_id" translatable="false">514832198871-vjnkll058jgr2ee1qkn7aclsuq7017fb.apps.googleusercontent.com</string>
+</resources>

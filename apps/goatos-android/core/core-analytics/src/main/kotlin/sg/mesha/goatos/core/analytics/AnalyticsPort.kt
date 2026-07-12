@@ -6,10 +6,12 @@ package sg.mesha.goatos.core.analytics
 /**
  * The single seam between product code and the analytics vendor.
  *
- * Two distinct concerns:
+ * Three distinct concerns:
  *  - [track] records an ACTION (an event with per-occurrence params).
  *  - [setUserProperty] sets a durable PRINCIPAL attribute (role, park, flavor…) that the egress
  *    impl stamps onto every subsequent event. Passing `null` clears the property.
+ *  - [setUserId] sets the durable PRINCIPAL identifier itself (the stable, non-PII workforce
+ *    member id — never a name/email/phone). Passing `null` clears it (logout clean-slate).
  *
  * Call sites use the [AnalyticsEvents] constants for names — never inline strings — so a typo can
  * never silently split a funnel.
@@ -18,11 +20,15 @@ interface AnalyticsPort {
     fun track(event: String, props: Map<String, String> = emptyMap())
 
     fun setUserProperty(name: String, value: String?)
+
+    fun setUserId(id: String?)
 }
 
-/** Wired today (real egress is a later pass). Deliberately does nothing so callers stay decoupled
- *  from any vendor SDK and analytics is never on a critical path. */
+/** Test/preview fallback. Deliberately does nothing so callers stay decoupled from any vendor
+ *  SDK — the real egress binding is [sg.mesha.goatos.push.FirebaseAnalyticsPort] (`:app`,
+ *  guarded so a build flavor with no Firebase config never crashes on it). */
 class NoopAnalytics : AnalyticsPort {
     override fun track(event: String, props: Map<String, String>) {}
     override fun setUserProperty(name: String, value: String?) {}
+    override fun setUserId(id: String?) {}
 }

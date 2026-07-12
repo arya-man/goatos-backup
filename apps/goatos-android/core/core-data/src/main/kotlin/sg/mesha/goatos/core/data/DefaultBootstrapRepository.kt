@@ -47,6 +47,12 @@ class DefaultBootstrapRepository(
                 ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }.getOrNull()
         )?.operatorProfile
 
+    override suspend fun actorTenantId(): String? =
+        (
+            cache?.load()
+                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }.getOrNull()
+        )?.actor?.tenantId?.ifBlank { null }
+
     /** Remember a known device id, or register this install when the backend needs it. */
     private suspend fun reconcileDevice(dto: BootstrapDto) {
         val store = deviceStore ?: return

@@ -45,11 +45,18 @@ object AnalyticsEvents {
     /** Durable user-property keys (set via [AnalyticsPort.setUserProperty]). */
     object UserProps {
         const val ROLE = "role"
+
+        /** Display label (e.g. "Park A") — kept for backward compatibility with existing
+         *  dashboards. Prefer [PARK_ID] (a stable id) for new analytics/segmentation. */
         const val PRIMARY_PARK = "primary_park"
+
+        /** Stable park identifier (`BootstrapOperatorProfileDto.primaryLocationId`) — unlike
+         *  [PRIMARY_PARK]'s display label, this never changes if the park is renamed. */
+        const val PARK_ID = "park_id"
         const val FLAVOR = "flavor"
 
-        /** Reserved for the later backend pass — the bootstrap has no tenant field yet, so nothing
-         *  sets this today. Declared now so the eventual wiring reuses one canonical key. */
+        /** The authenticated principal's tenant id (`BootstrapActorDto.tenantId`, via
+         *  [sg.mesha.goatos.core.data.BootstrapRepository.actorTenantId]). */
         const val TENANT = "tenant"
     }
 }

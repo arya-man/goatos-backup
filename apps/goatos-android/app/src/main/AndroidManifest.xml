@@ -67,6 +67,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.GoatOs">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -82,6 +83,31 @@
             android:name=".sync.UploadForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!-- FCM push entry point (docs: FCM push slice). Never exported — only the system's
+             own FCM broadcast reaches it, gated by the MESSAGING_EVENT intent-filter. -->
+        <service
+            android:name=".push.GoatOsMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- Default channel FCM uses when a message doesn't specify android_channel_id
+             (PushNotifications.CHANNEL_GENERAL — the string value + this meta-data both read the
+             SAME @string/push_channel_general_id so they can never drift). Icon/color are the
+             defaults for a system-auto-displayed notification (app backgrounded/killed); this
+             app's OWN NotificationCompat.Builder path (PushNotifications.show, used while the app
+             is foregrounded) sets the identical icon/color explicitly rather than relying on
+             these being read implicitly. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="@string/push_channel_general_id" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification_push" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/push_notification_accent" />
         <!-- Disable WorkManager's default on-startup initializer: GoatOsApplication implements
              Configuration.Provider to supply a Hilt HiltWorkerFactory (on-demand init), so the
              default initializer must NOT run first with a factory that can't build @HiltWorker. -->

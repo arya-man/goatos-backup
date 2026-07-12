@@ -77,6 +77,20 @@
     <string name="sync_notification_waiting_title">Upload paused</string>
     <string name="sync_notification_waiting_text">%1$d item(s) waiting — will resume automatically when back online.</string>
 
+    <!-- FCM push notifications (GoatOsMessagingService, PushNotifications). Two channels: a
+         high-importance one for vaccination obligation/escalation alerts, a default-importance
+         one for everything else. push_channel_general_id is the LITERAL channel id string (not
+         translatable, no locale variants needed) — it is read at runtime to both create the
+         channel AND set AndroidManifest's com.google.firebase.messaging.default_notification_channel_id
+         meta-data, so the two always agree. -->
+    <string name="push_channel_general_id" translatable="false">goatos-push-general</string>
+    <string name="push_channel_vaccination_id" translatable="false">goatos-push-vaccination</string>
+    <string name="push_channel_vaccination_name">Vaccination alerts</string>
+    <string name="push_channel_vaccination_description">Obligation, escalation, and reschedule alerts for vaccination drives.</string>
+    <string name="push_channel_general_name">General alerts</string>
+    <string name="push_channel_general_description">Other Mesha app notifications.</string>
+    <string name="push_default_title">Mesha</string>
+
     <!-- Scope / Data-gaps / Doses sheet footers + empty/note copy. -->
     <string name="scope_footer">Scope also filters the drives and backlog below</string>
     <string name="gaps_footer">Fix on the web dashboard · Data Ops → Herd Register</string>

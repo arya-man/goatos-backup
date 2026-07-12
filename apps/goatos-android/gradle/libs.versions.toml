@@ -122,6 +122,10 @@ firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
 firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics" }
 firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics" }
 firebase-perf = { group = "com.google.firebase", name = "firebase-perf" }
+# FCM push delivery (GoatOsMessagingService). BOM-versioned like firebase-auth above — no
+# explicit version pin. KTX extensions (e.g. the `.token` property) have shipped inside the
+# main artifact since BoM 25, so no separate `-ktx` artifact is needed at BoM 34.16.0.
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
 androidx-credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }

@@ -180,8 +180,12 @@ object Routes {
  * Maps a backend calendar deep-link ([CalendarItem.target]/[CalendarHistoryRow.target])
  * to an app route. Live shed-scoped work opens the execute loop, explicit `record/...` targets
  * open the read-only record, and anything else falls back to the vaccination landing.
+ *
+ * `internal` (not `private`): [sg.mesha.goatos.push.resolvePushRoute] reuses this SAME
+ * backend-href -> route mapping for an FCM push carrying an explicit `target`/`href`, so a
+ * notification tap opens exactly where a Calendar tap on the same backend item would.
  */
-private fun calendarTargetRoute(target: String?): String {
+internal fun calendarTargetRoute(target: String?): String {
     if (target.isNullOrBlank()) return Routes.VACCINATION
     if (target.contains("scan/")) {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')

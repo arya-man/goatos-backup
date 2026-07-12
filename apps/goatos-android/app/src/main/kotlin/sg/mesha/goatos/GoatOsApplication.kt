@@ -14,6 +14,7 @@ import sg.mesha.goatos.core.analytics.PerformanceTraceNames
 import sg.mesha.goatos.core.analytics.TraceHandle
 import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.core.data.sync.ForegroundSyncController
+import sg.mesha.goatos.push.PushNotifications
 import sg.mesha.goatos.sync.SyncWorkScheduler
 import javax.inject.Inject
 
@@ -43,6 +44,7 @@ class GoatOsApplication : Application(), Configuration.Provider {
     @Inject lateinit var analytics: AnalyticsPort
     @Inject lateinit var crashReporter: CrashReporter
     @Inject lateinit var performanceTracer: PerformanceTracer
+    @Inject lateinit var pushNotifications: PushNotifications
 
     /** Started here, stopped on the first post-auth `MainActivity.onResume` (see
      *  `docs/TELEMETRY.md`). Public var (not Hilt-scoped) so `MainActivity` can stop the SAME
@@ -64,6 +66,11 @@ class GoatOsApplication : Application(), Configuration.Provider {
         // Crash reporting: log a breadcrumb so every session boundary shows up alongside any
         // crash/non-fatal that follows it. Never logs PII — flavor is a build constant.
         crashReporter.log("app_open flavor=${BuildConfig.FLAVOR}")
+        // Notification channels must exist BEFORE the first notification is posted (system
+        // silently drops a notify() on a channel that was never created) — cheap, synchronous,
+        // safe to call every cold start (NotificationManager.createNotificationChannels is
+        // idempotent for an unchanged channel).
+        pushNotifications.ensureChannels()
         // Off the main thread: enqueueUniquePeriodicWork does disk I/O on the calling thread, and
         // starting the connectivity trigger touches ConnectivityManager — neither is on the
         // critical path to first frame, so defer both to the app scope to keep cold start snappy.

@@ -25,6 +25,14 @@ import sg.mesha.goatos.core.network.AppApi
  *  2. [signOutVendorAuth] — the Firebase/dev-bearer-specific sign-out. `core-data` cannot
  *     depend on `:app`'s `AuthRepository`, so the caller supplies this as a callback; the
  *     coordinator still owns exactly where in the sequence it runs.
+ *  2.5. [clearPushAndAnalyticsIdentity] — decouples THIS device's FCM push-token binding and
+ *     Firebase Analytics identity (setUserId + role/park/tenant user properties) from the
+ *     departing principal, the same "no authority-sensitive state survives logout" rule as
+ *     every other step. Same constraint as [signOutVendorAuth]: the real
+ *     `FirebaseMessaging.deleteToken()` / `AnalyticsPort` call lives in `:app`
+ *     ([sg.mesha.goatos.push.PushLogoutCleanup]), so it is supplied as a callback rather than
+ *     a constructor dependency `core-data` cannot hold. Defaulted to a no-op so existing
+ *     callers/tests that don't care about push/analytics compile unchanged.
  *  3. Every screen-facing Room cache table ([ScreenCacheStore]) and the write outbox
  *     ([OutboxWiper]) are wiped — nothing from the departing session survives on disk.
  *  4. The periodic + retry WorkManager sync jobs are cancelled ([SyncJobsCanceller]) so
@@ -39,10 +47,12 @@ class LogoutCoordinator(
     private val screenCacheStore: ScreenCacheStore,
     private val outboxWiper: OutboxWiper,
     private val syncJobsCanceller: SyncJobsCanceller,
+    private val clearPushAndAnalyticsIdentity: () -> Unit = {},
 ) {
     suspend fun logout(signOutVendorAuth: () -> Unit) {
         deregisterDeviceBestEffort()
         runCatching { signOutVendorAuth() }
+        runCatching { clearPushAndAnalyticsIdentity() }
         screenCacheStore.clearAll()
         outboxWiper.clearAll()
         syncJobsCanceller.cancelAll()

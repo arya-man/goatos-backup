@@ -32,6 +32,7 @@ class AnalyticsContractTest {
         assertEquals("chrome", AnalyticsEvents.Params.CHROME)
         assertEquals("role", AnalyticsEvents.UserProps.ROLE)
         assertEquals("primary_park", AnalyticsEvents.UserProps.PRIMARY_PARK)
+        assertEquals("park_id", AnalyticsEvents.UserProps.PARK_ID)
         assertEquals("flavor", AnalyticsEvents.UserProps.FLAVOR)
         assertEquals("tenant", AnalyticsEvents.UserProps.TENANT)
     }
@@ -50,13 +51,15 @@ class AnalyticsContractTest {
     }
 
     @Test
-    fun `noop analytics accepts events and properties without throwing`() {
+    fun `noop analytics accepts events, properties, and user id without throwing`() {
         val analytics: AnalyticsPort = NoopAnalytics()
         // The whole point of the Noop is that no call path can throw or block.
         analytics.track(AnalyticsEvents.APP_OPEN)
         analytics.track(AnalyticsEvents.LOGIN_ATTEMPT, mapOf(AnalyticsEvents.Params.METHOD to "email"))
         analytics.setUserProperty(AnalyticsEvents.UserProps.ROLE, "operator")
         analytics.setUserProperty(AnalyticsEvents.UserProps.ROLE, null)
+        analytics.setUserId("member-123")
+        analytics.setUserId(null)
         assertTrue(true)
     }
 }

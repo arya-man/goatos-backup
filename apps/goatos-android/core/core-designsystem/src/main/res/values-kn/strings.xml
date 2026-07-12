@@ -61,6 +61,12 @@
     <string name="sync_notification_waiting_title">ಅಪ್‌ಲೋಡ್ ವಿರಾಮಗೊಂಡಿದೆ</string>
     <string name="sync_notification_waiting_text">%1$d ಐಟಂ ಕಾಯುತ್ತಿವೆ — ಆನ್‌ಲೈನ್ ಆದ ತಕ್ಷಣ ತಾನಾಗಿಯೇ ಮುಂದುವರಿಯುತ್ತದೆ.</string>
 
+    <string name="push_channel_vaccination_name">ಲಸಿಕೆ ಎಚ್ಚರಿಕೆಗಳು</string>
+    <string name="push_channel_vaccination_description">ಲಸಿಕೆ ಡ್ರೈವ್‌ಗಳಿಗಾಗಿ ಒಬ್ಲಿಗೇಶನ್, ಎಸ್ಕಲೇಶನ್ ಮತ್ತು ಮರುನಿಗದಿ ಎಚ್ಚರಿಕೆಗಳು.</string>
+    <string name="push_channel_general_name">ಸಾಮಾನ್ಯ ಎಚ್ಚರಿಕೆಗಳು</string>
+    <string name="push_channel_general_description">ಇತರ ಮೇಷ ಆ್ಯಪ್ ಅಧಿಸೂಚನೆಗಳು.</string>
+    <string name="push_default_title">ಮೇಷ</string>
+
     <string name="scope_footer">ಸ್ಕೋಪ್ ಕೆಳಗಿನ ಡ್ರೈವ್‌ಗಳು ಮತ್ತು ಬ್ಯಾಕ್‌ಲಾಗ್ ಅನ್ನೂ ಫಿಲ್ಟರ್ ಮಾಡುತ್ತದೆ</string>
     <string name="gaps_footer">ವೆಬ್ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ನಲ್ಲಿ ಸರಿಪಡಿಸಿ · Data Ops → Herd Register</string>
     <string name="gaps_empty">ಯಾವುದೇ ಡೇಟಾ ಅಂತರವಿಲ್ಲ — ಎಲ್ಲಾ ಪ್ರಾಣಿಗಳ ಅಗತ್ಯ ಮಾಹಿತಿ ಇದೆ.</string>

@@ -13,6 +13,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.push.PushTokenSync
 import javax.inject.Inject
 
 /**
@@ -36,6 +37,7 @@ class BootstrapViewModel @Inject constructor(
     private val repo: BootstrapRepository,
     private val analytics: AnalyticsPort,
     private val analyticsContext: AnalyticsContext,
+    private val pushTokenSync: PushTokenSync,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<BootstrapUiState>(BootstrapUiState.Loading)
@@ -77,21 +79,34 @@ class BootstrapViewModel @Inject constructor(
     }
 
     /**
-     * Sets the analytics principal identity (role/park) from the just-resolved bootstrap: the
-     * [AnalyticsContext] the egress impl reads, plus the durable user properties. Best-effort — a
-     * profile read that fails (e.g. a leadership user with no operator profile) must never fail or
-     * block bootstrap, so it is wrapped and its absence just leaves identity un-narrowed.
+     * Sets the analytics principal identity from the just-resolved bootstrap: [AnalyticsPort.setUserId]
+     * (the stable, non-PII `operator_id`), the [AnalyticsContext] the egress impl reads, and the
+     * durable user properties (role, park label + id, tenant, flavor). Also couples this
+     * device's FCM push token to the backend ([PushTokenSync]) — covers a cold start with an
+     * already-valid session, not just a fresh sign-in, since `onNewToken` only fires once per
+     * token mint/rotation. Best-effort: a profile/tenant read that fails (e.g. a leadership user
+     * with no operator profile) must never fail or block bootstrap, so each read is wrapped and
+     * its absence just leaves that piece of identity un-narrowed. Only stable ids/labels are
+     * sent — never names/emails/phone (repo PII rule).
      */
     private suspend fun applyAnalyticsIdentity() {
         val profile = runCatching { repo.operatorProfile() }.getOrNull()
+        val tenantId = runCatching { repo.actorTenantId() }.getOrNull()
         val role = profile?.primaryRoleHint?.ifBlank { null }
         val park = profile?.primaryLocation?.ifBlank { null }
+        val parkId = profile?.primaryLocationId?.ifBlank { null }
+        val memberId = profile?.operatorId?.ifBlank { null }
 
         analyticsContext.role = role
         analyticsContext.parkScope = park
 
+        analytics.setUserId(memberId)
         analytics.setUserProperty(AnalyticsEvents.UserProps.ROLE, role)
         analytics.setUserProperty(AnalyticsEvents.UserProps.PRIMARY_PARK, park)
+        analytics.setUserProperty(AnalyticsEvents.UserProps.PARK_ID, parkId)
+        analytics.setUserProperty(AnalyticsEvents.UserProps.TENANT, tenantId)
         analytics.setUserProperty(AnalyticsEvents.UserProps.FLAVOR, analyticsContext.flavor)
+
+        pushTokenSync.syncNow()
     }
 }

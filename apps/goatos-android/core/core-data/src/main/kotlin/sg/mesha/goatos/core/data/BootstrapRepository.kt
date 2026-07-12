@@ -15,4 +15,11 @@ interface BootstrapRepository {
     /** The operator profile from the (cached or fresh) bootstrap; null when the backend
      *  surfaced none for this principal (e.g. a leadership user has no operator profile). */
     suspend fun operatorProfile(): BootstrapOperatorProfileDto?
+
+    /** The authenticated principal's tenant id from the (cached or fresh) bootstrap's
+     *  `actor` slice — used to stamp a stable, non-PII tenant identifier on analytics
+     *  identity (BootstrapViewModel.applyAnalyticsIdentity). Defaulted to null so existing
+     *  fakes/implementers (tests, previews) compile unchanged; only [DefaultBootstrapRepository]
+     *  overrides it with the real cache/network read. */
+    suspend fun actorTenantId(): String? = null
 }

@@ -18,6 +18,7 @@ import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
+import sg.mesha.goatos.push.PushTokenSync
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BootstrapViewModelAnalyticsTest {
@@ -47,7 +48,7 @@ class BootstrapViewModelAnalyticsTest {
             profile = BootstrapOperatorProfileDto(primaryRoleHint = "operator", primaryLocation = "Park A"),
         )
 
-        BootstrapViewModel(repo, analytics, context)
+        BootstrapViewModel(repo, analytics, context, PushTokenSync {})
         advanceUntilIdle()
 
         val loaded = analytics.events.single { it.name == AnalyticsEvents.BOOTSTRAP_LOADED }
@@ -69,7 +70,7 @@ class BootstrapViewModelAnalyticsTest {
             profile = null,
         )
 
-        BootstrapViewModel(repo, analytics, context)
+        BootstrapViewModel(repo, analytics, context, PushTokenSync {})
         advanceUntilIdle()
 
         val loaded = analytics.events.single { it.name == AnalyticsEvents.BOOTSTRAP_LOADED }
@@ -91,7 +92,7 @@ class BootstrapViewModelAnalyticsTest {
             profile = BootstrapOperatorProfileDto(primaryRoleHint = "   ", primaryLocation = ""),
         )
 
-        BootstrapViewModel(repo, analytics, context)
+        BootstrapViewModel(repo, analytics, context, PushTokenSync {})
         advanceUntilIdle()
 
         assertNull("blank role hint -> null identity", context.role)
@@ -106,7 +107,7 @@ class BootstrapViewModelAnalyticsTest {
             navState = NavState(NavChrome.EXPANDED, listOf()),
             profile = BootstrapOperatorProfileDto(primaryRoleHint = "operator", primaryLocation = "Park A"),
         )
-        val vm = BootstrapViewModel(repo, analytics, context)
+        val vm = BootstrapViewModel(repo, analytics, context, PushTokenSync {})
         advanceUntilIdle()
         check(vm.state.value is BootstrapUiState.Ready) { "precondition: vm should be Ready before reset" }
 

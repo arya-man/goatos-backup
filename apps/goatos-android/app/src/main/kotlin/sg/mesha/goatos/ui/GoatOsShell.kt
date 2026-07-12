@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +59,7 @@ import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.push.PushNavigationViewModel
 import sg.mesha.goatos.viewmodel.ProfileViewModel
 import sg.mesha.goatos.viewmodel.SyncStatusViewModel
 
@@ -76,6 +78,20 @@ data class DrawerProfile(val name: String, val role: String, val initials: Strin
 fun GoatOsShell(navState: NavState) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
+
+    // Cold-start / pre-auth notification-tap deep-link (docs: FCM push slice). A tap can arrive
+    // before this NavHost even exists (MainActivity writes into PendingNavigation as soon as the
+    // intent is read, well before sign-in + bootstrap resolve) — this is the first point a real
+    // NavHostController exists to consume it. Fires exactly once: PendingNavigation.consume()
+    // atomically nulls the held route, so a later recomposition of this same LaunchedEffect
+    // (e.g. a config change) never re-navigates to the same tap twice.
+    val pushNavVm: PushNavigationViewModel = hiltViewModel()
+    val pendingPushRoute by pushNavVm.pendingRoute.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingPushRoute) {
+        val route = pendingPushRoute ?: return@LaunchedEffect
+        navController.navigate(route) { launchSingleTop = true }
+        pushNavVm.consume()
+    }
 
     // Shell-level connectivity/outbox status. Feeds the passive offline banner (debounced) and
     // the on-demand sync sheet — both read the one live SyncRepository flow, no polling.

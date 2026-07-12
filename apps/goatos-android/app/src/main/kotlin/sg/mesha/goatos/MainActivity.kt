@@ -1,5 +1,6 @@
 package sg.mesha.goatos
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
@@ -40,6 +41,9 @@ import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.feature.auth.LoginScreen
+import sg.mesha.goatos.push.PendingNavigation
+import sg.mesha.goatos.push.PushExtras
+import sg.mesha.goatos.push.resolvePushRoute
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.ui.GoatOsShell
 import javax.inject.Inject
@@ -58,9 +62,15 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var sessionStore: SessionStore
 
+    /** Holds a notification-tap route until GoatOsShell's NavHost exists to consume it — see
+     *  [PendingNavigation]'s KDoc for why a tap can arrive before that NavHost is composed. */
+    @Inject
+    lateinit var pendingNavigation: PendingNavigation
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handlePushIntent(intent)
         setContent {
             GoatOsTheme {
                 // Restore the saved language once, and persist any picker change app-wide.
@@ -122,6 +132,34 @@ class MainActivity : ComponentActivity() {
             app.coldStartTrace?.stop()
             app.coldStartTrace = null
         }
+    }
+
+    /**
+     * A notification tap on an already-running Activity (`launchMode="singleTop"`, set in
+     * AndroidManifest) delivers here instead of creating a new Activity instance — without
+     * `singleTop` + this override, a second tap while the app is already open would either
+     * stack a duplicate Activity or silently drop the new intent's extras.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handlePushIntent(intent)
+    }
+
+    /**
+     * Reads a notification's routing extras (see [PushExtras.ROUTE_KEYS] — written by
+     * [sg.mesha.goatos.push.PushNotifications]'s tap `PendingIntent`, OR by the OS itself for a
+     * background/killed-app FCM auto-display tap) and resolves + stashes the target route in
+     * [PendingNavigation]. A no-op for any intent that isn't a push tap (e.g. the plain
+     * LAUNCHER intent) — [PushExtras.ROUTE_KEYS] all absent means nothing to route.
+     */
+    private fun handlePushIntent(intent: Intent?) {
+        val extras = intent?.extras ?: return
+        val payload = PushExtras.ROUTE_KEYS
+            .mapNotNull { key -> extras.getString(key)?.takeIf { it.isNotBlank() }?.let { key to it } }
+            .toMap()
+        if (payload.isEmpty()) return
+        pendingNavigation.set(resolvePushRoute(payload))
     }
 
     /**

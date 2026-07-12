@@ -61,6 +61,10 @@ dependencies {
     // OutboxDao directly (mirrors the GoatDatabase/BootstrapCacheDao pattern above), so
     // core-database's Room types must be on the consumer (:app) compile classpath.
     api(project(":core:core-database"))
+    // `api`: DefaultNotificationsPort (sg.mesha.goatos.core.data.push) implements
+    // core-notifications' NotificationsPort — a Hilt @Provides in :app returns that
+    // interface type, so it must be on the consumer compile classpath too.
+    api(project(":core:core-notifications"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     api(libs.androidx.room.runtime)

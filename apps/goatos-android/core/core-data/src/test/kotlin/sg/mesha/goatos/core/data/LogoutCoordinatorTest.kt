@@ -47,6 +47,7 @@ class LogoutCoordinatorTest {
         existingDeviceId: String? = "device-123",
         existingToken: String? = "existing-token",
         existingLanguage: String = "hi",
+        clearPushAndAnalyticsIdentity: () -> Unit = {},
     ): Fixture {
         val deviceStore = FakeDeviceStore().apply { existingDeviceId?.let { setDeviceId(it) } }
         val sessionStore = FakeSessionStore().apply {
@@ -63,6 +64,7 @@ class LogoutCoordinatorTest {
             screenCacheStore = ScreenCacheStore { screenCacheCleared = true },
             outboxWiper = OutboxWiper { outboxCleared = true },
             syncJobsCanceller = SyncJobsCanceller { jobsCancelled = true },
+            clearPushAndAnalyticsIdentity = clearPushAndAnalyticsIdentity,
         )
         return Fixture(
             coordinator = coordinator,
@@ -146,5 +148,28 @@ class LogoutCoordinatorTest {
         fixture.coordinator.logout(signOutVendorAuth = { steps += "vendor_sign_out" })
 
         assertEquals(listOf("deregister", "vendor_sign_out"), steps)
+    }
+
+    @Test
+    fun `push and analytics identity are cleared, after vendor auth signs out and before the local wipe`() = runTest {
+        val steps = mutableListOf<String>()
+        val fixture = buildFixture(clearPushAndAnalyticsIdentity = { steps += "clear_push_and_analytics" })
+
+        fixture.coordinator.logout(signOutVendorAuth = { steps += "vendor_sign_out" })
+
+        assertEquals(listOf("vendor_sign_out", "clear_push_and_analytics"), steps)
+    }
+
+    @Test
+    fun `a throwing clearPushAndAnalyticsIdentity callback never blocks the local wipe`() = runTest {
+        val fixture = buildFixture(clearPushAndAnalyticsIdentity = { error("FirebaseMessaging unavailable") })
+
+        fixture.coordinator.logout(signOutVendorAuth = {})
+
+        assertTrue("Room screen caches still wiped despite the callback throwing", fixture.screenCacheCleared())
+        assertTrue("outbox still wiped despite the callback throwing", fixture.outboxCleared())
+        assertTrue("sync jobs still cancelled despite the callback throwing", fixture.jobsCancelled())
+        assertNull("session token still cleared despite the callback throwing", fixture.sessionStore.currentToken())
+        assertNull("device id still cleared despite the callback throwing", fixture.deviceStore.deviceId())
     }
 }

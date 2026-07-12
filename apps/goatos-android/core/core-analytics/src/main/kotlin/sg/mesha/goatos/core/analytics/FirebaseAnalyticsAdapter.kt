@@ -43,6 +43,17 @@ class FirebaseAnalyticsAdapter(
         }
     }
 
+    /**
+     * Sets the durable PRINCIPAL identifier (the stable, non-PII workforce member id) on GA4.
+     * Also forwarded to Crashlytics so a crash report is attributable to the same operator —
+     * never a name/email/phone, matching the [setUserProperty] allowlist discipline above.
+     * `null` clears the identity on both (logout clean-slate; see `PushLogoutCleanup`).
+     */
+    override fun setUserId(id: String?) {
+        firebaseAnalytics.setUserId(id)
+        crashReporter.setCustomKey(USER_ID_CRASH_KEY, id.orEmpty())
+    }
+
     companion object {
         /**
          * Allowed user-property keys that are safe to forward to Crashlytics.
@@ -55,5 +66,8 @@ class FirebaseAnalyticsAdapter(
             AnalyticsEvents.UserProps.FLAVOR,
             AnalyticsEvents.UserProps.TENANT,
         )
+
+        /** Crashlytics custom key the workforce member id is stamped under (see [setUserId]). */
+        private const val USER_ID_CRASH_KEY = "member_id"
     }
 }

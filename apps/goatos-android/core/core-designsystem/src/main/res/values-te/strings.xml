@@ -61,6 +61,12 @@
     <string name="sync_notification_waiting_title">అప్‌లోడ్ ఆగింది</string>
     <string name="sync_notification_waiting_text">%1$d అంశాలు వేచి ఉన్నాయి — ఆన్‌లైన్ అయిన వెంటనే స్వయంచాలకంగా కొనసాగుతుంది.</string>
 
+    <string name="push_channel_vaccination_name">వ్యాక్సినేషన్ అలర్ట్‌లు</string>
+    <string name="push_channel_vaccination_description">వ్యాక్సినేషన్ డ్రైవ్‌ల కోసం ఆబ్లిగేషన్, ఎస్కలేషన్ మరియు పునఃషెడ్యూల్ అలర్ట్‌లు.</string>
+    <string name="push_channel_general_name">సాధారణ అలర్ట్‌లు</string>
+    <string name="push_channel_general_description">ఇతర మేష యాప్ నోటిఫికేషన్‌లు.</string>
+    <string name="push_default_title">మేష</string>
+
     <string name="scope_footer">స్కోప్ కింది డ్రైవ్‌లు మరియు బ్యాక్‌లాగ్‌ను కూడా ఫిల్టర్ చేస్తుంది</string>
     <string name="gaps_footer">వెబ్ డాష్‌బోర్డ్‌లో సరిచేయండి · Data Ops → Herd Register</string>
     <string name="gaps_empty">డేటా ఖాళీలు లేవు — అన్ని జంతువుల అవసర సమాచారం ఉంది.</string>

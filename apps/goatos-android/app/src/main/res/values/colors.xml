@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- FCM push notification accent color (AndroidManifest's
+         com.google.firebase.messaging.default_notification_color meta-data). Matches
+         MeshaColors.Brand (core-designsystem's Compose theme) — kept as a plain XML resource
+         here because a manifest meta-data android:resource reference needs a resource id, which
+         a Compose Color constant cannot provide. -->
+    <color name="push_notification_accent">#FF8AD457</color>
+</resources>

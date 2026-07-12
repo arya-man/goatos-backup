@@ -88,6 +88,7 @@ import sg.mesha.goatos.rfid.BtHidScanSource
 import sg.mesha.goatos.rfid.KeyboardWedgeRfidReader
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.ScanSource
+import sg.mesha.goatos.push.PushLogoutCleanup
 import sg.mesha.goatos.sync.AndroidForegroundSyncController
 import sg.mesha.goatos.sync.SyncWorkScheduler
 import javax.inject.Singleton
@@ -354,6 +355,7 @@ object AppModule {
         screenCacheStore: ScreenCacheStore,
         outboxWiper: OutboxWiper,
         syncJobsCanceller: SyncJobsCanceller,
+        pushLogoutCleanup: PushLogoutCleanup,
     ): LogoutCoordinator = LogoutCoordinator(
         api = api,
         deviceStore = deviceStore,
@@ -361,6 +363,7 @@ object AppModule {
         screenCacheStore = screenCacheStore,
         outboxWiper = outboxWiper,
         syncJobsCanceller = syncJobsCanceller,
+        clearPushAndAnalyticsIdentity = pushLogoutCleanup::clear,
     )
 
     @Provides

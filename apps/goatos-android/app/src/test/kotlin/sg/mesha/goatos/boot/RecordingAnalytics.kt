@@ -9,6 +9,8 @@ class RecordingAnalytics : AnalyticsPort {
 
     val events = mutableListOf<Event>()
     val userProps = linkedMapOf<String, String?>()
+    var userId: String? = null
+        private set
 
     override fun track(event: String, props: Map<String, String>) {
         events += Event(event, props)
@@ -16,6 +18,10 @@ class RecordingAnalytics : AnalyticsPort {
 
     override fun setUserProperty(name: String, value: String?) {
         userProps[name] = value
+    }
+
+    override fun setUserId(id: String?) {
+        userId = id
     }
 
     fun names(): List<String> = events.map { it.name }

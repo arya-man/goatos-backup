@@ -188,9 +188,14 @@ dependencies {
     baselineProfile(project(":benchmark"))
 
     // Firebase Auth + Credential Manager for stg/prod mobile SSO. Firebase options for
-    // stg are committed as generated-equivalent string resources under src/stg/res.
+    // stg/dev are committed as generated-equivalent string resources under src/<flavor>/res
+    // (prod ships none yet). firebase-messaging (GoatOsMessagingService push delivery) and
+    // firebase-analytics (identity setUserId/setUserProperty) share the same BOM and the same
+    // manual-firebase.xml init pattern — no google-services plugin, see PushModule/AnalyticsModule.
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
+    implementation(libs.firebase.messaging)
+    implementation(libs.firebase.analytics)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)
