@@ -8,36 +8,97 @@ import (
 // Bootstrap copy is backend-owned presentation text for /app/bootstrap. Android renders
 // these values from the payload; Android strings.xml owns only client-static text.
 
-type navigationTemplate struct {
-	key      string
-	labelKey string
-	href     string
+// moduleNavContribution declares the nav items that a module contributes.
+// shared_key allows items to be deduped across modules (e.g., "calendar" is shared
+// by Vaccination, Feed Direction, and future modules).
+type moduleNavContribution struct {
+	key       string // e.g., "vaccination", "overview", "calendar"
+	labelKey  string // i18n key in bootstrapLabels
+	href      string
+	shared_key string // "" if not shared; if set, dedupe by this key across modules
+	priority  int    // lower = earlier in nav; shared items use the first module's priority
 }
 
-// leadershipNavigation is the fixed backend-owned mobile nav for a leadership
-// principal. The client adds a "You" tab locally; the backend owns exactly
-// these three so Overview/Overdue/Reschedule stay reachable.
-var leadershipNavigation = []navigationTemplate{
-	{key: "leadership", labelKey: "nav.leadership", href: "/leadership"},
-	{key: "calendar", labelKey: "nav.calendar", href: "/calendar"},
-	{key: "alerts", labelKey: "nav.alerts", href: "/alerts"},
+// moduleNavRegistry maps module IDs to their nav contributions.
+// Each module declares which nav items it owns or contributes to shared screens.
+// New modules should register here rather than hardcode nav templates.
+// This IS the source of truth for navigation composition; routes here are intentional
+// registry definitions, not hardcoded per-role templates.
+var moduleNavRegistry = map[string][]moduleNavContribution{ //nav-composition:ignore: this is the module registry, not a hardcoded per-role template
+	// "vaccination" is the Preventive Care (PC) Vaccination module.
+	"vaccination": {
+		{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1}, //nav-composition:ignore: registry entry
+		{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 10},
+		{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
+	},
+	// Leadership principals (overview/overdue management).
+	// This is a synthetic "module" representing the leadership nav state.
+	// When a person has >=1 leadership grant, they get overview + calendar + alerts
+	// (the shared cross-module nav) instead of the module-specific nav.
+	"leadership": {
+		{key: "leadership", labelKey: "nav.leadership", href: "/leadership", shared_key: "", priority: 0}, //nav-composition:ignore: registry entry
+		{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 10},
+		{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
+	},
 }
 
-// operatorNavigation is the fixed backend-owned mobile nav for a field operator:
-// Drives (the shed execution flow) first, then Calendar, then Alerts. The client
-// adds "You" locally and lands on Calendar.
-// There is no Overview/Home for operators — they execute, they don't oversee.
-var operatorNavigation = []navigationTemplate{
-	{key: "vaccination", labelKey: "nav.drives", href: "/vaccination"},
-	{key: "calendar", labelKey: "nav.calendar", href: "/calendar"},
-	{key: "alerts", labelKey: "nav.alerts", href: "/alerts"},
-}
-
+// visibleNavigationFor composes navigation from the person's granted modules.
+// If the person has any leadership grant, they see the leadership nav.
+// Otherwise, they see the union of their granted modules' nav contributions,
+// deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, localeTag string) []domain.BootstrapNavigationItem {
+	// Leadership principals get the fixed leadership nav (Overview + Calendar + Alerts)
 	if isLeadershipPrincipal(grants) {
-		return navigationFor(leadershipNavigation, localeTag)
+		return composeNavigationFromModules([]string{"leadership"}, localeTag)
 	}
-	return navigationFor(operatorNavigation, localeTag)
+
+	// Non-leadership operators get nav composed from their granted modules.
+	// For now, all non-leadership grants get "vaccination" module access.
+	// As more modules ship, this will be based on actual module grants
+	// from department_module_grants (when that table is populated).
+	grantedModules := []string{"vaccination"}
+
+	return composeNavigationFromModules(grantedModules, localeTag)
+}
+
+// composeNavigationFromModules unions nav items from the given modules,
+// deduping by shared_key and ordering by priority.
+func composeNavigationFromModules(modules []string, localeTag string) []domain.BootstrapNavigationItem {
+	// Collect all contributions, tracking which shared_key we've seen
+	collected := make([]moduleNavContribution, 0)
+	seenSharedKey := make(map[string]bool)
+	seenKey := make(map[string]bool)
+
+	for _, mod := range modules {
+		contributions := moduleNavRegistry[mod]
+		for _, contrib := range contributions {
+			if contrib.shared_key != "" {
+				// Shared item: keep the first module's version; skip duplicates
+				if !seenSharedKey[contrib.shared_key] {
+					seenSharedKey[contrib.shared_key] = true
+					collected = append(collected, contrib)
+				}
+			} else {
+				// Non-shared item: keep it once per key
+				if !seenKey[contrib.key] {
+					seenKey[contrib.key] = true
+					collected = append(collected, contrib)
+				}
+			}
+		}
+	}
+
+	// Convert to output in the same order (priority ordering happens within module registry)
+	out := make([]domain.BootstrapNavigationItem, 0, len(collected))
+	for _, item := range collected {
+		out = append(out, domain.BootstrapNavigationItem{
+			Key:   item.key,
+			Label: localizedBootstrapLabel(localeTag, item.labelKey),
+			Href:  item.href,
+		})
+	}
+
+	return out
 }
 
 func queuesFor(caps []domain.CapabilityAssignment, localeTag string) []domain.BootstrapTaskQueue {
@@ -51,18 +112,6 @@ func queuesFor(caps []domain.CapabilityAssignment, localeTag string) []domain.Bo
 		items = append(items, domain.BootstrapTaskQueue{Key: "proof_review", Label: localizedBootstrapLabel(localeTag, "queue.proof_review"), RequiredCapabilities: []string{"proof.verify"}})
 	}
 	return items
-}
-
-func navigationFor(items []navigationTemplate, localeTag string) []domain.BootstrapNavigationItem {
-	out := make([]domain.BootstrapNavigationItem, 0, len(items))
-	for _, item := range items {
-		out = append(out, domain.BootstrapNavigationItem{
-			Key:   item.key,
-			Label: localizedBootstrapLabel(localeTag, item.labelKey),
-			Href:  item.href,
-		})
-	}
-	return out
 }
 
 func localizedBootstrapLabel(localeTag, key string) string {
