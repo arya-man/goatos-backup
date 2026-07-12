@@ -436,6 +436,21 @@ Do:
   migrated). Full rule + the NetworkBoundResource pattern:
   `docs/decisions/android-offline-first.md`; refs the Android data-layer + offline-first
   architecture guides.
+- Treat every Android Room schema change as an installed-APK upgrade contract, never just a
+  fresh-install schema (hard rule — Claude, Codex, humans). Room builds a DB two ways: a fresh
+  install runs `createAllTables` (every @Entity), but an in-place upgrade runs ONLY the registered
+  `Migration` objects and then validates against the @Entity set — so an @Entity added to a
+  @Database with no migration to CREATE its table compiles, works on fresh installs, and CRASHES
+  every upgrade on open (`Migration didn't properly handle <table>`). This actually shipped
+  (roster_timetable_cache / roster_coverage_cache, MOB-007) and a plain in-memory Room test is
+  blind to it. Required: `exportSchema = true` + committed `schemas/<db>/<version>.json`; every
+  version bump ships its `Migration(N-1, N)` that creates exactly the new tables/columns/indices;
+  additive + non-destructive (no `fallbackToDestructiveMigration` — the outbox holds unsynced
+  operator writes, the cache is the offline SSOT); and BOTH a schema-equivalence `*MigrationTest`
+  AND an upgrade-crash `*UpgradeCrashTest` (seed an old-version file via a test-only old @Database,
+  reopen with current schema + real migrations, assert no crash + data preserved). Machine-blocked
+  by `make room-migration-guard` (`tools/agent-hooks/check-room-migration-safety.mjs`, diff-scoped,
+  in the CI `guardrails` job). Full rule: `docs/decisions/room-migration-safety.md`.
 - NEVER fetch more than one screen-page of rows on mobile/web (hard rule — Claude,
   Codex, humans). A phone viewport holds ~7-10 items; pulling 50/200/1000 rows to
   render is the mobile twin of compute-on-read. Machine-blocked by `make mobile-guard`

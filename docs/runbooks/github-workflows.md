@@ -333,6 +333,39 @@ overview parses events to draw its dots instead of consuming day-markers; or a
 list transform re-parses every event inside .find/.any (O(n^2)).
 ```
 
+### Step 4b-3: Room migration-safety guard
+
+Command:
+
+```text
+make room-migration-guard          # what CI runs (self-test + diff-scoped)
+make room-migration-guard-audit    # whole-tree audit of every @Database
+```
+
+Purpose:
+
+```text
+Block the Room-migration crash anti-pattern catalogued in
+docs/decisions/room-migration-safety.md — an @Entity added to an Android
+@Database with no migration to CREATE its table (the roster_timetable_cache /
+roster_coverage_cache defect). Fresh installs work via Room's createAllTables;
+every in-place upgrade of an already-installed APK crashes on open. Runs
+tools/agent-hooks/check-room-migration-safety.mjs.
+```
+
+It blocks `export-schema-off` (exportSchema must be `true` so migrations can be
+schema-validated), `missing-golden-schema` (a committed `schemas/<db>/<version>.json`
+must exist for the declared version), `version-bump-without-migration` (a `version`
+rise with no matching `Migration(N-1, N)`), and `entity-without-migration` (a table
+new in schema `vK+1` that `Migration(K, K+1)` does not `CREATE` — the roster defect).
+It is **diff-scoped** (a commit touching no Room DB/migration/schema passes instantly)
+and honors an inline `room-migration-guard:ignore: <reason>` on the `@Database`
+version/exportSchema line.
+
+If this fails, it usually means an `@Entity` was added to a `@Database` without a
+migration to create its table, `exportSchema` was left off, or a version bump forgot
+its migration. Add the migration + a `*MigrationTest` / `*UpgradeCrashTest`.
+
 ### Step 4b-2: Telemetry guardrail
 
 Command:

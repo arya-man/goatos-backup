@@ -57,6 +57,25 @@ The mobile UI must NOT gate visibility by role (`role ==`); render the backend-c
 nav/actions/disabled-reasons contract. Also blocks hardcoded disabled/blocked-reason
 literals in production screens (preview/sample sources excluded). Machine-blocked by `make mobile-contract-ownership-guard`.
 
+## Room migrations (machine: `make room-migration-guard`)
+An installed APK must survive every schema change. Room creates a DB two ways: a **fresh
+install** runs `createAllTables` (every `@Entity`); an **in-place upgrade** runs ONLY the
+registered `Migration`s, then validates against the `@Entity` set. So an `@Entity` added to a
+`@Database` with **no migration to CREATE its table** compiles, passes fresh-install tests, and
+**crashes every upgrade** on open (`Migration didn't properly handle <table>`). This shipped
+(`roster_timetable_cache`/`roster_coverage_cache`, MOB-007); a plain in-memory Room test is blind
+to it.
+- **`exportSchema = true`** + commit `schemas/<db>/<version>.json` (the golden schema).
+- **Every version bump ships its `Migration(N-1, N)`** creating exactly the new tables/columns/
+  indices. **Additive + non-destructive** — no `fallbackToDestructiveMigration` (outbox holds
+  unsynced writes; cache is the offline SSOT).
+- **Two tests, both Robolectric/`testDebugUnitTest`:** a schema-equivalence `*MigrationTest`
+  (migrate old → assert identical to fresh Room-created current) **and** an upgrade-crash
+  `*UpgradeCrashTest` (seed a real old-version file via a test-only old `@Database`, reopen with
+  current schema + real migrations, assert no crash + seeded rows survive).
+- Rulebook: `docs/decisions/room-migration-safety.md`. Justified exception →
+  `room-migration-guard:ignore: <reason>` on the `@Database` version/exportSchema line.
+
 ## Test integrity
 No committed `@Ignore`/`@Disabled`/commented-`// @Test`; no flaky wall-clock
 assertions; no fake-green — run `./gradlew … testStgDebugUnitTest --rerun-tasks`

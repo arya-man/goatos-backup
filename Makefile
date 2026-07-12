@@ -105,6 +105,7 @@ guardrails:
 	$(MAKE) config-validate-guard
 	$(MAKE) india-date-guard
 	$(MAKE) offline-first-guard
+	$(MAKE) room-migration-guard
 	$(MAKE) telemetry-guard
 	$(MAKE) local-gcp-kernel-parity-guard
 
@@ -251,6 +252,20 @@ android-bounded-memory-guard:
 
 android-bounded-memory-guard-audit:
 	node tools/agent-hooks/check-android-bounded-memory.mjs --all
+
+# room-migration-guard: block the Room-migration crash anti-pattern — an @Entity added to an
+# Android @Database with no migration to CREATE its table (the roster_timetable_cache /
+# roster_coverage_cache defect). Fresh installs work (Room's createAllTables); every in-place
+# upgrade of an already-installed APK crashes on open. Also enforces exportSchema=true + a committed
+# golden schema JSON per version, and that a version bump ships its Migration. Diff-scoped: a commit
+# touching no Room DB/migration/schema passes instantly. Runs its self-test first. See
+# docs/decisions/room-migration-safety.md.
+room-migration-guard:
+	node tools/agent-hooks/check-room-migration-safety.mjs --self-test
+	node tools/agent-hooks/check-room-migration-safety.mjs
+
+room-migration-guard-audit:
+	node tools/agent-hooks/check-room-migration-safety.mjs --all
 
 test:
 	@if [ -f backend/go.mod ]; then cd backend && go test ./...; fi

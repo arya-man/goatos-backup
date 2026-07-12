@@ -6,8 +6,9 @@ Architecture: `docs/mobile/README.md`. Offline-first law:
 `docs/decisions/android-offline-first.md`. Fetch/pagination law:
 `docs/decisions/mobile-data-fetch-anti-patterns.md` +
 `docs/decisions/mobile-fetch-fix-backlog.md`. Performance/memory:
-`docs/mobile/performance-and-memory.md`. Clean-architecture module rules:
-`apps/goatos-android/MODULE-MAP.md`.
+`docs/mobile/performance-and-memory.md`. Room migration-safety law:
+`docs/decisions/room-migration-safety.md` (machine: `make room-migration-guard`).
+Clean-architecture module rules: `apps/goatos-android/MODULE-MAP.md`.
 
 > **Verify-against-source, not memory.** File paths, DAO/DTO names, screen names,
 > and the exact guard offender list below are anchors that drift. Confirm each

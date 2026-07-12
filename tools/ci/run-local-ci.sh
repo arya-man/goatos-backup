@@ -58,6 +58,7 @@ run_guardrails() {
   step "telemetry-guard"          make telemetry-guard
   step "admin-web-request-reads-guard" make admin-web-request-reads-guard
   step "android-bounded-memory-guard"  make android-bounded-memory-guard
+  step "room-migration-guard"     make room-migration-guard
   step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
   step "large-file guard"         node tools/ci/check-large-files.mjs
   step "go test ./..."            bash -c 'cd backend && go test ./...'
