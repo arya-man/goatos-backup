@@ -67,10 +67,6 @@ class CalendarViewModel @Inject constructor(
     private var selectedDayResource = Resource<CalendarEventListResponseDto>(data = null)
     private var historyResource = Resource<CalendarEventListResponseDto>(data = null)
 
-    private var selectedDayExtraItems: List<CalendarEventDto> = emptyList()
-    private var historyExtraItems: List<CalendarEventDto> = emptyList()
-    private var selectedDayNextCursor: String? = null
-    private var historyNextCursor: String? = null
     private var selectedDayLoadingMore = false
     private var historyLoadingMore = false
     private var refreshInFlight = false
@@ -88,10 +84,6 @@ class CalendarViewModel @Inject constructor(
 
     fun refresh() = viewModelScope.launch {
         refreshInFlight = true
-        selectedDayExtraItems = emptyList()
-        historyExtraItems = emptyList()
-        selectedDayNextCursor = null
-        historyNextCursor = null
         selectedDayLoadingMore = false
         historyLoadingMore = false
         rebuildState()
@@ -187,10 +179,8 @@ class CalendarViewModel @Inject constructor(
                 dateTo = historyRange.dateTo,
                 limit = CALENDAR_PAGE_SIZE,
             ).collectLatest { resource ->
+                // MOB-004: the observed Room row already carries every appended page.
                 historyResource = resource
-                if (historyExtraItems.isEmpty()) {
-                    historyNextCursor = resource.data?.nextCursor
-                }
                 rebuildState()
             }
         }
@@ -204,10 +194,8 @@ class CalendarViewModel @Inject constructor(
                 dateTo = selectedDay.toString(),
                 limit = CALENDAR_PAGE_SIZE,
             ).collectLatest { resource ->
+                // MOB-004: the observed Room row already carries every appended page.
                 selectedDayResource = resource
-                if (selectedDayExtraItems.isEmpty()) {
-                    selectedDayNextCursor = resource.data?.nextCursor
-                }
                 rebuildState()
             }
         }
@@ -217,8 +205,6 @@ class CalendarViewModel @Inject constructor(
         val date = runCatching { LocalDate.parse(dateKey) }.getOrNull() ?: return
         if (date == selectedDay) return
         selectedDay = date
-        selectedDayExtraItems = emptyList()
-        selectedDayNextCursor = null
         selectedDayLoadingMore = false
         observeSelectedDay()
         rebuildState()
@@ -234,46 +220,34 @@ class CalendarViewModel @Inject constructor(
     }
 
     private fun loadMoreSelectedDay() = viewModelScope.launch {
-        val cursor = selectedDayNextCursor ?: return@launch
+        val cursor = selectedDayResource.data?.nextCursor ?: return@launch
         selectedDayLoadingMore = true
         rebuildState()
-        runCatching {
-            repo.events(
-                dateFrom = selectedDay.toString(),
-                dateTo = selectedDay.toString(),
-                cursor = cursor,
-                limit = CALENDAR_PAGE_SIZE,
-            )
-        }.onSuccess { page ->
-            selectedDayExtraItems = appendUniqueByEventId(selectedDayExtraItems, page.items)
-            selectedDayNextCursor = page.nextCursor
-            offline = false
-        }.onFailure {
-            offline = true
-        }
+        // MOB-004: append the next page INTO Room; the observed flow re-emits the merged window.
+        val result = repo.appendEvents(
+            cursor = cursor,
+            dateFrom = selectedDay.toString(),
+            dateTo = selectedDay.toString(),
+            limit = CALENDAR_PAGE_SIZE,
+        )
+        offline = result.isFailure
         selectedDayLoadingMore = false
         rebuildState()
     }
 
     private fun loadMoreHistory() = viewModelScope.launch {
-        val cursor = historyNextCursor ?: return@launch
+        val cursor = historyResource.data?.nextCursor ?: return@launch
         historyLoadingMore = true
         rebuildState()
-        runCatching {
-            repo.events(
-                status = COMPLETED_STATUS,
-                dateFrom = historyRange.dateFrom,
-                dateTo = historyRange.dateTo,
-                cursor = cursor,
-                limit = CALENDAR_PAGE_SIZE,
-            )
-        }.onSuccess { page ->
-            historyExtraItems = appendUniqueByEventId(historyExtraItems, page.items)
-            historyNextCursor = page.nextCursor
-            offline = false
-        }.onFailure {
-            offline = true
-        }
+        // MOB-004: append the next page INTO Room; the observed flow re-emits the merged window.
+        val result = repo.appendEvents(
+            cursor = cursor,
+            status = COMPLETED_STATUS,
+            dateFrom = historyRange.dateFrom,
+            dateTo = historyRange.dateTo,
+            limit = CALENDAR_PAGE_SIZE,
+        )
+        offline = result.isFailure
         historyLoadingMore = false
         rebuildState()
     }
@@ -284,9 +258,11 @@ class CalendarViewModel @Inject constructor(
         val segments = buildSegments(presentation, base)
         val selectedSegment = resolveSelectedSegment(segments, presentation, base)
         selectedSegmentId = selectedSegment
-        val dayItems = appendUniqueByEventId(selectedDayResource.data?.items.orEmpty(), selectedDayExtraItems)
+        // MOB-004: items come straight from the observed Room row, which already holds every
+        // appended page (bounded keyset window) — no ViewModel-side accumulation.
+        val dayItems = selectedDayResource.data?.items.orEmpty()
             .sortedBy { it.dueAt }
-        val historyItems = appendUniqueByEventId(historyResource.data?.items.orEmpty(), historyExtraItems)
+        val historyItems = historyResource.data?.items.orEmpty()
             .filter { it.status == COMPLETED_STATUS }
             .sortedByDescending { it.dueAt }
         val state = base.copy(
@@ -311,7 +287,7 @@ class CalendarViewModel @Inject constructor(
             weekDays = buildWeekDays(weekOverviewResource.data?.dateMarkers.orEmpty(), selectedDay, today),
             weekItems = dayItems.map { it.toCalendarItem() },
             weekEmptyLabel = presentation?.emptyState?.okMessage?.ifBlank { base.weekEmptyLabel } ?: base.weekEmptyLabel,
-            weekHasMore = selectedDayNextCursor != null,
+            weekHasMore = selectedDayResource.data?.nextCursor != null,
             weekLoadingMore = selectedDayLoadingMore,
             monthLabel = monthLabel(today),
             monthWeekdayLabels = listOf("S", "M", "T", "W", "T", "F", "S"),
@@ -330,7 +306,7 @@ class CalendarViewModel @Inject constructor(
                 )
             },
             historyEmptyLabel = presentation?.emptyState?.okMessage?.ifBlank { base.historyEmptyLabel } ?: base.historyEmptyLabel,
-            historyHasMore = historyNextCursor != null,
+            historyHasMore = historyResource.data?.nextCursor != null,
             historyLoadingMore = historyLoadingMore,
         )
         _state.value = state
@@ -527,9 +503,3 @@ internal fun calendarTimeLabel(dueAt: String): String =
 
 internal fun calendarDayTitle(date: LocalDate): String =
     "${date.dayOfMonth} ${date.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)}"
-
-internal fun appendUniqueByEventId(
-    existing: List<CalendarEventDto>,
-    incoming: List<CalendarEventDto>,
-): List<CalendarEventDto> =
-    (existing + incoming).associateBy { it.eventId }.values.toList()

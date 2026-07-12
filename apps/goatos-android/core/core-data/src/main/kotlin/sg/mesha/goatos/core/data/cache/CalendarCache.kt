@@ -21,6 +21,9 @@ interface CalendarCacheDao : JsonBlobCacheDao<CalendarCacheEntity> {
     @Query("SELECT * FROM calendar_cache WHERE cacheKey = :cacheKey")
     override fun observe(cacheKey: String): Flow<CalendarCacheEntity?>
 
+    @Query("SELECT * FROM calendar_cache WHERE cacheKey = :cacheKey")
+    suspend fun get(cacheKey: String): CalendarCacheEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     override suspend fun upsert(entity: CalendarCacheEntity)
 
