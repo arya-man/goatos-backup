@@ -23,63 +23,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ripgrep
           rg --version
-      - name: Agent guardrails
-        run: |
-          make ai-doctor
-          bash tools/agent-hooks/check-boundaries.sh
-          bash tools/agent-hooks/check-contract-drift.sh
-          bash tools/agent-hooks/check-e2e-kernel-integrity.sh
-          make api-latency-policy-test
-      - name: Scale anti-pattern guard
-        run: |
-          make scale-guard
-          cd tools/scale-guard && go test ./...
-      - name: Clinical defer-state medical-safety guard
-        # Blocks the C35-010 anti-pattern: a partial clinical defer_states list in
-        # production code/seeds (sick/under_treatment/quarantine/icu are mandatory
-        # safety blocks). Runs its adversarial self-test, then a whole-tree scan.
-        run: make clinical-defer-guard
-      - name: Mobile list-fetch anti-pattern guard
-        # Diff-scoped: only scans mobile .kt changed vs the base, so a commit with no mobile
-        # code passes instantly. See docs/decisions/mobile-data-fetch-anti-patterns.md.
-        env:
-          MOBILE_GUARD_BASE: origin/${{ github.base_ref || 'main' }}
-        run: make mobile-guard
-      - name: Large file guard
-        run: |
-          found="$(
-            while IFS= read -r -d '' file; do
-              [ -f "$file" ] || continue
-              case "$(basename "$file")" in
-                package-lock.json|pnpm-lock.yaml) continue ;;
-              esac
-              if [ "$(wc -c <"$file")" -gt 5242880 ]; then
-                printf './%s\n' "$file"
-              fi
-            done < <(git ls-files -z)
-          )"
-          if [ -n "$found" ]; then
-            echo "$found"
-            echo "Files above 5MB need an explicit storage decision."
-            exit 1
-          fi
-      - name: Go tests
-        run: |
-          if [ -f backend/go.mod ]; then
-            cd backend
-            go test ./...
-          fi
       - name: Install pinned sqlc
         run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@"$(cat tools/sqlc/sqlc.version)"
           "$(go env GOPATH)/bin/sqlc" version
-      - name: SQL and migration validation
-        run: |
-          make sqlc-check
-          make validate-sqlc-plans
-          make validate-migrations
-          git diff --check
+      - name: Required guardrails — same runner used locally
+        env:
+          MOBILE_GUARD_BASE: origin/${{ github.base_ref || 'main' }}
+        run: make ci-local JOB=guardrails
 
   admin-web:
     runs-on: ubuntu-latest
@@ -90,17 +42,5 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: apps/admin-web/package-lock.json
-      - name: Install admin-web dependencies
-        run: npm --prefix apps/admin-web ci
-      - name: Admin-web lint
-        run: npm --prefix apps/admin-web run lint
-      - name: Admin-web typecheck
-        run: npm --prefix apps/admin-web run typecheck
-      - name: Admin-web mock fidelity
-        run: npm --prefix apps/admin-web run check:mock-fidelity
-      - name: Admin-web action center request plan
-        run: npm --prefix apps/admin-web run check:action-center-request-plan
-      - name: Admin-web build and token leak guard
-        env:
-          GOATOS_BEARER_TOKEN: sentinel-mesha-admin-token
-        run: npm --prefix apps/admin-web run build
+      - name: Required admin-web gates — same runner used locally
+        run: make ci-local JOB=admin-web

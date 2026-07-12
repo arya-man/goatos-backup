@@ -1,5 +1,9 @@
 # GitHub Workflows
 
+When hosted Actions cannot allocate jobs because of billing/platform state,
+follow [Local CI Mirror](local-ci.md). The hosted workflows call the same
+`make ci-local JOB=...` implementation, so local proof is command-identical.
+
 This runbook explains the GitHub Actions workflows for project and engineering
 review.
 

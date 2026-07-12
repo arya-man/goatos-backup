@@ -39,12 +39,15 @@ step() { # name, command...
 }
 
 run_guardrails() {
+  step "agent: ai-doctor"          make ai-doctor
   step "agent: boundaries"        bash tools/agent-hooks/check-boundaries.sh
   step "agent: contract-drift"    bash tools/agent-hooks/check-contract-drift.sh
   step "agent: e2e-kernel-integrity" bash tools/agent-hooks/check-e2e-kernel-integrity.sh
+  step "agent: api-latency-policy" make api-latency-policy-test
   step "scale-guard"              make scale-guard
   step "scale-guard self-test"    bash -c 'cd tools/scale-guard && go test ./...'
   step "clinical-defer-guard"     make clinical-defer-guard
+  step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "mobile-guard"             make mobile-guard
   step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
   step "large-file guard"         node tools/ci/check-large-files.mjs
@@ -63,14 +66,16 @@ run_admin_web() {
   step "admin-web typecheck"     npm --prefix apps/admin-web run typecheck
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan
+  step "admin-web production build + token leak" env GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build
 }
 
 run_android() {
-  if [ "${SKIP_ANDROID:-0}" = "1" ]; then RESULTS+=("SKIP  android (SKIP_ANDROID=1)"); return; fi
   local jdk="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21}"
   local sdk="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
   if [ ! -x "$jdk/bin/java" ] || [ ! -d "$sdk" ]; then
-    RESULTS+=("SKIP  android (no JDK/SDK: jdk=$jdk sdk=$sdk)"); return
+    RESULTS+=("FAIL  android toolchain (no JDK/SDK: jdk=$jdk sdk=$sdk)")
+    fail=1
+    return
   fi
   export JAVA_HOME="$jdk" ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk"
   [ -f apps/goatos-android/local.properties ] || echo "sdk.dir=$sdk" > apps/goatos-android/local.properties

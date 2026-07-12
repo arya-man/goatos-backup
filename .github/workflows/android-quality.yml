@@ -39,5 +39,4 @@ jobs:
           java-version: "21"
       - uses: android-actions/setup-android@v3
       - name: Compile + unit test (:app stg release)
-        working-directory: apps/goatos-android
-        run: ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest --no-daemon --stacktrace
+        run: make ci-local JOB=android
