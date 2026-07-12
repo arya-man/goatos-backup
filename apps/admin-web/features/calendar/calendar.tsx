@@ -89,6 +89,7 @@ function EventRow({
             <div><div className="k">{copy(pageContract, "calendar.drive.sheds")}</div><div className="v">{event.shed_count}</div></div>
             <div><div className="k">{copy(pageContract, "calendar.drive.vaccines")}</div><div className="v">{event.vaccine_count}</div></div>
             <div><div className="k">{copy(pageContract, "calendar.drive.doses")}</div><div className="v">{event.target_count}</div></div>
+            <div><div className="k">{copy(pageContract, "calendar.drive.packets")}</div><div className="v">{event.drive_count}</div></div>
           </div>
         ) : null}
         {event.summary_tertiary ? <div className="em" style={{ marginTop: 7 }}>{event.summary_tertiary}</div> : null}
