@@ -14,6 +14,7 @@ import (
 // SOPTaskCreator is the slice of the SOP repo/service this bridge needs (satisfied by both).
 type SOPTaskCreator interface {
 	CreateTask(ctx context.Context, cmd sopports.CreateTaskCommand) (sopdomain.TaskSummary, error)
+	CreateTasksForBatches(ctx context.Context, tenantID, sopVersionID, actorID string, tasks []sopdomain.BatchTaskRequest) (map[string]string, error)
 }
 
 // Bridge adapts SOP CreateTask to the obligation sweeper's TaskCreator.
@@ -52,16 +53,30 @@ func (b *Bridge) CreateTaskForBatch(ctx context.Context, tenantID, batchID, sopV
 	return task.TaskID, nil
 }
 
-// CreateTasksForBatches exposes a page-level task creation boundary to the sweeper. SOP task
-// creation remains individually idempotent because each task carries its source batch id.
+// CreateTasksForBatches exposes a page-level task creation boundary to the sweeper using
+// a single batch SQL operation, avoiding N+1. SOP task creation remains individually idempotent
+// because each task carries its source batch id.
 func (b *Bridge) CreateTasksForBatches(ctx context.Context, tenantID string, batches []oblapp.BatchTaskCreate) (map[string]string, error) {
-	out := make(map[string]string, len(batches))
-	for _, batch := range batches {
-		taskID, err := b.CreateTaskForBatch(ctx, tenantID, batch.BatchID, batch.SOPVersionID, batch.TaskType, batch.Title, batch.ScopeType, batch.ScopeID)
-		if err != nil {
-			return nil, err
-		}
-		out[batch.BatchID] = taskID
+	if len(batches) == 0 {
+		return map[string]string{}, nil
 	}
-	return out, nil
+
+	// Convert obligation batches to SOP batch task requests for bulk create
+	tasks := make([]sopdomain.BatchTaskRequest, len(batches))
+	for i, batch := range batches {
+		tasks[i] = sopdomain.BatchTaskRequest{
+			BatchID:   batch.BatchID,
+			TaskType:  batch.TaskType,
+			Title:     batch.Title,
+			ScopeType: batch.ScopeType,
+			ScopeID:   batch.ScopeID,
+		}
+	}
+
+	// Use bulk create for all tasks in one operation
+	result, err := b.sop.CreateTasksForBatches(ctx, tenantID, batches[0].SOPVersionID, b.actorID, tasks)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }

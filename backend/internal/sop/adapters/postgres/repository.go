@@ -373,6 +373,147 @@ LIMIT 1`), tenantID, batchID)
 	return tasks[0], true, nil
 }
 
+// CreateTasksForBatches creates multiple SOP tasks in a single batch transaction,
+// avoiding N+1 by using one INSERT ... SELECT query with UNNEST.
+// Returns a map of obligation_batch_id -> task_id.
+func (r *Repository) CreateTasksForBatches(ctx context.Context, tenantID, sopVersionID, actorID string, tasks []domain.BatchTaskRequest) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if len(tasks) == 0 {
+		return map[string]string{}, nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer rollback(ctx, tx)
+
+	// Check if version exists and is accessible
+	version, err := r.getVersionForTaskCreation(ctx, tx, tenantID, sopVersionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Prepare batch data for UNNEST
+	batchIDs := make([]string, len(tasks))
+	taskTypes := make([]string, len(tasks))
+	titles := make([]string, len(tasks))
+	scopes := make([]string, len(tasks))
+	scopeIDs := make([]string, len(tasks))
+	contextJSONs := make([]string, len(tasks))
+
+	for i, t := range tasks {
+		batchIDs[i] = t.BatchID
+		taskTypes[i] = t.TaskType
+		titles[i] = t.Title
+		scopes[i] = t.ScopeType
+		scopeIDs[i] = t.ScopeID
+		contextBytes, _ := json.Marshal(map[string]any{
+			"created_by":              "obligation-sweeper",
+			"obligation_batch_id":     t.BatchID,
+		})
+		contextJSONs[i] = string(contextBytes)
+	}
+
+	// Insert all tasks in one batch operation with conflict handling
+	rows, err := tx.Query(ctx, `
+INSERT INTO sop_tasks (
+  tenant_id, sop_id, sop_version_id, task_type, title, description,
+  state, scope_type, scope_id, priority, context, created_by
+)
+SELECT
+  $1::uuid,
+  $2::uuid,
+  $3::uuid,
+  t.task_type,
+  t.title,
+  '',
+  'queued',
+  t.scope_type,
+  t.scope_id::uuid,
+  'normal',
+  t.context::jsonb,
+  $4::uuid
+FROM UNNEST($5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[]) AS t(
+  batch_id, task_type, title, scope_type, scope_id, context
+)
+ON CONFLICT (tenant_id, context->'obligation_batch_id')
+DO NOTHING
+RETURNING task_id::text, context->'obligation_batch_id' as batch_id
+`,
+		tenantID,
+		version.SOPID,
+		sopVersionID,
+		actorID,
+		batchIDs,
+		taskTypes,
+		titles,
+		scopes,
+		scopeIDs,
+		contextJSONs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var taskID, batchID string
+		if err := rows.Scan(&taskID, &batchID); err != nil {
+			return nil, err
+		}
+		// Strip JSON quotes from batchID
+		batchID = strings.Trim(batchID, `"`)
+		result[batchID] = taskID
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Insert audit records for created tasks
+	for _, t := range tasks {
+		if taskID, ok := result[t.BatchID]; ok {
+			if err := insertAudit(ctx, tx, tenantID, actorID, "sop.task.create", "sop_task", taskID, map[string]any{"sop_version_id": sopVersionID}); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// getVersionForTaskCreation is a helper to resolve SOP version within a transaction
+func (r *Repository) getVersionForTaskCreation(ctx context.Context, tx pgx.Tx, tenantID, versionID string) (domain.SOPVersion, error) {
+	rows, err := tx.Query(ctx, `
+SELECT
+  sd.sop_id, sv.sop_version_id, sv.published_at, sv.retired_at, sv.status,
+  sv.major, sv.minor, sv.schema_version, sv.description, sv.published_by, sv.published_at
+FROM sop_definitions sd
+JOIN sop_versions sv ON sv.sop_id = sd.sop_id
+WHERE sd.tenant_id = $1::uuid
+  AND sv.sop_version_id = $2::uuid
+  AND sv.status = 'published'
+LIMIT 1`,
+		tenantID, versionID)
+	if err != nil {
+		return domain.SOPVersion{}, err
+	}
+	defer rows.Close()
+
+	versions, err := scanVersions(rows)
+	if err != nil {
+		return domain.SOPVersion{}, err
+	}
+	if len(versions) == 0 {
+		return domain.SOPVersion{}, ports.ErrNotFound
+	}
+	return versions[0], nil
+}
+
 func (r *Repository) AssignTask(ctx context.Context, cmd ports.AssignTaskCommand) (domain.TaskSummary, error) {
 	return r.updateTaskState(ctx, cmd.TenantID, cmd.ActorID, cmd.TaskID, cmd.Body.RowVersion, "assigned", &cmd.Body.AssignedTo, "sop.task.assign", map[string]any{"reason": cmd.Body.Reason})
 }

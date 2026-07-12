@@ -159,6 +159,15 @@ type CreateTaskRequest struct {
 	Context      map[string]any `json:"context"`
 }
 
+// BatchTaskRequest is one task creation request for bulk operations.
+type BatchTaskRequest struct {
+	BatchID   string
+	TaskType  string
+	Title     string
+	ScopeType string
+	ScopeID   string
+}
+
 type AssignTaskRequest struct {
 	AssignedTo string `json:"assigned_to"`
 	Reason     string `json:"reason"`

@@ -834,6 +834,13 @@ func (f *fakeRepo) ListTasks(context.Context, ports.ListTasksParams) ([]domain.T
 func (f *fakeRepo) CreateTask(context.Context, ports.CreateTaskCommand) (domain.TaskSummary, error) {
 	return f.task, nil
 }
+func (f *fakeRepo) CreateTasksForBatches(_ context.Context, _ string, _ string, _ string, tasks []domain.BatchTaskRequest) (map[string]string, error) {
+	result := make(map[string]string, len(tasks))
+	for _, t := range tasks {
+		result[t.BatchID] = "task-id-for-" + t.BatchID
+	}
+	return result, nil
+}
 func (f *fakeRepo) GetTask(context.Context, string, string) (domain.TaskSummary, *domain.SOPVersion, []domain.SubmissionSummary, error) {
 	return f.task, &f.version, f.submissions, nil
 }

@@ -221,6 +221,22 @@ func (s *Service) CreateTask(ctx context.Context, cmd ports.CreateTaskCommand, t
 	return &domain.TaskResponse{Task: task, TraceID: traceID}, nil
 }
 
+// CreateTasksForBatches creates multiple tasks in a single batch operation,
+// avoiding N+1 queries. Returns map of batch_id -> task_id.
+func (s *Service) CreateTasksForBatches(ctx context.Context, tenantID, sopVersionID, actorID string, tasks []domain.BatchTaskRequest) (map[string]string, error) {
+	if err := validateTenantAndActor(tenantID, actorID); err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 {
+		return map[string]string{}, nil
+	}
+	result, err := s.repo.CreateTasksForBatches(ctx, tenantID, sopVersionID, actorID, tasks)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return result, nil
+}
+
 func (s *Service) GetTask(ctx context.Context, tenantID, taskID, traceID string) (*domain.TaskResponse, error) {
 	if err := validateTenantAndID(tenantID, taskID, "task_id"); err != nil {
 		return nil, err

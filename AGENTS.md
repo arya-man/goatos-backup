@@ -477,6 +477,18 @@ Do:
   (`vaccination_eligibility_rollups` usable flag,
   `ListRecoverableDeferredVaccinationGoatIDs`) must stay in sync with it. Mechanical
   backstop: `make clinical-defer-guard` (required in CI).
+- CI availability is never a closure blocker (Claude AND Codex). A GitHub Actions
+  billing/spending/platform failure — the synthetic `BuildFailed` /
+  `(Unknown event)` / zero-job `startup_failure` runs — must NOT be recorded as
+  an external blocker or used to defer a fix. When remote GitHub Actions cannot
+  execute, run the SAME required CI gates LOCALLY via `make ci-local` (which
+  mirrors `.github/workflows/ci.yml` job-for-job: agent guardrails, scale-guard +
+  self-test, clinical-defer-guard, mobile-guard, `go test ./...`, sqlc/migration
+  validation, admin-web lint/typecheck/mock-fidelity, and the Android
+  compile/unit gate when a device/JDK is present) and treat a green `make
+  ci-local` on the exact pushed SHA as the authoritative gate. Record the
+  `make ci-local` SHA + result as the current-SHA proof. Restoring org Actions
+  billing stays a separate maintainer task, tracked but never blocking closure.
 - Treat Goat OS time semantics as India-business-calendar semantics. Physical
   storage may use `timestamptz`/absolute instants, but every business meaning
   derived from those instants — scheduling, due/missed buckets, reminder keys,

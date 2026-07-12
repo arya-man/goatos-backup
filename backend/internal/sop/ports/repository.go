@@ -149,6 +149,7 @@ type Repository interface {
 	RetireVersion(ctx context.Context, cmd VersionCommand) (domain.SOPVersion, error)
 	ListTasks(ctx context.Context, params ListTasksParams) ([]domain.TaskSummary, error)
 	CreateTask(ctx context.Context, cmd CreateTaskCommand) (domain.TaskSummary, error)
+	CreateTasksForBatches(ctx context.Context, tenantID, sopVersionID, actorID string, tasks []domain.BatchTaskRequest) (map[string]string, error)
 	GetTask(ctx context.Context, tenantID, taskID string) (domain.TaskSummary, *domain.SOPVersion, []domain.SubmissionSummary, error)
 	AssignTask(ctx context.Context, cmd AssignTaskCommand) (domain.TaskSummary, error)
 	ReviewTask(ctx context.Context, cmd ReviewTaskCommand) (domain.TaskSummary, error)

@@ -23,11 +23,29 @@ import (
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/taskqueue"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
 	sopports "github.com/vgoats/goatos/backend/internal/sop/ports"
 )
+
+// sopServiceAdapter wraps the SOP service to match sopbridge.SOPTaskCreator interface
+type sopServiceAdapter struct {
+	service *sopapp.Service
+}
+
+func (a *sopServiceAdapter) CreateTask(ctx context.Context, cmd sopports.CreateTaskCommand) (sopdomain.TaskSummary, error) {
+	resp, err := a.service.CreateTask(ctx, cmd, "obligation-sweeper")
+	if err != nil {
+		return sopdomain.TaskSummary{}, err
+	}
+	return resp.Task, nil
+}
+
+func (a *sopServiceAdapter) CreateTasksForBatches(ctx context.Context, tenantID, sopVersionID, actorID string, tasks []sopdomain.BatchTaskRequest) (map[string]string, error) {
+	return a.service.CreateTasksForBatches(ctx, tenantID, sopVersionID, actorID, tasks)
+}
 
 type config struct {
 	TenantID      string
@@ -87,10 +105,9 @@ func run(args []string) error {
 	}
 	var creator obligationapp.TaskCreator
 	if cfg.ActorID != "" {
-		creator = sopTaskCreator{
-			service: sopapp.NewService(soppg.NewRepository(pool, pgCfg.QueryTimeout)),
-			actorID: cfg.ActorID,
-		}
+		sopService := sopapp.NewService(soppg.NewRepository(pool, pgCfg.QueryTimeout))
+		adapter := &sopServiceAdapter{service: sopService}
+		creator = sopbridge.New(adapter, cfg.ActorID)
 	}
 	sweeper := obligationapp.NewSweeperService(obligationRepo, creator, reserver)
 	versionIDs := []string{cfg.VersionID}
@@ -327,44 +344,12 @@ func parseFlags(args []string) (config, error) {
 	if cfg.Level1After < 0 || cfg.Level2After < cfg.Level1After || cfg.Level3After < cfg.Level2After || cfg.Level4After < cfg.Level3After {
 		return config{}, errors.New("SLA thresholds must be non-negative and increasing")
 	}
+	// Validate that actor-id is provided when task/stock finalization is enabled
+	needsFinalization := strings.TrimSpace(cfg.SOPVersionID) != "" || strings.TrimSpace(cfg.VaccineItemID) != ""
+	if needsFinalization && strings.TrimSpace(cfg.ActorID) == "" {
+		return config{}, errors.New("actor-id is required when sop-version-id or vaccine-item-id is configured")
+	}
 	return cfg, nil
-}
-
-type sopTaskCreator struct {
-	service *sopapp.Service
-	actorID string
-}
-
-func (c sopTaskCreator) CreateTaskForBatch(ctx context.Context, tenantID, batchID, sopVersionID, taskType, title, scopeType, scopeID string) (string, error) {
-	resp, err := c.service.CreateTask(ctx, sopports.CreateTaskCommand{
-		TenantID: tenantID,
-		ActorID:  c.actorID,
-		Body: sopdomain.CreateTaskRequest{
-			SOPVersionID: &sopVersionID,
-			TaskType:     taskType,
-			Title:        title,
-			ScopeType:    scopeType,
-			ScopeID:      scopeID,
-			Priority:     "normal",
-			Context:      map[string]any{"created_by": "obligation-sweeper", "obligation_batch_id": batchID},
-		},
-	}, "obligation-sweeper")
-	if err != nil {
-		return "", err
-	}
-	return resp.Task.TaskID, nil
-}
-
-func (c sopTaskCreator) CreateTasksForBatches(ctx context.Context, tenantID string, batches []obligationapp.BatchTaskCreate) (map[string]string, error) {
-	out := make(map[string]string, len(batches))
-	for _, batch := range batches {
-		taskID, err := c.CreateTaskForBatch(ctx, tenantID, batch.BatchID, batch.SOPVersionID, batch.TaskType, batch.Title, batch.ScopeType, batch.ScopeID)
-		if err != nil {
-			return nil, err
-		}
-		out[batch.BatchID] = taskID
-	}
-	return out, nil
 }
 
 func enqueueNotificationDispatcher(ctx context.Context, tenantID, source string) error {

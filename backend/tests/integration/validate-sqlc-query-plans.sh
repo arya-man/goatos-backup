@@ -150,6 +150,33 @@ ORDER BY due_at ASC, obligation_id ASC
 LIMIT 200;"
 }
 
+validate_obligation_planned_batch_finalization_plan() {
+  explain_must_use_index "PlannedBatchFinalizationKeyset" 'Seq Scan on obligation_batches' "EXPLAIN (COSTS OFF)
+SELECT ob.batch_id::text,
+       COALESCE(MIN(oi.rule_id::text), '')::text AS rule_id,
+       ob.scope_type,
+       ob.scope_id::text,
+       ob.created_at,
+       COUNT(oi.obligation_id)::bigint AS attached_obligations
+FROM obligation_batches ob
+JOIN obligation_instances oi
+  ON oi.tenant_id = ob.tenant_id
+ AND oi.batch_id = ob.batch_id
+ AND oi.status IN ('scheduled', 'due', 'in_progress')
+WHERE ob.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND ob.protocol_version_id = '10000000-0000-4000-8000-000000000001'::uuid
+  AND ob.status = 'planned'
+  AND (
+    '2026-06-29T12:00:00+00'::timestamptz IS NULL
+    OR ob.created_at > '2026-06-29T12:00:00+00'::timestamptz
+    OR (ob.created_at = '2026-06-29T12:00:00+00'::timestamptz AND ob.batch_id > '10000000-0000-4000-8000-000000000001'::uuid)
+  )
+GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.planned_date, ob.estimated_targets, ob.sop_task_id, ob.context, ob.created_at
+HAVING COUNT(oi.obligation_id) > 0
+ORDER BY ob.created_at ASC, ob.batch_id ASC
+LIMIT 100;"
+}
+
 validate_kernel_sweeper_hot_path_plans() {
   explain_must_use_index "ObligationListUnbatchedDueForVersion" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
 SELECT oi.obligation_id::text AS obligation_id,
@@ -1143,6 +1170,7 @@ validate_auth_grant_lookup_plan
 validate_obligation_due_window_plan
 validate_obligation_scope_count_plan
 validate_obligation_open_by_goat_plan
+validate_obligation_planned_batch_finalization_plan
 validate_kernel_sweeper_hot_path_plans
 validate_inventory_fefo_plan
 validate_inventory_movements_ledger_plan
