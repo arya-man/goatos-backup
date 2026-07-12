@@ -17,4 +17,6 @@ android {
 dependencies {
     implementation(project(":core:core-model"))
     implementation(libs.kotlinx.coroutines.core)
+
+    testImplementation("junit:junit:4.13.2")
 }

@@ -7,7 +7,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsContext
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.BootstrapRepository
+import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavState
 import javax.inject.Inject
 
@@ -30,6 +34,8 @@ sealed interface BootstrapUiState {
 @HiltViewModel
 class BootstrapViewModel @Inject constructor(
     private val repo: BootstrapRepository,
+    private val analytics: AnalyticsPort,
+    private val analyticsContext: AnalyticsContext,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<BootstrapUiState>(BootstrapUiState.Loading)
@@ -43,12 +49,36 @@ class BootstrapViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = BootstrapUiState.Loading
             runCatching { repo.loadNavState() }
-                .onSuccess { _state.value = BootstrapUiState.Ready(it) }
+                .onSuccess { navState ->
+                    _state.value = BootstrapUiState.Ready(navState)
+                    val chrome = if (navState.chrome == NavChrome.EXPANDED) "expanded" else "minimal"
+                    analytics.track(AnalyticsEvents.BOOTSTRAP_LOADED, mapOf(AnalyticsEvents.Params.CHROME to chrome))
+                    applyAnalyticsIdentity()
+                }
                 .onFailure {
                     _state.value = BootstrapUiState.Error(
                         "Couldn't load your workspace. Check your connection and try again.",
                     )
                 }
         }
+    }
+
+    /**
+     * Sets the analytics principal identity (role/park) from the just-resolved bootstrap: the
+     * [AnalyticsContext] the egress impl reads, plus the durable user properties. Best-effort — a
+     * profile read that fails (e.g. a leadership user with no operator profile) must never fail or
+     * block bootstrap, so it is wrapped and its absence just leaves identity un-narrowed.
+     */
+    private suspend fun applyAnalyticsIdentity() {
+        val profile = runCatching { repo.operatorProfile() }.getOrNull()
+        val role = profile?.primaryRoleHint?.ifBlank { null }
+        val park = profile?.primaryLocation?.ifBlank { null }
+
+        analyticsContext.role = role
+        analyticsContext.parkScope = park
+
+        analytics.setUserProperty(AnalyticsEvents.UserProps.ROLE, role)
+        analytics.setUserProperty(AnalyticsEvents.UserProps.PRIMARY_PARK, park)
+        analytics.setUserProperty(AnalyticsEvents.UserProps.FLAVOR, analyticsContext.flavor)
     }
 }

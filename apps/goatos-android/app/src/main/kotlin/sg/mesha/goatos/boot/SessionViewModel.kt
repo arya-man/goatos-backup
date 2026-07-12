@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.auth.AuthRepository
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.feature.auth.LoginError
 import java.io.IOException
@@ -64,6 +66,7 @@ internal data class LoginUiState(
 class SessionViewModel @Inject constructor(
     private val sessionStore: SessionStore,
     private val authRepository: AuthRepository,
+    private val analytics: AnalyticsPort,
 ) : ViewModel() {
 
     val isAuthed: StateFlow<Boolean> = sessionStore.bearerToken
@@ -76,6 +79,7 @@ class SessionViewModel @Inject constructor(
     private val authMode = authModeForFlavor(BuildConfig.FLAVOR)
 
     fun signInWithEmail(email: String, password: String) {
+        analytics.track(AnalyticsEvents.LOGIN_ATTEMPT, mapOf(AnalyticsEvents.Params.METHOD to "email"))
         if (authMode == AuthMode.DEV_BEARER) {
             signInWithDevToken()
             return
@@ -89,6 +93,7 @@ class SessionViewModel @Inject constructor(
     }
 
     fun signInWithGoogle(activityContext: Context) {
+        analytics.track(AnalyticsEvents.LOGIN_ATTEMPT, mapOf(AnalyticsEvents.Params.METHOD to "google"))
         if (authMode == AuthMode.DEV_BEARER) {
             signInWithDevToken()
             return
@@ -102,14 +107,20 @@ class SessionViewModel @Inject constructor(
     }
 
     fun sendPasswordReset(email: String) {
+        analytics.track(AnalyticsEvents.PASSWORD_RESET_REQUESTED)
         if (authMode == AuthMode.DEV_BEARER) {
+            // The local dev backend has no Firebase user store to reset a password against.
+            analytics.track(AnalyticsEvents.LOGIN_FAILURE, mapOf(AnalyticsEvents.Params.REASON to "no_dev_backend"))
             _uiState.update { it.copy(errorReason = LoginError.NO_DEV_BACKEND, errorDetail = null) }
             return
         }
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorReason = null, errorDetail = null, resetEmailSent = null) }
             authRepository.sendPasswordReset(email)
-                .onSuccess { _uiState.update { it.copy(isLoading = false, resetEmailSent = email) } }
+                .onSuccess {
+                    analytics.track(AnalyticsEvents.PASSWORD_RESET_SENT)
+                    _uiState.update { it.copy(isLoading = false, resetEmailSent = email) }
+                }
                 .onFailure { reportAuthFailure(it) }
         }
     }
@@ -118,6 +129,7 @@ class SessionViewModel @Inject constructor(
         viewModelScope.launch {
             authRepository.signOut()
             sessionStore.setBearerToken(null)
+            analytics.track(AnalyticsEvents.SIGN_OUT)
             _uiState.value = LoginUiState()
         }
     }
@@ -131,6 +143,7 @@ class SessionViewModel @Inject constructor(
     private suspend fun persistFirebaseSession() {
         val token = authRepository.currentIdToken()
         if (token.isNullOrBlank()) {
+            analytics.track(AnalyticsEvents.LOGIN_FAILURE, mapOf(AnalyticsEvents.Params.REASON to "no_token_issued"))
             _uiState.update {
                 it.copy(
                     isLoading = false,
@@ -141,6 +154,7 @@ class SessionViewModel @Inject constructor(
             return
         }
         sessionStore.setBearerToken(FIREBASE_SESSION_MARKER)
+        analytics.track(AnalyticsEvents.LOGIN_SUCCESS)
         _uiState.update { it.copy(isLoading = false, errorReason = null, errorDetail = null) }
     }
 
