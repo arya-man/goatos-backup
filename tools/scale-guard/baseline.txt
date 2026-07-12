@@ -11,7 +11,9 @@
 # (docs/decisions/scale-anti-patterns.md).
 
 # --- god-cte: compute-on-read / big CTE on a read or projector path ---
-god-cte backend/internal/vaccinationexecution/adapters/postgres/repository.go 1 # owner=vaccination-platform issue=C35-002 expires=2026-09-30 reason=live execution reads need the pending versioned projection
+# vaccinationexecution: FIXED (C35-002) — ShedSummary now reads the indexed vaccination_shed_projection_rows
+# read model exclusively; the compute-on-read god-CTE was removed from the request path (repository.go) and
+# only survives as the off-request projector query in shed_projection.go (scale-guard:ignore'd there).
 god-cte backend/internal/calendar/adapters/postgres/repository.go 1 # owner=calendar-platform issue=C35-020 expires=2026-09-30 reason=off-request bounded projector recompute; remove detector hit or split query
 
 # --- loop-no-cursor: infinite paging loop with no progress guard ---

@@ -69,6 +69,9 @@ func TestKernelStoryAF_CapacityBreachKeepsOverdueHeadline(t *testing.T) {
 	story.Step("Filter axes stay independent",
 		"Status filtering follows the merged headline, while capacity filtering follows the capacity "+
 			"machine state. This keeps overdue visible without losing the Needs review capacity queue.")
+	// C35-002: ShedSummary reads the vaccination-shed projection exclusively (no request-path
+	// compute-on-read). No fixture mutation happened since shedRow's RecomputeShedProjection(lateAsOf)
+	// above, so that same serving version already answers these three direct filter reads correctly.
 	overdueStatus := vaccexecdomain.ShedStatusOverdue
 	overdueRows, err := fx.VaccExec.ShedSummary(fx.Ctx, vaccexecdomain.ShedSummaryQuery{
 		TenantID: fxTenant, ShedID: ptrString(shedID), AsOf: lateAsOf, Status: &overdueStatus,

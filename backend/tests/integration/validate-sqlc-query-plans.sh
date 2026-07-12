@@ -1170,9 +1170,12 @@ ORDER BY park_id, farm_id, current_location_id, breed, sex, lifecycle_status;"
 }
 
 validate_vaccination_shed_projection_plan() {
-  # C35-002 (vaccinationexecution half): RecomputeShedProjection is off the request path today, but
-  # the serving-lookup shape it is landed for (tenant + projection_version, default park/shed order,
-  # and the status filter) must already be indexed before that read is ever wired up.
+  # C35-002 (vaccinationexecution half, LANDED): GET /vaccination/sheds (ShedSummary,
+  # repository.go's shedSummaryProjectedSQL) now serves exclusively from this indexed
+  # tenant + projection_version lookup -- the compute-on-read god-CTE was removed from the request
+  # path. These plans prove the exact production read shapes (default park/shed order, the
+  # status/capacity filters, and the CASE-based default status sort) stay index-backed, never a
+  # sequential scan.
   explain_must_use_index "VaccinationShedProjectionServingHot" 'Seq Scan on vaccination_shed_projection_rows' "EXPLAIN (COSTS OFF)
 SELECT shed_id, shed_status, capacity_status
 FROM vaccination_shed_projection_rows
@@ -1187,6 +1190,42 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND projection_version = 1
   AND shed_status = 'overdue'
 ORDER BY park_name ASC, shed_name ASC;"
+
+  explain_must_use_index "VaccinationShedProjectionCapacityFilter" 'Seq Scan on vaccination_shed_projection_rows' "EXPLAIN (COSTS OFF)
+SELECT shed_id
+FROM vaccination_shed_projection_rows
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version = 1
+  AND capacity_status = 'capacity_breach'
+ORDER BY park_name ASC, shed_name ASC;"
+
+  # Production ShedSummary request shape: the default status-priority sort plus the park/shed/search/
+  # status/capacity filter clauses (shedSummaryProjectedSQL). The predicate still starts from the
+  # indexed (tenant_id, projection_version) prefix, so the bounded per-tenant shed set is index-scanned
+  # before the small in-memory CASE sort -- never a table-wide sequential scan.
+  explain_must_use_index "VaccinationShedProjectionServingRequestShape" 'Seq Scan on vaccination_shed_projection_rows' "EXPLAIN (COSTS OFF)
+SELECT
+  park_id, park_name, shed_id, shed_name,
+  animals, due_animals, open_cells, sessions, capacity_status, shed_status,
+  last_done, next_due,
+  COUNT(*) OVER()::bigint AS total_count
+FROM vaccination_shed_projection_rows
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version = 1
+  AND (''::text = '' OR park_id = ''::text)
+  AND (''::text = '' OR shed_id = ''::text)
+  AND (''::text = '' OR shed_name ILIKE '%' || ''::text || '%' OR park_name ILIKE '%' || ''::text || '%')
+  AND (''::text = '' OR shed_status = ''::text)
+  AND (''::text = '' OR capacity_status = ''::text)
+ORDER BY
+  CASE shed_status
+    WHEN 'overdue' THEN 0
+    WHEN 'needs_review' THEN 1
+    WHEN 'split' THEN 2
+    WHEN 'due' THEN 3
+    WHEN 'scheduled' THEN 4
+    WHEN 'on_track' THEN 5 ELSE 6 END, park_name ASC, shed_name ASC
+LIMIT 50 OFFSET 0;"
 }
 
 docker run --rm --name "$container_name" \

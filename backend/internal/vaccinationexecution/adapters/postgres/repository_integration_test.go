@@ -1445,6 +1445,11 @@ func TestShedSummaryReadsSeededShed(t *testing.T) {
 	repo := NewRepository(pool, 0)
 
 	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	// C35-002: ShedSummary now reads the vaccination-shed projection exclusively, so the fixture must
+	// run the real projector (RecomputeShedProjection) before the request-path read can serve rows.
+	if _, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("RecomputeShedProjection: %v", err)
+	}
 	rows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
 		TenantID:  testTenant,
 		AsOf:      asOf,
@@ -1516,6 +1521,11 @@ ON CONFLICT (tenant_id) DO UPDATE
 	}
 
 	repo := NewRepository(pool, 0)
+	// C35-002: ShedSummary now reads the vaccination-shed projection exclusively, so the fixture must
+	// run the real projector (RecomputeShedProjection) before any of this test's request-path reads.
+	if _, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("RecomputeShedProjection: %v", err)
+	}
 	rows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
 		TenantID:  testTenant,
 		AsOf:      asOf,

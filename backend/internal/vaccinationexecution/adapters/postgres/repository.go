@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -1432,16 +1433,43 @@ func (r *Repository) CapacityConfig(ctx context.Context, tenantID string) (domai
 }
 
 // ShedSummary returns the shed-wise rollup with ANIMAL-LEVEL Due counts plus the session-split planner's
-// SQL-side outputs (Sessions, Capacity, merged Status computed from the tenant cap config so the capacity
-// and status filters page correctly), filtered + offset-paginated, each row carrying the window total.
-// Manager/Backup are attached later by the service.
+// outputs (Sessions, Capacity, merged Status), filtered + offset-paginated, each row carrying the window
+// total. Manager/Backup are attached later by the service.
+//
+// C35-002 request-path flip: this reads EXCLUSIVELY from the incrementally maintained
+// vaccination_shed_projection_rows read model (migration 000167) via an indexed tenant+
+// projection_version lookup (shedSummaryProjectedSQL) -- never the canonical compute-on-read god-CTE
+// that used to live here. RecomputeShedProjection (shed_projection.go) is the only writer, refreshed
+// off the request path by the vaccination-shed-projection-recompute job (mirrors
+// process-integrity-projection-recompute). When the tenant has no serving projection version yet, this
+// returns domain.ErrProjectionUnavailable instead of silently replaying the raw obligation/goat/
+// capacity-config history -- that fallback is the slowest possible path at 1-5M animals and is exactly
+// what C35-002 removes (mirrors processintegrity.ListRows / CountByWorkState, C35-002's other half).
+// q.AsOf/q.DueBefore are accepted for API compatibility but are NOT used to reconstruct historical
+// status here: the projection always serves its most recent successful recompute (effectively "now",
+// refreshed every few minutes), the same simplification processintegrity already made. A stale/future
+// as_of is clamped to server-now by the HTTP handler before it ever reaches this method (see
+// biztime.ParseLiveAsOfRFC3339), so live reads are unaffected; true point-in-time historical
+// reconstruction is out of scope for this rollup (obligation_status_events remains the audit trail).
 func (r *Repository) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
-	cfg, err := r.CapacityConfig(ctx, q.TenantID)
-	if err != nil {
-		return nil, err
-	}
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	servingVersion, ok := r.shedProjectionServingVersion(ctx, q.TenantID)
+	if !ok {
+		slog.Default().WarnContext(ctx,
+			"vaccination execution: shed read model projection unavailable; refusing canonical compute-on-read fallback",
+			"tenant_id", q.TenantID, "read_path", "shed_summary")
+		return nil, domain.ErrProjectionUnavailable
+	}
+	return r.shedSummaryProjected(ctx, q, servingVersion)
+}
+
+// shedSummaryProjected serves ShedSummary from the tenant's current serving vaccination-shed
+// projection version -- an indexed lookup (vaccination_shed_projection_rows_hot_idx /
+// _status_idx / _capacity_idx, all keyed on (tenant_id, projection_version, ...)), never a raw-table
+// scan or recompute. Sessions/Capacity/Status are already baked into the projection row by
+// RecomputeShedProjection, so unlike the old god-CTE this needs no capacity-config read.
+func (r *Repository) shedSummaryProjected(ctx context.Context, q domain.ShedSummaryQuery, servingVersion int64) ([]domain.ShedSummaryProjection, error) {
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 50
@@ -1453,14 +1481,6 @@ func (r *Repository) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery)
 	if offset < 0 {
 		offset = 0
 	}
-	asOf := q.AsOf
-	if asOf.IsZero() {
-		asOf = time.Now().In(biztime.DefaultLocation())
-	}
-	dueBefore := q.DueBefore
-	if dueBefore.IsZero() {
-		dueBefore = asOf.Add(defaultExecutionHorizon)
-	}
 	status := ""
 	if q.Status != nil {
 		status = string(*q.Status)
@@ -1469,10 +1489,10 @@ func (r *Repository) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery)
 	if q.Capacity != nil {
 		capacity = string(*q.Capacity)
 	}
-	query := strings.Replace(shedSummarySQL, "__ORDER_BY__", shedSummaryOrderBy(q.Sort), 1)
+	query := strings.Replace(shedSummaryProjectedSQL, "__ORDER_BY__", shedSummaryOrderBy(q.Sort), 1)
 	rows, err := r.pool.Query(ctx, query,
-		q.TenantID, asOf, dueBefore, optStr(q.ParkID), optStr(q.ShedID), optStr(q.Search),
-		status, capacity, cfg.MaxPerDay, cfg.MaxBufferDays, limit, offset)
+		q.TenantID, servingVersion, optStr(q.ParkID), optStr(q.ShedID), optStr(q.Search),
+		status, capacity, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: shed summary: %w", err)
 	}
@@ -1507,203 +1527,28 @@ func (r *Repository) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery)
 	return out, nil
 }
 
-// shedSummarySQL rolls the per-obligation as-of reconstruction up to ONE row per active shed with
-// ANIMAL-LEVEL counts (a goat needing three vaccines is one due animal, not three). It reuses the exact
-// completions/asof_terminal/raw/located/effective CTE chain the cohort×protocol operations query uses,
-// so the shed row and the vaccine breakdown agree on as-of status. `alive` is the base (all alive goats
-// in the shed, INCLUDING zero-obligation animals) so Animals is a true headcount and Done = Animals -
-// Due always holds. The shed-due predicate (see domain.go) lives in due_agg. Shed rows are bounded (a
-// tenant has at most a few hundred sheds), so COUNT(*) OVER() + LIMIT/OFFSET is scale-safe here; the
-// unbounded axis is the per-shed animal list, which is keyset-paginated separately (ShedAnimals). The
-// alive aggregate is tenant/lifecycle-scoped and index-backed (goats_tenant_lifecycle_shed_idx, mig 000154).
-// __ORDER_BY__ is substituted from a closed whitelist in Go.
-const shedSummarySQL = `
-WITH alive AS (
-  SELECT g.shed_id AS shed_uuid, COUNT(*)::bigint AS animals
-  FROM goats g
-  WHERE g.tenant_id = $1::uuid
-    AND g.lifecycle_status = 'alive'
-    AND g.merged_into_goat_id IS NULL
-    AND g.shed_id IS NOT NULL
-  GROUP BY g.shed_id
-),
-completions AS (
-  SELECT
-    obligation_id,
-    (ARRAY_AGG(asof_status ORDER BY
-      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
-      administered_at DESC,
-      created_at DESC))[1] AS effective_status,
-    MAX(administered_at) FILTER (WHERE asof_status = 'accepted') AS last_accepted_at
-  FROM (
-    SELECT
-      obligation_id, administered_at, created_at,
-      CASE
-        WHEN status IN ('accepted', 'rejected') AND verified_at IS NOT NULL AND verified_at > $2::timestamptz THEN 'recorded'
-        ELSE status
-      END AS asof_status
-    FROM vaccination_completions
-    WHERE tenant_id = $1::uuid
-      AND COALESCE(administered_at, created_at) <= $2::timestamptz
-  ) c
-  GROUP BY obligation_id
-),
-asof_terminal AS (
-  SELECT
-    obligation_id,
-    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
-       FILTER (WHERE occurred_at <= $2::timestamptz))[1] AS asof_terminal_type,
-    true AS has_terminal_event
-  FROM obligation_status_events
-  WHERE tenant_id = $1::uuid
-    AND event_type IN ('missed', 'waived', 'deferred')
-  GROUP BY obligation_id
-),
-raw AS (
-  SELECT
-    oi.obligation_id,
-    oi.due_at,
-    oi.window_start,
-    oi.completed_at,
-    oi.status AS stored_status,
-    te.asof_terminal_type,
-    te.has_terminal_event,
-    oi.target_id AS goat_id,
-    g.shed_id AS shed_uuid,
-    c.effective_status AS completion_status,
-    c.last_accepted_at
-  FROM obligation_instances oi
-  JOIN protocol_versions pv
-    ON pv.tenant_id = oi.tenant_id
-   AND pv.protocol_version_id = oi.protocol_version_id
-  JOIN protocol_definitions pd
-    ON pd.tenant_id = pv.tenant_id
-   AND pd.protocol_id = pv.protocol_id
-   AND pd.category = 'vaccination'
-  JOIN goats g
-    ON oi.target_type = 'goat'
-   AND g.tenant_id = oi.tenant_id
-   AND g.goat_id = oi.target_id
-   AND g.merged_into_goat_id IS NULL
-   AND g.lifecycle_status = 'alive'
-  LEFT JOIN completions c
-    ON c.obligation_id = oi.obligation_id
-  LEFT JOIN asof_terminal te
-    ON te.obligation_id = oi.obligation_id
-  WHERE oi.tenant_id = $1::uuid
-    AND oi.target_type = 'goat'
-    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
-    AND oi.due_at <= $3::timestamptz
-    AND g.shed_id IS NOT NULL
-),
-effective AS (
-  SELECT
-    raw.goat_id,
-    raw.shed_uuid,
-    raw.due_at,
-    raw.last_accepted_at,
-    raw.completion_status,
-    CASE
-      WHEN raw.stored_status = 'completed' THEN
-        CASE
-          WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $2::timestamptz THEN 'completed'
-          WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
-        END
-      WHEN raw.stored_status IN ('missed', 'waived', 'deferred') THEN
-        CASE
-          WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
-          WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
-          ELSE raw.stored_status
-        END
-      WHEN raw.stored_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
-    END AS eff_status
-  FROM raw
-),
-due_agg AS (
-  SELECT
-    effective.shed_uuid,
-    -- animal-level Due (distinct animals with any actionable/unfinished obligation)
-    COUNT(DISTINCT effective.goat_id) FILTER (
-      WHERE effective.eff_status IN ('overdue', 'due', 'in_progress')
-         OR effective.completion_status IN ('recorded', 'rejected')
-    )::bigint AS due_animals,
-    COUNT(DISTINCT effective.goat_id) FILTER (WHERE effective.eff_status = 'overdue')::bigint AS overdue_animals,
-    COUNT(DISTINCT effective.goat_id) FILTER (WHERE effective.eff_status = 'scheduled')::bigint AS scheduled_animals,
-    -- capacity is VACCINATION-level: count obligation CELLS that need administering (a goat needing FMD +
-    -- HS contributes 2), the session planner's input.
-    COUNT(*) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress'))::bigint AS open_cells,
-    MAX(effective.last_accepted_at) AS last_done,
-    MIN(effective.due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due
-  FROM effective
-  GROUP BY effective.shed_uuid
-),
-shed_rows AS (
-  SELECT
-    park.location_id::text AS park_id,
-    park.name AS park_name,
-    shed.location_id::text AS shed_id,
-    shed.name AS shed_name,
-    alive.animals,
-    COALESCE(due_agg.due_animals, 0) AS due_animals,
-    COALESCE(due_agg.overdue_animals, 0) AS overdue_animals,
-    COALESCE(due_agg.scheduled_animals, 0) AS scheduled_animals,
-    COALESCE(due_agg.open_cells, 0) AS open_cells,
-    due_agg.last_done,
-    due_agg.next_due
-  FROM alive
-  JOIN locations shed
-    ON shed.tenant_id = $1::uuid
-   AND shed.location_id = alive.shed_uuid
-   AND shed.location_type = 'shed'
-   AND shed.status = 'active'
-  JOIN locations park
-    ON park.tenant_id = $1::uuid
-   AND park.location_id = shed.parent_location_id
-   AND park.location_type = 'park'
-   AND park.status = 'active'
-  LEFT JOIN due_agg ON due_agg.shed_uuid = alive.shed_uuid
-),
--- Session-split planner, mirrored from app.PlanSessions. cap = $9 (max/day), buffer = $10 (max buffer
--- days). sessions = ceil(open cells / cap); allowed window = buffer + 1 days.
-scored AS (
-  SELECT
-    shed_rows.*,
-    CASE WHEN open_cells <= 0 THEN 0 ELSE CEIL(open_cells::numeric / GREATEST($9::numeric, 1))::int END AS sessions
-  FROM shed_rows
-),
-classified AS (
-  SELECT
-    scored.*,
-    CASE
-      WHEN sessions <= 1 THEN 'within_cap'
-      WHEN sessions <= ($10::int + 1) THEN 'over_cap'
-      ELSE 'capacity_breach'
-    END AS capacity_status,
-    CASE
-      WHEN overdue_animals > 0 THEN 'overdue'
-      WHEN sessions > ($10::int + 1) THEN 'needs_review'  -- capacity breach with no late animal
-      WHEN sessions > 1 THEN 'split'                       -- over cap, safely split
-      WHEN due_animals > 0 THEN 'due'
-      WHEN scheduled_animals > 0 THEN 'scheduled'
-      ELSE 'on_track'
-    END AS shed_status
-  FROM scored
-)
+// shedSummaryProjectedSQL is the C35-002 flipped read: an indexed (tenant_id, projection_version)
+// lookup into vaccination_shed_projection_rows, with the same park/shed/search/status/capacity filters
+// and sort/offset-pagination shape the old god-CTE served, but zero raw-table joins or aggregation --
+// every column here is precomputed by RecomputeShedProjection (shed_projection.go). Shed rows are
+// bounded (a tenant has at most a few hundred sheds), so COUNT(*) OVER() + LIMIT/OFFSET stays scale-safe.
+// __ORDER_BY__ is substituted from a closed whitelist in Go (shedSummaryOrderBy).
+const shedSummaryProjectedSQL = `
 SELECT
   park_id, park_name, shed_id, shed_name,
   animals, due_animals, open_cells, sessions, capacity_status, shed_status,
   last_done, next_due,
   COUNT(*) OVER()::bigint AS total_count
-FROM classified
-WHERE ($4::text = '' OR park_id = $4)
-  AND ($5::text = '' OR shed_id = $5)
-  AND ($6::text = '' OR shed_name ILIKE '%' || $6 || '%' OR park_name ILIKE '%' || $6 || '%')
-  AND ($7::text = '' OR shed_status = $7)
-  AND ($8::text = '' OR capacity_status = $8)
+FROM vaccination_shed_projection_rows
+WHERE tenant_id = $1::uuid
+  AND projection_version = $2::bigint
+  AND ($3::text = '' OR park_id = $3)
+  AND ($4::text = '' OR shed_id = $4)
+  AND ($5::text = '' OR shed_name ILIKE '%' || $5 || '%' OR park_name ILIKE '%' || $5 || '%')
+  AND ($6::text = '' OR shed_status = $6)
+  AND ($7::text = '' OR capacity_status = $7)
 ORDER BY __ORDER_BY__
-LIMIT $11 OFFSET $12;
+LIMIT $8 OFFSET $9;
 `
 
 // ShedAnimals returns the shed's alive animals (Display ID + the two tag identities + a lightweight

@@ -15,10 +15,11 @@ import (
 
 // This file is the projector half of C35-002 for vaccinationexecution: it builds and refreshes
 // vaccination_shed_projection_rows / vaccination_shed_projection_state (migration 000167) off the request
-// path. ShedSummary (repository.go) is UNCHANGED by this file and still serves GET /vaccination/sheds from
-// the live shedSummarySQL compute-on-read CTE -- flipping that read to this projection is an explicit,
-// separate follow-up once the scheduled recompute job (vaccination-shed-projection-recompute, run every 5
-// minutes, mirroring process-integrity-projection-recompute) has been populating it in each environment.
+// path. ShedSummary (repository.go) is now flipped to serve GET /vaccination/sheds exclusively from this
+// projection (an indexed tenant+projection_version lookup) -- the live compute-on-read god-CTE has been
+// removed from the request path. The scheduled recompute job (vaccination-shed-projection-recompute, run
+// every 5 minutes, mirroring process-integrity-projection-recompute) keeps this table fresh in each
+// environment; RecomputeShedProjection is the only writer.
 // See context/execution/vaccexec-readmodel-design.md for the full design + rollout plan.
 
 const (
@@ -27,11 +28,11 @@ const (
 )
 
 // RecomputeShedProjection rebuilds the tenant's vaccination_shed_projection_rows from the same canonical
-// obligation/goat/capacity-config tables shedSummarySQL reads, then atomically flips
-// vaccination_shed_projection_state.serving_projection_version to the new version inside the same
-// transaction as the row insert (version-swap, never a live whole-tenant delete+reinsert). This is a
-// projector method: it is allowed to replay raw source state exactly like shedSummarySQL because it runs
-// off the request path and publishes one indexed serving table.
+// obligation/goat/capacity-config tables the request path used to compute on read (before C35-002), then
+// atomically flips vaccination_shed_projection_state.serving_projection_version to the new version inside
+// the same transaction as the row insert (version-swap, never a live whole-tenant delete+reinsert). This
+// is a projector method: it is allowed to replay raw source state via vaccinationShedProjectionInsertSQL
+// below because it runs off the request path and publishes one indexed serving table.
 func (r *Repository) RecomputeShedProjection(ctx context.Context, req domain.ShedProjectionRecomputeRequest) (result domain.ShedProjectionRecomputeResult, retErr error) {
 	if strings.TrimSpace(req.TenantID) == "" {
 		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: tenant id is required")
@@ -248,9 +249,9 @@ WHERE rows.vaccination_shed_projection_row_id = doomed.vaccination_shed_projecti
 }
 
 // shedProjectionServingVersion returns the tenant's serving vaccination-shed projection version and
-// whether one exists. Not called by ShedSummary today (the request path is unchanged by this file); it
-// exists so the parity test and the future request-path flip have one shared "is the projection usable"
-// check, mirroring processintegrity's servingProjectionVersion.
+// whether one exists. Called by the flipped ShedSummary (repository.go) on every request to decide
+// between the indexed projection lookup and domain.ErrProjectionUnavailable, mirroring
+// processintegrity's servingProjectionVersion.
 func (r *Repository) shedProjectionServingVersion(ctx context.Context, tenantID string) (int64, bool) {
 	var servingVersion int64
 	err := r.pool.QueryRow(ctx, `
@@ -268,14 +269,14 @@ WHERE tenant_id = $1::uuid
 	return servingVersion, servingVersion > 0
 }
 
-// vaccinationShedProjectionInsertSQL replays the exact same alive/completions/asof_terminal/raw/
-// effective/due_agg/shed_rows/scored/classified chain as shedSummarySQL (repository.go), with the
-// park/shed/search/status/capacity filters and LIMIT/OFFSET removed -- this is a full, unfiltered
-// per-tenant materialization, not a filtered page. Keeping the two chains textually independent (rather
-// than sharing a Go string fragment) mirrors how vaccinationExecutionSQL/vaccinationOperationsSQL already
-// duplicate similar CTE shapes in this package; it also means this file can never accidentally change
-// ShedSummary's live request-path behavior.
-// scale-guard:ignore: off-request projector recompute only (RecomputeShedProjection); ShedSummary's own request-path god-CTE stays the baselined C35-002 debt in repository.go until the explicit read flip.
+// vaccinationShedProjectionInsertSQL is the ONLY place in this codebase that still reconstructs shed
+// status from raw obligation/goat/capacity-config history via a big CTE chain (alive/completions/
+// asof_terminal/raw/effective/due_agg/shed_rows/scored/classified) -- and it is deliberately off the
+// request path: RecomputeShedProjection runs it on a schedule (or via the recompute CLI/Cloud Run Job)
+// to materialize vaccination_shed_projection_rows, which ShedSummary (repository.go) then reads via an
+// indexed lookup. This keeps the codebase honest: the god-CTE pattern still exists exactly once, as a
+// projector, never as a live read.
+// scale-guard:ignore: off-request projector recompute only (RecomputeShedProjection), never on the ShedSummary request path (repository.go reads the indexed vaccination_shed_projection_rows table, C35-002).
 const vaccinationShedProjectionInsertSQL = `
 WITH alive AS (
   SELECT g.shed_id AS shed_uuid, COUNT(*)::bigint AS animals

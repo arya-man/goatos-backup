@@ -10,9 +10,9 @@ import (
 
 // TestKernelStoryAC_CapacityEligibilityExclusions proves the shed capacity COUNT (open_cells, the session
 // planner's input, and the capacity_status it drives) is built only from ELIGIBLE, PLANNED vaccination
-// cells — never the raw herd headcount. It drives the real ShedSummary read model (shedSummarySQL) over a
-// live Postgres, with genuine generated + recheck-deferred + recovery-reopened obligations, and asserts
-// five distinct rules the CEO capacity view depends on:
+// cells — never the raw herd headcount. It drives the real ShedSummary read path (the vaccination-shed
+// projection, C35-002) over a live Postgres, with genuine generated + recheck-deferred + recovery-reopened
+// obligations, and asserts five distinct rules the CEO capacity view depends on:
 //
 //  1. a sick goat's cells are excluded from today's capacity count
 //  2. a second clinically held goat's cells are excluded from today's capacity count
@@ -137,8 +137,18 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 // shedRow reads exactly one shed's ShedSummary projection (open_cells + capacity classification) from the
 // real read model as of asOf, failing the story if the shed is not found. It targets the repository
 // (not the app Service) so the story exercises the capacity SQL without the cross-module ownership read.
+//
+// C35-002: ShedSummary now serves exclusively from the vaccination-shed projection (an indexed
+// projection_version lookup), never a live compute-on-read god-CTE. Production keeps that projection
+// fresh via the periodic vaccination-shed-projection-recompute job; this story forces a synchronous
+// RecomputeShedProjection (the same production projector, called directly like fx.PI.RecomputeProjection
+// elsewhere in this suite) immediately before each read so the projection reflects the fixture's latest
+// mutation at the exact business instant the story is asserting about.
 func shedRow(fx *Fixture, story *Story, shedID string, asOf time.Time) vaccexecdomain.ShedSummaryProjection {
 	fx.T.Helper()
+	if _, err := fx.VaccExec.RecomputeShedProjection(fx.Ctx, vaccexecdomain.ShedProjectionRecomputeRequest{TenantID: fxTenant, AsOf: asOf}); err != nil {
+		fx.T.Fatalf("RecomputeShedProjection: %v", err)
+	}
 	id := shedID
 	rows, err := fx.VaccExec.ShedSummary(fx.Ctx, vaccexecdomain.ShedSummaryQuery{
 		TenantID: fxTenant, ShedID: &id, AsOf: asOf,

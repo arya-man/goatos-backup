@@ -121,7 +121,8 @@ const previewDefaultMaxBufferDays = 7
 // EstimatedDays headline, but avoids sending tens of thousands of day rows to the browser.
 const maxImpactPlannedSessions = 366
 
-// classifyCapacity mirrors the session-splitting planner headline (PlanSessions / shedSummarySQL):
+// classifyCapacity mirrors the session-splitting planner headline (PlanSessions /
+// vaccinationShedProjectionInsertSQL):
 // sessions = estimatedDays; within_cap fits one day, over_cap fits the safe window (buffer + 1 days),
 // capacity_breach spills beyond it. Empty when there are no cells to plan. Returns the machine value; the
 // UI renders the CEO label (within_cap→"Within cap", over_cap→"Split", capacity_breach→"Needs review").

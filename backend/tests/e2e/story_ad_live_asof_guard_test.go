@@ -48,6 +48,15 @@ func TestKernelStoryAD_LiveAsOfGuard(t *testing.T) {
 	mux := http.NewServeMux()
 	vaccexehttp.Register(mux, handler)
 
+	// C35-002: GET /vaccination/sheds now reads the vaccination-shed projection exclusively. The
+	// handler clamps any as_of (including the future "2026-09-01" URL param below) to serverNow via
+	// biztime.ParseLiveAsOfRFC3339 BEFORE it reaches the repository, so both requests in this story
+	// resolve to the identical effective instant (serverNow) -- one synchronous recompute (the real
+	// production projector) at serverNow serves both.
+	if _, err := fx.VaccExec.RecomputeShedProjection(fx.Ctx, vaccexecdomain.ShedProjectionRecomputeRequest{TenantID: fxTenant, AsOf: serverNow}); err != nil {
+		t.Fatalf("RecomputeShedProjection: %v", err)
+	}
+
 	story.Step("Future URL parameter is clamped by the backend",
 		"Call the real /vaccination/sheds HTTP route with as_of=2026-09-01 while the backend clock is "+
 			"2026-07-11 18:15 IST. The row must match live July semantics: due on July 18, not overdue.")

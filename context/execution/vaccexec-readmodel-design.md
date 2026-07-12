@@ -1,5 +1,13 @@
 # vaccinationexecution shed read model (C35-002, vaccinationexecution half)
 
+**Status: request-path flip LANDED.** `ShedSummary` / `GET /vaccination/sheds` now reads
+`vaccination_shed_projection_rows` exclusively via an indexed `(tenant_id, projection_version, ...)`
+lookup (`shedSummaryProjectedSQL`, `backend/internal/vaccinationexecution/adapters/postgres/
+repository.go`). The god-cte baseline entry for this file has been removed from
+`tools/scale-guard/baseline.txt`. Sections 1 and "Explicitly NOT done here" below describe the
+PRIOR increment (infra-only, read unchanged) for history; see "Flip landed" at the bottom for what
+changed.
+
 ## Defect
 
 `backend/internal/vaccinationexecution/adapters/postgres/repository.go` computes
@@ -96,3 +104,47 @@ is a separate, later change, gated on:
 
 Until that follow-up lands, `ShedSummary` remains the one and only serving path for
 `GET /vaccination/sheds`, and the god-cte baseline entry for this file stays as-is.
+
+## Flip landed (this change)
+
+The three gating items above are resolved as follows:
+
+- **Cold-projection behavior**: `ShedSummary` calls `shedProjectionServingVersion` on every request;
+  when the tenant has no serving version yet it returns `domain.ErrProjectionUnavailable` (never a
+  live CTE fallback), and the HTTP handler maps that to `503 projection_unavailable` — the exact
+  answer flagged as an open decision above, now made the same way processintegrity made it.
+- **Sustained-refresh / cold-start risk**: accepted as a deploy-sequencing concern (the recompute
+  CLI/Cloud Run Job must run at least once per tenant before traffic depends on it — the same
+  requirement processintegrity already carries), not a code gate. `backend/cmd/seed-vaccination-real/
+  main.go` already primes it at deploy-seed time (item 5 above).
+- **Parity proof**: `TestRecomputeShedProjectionMatchesLiveShedSummary`
+  (`shed_projection_test.go`) now compares `RecomputeShedProjection`'s output against a test-only
+  copy of the god-CTE (`canonicalShedSummarySQLForParity`, since production no longer contains that
+  query) AND against the flipped `ShedSummary` request path itself, proving the live read matches the
+  canonical answer field-by-field. Real-Postgres, not a mocked repository.
+
+What changed in `repository.go`:
+
+- `shedSummarySQL` (the god-CTE) is deleted from production code. `shed_projection.go`'s
+  `vaccinationShedProjectionInsertSQL` remains the only place that shape exists, and it is
+  off-request (the projector), annotated `// scale-guard:ignore`.
+- `ShedSummary` is now a thin dispatcher: look up the serving projection version, then read
+  `shedSummaryProjectedSQL` (an indexed lookup, no joins/aggregation — every column is precomputed).
+  It no longer calls `CapacityConfig` (capacity/session/status are already baked into the projection
+  row by `RecomputeShedProjection`).
+- `q.AsOf`/`q.DueBefore` are accepted for API compatibility (and still clamp future values at the
+  HTTP layer) but no longer drive historical reconstruction in the projected read — the projection
+  always serves its latest successful recompute. True point-in-time historical reconstruction of shed
+  status is out of scope for this rollup; `obligation_status_events` remains the audit trail for that.
+- `tools/scale-guard/baseline.txt`'s `god-cte ... repository.go` line is removed (not just reduced);
+  `make scale-guard` now proves the request path via the absence of a baseline entry, not a
+  grandfathered count.
+- `backend/tests/integration/validate-sqlc-query-plans.sh`'s `validate_vaccination_shed_projection_plan`
+  gained a capacity-filter check and a check matching the exact production request shape (default
+  CASE-based status sort + all five filters + `LIMIT/OFFSET`), proving the flipped read is an indexed
+  lookup, not a sequential scan.
+- Three E2E kernel stories (`story_ac_capacity_eligibility_exclusions_test.go`,
+  `story_ad_live_asof_guard_test.go`, `story_af_capacity_breach_overdue_headline_test.go`) now call
+  `RecomputeShedProjection` (the real production projector, same pattern as `fx.PI.RecomputeProjection`
+  elsewhere in the suite) before reading `ShedSummary`, since the request path no longer computes an
+  answer on demand.

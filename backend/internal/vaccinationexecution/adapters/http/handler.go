@@ -735,7 +735,7 @@ func (h *Handler) ListShedSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.reader.ShedSummary(r.Context(), q)
 	if err != nil {
-		h.internal(w, r, err)
+		h.readShedError(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
@@ -768,7 +768,7 @@ func (h *Handler) GetShedDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	detail, found, err := h.reader.ShedDetail(r.Context(), shedID, q)
 	if err != nil {
-		h.internal(w, r, err)
+		h.readShedError(w, r, err)
 		return
 	}
 	if !found {
@@ -817,7 +817,7 @@ func (h *Handler) GetShedAnimals(w http.ResponseWriter, r *http.Request) {
 		Limit:     1,
 	})
 	if err != nil {
-		h.internal(w, r, err)
+		h.readShedError(w, r, err)
 		return
 	}
 	if !found {
@@ -873,6 +873,19 @@ func (h *Handler) writeReadError(w http.ResponseWriter, r *http.Request, err err
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {
 	httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
 		errorEnvelope{Code: code, Message: msg, TraceID: traceID(r)}, nil)
+}
+
+// readShedError maps a shed-summary/shed-detail read-path error to HTTP. A projection-unavailable
+// signal (C35-002: the vaccination-shed read model has no serving version) is an honest, retryable 503
+// — never a 500 and never a silent unbounded canonical fallback — mirroring processintegrity's
+// readError.
+func (h *Handler) readShedError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, vaccexecd.ErrProjectionUnavailable) {
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+			errorEnvelope{Code: "projection_unavailable", Message: "vaccination shed read model is temporarily unavailable", TraceID: traceID(r)}, err)
+		return
+	}
+	h.internal(w, r, err)
 }
 
 func (h *Handler) applyOperationsParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.OperationsQuery) bool {

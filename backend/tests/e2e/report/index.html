@@ -97,7 +97,7 @@
 </head>
 <body>
   <h1>Vaccination Kernel Story Report</h1>
-  <p class="subtitle">Generated 2026-07-12 02:34:48 UTC &middot; backend/tests/e2e</p>
+  <p class="subtitle">Generated 2026-07-12 19:05:30 UTC &middot; backend/tests/e2e</p>
 
   <div class="summary">
     <div class="tile"><span class="n">41</span>stories</div>
@@ -194,7 +194,7 @@
           <tr class="ok">
             <td>reschedule endpoint returned 200</td>
             <td>PASS</td>
-            <td class="detail">HTTP 200: {&#34;obligation_id&#34;:&#34;5bb038a8-4c8b-485b-9b70-94bf4d342d6a&#34;,&#34;idempotent_replay&#34;:false}
+            <td class="detail">HTTP 200: {&#34;obligation_id&#34;:&#34;a31ac666-52de-41eb-b934-c89dd5fd02a1&#34;,&#34;idempotent_replay&#34;:false}
 </td>
           </tr>
 
@@ -207,7 +207,7 @@
           <tr class="ok">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>PASS</td>
-            <td class="detail">newObl=&#34;5bb038a8-4c8b-485b-9b70-94bf4d342d6a&#34; missedObl=&#34;ff680fe5-09b3-4b33-bc97-50fde7837a14&#34;</td>
+            <td class="detail">newObl=&#34;a31ac666-52de-41eb-b934-c89dd5fd02a1&#34; missedObl=&#34;9e315231-ef81-4f28-898e-1c3f57592b0d&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -262,7 +262,7 @@
           <tr class="ok">
             <td>replay endpoint returned 200</td>
             <td>PASS</td>
-            <td class="detail">HTTP 200: {&#34;obligation_id&#34;:&#34;5bb038a8-4c8b-485b-9b70-94bf4d342d6a&#34;,&#34;idempotent_replay&#34;:true}
+            <td class="detail">HTTP 200: {&#34;obligation_id&#34;:&#34;a31ac666-52de-41eb-b934-c89dd5fd02a1&#34;,&#34;idempotent_replay&#34;:true}
 </td>
           </tr>
 
@@ -275,7 +275,7 @@
           <tr class="ok">
             <td>replay returns the same new obligation id, not a second new one</td>
             <td>PASS</td>
-            <td class="detail">replayObl=&#34;5bb038a8-4c8b-485b-9b70-94bf4d342d6a&#34; newObl=&#34;5bb038a8-4c8b-485b-9b70-94bf4d342d6a&#34;</td>
+            <td class="detail">replayObl=&#34;a31ac666-52de-41eb-b934-c89dd5fd02a1&#34; newObl=&#34;a31ac666-52de-41eb-b934-c89dd5fd02a1&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -325,7 +325,7 @@
           <tr class="ok">
             <td>orphan goat is on a batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;122dedec-8354-4f6e-b692-b53b6c09f98d&#34;</td>
+            <td class="detail">batch_id=&#34;c4d2b185-8703-4377-8d41-67f1085c0ee3&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -337,7 +337,7 @@
           <tr class="ok">
             <td>production sweeper created executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;9b5597c9-ba93-4207-9a21-dac93ef88534&#34;</td>
+            <td class="detail">task_id=&#34;7a29a679-e5e6-4fa7-9797-dd050c0cd0b5&#34;</td>
           </tr>
 
         </tbody>
@@ -430,7 +430,7 @@
           <tr class="ok">
             <td>operator denial made no state change</td>
             <td>PASS</td>
-            <td class="detail">batch=122dedec-8354-4f6e-b692-b53b6c09f98d</td>
+            <td class="detail">batch=c4d2b185-8703-4377-8d41-67f1085c0ee3</td>
           </tr>
 
           <tr class="ok">
@@ -443,20 +443,20 @@
           <tr class="ok">
             <td>park-scoped leadership grant denial made no state change</td>
             <td>PASS</td>
-            <td class="detail">batch=122dedec-8354-4f6e-b692-b53b6c09f98d</td>
+            <td class="detail">batch=c4d2b185-8703-4377-8d41-67f1085c0ee3</td>
           </tr>
 
           <tr class="ok">
             <td>tenant-scoped Park Head closes through admin-web review route</td>
             <td>PASS</td>
-            <td class="detail">HTTP=200 body={&#34;task&#34;:{&#34;task_id&#34;:&#34;9b5597c9-ba93-4207-9a21-dac93ef88534&#34;,&#34;tenant_id&#34;:&#34;00000000-0000-4000-8000-000000000001&#34;,&#34;sop_id&#34;:&#34;b0000000-0000-4000-8000-000000000001&#34;,&#34;sop_version_id&#34;:&#34;b0000000-0000-4000-8000-000000000002&#34;,&#34;sop_code&#34;:&#34;vaccination.drive&#34;,&#34;task_type&#34;:&#34;vaccination&#34;,&#34;title&#34;:&#34;Vaccination drive ed000000-0000-4000-8000-000000000001&#34;,&#34;description&#34;:&#34;&#34;,&#34;state&#34;:&#34;accepted&#34;,&#34;assigned_to&#34;:null,&#34;scope_type&#34;:&#34;shed&#34;,&#34;scope_id&#34;:&#34;ed000000-0000-4000-8000-000000000001&#34;,&#34;priority&#34;:&#34;normal&#34;,&#34;due_at&#34;:null,&#34;context&#34;:{&#34;created_by&#34;:&#34;obligation-sweeper&#34;,&#34;obligation_batch_id&#34;:&#34;122dedec-8354-4f6e-b692-b53b6c09f98d&#34;},&#34;row_version&#34;:3,&#34;created_at&#34;:&#34;2026-07-12T02:34:56Z&#34;,&#34;updated_at&#34;:&#34;2026-07-12T02:34:56Z&#34;},&#34;trace_id&#34;:&#34;missing-trace&#34;}
+            <td class="detail">HTTP=200 body={&#34;task&#34;:{&#34;task_id&#34;:&#34;7a29a679-e5e6-4fa7-9797-dd050c0cd0b5&#34;,&#34;tenant_id&#34;:&#34;00000000-0000-4000-8000-000000000001&#34;,&#34;sop_id&#34;:&#34;b0000000-0000-4000-8000-000000000001&#34;,&#34;sop_version_id&#34;:&#34;b0000000-0000-4000-8000-000000000002&#34;,&#34;sop_code&#34;:&#34;vaccination.drive&#34;,&#34;task_type&#34;:&#34;vaccination&#34;,&#34;title&#34;:&#34;Vaccination drive ed000000-0000-4000-8000-000000000001&#34;,&#34;description&#34;:&#34;&#34;,&#34;state&#34;:&#34;accepted&#34;,&#34;assigned_to&#34;:null,&#34;scope_type&#34;:&#34;shed&#34;,&#34;scope_id&#34;:&#34;ed000000-0000-4000-8000-000000000001&#34;,&#34;priority&#34;:&#34;normal&#34;,&#34;due_at&#34;:null,&#34;context&#34;:{&#34;created_by&#34;:&#34;obligation-sweeper&#34;,&#34;obligation_batch_id&#34;:&#34;c4d2b185-8703-4377-8d41-67f1085c0ee3&#34;},&#34;row_version&#34;:3,&#34;created_at&#34;:&#34;2026-07-12T19:06:14Z&#34;,&#34;updated_at&#34;:&#34;2026-07-12T19:06:14Z&#34;},&#34;trace_id&#34;:&#34;missing-trace&#34;}
 </td>
           </tr>
 
           <tr class="ok">
             <td>task is accepted</td>
             <td>PASS</td>
-            <td class="detail">task=9b5597c9-ba93-4207-9a21-dac93ef88534</td>
+            <td class="detail">task=7a29a679-e5e6-4fa7-9797-dd050c0cd0b5</td>
           </tr>
 
           <tr class="ok">
@@ -948,7 +948,7 @@
           <tr class="ok">
             <td>one future repeat was created by SM-7</td>
             <td>PASS</td>
-            <td class="detail">current=189b5106-8527-4c49-b135-eeafac772d7a next=61f3a370-81f9-45da-b8b7-e6c22fc3c6b6</td>
+            <td class="detail">current=e71033f2-80b7-458c-85c3-0bff59f1001b next=c5c6443f-c6c4-4876-9c86-9b5670e05aed</td>
           </tr>
 
           <tr class="ok">
@@ -1129,7 +1129,7 @@
           <tr class="ok">
             <td>one current obligation was generated</td>
             <td>PASS</td>
-            <td class="detail">obligation_id=105dfec4-04ca-450c-b857-c00b26651c9f</td>
+            <td class="detail">obligation_id=490d3302-5b49-4948-b871-b3d57b26a97c</td>
           </tr>
 
         </tbody>
@@ -1285,7 +1285,7 @@
           <tr class="ok">
             <td>sweeper created the executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;92111b5f-fb4f-47a3-a4e1-1ce870880b6f&#34;</td>
+            <td class="detail">task_id=&#34;3bae4af6-f00b-4e5a-9823-3f3d3f9b41f2&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -1358,9 +1358,9 @@
           </tr>
 
           <tr class="ok">
-            <td>failed delivery has durable retry evidence</td>
+            <td>failed finalization is durably recorded as effects-committed, never failed (C35-024)</td>
             <td>PASS</td>
-            <td class="detail">status=failed</td>
+            <td class="detail">status=effects_committed</td>
           </tr>
 
           <tr class="ok">
@@ -1375,8 +1375,8 @@
     </div>
 
     <div class="step">
-      <h3>Pub/Sub redelivery reclaims failed work and finishes terminal processing</h3>
-      <p class="narrative">The handler replays through its idempotency keys. The processed-event row becomes processed and no second obligation appears.</p>
+      <h3>Pub/Sub redelivery reclaims the effects-committed row and finishes terminal processing without replaying the handler</h3>
+      <p class="narrative">Because the row is durably marked effects-committed, redelivery skips bus.Publish entirely and only retries the finalize. The processed-event row becomes processed and no second obligation appears.</p>
 
       <table>
         <thead><tr><th>Assertion</th><th>Result</th><th>Detail</th></tr></thead>
@@ -1416,7 +1416,7 @@
           <tr class="ok">
             <td>replay publishes, audits, then ACKs</td>
             <td>PASS</td>
-            <td class="detail">result={MatchedSource:true MatchedTarget:true Settled:true EventID:71f5d2c9-622a-47d7-a53c-45930b1da5e4 BrokerID:story-ai-dlq-message Attributes:map[event_id:71f5d2c9-622a-47d7-a53c-45930b1da5e4 event_type:goat.health.changed tenant_id:00000000-0000-4000-8000-000000000001]} err=&lt;nil&gt; acked=true nacked=false</td>
+            <td class="detail">result={MatchedSource:true MatchedTarget:true Settled:true EventID:4b27606a-5988-4788-9561-c1f7f41db549 BrokerID:story-ai-dlq-message Attributes:map[event_id:4b27606a-5988-4788-9561-c1f7f41db549 event_type:goat.health.changed tenant_id:00000000-0000-4000-8000-000000000001]} err=&lt;nil&gt; acked=true nacked=false</td>
           </tr>
 
           <tr class="ok">
@@ -1466,7 +1466,7 @@
           <tr class="ok">
             <td>drive has obligation, batch, and task ids</td>
             <td>PASS</td>
-            <td class="detail">obligation=4e92d813-6957-401b-a42b-3df916a8df16 batch=6bdbb9b1-b259-4087-89df-0ed01c97afa7 task=88c8664a-3fb2-4187-ab5e-40de813abaf5</td>
+            <td class="detail">obligation=6fe5a13f-418a-4794-907a-640bbd7539f9 batch=ef855a15-fd4c-4a7d-a6c7-bf0bbf3a2071 task=734c3324-997d-45a4-9042-107b6a45ee9e</td>
           </tr>
 
         </tbody>
@@ -1491,7 +1491,7 @@
           <tr class="ok">
             <td>submission recorded one unaccepted completion</td>
             <td>PASS</td>
-            <td class="detail">obligation=4e92d813-6957-401b-a42b-3df916a8df16</td>
+            <td class="detail">obligation=6fe5a13f-418a-4794-907a-640bbd7539f9</td>
           </tr>
 
         </tbody>
@@ -1517,7 +1517,7 @@
           <tr class="ok">
             <td>operator admin verify made no accepted/rejected mutation</td>
             <td>PASS</td>
-            <td class="detail">obligation=4e92d813-6957-401b-a42b-3df916a8df16</td>
+            <td class="detail">obligation=6fe5a13f-418a-4794-907a-640bbd7539f9</td>
           </tr>
 
           <tr class="ok">
@@ -1530,7 +1530,7 @@
           <tr class="ok">
             <td>park-scoped leadership grant admin rework made no accepted/rejected mutation</td>
             <td>PASS</td>
-            <td class="detail">obligation=4e92d813-6957-401b-a42b-3df916a8df16</td>
+            <td class="detail">obligation=6fe5a13f-418a-4794-907a-640bbd7539f9</td>
           </tr>
 
         </tbody>
@@ -1549,26 +1549,26 @@
           <tr class="ok">
             <td>Director can rework through admin-web route</td>
             <td>PASS</td>
-            <td class="detail">HTTP=200 body={&#34;task&#34;:{&#34;task_id&#34;:&#34;88c8664a-3fb2-4187-ab5e-40de813abaf5&#34;,&#34;tenant_id&#34;:&#34;00000000-0000-4000-8000-000000000001&#34;,&#34;sop_id&#34;:&#34;b0000000-0000-4000-8000-000000000001&#34;,&#34;sop_version_id&#34;:&#34;b0000000-0000-4000-8000-000000000002&#34;,&#34;sop_code&#34;:&#34;vaccination.drive&#34;,&#34;task_type&#34;:&#34;vaccination&#34;,&#34;title&#34;:&#34;Vaccination drive a9000000-0000-4000-8000-000000000001&#34;,&#34;description&#34;:&#34;&#34;,&#34;state&#34;:&#34;rework_requested&#34;,&#34;assigned_to&#34;:null,&#34;scope_type&#34;:&#34;shed&#34;,&#34;scope_id&#34;:&#34;a9000000-0000-4000-8000-000000000001&#34;,&#34;priority&#34;:&#34;normal&#34;,&#34;due_at&#34;:null,&#34;context&#34;:{&#34;created_by&#34;:&#34;obligation-sweeper&#34;,&#34;obligation_batch_id&#34;:&#34;6bdbb9b1-b259-4087-89df-0ed01c97afa7&#34;},&#34;row_version&#34;:3,&#34;created_at&#34;:&#34;2026-07-12T02:35:29Z&#34;,&#34;updated_at&#34;:&#34;2026-07-12T02:35:29Z&#34;},&#34;trace_id&#34;:&#34;missing-trace&#34;}
+            <td class="detail">HTTP=200 body={&#34;task&#34;:{&#34;task_id&#34;:&#34;734c3324-997d-45a4-9042-107b6a45ee9e&#34;,&#34;tenant_id&#34;:&#34;00000000-0000-4000-8000-000000000001&#34;,&#34;sop_id&#34;:&#34;b0000000-0000-4000-8000-000000000001&#34;,&#34;sop_version_id&#34;:&#34;b0000000-0000-4000-8000-000000000002&#34;,&#34;sop_code&#34;:&#34;vaccination.drive&#34;,&#34;task_type&#34;:&#34;vaccination&#34;,&#34;title&#34;:&#34;Vaccination drive a9000000-0000-4000-8000-000000000001&#34;,&#34;description&#34;:&#34;&#34;,&#34;state&#34;:&#34;rework_requested&#34;,&#34;assigned_to&#34;:null,&#34;scope_type&#34;:&#34;shed&#34;,&#34;scope_id&#34;:&#34;a9000000-0000-4000-8000-000000000001&#34;,&#34;priority&#34;:&#34;normal&#34;,&#34;due_at&#34;:null,&#34;context&#34;:{&#34;created_by&#34;:&#34;obligation-sweeper&#34;,&#34;obligation_batch_id&#34;:&#34;ef855a15-fd4c-4a7d-a6c7-bf0bbf3a2071&#34;},&#34;row_version&#34;:3,&#34;created_at&#34;:&#34;2026-07-12T19:10:50Z&#34;,&#34;updated_at&#34;:&#34;2026-07-12T19:10:51Z&#34;},&#34;trace_id&#34;:&#34;missing-trace&#34;}
 </td>
           </tr>
 
           <tr class="ok">
             <td>task moved to rework_requested</td>
             <td>PASS</td>
-            <td class="detail">task=88c8664a-3fb2-4187-ab5e-40de813abaf5</td>
+            <td class="detail">task=734c3324-997d-45a4-9042-107b6a45ee9e</td>
           </tr>
 
           <tr class="ok">
             <td>rework rejected exactly one recorded completion</td>
             <td>PASS</td>
-            <td class="detail">obligation=4e92d813-6957-401b-a42b-3df916a8df16</td>
+            <td class="detail">obligation=6fe5a13f-418a-4794-907a-640bbd7539f9</td>
           </tr>
 
           <tr class="ok">
             <td>rework did not complete the obligation or consume stock</td>
             <td>PASS</td>
-            <td class="detail">obligation=4e92d813-6957-401b-a42b-3df916a8df16 batch=6bdbb9b1-b259-4087-89df-0ed01c97afa7</td>
+            <td class="detail">obligation=6fe5a13f-418a-4794-907a-640bbd7539f9 batch=ef855a15-fd4c-4a7d-a6c7-bf0bbf3a2071</td>
           </tr>
 
         </tbody>
@@ -1593,14 +1593,14 @@
           <tr class="ok">
             <td>CEO/CXO can verify through admin-web route</td>
             <td>PASS</td>
-            <td class="detail">HTTP=200 body={&#34;task&#34;:{&#34;task_id&#34;:&#34;88c8664a-3fb2-4187-ab5e-40de813abaf5&#34;,&#34;tenant_id&#34;:&#34;00000000-0000-4000-8000-000000000001&#34;,&#34;sop_id&#34;:&#34;b0000000-0000-4000-8000-000000000001&#34;,&#34;sop_version_id&#34;:&#34;b0000000-0000-4000-8000-000000000002&#34;,&#34;sop_code&#34;:&#34;vaccination.drive&#34;,&#34;task_type&#34;:&#34;vaccination&#34;,&#34;title&#34;:&#34;Vaccination drive a9000000-0000-4000-8000-000000000001&#34;,&#34;description&#34;:&#34;&#34;,&#34;state&#34;:&#34;accepted&#34;,&#34;assigned_to&#34;:null,&#34;scope_type&#34;:&#34;shed&#34;,&#34;scope_id&#34;:&#34;a9000000-0000-4000-8000-000000000001&#34;,&#34;priority&#34;:&#34;normal&#34;,&#34;due_at&#34;:null,&#34;context&#34;:{&#34;created_by&#34;:&#34;obligation-sweeper&#34;,&#34;obligation_batch_id&#34;:&#34;6bdbb9b1-b259-4087-89df-0ed01c97afa7&#34;},&#34;row_version&#34;:5,&#34;created_at&#34;:&#34;2026-07-12T02:35:29Z&#34;,&#34;updated_at&#34;:&#34;2026-07-12T02:35:29Z&#34;},&#34;trace_id&#34;:&#34;missing-trace&#34;}
+            <td class="detail">HTTP=200 body={&#34;task&#34;:{&#34;task_id&#34;:&#34;734c3324-997d-45a4-9042-107b6a45ee9e&#34;,&#34;tenant_id&#34;:&#34;00000000-0000-4000-8000-000000000001&#34;,&#34;sop_id&#34;:&#34;b0000000-0000-4000-8000-000000000001&#34;,&#34;sop_version_id&#34;:&#34;b0000000-0000-4000-8000-000000000002&#34;,&#34;sop_code&#34;:&#34;vaccination.drive&#34;,&#34;task_type&#34;:&#34;vaccination&#34;,&#34;title&#34;:&#34;Vaccination drive a9000000-0000-4000-8000-000000000001&#34;,&#34;description&#34;:&#34;&#34;,&#34;state&#34;:&#34;accepted&#34;,&#34;assigned_to&#34;:null,&#34;scope_type&#34;:&#34;shed&#34;,&#34;scope_id&#34;:&#34;a9000000-0000-4000-8000-000000000001&#34;,&#34;priority&#34;:&#34;normal&#34;,&#34;due_at&#34;:null,&#34;context&#34;:{&#34;created_by&#34;:&#34;obligation-sweeper&#34;,&#34;obligation_batch_id&#34;:&#34;ef855a15-fd4c-4a7d-a6c7-bf0bbf3a2071&#34;},&#34;row_version&#34;:5,&#34;created_at&#34;:&#34;2026-07-12T19:10:50Z&#34;,&#34;updated_at&#34;:&#34;2026-07-12T19:10:51Z&#34;},&#34;trace_id&#34;:&#34;missing-trace&#34;}
 </td>
           </tr>
 
           <tr class="ok">
             <td>task accepted, obligation completed, stock consumed once</td>
             <td>PASS</td>
-            <td class="detail">task=88c8664a-3fb2-4187-ab5e-40de813abaf5 obligation=4e92d813-6957-401b-a42b-3df916a8df16 batch=6bdbb9b1-b259-4087-89df-0ed01c97afa7</td>
+            <td class="detail">task=734c3324-997d-45a4-9042-107b6a45ee9e obligation=6fe5a13f-418a-4794-907a-640bbd7539f9 batch=ef855a15-fd4c-4a7d-a6c7-bf0bbf3a2071</td>
           </tr>
 
         </tbody>
@@ -1775,7 +1775,7 @@
           <tr class="ok">
             <td>sweeper created the executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;b271038b-a037-4acb-a06c-4da86f56cfde&#34;</td>
+            <td class="detail">task_id=&#34;ea404065-eb3c-459c-9e25-dccce7f1af0a&#34;</td>
           </tr>
 
         </tbody>
@@ -1836,7 +1836,7 @@
           <tr class="ok">
             <td>submission fanout recorded both doses</td>
             <td>PASS</td>
-            <td class="detail">batch=8d534ef4-1a78-498d-9321-1da0079815ee</td>
+            <td class="detail">batch=7f4a8cbc-8ebc-49da-b855-4d63b233c880</td>
           </tr>
 
         </tbody>
@@ -1904,7 +1904,7 @@
           <tr class="ok">
             <td>the shed drive appears in the execution rollup</td>
             <td>PASS</td>
-            <td class="detail">batch=8d534ef4-1a78-498d-9321-1da0079815ee rows=1</td>
+            <td class="detail">batch=7f4a8cbc-8ebc-49da-b855-4d63b233c880 rows=1</td>
           </tr>
 
           <tr class="ok">
@@ -1929,14 +1929,14 @@
           <tr class="ok">
             <td>Director admin-web review route succeeded</td>
             <td>PASS</td>
-            <td class="detail">HTTP=200 body={&#34;task&#34;:{&#34;task_id&#34;:&#34;b271038b-a037-4acb-a06c-4da86f56cfde&#34;,&#34;tenant_id&#34;:&#34;00000000-0000-4000-8000-000000000001&#34;,&#34;sop_id&#34;:&#34;b0000000-0000-4000-8000-000000000001&#34;,&#34;sop_version_id&#34;:&#34;b0000000-0000-4000-8000-000000000002&#34;,&#34;sop_code&#34;:&#34;vaccination.drive&#34;,&#34;task_type&#34;:&#34;vaccination&#34;,&#34;title&#34;:&#34;Vaccination drive e3000000-0000-4000-8000-000000000001&#34;,&#34;description&#34;:&#34;&#34;,&#34;state&#34;:&#34;accepted&#34;,&#34;assigned_to&#34;:null,&#34;scope_type&#34;:&#34;shed&#34;,&#34;scope_id&#34;:&#34;e3000000-0000-4000-8000-000000000001&#34;,&#34;priority&#34;:&#34;normal&#34;,&#34;due_at&#34;:null,&#34;context&#34;:{&#34;created_by&#34;:&#34;obligation-sweeper&#34;,&#34;obligation_batch_id&#34;:&#34;8d534ef4-1a78-498d-9321-1da0079815ee&#34;},&#34;row_version&#34;:3,&#34;created_at&#34;:&#34;2026-07-12T02:35:36Z&#34;,&#34;updated_at&#34;:&#34;2026-07-12T02:35:36Z&#34;},&#34;trace_id&#34;:&#34;missing-trace&#34;}
+            <td class="detail">HTTP=200 body={&#34;task&#34;:{&#34;task_id&#34;:&#34;ea404065-eb3c-459c-9e25-dccce7f1af0a&#34;,&#34;tenant_id&#34;:&#34;00000000-0000-4000-8000-000000000001&#34;,&#34;sop_id&#34;:&#34;b0000000-0000-4000-8000-000000000001&#34;,&#34;sop_version_id&#34;:&#34;b0000000-0000-4000-8000-000000000002&#34;,&#34;sop_code&#34;:&#34;vaccination.drive&#34;,&#34;task_type&#34;:&#34;vaccination&#34;,&#34;title&#34;:&#34;Vaccination drive e3000000-0000-4000-8000-000000000001&#34;,&#34;description&#34;:&#34;&#34;,&#34;state&#34;:&#34;accepted&#34;,&#34;assigned_to&#34;:null,&#34;scope_type&#34;:&#34;shed&#34;,&#34;scope_id&#34;:&#34;e3000000-0000-4000-8000-000000000001&#34;,&#34;priority&#34;:&#34;normal&#34;,&#34;due_at&#34;:null,&#34;context&#34;:{&#34;created_by&#34;:&#34;obligation-sweeper&#34;,&#34;obligation_batch_id&#34;:&#34;7f4a8cbc-8ebc-49da-b855-4d63b233c880&#34;},&#34;row_version&#34;:3,&#34;created_at&#34;:&#34;2026-07-12T19:11:21Z&#34;,&#34;updated_at&#34;:&#34;2026-07-12T19:11:21Z&#34;},&#34;trace_id&#34;:&#34;missing-trace&#34;}
 </td>
           </tr>
 
           <tr class="ok">
             <td>task accepted and both obligations completed</td>
             <td>PASS</td>
-            <td class="detail">task=b271038b-a037-4acb-a06c-4da86f56cfde</td>
+            <td class="detail">task=ea404065-eb3c-459c-9e25-dccce7f1af0a</td>
           </tr>
 
         </tbody>
@@ -2036,7 +2036,7 @@
           <tr class="ok">
             <td>park drive has an executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;49fbd82f-1796-4cac-8d3e-0429e4ce760e&#34;</td>
+            <td class="detail">task_id=&#34;7fb4a7f7-e45a-44a0-8415-f2eac2db2ecc&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -2067,7 +2067,7 @@
           <tr class="ok">
             <td>submission fanout recorded both doses</td>
             <td>PASS</td>
-            <td class="detail">batch=cbff2da3-3cbf-4b48-b69d-ec11fe56c3e3</td>
+            <td class="detail">batch=fe753406-57ec-4007-9ae3-2a725d00c686</td>
           </tr>
 
           <tr class="ok">
@@ -2079,7 +2079,7 @@
           <tr class="ok">
             <td>both obligations completed through review fanout</td>
             <td>PASS</td>
-            <td class="detail">batch=cbff2da3-3cbf-4b48-b69d-ec11fe56c3e3</td>
+            <td class="detail">batch=fe753406-57ec-4007-9ae3-2a725d00c686</td>
           </tr>
 
           <tr class="ok">
@@ -2211,7 +2211,7 @@
           <tr class="ok">
             <td>production reschedule endpoint succeeded</td>
             <td>PASS</td>
-            <td class="detail">HTTP 200: {&#34;obligation_id&#34;:&#34;1bcb17e5-caed-4455-a74f-a96b3466c4e4&#34;,&#34;idempotent_replay&#34;:false}
+            <td class="detail">HTTP 200: {&#34;obligation_id&#34;:&#34;741293dc-ef77-4752-91c8-e40c4749737b&#34;,&#34;idempotent_replay&#34;:false}
 </td>
           </tr>
 
@@ -2224,7 +2224,7 @@
           <tr class="ok">
             <td>a brand-new obligation was created rather than the missed row being reused</td>
             <td>PASS</td>
-            <td class="detail">newOblID=&#34;1bcb17e5-caed-4455-a74f-a96b3466c4e4&#34; oblID=&#34;677e2fb8-9dd8-424c-9bea-d2fcb258f460&#34;</td>
+            <td class="detail">newOblID=&#34;741293dc-ef77-4752-91c8-e40c4749737b&#34; oblID=&#34;3b994f88-33d8-4ace-8f9f-be128ed9295e&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -2822,7 +2822,7 @@
           <tr class="ok">
             <td>sweeper created executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;fb8a2d0a-4dd9-4096-8c54-3758af905ed2&#34;</td>
+            <td class="detail">task_id=&#34;96c160ff-bbab-4495-a068-ffd97304b8fe&#34;</td>
           </tr>
 
         </tbody>
@@ -3020,7 +3020,7 @@
           <tr class="ok">
             <td>sweeper created the executable SOP task</td>
             <td>PASS</td>
-            <td class="detail">task_id=&#34;3ecdf6a0-29a7-4070-9e4b-b84a842be156&#34;</td>
+            <td class="detail">task_id=&#34;f918ac37-3594-412b-b8fa-a88c1ef431c1&#34;</td>
           </tr>
 
         </tbody>
@@ -3039,7 +3039,7 @@
           <tr class="ok">
             <td>first SOP submit recorded a completion</td>
             <td>PASS</td>
-            <td class="detail">submission_id=&#34;aae846cc-e844-4681-9c16-72c3ba56609a&#34; err=&lt;nil&gt;</td>
+            <td class="detail">submission_id=&#34;f30ba353-73eb-4e54-aa78-a9a453743a28&#34; err=&lt;nil&gt;</td>
           </tr>
 
           <tr class="ok">
@@ -3070,7 +3070,7 @@
           <tr class="ok">
             <td>exact replay returned the original SOP submission</td>
             <td>PASS</td>
-            <td class="detail">first=&#34;aae846cc-e844-4681-9c16-72c3ba56609a&#34; replay=&#34;aae846cc-e844-4681-9c16-72c3ba56609a&#34;</td>
+            <td class="detail">first=&#34;f30ba353-73eb-4e54-aa78-a9a453743a28&#34; replay=&#34;f30ba353-73eb-4e54-aa78-a9a453743a28&#34;</td>
           </tr>
 
           <tr class="ok">
@@ -3082,7 +3082,7 @@
           <tr class="ok">
             <td>still exactly one durable SOP submission</td>
             <td>PASS</td>
-            <td class="detail">task=3ecdf6a0-29a7-4070-9e4b-b84a842be156 key=e2e-story-m-submit</td>
+            <td class="detail">task=f918ac37-3594-412b-b8fa-a88c1ef431c1 key=e2e-story-m-submit</td>
           </tr>
 
         </tbody>
@@ -3262,7 +3262,7 @@
           <tr class="ok">
             <td>a next-page cursor is returned (keyset pagination, bounded reads)</td>
             <td>PASS</td>
-            <td class="detail">next_cursor=eyJzIjoxLCJkIjoiMjAyNi0wNi0wOVQxODozMDowMFoiLCJyIjoiYmF0Y2g6NzEzMWExN2ItNWY1My00NmIyLTkxNWQtNmE2OTNiMDc5NTYxOnJ1bGU6OGE4MmUzMDctYTI5OC00MTE0LWI3MjUtM2U5MTViNWRmMjQ5OnNoZWQ6ZWUwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMTAwIn0</td>
+            <td class="detail">next_cursor=eyJzIjoxLCJkIjoiMjAyNi0wNi0wOVQxODozMDowMFoiLCJyIjoiYmF0Y2g6YjE3OTc5ZjItOGU2ZS00Y2ZhLWE5ZWItNjI2NjQ5Y2I0NWM4OnJ1bGU6ZTcyMGJmNDAtN2Q2ZS00NDhjLWE3NTQtZTQ4NDA2MzEwNzhjOnNoZWQ6ZWUwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMTAzIn0</td>
           </tr>
 
         </tbody>
@@ -4871,7 +4871,7 @@
           <tr class="ok">
             <td>missed goat is on the catch-up batch</td>
             <td>PASS</td>
-            <td class="detail">batch_id=&#34;6d31b115-9a75-46ec-9639-04c29bc3f3f2&#34;</td>
+            <td class="detail">batch_id=&#34;dec8fb15-b116-4a1f-8326-e1372adb2f2d&#34;</td>
           </tr>
 
         </tbody>
