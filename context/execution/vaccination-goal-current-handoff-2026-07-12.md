@@ -150,12 +150,14 @@ A clean separate worktree/branch exists:
 ```text
 /Users/ravi/mesha/.worktrees/goatos-analytics-rebuild
 agent/analytics-taxonomy-rebuild
+origin/agent/analytics-taxonomy-rebuild
 f9a4affb feat(android): mobile analytics event taxonomy + principal identity (noop-backed)
 ```
 
 It rebuilds the parked analytics WIP against the real `AnalyticsPort`, keeps the
-runtime binding no-op, and adds taxonomy/identity tests. It is not merged into
-the continuation branch. Review `f9a4affb` independently under the mobile,
+runtime binding no-op, and adds taxonomy/identity tests. It is pushed for
+preservation but not merged into the continuation branch. Review `f9a4affb`
+independently under the mobile,
 privacy, lifecycle, and external-egress gates; then cherry-pick only if approved.
 Firebase egress/setup remains a separately gated action.
 
