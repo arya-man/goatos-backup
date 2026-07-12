@@ -7,7 +7,7 @@ compose_file="$repo_root/compose.local-kernel.yml"
 docker compose -f "$compose_file" config --quiet
 
 config="$(docker compose -f "$compose_file" config)"
-for service in postgres migrate pubsub pubsub-bootstrap api outbox-relay domain-event-consumer kernel-workers; do
+for service in postgres migrate pubsub pubsub-bootstrap api outbox-relay domain-event-consumer kernel-workers kernel-maintenance; do
   grep -Eq "^  ${service}:" <<<"$config" || {
     echo "local GCP kernel parity guard: missing service $service" >&2
     exit 1

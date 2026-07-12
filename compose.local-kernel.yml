@@ -149,6 +149,17 @@ services:
     depends_on: *kernel-dependencies
     restart: unless-stopped
 
+  kernel-maintenance:
+    <<: *backend-image
+    environment:
+      <<: *kernel-environment
+      GOATOS_LOCAL_MAINTENANCE_INTERVAL_SECONDS: ${GOATOS_LOCAL_MAINTENANCE_INTERVAL_SECONDS:-3600}
+    entrypoint: ["/bin/sh", "/tmp/local-kernel-loop.sh", "maintenance"]
+    volumes:
+      - ./tools/dev/local-kernel-loop.sh:/tmp/local-kernel-loop.sh:ro
+    depends_on: *kernel-dependencies
+    restart: unless-stopped
+
 volumes:
   goatos-postgres:
   goatos-proofs:

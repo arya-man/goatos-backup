@@ -35,8 +35,12 @@ The Compose services are:
 - `domain-event-consumer`: the production Google Pub/Sub subscriber and durable
   processed-event store.
 - `kernel-workers`: the same vaccination generator, obligation sweeper,
-  Calendar projector, process-integrity projector, bounded Vaccination dirty-scope projector,
-  and notification dispatcher binaries used by Cloud Run Jobs.
+  reminder/escalation sweepers, Calendar projector, process-integrity projector,
+  Vaccination repair projector, and notification dispatcher binaries used by
+  Cloud Run Jobs.
+- `kernel-maintenance`: the same retention, idempotency cleanup, inventory
+  reconciliation, SOP fanout retry, and partition-maintenance binaries used by
+  scheduled Cloud Run Jobs.
 
 The parity stack rejects non-durable `eventbus` or `logging` outbox publishers.
 Local Docker DNS is allowed only by the explicit

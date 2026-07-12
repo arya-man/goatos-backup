@@ -88,13 +88,21 @@ wait_for "process-integrity projection effect" \
 wait_for "vaccination shed projection effect" \
   "test \"\$(psqlq \"select count(*) from vaccination_shed_projection_rows where tenant_id='$tenant_id' and shed_id='00000000-0000-4000-8000-000000003101' and due_animals > 0\")\" -gt 0"
 
-for worker in vaccination-generator obligation-sweeper calendar-projector process-integrity-projector vaccination-projection-worker notification-dispatcher; do
+for worker in vaccination-generator obligation-sweeper calendar-reminder-sweeper calendar-escalation-sweeper calendar-projector process-integrity-projector vaccination-shed-projector notification-dispatcher; do
   wait_for "$worker completed without exit" \
     "compose logs --no-color kernel-workers | grep -F 'local kernel worker complete: $worker'"
 done
 if compose logs --no-color kernel-workers | grep -Fq 'local kernel worker failed:'; then
   compose logs --no-color kernel-workers >&2
   fail "a required local kernel worker exited nonzero"
+fi
+for worker in domain-event-processed-sweeper idempotency-key-sweeper inventory-batch-reconciler sop-review-fanout-retry partition-maintainer; do
+  wait_for "$worker completed without exit" \
+    "compose logs --no-color kernel-maintenance | grep -F 'local kernel worker complete: $worker'"
+done
+if compose logs --no-color kernel-maintenance | grep -Fq 'local kernel worker failed:'; then
+  compose logs --no-color kernel-maintenance >&2
+  fail "a required local kernel maintenance worker exited nonzero"
 fi
 
 psqlq "update outbox_messages set status='pending', published_at=null, next_attempt_at=null where event_id='$event_id'" >/dev/null
