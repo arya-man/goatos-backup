@@ -83,17 +83,11 @@ class CoverageBannerViewModel @Inject constructor(
 
     private fun refreshInBackground() = viewModelScope.launch {
         _isRefreshing.value = true
-        runCatching {
-            repo.refreshCoverage()
-        }.onFailure {
-            // Refresh failed: keep prior state, never blank to Unknown if cache exists
-            val current = _coverageState.value
-            if (current == CoverageState.Unknown) {
-                // First refresh failed and no prior cache: stay Unknown, hide banner
-                updateBannerState(CoverageState.Unknown)
-            }
-            // else: cache exists; keep showing it (stale but honest)
-        }
+        // refreshCoverage never throws; it returns false on a network failure (cache kept).
+        // On success the Room flow re-emits and the collector recomputes the state. On
+        // failure the cache (if any) stays visible; with no cache the state stays Unknown —
+        // a distinct "coverage unknown/offline" that is NOT the same as NoCoverage.
+        repo.refreshCoverage()
         _isRefreshing.value = false
     }
 

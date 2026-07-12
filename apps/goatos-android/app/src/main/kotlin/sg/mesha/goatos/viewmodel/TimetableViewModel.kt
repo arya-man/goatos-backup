@@ -92,16 +92,16 @@ class TimetableViewModel @Inject constructor(
 
     private fun refreshInBackground(centerId: String) = viewModelScope.launch {
         _isRefreshing.value = true
-        runCatching {
-            repo.refreshTimetable(centerId)
-        }.onFailure {
-            // Keep cached data on screen, set offline flag for sync indicator
+        // refreshTimetable never throws; it returns false on a network failure (cache kept).
+        val refreshed = repo.refreshTimetable(centerId)
+        if (!refreshed) {
+            // Keep cached data on screen, set offline flag for the sync indicator.
             _state.update { current ->
                 if (current.rows.isNotEmpty()) {
-                    // Refresh failed but we have cached rows: show as stale/offline
+                    // Refresh failed but we have cached rows: show as stale/offline.
                     current.copy(isOffline = true, errorCode = null)
                 } else {
-                    // No cached data and refresh failed: show honest error
+                    // No cached data and refresh failed: show honest error.
                     TimetableUiState(errorCode = "load_failed")
                 }
             }

@@ -1,290 +1,195 @@
 package sg.mesha.goatos.viewmodel
 
-import app.cash.turbine.test
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.data.RosterRepository
+import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 
 /**
  * MOB-007: Coverage banner offline-first tests. Verify that:
  * 1. Has coverage: banner renders from cache across process death
- * 2. No coverage (cached): banner hidden, state distinct from "offline"
+ * 2. No coverage (cached): banner hidden, state distinct from "offline/unknown"
  * 3. Network error on cold start (no cache): banner hidden, state is Unknown
- * 4. Failed refresh with cache: keeps showing prior state (either coverage or no coverage)
+ * 4. Failed refresh with cache: keeps prior state (coverage or no-coverage)
  * 5. Coverage state is explicitly distinguished: HasCoverage / NoCoverage / Unknown
+ *
+ * The [FakeCoverageRepository] backs coverage with a MutableStateFlow, mirroring Room's
+ * DAO Flow: refresh upserts the flow and the ViewModel's collector re-emits.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class CoverageBannerViewModelTest {
 
-    private lateinit var repo: FakeCoverageRepository
-    private lateinit var viewModel: CoverageBannerViewModel
+    private val dispatcher = StandardTestDispatcher()
 
     @Before
-    fun setup() {
-        repo = FakeCoverageRepository()
-    }
+    fun setUp() = Dispatchers.setMain(dispatcher)
 
-    /**
-     * Cold start with coverage cached: banner renders immediately
-     */
+    @After
+    fun tearDown() = Dispatchers.resetMain()
+
+    private fun coverage(has: Boolean, banner: String? = null) =
+        MyCoverageResponseDto(coverage = MyCoverageDto(hasCoverage = has, bannerText = banner))
+
+    /** Cold start with coverage cached: banner renders immediately. */
     @Test
     fun `cold start with coverage cached renders banner`() = runTest {
-        // Arrange: cache has has_coverage=true with banner text
-        val cached = MyCoverageResponseDto(
-            coverage = MyCoverageDto(
-                hasCoverage = true,
-                bannerText = "Covering PM1",
-            )
-        )
-        repo.setCachedCoverage(cached)
+        val repo = FakeCoverageRepository().apply { setCachedCoverage(coverage(true, "Covering PM1")) }
 
-        // Act: create ViewModel
-        viewModel = CoverageBannerViewModel(repo)
+        val vm = CoverageBannerViewModel(repo)
+        advanceUntilIdle()
 
-        // Assert: banner renders
-        viewModel.state.test {
-            val state = awaitItem()
-            assert(state != null) { "Banner should render" }
-            assert(state?.text == "Covering PM1")
-        }
-
-        // Also verify internal state
-        viewModel.coverageState.test {
-            val state = awaitItem()
-            assert(state is CoverageState.HasCoverage)
-        }
+        assertEquals("Covering PM1", vm.state.value?.text)
+        assertTrue(vm.coverageState.value is CoverageState.HasCoverage)
     }
 
-    /**
-     * Cold start with no coverage cached: banner hidden, but not Unknown
-     */
+    /** Cold start with no coverage cached: banner hidden, state is NoCoverage (not Unknown). */
     @Test
     fun `cold start with no coverage cached hides banner`() = runTest {
-        // Arrange: cache has has_coverage=false
-        val cached = MyCoverageResponseDto(
-            coverage = MyCoverageDto(hasCoverage = false)
+        val repo = FakeCoverageRepository().apply { setCachedCoverage(coverage(false)) }
+
+        val vm = CoverageBannerViewModel(repo)
+        advanceUntilIdle()
+
+        assertNull("banner hidden", vm.state.value)
+        assertEquals(
+            "state is explicit NoCoverage, not Unknown",
+            CoverageState.NoCoverage,
+            vm.coverageState.value,
         )
-        repo.setCachedCoverage(cached)
-
-        // Act: create ViewModel
-        viewModel = CoverageBannerViewModel(repo)
-
-        // Assert: banner hidden, but state is NoCoverage (not Unknown)
-        viewModel.state.test {
-            val state = awaitItem()
-            assert(state == null) { "Banner should be hidden" }
-        }
-
-        viewModel.coverageState.test {
-            val state = awaitItem()
-            assert(state == CoverageState.NoCoverage) { "State is explicit NoCoverage, not Unknown" }
-        }
     }
 
-    /**
-     * Cold start with no cache: banner hidden, state is Unknown
-     * (We don't know yet if there's coverage; refresh will tell us)
-     */
+    /** Cold start with no cache: banner hidden, state is Unknown (awaiting first refresh). */
     @Test
     fun `cold start with no cache shows Unknown state`() = runTest {
-        // Arrange: cache is empty
-        repo.setCachedCoverage(null)
-
-        // Act: create ViewModel
-        viewModel = CoverageBannerViewModel(repo)
-
-        // Assert: banner hidden, state is Unknown
-        viewModel.state.test {
-            val state = awaitItem()
-            assert(state == null) { "Banner hidden on Unknown" }
+        val repo = FakeCoverageRepository().apply {
+            setCachedCoverage(null)
+            makeRefreshFail() // no data to resolve Unknown into a real state
         }
 
-        viewModel.coverageState.test {
-            val state = awaitItem()
-            assert(state == CoverageState.Unknown) { "State is Unknown, awaiting first refresh" }
-        }
+        val vm = CoverageBannerViewModel(repo)
+        advanceUntilIdle()
+
+        assertNull("banner hidden on Unknown", vm.state.value)
+        assertEquals(
+            "no cache + failed refresh stays Unknown",
+            CoverageState.Unknown,
+            vm.coverageState.value,
+        )
     }
 
     /**
-     * Refresh fails on cold start (no cache): stay Unknown, keep banner hidden
-     */
-    @Test
-    fun `failed refresh on cold start keeps Unknown state`() = runTest {
-        // Arrange: cache is empty, refresh will fail
-        repo.setCachedCoverage(null)
-        repo.makeRefreshFail()
-
-        // Act: create ViewModel (triggers background refresh)
-        viewModel = CoverageBannerViewModel(repo)
-
-        // Assert: still Unknown (no data to fall back to)
-        viewModel.coverageState.test {
-            val state = awaitItem()
-            assert(state == CoverageState.Unknown)
-        }
-
-        viewModel.state.test {
-            val state = awaitItem()
-            assert(state == null) { "Banner stays hidden on Unknown" }
-        }
-    }
-
-    /**
-     * Refresh fails with coverage cached: keep showing coverage
-     * (offline, but don't blank to Unknown if cache exists)
+     * Failed refresh with coverage cached: keep showing coverage (stale but honest),
+     * never blank to Unknown when cache exists.
      */
     @Test
     fun `failed refresh with coverage cached keeps showing coverage`() = runTest {
-        // Arrange: cache has coverage
-        val cached = MyCoverageResponseDto(
-            coverage = MyCoverageDto(
-                hasCoverage = true,
-                bannerText = "Covering PM1",
-            )
-        )
-        repo.setCachedCoverage(cached)
-        repo.makeRefreshFail()
-
-        // Act: create ViewModel (render cached, then refresh fails in background)
-        viewModel = CoverageBannerViewModel(repo)
-
-        // Assert: coverage still renders (stale but honest)
-        viewModel.state.test {
-            val state = awaitItem()
-            assert(state?.text == "Covering PM1") { "Keep showing cached coverage" }
+        val repo = FakeCoverageRepository().apply {
+            setCachedCoverage(coverage(true, "Covering PM1"))
+            makeRefreshFail()
         }
 
-        viewModel.coverageState.test {
-            val state = awaitItem()
-            assert(state is CoverageState.HasCoverage) { "Keep cached state" }
-        }
+        val vm = CoverageBannerViewModel(repo)
+        advanceUntilIdle()
+
+        assertEquals("keep showing cached coverage", "Covering PM1", vm.state.value?.text)
+        assertTrue(vm.coverageState.value is CoverageState.HasCoverage)
     }
 
-    /**
-     * Refresh fails with no coverage cached: keep showing no coverage
-     */
+    /** Failed refresh with no-coverage cached: keep NoCoverage (distinct from Unknown/offline). */
     @Test
     fun `failed refresh with no coverage cached keeps NoCoverage state`() = runTest {
-        // Arrange: cache has no coverage
-        val cached = MyCoverageResponseDto(
-            coverage = MyCoverageDto(hasCoverage = false)
+        val repo = FakeCoverageRepository().apply {
+            setCachedCoverage(coverage(false))
+            makeRefreshFail()
+        }
+
+        val vm = CoverageBannerViewModel(repo)
+        advanceUntilIdle()
+
+        assertNull("banner stays hidden", vm.state.value)
+        assertEquals(
+            "keep cached no-coverage state, not Unknown",
+            CoverageState.NoCoverage,
+            vm.coverageState.value,
         )
-        repo.setCachedCoverage(cached)
-        repo.makeRefreshFail()
-
-        // Act: create ViewModel
-        viewModel = CoverageBannerViewModel(repo)
-
-        // Assert: banner stays hidden, state stays NoCoverage
-        viewModel.state.test {
-            val state = awaitItem()
-            assert(state == null) { "Banner stays hidden" }
-        }
-
-        viewModel.coverageState.test {
-            val state = awaitItem()
-            assert(state == CoverageState.NoCoverage) { "Keep cached no-coverage state" }
-        }
     }
 
-    /**
-     * Successful refresh changes state from NoCoverage to HasCoverage
-     */
+    /** Successful refresh moves state from NoCoverage to HasCoverage (Room re-emit). */
     @Test
     fun `successful refresh updates from no coverage to has coverage`() = runTest {
-        // Arrange: cache has no coverage
-        val oldCached = MyCoverageResponseDto(
-            coverage = MyCoverageDto(hasCoverage = false)
-        )
-        repo.setCachedCoverage(oldCached)
-
-        // New data from refresh
-        val newData = MyCoverageResponseDto(
-            coverage = MyCoverageDto(
-                hasCoverage = true,
-                bannerText = "Now covering PM1",
-            )
-        )
-        repo.setRefreshData(newData)
-
-        // Act: create ViewModel
-        viewModel = CoverageBannerViewModel(repo)
-
-        // Trigger manual refresh
-        viewModel.load()
-
-        // Assert: coverage now renders
-        viewModel.state.test {
-            val state = awaitItem()  // initial: no coverage
-            // After refresh, cache updated with new data
-            val updatedState = awaitItem()
-            assert(updatedState?.text == "Now covering PM1")
+        val repo = FakeCoverageRepository().apply {
+            setCachedCoverage(coverage(false))
+            setRefreshData(coverage(true, "Now covering PM1"))
         }
 
-        viewModel.coverageState.test {
-            val state = awaitItem()  // initial: NoCoverage
-            val updatedState = awaitItem()  // after refresh
-            assert(updatedState is CoverageState.HasCoverage)
-        }
+        val vm = CoverageBannerViewModel(repo)
+        advanceUntilIdle()
+
+        assertEquals("Now covering PM1", vm.state.value?.text)
+        assertTrue(vm.coverageState.value is CoverageState.HasCoverage)
     }
 
     /**
-     * Process death + re-entry: cache survives, coverage renders without re-fetching
-     * (This is the core MOB-007 fix: offline-first via Room)
+     * Process death + re-entry: a fresh ViewModel over a warm cache restores the banner
+     * immediately (the core MOB-007 fix — offline-first via Room, no re-fetch needed).
      */
     @Test
     fun `process death and re-entry restores coverage from cache`() = runTest {
-        // Arrange: simulate app had coverage cached
-        val cached = MyCoverageResponseDto(
-            coverage = MyCoverageDto(
-                hasCoverage = true,
-                bannerText = "Covering PM1",
-            )
-        )
-        repo.setCachedCoverage(cached)
-
-        // Act: Create ViewModel (simulating re-entry after process death)
-        viewModel = CoverageBannerViewModel(repo)
-
-        // Assert: coverage renders immediately from Room cache
-        // (not a blank/loading state even though it's a fresh ViewModel)
-        viewModel.state.test {
-            val state = awaitItem()
-            assert(state?.text == "Covering PM1") { "Coverage restored from Room cache after process death" }
+        val repo = FakeCoverageRepository().apply {
+            setCachedCoverage(coverage(true, "Covering PM1"))
+            makeRefreshFail() // simulate still-offline on re-entry
         }
+
+        val vm = CoverageBannerViewModel(repo)
+        advanceUntilIdle()
+
+        assertEquals(
+            "coverage restored from Room cache after process death",
+            "Covering PM1",
+            vm.state.value?.text,
+        )
+        assertTrue(vm.coverageState.value is CoverageState.HasCoverage)
     }
 }
 
+/**
+ * Fake repository backing coverage with a MutableStateFlow, mirroring Room's DAO Flow: a
+ * successful refresh upserts the flow and the ViewModel's collector re-emits.
+ */
 private class FakeCoverageRepository : RosterRepository {
-    private var cachedCoverage: MyCoverageResponseDto? = null
-    private var shouldRefreshFail: Boolean = false
+    private val timetableFlow = MutableStateFlow<EnrichedPositionListResponseDto?>(null)
+    private val coverageFlow = MutableStateFlow<MyCoverageResponseDto?>(null)
+    private var shouldRefreshFail = false
     private var refreshData: MyCoverageResponseDto? = null
 
-    fun setCachedCoverage(data: MyCoverageResponseDto?) {
-        cachedCoverage = data
-    }
+    fun setCachedCoverage(data: MyCoverageResponseDto?) { coverageFlow.value = data }
+    fun makeRefreshFail() { shouldRefreshFail = true }
+    fun setRefreshData(data: MyCoverageResponseDto) { refreshData = data }
 
-    fun makeRefreshFail() {
-        shouldRefreshFail = true
-    }
+    override fun observeTimetable(centerId: String): Flow<EnrichedPositionListResponseDto?> = timetableFlow
 
-    fun setRefreshData(data: MyCoverageResponseDto) {
-        refreshData = data
-    }
+    override fun observeCoverage(): Flow<MyCoverageResponseDto?> = coverageFlow
 
-    override fun observeTimetable(centerId: String) = flowOf(null)
+    override suspend fun refreshTimetable(centerId: String, limit: Int?): Boolean = true // unused in coverage tests
 
-    override fun observeCoverage() = flowOf(cachedCoverage)
-
-    override suspend fun refreshTimetable(centerId: String, limit: Int?) {
-        // no-op for this test
-    }
-
-    override suspend fun refreshCoverage() {
-        if (shouldRefreshFail) return  // simulate failure
-        refreshData?.let { cachedCoverage = it }
+    override suspend fun refreshCoverage(): Boolean {
+        if (shouldRefreshFail) return false // simulate a network failure: cache is kept
+        refreshData?.let { coverageFlow.value = it }
+        return true
     }
 }

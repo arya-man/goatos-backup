@@ -40,16 +40,19 @@ interface RosterRepository {
     fun observeCoverage(): Flow<MyCoverageResponseDto?>
 
     /**
-     * Refresh timetable from the API and upsert Room cache.
-     * Handles network errors silently — cache is kept; the ViewModel surfaces state.
+     * Refresh timetable from the API and upsert Room cache on success. Never throws:
+     * a network failure keeps the existing cache and returns `false` so the ViewModel
+     * can surface a distinct offline/stale state. Returns `true` when the cache was
+     * refreshed from the network.
      */
-    suspend fun refreshTimetable(centerId: String, limit: Int? = null)
+    suspend fun refreshTimetable(centerId: String, limit: Int? = null): Boolean
 
     /**
-     * Refresh coverage from the API and upsert Room cache.
-     * Handles network errors silently — cache is kept; the ViewModel surfaces state.
+     * Refresh coverage from the API and upsert Room cache on success. Never throws:
+     * a network failure keeps the existing cache and returns `false`. Returns `true`
+     * when the cache was refreshed from the network.
      */
-    suspend fun refreshCoverage()
+    suspend fun refreshCoverage(): Boolean
 }
 
 class DefaultRosterRepository(
@@ -68,7 +71,7 @@ class DefaultRosterRepository(
             entity?.dtoJson?.let { json -> Json.decodeFromString<MyCoverageResponseDto>(json) }
         }
 
-    override suspend fun refreshTimetable(centerId: String, limit: Int?) {
+    override suspend fun refreshTimetable(centerId: String, limit: Int?): Boolean =
         runCatching {
             api.getOperatorTimetable(centerId, limit)
         }.onSuccess { dto ->
@@ -79,11 +82,10 @@ class DefaultRosterRepository(
                     updatedAt = System.currentTimeMillis(),
                 )
             )
-        }
-        // onFailure: keep cache, ViewModel handles offline indicator
-    }
+        }.isSuccess
+        // onFailure: keep cache; false lets the ViewModel show a distinct offline state.
 
-    override suspend fun refreshCoverage() {
+    override suspend fun refreshCoverage(): Boolean =
         runCatching {
             api.getMyCoverage()
         }.onSuccess { dto ->
@@ -93,7 +95,6 @@ class DefaultRosterRepository(
                     updatedAt = System.currentTimeMillis(),
                 )
             )
-        }
-        // onFailure: keep cache, ViewModel handles offline indicator
-    }
+        }.isSuccess
+        // onFailure: keep cache; false lets the ViewModel keep the last known state.
 }
