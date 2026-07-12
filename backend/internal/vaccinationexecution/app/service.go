@@ -28,16 +28,34 @@ func NewService(repo ports.Repository, ownership ...ports.ShedOwnershipReader) *
 }
 
 func (s *Service) VaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionRow, error) {
-	projections, err := s.repo.ListVaccinationExecution(ctx, q)
+	page, err := s.VaccinationExecutionPage(ctx, q)
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]domain.ExecutionRow, 0, len(projections))
-	for _, p := range projections {
+	return page.Rows, nil
+}
+
+// VaccinationExecutionPage returns one server-filtered keyset page plus the authoritative filtered
+// total. The repository fetches limit+1 rows in the same query, so pagination never adds a count call.
+func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.ExecutionQuery) (domain.ExecutionResponse, error) {
+	page, err := s.repo.ListVaccinationExecutionPage(ctx, q)
+	if err != nil {
+		return domain.ExecutionResponse{}, err
+	}
+	rows := make([]domain.ExecutionRow, 0, len(page.Rows))
+	for _, p := range page.Rows {
 		row := rowFromProjection(p, q)
 		rows = append(rows, row)
 	}
-	return rows, nil
+	var next *string
+	if page.NextCursor != nil {
+		encoded, err := domain.EncodeExecutionCursor(*page.NextCursor)
+		if err != nil {
+			return domain.ExecutionResponse{}, err
+		}
+		next = &encoded
+	}
+	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next}, nil
 }
 
 func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {
@@ -145,8 +163,35 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 			c.WorkState = cellState
 		}
 	}
+	var nextCursor *string
+	if q.Limit > 0 && len(cohorts) > q.Limit {
+		last := cohorts[q.Limit-1]
+		encoded, err := domain.EncodeOperationsCursor(domain.OperationsCursor{
+			ParkID: last.ParkID,
+			ShedID: last.ShedID,
+			Stage:  last.Stage,
+		})
+		if err != nil {
+			return domain.OperationsResponse{}, err
+		}
+		nextCursor = &encoded
+		cohorts = cohorts[:q.Limit]
+		visibleProtocols := make(map[string]bool)
+		for _, cohort := range cohorts {
+			for _, cell := range cohort.Cells {
+				visibleProtocols[cell.ProtocolID] = true
+			}
+		}
+		filtered := protocols[:0]
+		for _, protocol := range protocols {
+			if visibleProtocols[protocol.ProtocolID] {
+				filtered = append(filtered, protocol)
+			}
+		}
+		protocols = filtered
+	}
 	sort.SliceStable(protocols, func(i, j int) bool { return protocols[i].Name < protocols[j].Name })
-	return domain.OperationsResponse{Source: domain.SourceAPI, Protocols: protocols, Cohorts: cohorts}, nil
+	return domain.OperationsResponse{Source: domain.SourceAPI, Protocols: protocols, Cohorts: cohorts, NextCursor: nextCursor}, nil
 }
 
 // countsFromRow projects the SQL obligation/completion tallies onto the API counts shape.
@@ -237,7 +282,10 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	sopStatus := sopStatus(p.TaskState)
 	proofStatus := proofStatus(p)
 	verificationStatus := verificationStatus(p)
-	workState := workState(p, q)
+	workState := p.WorkState
+	if workState == "" {
+		workState = workStateFromProjection(p, q)
+	}
 	return domain.ExecutionRow{
 		ParkID:             p.ParkID,
 		ParkName:           p.ParkName,
@@ -264,7 +312,7 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	}
 }
 
-func workState(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.WorkState {
+func workStateFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) domain.WorkState {
 	if p.ObligationCount > 0 && p.CompletedCount == p.ObligationCount && p.CompletionRejected == 0 && p.CompletionRecorded == 0 {
 		return domain.WorkStateCompleted
 	}
@@ -462,8 +510,12 @@ func nextAction(p domain.ExecutionProjection, workState domain.WorkState) string
 
 // ScanRoster returns per-animal vaccination obligations for a shed with RFID tags and vaccine labels.
 // Used by the mobile scan screen to match keyboard-wedge tag captures.
-func (s *Service) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
+func (s *Service) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
 	return s.repo.ScanRoster(ctx, q)
+}
+
+func (s *Service) TaskOptionValues(ctx context.Context, tenantID, taskID string) (domain.TaskOptionValuesResponse, error) {
+	return s.repo.TaskOptionValues(ctx, tenantID, taskID)
 }
 
 const (

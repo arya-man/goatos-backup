@@ -50,11 +50,15 @@ func (r fakeRepo) VaccinationGaps(_ context.Context, _ domain.GapsQuery) ([]doma
 	return r.gapsRows, nil
 }
 
-func (r fakeRepo) ScanRoster(_ context.Context, _ domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
+func (r fakeRepo) ScanRoster(_ context.Context, _ domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
 	if r.err != nil {
-		return nil, r.err
+		return domain.ScanRosterResult{}, r.err
 	}
-	return r.roster, nil
+	return domain.ScanRosterResult{Rows: r.roster}, nil
+}
+
+func (r fakeRepo) TaskOptionValues(_ context.Context, _, _ string) (domain.TaskOptionValuesResponse, error) {
+	return domain.TaskOptionValuesResponse{}, r.err
 }
 
 func (r fakeRepo) VaccinationOperations(_ context.Context, _ domain.OperationsQuery) ([]domain.OperationsRow, error) {
@@ -64,20 +68,25 @@ func (r fakeRepo) VaccinationOperations(_ context.Context, _ domain.OperationsQu
 	return r.opsRows, nil
 }
 
-func (r fakeRepo) ListVaccinationExecution(_ context.Context, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error) {
+func (r fakeRepo) ListVaccinationExecutionPage(_ context.Context, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error) {
 	if r.err != nil {
-		return nil, r.err
+		return domain.ExecutionProjectionPage{}, r.err
 	}
 	if q.WorkState == nil {
-		return r.rows, nil
+		return domain.ExecutionProjectionPage{Rows: r.rows, TotalCount: int64(len(r.rows))}, nil
 	}
 	out := make([]domain.ExecutionProjection, 0, len(r.rows))
 	for _, p := range r.rows {
-		if workState(p, q) == *q.WorkState {
+		if workStateFromProjection(p, q) == *q.WorkState {
 			out = append(out, p)
 		}
 	}
-	return out, nil
+	return domain.ExecutionProjectionPage{Rows: out, TotalCount: int64(len(out))}, nil
+}
+
+func (r fakeRepo) ListVaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error) {
+	page, err := r.ListVaccinationExecutionPage(ctx, q)
+	return page.Rows, err
 }
 
 func TestVaccinationExecutionMapsProcessStates(t *testing.T) {

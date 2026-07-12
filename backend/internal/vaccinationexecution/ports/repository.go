@@ -9,8 +9,17 @@ import (
 
 type Repository interface {
 	ListVaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error)
+	// ListVaccinationExecutionPage returns one stable keyset page of execution projections plus the
+	// pre-cursor window total, so the request path never fetches the whole server-filtered set.
+	ListVaccinationExecutionPage(ctx context.Context, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error)
 	VaccinationOperations(ctx context.Context, q domain.OperationsQuery) ([]domain.OperationsRow, error)
-	ScanRoster(ctx context.Context, q domain.ScanRosterQuery) ([]domain.ScanRosterRow, error)
+	// ScanRoster returns one keyset page of per-animal scan obligations for the mobile scan screen
+	// (Rows + NextCursor); the shed's completion counts are computed server-side, not by loading the
+	// full roster on the device.
+	ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error)
+	// TaskOptionValues returns the authored option sources (vaccine lots FEFO-ranked, route/site) for a
+	// SOP task's capture form, so the device never enumerates inventory to populate a picker.
+	TaskOptionValues(ctx context.Context, tenantID, taskID string) (domain.TaskOptionValuesResponse, error)
 	// VaccinationGaps returns the bounded, keyset-paginated PER-ANIMAL exclusion rows for the mobile data
 	// gaps overlay. Every row is one goat; there is no by-reason aggregate in the contract.
 	VaccinationGaps(ctx context.Context, q domain.GapsQuery) ([]domain.GapProjectionRow, error)

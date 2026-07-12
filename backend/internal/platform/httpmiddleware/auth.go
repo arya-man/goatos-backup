@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -320,4 +321,77 @@ func writeAuthError(w http.ResponseWriter, r *http.Request, status int, code, me
 		TraceID:     traceID,
 		Retryable:   false,
 	})
+}
+
+// ParkScopeDecision is the resolved park-scope authorization for a vaccination read handler:
+// which park the actor may see, or why access is denied. Handlers clamp their repository queries
+// to Decision.ParkID when Allowed, else return Status/Code/Message.
+type ParkScopeDecision struct {
+	ParkID  string
+	Allowed bool
+	Status  int
+	Code    string
+	Message string
+}
+
+// ResolveAuthorizedParkScope clamps a requested park to the actor's grant scope. A tenant-wide
+// grant (or no grants, e.g. an internal service context) sees the requested park verbatim; a
+// park-scoped actor may only see a park within AuthorizedParkIDs, and an empty request defaults
+// to their first authorized park. Used by vaccination-execution read handlers before querying.
+func ResolveAuthorizedParkScope(ctx context.Context, tenantID, requestedParkID string) ParkScopeDecision {
+	grants := AuthGrantsFromContext(ctx)
+	if len(grants) == 0 || HasTenantWideGrant(grants, tenantID) {
+		return ParkScopeDecision{ParkID: requestedParkID, Allowed: true}
+	}
+	parkIDs := AuthorizedParkIDs(grants)
+	if len(parkIDs) == 0 {
+		return ParkScopeDecision{
+			Allowed: false,
+			Status:  http.StatusForbidden,
+			Code:    "park_scope_required",
+			Message: "this route requires an authorized park scope",
+		}
+	}
+	if requestedParkID != "" {
+		for _, parkID := range parkIDs {
+			if parkID == requestedParkID {
+				return ParkScopeDecision{ParkID: requestedParkID, Allowed: true}
+			}
+		}
+		return ParkScopeDecision{
+			Allowed: false,
+			Status:  http.StatusForbidden,
+			Code:    "park_scope_forbidden",
+			Message: "requested park is outside the actor's authorized scope",
+		}
+	}
+	return ParkScopeDecision{ParkID: parkIDs[0], Allowed: true}
+}
+
+// HasTenantWideGrant reports whether any grant is scoped to the whole tenant.
+func HasTenantWideGrant(grants []permissions.ActiveGrant, tenantID string) bool {
+	for _, grant := range grants {
+		if grant.ScopeType == "tenant" && grant.ScopeID == tenantID {
+			return true
+		}
+	}
+	return false
+}
+
+// AuthorizedParkIDs returns the distinct, sorted park scope ids across the actor's grants.
+func AuthorizedParkIDs(grants []permissions.ActiveGrant) []string {
+	seen := map[string]struct{}{}
+	out := []string{}
+	for _, grant := range grants {
+		if grant.ScopeType != "park" || strings.TrimSpace(grant.ScopeID) == "" {
+			continue
+		}
+		if _, ok := seen[grant.ScopeID]; ok {
+			continue
+		}
+		seen[grant.ScopeID] = struct{}{}
+		out = append(out, grant.ScopeID)
+	}
+	sort.Strings(out)
+	return out
 }

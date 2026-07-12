@@ -25,9 +25,11 @@ import (
 // Reader is the vaccination execution read slice required by this handler.
 type Reader interface {
 	VaccinationExecution(ctx context.Context, q vaccexecd.ExecutionQuery) ([]vaccexecd.ExecutionRow, error)
+	VaccinationExecutionPage(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ExecutionResponse, error)
 	ShedDrilldown(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ShedDrilldown, bool, error)
 	VaccinationOperations(ctx context.Context, q vaccexecd.OperationsQuery) (vaccexecd.OperationsResponse, error)
-	ScanRoster(ctx context.Context, q vaccexecd.ScanRosterQuery) ([]vaccexecd.ScanRosterRow, error)
+	ScanRoster(ctx context.Context, q vaccexecd.ScanRosterQuery) (vaccexecd.ScanRosterResult, error)
+	TaskOptionValues(ctx context.Context, tenantID, taskID string) (vaccexecd.TaskOptionValuesResponse, error)
 	// VaccinationGaps backs the mobile data-gaps overlay (animals excluded from coverage + reason).
 	VaccinationGaps(ctx context.Context, q vaccexecd.GapsQuery) (vaccexecd.GapsResponse, error)
 	// CoverageRollup backs the mobile doses-given overlay (per-vaccine given count + coverage %).
@@ -105,6 +107,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}/animals", h.GetShedAnimals)
 	mux.HandleFunc("GET /vaccination/capacity-config", h.GetCapacityConfig)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
+	mux.HandleFunc("GET /app/vaccination/tasks/{task_id}/option-values", h.TaskOptionValues)
 	mux.HandleFunc("POST /app/vaccination/obligations/{obligation_id}/reschedule", h.RescheduleObligation)
 	mux.HandleFunc("GET /app/vaccination/gaps", h.VaccinationGaps)
 	mux.HandleFunc("GET /app/vaccination/coverage", h.VaccinationCoverage)
@@ -156,6 +159,17 @@ func (h *Handler) VaccinationOperations(w http.ResponseWriter, r *http.Request) 
 		}
 		q.Limit = n
 	}
+	if rawCursor := query.Get("cursor"); rawCursor != "" {
+		cursor, err := vaccexecd.DecodeOperationsCursor(rawCursor)
+		if err != nil {
+			h.badRequest(w, r, "invalid_cursor", "cursor must be a valid vaccination operations cursor")
+			return
+		}
+		q.Cursor = &cursor
+	}
+	if !h.applyOperationsParkScope(w, r, &q) {
+		return
+	}
 	resp, err := h.reader.VaccinationOperations(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
@@ -185,6 +199,13 @@ var allowedWorkStates = map[vaccexecd.WorkState]bool{
 	vaccexecd.WorkStateCompleted:           true,
 }
 
+var allowedSeverities = map[vaccexecd.Severity]bool{
+	vaccexecd.SeverityOK:     true,
+	vaccexecd.SeverityWatch:  true,
+	vaccexecd.SeverityAtRisk: true,
+	vaccexecd.SeverityBroken: true,
+}
+
 type errorEnvelope struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -197,12 +218,12 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	rows, err := h.reader.VaccinationExecution(r.Context(), q)
+	page, err := h.reader.VaccinationExecutionPage(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, vaccexecd.ExecutionResponse{Source: vaccexecd.SourceAPI, Rows: rows})
+	httpresponse.WriteJSON(w, http.StatusOK, page)
 }
 
 // GetShedDrilldown returns the vaccination execution context for a single shed.
@@ -265,6 +286,22 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		}
 		q.WorkState = &workState
 	}
+	if raw := query.Get("severity"); raw != "" {
+		severity := vaccexecd.Severity(raw)
+		if !allowedSeverities[severity] {
+			h.badRequest(w, r, "invalid_severity", "severity must be a vaccination execution severity")
+			return vaccexecd.ExecutionQuery{}, false
+		}
+		q.Severity = &severity
+	}
+	if raw := query.Get("cursor"); raw != "" {
+		cursor, err := vaccexecd.DecodeExecutionCursor(raw)
+		if err != nil {
+			h.badRequest(w, r, "invalid_cursor", "cursor must be a valid vaccination execution cursor")
+			return vaccexecd.ExecutionQuery{}, false
+		}
+		q.Cursor = &cursor
+	}
 	if dueBefore := query.Get("due_before"); dueBefore != "" {
 		parsed, err := time.Parse(time.RFC3339, dueBefore)
 		if err != nil {
@@ -284,6 +321,9 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		}
 		q.Limit = n
 	}
+	if !h.applyExecutionParkScope(w, r, &q) {
+		return vaccexecd.ExecutionQuery{}, false
+	}
 	return q, true
 }
 
@@ -300,6 +340,11 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
+	taskID := query.Get("task_id")
+	if !uuidutil.IsUUIDString(taskID) {
+		h.badRequest(w, r, "invalid_task_id", "task_id must be a UUID")
+		return
+	}
 	limit := 500
 	if limitRaw := query.Get("limit"); limitRaw != "" {
 		n, err := strconv.Atoi(limitRaw)
@@ -315,17 +360,56 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 	q := vaccexecd.ScanRosterQuery{
 		TenantID: tenantID(r),
 		ShedID:   shedID,
+		TaskID:   taskID,
 		Limit:    limit,
 	}
-	rows, err := h.reader.ScanRoster(r.Context(), q)
+	if rawCursor := query.Get("cursor"); rawCursor != "" {
+		cursor, err := vaccexecd.DecodeScanRosterCursor(rawCursor)
+		if err != nil {
+			h.badRequest(w, r, "invalid_cursor", "cursor must be a valid scan roster cursor")
+			return
+		}
+		q.Cursor = &cursor
+	}
+	result, err := h.reader.ScanRoster(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
 		return
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, map[string]interface{}{
+	response := map[string]interface{}{
 		"source": "api",
-		"rows":   rows,
-	})
+		"rows":   result.Rows,
+	}
+	if len(result.Rows) > 0 {
+		row := result.Rows[0]
+		response["taskId"] = row.TaskID
+		response["batchId"] = row.BatchID
+		response["sopVersionId"] = row.SOPVersionID
+		response["taskRowVersion"] = row.TaskRowVersion
+	}
+	if result.NextCursor != nil {
+		encoded, err := vaccexecd.EncodeScanRosterCursor(*result.NextCursor)
+		if err != nil {
+			h.internal(w, r, err)
+			return
+		}
+		response["nextCursor"] = encoded
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, response)
+}
+
+func (h *Handler) TaskOptionValues(w http.ResponseWriter, r *http.Request) {
+	taskID := r.PathValue("task_id")
+	if !uuidutil.IsUUIDString(taskID) {
+		h.badRequest(w, r, "invalid_task_id", "task_id must be a UUID")
+		return
+	}
+	response, err := h.reader.TaskOptionValues(r.Context(), tenantID(r), taskID)
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, response)
 }
 
 type rescheduleRequest struct {
@@ -442,6 +526,9 @@ func (h *Handler) VaccinationGaps(w http.ResponseWriter, r *http.Request) {
 		}
 		q.Limit = n
 	}
+	if !h.applyGapsParkScope(w, r, &q) {
+		return
+	}
 	resp, err := h.reader.VaccinationGaps(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
@@ -497,6 +584,9 @@ func (h *Handler) VaccinationCoverage(w http.ResponseWriter, r *http.Request) {
 			n = maxExecutionLimit
 		}
 		q.Limit = n
+	}
+	if !h.applyOperationsParkScope(w, r, &q) {
+		return
 	}
 	resp, err := h.reader.CoverageRollup(r.Context(), q)
 	if err != nil {
@@ -627,6 +717,9 @@ func (h *Handler) ListShedSummary(w http.ResponseWriter, r *http.Request) {
 		}
 		q.Offset = n
 	}
+	if !h.applyShedSummaryParkScope(w, r, &q) {
+		return
+	}
 	resp, err := h.reader.ShedSummary(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
@@ -670,6 +763,9 @@ func (h *Handler) GetShedDetail(w http.ResponseWriter, r *http.Request) {
 			errorEnvelope{Code: "not_found", Message: "shed vaccination detail was not found", TraceID: traceID(r)}, nil)
 		return
 	}
+	if !h.allowParkID(w, r, detail.ParkID) {
+		return
+	}
 	httpresponse.WriteJSON(w, http.StatusOK, detail)
 }
 
@@ -700,6 +796,24 @@ func (h *Handler) GetShedAnimals(w http.ResponseWriter, r *http.Request) {
 			n = 500
 		}
 		q.Limit = n
+	}
+	detail, found, err := h.reader.ShedDetail(r.Context(), shedID, vaccexecd.OperationsQuery{
+		TenantID:  tenantID(r),
+		AsOf:      h.now(),
+		DueBefore: h.now().Add(defaultExecutionHorizonDays * 24 * time.Hour),
+		Limit:     1,
+	})
+	if err != nil {
+		h.internal(w, r, err)
+		return
+	}
+	if !found {
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+			errorEnvelope{Code: "not_found", Message: "shed vaccination detail was not found", TraceID: traceID(r)}, nil)
+		return
+	}
+	if !h.allowParkID(w, r, detail.ParkID) {
+		return
 	}
 	page, err := h.reader.ShedAnimals(r.Context(), q)
 	if err != nil {
@@ -735,4 +849,70 @@ func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {
 	httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
 		errorEnvelope{Code: code, Message: msg, TraceID: traceID(r)}, nil)
+}
+
+func (h *Handler) applyOperationsParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.OperationsQuery) bool {
+	parkID, ok := h.authorizedParkID(w, r, optionalString(q.ParkID))
+	if !ok {
+		return false
+	}
+	if parkID != "" {
+		q.ParkID = &parkID
+	}
+	return true
+}
+
+func (h *Handler) applyExecutionParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.ExecutionQuery) bool {
+	parkID, ok := h.authorizedParkID(w, r, optionalString(q.ParkID))
+	if !ok {
+		return false
+	}
+	if parkID != "" {
+		q.ParkID = &parkID
+	}
+	return true
+}
+
+func (h *Handler) applyGapsParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.GapsQuery) bool {
+	parkID, ok := h.authorizedParkID(w, r, optionalString(q.ParkID))
+	if !ok {
+		return false
+	}
+	if parkID != "" {
+		q.ParkID = &parkID
+	}
+	return true
+}
+
+func (h *Handler) applyShedSummaryParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.ShedSummaryQuery) bool {
+	parkID, ok := h.authorizedParkID(w, r, optionalString(q.ParkID))
+	if !ok {
+		return false
+	}
+	if parkID != "" {
+		q.ParkID = &parkID
+	}
+	return true
+}
+
+func (h *Handler) allowParkID(w http.ResponseWriter, r *http.Request, parkID string) bool {
+	_, ok := h.authorizedParkID(w, r, parkID)
+	return ok
+}
+
+func (h *Handler) authorizedParkID(w http.ResponseWriter, r *http.Request, requested string) (string, bool) {
+	decision := httpmiddleware.ResolveAuthorizedParkScope(r.Context(), tenantID(r), requested)
+	if decision.Allowed {
+		return decision.ParkID, true
+	}
+	httpresponse.WriteError(w, r, h.log, decision.Status,
+		errorEnvelope{Code: decision.Code, Message: decision.Message, TraceID: traceID(r)}, nil)
+	return "", false
+}
+
+func optionalString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }

@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -38,6 +39,11 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 var _ ports.Repository = (*Repository)(nil)
 
 func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error) {
+	page, err := r.ListVaccinationExecutionPage(ctx, q)
+	return page.Rows, err
+}
+
+func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if q.Limit <= 0 {
@@ -60,12 +66,26 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 	if q.ShedID != nil {
 		shedID = *q.ShedID
 	}
-	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, q.TenantID, parkID, shedID, q.DueBefore, q.Limit, workState, asOf, closedAfter)
+	severity := ""
+	if q.Severity != nil {
+		severity = string(*q.Severity)
+	}
+	cursorPresent := q.Cursor != nil
+	var cursorRank int
+	var cursorDueMicros int64
+	var cursorRowKey string
+	if q.Cursor != nil {
+		cursorRank = q.Cursor.SortRank
+		cursorDueMicros = q.Cursor.SortDueMicros
+		cursorRowKey = q.Cursor.SortRowKey
+	}
+	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, q.TenantID, parkID, shedID, q.DueBefore, q.Limit, workState, asOf, closedAfter, severity, cursorPresent, cursorRank, cursorDueMicros, cursorRowKey)
 	if err != nil {
-		return nil, fmt.Errorf("vaccination execution: list vaccination execution: %w", err)
+		return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: list vaccination execution: %w", err)
 	}
 	defer rows.Close()
 	out := []domain.ExecutionProjection{}
+	var totalCount int64
 	for rows.Next() {
 		var p domain.ExecutionProjection
 		var batchID, batchStatus, taskState, operatorName, parkHeadName, verifierName pgtype.Text
@@ -75,6 +95,7 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 		var obligationCount, scheduledCount, dueCount, inProgressCount, completedCount int64
 		var missedCount, deferredCount, canceledCount, recordedCount, acceptedCount int64
 		var rejectedCount, reversedCount, healthDeferredCount int64
+		var workState string
 		if err := rows.Scan(
 			&p.ParkID,
 			&p.ParkName,
@@ -111,8 +132,13 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 			&sopVersionID,
 			&sopTaskRowVersion,
 			&completionID,
+			&workState,
+			&totalCount,
+			&p.SortRank,
+			&p.SortDueMicros,
+			&p.SortRowKey,
 		); err != nil {
-			return nil, fmt.Errorf("vaccination execution: scan vaccination execution: %w", err)
+			return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: scan vaccination execution: %w", err)
 		}
 		p.BatchID = textPtr(batchID)
 		p.DueAt = timePtr(dueAt)
@@ -139,12 +165,19 @@ func (r *Repository) ListVaccinationExecution(ctx context.Context, q domain.Exec
 		p.SOPVersionID = textPtr(sopVersionID)
 		p.SOPTaskRowVersion = int32Ptr(sopTaskRowVersion)
 		p.CompletionID = textPtr(completionID)
+		p.WorkState = domain.WorkState(workState)
 		out = append(out, p)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("vaccination execution: iterate vaccination execution: %w", err)
+		return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: iterate vaccination execution: %w", err)
 	}
-	return out, nil
+	var next *domain.ExecutionCursor
+	if len(out) > q.Limit {
+		out = out[:q.Limit]
+		last := out[len(out)-1]
+		next = &domain.ExecutionCursor{SortRank: last.SortRank, SortDueMicros: last.SortDueMicros, SortRowKey: last.SortRowKey}
+	}
+	return domain.ExecutionProjectionPage{Rows: out, TotalCount: totalCount, NextCursor: next}, nil
 }
 
 // VaccinationOperations returns one row per cohort (park · shed · stage) × vaccination protocol, with the
@@ -156,6 +189,7 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	if q.Limit <= 0 {
 		q.Limit = 500
 	}
+	fetchLimit := q.Limit + 1
 	asOf := q.AsOf
 	if asOf.IsZero() {
 		asOf = time.Now().In(biztime.DefaultLocation())
@@ -172,7 +206,13 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	if q.ShedID != nil {
 		shedID = *q.ShedID
 	}
-	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL, q.TenantID, asOf, dueBefore, parkID, shedID, q.Limit)
+	cursorParkID, cursorShedID, cursorStage := "", "", ""
+	if q.Cursor != nil {
+		cursorParkID = q.Cursor.ParkID
+		cursorShedID = q.Cursor.ShedID
+		cursorStage = q.Cursor.Stage
+	}
+	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL, q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: list operations: %w", err)
 	}
@@ -622,6 +662,46 @@ stateful AS (
       ELSE 'scheduled'
     END AS work_state
   FROM enriched
+),
+classified AS (
+  SELECT
+    stateful.*,
+    CASE stateful.work_state
+      WHEN 'rejected' THEN 0
+      WHEN 'blocked' THEN 1
+      WHEN 'missed' THEN 2
+      WHEN 'overdue' THEN 3
+      WHEN 'proof_pending' THEN 4
+      WHEN 'verification_pending' THEN 5
+      WHEN 'due' THEN 6
+      WHEN 'in_progress' THEN 7
+      WHEN 'deferred' THEN 8
+      WHEN 'scheduled' THEN 9
+      WHEN 'completed' THEN 10
+      ELSE 11
+    END AS sort_rank,
+    COALESCE(
+      CASE
+        WHEN stateful.work_state = 'completed' THEN -(EXTRACT(EPOCH FROM stateful.due_at) * 1000000)::bigint
+        ELSE (EXTRACT(EPOCH FROM stateful.due_at) * 1000000)::bigint
+      END,
+      9223372036854775807::bigint
+    ) AS sort_due_micros,
+    stateful.park_uuid::text || '|' || stateful.shed_uuid::text || '|' || stateful.rule_id::text || '|' ||
+      COALESCE(stateful.batch_id::text, '00000000-0000-0000-0000-000000000000') AS sort_row_key,
+    CASE
+      WHEN stateful.work_state = 'completed' THEN 'ok'
+      WHEN stateful.work_state IN ('scheduled', 'due', 'in_progress', 'deferred', 'verification_pending') THEN 'watch'
+      WHEN stateful.work_state IN ('proof_pending', 'overdue', 'missed') THEN 'at_risk'
+      ELSE 'broken'
+    END AS severity
+  FROM stateful
+),
+filtered AS (
+  SELECT classified.*, COUNT(*) OVER()::bigint AS total_count
+  FROM classified
+  WHERE ($6::text = '' OR classified.work_state = $6::text)
+    AND ($9::text = '' OR classified.severity = $9::text)
 )
 SELECT
   grouped.park_uuid::text AS park_id,
@@ -658,8 +738,13 @@ SELECT
   grouped.sop_task_id,
   grouped.sop_version_id,
   grouped.sop_task_row_version,
-  grouped.completion_id
-FROM stateful grouped
+  grouped.completion_id,
+  grouped.work_state,
+  grouped.total_count,
+  grouped.sort_rank,
+  grouped.sort_due_micros,
+  grouped.sort_row_key
+FROM filtered grouped
 JOIN locations park
   ON park.tenant_id = $1::uuid
  AND park.location_id = grouped.park_uuid
@@ -687,27 +772,10 @@ LEFT JOIN LATERAL (
            wm.updated_at DESC, wm.workforce_member_id DESC
   LIMIT 1
 ) verifier ON true
-WHERE ($6::text = '' OR grouped.work_state = $6::text)
-ORDER BY
-  CASE grouped.work_state
-    WHEN 'rejected' THEN 0
-    WHEN 'blocked' THEN 1
-    WHEN 'overdue' THEN 2
-    WHEN 'proof_pending' THEN 3
-    WHEN 'verification_pending' THEN 4
-    WHEN 'due' THEN 5
-    WHEN 'in_progress' THEN 6
-    WHEN 'deferred' THEN 7
-    WHEN 'scheduled' THEN 8
-    WHEN 'completed' THEN 9
-    ELSE 11
-  END,
-  CASE WHEN grouped.work_state = 'completed' THEN grouped.due_at END DESC NULLS LAST,
-  CASE WHEN grouped.work_state <> 'completed' THEN grouped.due_at END ASC NULLS LAST,
-  park.name ASC,
-  shed.name ASC,
-  grouped.rule_id ASC
-LIMIT $5;
+WHERE NOT $10::boolean
+   OR (grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key) > ($11::int, $12::bigint, $13::text)
+ORDER BY grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key
+LIMIT ($5::int + 1);
 `
 
 // vaccinationOperationsSQL is point-in-time correct as of $2 (as_of). It does NOT bucket off the stored
@@ -855,7 +923,31 @@ effective AS (
       WHEN located.stored_status = 'in_progress' THEN 'in_progress'
       ELSE located.open_bucket
     END AS eff_status
-  FROM located
+	FROM located
+),
+cohort_page AS (
+  SELECT effective.park_uuid, effective.shed_uuid, effective.stage
+  FROM effective
+  JOIN locations shed
+    ON shed.tenant_id = $1::uuid
+   AND shed.location_id = effective.shed_uuid
+   AND shed.location_type = 'shed'
+   AND shed.status = 'active'
+  JOIN locations park
+    ON park.tenant_id = $1::uuid
+   AND park.location_id = effective.park_uuid
+   AND park.location_type = 'park'
+   AND park.status = 'active'
+  WHERE effective.park_uuid IS NOT NULL
+    AND ($4::text = '' OR effective.park_uuid = NULLIF($4, '')::uuid)
+    AND ($5::text = '' OR effective.shed_uuid = NULLIF($5, '')::uuid)
+    AND (
+      $6::text = ''
+      OR (effective.park_uuid, effective.shed_uuid, effective.stage) > (NULLIF($6, '')::uuid, NULLIF($7, '')::uuid, $8::text)
+    )
+  GROUP BY effective.park_uuid, effective.shed_uuid, effective.stage
+  ORDER BY effective.park_uuid ASC, effective.shed_uuid ASC, effective.stage ASC
+  LIMIT $9
 )
 SELECT
   effective.park_uuid,
@@ -880,6 +972,10 @@ SELECT
   COUNT(*) FILTER (WHERE effective.completion_status = 'rejected')::bigint AS rejected_count,
   COUNT(*)::bigint AS total_count
 FROM effective
+JOIN cohort_page page
+  ON page.park_uuid = effective.park_uuid
+ AND page.shed_uuid = effective.shed_uuid
+ AND page.stage = effective.stage
 JOIN locations shed
   ON shed.tenant_id = $1::uuid
  AND shed.location_id = effective.shed_uuid
@@ -890,19 +986,19 @@ JOIN locations park
  AND park.location_id = effective.park_uuid
  AND park.location_type = 'park'
  AND park.status = 'active'
-WHERE effective.park_uuid IS NOT NULL
-  AND ($4::text = '' OR effective.park_uuid = $4::uuid)
-  AND ($5::text = '' OR effective.shed_uuid = $5::uuid)
 GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effective.stage, effective.protocol_id, effective.protocol_name
-ORDER BY park.name ASC, shed.name ASC, effective.stage ASC, effective.protocol_name ASC
-LIMIT $6;
+ORDER BY effective.park_uuid ASC, effective.shed_uuid ASC, effective.stage ASC, effective.protocol_name ASC, effective.protocol_id ASC;
 `
 
 // ScanRoster returns per-animal vaccination obligations scoped by shed, with RFID tags and vaccine labels.
 // Used by the mobile scan screen to match keyboard-wedge tag captures against due animals.
-func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
+func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	identity, err := r.taskExecutionIdentity(ctx, q.TenantID, q.TaskID, q.ShedID)
+	if err != nil {
+		return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster identity: %w", err)
+	}
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 500
@@ -910,9 +1006,13 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	if limit > 5000 {
 		limit = 5000
 	}
-	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, limit)
+	cursorGoatID, cursorObligationID := "", ""
+	if q.Cursor != nil {
+		cursorGoatID, cursorObligationID = q.Cursor.GoatID, q.Cursor.ObligationID
+	}
+	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1)
 	if err != nil {
-		return nil, fmt.Errorf("vaccination execution: scan roster: %w", err)
+		return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster: %w", err)
 	}
 	defer rows.Close()
 	out := []domain.ScanRosterRow{}
@@ -920,28 +1020,40 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 		var row domain.ScanRosterRow
 		var secondaryTag pgtype.Text
 		if err := rows.Scan(
+			&row.GoatID,
 			&row.PrimaryTag,
 			&secondaryTag,
 			&row.VaccineLabel,
 			&row.Status,
 			&row.ObligationID,
 		); err != nil {
-			return nil, fmt.Errorf("vaccination execution: scan roster scan: %w", err)
+			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster scan: %w", err)
 		}
 		row.SecondaryTag = textPtr(secondaryTag)
+		row.BatchID = identity.BatchID
+		row.TaskID = identity.TaskID
+		row.SOPVersionID = identity.SOPVersionID
+		row.TaskRowVersion = identity.TaskRowVersion
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("vaccination execution: scan roster iterate: %w", err)
+		return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster iterate: %w", err)
 	}
-	return out, nil
+	result := domain.ScanRosterResult{Rows: out}
+	if len(out) > limit {
+		result.Rows = out[:limit]
+		last := result.Rows[len(result.Rows)-1]
+		result.NextCursor = &domain.ScanRosterCursor{GoatID: last.GoatID, ObligationID: last.ObligationID}
+	}
+	return result, nil
 }
 
 const scanRosterSQL = `
 SELECT
+  g.goat_id::text,
   COALESCE(aid1.identifier_value, '') AS primary_tag,
   aid2.identifier_value AS secondary_tag,
-  CONCAT(pr.name, ' · ', pr.dose_code) AS vaccine_label,
+  CONCAT(pd.name, ' · ', pr.dose_code) AS vaccine_label,
   CASE
     WHEN oi.status = 'due' OR (oi.due_at < now() AND oi.status = 'scheduled') THEN 'due'
     WHEN oi.status = 'in_progress' THEN 'in_progress'
@@ -979,10 +1091,204 @@ LEFT JOIN goat_identifiers aid2
  AND aid2.status = 'active'
 WHERE oi.tenant_id = $1::uuid
   AND g.shed_id = $2::uuid
+  AND oi.sop_task_id = $3::uuid
+  AND oi.batch_id = $4::uuid
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
-ORDER BY g.goat_id ASC
-LIMIT $3;
+  AND (
+    $5 = '' OR g.goat_id > NULLIF($5, '')::uuid
+    OR (g.goat_id = NULLIF($5, '')::uuid AND oi.obligation_id > NULLIF($6, '')::uuid)
+  )
+ORDER BY g.goat_id ASC, oi.obligation_id ASC
+LIMIT $7;
 `
+
+type taskExecutionIdentity struct {
+	TaskID         string
+	BatchID        string
+	SOPVersionID   string
+	TaskRowVersion int32
+}
+
+func (r *Repository) taskExecutionIdentity(ctx context.Context, tenantID, taskID, shedID string) (taskExecutionIdentity, error) {
+	var identity taskExecutionIdentity
+	err := r.pool.QueryRow(ctx, `
+SELECT st.task_id::text, ob.batch_id::text, st.sop_version_id::text, st.row_version
+FROM sop_tasks st
+JOIN obligation_batches ob
+  ON ob.tenant_id = st.tenant_id
+ AND ob.sop_task_id = st.task_id
+ AND ob.batch_id = nullif(st.context ->> 'obligation_batch_id', '')::uuid
+WHERE st.tenant_id = $1::uuid
+  AND st.task_id = $2::uuid
+  AND st.scope_type = 'shed'
+  AND st.scope_id = $3::uuid
+  AND ob.scope_type = 'shed'
+  AND ob.scope_id = $3::uuid`, tenantID, taskID, shedID).Scan(
+		&identity.TaskID, &identity.BatchID, &identity.SOPVersionID, &identity.TaskRowVersion,
+	)
+	return identity, err
+}
+
+func (r *Repository) TaskOptionValues(ctx context.Context, tenantID, taskID string) (domain.TaskOptionValuesResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var identity taskExecutionIdentity
+	var shedID string
+	var formDSL []byte
+	err := r.pool.QueryRow(ctx, `
+SELECT st.task_id::text, ob.batch_id::text, st.sop_version_id::text, st.row_version,
+       st.scope_id::text, sv.form_dsl
+FROM sop_tasks st
+JOIN obligation_batches ob
+  ON ob.tenant_id = st.tenant_id
+ AND ob.sop_task_id = st.task_id
+ AND ob.batch_id = nullif(st.context ->> 'obligation_batch_id', '')::uuid
+JOIN sop_versions sv
+  ON sv.tenant_id = st.tenant_id
+ AND sv.sop_version_id = st.sop_version_id
+WHERE st.tenant_id = $1::uuid
+  AND st.task_id = $2::uuid
+  AND st.scope_type = 'shed'
+  AND ob.scope_type = 'shed'
+  AND ob.scope_id = st.scope_id`, tenantID, taskID).Scan(
+		&identity.TaskID, &identity.BatchID, &identity.SOPVersionID, &identity.TaskRowVersion, &shedID, &formDSL,
+	)
+	if err != nil {
+		return domain.TaskOptionValuesResponse{}, fmt.Errorf("vaccination execution: task option identity: %w", err)
+	}
+	requested := pinnedOptionSources(formDSL)
+	response := domain.TaskOptionValuesResponse{
+		TaskID: identity.TaskID, BatchID: identity.BatchID, SOPVersionID: identity.SOPVersionID,
+		TaskRowVersion: identity.TaskRowVersion, Sources: []domain.TaskOptionSource{},
+	}
+	if requested["inventory.vaccine_lots.fefo"] {
+		source, err := r.vaccineLotOptions(ctx, tenantID, identity.BatchID, shedID)
+		if err != nil {
+			return domain.TaskOptionValuesResponse{}, err
+		}
+		response.Sources = append(response.Sources, source)
+	}
+	if requested["vaccination.route_sites"] {
+		source, err := r.routeSiteOptions(ctx, tenantID, identity.BatchID)
+		if err != nil {
+			return domain.TaskOptionValuesResponse{}, err
+		}
+		response.Sources = append(response.Sources, source)
+	}
+	return response, nil
+}
+
+func pinnedOptionSources(raw []byte) map[string]bool {
+	var form struct {
+		Fields []struct {
+			OptionSource string `json:"option_source"`
+		} `json:"fields"`
+	}
+	_ = json.Unmarshal(raw, &form)
+	out := map[string]bool{}
+	for _, field := range form.Fields {
+		if field.OptionSource == "inventory.vaccine_lots.fefo" || field.OptionSource == "vaccination.route_sites" {
+			out[field.OptionSource] = true
+		}
+	}
+	return out
+}
+
+func (r *Repository) vaccineLotOptions(ctx context.Context, tenantID, batchID, shedID string) (domain.TaskOptionSource, error) {
+	rows, err := r.pool.Query(ctx, `
+WITH RECURSIVE chain AS (
+  SELECT location_id, parent_location_id, 0 AS depth FROM locations
+  WHERE tenant_id=$1::uuid AND location_id=$3::uuid
+  UNION ALL
+  SELECT l.location_id, l.parent_location_id, c.depth+1 FROM locations l
+  JOIN chain c ON l.location_id=c.parent_location_id
+  WHERE l.tenant_id=$1::uuid AND c.depth < 8
+), items AS (
+  SELECT DISTINCT item_id FROM inventory_stock_movements
+  WHERE tenant_id=$1::uuid AND batch_id=$2::uuid AND movement_type='reserve'
+  UNION
+  SELECT nullif(ob.context #>> '{stock_block,item_id}', '')::uuid
+  FROM obligation_batches ob WHERE ob.tenant_id=$1::uuid AND ob.batch_id=$2::uuid
+    AND nullif(ob.context #>> '{stock_block,item_id}', '') IS NOT NULL
+)
+SELECT s.stock_id::text, COALESCE(NULLIF(s.lot_code,''), s.stock_id::text),
+       (s.quantity_in_stock-s.quantity_reserved)::text, s.quantity_unit, s.expiry_date, s.status,
+       c.depth
+FROM chain c JOIN inventory_stock s ON s.tenant_id=$1::uuid AND s.location_id=c.location_id
+JOIN items i ON i.item_id=s.item_id
+ORDER BY CASE WHEN s.status='active' AND s.quantity_in_stock>s.quantity_reserved
+                   AND (s.expiry_date IS NULL OR s.expiry_date>=CURRENT_DATE) THEN 0 ELSE 1 END,
+         c.depth, s.expiry_date ASC NULLS LAST, s.stock_id`, tenantID, batchID, shedID)
+	if err != nil {
+		return domain.TaskOptionSource{}, fmt.Errorf("vaccination execution: lot options: %w", err)
+	}
+	defer rows.Close()
+	source := domain.TaskOptionSource{Source: "inventory.vaccine_lots.fefo", Options: []domain.TaskOptionValue{}}
+	rank := 0
+	for rows.Next() {
+		var value, label, available, unit, status string
+		var expiry pgtype.Date
+		var depth int
+		if err := rows.Scan(&value, &label, &available, &unit, &expiry, &status, &depth); err != nil {
+			return source, err
+		}
+		option := domain.TaskOptionValue{Value: value, Label: label, AvailableQuantity: &available, QuantityUnit: &unit}
+		if expiry.Valid {
+			d := expiry.Time.UTC()
+			option.ExpiryDate = &d
+		}
+		reason := ""
+		if status != "active" {
+			reason = "lot_" + status
+		} else if expiry.Valid && expiry.Time.Before(time.Now().UTC().Truncate(24*time.Hour)) {
+			reason = "lot_expired"
+		} else if available == "0" {
+			reason = "no_available_quantity"
+		}
+		if reason != "" {
+			option.Disabled = true
+			option.DisabledReason = &reason
+		} else {
+			rank++
+			rr := rank
+			option.FEFORank = &rr
+		}
+		source.Options = append(source.Options, option)
+	}
+	if len(source.Options) == 0 {
+		reason := "no_vaccine_lots_for_task"
+		source.DisabledReason = &reason
+	}
+	return source, rows.Err()
+}
+
+func (r *Repository) routeSiteOptions(ctx context.Context, tenantID, batchID string) (domain.TaskOptionSource, error) {
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT schedule ->> 'route_site'
+FROM obligation_instances oi
+JOIN protocol_versions pv ON pv.tenant_id=oi.tenant_id AND pv.protocol_version_id=oi.protocol_version_id
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(pv.rule_dsl -> 'schedule','[]'::jsonb)) schedule
+WHERE oi.tenant_id=$1::uuid AND oi.batch_id=$2::uuid
+  AND COALESCE(schedule ->> 'route_site','') <> ''
+ORDER BY 1`, tenantID, batchID)
+	if err != nil {
+		return domain.TaskOptionSource{}, fmt.Errorf("vaccination execution: route site options: %w", err)
+	}
+	defer rows.Close()
+	source := domain.TaskOptionSource{Source: "vaccination.route_sites", Options: []domain.TaskOptionValue{}}
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return source, err
+		}
+		source.Options = append(source.Options, domain.TaskOptionValue{Value: value, Label: value})
+	}
+	if len(source.Options) == 0 {
+		reason := "no_route_sites_for_task"
+		source.DisabledReason = &reason
+	}
+	return source, rows.Err()
+}
 
 func optStr(s *string) string {
 	if s == nil {

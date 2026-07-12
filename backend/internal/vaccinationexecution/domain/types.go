@@ -91,8 +91,10 @@ type ExecutionRow struct {
 }
 
 type ExecutionResponse struct {
-	Source string         `json:"source"`
-	Rows   []ExecutionRow `json:"rows"`
+	Source     string         `json:"source"`
+	Rows       []ExecutionRow `json:"rows"`
+	TotalCount int64          `json:"totalCount"`
+	NextCursor *string        `json:"nextCursor,omitempty"`
 }
 
 type DriveSummary struct {
@@ -131,6 +133,8 @@ type ExecutionQuery struct {
 	ParkID    *string
 	ShedID    *string
 	WorkState *WorkState
+	Severity  *Severity
+	Cursor    *ExecutionCursor
 	AsOf      time.Time
 	DueBefore time.Time
 	Limit     int
@@ -187,9 +191,10 @@ type OperationsCohort struct {
 }
 
 type OperationsResponse struct {
-	Source    string               `json:"source"`
-	Protocols []OperationsProtocol `json:"protocols"`
-	Cohorts   []OperationsCohort   `json:"cohorts"`
+	Source     string               `json:"source"`
+	Protocols  []OperationsProtocol `json:"protocols"`
+	Cohorts    []OperationsCohort   `json:"cohorts"`
+	NextCursor *string              `json:"next_cursor,omitempty"`
 }
 
 // OperationsRow is one cohort × protocol group straight from SQL; the service rolls these up into cohorts.
@@ -226,22 +231,65 @@ type OperationsQuery struct {
 	AsOf      time.Time
 	DueBefore time.Time
 	Limit     int
+	Cursor    *OperationsCursor
 }
 
 // ScanRosterRow represents a single per-animal vaccination obligation for mobile scan screen.
 // primaryTag and secondaryTag are RFID identifiers; vaccineLabel is the vaccine name and schedule position.
 type ScanRosterRow struct {
-	PrimaryTag   string  `json:"primaryTag"`
-	SecondaryTag *string `json:"secondaryTag,omitempty"`
-	VaccineLabel string  `json:"vaccineLabel"`
-	Status       string  `json:"status"`
-	ObligationID string  `json:"obligationId"`
+	GoatID         string  `json:"goatId"`
+	PrimaryTag     string  `json:"primaryTag"`
+	SecondaryTag   *string `json:"secondaryTag,omitempty"`
+	VaccineLabel   string  `json:"vaccineLabel"`
+	Status         string  `json:"status"`
+	ObligationID   string  `json:"obligationId"`
+	BatchID        string  `json:"batchId"`
+	TaskID         string  `json:"taskId"`
+	SOPVersionID   string  `json:"sopVersionId"`
+	TaskRowVersion int32   `json:"taskRowVersion"`
 }
 
 type ScanRosterQuery struct {
 	TenantID string
 	ShedID   string
+	TaskID   string
+	Cursor   *ScanRosterCursor
 	Limit    int
+}
+
+type ScanRosterCursor struct {
+	GoatID       string `json:"goat_id"`
+	ObligationID string `json:"obligation_id"`
+}
+
+type ScanRosterResult struct {
+	Rows       []ScanRosterRow
+	NextCursor *ScanRosterCursor
+}
+
+type TaskOptionValue struct {
+	Value             string     `json:"value"`
+	Label             string     `json:"label"`
+	Disabled          bool       `json:"disabled"`
+	DisabledReason    *string    `json:"disabled_reason,omitempty"`
+	AvailableQuantity *string    `json:"available_quantity,omitempty"`
+	QuantityUnit      *string    `json:"quantity_unit,omitempty"`
+	ExpiryDate        *time.Time `json:"expiry_date,omitempty"`
+	FEFORank          *int       `json:"fefo_rank,omitempty"`
+}
+
+type TaskOptionSource struct {
+	Source         string            `json:"source"`
+	DisabledReason *string           `json:"disabled_reason,omitempty"`
+	Options        []TaskOptionValue `json:"options"`
+}
+
+type TaskOptionValuesResponse struct {
+	TaskID         string             `json:"task_id"`
+	BatchID        string             `json:"batch_id"`
+	SOPVersionID   string             `json:"sop_version_id"`
+	TaskRowVersion int32              `json:"task_row_version"`
+	Sources        []TaskOptionSource `json:"sources"`
 }
 
 type ExecutionProjection struct {
@@ -280,6 +328,19 @@ type ExecutionProjection struct {
 	SOPVersionID         *string
 	SOPTaskRowVersion    *int32
 	CompletionID         *string
+	WorkState            WorkState
+	SortRank             int
+	SortDueMicros        int64
+	SortRowKey           string
+}
+
+// ExecutionProjectionPage is the repository result for one stable keyset page. TotalCount is
+// computed over the server-filtered set before the cursor is applied; NextCursor identifies the
+// last returned row when another row exists.
+type ExecutionProjectionPage struct {
+	Rows       []ExecutionProjection
+	TotalCount int64
+	NextCursor *ExecutionCursor
 }
 
 // ---- Vaccination gaps read model (animals excluded from the coverage denominator because their

@@ -107,6 +107,135 @@ func TestListVaccinationExecutionProjection(t *testing.T) {
 	}
 }
 
+func TestScanRosterUsesExactTaskIdentityCursorAndPinnedOptions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	const (
+		secondGoat = "70000000-0000-4000-8000-000000000081"
+		secondObl  = "70000000-0000-4000-8000-000000000082"
+		itemID     = "70000000-0000-4000-8000-000000000083"
+		lotEarly   = "70000000-0000-4000-8000-000000000084"
+		lotLate    = "70000000-0000-4000-8000-000000000085"
+		lotEmpty   = "70000000-0000-4000-8000-000000000086"
+	)
+	execProjectionSQL(t, ctx, pool, "task identity", `
+INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state,
+  assigned_to, scope_type, scope_id, context)
+VALUES ($1,$2,$3,$4,'vaccination_drive','Exact drive','in_progress',$5,'shed',$6,
+  jsonb_build_object('obligation_batch_id',$7::text))`, testTask, testTenant, testVaccinationSOP, testVaccinationSOPVer, testOperator, testShed, testBatch)
+	execProjectionSQL(t, ctx, pool, "link task batch", `UPDATE obligation_batches SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, testTask, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "link task obligations", `UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND batch_id=$3`, testTask, testTenant, testBatch)
+	execProjectionSQL(t, ctx, pool, "primary tag", `
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
+VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-ONE','rfid-one','active','global','v1',now())`, testTenant, testGoat)
+	insertProjectionGoat(t, ctx, pool, secondGoat, testShed, testPark)
+	insertProjectionObligation(t, ctx, pool, secondObl, testBatch, secondGoat, "due", "2026-06-24 00:00:00+00", "vaccexec-roster-second")
+	execProjectionSQL(t, ctx, pool, "link second task", `UPDATE obligation_instances SET sop_task_id=$1 WHERE tenant_id=$2 AND obligation_id=$3`, testTask, testTenant, secondObl)
+	execProjectionSQL(t, ctx, pool, "second tag", `
+INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, status, scope_key, normalizer_version, valid_from)
+VALUES (gen_random_uuid(),$1,$2,'animal_identifier_1','RFID-TWO','rfid-two','active','global','v1',now())`, testTenant, secondGoat)
+	execProjectionSQL(t, ctx, pool, "route site", `UPDATE protocol_versions SET rule_dsl='{"schedule":[{"route_site":"subcutaneous"}]}'::jsonb WHERE tenant_id=$1 AND protocol_version_id=$2`, testTenant, testVersion)
+	execProjectionSQL(t, ctx, pool, "inventory item", `INSERT INTO inventory_items (item_id,tenant_id,item_code,name,category,base_unit,status) VALUES ($1,$2,'VAC-TEST','Test vaccine','vaccine','dose','active')`, itemID, testTenant)
+	for _, lot := range []struct{ id, code, expiry, status, qty, reserved string }{
+		{lotEarly, "LOT-EARLY", "2027-01-01", "active", "10", "2"},
+		{lotLate, "LOT-LATE", "2027-06-01", "active", "10", "0"},
+		{lotEmpty, "LOT-EMPTY", "2027-03-01", "depleted", "0", "0"},
+	} {
+		execProjectionSQL(t, ctx, pool, "lot "+lot.code, `INSERT INTO inventory_stock (stock_id,tenant_id,item_id,location_id,lot_code,expiry_date,quantity_in_stock,quantity_reserved,quantity_unit,status) VALUES ($1,$2,$3,$4,$5,$6::date,$7::numeric,$8::numeric,'dose',$9)`, lot.id, testTenant, itemID, testPark, lot.code, lot.expiry, lot.qty, lot.reserved, lot.status)
+	}
+	execProjectionSQL(t, ctx, pool, "batch reservation", `INSERT INTO inventory_stock_movements (movement_id,tenant_id,lot_id,item_id,location_id,movement_type,quantity,quantity_unit,batch_id,actor_id,idempotency_key) VALUES (gen_random_uuid(),$1,$2,$3,$4,'reserve',2,'dose',$5,$6,'vaccexec-option-reserve')`, testTenant, lotEarly, itemID, testPark, testBatch, testOperator)
+
+	repo := NewRepository(pool, 5*time.Second)
+	first, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 1})
+	if err != nil {
+		t.Fatalf("ScanRoster(first): %v", err)
+	}
+	if len(first.Rows) != 1 || first.NextCursor == nil {
+		t.Fatalf("first=%#v", first)
+	}
+	row := first.Rows[0]
+	if row.GoatID == "" || row.TaskID != testTask || row.BatchID != testBatch || row.SOPVersionID != testVaccinationSOPVer || row.TaskRowVersion != 1 {
+		t.Fatalf("identity row=%#v", row)
+	}
+	second, err := repo.ScanRoster(ctx, domain.ScanRosterQuery{TenantID: testTenant, ShedID: testShed, TaskID: testTask, Limit: 1, Cursor: first.NextCursor})
+	if err != nil {
+		t.Fatalf("ScanRoster(second): %v", err)
+	}
+	if len(second.Rows) != 1 || second.Rows[0].GoatID == row.GoatID || second.NextCursor != nil {
+		t.Fatalf("second=%#v", second)
+	}
+
+	options, err := repo.TaskOptionValues(ctx, testTenant, testTask)
+	if err != nil {
+		t.Fatalf("TaskOptionValues: %v", err)
+	}
+	if options.TaskID != testTask || len(options.Sources) != 2 {
+		t.Fatalf("options=%#v", options)
+	}
+	var lots, sites *domain.TaskOptionSource
+	for i := range options.Sources {
+		if options.Sources[i].Source == "inventory.vaccine_lots.fefo" {
+			lots = &options.Sources[i]
+		}
+		if options.Sources[i].Source == "vaccination.route_sites" {
+			sites = &options.Sources[i]
+		}
+	}
+	if lots == nil || len(lots.Options) != 3 || lots.Options[0].Value != lotEarly || lots.Options[0].FEFORank == nil || *lots.Options[0].FEFORank != 1 || !lots.Options[2].Disabled || lots.Options[2].DisabledReason == nil {
+		t.Fatalf("lots=%#v", lots)
+	}
+	if sites == nil || len(sites.Options) != 1 || sites.Options[0].Value != "subcutaneous" {
+		t.Fatalf("sites=%#v", sites)
+	}
+}
+
+func TestListVaccinationExecutionPageUsesStableCursorAndFilteredTotal(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	secondGoat := "70000000-0000-4000-8000-000000000071"
+	secondBatch := "70000000-0000-4000-8000-000000000072"
+	secondObligation := "70000000-0000-4000-8000-000000000073"
+	insertProjectionGoat(t, ctx, pool, secondGoat, testShed, testPark)
+	insertProjectionBatch(t, ctx, pool, secondBatch, "planned")
+	insertProjectionObligation(t, ctx, pool, secondObligation, secondBatch, secondGoat, "scheduled", "2026-06-26 00:00:00+00", "vaccexec-cursor-second")
+
+	repo := NewRepository(pool, 5*time.Second)
+	severity := domain.SeverityWatch
+	query := domain.ExecutionQuery{
+		TenantID:  testTenant,
+		Severity:  &severity,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Limit:     1,
+	}
+	first, err := repo.ListVaccinationExecutionPage(ctx, query)
+	if err != nil {
+		t.Fatalf("first page: %v", err)
+	}
+	if len(first.Rows) != 1 || first.TotalCount != 2 || first.NextCursor == nil {
+		t.Fatalf("first page rows=%d total=%d cursor=%v", len(first.Rows), first.TotalCount, first.NextCursor)
+	}
+	query.Cursor = first.NextCursor
+	second, err := repo.ListVaccinationExecutionPage(ctx, query)
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	if len(second.Rows) != 1 || second.TotalCount != 2 || second.NextCursor != nil {
+		t.Fatalf("second page rows=%d total=%d cursor=%v", len(second.Rows), second.TotalCount, second.NextCursor)
+	}
+	if first.Rows[0].SortRowKey == second.Rows[0].SortRowKey {
+		t.Fatalf("cursor repeated row %q", first.Rows[0].SortRowKey)
+	}
+}
+
 func TestListVaccinationExecutionExcludesCanceledObligations(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -341,6 +470,11 @@ func TestVaccinationExecutionProductionQueryPlanUsesIndexes(t *testing.T) {
 		domain.WorkStateBlocked,
 		asOf,
 		asOf.Add(-defaultClosedHistoryAge),
+		"",       // severity filter (none)
+		false,    // cursorPresent
+		0,        // cursorRank
+		int64(0), // cursorDueMicros
+		"",       // cursorRowKey
 	)
 	if err != nil {
 		t.Fatalf("explain production vaccination execution query: %v", err)
@@ -410,7 +544,10 @@ func TestVaccinationOperationsProductionQueryPlanUsesIndexes(t *testing.T) {
 		dueBefore,
 		"", // park filter
 		"", // shed filter
-		500,
+		"", // cursor park
+		"", // cursor shed
+		"", // cursor stage
+		501,
 	)
 	if err != nil {
 		t.Fatalf("explain production vaccination operations query: %v", err)

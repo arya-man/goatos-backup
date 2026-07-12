@@ -12,31 +12,36 @@ import (
 
 	obligationdomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	obligationports "github.com/vgoats/goatos/backend/internal/obligation/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 type fakeReader struct {
-	rows         []domain.ExecutionRow
-	detail       domain.ShedDrilldown
-	found        bool
-	last         domain.ExecutionQuery
-	ops          domain.OperationsResponse
-	lastOps      domain.OperationsQuery
-	roster       []domain.ScanRosterRow
-	gaps         domain.GapsResponse
-	lastGaps     domain.GapsQuery
-	coverage     domain.CoverageResponse
-	lastCoverage domain.OperationsQuery
-	shedSummary  domain.ShedSummaryResponse
-	lastShedSum  domain.ShedSummaryQuery
-	shedDetail   domain.ShedDetailResponse
-	shedFound    bool
-	lastShedID   string
-	shedAnimals  domain.ShedAnimalPage
-	lastShedAnim domain.ShedAnimalQuery
-	capacityCfg  domain.CapacityConfig
+	rows          []domain.ExecutionRow
+	executionPage domain.ExecutionResponse
+	detail        domain.ShedDrilldown
+	found         bool
+	last          domain.ExecutionQuery
+	ops           domain.OperationsResponse
+	lastOps       domain.OperationsQuery
+	roster        []domain.ScanRosterRow
+	lastRoster    domain.ScanRosterQuery
+	rosterNext    *domain.ScanRosterCursor
+	gaps          domain.GapsResponse
+	lastGaps      domain.GapsQuery
+	coverage      domain.CoverageResponse
+	lastCoverage  domain.OperationsQuery
+	shedSummary   domain.ShedSummaryResponse
+	lastShedSum   domain.ShedSummaryQuery
+	shedDetail    domain.ShedDetailResponse
+	shedFound     bool
+	lastShedID    string
+	shedAnimals   domain.ShedAnimalPage
+	lastShedAnim  domain.ShedAnimalQuery
+	capacityCfg   domain.CapacityConfig
+	optionValues  domain.TaskOptionValuesResponse
 }
 
 type fakeWriter struct {
@@ -58,13 +63,26 @@ func (f *fakeReader) VaccinationExecution(_ context.Context, q domain.ExecutionQ
 	return f.rows, nil
 }
 
+func (f *fakeReader) VaccinationExecutionPage(_ context.Context, q domain.ExecutionQuery) (domain.ExecutionResponse, error) {
+	f.last = q
+	if f.executionPage.Source != "" {
+		return f.executionPage, nil
+	}
+	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: f.rows, TotalCount: int64(len(f.rows))}, nil
+}
+
 func (f *fakeReader) ShedDrilldown(_ context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {
 	f.last = q
 	return f.detail, f.found, nil
 }
 
-func (f *fakeReader) ScanRoster(_ context.Context, q domain.ScanRosterQuery) ([]domain.ScanRosterRow, error) {
-	return f.roster, nil
+func (f *fakeReader) ScanRoster(_ context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
+	f.lastRoster = q
+	return domain.ScanRosterResult{Rows: f.roster, NextCursor: f.rosterNext}, nil
+}
+
+func (f *fakeReader) TaskOptionValues(context.Context, string, string) (domain.TaskOptionValuesResponse, error) {
+	return f.optionValues, nil
 }
 
 func (f *fakeReader) VaccinationGaps(_ context.Context, q domain.GapsQuery) (domain.GapsResponse, error) {
@@ -116,12 +134,16 @@ func (w *fakeWriter) RescheduleObligationByID(ctx context.Context, tenantID, obl
 }
 
 func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {
-	reader := &fakeReader{rows: []domain.ExecutionRow{sampleRow()}}
+	next, err := domain.EncodeExecutionCursor(domain.ExecutionCursor{SortRank: 2, SortDueMicros: 123, SortRowKey: "park|shed|rule|batch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &fakeReader{executionPage: domain.ExecutionResponse{Source: domain.SourceAPI, Rows: []domain.ExecutionRow{sampleRow()}, TotalCount: 21, NextCursor: &next}}
 	writer := &fakeWriter{}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, writer))
 
-	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?park_id=30000000-0000-4000-8000-000000000001&work_state=missed&due_before=2026-07-01T00:00:00Z&limit=9000", nil)
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?park_id=30000000-0000-4000-8000-000000000001&work_state=missed&severity=at_risk&cursor="+next+"&due_before=2026-07-01T00:00:00Z&limit=9000", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -138,6 +160,12 @@ func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {
 	if reader.last.WorkState == nil || *reader.last.WorkState != domain.WorkStateMissed {
 		t.Fatalf("work state = %v", reader.last.WorkState)
 	}
+	if reader.last.Severity == nil || *reader.last.Severity != domain.SeverityAtRisk {
+		t.Fatalf("severity = %v", reader.last.Severity)
+	}
+	if reader.last.Cursor == nil || reader.last.Cursor.SortRowKey != "park|shed|rule|batch" {
+		t.Fatalf("cursor = %#v", reader.last.Cursor)
+	}
 	if reader.last.Limit != maxExecutionLimit {
 		t.Fatalf("limit = %d want %d", reader.last.Limit, maxExecutionLimit)
 	}
@@ -147,6 +175,41 @@ func TestListVaccinationExecutionParsesQueryAndResponds(t *testing.T) {
 	}
 	if resp.Source != domain.SourceAPI || len(resp.Rows) != 1 || resp.Rows[0].ShedName != "K1 Shed" {
 		t.Fatalf("response = %#v", resp)
+	}
+	if resp.TotalCount != 21 || resp.NextCursor == nil || *resp.NextCursor != next {
+		t.Fatalf("pagination response = %#v", resp)
+	}
+}
+
+func TestVaccinationExecutionDefaultsAndRejectsScopedPark(t *testing.T) {
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	const parkID = "30000000-0000-4000-8000-000000000001"
+	reader := &fakeReader{executionPage: domain.ExecutionResponse{Source: domain.SourceAPI}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution", nil)
+	ctx := httpmiddleware.WithTenantID(req.Context(), tenantID)
+	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: parkID}})
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if reader.last.ParkID == nil || *reader.last.ParkID != parkID {
+		t.Fatalf("park scope = %+v, want %s", reader.last.ParkID, parkID)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/vaccination/execution?park_id=30000000-0000-4000-8000-000000000099", nil)
+	req = req.WithContext(ctx)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("want 403, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "park_scope_forbidden") {
+		t.Fatalf("body=%s, want park_scope_forbidden", rec.Body.String())
 	}
 }
 
@@ -170,6 +233,97 @@ func TestListVaccinationExecutionRejectsInvalidQuery(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?due_before=not-time", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid due_before status = %d want 400", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?severity=critical", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid severity status = %d want 400", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?cursor=bad", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid cursor status = %d want 400", rec.Code)
+	}
+}
+
+func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
+	const (
+		tenantID = "00000000-0000-4000-8000-000000000001"
+		shedID   = "30000000-0000-4000-8000-000000000001"
+		taskID   = "40000000-0000-4000-8000-000000000001"
+		goatID   = "50000000-0000-4000-8000-000000000001"
+		oblID    = "60000000-0000-4000-8000-000000000001"
+	)
+	next := &domain.ScanRosterCursor{GoatID: goatID, ObligationID: oblID}
+	reader := &fakeReader{
+		roster: []domain.ScanRosterRow{{
+			GoatID: goatID, ObligationID: oblID, TaskID: taskID,
+			BatchID:      "70000000-0000-4000-8000-000000000001",
+			SOPVersionID: "80000000-0000-4000-8000-000000000001", TaskRowVersion: 3,
+		}},
+		rosterNext: next,
+	}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	missing := httptest.NewRecorder()
+	mux.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster", nil))
+	if missing.Code != http.StatusBadRequest {
+		t.Fatalf("missing task status=%d want 400", missing.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id="+taskID+"&limit=1", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), tenantID))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastRoster.TaskID != taskID || reader.lastRoster.ShedID != shedID {
+		t.Fatalf("query=%#v", reader.lastRoster)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["taskId"] != taskID || body["nextCursor"] == "" {
+		t.Fatalf("response=%#v", body)
+	}
+}
+
+func TestVaccinationOperationsParsesKeysetCursor(t *testing.T) {
+	cursor, err := domain.EncodeOperationsCursor(domain.OperationsCursor{
+		ParkID: "30000000-0000-4000-8000-000000000001",
+		ShedID: "40000000-0000-4000-8000-000000000001",
+		Stage:  "K1",
+	})
+	if err != nil {
+		t.Fatalf("encode cursor: %v", err)
+	}
+	reader := &fakeReader{ops: domain.OperationsResponse{Source: domain.SourceAPI}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/operations?limit=25&cursor="+cursor, nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastOps.Limit != 25 || reader.lastOps.Cursor == nil || reader.lastOps.Cursor.Stage != "K1" {
+		t.Fatalf("operations query = %#v", reader.lastOps)
+	}
+}
+
+func TestVaccinationOperationsRejectsInvalidCursor(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/operations?cursor=not-a-cursor", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d want 400 body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -253,7 +407,11 @@ func TestGetShedDetailNotFound(t *testing.T) {
 }
 
 func TestGetShedAnimalsParsesCursor(t *testing.T) {
-	reader := &fakeReader{shedAnimals: domain.ShedAnimalPage{Rows: []domain.ShedAnimalRow{{GoatID: "g1", DisplayID: "G-1", Status: "due"}}}}
+	reader := &fakeReader{
+		shedFound:   true,
+		shedDetail:  domain.ShedDetailResponse{ParkID: "30000000-0000-4000-8000-000000000001"},
+		shedAnimals: domain.ShedAnimalPage{Rows: []domain.ShedAnimalRow{{GoatID: "g1", DisplayID: "G-1", Status: "due"}}},
+	}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, &fakeWriter{}))
 	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals?cursor=40000000-0000-4000-8000-000000000001&limit=50", nil)
@@ -271,6 +429,34 @@ func TestGetShedAnimalsParsesCursor(t *testing.T) {
 	}
 	if reader.lastShedAnim.Limit != 50 {
 		t.Errorf("limit = %d", reader.lastShedAnim.Limit)
+	}
+}
+
+func TestShedDetailAndAnimalsRejectScopedParkMismatch(t *testing.T) {
+	const tenantID = "00000000-0000-4000-8000-000000000001"
+	const allowedPark = "30000000-0000-4000-8000-000000000001"
+	reader := &fakeReader{
+		shedFound:  true,
+		shedDetail: domain.ShedDetailResponse{ParkID: "30000000-0000-4000-8000-000000000099"},
+	}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+	ctx := httpmiddleware.WithTenantID(context.Background(), tenantID)
+	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: allowedPark}})
+
+	for _, path := range []string{
+		"/vaccination/sheds/30000000-0000-4000-8000-000000000009",
+		"/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s: want 403, got %d (%s)", path, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "park_scope_forbidden") {
+			t.Fatalf("%s: body=%s, want park_scope_forbidden", path, rec.Body.String())
+		}
 	}
 }
 
