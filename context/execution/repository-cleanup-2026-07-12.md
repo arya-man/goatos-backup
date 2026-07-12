@@ -3,7 +3,8 @@
 ## Scope
 
 This records the evidence-backed consolidation of GoatOS local worktrees,
-branches, stashes, and GitHub pull requests into `main`. It exists so cleanup
+branches, stashes, and GitHub pull requests into the continuation branch before
+a reviewed PR to `main`. It exists so cleanup
 does not silently destroy unpublished product work or merge unsafe scratch code.
 
 Verified authority before writes:
@@ -72,8 +73,9 @@ Scratch branches are removable only after their **implementation quality** has
 been compared with current `main`; age alone is not a disposition. Current
 quality review state:
 
-- `agent/vaccination-seed-history-calendar`: consolidated into `main` after the
-  cleanup commits.
+- `agent/vaccination-seed-history-calendar`: renamed to the common continuation
+  branch `integration/ledger-cleanup-handoff-20260712`; it is not merged to
+  `main` and must be completed/reviewed before a PR.
 - `agent/finish-vaccination-closure` (`310b8969`): **retain temporarily for
   selective porting.** It is a 299-file mixed WIP and cannot be merged wholesale,
   but it contains materially better implementations in several areas: authority
@@ -144,3 +146,16 @@ matrix is complete.
 Pushing `main` does not deploy staging. PR #3 merely updates to the new `main`
 head. Staging deploy runs only when PR #3 is merged and `stg` receives a push.
 Repository cleanup must not merge PR #3.
+
+## Continuation State
+
+Cleanup intentionally stopped before deleting scratch branches or the recovered
+stash refs. The common takeover branch is:
+
+```text
+integration/ledger-cleanup-handoff-20260712
+```
+
+The full restart state, accepted/reverted commits, analytics candidate branch,
+remaining ledger order, and validation boundaries are in
+`context/execution/vaccination-goal-current-handoff-2026-07-12.md`.

@@ -1,297 +1,251 @@
-# Vaccination goal handoff — current HEAD truth — 2026-07-12
+# Goat OS ledger-cleanup continuation handoff — 2026-07-12
 
-This is the handoff for the next Codex/Claude session. It replaces the confusing
-mid-session status chatter with the current repository truth.
+This is the single restart document for the next Codex or Claude session. It
+combines repository cleanup, accepted fixes, rejected WIP, preserved branch/stash
+evidence, and the remaining ledger work. Do not reconstruct state from chat.
 
-## 0. Start here
+## 1. Continuation branch
 
-Repo:
+Use this branch; do not start from a scratch branch:
+
+```text
+integration/ledger-cleanup-handoff-20260712
+```
+
+The branch is intentionally a continuation branch, not `main` or `stg`. It must
+be reviewed and completed in small ledger-fix slices before a PR is raised.
+Never merge PR #3 (`main -> stg`) as part of repository cleanup.
+
+At the time this handoff was consolidated:
+
+```text
+origin/main: c239fbc5 perf: enforce API latency ceilings
+branch anchor before this handoff commit: 695cfbb0
+```
+
+Always re-run `git status`, `git fetch origin main`, and `git log` because the
+exact branch HEAD will include the handoff commit itself.
+
+## 2. Canonical bug queue and proof rule
+
+The one bug queue is:
+
+```text
+context/repo-audits/last-35-commits-consolidated-bug-ledger.md
+```
+
+The required closure proof is:
+
+```text
+context/repo-audits/consolidated-ledger-defect-closure-program.md
+```
+
+The ledger still says `40 open` because counts were frozen before the cleanup
+fixes below. Do not casually decrement it. For each candidate closure:
+
+1. show the failing-before regression;
+2. show the root-cause code change;
+3. run the required unit/integration/E2E/scale/mobile proof;
+4. get independent counter-review;
+5. then update the canonical row and totals.
+
+## 3. Accepted work on the continuation branch
+
+### Repository/audit state
+
+- `a113d49e` — canonical consolidated ledger, closure program, repo routing, and
+  initial handoff were committed.
+- `23d798f1` + `09e5ce9a` — branch/stash/worktree disposition is recorded in
+  `context/execution/repository-cleanup-2026-07-12.md`; better code wins, not
+  newer code.
+
+### Safe product fixes
+
+- `b96e54df` — Android authentication errors traverse wrapped causes and never
+  display raw Firebase/provider exception text. Unit regressions were added.
+- `728f8db1` — three peer-confirmed ledger residuals were fixed:
+  - park-scoped grants authorize `/app/vaccination/**` without broadening admin
+    routes (FIXCHK-001 candidate closure);
+  - FEFO SQL ranking and DTO disabled state share one India business date
+    (FIXCHK-002 candidate closure);
+  - scan-roster test asserts real `next_cursor` and rejects stale camelCase
+    `nextCursor` (FIXCHK-003 candidate closure).
+
+Validation run for `728f8db1`:
+
+```text
+go test ./internal/platform/httpmiddleware                         PASS
+go test ./internal/vaccinationexecution/adapters/http             PASS
+go test ./internal/vaccinationexecution/adapters/postgres
+  -run TestBusinessDateUTCUsesIndiaCalendarAtUTCBoundary          PASS
+full postgres adapter suite                                       NOT PROVEN
+```
+
+The full postgres adapter package did not complete locally because its Docker
+availability path hung. Do not convert that limitation into a passing claim.
+
+### Guardrails
+
+- `081b2377` is patch-equivalent to `origin/main` commit `c239fbc5` and enforces
+  the API policy `p90<=300ms`, `p95<=500ms`, `p99<=1000ms` in manifests,
+  tests, CI wiring, and docs. `make guardrails` passed, including the seven
+  latency-policy tests. The live 1-minute/5-minute environment certification is
+  still separate work; this commit prevents threshold relaxation, not runtime
+  proof.
+- `695cfbb0` adds the durable Android review lens and fix-quality audit to the
+  Goat OS `/code-review` skill. It explicitly covers Room SSOT, Paging 3 /
+  RemoteMediator, L0-L3 navigation, lifecycle, memory, logout wipe-all,
+  contract consumer blast radius, regression tests, and false-green gates.
+
+### Deliberately reverted Android WIP
+
+- `9c6e80b2` attempted task-bound routes plus 20-row scan cursor loading.
+- `0b8da256` reverts it in full.
+
+Reason: although it compiled and its focused tests passed, it accumulated all
+continuation pages into one growing JSON blob and kept scan actions only in
+ViewModel memory. That violates the accepted mobile law: per-row/bounded Room
+state, PagingSource/RemoteMediator, process-death-safe draft, and Room-backed
+outbox. Keep `9c6e80b2` only as source material for route-identity and cursor
+tests; do not resurrect its repository design wholesale.
+
+## 4. Mobile truth at handoff
+
+Android is not complete. Specifically:
+
+- `ScanViewModel` still asks for 1,000 rows and does not persist actual scan
+  actions as a task+row-version Room draft.
+- scan roster DTO/repository/UI do not implement production Paging 3 +
+  `RemoteMediator` + bounded `PagingSource`.
+- `SubmitViewModel` now remains on current-main behavior after the WIP revert:
+  it chooses the first task and submits empty answers/proofs.
+- logout is not a clean slate: Room read caches/outbox, DataStore,
+  SharedPreferences, WorkManager, files/media, SavedState, singleton/bootstrap
+  state, Firebase credentials, and backend device/FCM binding are not erased by
+  one fail-closed coordinator.
+- whole-tree `make mobile-guard-audit` still reports three known patterns after
+  the reverted WIP: two `LeadershipViewModel` 50-row reads and the unbounded
+  outbox DAO read. The ledger contains the broader mobile backlog.
+
+The later dedicated mobile PR must implement this chain, not a partial UI patch:
+
+```text
+network page (~20, keyset)
+  -> RemoteMediator writes normalized principal-scoped Room rows
+  -> bounded PagingSource powers UI
+  -> RFID/manual action writes durable task+row-version draft to Room
+  -> Submit loads exact task + Room draft + real form/proof values
+  -> Room outbox queues idempotent request
+  -> ACK deletes/archives draft
+  -> logout wipes every app-owned/server-device surface
+```
+
+The “latest 100 scan entries” idea is UI windowing only; it must never be the
+business-data retention rule. Actual scans/drafts/submissions stay durable.
+
+## 5. Separate completed candidate: analytics taxonomy
+
+A clean separate worktree/branch exists:
+
+```text
+/Users/ravi/mesha/.worktrees/goatos-analytics-rebuild
+agent/analytics-taxonomy-rebuild
+f9a4affb feat(android): mobile analytics event taxonomy + principal identity (noop-backed)
+```
+
+It rebuilds the parked analytics WIP against the real `AnalyticsPort`, keeps the
+runtime binding no-op, and adds taxonomy/identity tests. It is not merged into
+the continuation branch. Review `f9a4affb` independently under the mobile,
+privacy, lifecycle, and external-egress gates; then cherry-pick only if approved.
+Firebase egress/setup remains a separately gated action.
+
+## 6. Preserved unpublished evidence
+
+No git stashes remain, but all nine recovered stash commits are pinned against
+garbage collection:
+
+```text
+cleanup-review/stash-0-temp-kernel-validation     b42d2ca9
+cleanup-review/stash-1-autostash                  8edb3adf
+cleanup-review/stash-2-leadership-copy            9c302c21
+cleanup-review/stash-3-e2e-report-noise           31b075cf
+cleanup-review/stash-4-local-artifacts             3ca95f0f
+cleanup-review/stash-5-partial-analytics           94b92c44
+cleanup-review/stash-6-adminui-vaxexec             adc423bf
+cleanup-review/stash-7-cmdsurface                  10efaf2b
+cleanup-review/stash-8-shell                       4dae4c38
+```
+
+Do not delete these refs until the selective-port matrix is complete.
+
+Important remaining source branches:
+
+- `agent/finish-vaccination-closure` (`310b8969`): 299-file mixed WIP; do not
+  merge wholesale. Useful source: exact task/form/proof flow, draft model,
+  cache purge, benchmark/leak scaffolding, guard scripts. Its logout is still
+  incomplete and incorrectly ordered.
+- `m4-android-finish` / `worktree-agent-a9ecbea17e46cefa7`: telemetry/Firebase
+  ports. Compare against `f9a4affb`; do not enable Firebase by accident.
+- kernel-audit branches: current docs are generally stronger; retain until the
+  last quality comparison is written, then delete.
+- `gh-pages`: required live GitHub Pages source (`build_type=legacy`,
+  `gh-pages:/`). Never delete it as scratch.
+- `stg`: deployment branch and PR #3 base. Never delete or merge during cleanup.
+
+See `context/execution/repository-cleanup-2026-07-12.md` for the full
+branch/stash decision record.
+
+## 7. Live repository inventory at consolidation
+
+Registered worktrees: 3.
 
 ```text
 /Users/ravi/mesha/goatos
+  integration/ledger-cleanup-handoff-20260712
+/Users/ravi/mesha/.worktrees/goatos-staging-vaccination-clean-slate
+  main at 68ed9069 (clean but behind origin/main)
+/Users/ravi/mesha/.worktrees/goatos-analytics-rebuild
+  agent/analytics-taxonomy-rebuild at f9a4affb
 ```
 
-Current HEAD at handoff time:
+Local branches: 20 after the analytics branch was added. No scratch branch has
+yet been deleted after the quality-review correction. Open GitHub PRs: only PR
+#3, `main -> stg`, titled “Deploy main to staging”. GitHub Pages still serves
+from `gh-pages:/`.
 
-```text
-d2a7fbcf85a381abdf98fa4b22aee42f7fda8b23
-d2a7fbcf test(vaccination): harden kernel-backed E2E smoke
-```
+The next cleanup session should remove branches/worktrees only after the handoff
+records one of: merged/patch-equivalent, selectively ported with proof, or
+rejected with concrete correctness/architecture evidence.
 
-Important git fact:
+## 8. Next-session order
 
-```text
-origin/main == HEAD == d2a7fbcf
-```
+1. Check out/pull `integration/ledger-cleanup-handoff-20260712` and verify it is
+   clean.
+2. Fetch `origin/main`; merge/rebase only with explicit conflict review.
+3. Independently counter-review `b96e54df`, `728f8db1`, `c239fbc5`, and
+   `695cfbb0`; update ledger rows only with the closure proof packet.
+4. Finish the branch/stash quality matrix and remove only proven-disposable
+   refs/worktrees.
+5. Fix ledger bugs in small branches/PR-sized commits. Priority starts with the
+   two P0 rows: Android logout clean slate and partial clinical-defer canceling
+   sick work; then the P1 sweeper/scale/ordinary-PR mobile gates.
+6. Build the full Android Room/Paging/draft/form/proof flow as its own dedicated
+   branch/PR. Do not mix it into repository cleanup.
+7. Run the current-SHA closure program, raise the PR to `main`, and leave PR #3
+   untouched until staging deployment is explicitly authorized.
 
-So the latest vaccination/kernel/calendar work is already on `main`. The local
-branch still says it is ahead of `origin/agent/vaccination-seed-history-calendar`
-because that old feature branch remote is behind; do not confuse that with main.
-
-## 1. Current local dirt
-
-After a fresh verification run, local status was:
-
-```text
-M  backend/tests/e2e/report/index.html
-?? context/repo-audits/last-35-commits-consolidated-bug-ledger.md
-?? context/execution/vaccination-goal-current-handoff-2026-07-12.md
-```
-
-Notes:
-
-- `backend/tests/e2e/report/index.html` changed only because the focused E2E was
-  re-run for evidence; generated IDs/timestamps drift. Keep it only if you want
-  to publish the latest generated local report, otherwise restore it.
-- `context/repo-audits/last-35-commits-consolidated-bug-ledger.md` is untracked
-  and looks like a broad audit ledger. Treat it as review material, not product
-  truth.
-- This file is the intended handoff doc.
-
-## 2. What is already landed on main
-
-Plain-English summary:
-
-- Seeded historical vaccinations no longer become fake “late” open obligations.
-- Historical accepted vaccination completions are visible as history.
-- Future vaccination obligations are created by the kernel from accepted history /
-  `vaccination.completed`, not by tests inserting future rows directly.
-- Calendar and Action Center were hardened for seeded history + future work.
-- The backend/admin-web leadership close path is proven through SOP review:
-  operator submits proof, Director can rework, CEO/CXO can verify, obligation
-  completes, stock moves, and the next yearly cycle is scheduled.
-- Micro-drive / orphan singleton drive is not just “batch exists” anymore; it is
-  covered through proof-backed submission, admin verify, SM-5 completion, and
-  SM-7 recurrence.
-- E2E integrity guard blocks the old fake pattern where tests directly mutate
-  derived business state instead of going through generation/SOP/review/kernel.
-
-Recent commits to inspect first:
-
-```text
-d2a7fbcf test(vaccination): harden kernel-backed E2E smoke
-8725693e docs(handoff): log pending/deferred issues for next session
-98361333 fix(calendar): harden drive target projection tests
-dc5ab532 fix(calendar): harden catchup drive summaries
-ebf33812 fix(vaccination,workforce): review fixes — migration gate, park-scope, task_id optional, contract sync
-efb1a910 fix(vaccination): scope seeded history obligations
-e2e0e8fc fix(calendar): stabilize history ids and localize android copy
-6409d9db fix(vaccinationexecution): complete keyset ScanRoster/operations refactor + real query-bug fixes
-9d01c907 Close vaccination calendar and kernel E2E gaps
-```
-
-## 3. Verification run on current HEAD
-
-This passed on current HEAD during handoff:
+## 9. Useful validation commands
 
 ```bash
-cd /Users/ravi/mesha/goatos/backend
-GOCACHE=/private/tmp/goatos-handoff-gocache go test ./tests/e2e \
-  -run 'TestKernelStoryAA_OrphanSingletonShedDrive|TestKernelStoryAJ_LeadershipReviewRoutes|TestKernelStoryAG_RecurringCalendarLifecycle|TestReportCertificationCompletenessRendersAndCountsMissingSurface' \
-  -count=1 -v
+git status --short --branch
+git fetch origin main
+git log --left-right --cherry-pick --oneline origin/main...HEAD
+make guardrails
+make mobile-guard-audit
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+cd apps/goatos-android && ./gradlew :app:compileDevDebugKotlin
 ```
 
-Result:
-
-```text
-PASS
-ok github.com/vgoats/goatos/backend/tests/e2e 15.207s
-```
-
-Also passed:
-
-```bash
-cd /Users/ravi/mesha/goatos
-bash tools/agent-hooks/check-e2e-kernel-integrity.sh
-```
-
-Result:
-
-```text
-e2e-kernel-integrity: passed (82 source artifacts scanned)
-```
-
-Do not list `tools/agent-hooks/check-server-pagination.mjs` as current-main
-evidence: that script is not present at this HEAD.
-
-## 4. What is still pending
-
-### P1 — Android app cannot truly finish a real vaccination drive yet
-
-This is the main remaining product gap.
-
-Current evidence:
-
-- `apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/SubmitViewModel.kt`
-  still loads `repo.tasks(limit = 1)`.
-- Same file explicitly says answers/proof mapping is not wired and submission is
-  sent with empty answers.
-- The request currently built in `submit()` is only:
-
-```kotlin
-SubmitTaskRequestDto(sopVersionId = current.sopVersionId, idempotencyKey = key)
-```
-
-Plain English: Android can enqueue a task submission shell, but it does not yet
-submit the selected drive's real scanned goats, vaccine lot, cold-chain answer,
-administered time, and completed proof refs.
-
-Fix direction:
-
-1. Carry exact `task_id`, `sop_version_id`, `row_version`, `batch_id`, `shed_id`
-   from shed/task selection into scan and submit.
-2. Load the exact task detail, not first task from `repo.tasks(limit = 1)`.
-3. Persist scan draft keyed by task + row version.
-4. Submit real `answers.goat_ids`, `vaccine_lot_id`, `cold_chain_verified`,
-   `administered_at`, `route_site`, dose fields, and completed `proof_refs`.
-5. Add Android unit tests proving the request body is real and task-bound.
-
-### P1 — Android leadership verify/rework screen/action is not implemented
-
-Current backend/admin-web review routes exist:
-
-```text
-POST /admin/tasks/{task_id}/verify
-POST /admin/tasks/{task_id}/rework
-```
-
-Current Android app API does **not** expose app verify/rework endpoints at HEAD.
-`contracts/openapi/app-api.yaml` only has:
-
-```text
-/app/vaccination/tasks/{task_id}/option-values
-```
-
-Current mobile record screen is read-only:
-
-```kotlin
-sealed interface RecordEvent {
-    data object Close : RecordEvent
-}
-```
-
-Plain English: Director/CEO/CXO/Park Manager can close through admin-web, but
-there is no production Android “accept/rework this vaccination proof” button yet.
-
-Fix direction:
-
-1. Decide route surface:
-   - either add app endpoints mirroring admin review:
-     `/app/vaccination/tasks/{task_id}/verify` and `/rework`, with scoped grants;
-   - or deliberately make mobile open an admin-web review surface.
-2. Add AppApi/NetworkModule DTOs and repository functions.
-3. Add leadership/record UI actions hidden for operators.
-4. Add tests proving operators cannot verify/rework and leadership can.
-5. Add kernel E2E or contract test proving app route fans into SOP review fanout
-   and `vaccination.completed` exactly once.
-
-### P1 — Multi-task shed → exact task selection → scan is still a mobile UX gap
-
-If a shed has several vaccination tasks, the app needs a clear per-task path. Do
-not group drives by vaccine; vaccination drives are shed/task based, and a shed
-can contain multiple vaccine obligations.
-
-Fix direction:
-
-- Record/shed drilldown should list executable tasks/drives.
-- Selecting one task should navigate to scan with exact task identity.
-- Scan should page animals, not fetch 400/1000 rows at once.
-- The next session should verify this in `AppNavHost`, `RecordViewModel`,
-  `ShedsViewModel`, `ScanViewModel`, and backend execution DTOs.
-
-### P1/P2 — Read-model / scale debt remains
-
-Do not claim the system is million-animal clean yet.
-
-Known shape:
-
-- Some process-integrity / vaccination-execution reads still have baselined
-  heavy-query debt.
-- The goal is to move hot screens to incremental projections/read models, not
-  make request-time god queries bigger.
-
-Use `tools/scale-guard/baseline.txt` and `docs/decisions/scale-anti-patterns.md`
-as the starting map.
-
-### P2/P3 — Graph is stale
-
-Understand graph baseline was older than HEAD. Deterministic hook analysis said:
-
-```text
-FULL_UPDATE recommended — 116 structural source files changed
-```
-
-If the next session needs graph-backed architecture review, run a full
-`/understand --full` or equivalent first. For ordinary implementation, direct
-git/file/test evidence is enough.
-
-## 5. Do not redo / do not trust blindly
-
-- Do not redo seeded-history backend fixes unless current tests prove a
-  regression.
-- Do not trust the older committed
-  `context/execution/pending-issues-handoff-2026-07-12.md` blindly. It contains
-  stale mid-session claims, e.g. the old `RoleManager` compile issue is no
-  longer true at current HEAD.
-- Treat `context/repo-audits/last-35-commits-consolidated-bug-ledger.md` as the
-  one canonical audit queue, and apply
-  `context/repo-audits/consolidated-ledger-defect-closure-program.md` before
-  changing any row to fixed. Neither file overrides product/medical source
-  contracts; they govern defect tracking and proof.
-- Do not add E2E by direct SQL insertion of future obligations. It must go
-  through production generation/sweeper/SOP/review/completion/consumer paths.
-
-## 6. Suggested next-session order
-
-1. Clean/decide local dirt:
-
-   ```bash
-   git status --short --branch
-   ```
-
-2. Reconfirm current HEAD and main:
-
-   ```bash
-   git fetch origin main
-   git rev-parse HEAD origin/main
-   git log --oneline --decorate --max-count=12
-   ```
-
-3. Pick one of these, in order:
-
-   - Android real selected-drive submit request body.
-   - Android leadership verify/rework action + app/backend route decision.
-   - Multi-task shed task picker into scan.
-   - Read-model/scale debt.
-
-4. For Android submit, start at:
-
-   ```text
-   apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/SubmitViewModel.kt
-   apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/ScanViewModel.kt
-   apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/TasksRepository.kt
-   apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/sync/SyncRepository.kt
-   apps/goatos-android/core/core-data/src/main/kotlin/sg/mesha/goatos/core/data/sync/SyncEngine.kt
-   apps/goatos-android/core/core-network/src/main/kotlin/sg/mesha/goatos/core/network/AppApi.kt
-   contracts/openapi/app-api.yaml
-   ```
-
-5. For backend review authority, start at:
-
-   ```text
-   backend/internal/permissions/routes.go
-   backend/internal/sop/adapters/http/handler.go
-   backend/tests/e2e/story_aj_leadership_review_routes_test.go
-   backend/tests/e2e/story_aa_orphan_singleton_shed_drive_test.go
-   ```
-
-## 7. Layman status for Ravi
-
-Backend/admin/calendar: mostly done and pushed.
-
-Android app: not done. The phone still does not fully perform “scan goats →
-attach proof → submit real vaccination → leadership accept/rework → schedule
-next cycle” in production code.
-
-Main next job: make Android stop pretending with empty submissions and wire the
-real selected vaccination drive flow.
+Do not treat compile, screenshots, seeded UI data, generated HTML, or a
+diff-scoped guard as end-to-end proof. Backend/DB/business-chain evidence must
+match the row being closed.
