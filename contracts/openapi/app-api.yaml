@@ -6676,12 +6676,38 @@ components:
         completionId:
           type: string
           format: uuid
+    VaccinationProjectionFreshness:
+      type: object
+      additionalProperties: false
+      required:
+        - projectionVersion
+        - projectedAt
+        - asOf
+        - status
+        - lagSeconds
+      properties:
+        projectionVersion:
+          type: integer
+          format: int64
+        projectedAt:
+          type: string
+          format: date-time
+        asOf:
+          type: string
+          format: date-time
+        status:
+          type: string
+        lagSeconds:
+          type: integer
+          format: int64
+          minimum: 0
     VaccinationExecutionResponse:
       type: object
       additionalProperties: false
       required:
         - source
         - rows
+        - totalCount
       properties:
         source:
           type: string
@@ -6691,6 +6717,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VaccinationExecutionRow"
+        totalCount:
+          type: integer
+          format: int64
+          minimum: 0
+        nextCursor:
+          type: string
+        freshness:
+          $ref: "#/components/schemas/VaccinationProjectionFreshness"
     VaccinationOperationsProtocol:
       type: object
       additionalProperties: false
@@ -6827,6 +6861,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VaccinationOperationsCohort"
+        next_cursor:
+          type: string
+        freshness:
+          $ref: "#/components/schemas/VaccinationProjectionFreshness"
     VaccinationExecutionDriveSummary:
       type: object
       additionalProperties: false
@@ -8171,6 +8209,8 @@ components:
             $ref: "#/components/schemas/VaccinationShedSummaryRow"
         page:
           $ref: "#/components/schemas/VaccinationPageInfo"
+        freshness:
+          $ref: "#/components/schemas/VaccinationProjectionFreshness"
     VaccinationShedDetail:
       type: object
       additionalProperties: false

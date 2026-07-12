@@ -2438,10 +2438,25 @@ export interface components {
             /** Format: uuid */
             completionId?: string;
         };
+        VaccinationProjectionFreshness: {
+            /** Format: int64 */
+            projectionVersion: number;
+            /** Format: date-time */
+            projectedAt: string;
+            /** Format: date-time */
+            asOf: string;
+            status: string;
+            /** Format: int64 */
+            lagSeconds: number;
+        };
         VaccinationExecutionResponse: {
             /** @enum {string} */
             source: "api";
             rows: components["schemas"]["VaccinationExecutionRow"][];
+            /** Format: int64 */
+            totalCount: number;
+            nextCursor?: string;
+            freshness?: components["schemas"]["VaccinationProjectionFreshness"];
         };
         VaccinationOperationsProtocol: {
             /** Format: uuid */
@@ -2494,6 +2509,8 @@ export interface components {
             source: "api";
             protocols: components["schemas"]["VaccinationOperationsProtocol"][];
             cohorts: components["schemas"]["VaccinationOperationsCohort"][];
+            next_cursor?: string;
+            freshness?: components["schemas"]["VaccinationProjectionFreshness"];
         };
         VaccinationExecutionDriveSummary: {
             driveId?: string;
@@ -3041,6 +3058,7 @@ export interface components {
             source: "api";
             rows: components["schemas"]["VaccinationShedSummaryRow"][];
             page: components["schemas"]["VaccinationPageInfo"];
+            freshness?: components["schemas"]["VaccinationProjectionFreshness"];
         };
         VaccinationShedDetail: {
             /** @enum {string} */
