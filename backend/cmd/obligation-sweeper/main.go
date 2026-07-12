@@ -42,6 +42,7 @@ type sopServiceAdapter struct {
 type vaccinationProjectionRefresher interface {
 	RecomputeShedProjection(context.Context, vaccexecdomain.ShedProjectionRecomputeRequest) (vaccexecdomain.ShedProjectionRecomputeResult, error)
 	RecomputeExecutionProjection(context.Context, vaccexecdomain.ExecutionProjectionRecomputeRequest) (vaccexecdomain.ExecutionProjectionRecomputeResult, error)
+	RecomputeOperationsProjection(context.Context, vaccexecdomain.OperationsProjectionRecomputeRequest) (vaccexecdomain.OperationsProjectionRecomputeResult, error)
 }
 
 func (a *sopServiceAdapter) CreateTask(ctx context.Context, cmd sopports.CreateTaskCommand) (sopdomain.TaskSummary, error) {
@@ -232,6 +233,9 @@ func refreshVaccinationReadModels(ctx context.Context, repo vaccinationProjectio
 	}
 	if _, err := repo.RecomputeExecutionProjection(ctx, vaccexecdomain.ExecutionProjectionRecomputeRequest{TenantID: tenantID, AsOf: asOf, DueBefore: dueBefore}); err != nil {
 		return fmt.Errorf("refresh vaccination execution projection: %w", err)
+	}
+	if _, err := repo.RecomputeOperationsProjection(ctx, vaccexecdomain.OperationsProjectionRecomputeRequest{TenantID: tenantID, AsOf: asOf, DueBefore: dueBefore}); err != nil {
+		return fmt.Errorf("refresh vaccination operations projection: %w", err)
 	}
 	return nil
 }

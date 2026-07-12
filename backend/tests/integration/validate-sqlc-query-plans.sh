@@ -1237,6 +1237,14 @@ WHERE tenant_id='00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY sort_rank,sort_due_micros,sort_row_key LIMIT 201;"
 }
 
+validate_vaccination_operations_projection_read_plan() {
+  explain_must_use_index "VaccinationOperationsProjectionRead" 'Seq Scan on vaccination_operations_projection_rows' "EXPLAIN (COSTS OFF)
+SELECT protocol_id FROM vaccination_operations_projection_rows
+WHERE tenant_id='00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version=1::bigint AND shed_id='70000000-0000-4000-8000-000000000002'
+ORDER BY stage,protocol_id LIMIT 501;"
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -1275,5 +1283,6 @@ validate_calendar_vaccination_plans
 validate_herd_register_summary_plan
 validate_vaccination_shed_projection_plan
 validate_vaccination_execution_projection_read_plan
+validate_vaccination_operations_projection_read_plan
 
 echo "Validated current hot-path query plans"

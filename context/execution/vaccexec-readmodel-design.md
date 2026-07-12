@@ -27,11 +27,11 @@ indexed lookup against a materialized row.
 `processintegrity` already solved the equivalent problem for Action Center / Protocol Adherence
 (`process_integrity_projection_rows` / `process_integrity_projection_state`, migrations 000159 +
 000160, `RecomputeProjection` in `backend/internal/processintegrity/adapters/postgres/repository.go`).
-This series ports the same shape to `ShedSummary` and `ListVaccinationExecutionPage`.
+This series ports the same shape to `ShedSummary`, `ListVaccinationExecutionPage`, and `VaccinationOperations`.
 
 ## What landed in this change (scoped increment, option b)
 
-1. **Projection-only request paths.** `GET /vaccination/sheds` and `GET /vaccination/execution`
+1. **Projection-only request paths.** `GET /vaccination/sheds`, `GET /vaccination/execution`, and `GET /vaccination/operations`
    read versioned projection tables through indexed filters/keysets. Missing, stale, or incompatible
    snapshots return retryable `projection_unavailable`; neither endpoint falls back to a live CTE.
    Responses carry projection version, projected/as-of instants, status, and lag seconds. Explicit
@@ -137,7 +137,8 @@ What changed in `repository.go`:
   answer on demand.
 ## Remaining scale work
 
-- `VaccinationOperations` remains compute-on-read until migration 000169 and its request flip land.
+- Migration 000169 stores the cohort x protocol operations matrix with human-name keyset ordering and
+  a version/freshness state row; its request path has no canonical fallback.
 - The current projector is a full-tenant off-request repair/rebuild, maintained by the scheduled
   vaccination projector/sweeper. This removes latency from requests but is **not** the final 1M steady
   state. A durable dirty-scope queue and bounded tenant/park/shed/date shard worker with checkpoint,

@@ -193,7 +193,11 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 		protocols = filtered
 	}
 	sort.SliceStable(protocols, func(i, j int) bool { return protocols[i].Name < protocols[j].Name })
-	return domain.OperationsResponse{Source: domain.SourceAPI, Protocols: protocols, Cohorts: cohorts, NextCursor: nextCursor}, nil
+	var freshness *domain.ProjectionFreshness
+	if len(rows) > 0 {
+		freshness = rows[0].Freshness
+	}
+	return domain.OperationsResponse{Source: domain.SourceAPI, Protocols: protocols, Cohorts: cohorts, NextCursor: nextCursor, Freshness: freshness}, nil
 }
 
 // countsFromRow projects the SQL obligation/completion tallies onto the API counts shape.

@@ -36,3 +36,17 @@ type ExecutionProjectionRecomputeResult struct {
 	AsOf              time.Time
 	Rows              int64
 }
+
+type OperationsProjectionRecomputeRequest struct {
+	TenantID  string
+	AsOf      time.Time
+	DueBefore time.Time
+}
+
+type OperationsProjectionRecomputeResult struct {
+	TenantID          string
+	ProjectionVersion int64
+	ProjectedAt       time.Time
+	AsOf              time.Time
+	Rows              int64
+}
