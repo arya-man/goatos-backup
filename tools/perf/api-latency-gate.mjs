@@ -20,12 +20,23 @@ const tenantId = args.tenantId ?? process.env.GOATOS_TENANT_ID ?? "00000000-0000
 const bearerToken = args.bearerToken ?? process.env.GOATOS_BEARER_TOKEN ?? "";
 const cookie = args.cookie ?? process.env.GOATOS_PERF_COOKIE ?? "";
 const iterations = numberArg(args.iterations ?? process.env.GOATOS_PERF_ITERATIONS, 20);
-const warmup = numberArg(args.warmup ?? process.env.GOATOS_PERF_WARMUP, 2);
+const warmup = numberArg(args.warmup ?? process.env.GOATOS_PERF_WARMUP, 2, true);
 const concurrency = numberArg(args.concurrency ?? process.env.GOATOS_PERF_CONCURRENCY, 1);
 const timeoutMs = numberArg(args.timeoutMs ?? process.env.GOATOS_PERF_TIMEOUT_MS, 30000);
 const failOnThreshold = boolArg(args.failOnThreshold ?? process.env.GOATOS_PERF_FAIL_ON_THRESHOLD, true);
 const output = args.output ?? process.env.GOATOS_PERF_OUTPUT ?? "";
-const endpoints = normalizeApiLatencyEndpoints(loadEndpoints(args.manifest ?? process.env.GOATOS_PERF_MANIFEST));
+const manifest = args.manifest ?? process.env.GOATOS_PERF_MANIFEST ?? "";
+const manifestDocument = loadManifest(manifest);
+const endpoints = normalizeApiLatencyEndpoints(manifestDocument.endpoints);
+const gitSha = currentGitSha();
+const expectedSha = String(args.expectedSha ?? process.env.GOATOS_PERF_EXPECTED_SHA ?? "").trim();
+const startedAt = new Date().toISOString();
+const dataset = {
+  label: args.datasetLabel ?? process.env.GOATOS_PERF_DATASET_LABEL ?? "unspecified",
+  animal_equivalent_cardinality: numberArg(args.datasetAnimals ?? process.env.GOATOS_PERF_DATASET_ANIMALS, 0, true),
+  projection_rows: numberArg(args.datasetProjectionRows ?? process.env.GOATOS_PERF_DATASET_PROJECTION_ROWS, 0, true),
+  certification_boundary: args.certificationBoundary ?? process.env.GOATOS_PERF_CERTIFICATION_BOUNDARY ?? "local_latency_only",
+};
 
 if (!baseUrl) {
   fail("GOATOS_API_BASE_URL or --base-url is required");
@@ -40,6 +51,14 @@ for (const endpoint of endpoints) {
 }
 
 const report = {
+  schema_version: "1.0.0",
+  git_sha: gitSha,
+  expected_sha: expectedSha || gitSha,
+  manifest_sha256: manifest ? sha256File(manifest) : null,
+  scope: manifestDocument.scope,
+  dataset,
+  started_at: startedAt,
+  finished_at: new Date().toISOString(),
   base_url: baseUrl,
   tenant_id: tenantId,
   iterations,
@@ -63,6 +82,7 @@ async function runEndpoint(endpoint) {
     await requestOnce(endpoint);
   }
   const samples = [];
+  const responseBytes = [];
   const failures = [];
   let remaining = iterations;
   while (remaining > 0) {
@@ -72,6 +92,7 @@ async function runEndpoint(endpoint) {
     for (const item of settled) {
       if (item.status === "fulfilled") {
         samples.push(item.value.ms);
+        responseBytes.push(item.value.responseBytes);
       } else {
         failures.push(item.reason instanceof Error ? item.reason.message : String(item.reason));
       }
@@ -94,8 +115,15 @@ async function runEndpoint(endpoint) {
     p90_threshold_ms: endpoint.p90_ms,
     p95_threshold_ms: endpoint.p95_ms,
     p99_threshold_ms: endpoint.p99_ms,
+    response_bytes_max: responseBytes.length > 0 ? Math.max(...responseBytes) : 0,
+    response_bytes_threshold: endpoint.max_response_bytes,
+    assertion: endpoint.assertion ?? null,
   };
-  result.passed = result.failures === 0 && result.p90_ms <= result.p90_threshold_ms && result.p95_ms <= result.p95_threshold_ms && result.p99_ms <= result.p99_threshold_ms;
+  result.passed = result.failures === 0
+    && result.p90_ms <= result.p90_threshold_ms
+    && result.p95_ms <= result.p95_threshold_ms
+    && result.p99_ms <= result.p99_threshold_ms
+    && result.response_bytes_max <= result.response_bytes_threshold;
   return result;
 }
 
@@ -117,26 +145,47 @@ async function requestOnce(endpoint) {
       cache: "no-store",
       signal: controller.signal,
     });
-    const ms = performance.now() - started;
     if (!response.ok) {
       const body = await response.text().catch(() => "");
       throw new Error(`${endpoint.name} HTTP ${response.status}: ${body.slice(0, 300)}`);
     }
-    await response.arrayBuffer();
-    return { ms };
+    const body = await response.text();
+    const payload = JSON.parse(body);
+    assertPayload(endpoint, payload);
+    const ms = performance.now() - started;
+    return { ms, responseBytes: Buffer.byteLength(body, "utf8") };
   } finally {
     clearTimeout(timer);
   }
 }
 
-function loadEndpoints(manifestPath) {
-  if (!manifestPath) return defaultEndpoints;
+function loadManifest(manifestPath) {
+  if (!manifestPath) return { endpoints: defaultEndpoints, scope: { included: defaultEndpoints.map(({ name }) => name), excluded: {} } };
   const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
   const endpoints = Array.isArray(parsed) ? parsed : parsed.endpoints;
   if (!Array.isArray(endpoints) || endpoints.length === 0) {
     throw new Error(`perf manifest has no endpoints: ${manifestPath}`);
   }
-  return endpoints;
+  return { endpoints, scope: Array.isArray(parsed) ? null : parsed.scope ?? null };
+}
+
+function assertPayload(endpoint, payload) {
+  const assertion = endpoint.assertion;
+  if (!assertion) return;
+  const value = String(assertion.path ?? "").split(".").filter(Boolean).reduce((current, key) => current?.[key], payload);
+  if (assertion.type === "array_min") {
+    if (!Array.isArray(value) || value.length < Number(assertion.min ?? 1)) {
+      throw new Error(`${endpoint.name} assertion ${assertion.path} requires at least ${assertion.min ?? 1} rows`);
+    }
+    return;
+  }
+  if (assertion.type === "number_min") {
+    if (!Number.isFinite(Number(value)) || Number(value) < Number(assertion.min ?? 1)) {
+      throw new Error(`${endpoint.name} assertion ${assertion.path} requires value >= ${assertion.min ?? 1}`);
+    }
+    return;
+  }
+  throw new Error(`${endpoint.name} has unsupported assertion type ${assertion.type}`);
 }
 
 function percentile(sorted, pct) {
@@ -159,9 +208,9 @@ function parseArgs(argv) {
   return out;
 }
 
-function numberArg(value, fallback) {
+function numberArg(value, fallback, allowZero = false) {
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  return Number.isFinite(parsed) && (allowZero ? parsed >= 0 : parsed > 0) ? parsed : fallback;
 }
 
 function boolArg(value, fallback) {

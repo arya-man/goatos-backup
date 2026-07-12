@@ -4,6 +4,8 @@ export const API_LATENCY_POLICY_MS = Object.freeze({
   p99_ms: 1000,
 });
 
+export const API_RESPONSE_BYTES_CEILING = 1024 * 1024;
+
 export function normalizeApiLatencyEndpoints(endpoints) {
   return endpoints.map((endpoint, index) => normalizeApiLatencyEndpoint(endpoint, index));
 }
@@ -30,5 +32,13 @@ export function normalizeApiLatencyEndpoint(endpoint, index = 0) {
     throw new RangeError(`${name} latency thresholds must satisfy p90 <= p95 <= p99`);
   }
 
-  return { ...endpoint, ...thresholds };
+  const maxResponseBytes = Number(endpoint.max_response_bytes ?? API_RESPONSE_BYTES_CEILING);
+  if (!Number.isInteger(maxResponseBytes) || maxResponseBytes <= 0) {
+    throw new TypeError(`${name} max_response_bytes must be a positive integer`);
+  }
+  if (maxResponseBytes > API_RESPONSE_BYTES_CEILING) {
+    throw new RangeError(`${name} max_response_bytes=${maxResponseBytes} exceeds the hard ${API_RESPONSE_BYTES_CEILING}-byte ceiling`);
+  }
+
+  return { ...endpoint, ...thresholds, max_response_bytes: maxResponseBytes };
 }

@@ -59,3 +59,164 @@ jobs:
       # bytecode stays Java/Kotlin 17). No USB device is required for compile+unit.
       - name: Required android gates — same runner used locally
         run: make ci-local JOB=android
+
+  live-api-latency:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.9-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: goatos
+          POSTGRES_DB: goatos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d goatos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable
+      GOATOS_ENV: local
+      GOATOS_AUTH_MODE: bearer
+      GOATOS_AUTH_ISSUER: goatos-local
+      GOATOS_AUTH_AUDIENCE: goatos-api
+      GOATOS_AUTH_HS256_SECRET: goatos-ci-latency-secret-32-bytes-minimum
+      GOATOS_AUTH_MAX_TOKEN_TTL: 24h
+      GOATOS_HTTP_ADDR: 127.0.0.1:8080
+      GOATOS_API_BASE_URL: http://127.0.0.1:8080
+      GOATOS_TENANT_ID: 00000000-0000-4000-8000-000000000001
+      GOATOS_LOCAL_USER_ID: 90000000-0000-4000-8000-000000000101
+      GOATOS_PERF_EXPECTED_SHA: ${{ github.sha }}
+      GOATOS_PERF_ITERATIONS: 20
+      GOATOS_PERF_WARMUP: 3
+      GOATOS_PERF_DATASET_LABEL: ci_scale_shaped_projection
+      GOATOS_PERF_DATASET_ANIMALS: 1000000
+      GOATOS_PERF_DATASET_PROJECTION_ROWS: 2001000
+      GOATOS_PERF_CERTIFICATION_BOUNDARY: scale_shaped_projection_smoke_not_full_chain_1m_certification
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install Postgres client for scale-shaped fixture and plan evidence
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Migrate and seed the live CI database
+        run: |
+          (cd backend && go run ./cmd/migrate)
+          (cd backend && go run ./cmd/seed-dev-grant -tenant-id "$GOATOS_TENANT_ID" -user-id "$GOATOS_LOCAL_USER_ID" -role ceo_internal)
+      - name: Load 1M-cardinality projection fixtures and prove bounded indexed plans
+        env:
+          PGOPTIONS: -c statement_timeout=900000
+        run: |
+          mkdir -p artifacts/api-latency
+          psql "$DATABASE_URL" \
+            -v tenant_id="$GOATOS_TENANT_ID" \
+            -v scale_rows=1000000 \
+            -v bulk_load=true \
+            -f tools/perf/seed-scale-shaped-projections.sql
+          psql "$DATABASE_URL" -X -qAt \
+            -v tenant_id="$GOATOS_TENANT_ID" \
+            -f tools/perf/explain-process-integrity-scale.sql \
+            > artifacts/api-latency/process-integrity-plan.json
+          psql "$DATABASE_URL" -X -qAt \
+            -v tenant_id="$GOATOS_TENANT_ID" \
+            -f tools/perf/explain-process-integrity-summary-scale.sql \
+            > artifacts/api-latency/process-integrity-summary-plan.json
+          psql "$DATABASE_URL" -X -qAt \
+            -v tenant_id="$GOATOS_TENANT_ID" \
+            -f tools/perf/explain-calendar-scale.sql \
+            > artifacts/api-latency/calendar-plan.json
+          psql "$DATABASE_URL" -X -qAt \
+            -v tenant_id="$GOATOS_TENANT_ID" \
+            -f tools/perf/explain-vaccination-shed-scale.sql \
+            > artifacts/api-latency/vaccination-shed-plan.json
+          psql "$DATABASE_URL" -X -qAt \
+            -v tenant_id="$GOATOS_TENANT_ID" \
+            -f tools/perf/scale-cardinality.sql \
+            > artifacts/api-latency/scale-cardinality.json
+          node tools/perf/scale-plan-evidence.mjs \
+            --sha "$GITHUB_SHA" \
+            --output artifacts/api-latency/scale-plan-evidence.json \
+            --cardinality-file artifacts/api-latency/scale-cardinality.json \
+            --pi-source-file backend/internal/processintegrity/adapters/postgres/repository.go \
+            --plan process_integrity=artifacts/api-latency/process-integrity-plan.json \
+            --plan process_integrity_summary=artifacts/api-latency/process-integrity-summary-plan.json \
+            --plan calendar=artifacts/api-latency/calendar-plan.json \
+            --plan vaccination_shed=artifacts/api-latency/vaccination-shed-plan.json
+      - name: Build and start the API from the checked-out SHA
+        run: |
+          (cd backend && go build -o "$RUNNER_TEMP/goatos-api" ./cmd/api)
+          "$RUNNER_TEMP/goatos-api" >"$RUNNER_TEMP/goatos-api.log" 2>&1 &
+          echo "api_pid=$!" >> "$GITHUB_ENV"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$GOATOS_API_BASE_URL/readyz" >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/goatos-api.log"
+          exit 1
+      - name: Prove projection-backed HTTP reads avoid canonical source tables
+        run: |
+          token="$(cd backend && go run ./cmd/mint-dev-token -tenant-id "$GOATOS_TENANT_ID" -user-id "$GOATOS_LOCAL_USER_ID" -ttl 2h 2>/dev/null)"
+          psql "$DATABASE_URL" -X -qAt -f tools/perf/reset-request-path-stats.sql >/dev/null
+          GOATOS_PERF_ITERATIONS=1 GOATOS_PERF_WARMUP=0 GOATOS_BEARER_TOKEN="$token" \
+            node tools/perf/api-latency-gate.mjs \
+              --manifest tools/perf/hot-paths.projection-reads.json \
+              --output artifacts/api-latency/projection-request-probe.json
+          # Postgres backends flush their cumulative relation statistics when
+          # the API pool closes. Terminating the probe process makes this
+          # runtime read-path evidence deterministic instead of sleep-based.
+          kill "$api_pid"
+          wait "$api_pid" || true
+          for attempt in $(seq 1 20); do
+            if ! kill -0 "$api_pid" 2>/dev/null; then break; fi
+            sleep 0.25
+          done
+          echo "api_pid=" >> "$GITHUB_ENV"
+          psql "$DATABASE_URL" -X -qAt -f tools/perf/request-path-usage.sql \
+            > artifacts/api-latency/request-path-stats.json
+          node tools/perf/request-path-evidence.mjs \
+            --stats-file artifacts/api-latency/request-path-stats.json \
+            --sha "$GITHUB_SHA" \
+            --output artifacts/api-latency/request-path-evidence.json
+      - name: Restart the checked-out API for the percentile run
+        run: |
+          "$RUNNER_TEMP/goatos-api" >"$RUNNER_TEMP/goatos-api.log" 2>&1 &
+          echo "api_pid=$!" >> "$GITHUB_ENV"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$GOATOS_API_BASE_URL/readyz" >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/goatos-api.log"
+          exit 1
+      - name: Mint CI principal and execute every required hot path
+        run: |
+          token="$(cd backend && go run ./cmd/mint-dev-token -tenant-id "$GOATOS_TENANT_ID" -user-id "$GOATOS_LOCAL_USER_ID" -ttl 2h 2>/dev/null)"
+          GOATOS_BEARER_TOKEN="$token" node tools/perf/api-latency-gate.mjs \
+            --manifest tools/perf/hot-paths.vaccination.json \
+            --output artifacts/api-latency/current-sha.json
+          node tools/perf/api-latency-evidence.mjs \
+            --report artifacts/api-latency/current-sha.json \
+            --expected-sha "$GITHUB_SHA"
+      - name: Stop API and print its log
+        if: always()
+        run: |
+          if [ -n "${api_pid:-}" ]; then kill "$api_pid" 2>/dev/null || true; fi
+          cat "$RUNNER_TEMP/goatos-api.log" 2>/dev/null || true
+      - name: Publish current-SHA latency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-latency-${{ github.sha }}
+          path: artifacts/api-latency/*.json
+          if-no-files-found: error
+          retention-days: 30

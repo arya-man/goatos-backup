@@ -340,7 +340,7 @@ process-integrity-latency-gate:
 	cd backend && go run ./cmd/process-integrity-latency-check
 
 api-latency-policy-test:
-	node --test tools/perf/api-latency-policy.test.mjs
+	node --test tools/perf/api-latency-policy.test.mjs tools/perf/api-latency-evidence.test.mjs tools/perf/scale-plan-evidence.test.mjs tools/perf/request-path-evidence.test.mjs
 
 api-latency-gate:
 	node tools/perf/api-latency-gate.mjs --manifest tools/perf/hot-paths.vaccination.json

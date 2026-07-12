@@ -61,7 +61,7 @@ jobs:
           --health-retries 12
     env:
       DATABASE_URL: postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable
-      GOATOS_ENV: test
+      GOATOS_ENV: local
       GOATOS_AUTH_MODE: bearer
       GOATOS_AUTH_ISSUER: goatos-local
       GOATOS_AUTH_AUDIENCE: goatos-api
@@ -82,6 +82,8 @@ jobs:
           cache-dependency-path: backend/go.sum
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v5
+      - name: Install Postgres client for the authenticated benchmark fixture
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - name: Enable KVM for the managed benchmark device
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -90,8 +92,9 @@ jobs:
       - name: Start the live bootstrap API used by navigation benchmarks
         run: |
           (cd backend && go run ./cmd/migrate)
-          (cd backend && go run ./cmd/seed-dev-grant -tenant-id "$GOATOS_TENANT_ID" -user-id "$GOATOS_LOCAL_USER_ID" -role ceo_internal -department leadership)
-          (cd backend && go run ./cmd/seed-calendar-vaccination-dev -tenant-id "$GOATOS_TENANT_ID")
+          (cd backend && go run ./cmd/seed-dev-grant -tenant-id "$GOATOS_TENANT_ID" -user-id "$GOATOS_LOCAL_USER_ID" -role ceo_internal)
+          psql "$DATABASE_URL" -v tenant_id="$GOATOS_TENANT_ID" -v scale_rows=100 -v bulk_load=false \
+            -f tools/perf/seed-scale-shaped-projections.sql
           (cd backend && go build -o "$RUNNER_TEMP/goatos-api" ./cmd/api)
           "$RUNNER_TEMP/goatos-api" >"$RUNNER_TEMP/goatos-api.log" 2>&1 &
           echo "api_pid=$!" >> "$GITHUB_ENV"

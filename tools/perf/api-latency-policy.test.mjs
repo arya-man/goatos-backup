@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   API_LATENCY_POLICY_MS,
+  API_RESPONSE_BYTES_CEILING,
   normalizeApiLatencyEndpoint,
   normalizeApiLatencyEndpoints,
 } from "./api-latency-policy.mjs";
@@ -11,7 +12,7 @@ import {
 test("fills missing thresholds with the hard API latency policy", () => {
   assert.deepEqual(
     normalizeApiLatencyEndpoint({ name: "calendar", path: "/calendar" }),
-    { name: "calendar", path: "/calendar", ...API_LATENCY_POLICY_MS },
+    { name: "calendar", path: "/calendar", ...API_LATENCY_POLICY_MS, max_response_bytes: API_RESPONSE_BYTES_CEILING },
   );
 });
 
@@ -46,5 +47,12 @@ test("rejects non-monotonic percentile thresholds", () => {
   assert.throws(
     () => normalizeApiLatencyEndpoint({ name: "invalid", p90_ms: 300, p95_ms: 250, p99_ms: 1000 }),
     /p90 <= p95 <= p99/,
+  );
+});
+
+test("rejects a response payload ceiling above one MiB", () => {
+  assert.throws(
+    () => normalizeApiLatencyEndpoint({ name: "oversized", max_response_bytes: API_RESPONSE_BYTES_CEILING + 1 }),
+    /exceeds the hard .*byte ceiling/,
   );
 });
