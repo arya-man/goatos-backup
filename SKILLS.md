@@ -152,3 +152,5 @@ After implementing any phase:
 - `mobile-anti-patterns` — Android: Room-SSOT offline-first, ~20-row keyset paging, bounded memory, off-main, lifecycle, stable keys + mobile-guard.
 - `kernel-scale-lens` — operational-kernel golden chain + 1M kernel-scale bar (bounded/resumable/idempotent/leased, atomic transition+read-model, e2e-integrity).
 - `nav-composition` — job-driven, module-grant-composed, reusable-across-modules nav; blocks hardcoded per-role/per-module nav templates + `make nav-composition-guard`.
+- `frontend-anti-patterns` — admin-web: backend-owns-contract, no SSR full-table reads, mock-fidelity, projection dashboards + check:mock-fidelity/admin-web-request-reads-guard.
+- `db-migration-safety` — Postgres: lock-safe concurrent migrations, query-plan proof, idempotency, atomic transition+read-model + validate-migrations/sqlc-plans/hot-index guards.
