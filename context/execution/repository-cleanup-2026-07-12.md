@@ -68,13 +68,21 @@ Retained branches:
 - `gh-pages`: currently required because GitHub Pages reports
   `build_type=legacy` and serves from `gh-pages:/`.
 
-Scratch branches are removable for these reasons:
+Scratch branches are removable only after their **implementation quality** has
+been compared with current `main`; age alone is not a disposition. Current
+quality review state:
 
 - `agent/vaccination-seed-history-calendar`: consolidated into `main` after the
   cleanup commits.
-- `agent/finish-vaccination-closure` (`310b8969`): a 299-file stale WIP snapshot.
-  Its useful findings/patterns are already recorded in the canonical audit
-  ledger; merging it would overwrite newer code and reintroduce unreviewed work.
+- `agent/finish-vaccination-closure` (`310b8969`): **retain temporarily for
+  selective porting.** It is a 299-file mixed WIP and cannot be merged wholesale,
+  but it contains materially better implementations in several areas: authority
+  cache/outbox purge, stronger execution-route identity, task/form/proof wiring,
+  Room/paging tests, and benchmark/leak scaffolding. Each must be compared and
+  ported through the closure program. Its logout implementation is still only a
+  partial fix: it omits app/device preferences, WorkManager, files/media,
+  bootstrap/singletons/navigation, and backend device deregistration, and its
+  purge/sign-out/outbox order is not an atomic clean-slate coordinator.
 - `agent/kernel-audit-review-fixes` and
   `agent/kernel-audit-scale-review-fixes`: cherry-pick conflicted because current
   `main` contains newer, stronger cap-bucket, scope-claim, trace, and retention
@@ -87,11 +95,13 @@ Scratch branches are removable for these reasons:
   `codex/vaccination-workflow-gaps`, `feat/hrms-rebuild`, and
   `feat/mobile-recording-form`: no unique commits remain relative to `main`, or
   their patch is already represented there.
-- `m4-android-finish` and `worktree-agent-a9ecbea17e46cefa7`: contain the same
-  old telemetry/Firebase experiment. Firebase enablement remains explicitly
-  gated/not executed in `docs/mobile/firebase-india-setup.md`; the follow-on
-  stash labels analytics work “redo cleanly later.” Do not smuggle this old
-  experiment into current `main` during repository cleanup.
+- `m4-android-finish` and `worktree-agent-a9ecbea17e46cefa7`: **retain
+  temporarily for quality review.** They contain the same telemetry/Firebase
+  port/adapter implementation. External Firebase enablement remains explicitly
+  gated/not executed in `docs/mobile/firebase-india-setup.md`, and the follow-on
+  analytics stash labels itself “redo cleanly later”; nevertheless, reusable
+  port abstractions and tests must be judged on architecture and quality before
+  the branches are deleted.
 - `worktree-agent-a7a8a65b338a13cff`: patch-equivalent roster fixes already in
   `main`.
 - `codex/vaccination-workflow-gaps` and remaining detached review/temp trees:
@@ -102,17 +112,20 @@ Scratch branches are removable for these reasons:
 
 ## Stash Dispositions
 
-- `temp-kernel-validation` and `autostash`: overlapping 233/298-file stale WIP
-  snapshots around `310b8969`. They contain partial ledger-fix experiments and
-  cannot be merged over newer main. The canonical ledger is the execution queue.
+- `temp-kernel-validation` and `autostash`: overlapping 233/298-file mixed WIP
+  snapshots around `310b8969`. Their cleared stash commits are pinned under
+  `refs/cleanup-review/` until every materially better implementation has been
+  selectively ported or rejected with code/test evidence. They must not be
+  merged wholesale over current main.
 - `preserve non-audit android edits`: hardcodes English empty-state strings over
   localized resources; reject.
 - `codex-generated-e2e-report-noise`: generated UUID/time/report drift; reject.
 - `local artifacts before main merge`: emulator DB/WAL files, screenshots,
   generated report drift, and staging Terraform already represented in current
   `main`; reject local artifacts and duplicates.
-- `partial-analytics-wip (redo cleanly later)`: explicitly incomplete telemetry
-  work plus root screenshots; reject during cleanup.
+- `partial-analytics-wip (redo cleanly later)`: root screenshots are disposable;
+  telemetry event/context code and tests remain under a temporary review ref
+  until compared with current architecture.
 - `unattributed-adminui-vaxexec-edits-during-cherrypick` and
   `stray-adminweb-cmdsurface-edits`: unattributed semantic changes that remove or
   relabel `owner_missing`/coverage behavior and conflict with current backend
@@ -121,7 +134,10 @@ Scratch branches are removable for these reasons:
   already has the later company-scope implementation; reject the older shell
   patch.
 
-All stashes can therefore be dropped after this disposition is committed.
+The stash list was cleared only after the original WIP commit IDs were recovered
+and pinned under `refs/cleanup-review/`; those temporary refs prevent garbage
+collection during quality comparison. Remove them only after the selective-port
+matrix is complete.
 
 ## Deployment Safety
 
