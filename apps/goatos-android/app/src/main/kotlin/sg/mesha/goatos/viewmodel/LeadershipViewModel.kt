@@ -60,21 +60,21 @@ class LeadershipViewModel @Inject constructor(
         controlTower.observeSummary().stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            Resource()
+            Resource(data = null)
         )
 
     private val observedGapsResource: StateFlow<Resource<VaccinationGapsResponseDto>> =
         insights.observeGaps(limit = GAPS_LIMIT).stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            Resource()
+            Resource(data = null)
         )
 
     private val observedCoverageResource: StateFlow<Resource<VaccinationCoverageResponseDto>> =
         insights.observeCoverage(limit = COVERAGE_LIMIT).stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            Resource()
+            Resource(data = null)
         )
 
     // Transient flags for manual updates
@@ -110,7 +110,9 @@ class LeadershipViewModel @Inject constructor(
         leadershipPlaceholder("Loading overview…")
     )
 
-    // Gaps overlay state: combines observed gaps with transient flags
+    // Gaps overlay state: combines observed gaps with transient flags.
+    // 6 flows > Kotlin's typed combine limit (5), so use the vararg Array<*> form and cast.
+    @Suppress("UNCHECKED_CAST")
     val gapsState: StateFlow<OverlayLoadState<GapRow>> = combine(
         observedGapsResource,
         _gapsIsRefreshing,
@@ -118,7 +120,13 @@ class LeadershipViewModel @Inject constructor(
         _gapsErrorMessage,
         _gapsIsOffline,
         _gapsIsLoadingMore
-    ) { resource, isRefreshing, isLoading, errorMessage, isOffline, isLoadingMore ->
+    ) { values: Array<Any?> ->
+        val resource = values[0] as Resource<VaccinationGapsResponseDto>
+        val isRefreshing = values[1] as Boolean
+        val isLoading = values[2] as Boolean
+        val errorMessage = values[3] as String?
+        val isOffline = values[4] as Boolean
+        val isLoadingMore = values[5] as Boolean
         val dto = resource.data
         gapsNextCursor = dto?.nextCursor  // Update pagination cursor for loadMoreGaps()
         val items = dto?.toGapRows() ?: emptyList()

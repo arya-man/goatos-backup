@@ -45,7 +45,7 @@ class CalendarDayViewModel @Inject constructor(
     private val observedResource: StateFlow<Resource<CalendarEventListResponseDto>> =
         if (dateKey != null) {
             repo.observeEvents(status = statusFilter, dateFrom = dateKey, dateTo = dateKey, limit = CALENDAR_PAGE_SIZE)
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource())
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
         } else {
             MutableStateFlow(Resource<CalendarEventListResponseDto>(data = null))
         }

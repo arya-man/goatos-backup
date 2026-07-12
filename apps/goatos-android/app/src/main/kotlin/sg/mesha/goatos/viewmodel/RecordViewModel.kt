@@ -46,10 +46,10 @@ class RecordViewModel @Inject constructor(
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     private val observedResource: StateFlow<Resource<VaccinationExecutionShedDrilldownDto>> =
-        (if (shedId != null) repo.observeShed(shedId) else flowOf(Resource())).stateIn(
+        (if (shedId != null) repo.observeShed(shedId) else flowOf(Resource(data = null))).stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            Resource()
+            Resource(data = null)
         )
 
     // Transient flags for manual updates

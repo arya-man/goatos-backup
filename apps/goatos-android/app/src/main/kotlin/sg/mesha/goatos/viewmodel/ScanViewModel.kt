@@ -55,11 +55,11 @@ class ScanViewModel @Inject constructor(
         (if (shedId != null && taskId != null) {
             repo.observeScanRoster(shedId, taskId, limit = SCAN_PAGE_SIZE)
         } else {
-            flowOf(Resource())
+            flowOf(Resource(data = null))
         }).stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            Resource()
+            Resource(data = null)
         )
 
     // Transient flags for manual updates
@@ -72,7 +72,15 @@ class ScanViewModel @Inject constructor(
     private val _rosterExpanded = MutableStateFlow(false)
     private val _selectedVaccineGroupId = MutableStateFlow<String?>(null)
 
-    // Combines observed resource with transient flags; lifecycle-aware
+    // Draft scan overlay (survives Room re-emission): obligationIds locally marked DONE (unsynced)
+    // by a hardware tag read or manual ring tap, plus the live feed rows. These are overlaid onto
+    // the observed roster in the combine so an in-progress scan is not lost when Room re-emits.
+    private val _localDone = MutableStateFlow<Set<String>>(emptySet())
+    private val _feed = MutableStateFlow<List<ScanFeedEntry>>(emptyList())
+
+    // Combines observed resource with transient flags + draft overlay; lifecycle-aware.
+    // >5 flows > Kotlin's typed combine limit (5), so use the vararg Array<*> form and cast.
+    @Suppress("UNCHECKED_CAST")
     val state: StateFlow<ScanUiState> = combine(
         observedResource,
         _isRefreshing,
@@ -80,12 +88,24 @@ class ScanViewModel @Inject constructor(
         _isLoadingMore,
         _selectedFilter,
         _rosterExpanded,
-        _selectedVaccineGroupId
-    ) { resource, isRefreshing, isOffline, isLoadingMore, selectedFilter, rosterExpanded, selectedGroupId ->
+        _selectedVaccineGroupId,
+        _localDone,
+        _feed,
+    ) { values: Array<Any?> ->
+        val resource = values[0] as Resource<ScanRosterResponseDto>
+        val isRefreshing = values[1] as Boolean
+        val isOffline = values[2] as Boolean
+        val isLoadingMore = values[3] as Boolean
+        val selectedFilter = values[4] as ScanStatus?
+        val rosterExpanded = values[5] as Boolean
+        val selectedGroupId = values[6] as String?
+        val localDone = values[7] as Set<String>
+        val feed = values[8] as List<ScanFeedEntry>
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
-        val base = dto?.let { applyResource(it) } ?: emptyScanState()
+        val base = dto?.let { applyResource(it, localDone) } ?: emptyScanState()
         base.copy(
+            feed = feed,
             isRefreshing = isRefreshing,
             isLoadingMore = isLoadingMore,
             lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
@@ -159,50 +179,60 @@ class ScanViewModel @Inject constructor(
         }
     }
 
+    /** Manual ring tap: advances the next REAL pending roster row (from the current computed
+     *  state) to DONE by recording its obligation in the draft overlay, and pushes a feed row. */
     private fun onManualTap() {
-        val s = state.value
-        val index = s.roster.indexOfFirst { it.status == ScanStatus.PENDING }
-        if (index >= 0) {
-            markRowDone(s, index)
-        }
+        val row = state.value.roster.firstOrNull { it.status == ScanStatus.PENDING } ?: return
+        markRowDone(row)
     }
 
+    /** Hardware tag read (keyboard-wedge): match the tag against the current roster and fold it
+     *  into the draft overlay — a PENDING match is marked DONE, a SKIPPED/unknown match only
+     *  pushes an informational feed row. */
     private fun onTagRead(tag: String) {
         val target = normalize(tag)
         if (target.isEmpty()) return
-        val s = state.value
-        val index = s.roster.indexOfFirst {
+        val row = state.value.roster.firstOrNull {
             normalize(it.primaryTag) == target || it.secondaryTag?.let { t -> normalize(t) == target } == true
         }
-        // Note: Tag read updates to draft roster and feed are not persisted to ViewModel state in the
-        // stateIn pattern — they would need to be managed via outbox on submit. For now, this is a
-        // placeholder where actual tag reads would update local transaction state.
-        if (index < 0) {
-            // Unknown tag — would need a separate feed state flow for draft feed entries
-        } else {
-            val row = s.roster[index]
-            when (row.status) {
-                ScanStatus.PENDING -> markRowDone(s, index)
-                ScanStatus.DONE, ScanStatus.SKIPPED -> Unit
+        if (row == null) {
+            _feed.update { prependFeed(ScanFeedEntry(tag, null, "unknown tag · not in this shed", ScanStatus.SKIPPED), it) }
+            return
+        }
+        when (row.status) {
+            ScanStatus.PENDING -> markRowDone(row)
+            ScanStatus.DONE -> Unit
+            ScanStatus.SKIPPED -> _feed.update {
+                prependFeed(
+                    ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED),
+                    it,
+                )
             }
         }
     }
 
-    /** Shared by a real tag-match ([onTagRead]) and a manual ring tap ([onManualTap]): marks
-     * roster row [index] (already PENDING) DONE, pushes a feed row, and rolls the counts. */
-    private fun markRowDone(s: ScanUiState, index: Int) {
-        // Draft state management: roster edits are held locally and sent to outbox on submit.
-        // This is a placeholder for integrating with the transaction/outbox system.
+    /** Shared by a real tag-match ([onTagRead]) and a manual ring tap ([onManualTap]): records
+     * [row]'s obligation as locally DONE (unsynced) in the draft overlay and pushes a feed row.
+     * The combine re-derives the roster + counts from this set on the next emission. */
+    private fun markRowDone(row: RosterRow) {
+        if (row.obligationId.isBlank()) return
+        _localDone.update { it + row.obligationId }
+        _feed.update {
+            prependFeed(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE), it)
+        }
     }
 
-    private fun applyResource(dto: ScanRosterResponseDto): ScanUiState {
+    private fun applyResource(dto: ScanRosterResponseDto, localDone: Set<String>): ScanUiState {
         val rosterRows = dto.rows.map { dtoRow ->
+            // Overlay local (unsynced) DONE edits so an in-progress scan survives Room re-emission.
+            val locallyDone = dtoRow.obligationId.isNotBlank() && dtoRow.obligationId in localDone
+            val status = if (locallyDone) ScanStatus.DONE else statusOf(dtoRow.status)
             RosterRow(
                 primaryTag = dtoRow.primaryTag,
                 secondaryTag = dtoRow.secondaryTag,
                 vaccineLabel = dtoRow.vaccineLabel,
-                status = statusOf(dtoRow.status),
-                unsynced = false,
+                status = status,
+                unsynced = locallyDone,
                 goatId = dtoRow.goatId,
                 obligationId = dtoRow.obligationId,
             )

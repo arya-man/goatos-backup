@@ -3,6 +3,7 @@ package sg.mesha.goatos.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -71,7 +72,7 @@ class CalendarViewModel @Inject constructor(
             dateTo = weekRange.dateTo,
             includeDateMarkers = true,
             limit = 1,
-        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource())
+        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
     private val monthOverviewResource: StateFlow<Resource<CalendarEventListResponseDto>> =
         repo.observeEvents(
@@ -79,7 +80,7 @@ class CalendarViewModel @Inject constructor(
             dateTo = monthRange.dateTo,
             includeDateMarkers = true,
             limit = 1,
-        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource())
+        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
     private val historyResource: StateFlow<Resource<CalendarEventListResponseDto>> =
         repo.observeEvents(
@@ -87,10 +88,11 @@ class CalendarViewModel @Inject constructor(
             dateFrom = historyRange.dateFrom,
             dateTo = historyRange.dateTo,
             limit = CALENDAR_PAGE_SIZE,
-        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource())
+        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
     // Selected day resource is special because it changes based on user selection
     // flatMapLatest automatically cancels old collection and starts new when selectedDay changes
+    @OptIn(ExperimentalCoroutinesApi::class)
     private val selectedDayResource: StateFlow<Resource<CalendarEventListResponseDto>> =
         _selectedDay.flatMapLatest { selectedDay ->
             repo.observeEvents(
@@ -98,7 +100,7 @@ class CalendarViewModel @Inject constructor(
                 dateTo = selectedDay.toString(),
                 limit = CALENDAR_PAGE_SIZE,
             )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
 
     // Transient flags
     private val _selectedDayLoadingMore = MutableStateFlow(false)
@@ -106,6 +108,9 @@ class CalendarViewModel @Inject constructor(
     private val _refreshInFlight = MutableStateFlow(false)
     private val _offline = MutableStateFlow(false)
 
+    // Kotlin's typed `combine` overloads only cover up to 5 flows; this screen mixes 10 flows,
+    // so we use the vararg form (one Array<*> param) and cast each element by its known index.
+    @Suppress("UNCHECKED_CAST")
     val state: StateFlow<CalendarUiState> = combine(
         weekOverviewResource,
         monthOverviewResource,
@@ -117,11 +122,18 @@ class CalendarViewModel @Inject constructor(
         _historyLoadingMore,
         _refreshInFlight,
         _offline,
-    ) { week, month, selectedDay, history, currentSelectedDay, selectedSegmentId, dayLoadingMore, historyLoadingMore, refreshInFlight, offline ->
+    ) { values: Array<Any?> ->
         buildCalendarState(
-            week, month, selectedDay, history,
-            currentSelectedDay, selectedSegmentId,
-            dayLoadingMore, historyLoadingMore, refreshInFlight, offline
+            week = values[0] as Resource<CalendarEventListResponseDto>,
+            month = values[1] as Resource<CalendarEventListResponseDto>,
+            selectedDay = values[2] as Resource<CalendarEventListResponseDto>,
+            history = values[3] as Resource<CalendarEventListResponseDto>,
+            currentSelectedDay = values[4] as LocalDate,
+            selectedSegmentId = values[5] as String?,
+            dayLoadingMore = values[6] as Boolean,
+            historyLoadingMore = values[7] as Boolean,
+            refreshInFlight = values[8] as Boolean,
+            offline = values[9] as Boolean,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), calendarPlaceholder("Loading…"))
 

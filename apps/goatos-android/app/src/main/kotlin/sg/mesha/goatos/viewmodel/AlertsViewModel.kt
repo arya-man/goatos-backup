@@ -3,14 +3,12 @@ package sg.mesha.goatos.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ControlTowerRepository
@@ -43,13 +41,10 @@ class AlertsViewModel @Inject constructor(
     private val repo: ControlTowerRepository,
 ) : ViewModel() {
 
-    // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
-    private val observedResource: StateFlow<Resource<ControlTowerResponseDto>> =
-        repo.observeSummary().stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            Resource()
-        )
+    // Upstream Room flow. Kept as a cold Flow and folded into [state] below; the single
+    // WhileSubscribed(5_000) on [state] makes the whole chain lifecycle-aware, so this flow is
+    // collected only while the UI is subscribed (MOB-010).
+    private val observedResource: Flow<Resource<ControlTowerResponseDto>> = repo.observeSummary()
 
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)

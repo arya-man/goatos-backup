@@ -53,7 +53,7 @@ class ShedsViewModel @Inject constructor(
         repo.observeRows(limit = PAGE_LIMIT).stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
-            Resource()
+            Resource(data = null)
         )
 
     // Transient flags for manual updates
