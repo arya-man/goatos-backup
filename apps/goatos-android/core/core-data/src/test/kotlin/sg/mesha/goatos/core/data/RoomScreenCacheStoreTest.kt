@@ -16,11 +16,13 @@ import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheEntity
 import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheEntity
 import sg.mesha.goatos.core.data.cache.InsightsGapsCacheEntity
+import sg.mesha.goatos.core.data.cache.RosterCoverageCacheEntity
+import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
 
 /**
  * Proof for C35-001 that the production [ScreenCacheStore] wiring ([RoomScreenCacheStore]) does
- * not silently miss a table: seeds a row into EVERY one of the nine GoatDatabase cache tables
+ * not silently miss a table: seeds a row into EVERY one of the eleven GoatDatabase cache tables
  * (the exact set [LogoutCoordinatorTest] only proves was *invoked* through a fake), then asserts
  * every one is empty after [ScreenCacheStore.clearAll]. A real (Robolectric in-memory) database
  * is required here — [androidx.room.RoomDatabase.clearAllTables] only proves something against
@@ -31,7 +33,7 @@ import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
 class RoomScreenCacheStoreTest {
 
     @Test
-    fun `clearAll empties every cache table, including bootstrap`() = runTest {
+    fun `clearAll empties every cache table, including bootstrap and roster tables`() = runTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val db = Room.inMemoryDatabaseBuilder(context, GoatDatabase::class.java)
             .allowMainThreadQueries()
@@ -48,6 +50,8 @@ class RoomScreenCacheStoreTest {
             db.adherenceCacheDao().upsert(AdherenceCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
             db.insightsGapsCacheDao().upsert(InsightsGapsCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
             db.insightsCoverageCacheDao().upsert(InsightsCoverageCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
+            db.rosterTimetableCacheDao().upsert(RosterTimetableCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
+            db.rosterCoverageCacheDao().upsert(RosterCoverageCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
 
             RoomScreenCacheStore(db).clearAll()
 
@@ -60,6 +64,8 @@ class RoomScreenCacheStoreTest {
             assertNull("adherence cache wiped", db.adherenceCacheDao().observe(key).first())
             assertNull("insights gaps cache wiped", db.insightsGapsCacheDao().observe(key).first())
             assertNull("insights coverage cache wiped", db.insightsCoverageCacheDao().observe(key).first())
+            assertNull("roster timetable cache wiped", db.rosterTimetableCacheDao().observe(key).first())
+            assertNull("roster coverage cache wiped", db.rosterCoverageCacheDao().observe(key).first())
         } finally {
             db.close()
         }
