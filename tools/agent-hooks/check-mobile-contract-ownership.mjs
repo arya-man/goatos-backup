@@ -12,13 +12,19 @@ const repo = resolve(import.meta.dirname, "../..");
 const ROOTS = ["apps/goatos-android/app/src/main", "apps/goatos-android/feature"];
 // role-gating in UI/VM: `role ==`, `role !=`, `== Role.X`, `when (role)`. Comments excluded.
 const RE = /\b([a-zA-Z_][\w.]*[Rr]ole)\s*(==|!=)|(==|!=)\s*[A-Za-z_]*Role\.|when\s*\(\s*[a-zA-Z_][\w.]*[Rr]ole\s*\)/;
+// hardcoded disabled/blocked reason literal — a disabled reason is backend-owned (golden rule).
+const REASON_RE = /\b(disabledReason|blockedReason|disabled_reason|blockReason)\s*=\s*"[^"]/;
+// preview/sample/debug sources may hold literal reasons for @Preview — not production truth.
+const isPreviewSrc = (rel) => /Sample|Preview|Screenshot|/src\/debug\//i.test(rel) || /ScreenSamples/.test(rel);
 const isComment = (l) => { const t = l.trim(); return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*"); };
 function scan(rel) {
   const abs = resolve(repo, rel); let text; try { text = readFileSync(abs, "utf8"); } catch { return []; }
   const out = [];
+  const preview = isPreviewSrc(rel);
   text.split("\n").forEach((line, i) => {
     if (isComment(line) || line.includes("mobile-contract:ignore:")) return;
     if (RE.test(line)) out.push({ rel, line: i + 1, msg: `mobile UI decides visibility by role — gate on the backend-composed contract, not \`role ==\` (${line.trim().slice(0,70)})` });
+    if (!preview && REASON_RE.test(line)) out.push({ rel, line: i + 1, msg: `hardcoded disabled/blocked reason — a disabled reason is backend-owned; render it from the bootstrap contract (${line.trim().slice(0,70)})` });
   });
   return out;
 }

@@ -54,7 +54,8 @@ eviction, or a DAO reading a whole table into memory, OOMs low-end phones.
 
 ## Backend contract owns visibility
 The mobile UI must NOT gate visibility by role (`role ==`); render the backend-composed
-nav/actions/disabled-reasons contract. Machine-blocked by `make mobile-contract-ownership-guard`.
+nav/actions/disabled-reasons contract. Also blocks hardcoded disabled/blocked-reason
+literals in production screens (preview/sample sources excluded). Machine-blocked by `make mobile-contract-ownership-guard`.
 
 ## Test integrity
 No committed `@Ignore`/`@Disabled`/commented-`// @Test`; no flaky wall-clock
