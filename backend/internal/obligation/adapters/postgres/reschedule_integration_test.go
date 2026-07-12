@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestRescheduleObligationByIDMovesOpenObligation(t *testing.T) {
 	}
 
 	newDue := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
-	id, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-key-1", newDue, newDue, nil, time.Now().UTC())
+	id, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-key-1", nil, newDue, newDue, nil, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("reschedule: %v", err)
 	}
@@ -54,6 +55,34 @@ func TestRescheduleObligationByIDMovesOpenObligation(t *testing.T) {
 		`SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled' AND idempotency_key LIKE '%:rescheduled:%'`,
 		tenantID, obA); got != 1 {
 		t.Fatalf("want 1 rescheduled status event, got %d", got)
+	}
+}
+
+func TestRescheduleObligationByIDEnforcesAuthorizedParkBeforeWriteOrReplay(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obA := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	newDue := time.Date(2026, 9, 16, 9, 0, 0, 0, time.UTC)
+	wrongPark := []string{"00000000-0000-4000-8000-000000003999"}
+
+	if _, _, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-scope-1", wrongPark, newDue, newDue, nil, time.Now().UTC()); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cross-park reschedule error = %v, want ErrNotFound", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT row_version FROM obligation_instances WHERE obligation_id=$1`, obA); got != 1 {
+		t.Fatalf("cross-park attempt changed row_version to %d, want 1", got)
+	}
+
+	id, replay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-scope-allowed", []string{cbePark}, newDue, newDue, nil, time.Now().UTC())
+	if err != nil || id != obA || replay {
+		t.Fatalf("same-park reschedule: id=%q replay=%v err=%v", id, replay, err)
+	}
+
+	if _, _, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-scope-allowed", wrongPark, newDue, newDue, nil, time.Now().UTC()); !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("cross-park exact replay error = %v, want ErrNotFound before replay disclosure", err)
 	}
 }
 
@@ -89,7 +118,7 @@ func TestRescheduleObligationByIDDetachesPlannedBatch(t *testing.T) {
 	}
 
 	newDue := time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)
-	id, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-batch-1", newDue, newDue, nil, time.Now().UTC())
+	id, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-batch-1", nil, newDue, newDue, nil, time.Now().UTC())
 	if err != nil || id != obA || isReplay {
 		t.Fatalf("reschedule: id=%q isReplay=%v err=%v", id, isReplay, err)
 	}
@@ -122,7 +151,7 @@ func TestRescheduleObligationByIDExactReplayIsNoOp(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 
 	newDue := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
-	firstID, firstReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-replay-1", newDue, newDue, nil, time.Now().UTC())
+	firstID, firstReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-replay-1", nil, newDue, newDue, nil, time.Now().UTC())
 	if err != nil || firstID != obA || firstReplay {
 		t.Fatalf("first call: id=%q isReplay=%v err=%v", firstID, firstReplay, err)
 	}
@@ -130,7 +159,7 @@ func TestRescheduleObligationByIDExactReplayIsNoOp(t *testing.T) {
 		t.Fatalf("row_version after first call = %d want 2", got)
 	}
 
-	secondID, secondReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-replay-1", newDue, newDue, nil, time.Now().UTC())
+	secondID, secondReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-replay-1", nil, newDue, newDue, nil, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("replay call: %v", err)
 	}
@@ -159,12 +188,12 @@ func TestRescheduleObligationByIDSameKeyDifferentPayloadConflicts(t *testing.T) 
 	repo := NewRepository(pool, 5*time.Second)
 
 	firstDue := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
-	if _, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-conflict-1", firstDue, firstDue, nil, time.Now().UTC()); err != nil || isReplay {
+	if _, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-conflict-1", nil, firstDue, firstDue, nil, time.Now().UTC()); err != nil || isReplay {
 		t.Fatalf("first call: isReplay=%v err=%v", isReplay, err)
 	}
 
 	differentDue := time.Date(2026, 9, 22, 9, 0, 0, 0, time.UTC)
-	if _, _, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-conflict-1", differentDue, differentDue, nil, time.Now().UTC()); err == nil {
+	if _, _, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-conflict-1", nil, differentDue, differentDue, nil, time.Now().UTC()); err == nil {
 		t.Fatalf("expected ErrIdempotencyConflict, got nil error")
 	} else if err != ports.ErrIdempotencyConflict {
 		t.Fatalf("err = %v, want ports.ErrIdempotencyConflict", err)
@@ -206,7 +235,7 @@ func TestRescheduleObligationByIDRejectsDeferredObligation(t *testing.T) {
 	}
 
 	newDue := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
-	id, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-deferred-1", newDue, newDue, nil, time.Now().UTC())
+	id, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-deferred-1", nil, newDue, newDue, nil, time.Now().UTC())
 	if err == nil {
 		t.Fatalf("expected ErrNotFound for a deferred obligation, got id=%q isReplay=%v", id, isReplay)
 	}
@@ -239,7 +268,7 @@ func TestRescheduleObligationByIDCreatesNewObligationForMissed(t *testing.T) {
 	}
 
 	newDue := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
-	newID, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-1", newDue, newDue, nil, time.Now().UTC())
+	newID, isReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-1", nil, newDue, newDue, nil, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("reschedule missed obligation: %v", err)
 	}
@@ -288,7 +317,7 @@ func TestRescheduleObligationByIDCreatesNewObligationForMissed(t *testing.T) {
 	}
 
 	// Idempotent redelivery: same idempotency key + same payload must replay without a second insert.
-	replayID, replayIsReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-1", newDue, newDue, nil, time.Now().UTC())
+	replayID, replayIsReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-1", nil, newDue, newDue, nil, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("replay reschedule missed obligation: %v", err)
 	}
@@ -331,7 +360,7 @@ func TestRescheduleObligationByIDForMissedConvergesUnderDifferentIdempotencyKey(
 	}
 
 	newDue := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
-	firstID, firstReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-conv-key-1", newDue, newDue, nil, time.Now().UTC())
+	firstID, firstReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-conv-key-1", nil, newDue, newDue, nil, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("first reschedule of missed obligation: %v", err)
 	}
@@ -341,7 +370,7 @@ func TestRescheduleObligationByIDForMissedConvergesUnderDifferentIdempotencyKey(
 
 	// Same missed obligation, same new due date, but a DIFFERENT request idempotency key -- must
 	// converge on the existing rework obligation instead of erroring.
-	secondID, secondReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-conv-key-2", newDue, newDue, nil, time.Now().UTC())
+	secondID, secondReplay, err := repo.RescheduleObligationByID(ctx, tenantID, obA, "resched-missed-conv-key-2", nil, newDue, newDue, nil, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("second reschedule under a different idempotency key must converge, not error: %v", err)
 	}

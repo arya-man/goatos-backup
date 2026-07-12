@@ -63,7 +63,7 @@ type Writer interface {
 	// brand-new obligation is created for the new due date and its id is returned; the missed row is
 	// left untouched. Callers should treat the returned obligation_id as authoritative rather than
 	// assuming it always equals the path's obligation_id.
-	RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error)
+	RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, authorizedParkIDs []string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error)
 }
 
 // Handler serves vaccination execution endpoints (park/shed execution context for PC Vaccination).
@@ -476,7 +476,16 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, isReplay, err := h.writer.RescheduleObligationByID(r.Context(), tenantID(r), obligationID, idempotencyKey, req.DueAt, windowStart, req.WindowEnd, time.Now().UTC())
+	requestTenantID := tenantID(r)
+	var authorizedParkIDs []string
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, requestTenantID) {
+		authorizedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
+		if authorizedParkIDs == nil {
+			authorizedParkIDs = []string{}
+		}
+	}
+	id, isReplay, err := h.writer.RescheduleObligationByID(r.Context(), requestTenantID, obligationID, idempotencyKey, authorizedParkIDs, req.DueAt, windowStart, req.WindowEnd, time.Now().UTC())
 	if err != nil {
 		if errors.Is(err, obligationports.ErrNotFound) {
 			httpresponse.WriteError(w, r, h.log, http.StatusNotFound,

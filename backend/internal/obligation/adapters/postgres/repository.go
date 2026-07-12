@@ -604,7 +604,7 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 // estimated_targets is decremented. Unlike the defer/cancel flows, this intentionally does NOT also
 // write the context->'*_repair' stock-reconciliation JSONB bookkeeping those flows use — see the inline
 // comment at the detach site for why that was judged out of scope here.
-func (r *Repository) RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error) {
+func (r *Repository) RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, authorizedParkIDs []string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -625,20 +625,6 @@ func (r *Repository) RescheduleObligationByID(ctx context.Context, tenantID, obl
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := r.queries.WithTx(tx)
-
-	const rescheduleIdemScope = "obligation.reschedule"
-	fingerprint := requestFingerprint(obligationID, dueAt.UTC().Format(time.RFC3339Nano), windowStart.UTC().Format(time.RFC3339Nano), fpTime(windowEnd))
-	reservation, err := reserveIdempotency(ctx, tx, tenantID, rescheduleIdemScope, idempotencyKey, fingerprint)
-	if err != nil {
-		return "", false, err
-	}
-	if !reservation.proceed {
-		// Exact replay: no side effects, just hand back the original result.
-		if cerr := tx.Commit(ctx); cerr != nil {
-			return "", false, fmt.Errorf("obligation: commit reschedule replay: %w", cerr)
-		}
-		return reservation.resultID, true, nil
-	}
 
 	var lockedStatus, lockedBatchID, lockedBatchStatus string
 	var srcProtocolVersionID, srcRuleID, srcTargetType, srcTargetID, srcScopeType, srcScopeID, srcTrigger string
@@ -661,8 +647,15 @@ LEFT JOIN obligation_batches ob
  AND ob.batch_id = oi.batch_id
 WHERE oi.tenant_id = $1
   AND oi.obligation_id = $2
-  AND oi.status IN ('scheduled', 'due', 'missed')
-FOR UPDATE OF oi`, tenant, obligation).Scan(
+  AND ($3::uuid[] IS NULL OR EXISTS (
+        SELECT 1
+        FROM goats g
+        WHERE oi.target_type = 'goat'
+          AND g.tenant_id = oi.tenant_id
+          AND g.goat_id = oi.target_id
+          AND g.park_id = ANY($3::uuid[])
+      ))
+FOR UPDATE OF oi`, tenant, obligation, authorizedParkIDs).Scan(
 		&lockedStatus, &lockedBatchID, &lockedBatchStatus,
 		&srcProtocolVersionID, &srcRuleID, &srcTargetType, &srcTargetID,
 		&srcScopeType, &srcScopeID, &srcSequence, &srcTrigger)
@@ -671,6 +664,23 @@ FOR UPDATE OF oi`, tenant, obligation).Scan(
 	}
 	if err != nil {
 		return "", false, fmt.Errorf("obligation: lock reschedule target: %w", err)
+	}
+
+	const rescheduleIdemScope = "obligation.reschedule"
+	fingerprint := requestFingerprint(obligationID, dueAt.UTC().Format(time.RFC3339Nano), windowStart.UTC().Format(time.RFC3339Nano), fpTime(windowEnd))
+	reservation, err := reserveIdempotency(ctx, tx, tenantID, rescheduleIdemScope, idempotencyKey, fingerprint)
+	if err != nil {
+		return "", false, err
+	}
+	if !reservation.proceed {
+		// Scope is checked by the locked SELECT above before an exact replay can disclose a result.
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return "", false, fmt.Errorf("obligation: commit reschedule replay: %w", cerr)
+		}
+		return reservation.resultID, true, nil
+	}
+	if lockedStatus != "scheduled" && lockedStatus != "due" && lockedStatus != "missed" {
+		return "", false, ports.ErrNotFound
 	}
 
 	var newID string

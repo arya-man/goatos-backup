@@ -51,6 +51,7 @@ type fakeWriter struct {
 	lastRescheduleTenant  string
 	lastRescheduleObl     string
 	lastRescheduleIdemKey string
+	lastAuthorizedParks   []string
 }
 
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
@@ -119,10 +120,11 @@ func (w *fakeWriter) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 	return "obligation-id", false, nil
 }
 
-func (w *fakeWriter) RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error) {
+func (w *fakeWriter) RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, authorizedParkIDs []string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error) {
 	w.lastRescheduleTenant = tenantID
 	w.lastRescheduleObl = obligationID
 	w.lastRescheduleIdemKey = idempotencyKey
+	w.lastAuthorizedParks = append([]string(nil), authorizedParkIDs...)
 	if w.rescheduleErr != nil {
 		return "", false, w.rescheduleErr
 	}
@@ -647,6 +649,28 @@ func TestRescheduleObligationSucceeds(t *testing.T) {
 	}
 	if writer.lastRescheduleIdemKey != "idem-key-1" {
 		t.Fatalf("writer idempotency key = %q", writer.lastRescheduleIdemKey)
+	}
+}
+
+func TestRescheduleObligationPassesParkScopeToWriter(t *testing.T) {
+	const parkID = "86000000-0000-4000-8000-000000000701"
+	writer := &fakeWriter{rescheduleID: rescheduleObligationID}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, writer))
+
+	future := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	req := buildRescheduleRequest(t, rescheduleObligationID, "idem-key-scoped", `{"due_at":"`+future+`"}`)
+	req = req.WithContext(httpmiddleware.WithAuthGrants(req.Context(), []permissions.ActiveGrant{{
+		Role: permissions.RoleOperator, ScopeType: "park", ScopeID: parkID,
+	}}))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if len(writer.lastAuthorizedParks) != 1 || writer.lastAuthorizedParks[0] != parkID {
+		t.Fatalf("authorized parks = %#v want [%s]", writer.lastAuthorizedParks, parkID)
 	}
 }
 
