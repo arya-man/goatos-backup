@@ -299,8 +299,22 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body["taskId"] != taskID || body["nextCursor"] == "" {
-		t.Fatalf("response=%#v", body)
+	if body["taskId"] != taskID {
+		t.Fatalf("taskId=%#v want %q; response=%#v", body["taskId"], taskID, body)
+	}
+	nextCursor, ok := body["next_cursor"].(string)
+	if !ok || nextCursor == "" {
+		t.Fatalf("next_cursor=%#v, want non-empty snake_case cursor; response=%#v", body["next_cursor"], body)
+	}
+	if _, legacyPresent := body["nextCursor"]; legacyPresent {
+		t.Fatalf("legacy nextCursor key must be absent; response=%#v", body)
+	}
+	decoded, err := domain.DecodeScanRosterCursor(nextCursor)
+	if err != nil {
+		t.Fatalf("decode next_cursor: %v", err)
+	}
+	if decoded != *next {
+		t.Fatalf("decoded next_cursor=%#v want %#v", decoded, *next)
 	}
 }
 
