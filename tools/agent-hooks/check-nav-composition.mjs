@@ -37,8 +37,8 @@ const MODULE_ROUTES = [
 // Baselined existing offenders (tracked debt for the nav-generalization; replaced by the registry).
 // name -> reason. New hardcoded nav templates beyond these FAIL.
 const BASELINE = {
-  operatorNavigation: "nav-generalization: replace with module-grant registry composition (expires 2026-09-30)",
-  leadershipNavigation: "nav-generalization: replace with module-grant registry composition (expires 2026-09-30)",
+  // NOTE: operatorNavigation and leadershipNavigation have been REPLACED by registry composition
+  // in the moduleNavRegistry. They are no longer baselined offenders.
 };
 
 const TEMPLATE_DECL = /\b(\w+Navigation)\s*=\s*\[\]navigationTemplate\s*\{/;

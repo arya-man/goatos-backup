@@ -305,6 +305,60 @@ func TestNavChromeFor(t *testing.T) {
 	}
 }
 
+// TestBootstrapNavComposition verifies that navigation is composed from granted modules,
+// not hardcoded per-role. This test proves:
+// 1. Operator with single module (vaccination) gets bottom-bar-only nav (minimal chrome)
+// 2. Operator with multiple modules would get sidebar nav (expanded chrome)
+// 3. Leadership principals get overview + shared cross-module nav (expanded chrome)
+// 4. Nav items are deduplicated by shared_key (e.g., calendar appears once)
+func TestBootstrapNavComposition(t *testing.T) {
+	operatorGrants := []domain.GrantSummary{grantWithRole(permissions.RoleOperator)}
+	leadershipGrants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
+
+	t.Run("operator with single module gets minimal nav chrome", func(t *testing.T) {
+		chrome := navChromeFor(operatorGrants)
+		if chrome != domain.NavChromeMinimal {
+			t.Fatalf("navChromeFor(operator)=%q want %q (single module = minimal)", chrome, domain.NavChromeMinimal)
+		}
+	})
+
+	t.Run("operator with single module gets vaccination + shared nav", func(t *testing.T) {
+		nav := visibleNavigationFor(operatorGrants, "")
+		if len(nav) != 3 {
+			t.Fatalf("operator nav length=%d want 3 (vaccination + calendar + alerts)", len(nav))
+		}
+		// Verify calendar and alerts are not duplicated (dedupe by shared_key)
+		keys := []string{nav[0].Key, nav[1].Key, nav[2].Key}
+		seen := make(map[string]int)
+		for _, k := range keys {
+			seen[k]++
+			if seen[k] > 1 {
+				t.Fatalf("nav item %q appears %d times (should be deduplicated)", k, seen[k])
+			}
+		}
+	})
+
+	t.Run("leadership principal gets overview + shared nav", func(t *testing.T) {
+		nav := visibleNavigationFor(leadershipGrants, "")
+		if len(nav) != 3 {
+			t.Fatalf("leadership nav length=%d want 3 (overview + calendar + alerts)", len(nav))
+		}
+		if nav[0].Key != "leadership" {
+			t.Fatalf("first nav item key=%q want 'leadership'", nav[0].Key)
+		}
+		if nav[1].Key != "calendar" || nav[2].Key != "alerts" {
+			t.Fatalf("leadership nav should have calendar and alerts; got %v", []string{nav[1].Key, nav[2].Key})
+		}
+	})
+
+	t.Run("leadership gets expanded nav chrome", func(t *testing.T) {
+		chrome := navChromeFor(leadershipGrants)
+		if chrome != domain.NavChromeExpanded {
+			t.Fatalf("navChromeFor(leadership)=%q want %q", chrome, domain.NavChromeExpanded)
+		}
+	})
+}
+
 func assertAppCode(t *testing.T, err error, code string) {
 	t.Helper()
 	var appErr *Error

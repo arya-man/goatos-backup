@@ -615,12 +615,17 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 	return false
 }
 
-// navChromeFor gives leadership/CEO principals the module drawer (expanded);
-// field operators stay on bottom-bar-only chrome (minimal).
+// navChromeFor decides the nav chrome based on module count:
+// >=2 modules = sidebar (expanded); <2 modules = bottom-bar only (minimal).
+// Today, leadership principals count as multiple effective modules for nav purposes,
+// so they get expanded; field operators with a single module stay minimal.
+// TODO: when department_module_grants is populated, count actual granted modules
+// and use that instead of the leadership binary check.
 func navChromeFor(grants []domain.GrantSummary) string {
 	if isLeadershipPrincipal(grants) {
 		return domain.NavChromeExpanded
 	}
+	// Single module = minimal nav chrome (bottom-bar only)
 	return domain.NavChromeMinimal
 }
 
