@@ -129,6 +129,59 @@ export type DryRunResponse = AdminApiComponents["schemas"]["DryRunResponse"];
 export type SOPValidationReport = AdminApiComponents["schemas"]["ValidationReport"];
 export type ReviewTaskRequest = AdminApiComponents["schemas"]["ReviewTaskRequest"];
 export type TaskResponse = AdminApiComponents["schemas"]["TaskResponse"];
+export type AssignTaskRequest = AdminApiComponents["schemas"]["AssignTaskRequest"];
+
+// Generic Verification vertical (context/architecture/verification-module-design.md +
+// verifier-app-and-flow.md). Admin-web is the AUTHORITY act surface: it reads the Verifier's
+// approve/reject queue and acts on the SOURCE task via the EXISTING /admin/tasks/{task_id}/verify|
+// rework|assign contract below — it never writes a verdict itself (that is the standalone Verifier
+// mobile app's job, gated on verification.review, built separately).
+//
+// TODO(verification-contract): `/verification/queue` is NOT YET in this worktree's generated
+// `@goatos/api-client` (packages/api-client/src/generated/app-api.ts) or
+// `contracts/openapi/app-api.yaml` — the backend Verification module (1a) ships it on a parallel
+// branch (feat/verification-backend, commit c239490a). These local types mirror that branch's
+// OpenAPI schema EXACTLY (VerificationItemStatus/VerificationSourceRef/VerificationMediaItem/
+// VerificationQueueItem/VerificationQueueResponse). Once that branch merges and the client
+// regenerates, delete this block and replace with
+// `AppApiComponents["schemas"]["VerificationQueueItem"]` etc., and swap `listVerificationQueue`
+// below to the plain generated-client call (drop the `as keyof AppApiPaths & string` cast).
+export type VerificationItemStatus = "pending" | "approved" | "rejected";
+export type VerificationSourceRef = {
+  module: string;
+  task_id?: string;
+  submission_id?: string;
+  ref_type: string;
+  ref_id: string;
+};
+export type VerificationMediaItem = {
+  proof_id: string;
+  download_url: string;
+  mime_type?: string;
+  duration_ms?: number;
+};
+export type VerificationQueueItem = {
+  item_id: string;
+  vertical: string;
+  module: string;
+  category: string;
+  status: VerificationItemStatus;
+  verdict_reason?: string;
+  operator_id?: string;
+  shed_id?: string;
+  park_id?: string;
+  captured_at: string;
+  verified_by?: string;
+  verified_at?: string;
+  row_version: number;
+  media: VerificationMediaItem[];
+  source: VerificationSourceRef;
+};
+export type VerificationQueueResponse = {
+  items: VerificationQueueItem[];
+  next_cursor?: string;
+  trace_id: string;
+};
 
 export type ApiErrorKind =
   | "missing_config"
@@ -840,6 +893,55 @@ export async function requestSopTaskRework(taskId: string, body: ReviewTaskReque
   const client = createAdminApiClient(apiClientOptions(config.data));
   const path = `/admin/tasks/${encodeURIComponent(taskId)}/rework` as keyof AdminApiPaths & string;
   return request(() => client.request<TaskResponse>(path, { method: "POST", cache: "no-store", body }));
+}
+
+// Current row_version for one SOP task (GET /admin/tasks/{task_id}). The Verification queue item's
+// own row_version guards the verification_item row, NOT the source SOP task — the authority act
+// actions below (rework / re-assign) need a FRESH task row_version for optimistic concurrency, so
+// the verification-review drawer fetches this once per selected item before submitting either form.
+export async function getSopTask(taskId: string): Promise<ApiResult<TaskResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/tasks/${encodeURIComponent(taskId)}` as keyof AdminApiPaths & string;
+  return request(() => client.request<TaskResponse>(path, { cache: "no-store" }));
+}
+
+// Re-assign / assign a task to another operator (POST /admin/tasks/{task_id}/assign). Used by the
+// verification-review AUTHORITY act drawer's "Re-assign" action.
+export async function assignSopTask(taskId: string, body: AssignTaskRequest): Promise<ApiResult<TaskResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/tasks/${encodeURIComponent(taskId)}/assign` as keyof AdminApiPaths & string;
+  return request(() => client.request<TaskResponse>(path, { method: "POST", cache: "no-store", body }));
+}
+
+// TODO(verification-contract): the Verifier's read-only media queue. Category/vertical/module/
+// status/cursor/limit query params match the parallel backend branch's OpenAPI exactly (see the
+// type block above). NOTE the contract has NO park_id query filter yet — the drawer/list below
+// narrow the already-fetched bounded page by the top-bar park scope client-side (small page, ~20
+// rows, never a full-table read) until a park_id query param is added server-side.
+export async function listVerificationQueue(
+  params: { category?: string; vertical?: string; module?: string; status?: VerificationItemStatus; cursor?: string; limit?: number } = {},
+): Promise<ApiResult<VerificationQueueResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path: string = "/verification/queue";
+  return request(() =>
+    client.request<VerificationQueueResponse>(path as keyof AppApiPaths & string, {
+      cache: "no-store",
+      query: compactQuery({
+        category: params.category,
+        vertical: params.vertical,
+        module: params.module,
+        status: params.status,
+        cursor: params.cursor,
+        limit: params.limit ?? 20,
+      }),
+    }),
+  );
 }
 
 // ---- Proof upload wrappers for vaccination drawer ----

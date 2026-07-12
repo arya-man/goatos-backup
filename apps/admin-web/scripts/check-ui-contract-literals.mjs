@@ -26,6 +26,7 @@ const SKIP_PATH_PARTS = [
   "features/procurement/work-state.ts",
   "features/process-integrity/process-integrity.ts",
   "features/vaccination-execution/work-state.ts",
+  "features/verification-review/",  // /verification is new; no backend page contract yet (Verification module ships on a parallel branch) — documented exception in context/frontend/admin-web-backend-ui-contract.md
 ];
 const ALLOW_LINE = [
   /Intl\.DateTimeFormat/,
