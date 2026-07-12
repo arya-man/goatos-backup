@@ -76,24 +76,28 @@ data class DeviceSummaryDto(
 )
 
 /** Request body for POST /app/devices/register (RegisterDeviceRequest).
- *  [pushTokenHash]: despite the name, mobile sends the RAW FCM registration token here (not a
- *  hash of it) — see [sg.mesha.goatos.core.data.push.DefaultNotificationsPort]'s KDoc for why.
- *  Coordinate with the backend FCM slice before renaming this wire field. */
+ *  [fcmToken]: the RAW FCM registration token for this install — see
+ *  [sg.mesha.goatos.core.data.push.DefaultNotificationsPort]'s KDoc for the wire-field history.
+ *  [pushTokenHash] is kept for backward compat with the identity/dedup hash the backend keys
+ *  device-binding uniqueness on; mobile does not compute a hash of the token, so it is always
+ *  left `null` here — device identity/dedup is keyed on [appInstallId], not this field. */
 @Serializable
 data class RegisterDeviceRequestDto(
     @SerialName("app_install_id") val appInstallId: String,
     @SerialName("app_version") val appVersion: String,
     @SerialName("os_version") val osVersion: String = "",
     @SerialName("push_token_hash") val pushTokenHash: String? = null,
+    @SerialName("fcm_token") val fcmToken: String? = null,
 )
 
 /** Request body for POST /app/devices/{device_id}/heartbeat (HeartbeatDeviceRequest).
- *  [pushTokenHash]: same raw-token wire-field note as [RegisterDeviceRequestDto.pushTokenHash]. */
+ *  [fcmToken] / [pushTokenHash]: same wire-field note as [RegisterDeviceRequestDto]. */
 @Serializable
 data class HeartbeatDeviceRequestDto(
     @SerialName("app_version") val appVersion: String = "",
     @SerialName("os_version") val osVersion: String = "",
     @SerialName("push_token_hash") val pushTokenHash: String? = null,
+    @SerialName("fcm_token") val fcmToken: String? = null,
 )
 
 /** Response for register/heartbeat (DeviceResponse). */

@@ -25,8 +25,8 @@ interface AnalyticsPort {
 }
 
 /** Test/preview fallback. Deliberately does nothing so callers stay decoupled from any vendor
- *  SDK — the real egress binding is [sg.mesha.goatos.push.FirebaseAnalyticsPort] (`:app`,
- *  guarded so a build flavor with no Firebase config never crashes on it). */
+ *  SDK — the real egress binding is [FirebaseAnalyticsAdapter] (bound only for flavors with a
+ *  confirmed Firebase project; see `di/AnalyticsModule.kt` in `:app`). */
 class NoopAnalytics : AnalyticsPort {
     override fun track(event: String, props: Map<String, String>) {}
     override fun setUserProperty(name: String, value: String?) {}

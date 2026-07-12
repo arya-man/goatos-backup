@@ -1,8 +1,10 @@
 package sg.mesha.goatos
 
 import android.app.Application
+import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.google.firebase.FirebaseApp
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -71,6 +73,18 @@ class GoatOsApplication : Application(), Configuration.Provider {
         // safe to call every cold start (NotificationManager.createNotificationChannels is
         // idempotent for an unchanged channel).
         pushNotifications.ensureChannels()
+        // Firebase-availability check (docs: FCM push slice). A build flavor with no committed
+        // `firebase.xml` (`prod` today) never gets a default FirebaseApp — FirebaseInitProvider
+        // silently skips init when the required resources are missing, it does not throw. Every
+        // push call site (DefaultNotificationsPort/AndroidPushTokenSync/GoatOsMessagingService/
+        // PushLogoutCleanup) already degrades to a safe no-op via its own `runCatching`, so this
+        // check changes no behavior — it only logs ONCE at cold start so a "push isn't working"
+        // report on that flavor is immediately explained in logcat instead of requiring a repro
+        // across every one of those runCatching call sites. (Analytics identity is a separate,
+        // flavor-gated seam — see `di/AnalyticsModule.kt` — so it is unaffected by this check.)
+        if (runCatching { FirebaseApp.getInstance() }.getOrNull() == null) {
+            Log.w(TAG, "Firebase not configured for this flavor; push disabled")
+        }
         // Off the main thread: enqueueUniquePeriodicWork does disk I/O on the calling thread, and
         // starting the connectivity trigger touches ConnectivityManager — neither is on the
         // critical path to first frame, so defer both to the app scope to keep cold start snappy.
@@ -82,5 +96,9 @@ class GoatOsApplication : Application(), Configuration.Provider {
             // touches the OS ActivityManager, not free work.
             foregroundSyncController.ensureRunning()
         }
+    }
+
+    private companion object {
+        const val TAG = "GoatOsApplication"
     }
 }

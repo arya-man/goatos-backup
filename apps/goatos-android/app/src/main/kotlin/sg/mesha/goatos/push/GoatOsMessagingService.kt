@@ -1,5 +1,6 @@
 package sg.mesha.goatos.push
 
+import android.util.Log
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dagger.hilt.android.AndroidEntryPoint
@@ -21,6 +22,14 @@ import javax.inject.Inject
  *    class must build the notification itself rather than relying on the payload's `notification`
  *    block to self-display. The full data payload rides along on the tap `PendingIntent` (see
  *    [PushNotifications]) so a tap deep-links to the right screen either way.
+ *
+ * Both OS callbacks are wrapped in `runCatching` — matching [PushLogoutCleanup] and
+ * [AndroidPushTokenSync]'s standard for every other Firebase call site in this app. A build
+ * flavor without a committed `firebase.xml` (`prod` today) can still have this service
+ * instantiated and invoked by the OS; any Firebase/init failure inside these callbacks must
+ * degrade push to a no-op, never crash the process the OS just woke up. (Analytics identity uses
+ * a different safety story — [sg.mesha.goatos.core.analytics.FirebaseAnalyticsAdapter] is only
+ * bound for flavors with a confirmed Firebase project, so it needs no self-guard.)
  */
 @AndroidEntryPoint
 class GoatOsMessagingService : FirebaseMessagingService() {
@@ -30,22 +39,34 @@ class GoatOsMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        notificationsPort.registerToken(token)
+        runCatching {
+            notificationsPort.registerToken(token)
+        }.onFailure { t ->
+            Log.w(TAG, "onNewToken handling failed; push registration skipped for this rotation.", t)
+        }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-        val data = message.data
-        val title = message.notification?.title
-            ?: data[PushExtras.TITLE]?.takeIf { it.isNotBlank() }
-            ?: getString(DesignSystemR.string.push_default_title)
-        val body = message.notification?.body ?: data[PushExtras.BODY].orEmpty()
-        pushNotifications.show(title = title, body = body, payload = data)
-        // TODO(backend): delivery/read ACK. AppApi has no "notification delivered/read" endpoint
-        // today (checked core-network's AppApi — out of scope for the mobile FCM slice to invent
-        // one). Once the backend FCM slice (goatos-fcm-notif worktree) adds one, call it here with
-        // the message's `message.messageId` (delivery) and again from the tap path
-        // (MainActivity.handlePushIntent, read confirmation) with the SAME idempotency-key
-        // discipline every other outbox write in this app uses.
+        runCatching {
+            val data = message.data
+            val title = message.notification?.title
+                ?: data[PushExtras.TITLE]?.takeIf { it.isNotBlank() }
+                ?: getString(DesignSystemR.string.push_default_title)
+            val body = message.notification?.body ?: data[PushExtras.BODY].orEmpty()
+            pushNotifications.show(title = title, body = body, payload = data)
+            // TODO(backend): delivery/read ACK. AppApi has no "notification delivered/read" endpoint
+            // today (checked core-network's AppApi — out of scope for the mobile FCM slice to invent
+            // one). Once the backend FCM slice (goatos-fcm-notif worktree) adds one, call it here with
+            // the message's `message.messageId` (delivery) and again from the tap path
+            // (MainActivity.handlePushIntent, read confirmation) with the SAME idempotency-key
+            // discipline every other outbox write in this app uses.
+        }.onFailure { t ->
+            Log.w(TAG, "onMessageReceived handling failed; notification dropped for this message.", t)
+        }
+    }
+
+    private companion object {
+        const val TAG = "GoatOsMessagingService"
     }
 }

@@ -14,17 +14,16 @@ import sg.mesha.goatos.core.notifications.NotificationsPort
  * device register/heartbeat endpoints [sg.mesha.goatos.core.data.DefaultBootstrapRepository]
  * already calls (docs/mobile — FCM push slice).
  *
- * ### Wire-field decision: the RAW token rides in `push_token_hash`
- * [RegisterDeviceRequestDto.pushTokenHash] / [HeartbeatDeviceRequestDto.pushTokenHash] are
- * named for a hashed value, but this port deliberately sends the RAW FCM registration [token]
- * verbatim in that field: the backend's `messaging.Send(ctx, &messaging.Message{Token: ...})`
- * call needs the literal token FCM issued to address this device — a hash of it cannot deliver
- * a message. `push_token_hash` is the only wire channel this contract exposes for a device's
- * push binding today, so sending the raw token there is the pragmatic path that makes delivery
- * work now. Coordinate with the backend FCM slice (the sibling `goatos-fcm-notif` worktree,
- * which is adding a dedicated raw-token column) before this field is renamed or a distinct
- * field is introduced — when the contract changes, only this class's request-building needs
- * to move to the new field name, not the whole push pipeline.
+ * ### Wire-field decision: the RAW token rides in `fcm_token`
+ * The backend register/heartbeat contract reads the RAW FCM registration token from the
+ * dedicated [RegisterDeviceRequestDto.fcmToken] / [HeartbeatDeviceRequestDto.fcmToken] field —
+ * the backend's `messaging.Send(ctx, &messaging.Message{Token: ...})` call needs the literal
+ * token FCM issued to address this device. [RegisterDeviceRequestDto.pushTokenHash] /
+ * [HeartbeatDeviceRequestDto.pushTokenHash] stay the identity/dedup hash column; this port
+ * leaves them `null` because mobile never computes a hash of the token — device identity/
+ * dedup is keyed on `app_install_id`, so a null `push_token_hash` is fine. (Earlier revision of
+ * this slice sent the raw token in `push_token_hash` before the backend added `fcm_token` —
+ * see the `goatos-fcm-notif` worktree for the column addition this reconciles with.)
  *
  * Synchronous [registerToken] (matches [NotificationsPort]): Firebase's `onNewToken` callback
  * is not itself a suspend function, so the actual network call is dispatched onto [appScope]
@@ -52,7 +51,8 @@ class DefaultNotificationsPort(
                         HeartbeatDeviceRequestDto(
                             appVersion = appVersion,
                             osVersion = osVersion,
-                            pushTokenHash = token,
+                            pushTokenHash = null,
+                            fcmToken = token,
                         ),
                     )
                 } else {
@@ -61,7 +61,8 @@ class DefaultNotificationsPort(
                             appInstallId = deviceStore.appInstallId(),
                             appVersion = appVersion,
                             osVersion = osVersion,
-                            pushTokenHash = token,
+                            pushTokenHash = null,
+                            fcmToken = token,
                         ),
                     )
                     deviceStore.setDeviceId(response.device.deviceId.ifBlank { null })
