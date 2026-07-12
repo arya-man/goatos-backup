@@ -97,4 +97,24 @@ class BootstrapViewModelAnalyticsTest {
         assertNull("blank role hint -> null identity", context.role)
         assertNull("blank location -> null identity", context.parkScope)
     }
+
+    @Test
+    fun `reset discards a held Ready state back to Loading (logout clean-slate, C35-001)`() = runTest {
+        val analytics = RecordingAnalytics()
+        val context = AnalyticsContext(flavor = "dev")
+        val repo = FakeBootstrapRepository(
+            navState = NavState(NavChrome.EXPANDED, listOf()),
+            profile = BootstrapOperatorProfileDto(primaryRoleHint = "operator", primaryLocation = "Park A"),
+        )
+        val vm = BootstrapViewModel(repo, analytics, context)
+        advanceUntilIdle()
+        check(vm.state.value is BootstrapUiState.Ready) { "precondition: vm should be Ready before reset" }
+
+        // Activity-scoped BootstrapViewModel otherwise survives a logout holding the departing
+        // user's nav state; reset() is what MainActivity calls on the auth-state observer's
+        // false transition so no stale Ready(navState) can ever be shown to the next principal.
+        vm.reset()
+
+        assertEquals(BootstrapUiState.Loading, vm.state.value)
+    }
 }
