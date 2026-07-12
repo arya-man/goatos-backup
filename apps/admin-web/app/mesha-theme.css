@@ -557,7 +557,7 @@
 	  .calpicker-head b{text-align:center;font-size:13.5px}
 	  .calpicker-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
 	  .calpicker-dow{text-align:center;color:var(--faint);font-size:10px;font-weight:800;text-transform:uppercase;padding:2px 0}
-	  .calpicker-day{position:relative;display:grid;place-items:start;width:100%;min-width:0;height:40px;border:1px solid var(--line2);background:var(--bg);color:var(--muted);border-radius:8px;padding:5px;font-size:12px;font-weight:750;cursor:pointer}
+	  .calpicker-day{position:relative;display:grid;place-items:center;width:100%;min-width:0;height:40px;border:1px solid var(--line2);background:var(--bg);color:var(--muted);border-radius:8px;padding:5px 5px 11px;font-size:12px;font-weight:750;cursor:pointer;text-align:center}
 	  .calpicker-day:hover{border-color:var(--brand);color:var(--ink)}
 	  .calpicker-day.out{opacity:.28;cursor:default}
 	  .calpicker-day.today{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)}
@@ -570,7 +570,7 @@
 	  .calpicker-day b{position:absolute;right:5px;top:5px;min-width:18px;height:16px;padding:0 4px;border-radius:999px;display:grid;place-items:center;background:var(--info);color:#061016;font-size:9px;line-height:1}
 	  .calpicker-day.has-drive b{background:var(--brand);color:#08130B}
 	  .calpicker-day.has-history:not(.has-open-work) b{background:var(--purple);color:#08130B}
-	  .calpicker-day i{position:absolute;left:5px;right:5px;bottom:5px;display:flex;gap:2px}
+	  .calpicker-day i{position:absolute;left:50%;right:auto;bottom:5px;display:flex;justify-content:center;gap:2px;transform:translateX(-50%)}
 	  .calpicker-day em{display:block;width:5px;height:5px;border-radius:50%}
 	  .calpicker-note{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px solid var(--line2);color:var(--muted);font-size:11px}
 	  .calpicker-note .sp{flex:1}
