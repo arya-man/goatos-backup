@@ -108,11 +108,12 @@ func main() {
 	must(err)
 	// Scan product + worker repo logic only. backend/internal holds every request
 	// path, app service, and worker repo method — i.e. every hot path that must
-	// hold at 1-5M animals. One-time tooling (backend/cmd/seed-*, migrate) is
-	// intentionally out of scope: a seed doing N+1 or delete+reinsert runs once
-	// and never serves traffic.
+	// hold at 1-5M animals. backend/cmd/obligation-sweeper and other durable workers
+	// have production hot paths too (must hold under concurrent load). One-time tooling
+	// (backend/cmd/seed-*, migrate) is intentionally out of scope: a seed doing N+1 or
+	// delete+reinsert runs once and never serves traffic. Scan backend/ for both.
 	scanRoot := repo
-	for _, cand := range []string{filepath.Join(repo, "backend", "internal"), filepath.Join(repo, "internal"), filepath.Join(repo, "backend"), repo} {
+	for _, cand := range []string{filepath.Join(repo, "backend"), filepath.Join(repo, "internal"), repo} {
 		if _, err := os.Stat(cand); err == nil {
 			scanRoot = cand
 			break

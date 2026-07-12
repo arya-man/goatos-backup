@@ -31,7 +31,9 @@ jobs:
           bash tools/agent-hooks/check-e2e-kernel-integrity.sh
           make api-latency-policy-test
       - name: Scale anti-pattern guard
-        run: make scale-guard
+        run: |
+          make scale-guard
+          cd tools/scale-guard && go test ./...
       - name: Clinical defer-state medical-safety guard
         # Blocks the C35-010 anti-pattern: a partial clinical defer_states list in
         # production code/seeds (sick/under_treatment/quarantine/icu are mandatory

@@ -705,7 +705,8 @@ classified AS (
       9223372036854775807::bigint
     ) AS sort_due_micros,
     stateful.park_uuid::text || '|' || stateful.shed_uuid::text || '|' || stateful.rule_id::text || '|' ||
-      COALESCE(stateful.batch_id::text, '00000000-0000-0000-0000-000000000000') AS sort_row_key,
+      COALESCE(stateful.batch_id::text, '00000000-0000-0000-0000-000000000000') || '|' ||
+      stateful.obligation_id::text AS sort_row_key,
     CASE
       WHEN stateful.work_state = 'completed' THEN 'ok'
       WHEN stateful.work_state IN ('scheduled', 'due', 'in_progress', 'deferred', 'verification_pending') THEN 'watch'

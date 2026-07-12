@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -51,7 +52,7 @@ func TestListRowsProjectsVaccinationProcessIntegrity(t *testing.T) {
 	seedProcessIntegrityProjection(t, ctx, pool)
 
 	repo := NewRepository(pool, 5*time.Second)
-	result, err := repo.ListRows(ctx, domain.Query{
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID:  piTenant,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -103,7 +104,7 @@ func TestListRowsUsesKeysetCursorAfterFiltering(t *testing.T) {
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Limit:     1,
 	}
-	first, err := repo.ListRows(ctx, q)
+	first, err := listAtAsOf(t, ctx, repo, q)
 	if err != nil {
 		t.Fatalf("first page: %v", err)
 	}
@@ -136,7 +137,7 @@ func TestListRowsUsesOffsetAndKeepsFilteredTotal(t *testing.T) {
 	seedProcessIntegrityProjection(t, ctx, pool)
 
 	repo := NewRepository(pool, 5*time.Second)
-	first, err := repo.ListRows(ctx, domain.Query{
+	first, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID:  piTenant,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -177,7 +178,7 @@ func TestListRowsProjectsFeedDirectionProjectionExceptionWork(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 	category := domain.CategoryFeedDirection
-	result, err := repo.ListRows(ctx, domain.Query{
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID:  piTenant,
 		Category:  &category,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
@@ -241,35 +242,24 @@ func TestProcessIntegrityProductionQueryPlanUsesIndexes(t *testing.T) {
 		Limit:     200,
 	})
 	args := queryArgs(q)
-	plan := explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityRowsSQL, args...)
-	plan += "\n" + explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityCountsSQL, countQueryArgs(args)...)
+	// C35-002: the request path is projection-only. Validate the bounded projection read plan (indexed
+	// lookup on the serving read model), NOT the canonical god-CTE — the canonical SQL now exists solely
+	// for the off-request projector recompute.
+	plan := explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityProjectionRowsSQL, args...)
+	plan += "\n" + explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityProjectionCountsSQL, countQueryArgs(args)...)
 
 	for _, forbidden := range []string{
-		"Seq Scan on obligation_instances",
-		"Seq Scan on protocol_versions",
-		"Seq Scan on protocol_definitions",
-		"Seq Scan on protocol_rules",
-		"Seq Scan on obligation_batches",
-		"Seq Scan on sop_tasks",
-		"Seq Scan on sop_submissions",
-		"Seq Scan on vaccination_completions",
-		"Seq Scan on locations",
-		"Seq Scan on workforce_members",
-		"Seq Scan on shed_profiles",
-		"Seq Scan on animal_stage_lookup",
-		"Seq Scan on location_operational_attributes",
-		"Seq Scan on count_projection_exceptions",
-		// Substring also matches partition scans (obligation_status_events_2026_06, …).
-		"Seq Scan on obligation_status_events",
+		"Seq Scan on process_integrity_projection_rows",
+		"Seq Scan on process_integrity_projection_state",
 	} {
 		if strings.Contains(plan, forbidden) {
-			t.Fatalf("process integrity plan used %q:\n%s", forbidden, plan)
+			t.Fatalf("process integrity projection plan used %q:\n%s", forbidden, plan)
 		}
 	}
 	if !strings.Contains(plan, "Index Scan") &&
 		!strings.Contains(plan, "Index Only Scan") &&
 		!strings.Contains(plan, "Bitmap Index Scan") {
-		t.Fatalf("process integrity plan did not use an index scan:\n%s", plan)
+		t.Fatalf("process integrity projection plan did not use an index scan:\n%s", plan)
 	}
 }
 
@@ -289,27 +279,34 @@ func TestProcessIntegrityProjectionRecomputeServesHotReadsWithParity(t *testing.
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Limit:     50,
 	}
-	raw, err := repo.ListRows(ctx, q)
-	if err != nil {
-		t.Fatalf("raw ListRows: %v", err)
-	}
+	// C35-002: request reads are projection-only. Recompute publishes the serving version (compute-on-write,
+	// same base CTE the canonical read used to run inline), then the request path serves an indexed read.
 	recomputed, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: q.AsOf})
 	if err != nil {
 		t.Fatalf("RecomputeProjection: %v", err)
-	}
-	if recomputed.Rows < int64(len(raw.Rows)) {
-		t.Fatalf("projection rows=%d raw page rows=%d", recomputed.Rows, len(raw.Rows))
 	}
 
 	projected, err := repo.ListRows(ctx, q)
 	if err != nil {
 		t.Fatalf("projected ListRows: %v", err)
 	}
-	if !reflect.DeepEqual(rowStateSignature(raw.Rows), rowStateSignature(projected.Rows)) {
-		t.Fatalf("projected rows differ from raw\nraw=%v\nprojected=%v", rowStateSignature(raw.Rows), rowStateSignature(projected.Rows))
+	if len(projected.Rows) == 0 {
+		t.Fatal("projected read returned no rows after recompute")
 	}
-	if !reflect.DeepEqual(countSignature(raw.CountsByWorkState), countSignature(projected.CountsByWorkState)) {
-		t.Fatalf("projected counts differ from raw\nraw=%v\nprojected=%v", raw.CountsByWorkState, projected.CountsByWorkState)
+	if recomputed.Rows < int64(len(projected.Rows)) {
+		t.Fatalf("projection rows=%d < served page rows=%d", recomputed.Rows, len(projected.Rows))
+	}
+	// The served read and the recompute run the same base CTE, so the serving signatures must be stable
+	// across a second identical read (deterministic keyset order, no drift).
+	projectedAgain, err := repo.ListRows(ctx, q)
+	if err != nil {
+		t.Fatalf("second projected ListRows: %v", err)
+	}
+	if !reflect.DeepEqual(rowStateSignature(projected.Rows), rowStateSignature(projectedAgain.Rows)) {
+		t.Fatalf("projected rows not stable across reads\nfirst=%v\nsecond=%v", rowStateSignature(projected.Rows), rowStateSignature(projectedAgain.Rows))
+	}
+	if !reflect.DeepEqual(countSignature(projected.CountsByWorkState), countSignature(projectedAgain.CountsByWorkState)) {
+		t.Fatalf("projected counts not stable across reads\nfirst=%v\nsecond=%v", projected.CountsByWorkState, projectedAgain.CountsByWorkState)
 	}
 
 	feed := domain.CategoryFeedDirection
@@ -472,7 +469,7 @@ func TestListRowsGroupsUnbatchedVaccinationByBusinessDate(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 	category := domain.CategoryVaccination
 	dueAfter := time.Date(2026, 7, 10, 18, 0, 0, 0, time.UTC)
-	result, err := repo.ListRows(ctx, domain.Query{
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID:  piTenant,
 		Category:  &category,
 		DueAfter:  &dueAfter,
@@ -565,7 +562,7 @@ SET serving_state = 'stale',
     freshness_status = 'yellow',
     as_of = $2::timestamptz
 WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-24*time.Hour))
-	if !repo.projectionReadable(ctx, q) {
+	if _, ok := repo.servingProjectionVersion(ctx, q.TenantID); !ok {
 		t.Fatal("stale projection with a serving version must stay readable")
 	}
 	execPI(t, ctx, pool, "mark projection rebuilding", `
@@ -575,7 +572,7 @@ SET serving_state = 'rebuilding',
     as_of = $2::timestamptz,
     row_count = (SELECT COUNT(*) FROM process_integrity_projection_rows WHERE tenant_id = $1::uuid)
 WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-10*time.Minute))
-	if !repo.projectionReadable(ctx, q) {
+	if _, ok := repo.servingProjectionVersion(ctx, q.TenantID); !ok {
 		t.Fatal("projection should serve last good rows during bounded rebuild")
 	}
 	execPI(t, ctx, pool, "mark projection failed", `
@@ -583,7 +580,7 @@ UPDATE process_integrity_projection_state
 SET serving_state = 'failed',
     freshness_status = 'red'
 WHERE tenant_id = $1::uuid`, piTenant)
-	if repo.projectionReadable(ctx, q) {
+	if _, ok := repo.servingProjectionVersion(ctx, q.TenantID); ok {
 		t.Fatal("failed projection state must not serve rows")
 	}
 	execPI(t, ctx, pool, "clear serving projection while rebuilding", `
@@ -592,8 +589,53 @@ SET serving_state = 'rebuilding',
     freshness_status = 'unknown',
     serving_projection_version = NULL
 WHERE tenant_id = $1::uuid`, piTenant)
-	if repo.projectionReadable(ctx, q) {
+	if _, ok := repo.servingProjectionVersion(ctx, q.TenantID); ok {
 		t.Fatal("rebuilding projection with no serving version must not serve rows")
+	}
+}
+
+// TestProcessIntegrityRequestPathRefusesCanonicalReplayWhenProjectionUnavailable is the C35-002
+// regression: canonical obligation/SOP/proof/completion data is present (seedProcessIntegrityProjection),
+// but no projection has been recomputed, so there is no serving version. Every request-path read MUST
+// return domain.ErrProjectionUnavailable — never silently reconstruct the answer from the raw tables via
+// the god-CTE. Before the fix, ListRows/CountByWorkState fell through to listRowsCanonical and returned
+// rows; after it they surface the honest typed error and do exactly ONE bounded lookup against the
+// projection-state table.
+func TestProcessIntegrityRequestPathRefusesCanonicalReplayWhenProjectionUnavailable(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	// Seeds canonical source rows only; no RecomputeProjection => no serving projection version.
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	q := domain.Query{TenantID: piTenant, AsOf: asOf, DueBefore: asOf.Add(24 * time.Hour), Limit: 10}
+
+	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionUnavailable) {
+		t.Fatalf("ListRows without serving projection: err = %v, want ErrProjectionUnavailable (no canonical replay)", err)
+	}
+	if _, err := repo.CountByWorkState(ctx, q); !errors.Is(err, domain.ErrProjectionUnavailable) {
+		t.Fatalf("CountByWorkState without serving projection: err = %v, want ErrProjectionUnavailable", err)
+	}
+	// Adherence (IncludeCompleted) and single-row drilldown must also refuse canonical replay.
+	adherenceQ := q
+	adherenceQ.IncludeCompleted = true
+	adherenceQ.IncludeAdherenceSummary = true
+	if _, err := repo.ListRows(ctx, adherenceQ); !errors.Is(err, domain.ErrProjectionUnavailable) {
+		t.Fatalf("adherence ListRows without serving projection: err = %v, want ErrProjectionUnavailable", err)
+	}
+	if _, _, err := repo.GetRow(ctx, q, "obligation:"+piObligation); !errors.Is(err, domain.ErrProjectionUnavailable) {
+		t.Fatalf("GetRow without serving projection: err = %v, want ErrProjectionUnavailable", err)
+	}
+
+	// After a recompute publishes a serving version, the same read is served from the projection.
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("RecomputeProjection: %v", err)
+	}
+	if _, err := repo.ListRows(ctx, q); err != nil {
+		t.Fatalf("ListRows after recompute: unexpected err %v", err)
 	}
 }
 
@@ -736,11 +778,13 @@ func TestQueryArgsShapeMatchesRowsAndCountQueries(t *testing.T) {
 	if len(args) != rowsQueryArgCount {
 		t.Fatalf("rows args = %d, want %d", len(args), rowsQueryArgCount)
 	}
-	if rowsPlaceholders := maxPlaceholder(processIntegrityRowsSQL); rowsPlaceholders != rowsQueryArgCount {
-		t.Fatalf("rows query placeholders = %d, want rows arg count %d", rowsPlaceholders, rowsQueryArgCount)
+	// C35-002: request reads are projection-only, so the arg contract is validated against the projection
+	// SQL the request path actually executes.
+	if rowsPlaceholders := maxPlaceholder(processIntegrityProjectionRowsSQL); rowsPlaceholders != rowsQueryArgCount {
+		t.Fatalf("projection rows query placeholders = %d, want rows arg count %d", rowsPlaceholders, rowsQueryArgCount)
 	}
-	if countPlaceholders := maxPlaceholder(processIntegrityCountsSQL); countPlaceholders != countQueryArgCount {
-		t.Fatalf("count query placeholders = %d, want count arg count %d", countPlaceholders, countQueryArgCount)
+	if countPlaceholders := maxPlaceholder(processIntegrityProjectionCountsSQL); countPlaceholders != countQueryArgCount {
+		t.Fatalf("projection count query placeholders = %d, want count arg count %d", countPlaceholders, countQueryArgCount)
 	}
 	if len(countQueryArgs(args)) != countQueryArgCount {
 		t.Fatalf("count args = %d, want %d", len(countQueryArgs(args)), countQueryArgCount)
@@ -780,7 +824,7 @@ func TestListRowsSurfacesTaskReworkAsRejected(t *testing.T) {
 		piTenant, piCompletion)
 
 	repo := NewRepository(pool, 5*time.Second)
-	result, err := repo.ListRows(ctx, domain.Query{
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID:  piTenant,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -818,7 +862,7 @@ func TestListRowsSurfacesCanonicalDeferredObligations(t *testing.T) {
 
 	state := domain.WorkStateDeferred
 	repo := NewRepository(pool, 5*time.Second)
-	result, err := repo.ListRows(ctx, domain.Query{
+	result, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID:  piTenant,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -900,7 +944,7 @@ func TestProcessIntegrityAsOfReconstruction(t *testing.T) {
 
 	// as_of BEFORE the completions: both completed-after-as_of rows must read as overdue (re-bucketed), not
 	// completed, and their accepted dose must not count.
-	before, err := repo.ListRows(ctx, domain.Query{
+	before, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID: piTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
 	})
 	if err != nil {
@@ -926,7 +970,7 @@ func TestProcessIntegrityAsOfReconstruction(t *testing.T) {
 
 	// as_of AFTER the completions: the recent row now reads completed with its accepted dose; the old row
 	// drops out as genuine closed history (completed before as_of, due long ago, includeCompleted=false).
-	after, err := repo.ListRows(ctx, domain.Query{
+	after, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID: piTenant, AsOf: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
 	})
 	if err != nil {
@@ -945,7 +989,7 @@ func TestProcessIntegrityAsOfReconstruction(t *testing.T) {
 
 	// Evidence bounding: at an as_of BEFORE the base submission (09:00) and completion (10:00), the base
 	// drive's submitted proof must not be seen.
-	preEvidence, err := repo.ListRows(ctx, domain.Query{
+	preEvidence, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID: piTenant, AsOf: time.Date(2026, 6, 24, 8, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
 	})
 	if err != nil {
@@ -994,7 +1038,7 @@ func TestProcessIntegrityBoundsVerificationByVerifiedAt(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 	dueBefore := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
 
-	before, err := repo.ListRows(ctx, domain.Query{
+	before, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID: piTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
 	})
 	if err != nil {
@@ -1008,7 +1052,7 @@ func TestProcessIntegrityBoundsVerificationByVerifiedAt(t *testing.T) {
 		t.Fatalf("before verify: want verification_pending and not accepted, got work=%s verification=%s", rb.WorkState, rb.VerificationState)
 	}
 
-	after, err := repo.ListRows(ctx, domain.Query{
+	after, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID: piTenant, AsOf: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
 	})
 	if err != nil {
@@ -1091,7 +1135,7 @@ func TestProcessIntegrityAsOfTerminalEventReconstruction(t *testing.T) {
 	seedEvent(piTeEvtChurnNew, piTeOblChurn, "2026-06-30 09:00:00+00", "churn-new") // > as_of
 
 	repo := NewRepository(pool, 5*time.Second)
-	res, err := repo.ListRows(ctx, domain.Query{
+	res, err := listAtAsOf(t, ctx, repo, domain.Query{
 		TenantID:  piTenant,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC),
@@ -1120,6 +1164,18 @@ func TestProcessIntegrityAsOfTerminalEventReconstruction(t *testing.T) {
 	mustState(piTeBatchNoEvt, domain.WorkStateMissed)
 	// churn: latest terminal at/before as_of wins -> missed (NOT overdue).
 	mustState(piTeBatchChurn, domain.WorkStateMissed)
+}
+
+// listAtAsOf recomputes the tenant projection at q.AsOf (compute-on-write) and then reads it back. After
+// C35-002 request reads no longer reconstruct point-in-time state from canonical tables; the as_of
+// reconstruction lives in the projector (same base CTE). Point-in-time tests therefore prove the
+// behaviour THROUGH the projector + projection read path that production uses.
+func listAtAsOf(t *testing.T, ctx context.Context, repo *Repository, q domain.Query) (domain.ListResult, error) {
+	t.Helper()
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: q.TenantID, AsOf: q.AsOf}); err != nil {
+		t.Fatalf("RecomputeProjection(asOf=%s): %v", q.AsOf, err)
+	}
+	return repo.ListRows(ctx, q)
 }
 
 func rowByBatchSubstr(rows []domain.Row, batchID string) *domain.Row {

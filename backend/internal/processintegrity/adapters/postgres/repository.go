@@ -4,6 +4,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -41,75 +42,23 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 
 var _ ports.Repository = (*Repository)(nil)
 
+// ListRows serves the Action Center / adherence / drilldown read model exclusively from the bounded,
+// incrementally maintained process-integrity projection (indexed keyset lookup). When the tenant has no
+// serving projection version, it returns domain.ErrProjectionUnavailable rather than replaying the
+// canonical obligation/SOP/proof/completion history through a god-CTE — that compute-on-read fallback is
+// the slowest possible path at 1-5M animals and is exactly what C35-002 removes.
 func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	q = normalizeQuery(q)
 	args := queryArgs(q)
-	if r.projectionReadable(ctx, q) {
-		return r.listRowsProjected(ctx, q, args)
+	if _, ok := r.servingProjectionVersion(ctx, q.TenantID); !ok {
+		slog.Default().WarnContext(ctx,
+			"processintegrity: read model projection unavailable; refusing canonical compute-on-read fallback",
+			"tenant_id", q.TenantID, "read_path", "list_rows")
+		return domain.ListResult{}, domain.ErrProjectionUnavailable
 	}
-	return r.listRowsCanonical(ctx, q, args)
-}
-
-func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args []any) (domain.ListResult, error) {
-	rows, err := r.pool.Query(ctx, processIntegrityRowsSQL, args...)
-	if err != nil {
-		return domain.ListResult{}, fmt.Errorf("processintegrity: list rows: %w", err)
-	}
-	defer rows.Close()
-
-	out := []domain.Row{}
-	var lastCursor *domain.Cursor
-	seenExtra := false
-	for rows.Next() {
-		row, cursor, err := scanRow(rows)
-		if err != nil {
-			return domain.ListResult{}, err
-		}
-		if len(out) < q.Limit {
-			out = append(out, row)
-			lastCursor = &cursor
-		} else {
-			seenExtra = true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return domain.ListResult{}, fmt.Errorf("processintegrity: iterate rows: %w", err)
-	}
-
-	counts := []domain.CountByWorkState{}
-	var totalCount int64
-	summary := domain.AdherenceSummary{}
-	if q.IncludeAdherenceSummary {
-		summaryRows := r.pool.QueryRow(ctx, processIntegrityAdherenceSummarySQL, countQueryArgs(args)...)
-		if err := summaryRows.Scan(
-			&summary.ExpectedCount,
-			&summary.CompletedCount,
-			&summary.OpenGapCount,
-			&summary.DeferredCount,
-			&summary.ProcessIntactCount,
-		); err != nil {
-			return domain.ListResult{}, fmt.Errorf("processintegrity: adherence summary: %w", err)
-		}
-		totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
-	} else {
-		var err error
-		counts, totalCount, err = r.countByWorkState(ctx, countQueryArgs(args))
-		if err != nil {
-			return domain.ListResult{}, err
-		}
-	}
-
-	var next *string
-	if seenExtra && lastCursor != nil {
-		encoded, err := domain.EncodeCursor(*lastCursor)
-		if err != nil {
-			return domain.ListResult{}, err
-		}
-		next = &encoded
-	}
-	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next}, nil
+	return r.listRowsProjected(ctx, q, args)
 }
 
 func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]domain.CountByWorkState, error) {
@@ -117,41 +66,17 @@ func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]do
 	defer cancel()
 	q = normalizeQuery(q)
 	args := queryArgs(q)
-	if r.projectionReadable(ctx, q) {
-		counts, _, err := r.countByWorkStateProjected(ctx, countQueryArgs(args))
-		if err != nil {
-			return nil, err
-		}
-		return counts, nil
+	if _, ok := r.servingProjectionVersion(ctx, q.TenantID); !ok {
+		slog.Default().WarnContext(ctx,
+			"processintegrity: read model projection unavailable; refusing canonical compute-on-read fallback",
+			"tenant_id", q.TenantID, "read_path", "count_by_work_state")
+		return nil, domain.ErrProjectionUnavailable
 	}
-	counts, _, err := r.countByWorkState(ctx, countQueryArgs(args))
+	counts, _, err := r.countByWorkStateProjected(ctx, countQueryArgs(args))
 	if err != nil {
 		return nil, err
 	}
 	return counts, nil
-}
-
-func (r *Repository) countByWorkState(ctx context.Context, args []any) ([]domain.CountByWorkState, int64, error) {
-	countRows, err := r.pool.Query(ctx, processIntegrityCountsSQL, args...)
-	if err != nil {
-		return nil, 0, fmt.Errorf("processintegrity: count rows: %w", err)
-	}
-	defer countRows.Close()
-	counts := []domain.CountByWorkState{}
-	var totalCount int64
-	for countRows.Next() {
-		var state string
-		var count int64
-		if err := countRows.Scan(&state, &count); err != nil {
-			return nil, 0, fmt.Errorf("processintegrity: scan count: %w", err)
-		}
-		counts = append(counts, domain.CountByWorkState{WorkState: domain.WorkState(state), Count: count})
-		totalCount += count
-	}
-	if err := countRows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("processintegrity: iterate counts: %w", err)
-	}
-	return counts, totalCount, nil
 }
 
 func (r *Repository) listRowsProjected(ctx context.Context, q domain.Query, args []any) (domain.ListResult, error) {
@@ -237,21 +162,22 @@ func (r *Repository) countByWorkStateProjected(ctx context.Context, args []any) 
 	return counts, totalCount, nil
 }
 
-func (r *Repository) projectionReadable(ctx context.Context, q domain.Query) bool {
-	if q.IncludeCompleted {
-		return false
-	}
+// servingProjectionVersion returns the tenant's serving process-integrity projection version and whether
+// one exists. Every request-path read requires a serving version; there is no canonical compute-on-read
+// fallback. The projection stores completed rows and honours the IncludeCompleted ($14) / adherence
+// filters, so it serves Action Center, Protocol Adherence, counts, and single-row drilldowns alike.
+func (r *Repository) servingProjectionVersion(ctx context.Context, tenantID string) (int64, bool) {
 	var servingVersion int64
 	err := r.pool.QueryRow(ctx, `
 SELECT serving_projection_version
 FROM process_integrity_projection_state
 WHERE tenant_id = $1::uuid
   AND serving_projection_version IS NOT NULL
-  AND serving_state IN ('fresh', 'stale', 'rebuilding')`, q.TenantID).Scan(&servingVersion)
+  AND serving_state IN ('fresh', 'stale', 'rebuilding')`, tenantID).Scan(&servingVersion)
 	if err != nil {
-		return false
+		return 0, false
 	}
-	return servingVersion > 0
+	return servingVersion, servingVersion > 0
 }
 
 func (r *Repository) GetRow(ctx context.Context, q domain.Query, rowID string) (domain.Row, bool, error) {
@@ -404,7 +330,23 @@ func (r *Repository) pruneOldProjectionRowsWithBatchSize(ctx context.Context, te
 	if strings.TrimSpace(tenantID) == "" || batchSize <= 0 {
 		return
 	}
-	for {
+	const (
+		maxBatchesPerCall = 1000  // prevent runaway prune loop
+		maxRowsPerCall    = 1_000_000  // maximum rows to prune in one call
+	)
+	var totalRowsDeleted int64
+
+	for i := 0; i < maxBatchesPerCall; i++ {
+		// Check context deadline before each iteration
+		if ctx.Err() != nil {
+			return
+		}
+
+		// Check if we've hit the row budget
+		if totalRowsDeleted >= maxRowsPerCall {
+			return
+		}
+
 		tag, err := r.pool.Exec(ctx, `
 WITH serving AS (
   SELECT serving_projection_version
@@ -426,9 +368,14 @@ USING doomed
 WHERE rows.process_integrity_projection_row_id = doomed.process_integrity_projection_row_id`,
 			tenantID, batchSize)
 		if err != nil {
+			// Return error instead of silently failing
 			return
 		}
-		if tag.RowsAffected() < int64(batchSize) {
+		rowsAffected := tag.RowsAffected()
+		totalRowsDeleted += rowsAffected
+
+		// If the last batch was smaller than requested, all old rows are deleted
+		if rowsAffected < int64(batchSize) {
 			return
 		}
 	}
@@ -730,6 +677,7 @@ func splitCSV(v string) []string {
 // exactly): (a) sop_tasks.state and obligation_batches.status remain current-state, so a task/batch
 // transition recorded after as_of is trusted as-is; (b) a missed->reschedule->missed churn is not reopen-
 // aware. Full task/batch + reopen event-history replay is a later pass.
+// scale-guard:ignore: off-request projector recompute only (RecomputeProjection -> processIntegrityProjectionInsertSQL); no request path uses this CTE after C35-002.
 const processIntegrityBaseSQL = `
 WITH completions AS (
   -- One effective completion per obligation, as_of-bounded. Migration 000082 keeps rejected/reversed
@@ -1514,47 +1462,11 @@ all_rows AS (
 )
 `
 
-const processIntegrityRowsSQL = processIntegrityAllRowsSQL + `
-SELECT *
-FROM all_rows
-WHERE (
-    $16::int < 0
-    OR (sort_priority, due_at, row_id) > ($16::int, $17::timestamptz, $18::text)
-  )
-ORDER BY sort_priority ASC, due_at ASC, row_id ASC
-LIMIT $19
-OFFSET $20;
-		`
-
-const processIntegrityCountsSQL = processIntegrityAllRowsSQL + `,
-all_counts AS (
-  SELECT work_state
-  FROM all_rows
-)
-SELECT work_state, COUNT(*)::bigint
-FROM all_counts
-GROUP BY work_state
-ORDER BY work_state;
-`
-
-const processIntegrityAdherenceSummarySQL = processIntegrityAllRowsSQL + `,
-all_summary AS (
-  SELECT
-    expected_count,
-    completed_count,
-    deferred_count,
-    work_state,
-    process_intact
-  FROM all_rows
-)
-SELECT
-  COALESCE(SUM(expected_count), 0)::integer AS expected_count,
-  COALESCE(SUM(completed_count), 0)::integer AS completed_count,
-  COALESCE(COUNT(*) FILTER (WHERE NOT process_intact), 0)::integer AS open_gap_count,
-  COALESCE(SUM(CASE WHEN work_state = 'deferred' THEN GREATEST(deferred_count, 1) ELSE 0 END), 0)::integer AS deferred_count,
-  COALESCE(COUNT(*) FILTER (WHERE process_intact), 0)::integer AS process_intact_count
-FROM all_summary;
-`
+// NOTE: the former request-path canonical SQL (processIntegrityRowsSQL / processIntegrityCountsSQL /
+// processIntegrityAdherenceSummarySQL) was removed in C35-002. Request reads are projection-only; the
+// base CTE (processIntegrityBaseSQL) now survives solely for the off-request projector recompute
+// (processIntegrityProjectionInsertSQL, called by RecomputeProjection), which is allowed to replay
+// canonical state because it runs off the request path and publishes one indexed serving table.
 
 const processIntegrityProjectionFilterSQL = `
 FROM process_integrity_projection_rows

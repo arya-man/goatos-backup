@@ -303,3 +303,32 @@ func run(ctx context.Context, r R, page int) {
 		t.Errorf("len()==0 empty-exit is not a progress guard; loop must be flagged, got %+v", got)
 	}
 }
+
+func TestObligationSweeperWorkerN1Detection(t *testing.T) {
+	// Obligation-sweeper worker pattern: per-batch, for each row, execute
+	// a query/write. This is N+1 and must be detected.
+	workerBad := `package p
+
+import "context"
+
+type Batch struct{ ID string }
+type Pool struct{}
+func (p *Pool) Exec(ctx context.Context, q string, args ...any) error { return nil }
+
+func processBatches(ctx context.Context, pool *Pool) {
+	batches := []Batch{{ID: "1"}, {ID: "2"}, {ID: "3"}}
+	for _, batch := range batches {
+		// Per-batch/per-row Exec is N+1
+		if err := pool.Exec(ctx, "UPDATE batches SET status='done' WHERE id=$1", batch.ID); err != nil {
+			continue
+		}
+	}
+}
+`
+	repo, path := writeGo(t, workerBad)
+	got := rules(scanFile(repo, path))
+	if got["n-plus-one"] == 0 {
+		t.Errorf("worker loop with per-row Exec must detect n-plus-one, got %+v", got)
+	}
+}
+

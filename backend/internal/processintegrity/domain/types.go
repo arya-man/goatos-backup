@@ -1,13 +1,24 @@
 // Package domain holds the reusable process-integrity read model.
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 const (
 	CategoryVaccination   = "vaccination"
 	CategoryFeedDirection = "feed_direction"
 	SourceAPI             = "api"
 )
+
+// ErrProjectionUnavailable is returned by the read repository when the tenant's process-integrity
+// read model has no serving version (never built, or rebuilding without a prior serving version).
+// The request path MUST NOT fall back to a canonical compute-on-read replay of raw obligation/SOP/
+// proof/completion history — at 1-5M animals that god-CTE is the slowest possible path exactly when
+// the system is already degraded. Callers surface this as an honest "temporarily unavailable" state
+// (HTTP 503) instead of an unbounded fallback. See docs/decisions/high-scale-dashboard-projections.md.
+var ErrProjectionUnavailable = errors.New("processintegrity: read model projection unavailable")
 
 type WorkState string
 

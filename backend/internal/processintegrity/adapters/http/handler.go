@@ -3,6 +3,7 @@ package http
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -105,7 +106,7 @@ func (h *Handler) ActionCenter(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.reader.ActionCenter(r.Context(), q)
 	if err != nil {
-		h.internal(w, r, err)
+		h.readError(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
@@ -118,7 +119,7 @@ func (h *Handler) ActionCenterCounts(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.reader.ActionCenterCounts(r.Context(), q)
 	if err != nil {
-		h.internal(w, r, err)
+		h.readError(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
@@ -131,7 +132,7 @@ func (h *Handler) ProtocolAdherence(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.reader.ProtocolAdherence(r.Context(), q)
 	if err != nil {
-		h.internal(w, r, err)
+		h.readError(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
@@ -144,7 +145,7 @@ func (h *Handler) ControlTower(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.reader.ControlTower(r.Context(), q)
 	if err != nil {
-		h.internal(w, r, err)
+		h.readError(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
@@ -162,7 +163,7 @@ func (h *Handler) WorkflowDrilldown(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, found, err := h.reader.WorkflowDrilldown(r.Context(), q, rowID)
 	if err != nil {
-		h.internal(w, r, err)
+		h.readError(w, r, err)
 		return
 	}
 	if !found {
@@ -323,6 +324,18 @@ func traceID(r *http.Request) string {
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
 	httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 		errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
+}
+
+// readError maps a read-path error to an HTTP response. A projection-unavailable signal is an honest,
+// retryable 503 (the read model has no serving version) — never a 500 and never a silent unbounded
+// canonical fallback. Everything else is a 500.
+func (h *Handler) readError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, domain.ErrProjectionUnavailable) {
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+			errorEnvelope{Code: "projection_unavailable", Message: "process integrity read model is temporarily unavailable", TraceID: traceID(r)}, err)
+		return
+	}
+	h.internal(w, r, err)
 }
 
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {
