@@ -49,6 +49,11 @@ const (
 	ProcurementReview         = "procurement.review"
 	RosterRead                = "roster.read"
 	RosterManage              = "roster.manage"
+	// VerificationReview is the generic Verification vertical's queue-read + verdict-write
+	// permission (context/architecture/verification-module-design.md). It is granted ONLY to the
+	// Verifier role and, per the org-role-model truth table, as a CEO/CxO override — never to
+	// Operator/Manager (capture) or Head/Director (act). Separation of duty: capturer != verifier.
+	VerificationReview = "verification.review"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -63,6 +68,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
+		VerificationReview: {},
 	},
 	RoleVerifier: {
 		GoatRead: {}, GoatWriteIdentity: {},
@@ -73,6 +79,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		CalendarRead:    {},
 		ProcurementRead: {}, ProcurementReview: {},
 		RosterRead: {},
+		// The Video Verification Team's exclusive permission (verification-module-design.md §2.4 /
+		// org-role-model.md truth table): Verify media (approve/reject + reason). No other role holds
+		// this except the CEO/CxO override above.
+		VerificationReview: {},
 	},
 	RoleParkHead: {
 		GoatRead:      {},
@@ -108,6 +118,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
+		VerificationReview: {},
 	},
 }
 

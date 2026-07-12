@@ -178,6 +178,13 @@ var protectedRoutes = []Route{
 	{OperationID: "vaccinationVerificationQueue", Method: "GET", Pattern: "/vaccination/verification-queue", Permissions: []string{VaccinationRead}},
 	{OperationID: "getGoatVaccinationPassport", Method: "GET", Pattern: "/goats/{goat_id}/passport", Permissions: []string{GoatRead}},
 
+	// Generic Verification vertical (context/architecture/verification-module-design.md): the
+	// standalone Verifier queue read + approve/reject verdict write. Gated on verification.review
+	// ONLY (Verifier role + CEO/CxO override) — separation of duty from capture (task.execute) and
+	// act (task.verify).
+	{OperationID: "listVerificationQueue", Method: "GET", Pattern: "/verification/queue", Permissions: []string{VerificationReview}},
+	{OperationID: "recordVerificationVerdict", Method: "POST", Pattern: "/verification/items/{item_id}/verdict", Permissions: []string{VerificationReview}},
+
 	// HR roster: staff positions (concept #2), leave/absence (#3), temporary
 	// task coverage (#4), and the vaccination-ownership resolution read.
 	{OperationID: "listStaffPositions", Method: "GET", Pattern: "/admin/roster/positions", Permissions: []string{RosterRead}},

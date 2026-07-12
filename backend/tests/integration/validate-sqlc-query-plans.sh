@@ -1169,6 +1169,21 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY park_id, farm_id, current_location_id, breed, sex, lifecycle_status;"
 }
 
+validate_verification_queue_plan() {
+  # Generic Verification vertical (context/architecture/verification-module-design.md): the
+  # Verifier's queue read (GET /verification/queue) keysets by (captured_at, item_id) filtered by
+  # tenant + status + category. Proves the request path stays on verification_items_queue_idx
+  # (tenant_id, status, category, captured_at, item_id), never a sequential scan.
+  explain_must_use_index "VerificationQueueKeyset" 'Seq Scan on verification_items' "EXPLAIN (COSTS OFF)
+SELECT item_id
+FROM verification_items
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND status = 'pending'
+  AND category = 'vaccination_proof'
+ORDER BY captured_at ASC, item_id ASC
+LIMIT 20;"
+}
+
 validate_vaccination_shed_projection_plan() {
   # C35-002 (vaccinationexecution half, LANDED): GET /vaccination/sheds (ShedSummary,
   # repository.go's shedSummaryProjectedSQL) now serves exclusively from this indexed
@@ -1265,5 +1280,6 @@ validate_operations_audit_plans
 validate_calendar_vaccination_plans
 validate_herd_register_summary_plan
 validate_vaccination_shed_projection_plan
+validate_verification_queue_plan
 
 echo "Validated current hot-path query plans"
