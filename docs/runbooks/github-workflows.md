@@ -354,10 +354,13 @@ tools/agent-hooks/check-room-migration-safety.mjs.
 ```
 
 It blocks `export-schema-off` (exportSchema must be `true` so migrations can be
-schema-validated), `missing-golden-schema` (a committed `schemas/<db>/<version>.json`
-must exist for the declared version), `version-bump-without-migration` (a `version`
-rise with no matching `Migration(N-1, N)`), and `entity-without-migration` (a table
-new in schema `vK+1` that `Migration(K, K+1)` does not `CREATE` — the roster defect).
+schema-validated), `missing-golden-schema` / `schema-not-committed` (a git-tracked
+`schemas/<db>/<version>.json` must exist for the declared version — present locally is
+not enough, CI/fresh clones need it committed), `version-bump-without-migration` (a
+`version` rise with no matching `Migration(N-1, N)`), `entity-without-migration` (a
+table new in schema `vK+1` that `Migration(K, K+1)` does not `CREATE` — the roster
+defect), and `missing-migration-test` (every @Database module must ship a
+`*MigrationTest` AND a `*UpgradeCrashTest`).
 It is **diff-scoped** (a commit touching no Room DB/migration/schema passes instantly)
 and honors an inline `room-migration-guard:ignore: <reason>` on the `@Database`
 version/exportSchema line.

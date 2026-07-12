@@ -60,9 +60,11 @@ the whole tree; `--self-test` runs fixtures. Rules:
 | Rule | Blocks |
 |---|---|
 | `export-schema-off` | a `@Database` with `exportSchema = false` or omitted |
-| `missing-golden-schema` | no committed `schemas/<pkg.Class>/<version>.json` for the declared version |
+| `missing-golden-schema` | no `schemas/<pkg.Class>/<version>.json` for the declared version |
+| `schema-not-committed` | that JSON exists locally but is not git-tracked (would be absent in CI / a fresh clone) |
 | `version-bump-without-migration` | `version` rose vs base with no `Migration(N-1, N)` in the module |
 | `entity-without-migration` | a table new in schema `vK+1` that `Migration(K, K+1)` does not `CREATE` — the roster defect |
+| `missing-migration-test` | the @Database's module lacks a `*MigrationTest` or a `*UpgradeCrashTest` |
 
 Escape hatch (justified exceptions only): append `room-migration-guard:ignore: <reason>` on
 the `@Database` `version`/`exportSchema` line.

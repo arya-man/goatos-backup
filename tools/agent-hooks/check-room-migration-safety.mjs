@@ -76,6 +76,8 @@ export function tablesInSchema(json) {
  * Heuristic but robust for this codebase's `object : Migration(a, b) { ... CREATE TABLE `t` ... }`
  * shape. `table` is matched with optional backticks.
  */
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export function migrationCreatesTable(migrationSource, from, to, table) {
   const anchor = new RegExp(`Migration\\s*\\(\\s*${from}\\s*,\\s*${to}\\s*\\)`);
   const start = migrationSource.search(anchor);
@@ -84,8 +86,23 @@ export function migrationCreatesTable(migrationSource, from, to, table) {
   const rest = migrationSource.slice(start + 1);
   const nextIdx = rest.search(/Migration\s*\(\s*\d+\s*,\s*\d+\s*\)/);
   const body = rest.slice(0, nextIdx < 0 ? 4000 : nextIdx);
-  const createRe = new RegExp(`CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?\`?${table}\`?`, "i");
+  // Escape the table name — a table id could in principle carry regex metacharacters; match it
+  // as a literal, optionally backtick-quoted.
+  const createRe = new RegExp(`CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?\`?${escapeRe(table)}\`?`, "i");
   return createRe.test(body);
+}
+
+/**
+ * Which required test kinds are missing from a module's test file names. The Room migration
+ * discipline requires BOTH a schema-equivalence `*MigrationTest` and an upgrade-crash
+ * `*UpgradeCrashTest` per @Database — a machine check of AGENTS.md's rule, not just docs.
+ */
+export function missingRequiredTests(testFileNames) {
+  const has = (needle) => testFileNames.some((n) => n.includes(needle));
+  const missing = [];
+  if (!has("MigrationTest")) missing.push("*MigrationTest (schema-equivalence)");
+  if (!has("UpgradeCrashTest")) missing.push("*UpgradeCrashTest (installed-APK upgrade)");
+  return missing;
 }
 
 export function hasMigration(migrationSource, from, to) {
@@ -122,6 +139,38 @@ function readMigrationSource(moduleDir) {
 
 function schemaJsonPath(moduleDir, pkg, cls, version) {
   return join(moduleDir, "schemas", `${pkg}.${cls}`, `${version}.json`);
+}
+
+/** Is `absPath` tracked by git (committed or staged)? A generated-but-uncommitted schema JSON
+ *  passes `existsSync` locally yet is missing in CI / a fresh clone — R2 must catch that. */
+function isGitTracked(absPath) {
+  try {
+    execSync(`git ls-files --error-unmatch ${JSON.stringify(relative(repo, absPath))}`, {
+      cwd: repo,
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Basenames of every test .kt under the module's src/test + src/androidTest. */
+function moduleTestFileNames(moduleDir) {
+  const out = [];
+  for (const sub of ["src/test", "src/androidTest"]) {
+    const root = join(moduleDir, sub);
+    if (!existsSync(root)) continue;
+    const walk = (dir) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith(".kt")) out.push(e.name);
+      }
+    };
+    walk(root);
+  }
+  return out;
 }
 
 function baseVersionOf(relFile, pkg, cls) {
@@ -196,13 +245,31 @@ function checkDatabaseFile(relFile, { diffScoped }) {
     }
 
     if (Number.isFinite(db.version)) {
-      // R2: committed golden schema JSON for the current version.
+      // R2: golden schema JSON for the current version must exist AND be committed to git —
+      // a generated-but-uncommitted JSON passes locally but is absent in CI / a fresh clone.
       const jsonPath = schemaJsonPath(moduleDir, db.pkg, db.cls, db.version);
       if (!existsSync(jsonPath)) {
         findings.push({
           rel: relFile,
           rule: "missing-golden-schema",
-          message: `no committed schema JSON for ${db.cls} v${db.version} (expected ${relative(repo, jsonPath)}); enable exportSchema + commit it`,
+          message: `no schema JSON for ${db.cls} v${db.version} (expected ${relative(repo, jsonPath)}); enable exportSchema + commit it`,
+        });
+      } else if (!isGitTracked(jsonPath)) {
+        findings.push({
+          rel: relFile,
+          rule: "schema-not-committed",
+          message: `schema JSON ${relative(repo, jsonPath)} exists but is not tracked by git — commit it so CI/fresh clones can validate migrations`,
+        });
+      }
+
+      // R5: the migration discipline requires BOTH test kinds per @Database (AGENTS.md) — encode
+      // it as a machine check, not just docs, so it is "followed thoroughly".
+      const missingTests = missingRequiredTests(moduleTestFileNames(moduleDir));
+      for (const kind of missingTests) {
+        findings.push({
+          rel: relFile,
+          rule: "missing-migration-test",
+          message: `${db.cls}'s module has no ${kind} test — every @Database needs a schema-equivalence AND an upgrade-crash test`,
         });
       }
 
@@ -268,10 +335,21 @@ function selfTest() {
   if (!migrationCreatesTable(mig, 2, 3, "task_detail_cache")) throw new Error("self-test: should detect CREATE in M23");
   if (!hasMigration(mig, 3, 4) || hasMigration(mig, 4, 5)) throw new Error("self-test: hasMigration failed");
 
+  // migrationCreatesTable — table name carrying a regex metacharacter must still match literally
+  // (escaping), and must NOT be interpreted as a pattern.
+  const metaMig = `object : Migration(1, 2) { db.execSQL("CREATE TABLE IF NOT EXISTS \`a.b(cache)\` (...)") }`;
+  if (!migrationCreatesTable(metaMig, 1, 2, "a.b(cache)")) throw new Error("self-test: metachar table not matched literally");
+  if (migrationCreatesTable(metaMig, 1, 2, "axb_cache_")) throw new Error("self-test: '.' was treated as a wildcard (escaping broken)");
+
   // tablesInSchema
   const json = { database: { entities: [{ tableName: "a" }, { tableName: "b" }] } };
   const tabs = tablesInSchema(json);
   if (!(tabs.has("a") && tabs.has("b") && tabs.size === 2)) throw new Error("self-test: tablesInSchema failed");
+
+  // missingRequiredTests (R5)
+  if (missingRequiredTests([]).length !== 2) throw new Error("self-test: empty module should miss both test kinds");
+  if (missingRequiredTests(["GoatDatabaseMigrationTest.kt"]).length !== 1) throw new Error("self-test: should still miss UpgradeCrashTest");
+  if (missingRequiredTests(["FooMigrationTest.kt", "BarUpgradeCrashTest.kt"]).length !== 0) throw new Error("self-test: both present should be clean");
 
   console.log("room-migration-safety self-test: ok");
 }
