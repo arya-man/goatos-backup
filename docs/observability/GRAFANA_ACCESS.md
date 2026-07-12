@@ -53,6 +53,30 @@ collector sidecar) and the `analytics.*` rollup runs. Follow-ups: Cloud Trace /
 Cloud Logging / Postgres datasources, the GMP query-frontend sidecar, and
 GCS-volume-based provisioning (so datasources+dashboards self-restore on redeploy).
 
+## 1b. Viewing the dashboards (first-time gotcha)
+
+**Grafana's Home page shows a "Welcome to Grafana" tutorial panel by default, NOT your
+dashboards** — new users think "nothing is here." The 6 Goat OS dashboards live under the
+left-nav **Dashboards** menu (`/dashboards`). Fixed for stg by setting the **org default
+home dashboard** to "Goat OS stg — API / RED" so Home shows live data immediately:
+
+```bash
+# (admin auth) point Home at a dashboard by uid
+curl -u admin:$PW -X PUT "$GRAFANA_STG_URL/api/org/preferences" \
+  -H 'Content-Type: application/json' \
+  -d '{"homeDashboardUID":"goatos-stg-api-red","timezone":"browser"}'
+```
+
+Do the same for prod after import. Dashboard uids: `goatos-stg-api-red`, `goatos-stg-db`,
+`goatos-stg-kernel-pipeline`, `goatos-stg-frontend-rum`, `goatos-stg-mobile`,
+`goatos-stg-slo-burn`.
+
+**Second gotcha — the time range.** Panels default to "Last 6 hours"; if telemetry only
+started minutes ago they look empty/sparse. Set the top-right range to **Last 15–30 minutes**
+to see recent data. "No data" on a panel usually means either the time range is too wide OR
+that metric isn't emitted yet (e.g. all `kernel_*` panels until the jobs rollout — see
+LESSONS #22), not that the dashboard is broken.
+
 ## 2. Headless service-account token flow (recommended)
 
 This is the path both humans running one-off queries and Claude/Codex should
