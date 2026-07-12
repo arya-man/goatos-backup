@@ -194,7 +194,17 @@ CRITICAL scale violations:
    round-trips. Require: history/proof/compatibility reads are **bulk per page,
    not N+1 per animal**, and per-run lookups (e.g. active protocol version) are
    cached per park/run, not re-queried per animal
-   (`docs/protocol-engine/high-scale-kernel-validation-plan.md`).
+   (`docs/protocol-engine/high-scale-kernel-validation-plan.md`). The most-missed
+   shape here is the **nested / cross-boundary fan-out** ("N+2"): the in-loop call
+   is not a raw `.Query/.Exec` but a ctx-taking call to an injected I/O dependency
+   (repo/reader/port/client/roster/ownership) whose driver call is one adapter
+   layer down. The raw-driver `n-plus-one` guard cannot see it — `make scale-guard`
+   catches it as the separate `n-plus-one-fanout` rule (baselined offenders in
+   `tools/scale-guard/baseline.txt`; full definition in
+   `docs/decisions/scale-anti-patterns.md`). When reviewing a loop, follow the
+   in-loop call INTO its adapter: a per-item service/port call that reads the DB
+   one row at a time is the same defect as an inline N+1 and must batch to a single
+   `*ByIDs` / `= ANY($1)` read.
 
 ## Business audit vs technical logs
 

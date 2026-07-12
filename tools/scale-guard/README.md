@@ -18,6 +18,7 @@ Exit 1 on any NEW violation. Green when every offender is baselined or ignored.
 | rule | trigger |
 |---|---|
 | `n-plus-one` | `.Query/.QueryRow/.Exec/.SendBatch` inside a `for`/`range` |
+| `n-plus-one-fanout` | a ctx-taking call to an injected I/O dependency (repo/reader/port/client/roster/ownership) inside a `for`/`range` — the raw driver call sits one adapter layer down, invisible to `n-plus-one`. One round trip per row (a 25-row page → 51 serial reads). Batch to one `*ByIDs` / `= ANY($1)` read |
 | `loop-no-cursor` | infinite `for {}` paging loop with no cursor/progress guard |
 | `offset-pagination` | `OFFSET <bind>` in a SQL literal |
 | `full-mv-refresh` | whole-tenant projection delete with no `projection_version` guard |

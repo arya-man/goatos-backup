@@ -352,6 +352,15 @@ Do:
     version-swap; never whole-tenant delete+reinsert.
   - **N+1 query** — a `.Query/.QueryRow/.Exec/.SendBatch` inside a `for`/`range`.
     Use one set-based statement (`UNNEST`, `INSERT ... SELECT`, `CASE` bulk update).
+  - **N+1 fan-out (the nested "N+2" case)** — a ctx-taking call to an injected I/O
+    dependency (repo/reader/port/client/roster/ownership) inside a `for`/`range`,
+    where the real `.Query/.Exec` sits one adapter layer down — invisible to the
+    raw-driver **N+1 query** check above. "Small data, still slow": one round trip
+    per row, so a 25-row page becomes 51 serial reads. Machine-blocked as the
+    `n-plus-one-fanout` rule (`make scale-guard`, distinct from `n-plus-one`;
+    baselined debt in `tools/scale-guard/baseline.txt`). Fix by batching to a
+    single `*ByIDs` / `= ANY($1)` read (as `ShedSummary` now does with
+    `ShedOwnerships`), not by looping a per-item service/port call.
   - **OFFSET pagination** — `LIMIT/OFFSET` with a growable offset. Use keyset/cursor.
   - **non-SARGable predicate** — `lower(col) LIKE '%x%'` / function on an indexed
     column. Use a normalized column, expression index, or `pg_trgm` GIN.
