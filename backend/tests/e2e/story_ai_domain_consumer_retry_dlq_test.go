@@ -44,6 +44,10 @@ func (s *failProcessedFinalizationOnce) BeginProcessing(ctx context.Context, eve
 	return s.inner.BeginProcessing(ctx, event)
 }
 
+func (s *failProcessedFinalizationOnce) MarkEffectsCommitted(ctx context.Context, event consumerapp.ProcessedEvent) error {
+	return s.inner.MarkEffectsCommitted(ctx, event)
+}
+
 func (s *failProcessedFinalizationOnce) MarkProcessed(ctx context.Context, event consumerapp.ProcessedEvent) error {
 	if s.fail {
 		s.fail = false
@@ -58,8 +62,9 @@ func (s *failProcessedFinalizationOnce) MarkFailed(ctx context.Context, event co
 
 // TestKernelStoryAI_DomainConsumerNacksAndSafelyReplaysFinalizationFailure proves the exact gap that
 // used to ACK success: the business handler succeeds, processed-event finalization fails, the
-// service returns an error for broker NACK, durable failure evidence is written, and redelivery
-// replays idempotently before the event reaches terminal processed state.
+// service returns an error for broker NACK, a durable effects-committed marker is written (C35-024:
+// NOT a 'failed' mark - that would let redelivery unconditionally reclaim and replay the handler),
+// and redelivery finalizes without re-dispatching or duplicating the obligation.
 func TestKernelStoryAI_DomainConsumerNacksAndSafelyReplaysFinalizationFailure(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-ai", "Consumer finalization failure NACKs and retries without duplicate work",
@@ -119,12 +124,12 @@ ORDER BY created_at DESC LIMIT 1`, fxTenant, goatID)
 	err = consumer.HandleMessage(fx.Ctx, message)
 	story.Assert("first delivery returns finalization error for NACK", errors.Is(err, consumerapp.ErrProcessedEventFinalizationLost), "err=%v", err)
 	status := fx.scanText(`SELECT status FROM domain_event_processed_events WHERE tenant_id=$1::uuid AND subscription_id='direct' AND event_id=$2`, fxTenant, envelope.EventID)
-	story.Assert("failed delivery has durable retry evidence", status == "failed", "status=%s", status)
+	story.Assert("failed finalization is durably recorded as effects-committed, never failed (C35-024)", status == "effects_committed", "status=%s", status)
 	firstCount := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1::uuid AND protocol_version_id=$2::uuid AND target_id=$3::uuid`, fxTenant, versionID, goatID)
 	story.Assert("business handler created one obligation before finalization failure", firstCount == 1, "obligations=%d", firstCount)
 
-	story.Step("Pub/Sub redelivery reclaims failed work and finishes terminal processing",
-		"The handler replays through its idempotency keys. The processed-event row becomes processed and no second obligation appears.")
+	story.Step("Pub/Sub redelivery reclaims the effects-committed row and finishes terminal processing without replaying the handler",
+		"Because the row is durably marked effects-committed, redelivery skips bus.Publish entirely and only retries the finalize. The processed-event row becomes processed and no second obligation appears.")
 	message.DeliveryAttempt = 2
 	err = consumer.HandleMessage(fx.Ctx, message)
 	story.Assert("redelivery succeeds only after durable terminal mark", err == nil, "err=%v", err)

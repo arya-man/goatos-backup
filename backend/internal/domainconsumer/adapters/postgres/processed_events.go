@@ -36,6 +36,11 @@ func (s *ProcessedEventStore) BeginProcessing(ctx context.Context, event consume
 	defer cancel()
 	event = normalizeProcessedEvent(event)
 	var status string
+	// A row already in 'effects_committed' means a prior attempt's bus.Publish already succeeded
+	// (C35-024): reclaim it for finalize-only retry without ever resetting status away from
+	// 'effects_committed' (the CASE keeps it pinned), so the caller never replays handler side
+	// effects. 'failed' and stale 'processing' rows have NOT had a confirmed successful publish, so
+	// they reclaim into 'processing' for a full retry, same as before.
 	err := s.pool.QueryRow(ctx, `
 INSERT INTO domain_event_processed_events (
   tenant_id, subscription_id, event_id, event_type, message_id, delivery_attempt,
@@ -48,12 +53,16 @@ DO UPDATE SET
   event_type = EXCLUDED.event_type,
   message_id = EXCLUDED.message_id,
   delivery_attempt = EXCLUDED.delivery_attempt,
-  status = 'processing',
+  status = CASE
+    WHEN domain_event_processed_events.status = 'effects_committed' THEN 'effects_committed'
+    ELSE 'processing'
+  END,
   attempt_count = domain_event_processed_events.attempt_count + 1,
   started_at = EXCLUDED.started_at,
   updated_at = EXCLUDED.updated_at,
   last_error = NULL
 WHERE domain_event_processed_events.status = 'failed'
+   OR domain_event_processed_events.status = 'effects_committed'
    OR (
      domain_event_processed_events.status = 'processing'
      AND domain_event_processed_events.updated_at <= $8::timestamptz
@@ -69,6 +78,9 @@ RETURNING status`,
 		event.Now.Add(-defaultProcessingStaleAfter),
 	).Scan(&status)
 	if err == nil {
+		if status == "effects_committed" {
+			return consumerapp.ProcessDecisionEffectsCommitted, nil
+		}
 		return consumerapp.ProcessDecisionClaimed, nil
 	}
 	if err == pgx.ErrNoRows {
@@ -79,6 +91,8 @@ RETURNING status`,
 		switch existing {
 		case "processed":
 			return consumerapp.ProcessDecisionAlreadyProcessed, nil
+		case "effects_committed":
+			return consumerapp.ProcessDecisionEffectsCommitted, nil
 		case "processing", "failed":
 			return consumerapp.ProcessDecisionInProgress, nil
 		default:
@@ -86,6 +100,32 @@ RETURNING status`,
 		}
 	}
 	return "", err
+}
+
+// MarkEffectsCommitted durably records that bus.Publish already succeeded for this event, before
+// the terminal MarkProcessed call is attempted. It is idempotent: it accepts rows already in
+// 'processing' (the normal case, right after a successful publish) or already 'effects_committed'
+// (a retry of this same call, or a best-effort re-assertion from the failure-path defer).
+func (s *ProcessedEventStore) MarkEffectsCommitted(ctx context.Context, event consumerapp.ProcessedEvent) error {
+	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	event = normalizeProcessedEvent(event)
+	tag, err := s.pool.Exec(ctx, `
+UPDATE domain_event_processed_events
+SET status = 'effects_committed',
+    updated_at = $4::timestamptz,
+    last_error = NULL
+WHERE tenant_id = $1::uuid
+  AND subscription_id = $2
+  AND event_id = $3
+  AND status IN ('processing', 'effects_committed')`, event.TenantID, event.SubscriptionID, event.EventID, event.Now)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: event_id=%s subscription_id=%s", consumerapp.ErrProcessedEventFinalizationLost, event.EventID, event.SubscriptionID)
+	}
+	return nil
 }
 
 func (s *ProcessedEventStore) existingStatus(ctx context.Context, event consumerapp.ProcessedEvent) (string, error) {
@@ -112,7 +152,7 @@ SET status = 'processed',
 WHERE tenant_id = $1::uuid
   AND subscription_id = $2
   AND event_id = $3
-  AND status = 'processing'`, event.TenantID, event.SubscriptionID, event.EventID, event.Now)
+  AND status IN ('processing', 'effects_committed')`, event.TenantID, event.SubscriptionID, event.EventID, event.Now)
 	if err != nil {
 		return err
 	}

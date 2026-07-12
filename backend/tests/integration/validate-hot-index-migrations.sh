@@ -79,6 +79,14 @@ enforcement_floor = 141
 reviewed_applied_debt = {
     "000152_obligation_window_check.sql: obligation_instances_window_check on hot table obligation_instances uses direct CHECK/FOREIGN KEY constraint without NOT VALID",
     "000152_obligation_window_check.sql: obligation_instances_window_check on hot table obligation_instances uses direct DROP CONSTRAINT in goose Down section",
+    # 000166 (C35-024) relaxes the domain_event_processed_events status CHECK to add the
+    # 'effects_committed' value. Changing a CHECK's allowed set unavoidably drops the old
+    # constraint; the DROP is catalog-only (brief ACCESS EXCLUSIVE, no scan) and the re-add is
+    # NOT VALID + VALIDATE (concurrent). Explicitly reviewed as acceptable hot-table debt.
+    "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct DROP CONSTRAINT",
+    "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct DROP CONSTRAINT in goose Down section",
+    "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct VALIDATE CONSTRAINT",
+    "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct VALIDATE CONSTRAINT in goose Down section",
 }
 
 create_table_re = re.compile(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)

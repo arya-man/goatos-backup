@@ -48,7 +48,12 @@ type ProcessedEvent struct {
 type ProcessDecision string
 
 const (
-	ProcessDecisionClaimed          ProcessDecision = "claimed"
+	ProcessDecisionClaimed ProcessDecision = "claimed"
+	// ProcessDecisionEffectsCommitted means a prior attempt already ran bus.Publish successfully
+	// for this event (durably recorded) but never reached the terminal 'processed' mark. The
+	// caller MUST NOT invoke bus.Publish again for this decision - only the finalize step may be
+	// retried - otherwise a non-idempotent handler side effect would be replayed (C35-024).
+	ProcessDecisionEffectsCommitted ProcessDecision = "effects_committed"
 	ProcessDecisionAlreadyProcessed ProcessDecision = "already_processed"
 	ProcessDecisionInProgress       ProcessDecision = "in_progress"
 )
@@ -60,6 +65,10 @@ var (
 
 type ProcessedEventStore interface {
 	BeginProcessing(ctx context.Context, event ProcessedEvent) (ProcessDecision, error)
+	// MarkEffectsCommitted durably records that bus.Publish has already succeeded for this event,
+	// before the terminal MarkProcessed call is attempted. It must be safe to call more than once
+	// (idempotent) and must also succeed when the row is already in the effects-committed state.
+	MarkEffectsCommitted(ctx context.Context, event ProcessedEvent) error
 	MarkProcessed(ctx context.Context, event ProcessedEvent) error
 	MarkFailed(ctx context.Context, event ProcessedEvent, reason string) error
 }
@@ -109,6 +118,16 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 	}
 	var processed ProcessedEvent
 	claimed := false
+	// effectsCommitted is true once bus.Publish has succeeded for this event - this attempt or a
+	// prior one reclaimed via ProcessDecisionEffectsCommitted. Once true, a later failure (e.g. the
+	// terminal MarkProcessed call erroring) must NEVER be recorded as MarkFailed: 'failed' rows are
+	// reclaimed unconditionally on the next delivery, which would call bus.Publish again and replay
+	// a non-idempotent handler side effect (C35-024). Only the finalize step may be retried.
+	effectsCommitted := false
+	// effectsCommittedPersisted is true once the durable 'effects_committed' marker write itself has
+	// succeeded, so the defer below only needs a best-effort retry when that write did not happen
+	// (e.g. the mainline call was interrupted by context cancellation).
+	effectsCommittedPersisted := false
 	defer func() {
 		if p := recover(); p != nil {
 			if s.log != nil {
@@ -125,6 +144,17 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 		if err != nil && claimed && s.processedStore != nil {
 			// Pub/Sub may cancel the delivery context as the callback is ending. Failure evidence must
 			// still get a short independent chance to commit before we NACK the message.
+			if effectsCommitted {
+				if effectsCommittedPersisted {
+					return
+				}
+				commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+				defer cancel()
+				if commitErr := s.processedStore.MarkEffectsCommitted(commitCtx, processed); commitErr != nil {
+					err = errors.Join(err, fmt.Errorf("domain consumer effects-committed finalization: %w", commitErr))
+				}
+				return
+			}
 			failureCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			defer cancel()
 			if markErr := s.processedStore.MarkFailed(failureCtx, processed, err.Error()); markErr != nil {
@@ -163,6 +193,12 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 		switch decision {
 		case ProcessDecisionClaimed:
 			claimed = true
+		case ProcessDecisionEffectsCommitted:
+			// A prior attempt already ran bus.Publish successfully and durably recorded it; only
+			// the finalize step below may run. Do not fall through to bus.Publish.
+			claimed = true
+			effectsCommitted = true
+			effectsCommittedPersisted = true
 		case ProcessDecisionAlreadyProcessed:
 			if s.log != nil {
 				s.log.InfoContext(ctx, "domain_event_duplicate_skipped",
@@ -179,20 +215,32 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 			return fmt.Errorf("domain consumer processed-event store returned unknown decision %q", decision)
 		}
 	}
-	if err := s.bus.Publish(ctx, event); err != nil {
-		if eventbus.IsPermanentError(err) {
-			if s.log != nil {
-				s.log.WarnContext(ctx, "domain_event_permanent_failure_nacked_for_dlq",
-					slog.String("message_id", message.ID),
-					slog.String("event_id", processed.EventID),
-					slog.String("event_type", event.Type),
-					slog.String("tenant_id", event.TenantID),
-					slog.Any("error", err),
-				)
+	if !effectsCommitted {
+		if err := s.bus.Publish(ctx, event); err != nil {
+			if eventbus.IsPermanentError(err) {
+				if s.log != nil {
+					s.log.WarnContext(ctx, "domain_event_permanent_failure_nacked_for_dlq",
+						slog.String("message_id", message.ID),
+						slog.String("event_id", processed.EventID),
+						slog.String("event_type", event.Type),
+						slog.String("tenant_id", event.TenantID),
+						slog.Any("error", err),
+					)
+				}
+				return fmt.Errorf("domain event permanent dispatch %s/%s: %w", event.Type, event.Key, err)
 			}
-			return fmt.Errorf("domain event permanent dispatch %s/%s: %w", event.Type, event.Key, err)
+			return fmt.Errorf("domain event dispatch %s/%s: %w", event.Type, event.Key, err)
 		}
-		return fmt.Errorf("domain event dispatch %s/%s: %w", event.Type, event.Key, err)
+		// Handler side effects have committed. Durably record that fact BEFORE attempting the
+		// terminal finalize below, so a later finalize failure or crash can never cause a
+		// redelivery to replay bus.Publish (C35-024).
+		effectsCommitted = true
+		if claimed {
+			if commitErr := s.processedStore.MarkEffectsCommitted(ctx, processed); commitErr != nil {
+				return fmt.Errorf("domain event effects-committed finalization %s/%s: %w", event.Type, event.Key, commitErr)
+			}
+			effectsCommittedPersisted = true
+		}
 	}
 	if claimed {
 		if markErr := s.processedStore.MarkProcessed(ctx, processed); markErr != nil {

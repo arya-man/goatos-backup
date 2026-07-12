@@ -210,9 +210,94 @@ func TestHandleMessageAcksAfterDispatchWhenProcessedFinalizationFails(t *testing
 	if err == nil {
 		t.Fatal("expected processed-event finalization error")
 	}
-	if calls != 1 || store.completed != 1 || store.failed != 1 {
-		t.Fatalf("calls=%d store=%#v, want dispatch recorded then failed finalization marked", calls, store)
+	// C35-024: the handler side effect already committed (calls==1). A MarkProcessed failure after a
+	// successful dispatch must NOT be recorded via MarkFailed - that would allow an unconditional
+	// reclaim on redelivery to replay bus.Publish and duplicate the side effect. It must instead be
+	// durably recorded as effects-committed so redelivery only retries the finalize.
+	if calls != 1 || store.completed != 1 || store.failed != 0 || store.effectsCommitted != 1 {
+		t.Fatalf("calls=%d store=%#v, want dispatch recorded, effects committed once, and no failed mark", calls, store)
 	}
+}
+
+// TestHandleMessageDoesNotReplayHandlerOnRedeliveryAfterMarkProcessedFailure reproduces C35-024: a
+// handler side effect commits, the terminal MarkProcessed call then fails (e.g. a transient DB
+// error), and a redelivery of the exact same event must reclaim for finalize-only retry - it must
+// NEVER re-invoke bus.Publish, which would replay a non-idempotent handler side effect.
+func TestHandleMessageDoesNotReplayHandlerOnRedeliveryAfterMarkProcessedFailure(t *testing.T) {
+	bus := eventbus.NewInProcessBus()
+	calls := 0
+	bus.Subscribe("goat.created", eventbus.HandlerFunc(func(context.Context, eventbus.Event) error {
+		calls++
+		return nil
+	}))
+	store := &replayGuardStore{markProcessedFailures: 1}
+	service := NewService(bus, testValidator(t)).WithProcessedEventStore(store)
+	message := Message{
+		ID:   "msg-replay-guard",
+		Data: testEnvelope(t, "goat.created", "10000000-0000-4000-8000-000000000010"),
+	}
+
+	if err := service.HandleMessage(context.Background(), message); err == nil {
+		t.Fatal("expected first delivery to surface the synthetic finalize failure")
+	}
+	if calls != 1 {
+		t.Fatalf("calls after first delivery = %d, want 1", calls)
+	}
+	if store.status != "effects_committed" {
+		t.Fatalf("status after first delivery = %q, want effects_committed (must not fall back to failed)", store.status)
+	}
+
+	message.DeliveryAttempt = 1
+	if err := service.HandleMessage(context.Background(), message); err != nil {
+		t.Fatalf("redelivery: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls after redelivery = %d, want 1 (handler must not replay)", calls)
+	}
+	if store.status != "processed" {
+		t.Fatalf("status after redelivery = %q, want processed", store.status)
+	}
+}
+
+// replayGuardStore is a minimal single-event fake that mirrors the real Postgres adapter's status
+// state machine (processing / effects_committed / processed / failed) closely enough to exercise
+// Service.handleMessage's decision branching without a real database.
+type replayGuardStore struct {
+	status                string
+	markProcessedFailures int
+}
+
+func (s *replayGuardStore) BeginProcessing(context.Context, ProcessedEvent) (ProcessDecision, error) {
+	switch s.status {
+	case "", "failed":
+		s.status = "processing"
+		return ProcessDecisionClaimed, nil
+	case "effects_committed":
+		return ProcessDecisionEffectsCommitted, nil
+	case "processed":
+		return ProcessDecisionAlreadyProcessed, nil
+	default:
+		return ProcessDecisionInProgress, nil
+	}
+}
+
+func (s *replayGuardStore) MarkEffectsCommitted(context.Context, ProcessedEvent) error {
+	s.status = "effects_committed"
+	return nil
+}
+
+func (s *replayGuardStore) MarkProcessed(context.Context, ProcessedEvent) error {
+	if s.markProcessedFailures > 0 {
+		s.markProcessedFailures--
+		return errors.New("synthetic transient finalize failure")
+	}
+	s.status = "processed"
+	return nil
+}
+
+func (s *replayGuardStore) MarkFailed(context.Context, ProcessedEvent, string) error {
+	s.status = "failed"
+	return nil
 }
 
 type fakeSubscriber struct {
@@ -228,18 +313,25 @@ func (f *fakeSubscriber) Receive(ctx context.Context, subscriptionID string, han
 }
 
 type fakeProcessedStore struct {
-	decision  ProcessDecision
-	started   int
-	completed int
-	failed    int
-	last      ProcessedEvent
-	markErr   error
+	decision         ProcessDecision
+	started          int
+	completed        int
+	failed           int
+	effectsCommitted int
+	effectsCommitErr error
+	last             ProcessedEvent
+	markErr          error
 }
 
 func (f *fakeProcessedStore) BeginProcessing(_ context.Context, event ProcessedEvent) (ProcessDecision, error) {
 	f.started++
 	f.last = event
 	return f.decision, nil
+}
+
+func (f *fakeProcessedStore) MarkEffectsCommitted(context.Context, ProcessedEvent) error {
+	f.effectsCommitted++
+	return f.effectsCommitErr
 }
 
 func (f *fakeProcessedStore) MarkProcessed(context.Context, ProcessedEvent) error {
