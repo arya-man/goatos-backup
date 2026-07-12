@@ -1,10 +1,8 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Closure progress (running, `origin/main` @ `10183f15`): **C35-015 (P2) NOW FIXED + PUSHED** (`40672185`) — SOP Library list-then-N-details N+1 replaced by a single batched `LatestVersionsFor` DISTINCT-ON query embedded in the list response; O(1)-in-repo-calls proven at N=1/50/200 + real-Postgres latest-per-SOP correctness. While gating this on `make ci-local`, two PRE-EXISTING ci-local failures on the tip (`4bc951d6`) were found — both independent of C35-015 (my diff touches only SOP + sqlc snapshots): (1) **sqlc-check RED** — the committed sqlc schema snapshots were stale, missing two already-migrated indexes (`herd_register_goat_projection_scope_idx` mig 000164, `planned_batch_finalization_keyset_idx` C35-007); **FIXED + PUSHED** (`10183f15`, deterministic dump regen, no query/model change) → sqlc-check now green. (2) **NEW-E2E-001** (below) — `TestKernelStoryC_BatchDriveVerifyControlTower` fails deterministically on clean `4bc951d6` (control-tower alert row = 0); untouched subsystem, OPEN, needs its own investigation. contract-drift/api-client-check also RED only as a dirty-tree artifact (my generated client was uncommitted) — green once committed.
+> Current closure state (candidate rebased over `origin/main` `645f81c2`): **41 tracked, 12 fixed with proof, 29 open — 1 P0, 16 P1, 10 P2, 2 P3.** Fixed rows are C35-003/004/007/008/010/014/015/016/020/023/025 and FIXCHK-003. NEW-E2E-001 is an additional open P1, so it increases the tracked total from the original 40 to 41. C35-002, C35-005 and C35-013 remain explicitly partial/open; no partial is counted closed.
 >
-> Closure progress (running): **FIXED + PUSHED: C35-010 (P0), C35-003, C35-004, C35-007 (P1), C35-014, C35-015, C35-016 (P2), plus C35-002 processintegrity half + C35-023, C35-025.** PARTIAL/honest: C35-013 (dual-tab fetch removed, board OFFSET→keyset pending), C35-002 (processintegrity god-CTE fallback removed + typed `ErrProjectionUnavailable`; vaccinationexecution half still pending), C35-020 (worker-scanning + self-test wired into CI, but ~15 backend/cmd one-time-seed offenders mass-baselined — audit pending). Still OPEN (agent drafts rejected or punted): C35-005 (herd-register punted twice), C35-015 (band-aid), C35-024 (comments-only), C35-001/011/017 (Android incomplete/unwired). Codex owns FIXCHK-001/002/003. Prior baseline note (superseded counts below):
->
-> Closure progress (superseded, `origin/main` @ `2926c7de`): **FIXED + PUSHED this program: C35-010 (P0), C35-003, C35-004, C35-007 (P1) → 36 open.** C35-003 = sweeper fails fast without a configured task-creator actor; C35-004 = bulk SOP task creation is now one set-based `INSERT…SELECT UNNEST` (2N+1→2 queries); C35-007 = partial keyset index + `validate-sqlc-plans` gate (`PlannedBatchFinalizationKeyset` index scan). **C35-012 is no longer a blocker:** per the new AGENTS.md rule, a GitHub Actions billing/platform failure never blocks closure — `make ci-local` (tools/ci/run-local-ci.sh) runs the exact ci.yml gates locally and a green ci-local on the pushed SHA is the authoritative current-SHA proof; restoring org Actions billing is a separate maintainer task. Rejected several agent band-aids/non-fixes in counter-review (C35-015 blanked the SOP version; C35-024 was comments-only; C35-001/011 Android were incomplete/unwired) — those stay OPEN. Remaining backend/admin-web/Android rows are under active rework; FIXCHK-001/002/003 owned by Codex.
+> Counter-review correction: C35-003/004/007/014/016/020/023/025 were previously claimed fixed before their root paths or guards were complete. The candidate now repairs those surviving defects and adds focused adversarial/real-Postgres/plan proof. C35-015 is independently accepted as a valid closure of its exact N+1 finding; its endpoint still returns a bounded list of full version payloads and has no cursor, so this closure is **not** broader payload-size or pagination certification. C35-012 remains an open remote-release-availability finding, but it does not block local closure: hosted workflows and `make ci-local JOB=...` now invoke the same checked-in runner.
 >
 > Prior closure note: **C35-010 (P0) RE-CLOSED WITH PROOF after Codex counter-review, pushed to `origin/main` at `56e0e804` → 39 open (1 P0, 19 P1, 15 P2, 4 P3).** The counter-review rejected the first attempt (`fe5f3188`); all three surviving paths are repaired: (1) the P0 lifecycle survivor — `goatMatchesEligibility` now excludes true exit states then decides clinical defer BEFORE the lifecycle/health selectors, so an in-care goat carried on `lifecycle_status=sick|…` is deferred not excluded (unit + real-Postgres with canonical `lifecycle=alive` selectors, deferred 1→3, dead goat = 0 obligations); (2) the false-green guard is now a whole-file scan across Go/seed-map/JSON/TS/JS/`||`-fallback/mock surfaces with 20 adversarial self-tests, and the mock partial is fixed; (3) proof completed with a production-shaped HTTP publish-rejection E2E (`POST /protocols/versions/{id}/publish` → Service → Postgres → 422 `not_publishable`). Full backend `go test ./...` green. **CI-gate caveat (C35-012):** current-SHA GitHub Actions cannot execute (org Actions billing/platform block — synthetic `BuildFailed`/`(Unknown event)`/0-job runs despite valid+active workflows and enabled Actions), so the "required current-SHA CI passes" gate is externally blocked for every row; landed fixes are certified by full LOCAL gates. Remaining P0 = C35-001 (Android logout) — workable (SDK + 2 connected devices + JDK now installed), not hard-blocked.
 >
@@ -112,29 +110,29 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 | --- | --- | --- | --- |
 | C35-001 | P0 | Android logout preserves prior principal's Room caches/outbox | open, confirmed |
 | C35-002 | P1 | Process Integrity and Vaccination Execution still compute large answers on read | open, confirmed |
-| C35-003 | P1 | Staging sweeper can run without SOP task creator | open, confirmed |
-| C35-004 | P1 | “Bulk” sweeper task creation still performs one write call per batch | open, confirmed |
+| C35-003 | P1 | Staging sweeper can run without SOP task creator | **FIXED WITH PROOF** |
+| C35-004 | P1 | “Bulk” sweeper task creation still performs one write call per batch | **FIXED WITH PROOF** |
 | C35-005 | P1 | Herd Register projection is unused while SSR still downloads the whole herd | open, confirmed |
 | C35-006 | P1 | Mobile Scan -> Submit loses task identity and fetches 1,000 goats | open, confirmed |
-| C35-007 | P1 | Planned-batch finalization query lacks matching plan/index gate | open, confirmed |
-| C35-008 | P1 | Android changes can merge without an Android compile/test gate | open, confirmed |
+| C35-007 | P1 | Planned-batch finalization query lacks matching plan/index gate | **FIXED WITH PROOF** |
+| C35-008 | P1 | Android changes can merge without an Android compile/test gate | **FIXED WITH PROOF** |
 | C35-009 | P1 | Published scale report is prose, not current-SHA scale execution | open, confirmed |
 | C35-010 | P0 | Partial clinical defer authoring can cancel unsafe work | **FIXED WITH PROOF** (runtime union + publish reject + seed fix + CI guard) |
 | C35-011 | P1 | Mobile leadership record has no verify/rework action | open, confirmed |
 | C35-012 | P1 | Current release evidence is unavailable: Actions fail before any job | open, confirmed |
 | C35-013 | P2 | Action Center loads both tabs and retains OFFSET board debt | open, confirmed |
-| C35-014 | P2 | Calendar always makes an overlapping marker request | open, confirmed |
-| C35-015 | P2 | SOP Library fans out up to 200 detail calls | open, confirmed |
-| C35-016 | P2 | Serial-await guard exempts high-cardinality Promise.all/conditionals | open, confirmed |
+| C35-014 | P2 | Calendar always makes an overlapping marker request | **FIXED WITH PROOF** |
+| C35-015 | P2 | SOP Library fans out up to 200 detail calls | **FIXED WITH PROOF** |
+| C35-016 | P2 | Serial-await guard exempts high-cardinality Promise.all/conditionals | **FIXED WITH PROOF** |
 | C35-017 | P2 | Android JSON caches have no principal scope, TTL, or size cap | open, confirmed |
 | C35-018 | P2 | RFID feed and scan roster stay memory-heavy/unbounded | open, confirmed |
 | C35-019 | P2 | Record fallback duplicates network reads and fails cold offline | open, confirmed |
-| C35-020 | P2 | Scale guard is baseline/directory/self-test false-green | open, confirmed |
+| C35-020 | P2 | Scale guard is baseline/directory/self-test false-green | **FIXED WITH PROOF** (ratchet pass is explicitly not scale certification) |
 | C35-021 | P3 | Architecture graph is structurally stale | open, confirmed |
 | C35-022 | P2 | Corrupt cache blobs become false loading/empty state forever | open, confirmed |
-| C35-023 | P2 | Projection prune is unbudgeted and hides DB failure | open, confirmed |
+| C35-023 | P2 | Projection prune is unbudgeted and hides DB failure | **FIXED WITH PROOF** |
 | C35-024 | P2 | Generic consumer side effects can replay after finalization failure | open, plausible |
-| C35-025 | P3 | Operations keyset is stable but human-random | open, confirmed |
+| C35-025 | P3 | Operations keyset is stable but human-random | **FIXED WITH PROOF** |
 
 ### Post-Fix Verification Additions
 
@@ -142,7 +140,7 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 | --- | --- | --- | --- |
 | FIXCHK-001 | P1 | App vaccination routes still do not accept park-scoped grants | open, confirmed by both agents |
 | FIXCHK-002 | P2 | FEFO option disabled-state still compares expiry against UTC day | open, confirmed by both agents |
-| FIXCHK-003 | P3 | Scan roster cursor test asserts the wrong response key | open, confirmed by both agents |
+| FIXCHK-003 | P3 | Scan roster cursor test asserts the wrong response key | **FIXED WITH PROOF** |
 | FIXCHK-004 | P1 | Android scan roster still ignores server cursor pagination | confirmed behavior; merged into C35-006/C35-018, not separately counted |
 
 ## 4. Prior Issue Reconciliation
@@ -160,30 +158,30 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 | BUG-007 | FALSE POSITIVE / COUNTERED | Prior seed-scope correction remains valid. |
 | BUG-008 | FALSE POSITIVE / COUNTERED | Prior seed-scope correction remains valid. |
 | BUG-009 | FALSE POSITIVE / COUNTERED | Prior seed-scope correction remains valid. |
-| BUG-010 | STILL OPEN | Superseded by C35-003. |
-| BUG-011 | STILL OPEN | Superseded by C35-004. |
+| BUG-010 | FIXED WITH PROOF | Closed by C35-003. |
+| BUG-011 | FIXED WITH PROOF | Closed by C35-004. |
 | BUG-012 | FIXED WITH PROOF | Permanent dispatch and `MarkProcessed` failure now return errors/NACK; `MarkFailed` is attempted (`domainconsumer/app/service.go:125-133,182-209`) and E2E Story AI passed. Generic split-transaction risk is separately C35-024. |
 | BUG-013 | FIXED WITH PROOF | Verification queue is cursor-paged in HTTP/repository/admin-web; E2E 201+ queue story passed. |
 | BUG-014 | STILL OPEN | Superseded by C35-005. |
 | BUG-015 | FIXED WITH PROOF | Web and Android Calendar now consume `next_cursor`; current calendar E2E/regression stories passed. Extra marker request remains C35-014. |
 | BUG-016 | STILL OPEN | Superseded by C35-006. |
-| BUG-017 | STILL OPEN | Superseded by C35-007. |
-| BUG-018 | STILL OPEN | Superseded by C35-008/C35-012. |
+| BUG-017 | FIXED WITH PROOF | Closed by C35-007. |
+| BUG-018 | PARTIAL | C35-008 is fixed; C35-012 remains an open remote-release-availability finding. |
 | BUG-019 | STILL OPEN | Superseded by C35-009. |
 | BUG-020 | STILL OPEN | Superseded by C35-013. |
-| BUG-021 | STILL OPEN | Superseded by C35-014. |
-| BUG-022 | STILL OPEN | Superseded by C35-015. |
-| BUG-023 | STILL OPEN | Superseded by C35-016. |
+| BUG-021 | FIXED WITH PROOF | Closed by C35-014. |
+| BUG-022 | FIXED WITH PROOF | Closed by C35-015 for N+1 fanout; broader payload/pagination certification remains outside that row. |
+| BUG-023 | FIXED WITH PROOF | Closed by C35-016. |
 | BUG-024 | STILL OPEN | Superseded by C35-017. |
 | BUG-025 | STILL OPEN | Superseded by C35-018. |
 | BUG-026 | STILL OPEN | Superseded by C35-019. |
 | BUG-027 | OUT OF CURRENT SCOPE | Inventory-only issue was removed by the prior ledger; no affected inventory path is reintroduced here. |
-| BUG-028 | STILL OPEN | Superseded by C35-020. |
+| BUG-028 | FIXED WITH PROOF | Closed by C35-020; guard output explicitly distinguishes ratchet pass from scale certification. |
 | BUG-029 | STILL OPEN | Superseded by C35-021. |
-| BUG-030 | STILL OPEN | Superseded by C35-010. |
+| BUG-030 | FIXED WITH PROOF | Closed by C35-010. |
 | BUG-031 | STILL OPEN | Superseded by C35-022. |
 | BUG-032 | SUPERSEDED BY NEW FINDING | Deduped into C35-020. |
-| BUG-033 | STILL OPEN | Superseded by C35-023. |
+| BUG-033 | FIXED WITH PROOF | Closed by C35-023. |
 | BUG-034 | FALSE POSITIVE / COUNTERED | Prior inventory/seed-scope correction remains valid. |
 
 ### OCK/RVF reconciliation
@@ -204,13 +202,13 @@ Every active closeout row was extracted before fresh findings were added. The de
 | --- | --- | --- |
 | Process Integrity and Vaccination Execution god-CTEs/read-model debt | STILL OPEN | C35-002 |
 | Action Center OFFSET/fetch-both debt | STILL OPEN | C35-013 |
-| SOP/detail and sweeper fanout | STILL OPEN | C35-004/C35-015 |
+| SOP/detail and sweeper fanout | FIXED WITH PROOF | C35-004/C35-015 |
 | Mobile cache principal/retention/corruption debt | STILL OPEN | C35-001/C35-017/C35-022 |
 | Scan roster/RFID/Record offline debt | STILL OPEN | C35-006/C35-018/C35-019 |
 | Mobile leadership close-flow backlog B2 | STILL OPEN | C35-011 |
 | Pending handoff B1 | SUPERSEDED BY NEW FINDING | Route now opens Scan for unfinished sheds, but task identity still disappears at Scan -> Submit and the shed roster is fetched at 1,000; C35-006 is the surviving root issue. |
 | Pending handoff C1 (`RoleManager`) | FIXED WITH PROOF | Full current kernel E2E compiled and all 41 stories passed, including leadership review routes. |
-| Pending handoff A2 UUID ordering | STILL OPEN | C35-025 |
+| Pending handoff A2 UUID ordering | FIXED WITH PROOF | C35-025 |
 | Pending branch/stash A3/D/FCM client work | OUT OF CURRENT SCOPE | Not present on current checkout; do not blind-apply side-branch/stash work. |
 
 ## 5. Cross-Agent Counters
@@ -340,7 +338,7 @@ Guardrail needed: Current-SHA 1M/5M latency gates that force projection-unavaila
 ID: C35-003  
 Priority: P1  
 Title: Staging obligation sweeper can run without an SOP task creator  
-Status: open  
+Status: FIXED WITH PROOF
 Origin: pre-existing / prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-010  
@@ -355,13 +353,14 @@ Why it survives / why downgraded: The canonical checked-in staging runtime omits
 E2E / guardrail status: false-green; 41/41 E2E passes with manual wiring, while no deployment-shaped configuration test exists.  
 Fix sketch: Make actor/task creator mandatory whenever task finalization is enabled and provision the actor explicitly in each environment.  
 Guardrail needed: Entrypoint config test plus Terraform assertion that every sweeper job sets a valid actor identity.
+Fix/proof: Sweeper startup now fails closed without the task-creator actor even though SOP bindings are discovered later; staging Terraform requires and wires the actor explicitly. `check-sweeper-deployment.mjs` checks the deployed shape and its adversarial self-test. Entrypoint tests, deployment guard, and `terraform validate` pass.
 
 ### C35-004
 
 ID: C35-004  
 Priority: P1  
 Title: The sweeper's “bulk” task API still performs one task write call per batch  
-Status: open  
+Status: FIXED WITH PROOF
 Origin: pre-existing / prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-011; prior batch-writer follow-up  
@@ -376,6 +375,7 @@ Why it survives / why downgraded: Target scale is 1-5M animals and the sweeper i
 E2E / guardrail status: false-green; scale guard scans `backend/internal` but misses the `backend/cmd` loop, and E2E does not assert SQL/transaction count.  
 Fix sketch: Expose one repository bulk command using a set input and one transaction, returning batch-to-task IDs; have both bridges delegate once.  
 Guardrail needed: Integration assertion on transaction/query count for a 100/1,000-batch page and scanner coverage for `backend/cmd`.
+Fix/proof: Task and audit creation are set-based in one transaction, use the exact partial-index conflict target, and replay returns the complete batch-to-task mapping without duplicates. Real-Postgres proof covers multi-task creation, audit cardinality, and exact replay.
 
 ### C35-005
 
@@ -424,7 +424,7 @@ Guardrail needed: Android navigation/integration test with two tasks in one shed
 ID: C35-007  
 Priority: P1  
 Title: Planned-batch finalization keyset query has no matching plan/index gate  
-Status: open  
+Status: FIXED WITH PROOF
 Origin: introduced in reviewed range  
 Verdict: CONFIRMED  
 Prior mapping: BUG-017  
@@ -439,6 +439,7 @@ Why it survives / why downgraded: No checked plan supports that claim at target 
 E2E / guardrail status: false-green; plan gate and kernel E2E pass without a large-table EXPLAIN assertion.  
 Fix sketch: Add a predicate/order-aligned partial index or redesign the scan around a durable queue, then register its EXPLAIN plan.  
 Guardrail needed: `validate-sqlc-plans` case populated at representative cardinality with scan/sort/latency thresholds.
+Fix/proof: Migration 000165 adds the predicate/order-aligned partial index; generated schema snapshots include it; `validate-sqlc-plans` observes `PlannedBatchFinalizationKeyset` using the intended index, and migration/sqlc drift gates pass.
 
 ### C35-008
 
@@ -592,7 +593,7 @@ Guardrail needed: Request-count test per selected tab and prohibition on new bac
 ID: C35-014  
 Priority: P2  
 Title: Calendar always makes an overlapping marker request  
-Status: open  
+Status: FIXED WITH PROOF
 Origin: pre-existing / prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-021  
@@ -607,6 +608,7 @@ Why it survives / why downgraded: Preload is unconditional and duplicates work; 
 E2E / guardrail status: missing; calendar stories validate results, not request count or marker completeness.  
 Fix sketch: Fetch markers only on picker open or expose a compact month-summary endpoint with complete aggregates.  
 Guardrail needed: Closed/open picker request-count test and >page-size month-marker completeness test.
+Fix/proof: Calendar creates the marker request only while the date picker is open. The request-plan guard has closed/open adversarial fixtures and is wired into the admin-web gate; lint, typecheck, and production build pass.
 
 ### C35-015
 
@@ -629,13 +631,14 @@ E2E / guardrail status: false-green; serial-await check exempts Promise.all and 
 Fix sketch: Return required summary fields in list endpoint or add one batch-detail endpoint with bounded pagination.  
 Guardrail needed: SSR integration test asserting O(1) backend calls as SOP count grows.  
 Fix (pushed `40672185`): the list endpoint now embeds each SOP's latest version. `Repository.LatestVersionsFor` batch-loads every requested SOP's latest version in ONE `DISTINCT ON (sop_id) … ORDER BY sop_id, version DESC` query; `Service.ListSOPs` attaches them as an additive `SOPListResponse.latest_versions` map (keyed by sop_id; `items` contract unchanged; map omitted when no SOP has a version); OpenAPI spec + generated admin client updated; the `/sops` SSR page drops `Promise.all(defs.map(getSop))` and reads the embedded map — one backend call regardless of SOP count. Proof: `TestListSOPsLoadsLatestVersionsInOneBatchCall` asserts exactly one `LatestVersionsFor` call at N=1/50/200 (the missing O(1) SSR guardrail), `TestListSOPsWithoutVersionsOmitsLatestVersions` (nil/omitted map), and real-Postgres `TestLatestVersionsForReturnsHighestVersionPerSOPInOneQuery` (DISTINCT-ON picks the highest version per SOP with out-of-order inserts + retired/published mix, versionless SOP absent, empty input = DB no-op). Local gates green: SOP unit + integration, `go build ./...`, `go vet`, admin-web typecheck/lint/mock-fidelity, scale-guard, validate-sqlc-plans.
+Counter-review boundary: accepted for the exact N+1 finding. The route still requests up to 200 definitions and returns full latest-version payloads without a cursor; no payload-size or pagination certification is implied by this closure.
 
 ### C35-016
 
 ID: C35-016  
 Priority: P2  
 Title: Serial-await guard exempts high-cardinality Promise.all and conditional loops  
-Status: open  
+Status: FIXED WITH PROOF
 Origin: prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-023  
@@ -650,6 +653,7 @@ Why it survives / why downgraded: Known route/list patterns and explicit limits 
 E2E / guardrail status: false-green by direct counterexample.  
 Fix sketch: Detect cross-boundary calls inside maps/loops/Promise.all, use known limit propagation, require explicit bounded annotations, and prefer batch APIs.  
 Guardrail needed: Self-tests containing C35-013/014/015-shaped fixtures and CI execution of those self-tests.
+Fix/proof: The guard scans the whole admin-web TSX tree, recognizes cross-boundary fanout, and permits only owner/issue/reason/expiry-bound exceptions. The remaining source-entry detail fanout is explicit and expires 2026-09-30; C35-014/015 shapes are covered by self-tests. Full-tree guard and admin-web gate pass.
 
 ### C35-017
 
@@ -719,10 +723,10 @@ Guardrail needed: Navigation contract test plus cold-offline/process-recreation 
 ID: C35-020  
 Priority: P2  
 Title: Scale guard is false-green through baselines, directory omissions, and unwired self-tests  
-Status: fixed with proof  
+Status: FIXED WITH PROOF
 Origin: prior-ledger  
 Verdict: CONFIRMED → FIXED  
-Fix (pushed): (1) directory omission closed — scaleguard now scans `backend/cmd` worker/CLI code, not just `backend/internal`; (2) self-test wired into the required `ci.yml` guardrails job (`cd tools/scale-guard && go test ./...`, incl. `TestObligationSweeperWorkerN1Detection`); (3) baseline audited and NOT false-green — every newly-surfaced `backend/cmd` entry is a genuinely one-time seed/migrate/import/recompute/sync command (each annotated with a reason; an exclusion grep for any non-one-time entry returns empty), and the guard still fails closed on any offender NOT in the baseline (the ratchet), so new production N+1/OFFSET/god-CTE code is blocked; (4) baseline ratchets DOWN as real offenders are fixed (the processintegrity god-cte + offset entries were removed by C35-002). Proof: `make scale-guard` green + `go test ./tools/scale-guard/...` self-test green.  
+Fix/proof: Production workers are scanned; only an explicit tested map excludes bounded one-time maintenance commands. Every debt exception requires owner, issue, reason, and unexpired deadline. The guard now reports `RATCHET PASS — NOT SCALE CERTIFIED (49 time-bounded known offenders across 22 groups; zero new)` instead of presenting known debt as green certification. Self-tests prove anonymous, expired, and new offenders fail.
 Prior mapping: BUG-028, BUG-032  
 Layman explanation: The guard says “OK” while known serious patterns are grandfathered, command workers are outside its scan, and the guard's own tests are not explicitly run in CI.  
 Evidence: `make scale-guard` reports 51 baselined offenders across 23 groups. `tools/scale-guard/scaleguard.go:109-120` roots scanning under backend internals and does not cover `backend/cmd/obligation-sweeper`, missing C35-004. `.github/workflows/ci.yml:33` runs `make scale-guard`, but does not run `cd tools/scale-guard && go test`; manual self-tests pass.  
@@ -783,7 +787,7 @@ Guardrail needed: Repository contract tests injecting corrupt and old-schema JSO
 ID: C35-023  
 Priority: P2  
 Title: Process Integrity projection pruning is unbudgeted and hides database failure  
-Status: open  
+Status: FIXED WITH PROOF
 Origin: prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-033  
@@ -798,6 +802,7 @@ Why it survives / why downgraded: Timeout is not a progress contract and silent 
 E2E / guardrail status: missing; no large-prune timeout/retry/telemetry story.  
 Fix sketch: Move pruning to a durable job with per-run row/time budget, checkpoint/progress, retry, and error metric/audit.  
 Guardrail needed: Million-row prune test with fixed work budget and injected DB-error observability assertion.
+Fix/proof: Pruning has explicit work/time bounds and returns cancellation/DB/budget errors. A maintenance failure after a serving projection commit records yellow/error state without incorrectly failing the last-known-good serving projection. Unit and real-Postgres failure/cancellation paths pass.
 
 ### C35-024
 
@@ -825,7 +830,7 @@ Guardrail needed: Registry-driven replay tests for every handler, including “s
 ID: C35-025  
 Priority: P3  
 Title: Operations keyset is stable but human-visible order appears random  
-Status: open  
+Status: FIXED WITH PROOF
 Origin: current backlog  
 Verdict: CONFIRMED  
 Prior mapping: pending handoff A2  
@@ -840,6 +845,7 @@ Why it survives / why downgraded: It is maintainability/UX only, correctly P3.
 E2E / guardrail status: covered for pagination stability; missing human-order assertion.  
 Fix sketch: Keyset on normalized park/shed names with UUID tie-breakers.  
 Guardrail needed: Pagination test proving alphabetical order, duplicate-name stability, and no skipped/duplicated rows.
+Fix/proof: Operations now keyset by case-insensitive visible park/shed names, exact names, UUID tie-breakers, then stage. The opaque cursor carries those values and old ID-only cursors are resolved compatibly. Real-Postgres pagination proof deliberately assigns Zulu a lower UUID and verifies alphabetical pages with no skip/duplicate.
 
 ### CL-004
 
@@ -1159,7 +1165,7 @@ Guardrail needed: Table-driven test across UTC 18:29/18:30 and IST midnight for 
 ID: FIXCHK-003  
 Priority: P3  
 Title: Scan roster cursor test asserts the wrong response key  
-Status: open  
+Status: FIXED WITH PROOF
 Origin: post-fix fixed/not-fixed verification pass  
 Verdict: CONFIRMED BY CLAUDE AND CODEX  
 Prior mapping: reopens the test-quality half of the cursor contract fix  
@@ -1174,6 +1180,7 @@ Why it survives / why downgraded: It is P3 because the runtime key is currently 
 E2E / guardrail status: false-green; the passing unit test does not assert `next_cursor` non-empty.  
 Fix sketch: Assert `body["next_cursor"]` is non-empty, assert `nextCursor` is absent, and preferably decode into the generated/contract DTO rather than a loose map.  
 Guardrail needed: Contract test that fails on camelCase-only or missing `next_cursor`.
+Fix/proof: The handler test now requires a non-empty `next_cursor`, rejects legacy `nextCursor`, decodes the cursor, and compares the decoded value with the expected domain cursor.
 
 ### FIXCHK-004
 
@@ -1234,18 +1241,18 @@ Guardrail needed: Android integration test with a >2-page roster asserting every
 
 ## 9. Final Summary Table
 
-The one common file contains the original **26 peer-converged** findings plus **11 dedicated-mobile findings confirmed by both agents**, plus **3 independent post-fix verification residuals** = **40 open findings at audit time; now 39 open** after C35-010 (P0) was FIXED WITH PROOF on `integration/ledger-cleanup-handoff-20260712`. FIXCHK-004 is confirmed behavior merged into C35-006/C35-018, so it is retained for traceability but not double-counted. Claude additions CL-001…003 remain countered in §7 (CL-004 survives P3). Every retained row is peer-reconciled.
+The common ledger contains the original 40 counted findings plus NEW-E2E-001, discovered during closure gating: **41 tracked, 12 fixed with proof, 29 open**. FIXCHK-004 remains merged into C35-006/C35-018 and is not double-counted. Claude additions CL-001…003 remain countered; CL-004 survives open. Every retained row is peer-reconciled.
 
-| Priority | Confirmed open | Plausible/Unproven open | Total | Main themes |
-| --- | ---: | ---: | ---: | --- |
-| P0 | 2 | 0 | 2 | Android principal/tenant cache boundary; partial clinical-defer cancels sick work |
-| P1 | 19 | 0 | 19 | Million-scale reads, sweeper deploy/fanout, app scoped-grant authorization, mobile L0→L3 paging/Room/form/truth/performance, release gates |
-| P2 | 14 | 1 (C35-024) | 15 | Extra calls/fanout, secondary offline reads, lifecycle/list stability, FEFO business-day drift, weak guards, projection cleanup, replay proof |
-| P3 | 4 | 0 | 4 | Human-visible ordering, dead code, graph freshness, weak cursor assertion |
-| **Total** | **39** | **1** | **40** | — |
+| Priority | Fixed with proof | Confirmed open | Plausible open | Open total |
+| --- | ---: | ---: | ---: | ---: |
+| P0 | 1 | 1 | 0 | 1 |
+| P1 | 4 | 16 | 0 | 16 |
+| P2 | 5 | 9 | 1 (C35-024) | 10 |
+| P3 | 2 | 2 | 0 | 2 |
+| **Total** | **12** | **28** | **1** | **29** |
 
-**By reconciliation state:** the 40 audit-time rows are peer-reconciled; **C35-010 (P0) is now FIXED WITH PROOF, leaving 39 open**. FIXCHK-001/002/003 are confirmed post-fix residuals; FIXCHK-004 is merged. Open ledger: 38 CONFIRMED + 1 PLAUSIBLE (C35-024). Fixed-with-proof (not counted as open): BUG-012, BUG-013, BUG-015, seeded-history scope, history-vs-future semantics, kernel migrations 000162/163, repair service, undeclared-cert guard; handoff C1 resolved. Park-scope app-route authorization and cursor test proof are reopened as FIXCHK-001 and FIXCHK-003.
+**Fixed counted rows:** C35-003, C35-004, C35-007, C35-008, C35-010, C35-014, C35-015, C35-016, C35-020, C35-023, C35-025, and FIXCHK-003. **Still partial/open:** C35-002, C35-005, C35-013. NEW-E2E-001 is open and red-locks the broad Go gate until separately repaired. C35-012 remains an open remote-release-availability finding; it does not invalidate green local execution of the same checked-in job runner.
 
 **Three guardrails carry the most leverage:** destructive logout certification (C35-001); current-SHA Room/paging/workflow/performance Android certification (C35-006/008/011/017/018/019 plus MOB-001…011); and current-SHA scale/latency + cross-boundary fanout gates (C35-002/004/005/007/009/013/014/015/016/020). FIXCHK-001 also needs a dedicated app scoped-grant route matrix.
 
-Final state: **ONE COMMON LEDGER.** Audit snapshot for HEAD `d2a7fbcf` was 40 open (2 P0, 19 P1, 15 P2, 4 P3). **Closure in progress on `integration/ledger-cleanup-handoff-20260712`: C35-010 (P0) FIXED WITH PROOF → 39 open (1 P0, 19 P1, 15 P2, 4 P3).** The original 26 (C35/CL), 11 mobile (MOB), and 3 independent FIXCHK findings are peer-reconciled by both agents; FIXCHK-004 is merged into C35-006/C35-018. The STOP RULE (no product code fixed) applied at audit time; the closure program has since authorized fixes, and C35-010 is the first landed with a full proof packet.
+Final state: **ONE COMMON LEDGER. 41 tracked; 12 fixed; 29 open (1 P0, 16 P1, 10 P2, 2 P3).** The original 26 C35/CL rows, 11 MOB rows, 3 counted FIXCHK rows, and NEW-E2E-001 are reconciled here; FIXCHK-004 is merged and not counted twice. The audit STOP RULE applied only to the original audit; the closure program now authorizes these evidence-bound fixes.

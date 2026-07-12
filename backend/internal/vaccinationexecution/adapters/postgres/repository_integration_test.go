@@ -548,6 +548,8 @@ func TestVaccinationOperationsProductionQueryPlanUsesIndexes(t *testing.T) {
 		"", // cursor shed
 		"", // cursor stage
 		501,
+		"", // cursor park name
+		"", // cursor shed name
 	)
 	if err != nil {
 		t.Fatalf("explain production vaccination operations query: %v", err)
