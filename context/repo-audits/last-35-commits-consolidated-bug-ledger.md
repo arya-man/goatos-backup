@@ -1,6 +1,6 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Current closure state (candidate rebased over `origin/main` `645f81c2`): **41 tracked, 12 fixed with proof, 29 open — 1 P0, 16 P1, 10 P2, 2 P3.** Fixed rows are C35-003/004/007/008/010/014/015/016/020/023/025 and FIXCHK-003. NEW-E2E-001 is an additional open P1, so it increases the tracked total from the original 40 to 41. C35-002, C35-005 and C35-013 remain explicitly partial/open; no partial is counted closed.
+> Current closure state after the counter-fix batch: **41 tracked, 12 fixed with proof, 29 open — 1 P0, 16 P1, 10 P2, 2 P3.** Fixed rows are C35-003/004/007/008/010/014/015/016/020/023/025 and FIXCHK-003. NEW-E2E-001 is an additional open P1, so it increases the tracked total from the original 40 to 41. C35-002, C35-005 and C35-013 remain explicitly partial/open; no partial is counted closed.
 >
 > Counter-review correction: C35-003/004/007/014/016/020/023/025 were previously claimed fixed before their root paths or guards were complete. The candidate now repairs those surviving defects and adds focused adversarial/real-Postgres/plan proof. C35-015 is independently accepted as a valid closure of its exact N+1 finding; its endpoint still returns a bounded list of full version payloads and has no cursor, so this closure is **not** broader payload-size or pagination certification. C35-012 remains an open remote-release-availability finding, but it does not block local closure: hosted workflows and `make ci-local JOB=...` now invoke the same checked-in runner.
 >
