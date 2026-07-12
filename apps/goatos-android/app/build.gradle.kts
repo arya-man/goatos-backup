@@ -107,6 +107,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(project(":core:core-datastore"))
     implementation(project(":feature:feature-auth"))
+    implementation(project(":core:core-analytics"))
+
     implementation(project(":feature:feature-calendar"))
     implementation(project(":feature:feature-sheds"))
     implementation(project(":feature:feature-scan"))
