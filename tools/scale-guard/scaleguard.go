@@ -56,6 +56,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type finding struct {
@@ -74,11 +75,11 @@ var (
 	// "offset must be a non-negative integer" error string or a param name.
 	offsetRe = regexp.MustCompile(`(?i)\bOFFSET\s+[\$:@%\d(]`)
 	// Gate SQL-shaped rules on the literal actually looking like a query.
-	sqlishRe   = regexp.MustCompile(`(?i)\b(SELECT|LIMIT|INSERT|UPDATE)\b`)
-	sargableRe = regexp.MustCompile(`(?is)lower\s*\([^)]*\)\s+LIKE\s+'%`)
-	delProjRe  = regexp.MustCompile(`(?is)DELETE\s+FROM\s+[a-z_]*projection[a-z_]*\b[^;]*\btenant_id`)
-	readRollupFnRe = regexp.MustCompile(`(?i)\b(aggregate|group|rollup)\w*(List|Events)\b`)
-	rawLimitBumpRe = regexp.MustCompile(`(?i)\.Limit\s*=\s*\w*(aggregate|raw|rollup)\w*Limit`)
+	sqlishRe        = regexp.MustCompile(`(?i)\b(SELECT|LIMIT|INSERT|UPDATE)\b`)
+	sargableRe      = regexp.MustCompile(`(?is)lower\s*\([^)]*\)\s+LIKE\s+'%`)
+	delProjRe       = regexp.MustCompile(`(?is)DELETE\s+FROM\s+[a-z_]*projection[a-z_]*\b[^;]*\btenant_id`)
+	readRollupFnRe  = regexp.MustCompile(`(?i)\b(aggregate|group|rollup)\w*(List|Events)\b`)
+	rawLimitBumpRe  = regexp.MustCompile(`(?i)\.Limit\s*=\s*\w*(aggregate|raw|rollup)\w*Limit`)
 	nextCursorNilRe = regexp.MustCompile(`(?i)\bNextCursor\s*=\s*nil`)
 	// A version-scoped prune (build-new / flip / drop-old generations) is the
 	// APPROVED pattern, not a whole-tenant wipe. Do not treat range predicates
@@ -122,7 +123,13 @@ func main() {
 	if *baseline == "" {
 		*baseline = filepath.Join(repo, "tools", "scale-guard", "baseline.txt")
 	}
-	allowed := loadBaseline(*baseline)
+	allowed, baselineErrors := loadBaseline(*baseline, time.Now().UTC())
+	if len(baselineErrors) > 0 {
+		for _, baselineErr := range baselineErrors {
+			fmt.Fprintln(os.Stderr, "scale-guard: baseline:", baselineErr)
+		}
+		os.Exit(1)
+	}
 
 	var findings []finding
 	err = filepath.Walk(scanRoot, func(path string, info os.FileInfo, err error) error {
@@ -137,6 +144,9 @@ func main() {
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		if isExplicitOneTimeCommand(repo, path) {
 			return nil
 		}
 		findings = append(findings, scanFile(repo, path)...)
@@ -173,7 +183,11 @@ func main() {
 		for _, n := range allowed {
 			total += n
 		}
-		fmt.Printf("scale-guard: OK (%d known offenders baselined across %d rule/file groups)\n", total, len(allowed))
+		if total == 0 {
+			fmt.Println("scale-guard: CERTIFIED (zero known or new offenders)")
+		} else {
+			fmt.Printf("scale-guard: RATCHET PASS — NOT SCALE CERTIFIED (%d time-bounded known offenders across %d rule/file groups; zero new)\n", total, len(allowed))
+		}
 		for g, base := range allowed {
 			if actual[g] < base {
 				parts := strings.SplitN(g, "\t", 2)
@@ -194,6 +208,28 @@ func main() {
 		"or (if genuinely pre-existing) raise its count in tools/scale-guard/baseline.txt.\n"+
 		"See docs/decisions/scale-anti-patterns.md.\n")
 	os.Exit(1)
+}
+
+var explicitOneTimeCommands = map[string]bool{
+	"backend/cmd/migrate/main.go":                       true,
+	"backend/cmd/seed-calendar-vaccination-dev/main.go": true,
+	"backend/cmd/seed-dev-email-grants/main.go":         true,
+	"backend/cmd/seed-position-duties/main.go":          true,
+	"backend/cmd/seed-roster-real/main.go":              true,
+	"backend/cmd/seed-shed-positions/main.go":           true,
+	"backend/cmd/seed-vaccination-real/main.go":         true,
+	"backend/cmd/seed-vaccination-trigger/main.go":      true,
+	"backend/cmd/counts-projection-recompute/main.go":   true,
+	"backend/cmd/counts-source-import/main.go":          true,
+	"backend/cmd/legacy-god-sheet-sync/main.go":         true,
+}
+
+func isExplicitOneTimeCommand(repo, path string) bool {
+	rel, err := filepath.Rel(repo, path)
+	if err != nil {
+		return false
+	}
+	return explicitOneTimeCommands[filepath.ToSlash(rel)]
 }
 
 func scanFile(repo, path string) []finding {
@@ -427,26 +463,33 @@ func ignoredLines(src []byte) map[int]bool {
 	return out
 }
 
-// loadBaseline reads "<rule> <relpath> <count>" lines into a per-group count map.
-// A trailing "# comment" is ignored; a missing count defaults to 1.
-func loadBaseline(path string) map[string]int {
+// loadBaseline accepts only owned, expiring exceptions. A ratchet entry without
+// owner/issue/expiry/reason is itself a CI failure; permanent anonymous debt is
+// the false-green condition this guard is meant to prevent.
+func loadBaseline(path string, now time.Time) (map[string]int, []string) {
 	out := map[string]int{}
+	var problems []string
 	f, err := os.Open(path)
 	if err != nil {
-		return out
+		return out, []string{err.Error()}
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
+	lineNo := 0
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if i := strings.Index(line, "#"); i >= 0 {
-			line = strings.TrimSpace(line[:i])
+		lineNo++
+		raw := strings.TrimSpace(sc.Text())
+		line, metadata := raw, ""
+		if i := strings.Index(raw, "#"); i >= 0 {
+			line = strings.TrimSpace(raw[:i])
+			metadata = strings.TrimSpace(raw[i+1:])
 		}
 		if line == "" {
 			continue
 		}
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
+			problems = append(problems, fmt.Sprintf("line %d malformed", lineNo))
 			continue
 		}
 		count := 1
@@ -455,9 +498,42 @@ func loadBaseline(path string) map[string]int {
 				count = n
 			}
 		}
+		owner := metadataValue(metadata, "owner")
+		issue := metadataValue(metadata, "issue")
+		expires := metadataValue(metadata, "expires")
+		reason := metadataValue(metadata, "reason")
+		if owner == "" || issue == "" || expires == "" || reason == "" {
+			problems = append(problems, fmt.Sprintf("line %d requires owner= issue= expires= reason= metadata", lineNo))
+			continue
+		}
+		expiry, err := time.Parse("2006-01-02", expires)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("line %d has invalid expires=%q", lineNo, expires))
+			continue
+		}
+		if !expiry.After(now.Truncate(24 * time.Hour)) {
+			problems = append(problems, fmt.Sprintf("line %d exception expired on %s", lineNo, expires))
+			continue
+		}
 		out[fields[0]+"\t"+fields[1]] += count
 	}
-	return out
+	return out, problems
+}
+
+func metadataValue(metadata, key string) string {
+	needle := key + "="
+	start := strings.Index(metadata, needle)
+	if start < 0 {
+		return ""
+	}
+	value := metadata[start+len(needle):]
+	if key == "reason" {
+		return strings.TrimSpace(value)
+	}
+	if end := strings.IndexByte(value, ' '); end >= 0 {
+		value = value[:end]
+	}
+	return strings.TrimSpace(value)
 }
 
 // isProgressBreak reports whether an if-stmt is a zero-progress guard: a

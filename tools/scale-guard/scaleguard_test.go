@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // writeGo writes src to a temp file and returns (repoRoot, absPath).
@@ -324,6 +325,7 @@ func processBatches(ctx context.Context, pool *Pool) {
 		}
 	}
 }
+
 `
 	repo, path := writeGo(t, workerBad)
 	got := rules(scanFile(repo, path))
@@ -332,3 +334,48 @@ func processBatches(ctx context.Context, pool *Pool) {
 	}
 }
 
+func TestExplicitOneTimeCommandClassification(t *testing.T) {
+	repo := t.TempDir()
+	for rel := range explicitOneTimeCommands {
+		if !isExplicitOneTimeCommand(repo, filepath.Join(repo, filepath.FromSlash(rel))) {
+			t.Fatalf("expected explicit one-time command %s to be excluded", rel)
+		}
+	}
+	for _, rel := range []string{
+		"backend/cmd/obligation-sweeper/main.go",
+		"backend/cmd/outbox-relay/main.go",
+		"backend/internal/sop/adapters/postgres/repository.go",
+	} {
+		if isExplicitOneTimeCommand(repo, filepath.Join(repo, filepath.FromSlash(rel))) {
+			t.Fatalf("production path %s must never be excluded", rel)
+		}
+	}
+}
+
+func TestBaselineRequiresOwnedUnexpiredMetadata(t *testing.T) {
+	now := time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
+	write := func(content string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "baseline.txt")
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	valid := "n-plus-one backend/internal/example.go 2 # owner=kernel issue=C35-020 expires=2026-09-30 reason=bounded legacy loop\n"
+	allowed, problems := loadBaseline(write(valid), now)
+	if len(problems) != 0 || allowed["n-plus-one\tbackend/internal/example.go"] != 2 {
+		t.Fatalf("valid baseline = %#v problems=%v", allowed, problems)
+	}
+	for name, content := range map[string]string{
+		"anonymous": "n-plus-one backend/internal/example.go 1 # legacy\n",
+		"expired":   "n-plus-one backend/internal/example.go 1 # owner=kernel issue=C35-020 expires=2026-07-01 reason=old\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, problems := loadBaseline(write(content), now)
+			if len(problems) == 0 {
+				t.Fatal("invalid baseline passed")
+			}
+		})
+	}
+}

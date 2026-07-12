@@ -1,6 +1,6 @@
 # scale-guard baseline — pre-existing scale anti-pattern debt.
 #
-# Format: "<rule> <relpath> <count>"  (a trailing "# comment" is ignored).
+# Format: "<rule> <relpath> <count> # owner=X issue=Y expires=YYYY-MM-DD reason=...".
 # The guard blocks any finding count above the per-(rule, file) count listed
 # here. Entries are known debt that predates the guard. BURN THIS DOWN: every
 # reduced count is a real scale fix. Add a count ONLY for genuinely pre-existing
@@ -11,51 +11,38 @@
 # (docs/decisions/scale-anti-patterns.md).
 
 # --- god-cte: compute-on-read / big CTE on a read or projector path ---
-god-cte backend/internal/vaccinationexecution/adapters/postgres/repository.go 1  # P1: live-recompute shed/exec reads; needs a read model
-god-cte backend/internal/calendar/adapters/postgres/repository.go 1          # projector backfill (RefreshVaccinationProjection), paged+upsert; acceptable off request path
+god-cte backend/internal/vaccinationexecution/adapters/postgres/repository.go 1 # owner=vaccination-platform issue=C35-002 expires=2026-09-30 reason=live execution reads need the pending versioned projection
+god-cte backend/internal/calendar/adapters/postgres/repository.go 1 # owner=calendar-platform issue=C35-020 expires=2026-09-30 reason=off-request bounded projector recompute; remove detector hit or split query
 
 # --- loop-no-cursor: infinite paging loop with no progress guard ---
 # (none) — finalizePlannedBatches was fixed with a progressed==0 break on 2026-07-11.
 
 # --- offset-pagination: use keyset/cursor instead ---
-offset-pagination backend/internal/processintegrity/adapters/postgres/repository.go 1  # P1: projection read OFFSET (maxOffset=50000 deep-scan); move to keyset. (canonical request OFFSET removed in C35-002)
-offset-pagination backend/internal/vaccinationexecution/adapters/postgres/repository.go 1  # bounded: OFFSET is over sheds (~hundreds), not animals
-offset-pagination backend/internal/locations/adapters/postgres/repository.go 1  # P1: /admin/locations deep offset; move to keyset
+offset-pagination backend/internal/processintegrity/adapters/postgres/repository.go 1 # owner=process-integrity issue=C35-013 expires=2026-09-30 reason=projection board cursor conversion remains scheduled
+offset-pagination backend/internal/vaccinationexecution/adapters/postgres/repository.go 1 # owner=vaccination-platform issue=C35-020 expires=2026-09-30 reason=shed-only bounded offset needs explicit cursor replacement
+offset-pagination backend/internal/locations/adapters/postgres/repository.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=admin locations search needs keyset pagination
 
 # --- non-sargable-like: lower(col) LIKE '%..%' is unindexable ---
-non-sargable-like backend/internal/locations/adapters/postgres/repository.go 1  # P1: alias search; add expr/trigram index or normalized column
-non-sargable-like backend/internal/workforce/adapters/postgres/repository.go 1  # P2: roster search; same fix
+non-sargable-like backend/internal/locations/adapters/postgres/repository.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=alias search needs normalized or trigram index
+non-sargable-like backend/internal/workforce/adapters/postgres/repository.go 1 # owner=workforce-platform issue=C35-020 expires=2026-09-30 reason=roster search needs normalized or trigram index
 
 # --- n-plus-one: DB call inside a loop; batch or hoist ---
 # procurement intake/arrival (P2): real N+1 but bounded by load size (dozens-hundreds/load), not 1M-per-call
-n-plus-one backend/internal/procurement/adapters/postgres/repository.go 6
+n-plus-one backend/internal/procurement/adapters/postgres/repository.go 6 # owner=procurement-platform issue=C35-020 expires=2026-09-30 reason=bounded load intake writes require set-based replacement
 # outbox relay (P2): per-message Mark* updates; batch with a CASE / multi-row update
-n-plus-one backend/internal/outbox/adapters/postgres/repository.go 3
+n-plus-one backend/internal/outbox/adapters/postgres/repository.go 3 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=relay outcome writes require batch CASE update
 # obligation sweep write loops (P1/P2): batch idempotency+event inserts via UNNEST
-n-plus-one backend/internal/obligation/adapters/postgres/repository.go 3
+n-plus-one backend/internal/obligation/adapters/postgres/repository.go 3 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=remaining bounded obligation write loops need UNNEST
 # processintegrity projector write loop (tracked with the P0 projector rework)
-n-plus-one backend/internal/processintegrity/adapters/postgres/repository.go 1
+n-plus-one backend/internal/processintegrity/adapters/postgres/repository.go 1 # owner=process-integrity issue=C35-020 expires=2026-09-30 reason=off-request projector batch write remains bounded but not set-based
 # sop / inventory / locations-write / bulkstatus: bounded chunk/write loops, verify-then-burn
-n-plus-one backend/internal/sop/adapters/postgres/repository.go 2
-n-plus-one backend/internal/inventory/adapters/postgres/repository.go 2
-n-plus-one backend/internal/locations/adapters/postgres/write.go 2
-n-plus-one backend/internal/bulkstatus/adapters/postgres/repository.go 1
+n-plus-one backend/internal/sop/adapters/postgres/repository.go 2 # owner=sop-platform issue=C35-004 expires=2026-09-30 reason=remaining bounded SOP writes require set-based audit and review
+n-plus-one backend/internal/inventory/adapters/postgres/repository.go 2 # owner=inventory-platform issue=C35-020 expires=2026-09-30 reason=bounded stock writes require batch replacement
+n-plus-one backend/internal/locations/adapters/postgres/write.go 2 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=bounded location writes require batch replacement
+n-plus-one backend/internal/bulkstatus/adapters/postgres/repository.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=bulk status counter update requires set-based replacement
 
-# --- Seed / migrate commands (one-time setup, intentionally out of scope) ---
-# These run once at initialization, never under production load. Real production
-# workers (obligation-sweeper, etc.) must NOT have N+1 patterns and are NOT baselined.
-full-mv-refresh backend/cmd/seed-vaccination-real/main.go 2  # one-time seeding
-n-plus-one backend/cmd/migrate/main.go 2                      # one-time migration
-n-plus-one backend/cmd/seed-calendar-vaccination-dev/main.go 1  # one-time seeding
-n-plus-one backend/cmd/seed-dev-email-grants/main.go 1        # one-time seeding
-n-plus-one backend/cmd/seed-position-duties/main.go 4         # one-time seeding
-n-plus-one backend/cmd/seed-roster-real/main.go 4             # one-time seeding
-n-plus-one backend/cmd/seed-shed-positions/main.go 3          # one-time seeding
-n-plus-one backend/cmd/seed-vaccination-real/main.go 11       # one-time seeding
-n-plus-one backend/cmd/seed-vaccination-trigger/main.go 1     # one-time seeding
-n-plus-one-fanout backend/cmd/counts-projection-recompute/main.go 1    # one-time recompute
-n-plus-one-fanout backend/cmd/counts-source-import/main.go 2           # one-time import
-n-plus-one-fanout backend/cmd/legacy-god-sheet-sync/main.go 1          # one-time legacy sync
+# Exact one-time command paths are excluded in scaleguard.go and covered by
+# TestExplicitOneTimeCommandClassification. Production workers are never excluded.
 
 # --- n-plus-one-fanout: ctx-taking call to an injected I/O dependency inside a
 # loop; the driver call is an adapter layer down (added 2026-07-11 after the
@@ -65,11 +52,11 @@ n-plus-one-fanout backend/cmd/legacy-god-sheet-sync/main.go 1          # one-tim
 #
 # P1 burn-down completed 2026-07-11: generation rulebook reads and proof refs are now batched.
 # P1 inside a P2 file: sweeper count/link/block are batched; remaining hits are bounded per-run page/chunk paths.
-n-plus-one-fanout backend/internal/obligation/app/sweeper.go 10
+n-plus-one-fanout backend/internal/obligation/app/sweeper.go 10 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=bounded sweep page still has cross-port calls to batch
 # P2/P3 bounded (per-run / capped) — annotate with scale-guard:ignore then drop:
-n-plus-one-fanout backend/internal/obligation/app/park_consolidation.go 3  # bounded by parks
-n-plus-one-fanout backend/internal/sop/app/service.go 4             # BOUNDED: admin retry, ListPending* cap=100
-n-plus-one-fanout backend/internal/bulkstatus/app/worker.go 2       # per-job BumpJobCounts; batch CASE/multi-row
-n-plus-one-fanout backend/internal/identity/app/service.go 1        # BOUNDED: merge-redirect chain, maxMergeRedirectHops=16
-n-plus-one-fanout backend/internal/identity/app/admin_goat.go 1     # P3: CreateAdminGoat admin bulk; batch to INSERT..SELECT
-n-plus-one-fanout backend/internal/protocol/app/publish.go 1        # P2: CreateRule per derived rule at publish; bounded by rule count
+n-plus-one-fanout backend/internal/obligation/app/park_consolidation.go 3 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=park-bounded calls need a bulk port
+n-plus-one-fanout backend/internal/sop/app/service.go 4 # owner=sop-platform issue=C35-020 expires=2026-09-30 reason=admin retry and pending lists are capped but need batch ports
+n-plus-one-fanout backend/internal/bulkstatus/app/worker.go 2 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=per-job count bumps need batch CASE update
+n-plus-one-fanout backend/internal/identity/app/service.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=merge redirect is capped at sixteen but needs one recursive read
+n-plus-one-fanout backend/internal/identity/app/admin_goat.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=admin bulk create needs INSERT SELECT
+n-plus-one-fanout backend/internal/protocol/app/publish.go 1 # owner=protocol-platform issue=C35-020 expires=2026-09-30 reason=bounded derived rules need batch creation
