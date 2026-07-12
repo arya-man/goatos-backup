@@ -278,17 +278,17 @@ Example threshold shape:
 
 ```text
 operator sync
-  p95 < 800 ms, p99 < 1500 ms for task/form fetch
+  p90 <= 300 ms, p95 <= 500 ms, p99 <= 1000 ms for task/form fetch
   error rate < 0.1%
 
 form submit
-  p95 < 1000 ms without media
-  p99 < 2500 ms under retry/idempotency storm
+  p90 <= 300 ms, p95 <= 500 ms, p99 <= 1000 ms without media
+  p99 <= 1000 ms under retry/idempotency storm
   duplicate typed events = 0
 
 media proof
   signed URL creation p95 < 300 ms
-  finalize p95 < 800 ms
+  finalize p95 <= 500 ms, p99 <= 1000 ms
   upload failure rate < 1% excluding client network aborts
 
 outbox relay
@@ -297,7 +297,7 @@ outbox relay
   DLQ rate < 0.1% and every DLQ item has repair metadata
 
 dashboard analytics
-  p95 < 1200 ms for cached/governed metrics
+  p90 <= 300 ms, p95 <= 500 ms, p99 <= 1000 ms for cached/governed metrics
   no raw BigQuery scan path for official KPIs
   BigQuery bytes scanned stays under configured query budget
 

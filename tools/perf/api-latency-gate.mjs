@@ -2,14 +2,16 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+import { normalizeApiLatencyEndpoints } from "./api-latency-policy.mjs";
+
 const defaultEndpoints = [
-  { name: "control_tower", method: "GET", path: "/control-tower/vaccination?category=vaccination", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
-  { name: "action_center", method: "GET", path: "/vaccination/action-center?category=vaccination&limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
-  { name: "protocol_adherence", method: "GET", path: "/vaccination/adherence?category=vaccination&limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
-  { name: "calendar_vaccination", method: "GET", path: "/calendar/vaccination/events?limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
-  { name: "vaccination_execution", method: "GET", path: "/vaccination/execution?limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
-  { name: "vaccination_operations", method: "GET", path: "/vaccination/operations?limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
-  { name: "vaccination_shed_summary", method: "GET", path: "/vaccination/sheds?limit=50", p90_ms: 1000, p95_ms: 1000, p99_ms: 2500 },
+  { name: "control_tower", method: "GET", path: "/control-tower/vaccination?category=vaccination", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
+  { name: "action_center", method: "GET", path: "/vaccination/action-center?category=vaccination&limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
+  { name: "protocol_adherence", method: "GET", path: "/vaccination/adherence?category=vaccination&limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
+  { name: "calendar_vaccination", method: "GET", path: "/calendar/vaccination/events?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
+  { name: "vaccination_execution", method: "GET", path: "/vaccination/execution?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
+  { name: "vaccination_operations", method: "GET", path: "/vaccination/operations?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
+  { name: "vaccination_shed_summary", method: "GET", path: "/vaccination/sheds?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
 ];
 
 const args = parseArgs(process.argv.slice(2));
@@ -23,7 +25,7 @@ const concurrency = numberArg(args.concurrency ?? process.env.GOATOS_PERF_CONCUR
 const timeoutMs = numberArg(args.timeoutMs ?? process.env.GOATOS_PERF_TIMEOUT_MS, 30000);
 const failOnThreshold = boolArg(args.failOnThreshold ?? process.env.GOATOS_PERF_FAIL_ON_THRESHOLD, true);
 const output = args.output ?? process.env.GOATOS_PERF_OUTPUT ?? "";
-const endpoints = loadEndpoints(args.manifest ?? process.env.GOATOS_PERF_MANIFEST);
+const endpoints = normalizeApiLatencyEndpoints(loadEndpoints(args.manifest ?? process.env.GOATOS_PERF_MANIFEST));
 
 if (!baseUrl) {
   fail("GOATOS_API_BASE_URL or --base-url is required");
@@ -89,9 +91,9 @@ async function runEndpoint(endpoint) {
     p95_ms: percentile(samples, 95),
     p99_ms: percentile(samples, 99),
     max_ms: percentile(samples, 100),
-    p90_threshold_ms: Number(endpoint.p90_ms ?? 1000),
-    p95_threshold_ms: Number(endpoint.p95_ms ?? 1000),
-    p99_threshold_ms: Number(endpoint.p99_ms ?? 2500),
+    p90_threshold_ms: endpoint.p90_ms,
+    p95_threshold_ms: endpoint.p95_ms,
+    p99_threshold_ms: endpoint.p99_ms,
   };
   result.passed = result.failures === 0 && result.p90_ms <= result.p90_threshold_ms && result.p95_ms <= result.p95_threshold_ms && result.p99_ms <= result.p99_threshold_ms;
   return result;
