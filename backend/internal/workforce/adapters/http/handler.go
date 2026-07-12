@@ -49,6 +49,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/bootstrap", h.Bootstrap)
 	mux.HandleFunc("POST /app/devices/register", h.RegisterDevice)
 	mux.HandleFunc("POST /app/devices/{device_id}/heartbeat", h.HeartbeatDevice)
+	mux.HandleFunc("POST /app/devices/{device_id}/deregister", h.DeregisterDevice)
 }
 
 func (h *Handler) ListOperators(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +181,17 @@ func (h *Handler) RevokeDevice(w http.ResponseWriter, r *http.Request) {
 		DeviceID:   r.PathValue("device_id"),
 		Reason:     body.Reason,
 		RowVersion: body.RowVersion,
+	}, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+// DeregisterDevice — app-facing logout decouple: the caller drops its OWN device's FCM push
+// binding (actor-scoped, device_id from path, no body). Idempotent from the client's view.
+func (h *Handler) DeregisterDevice(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.DeregisterDevice(r.Context(), ports.DeregisterDeviceCommand{
+		TenantID: tenantID(r),
+		ActorID:  actorID(r),
+		DeviceID: r.PathValue("device_id"),
 	}, traceID(r))
 	h.respond(w, r, result, err)
 }

@@ -110,6 +110,15 @@ type HeartbeatDeviceCommand struct {
 	Body     domain.HeartbeatDeviceRequest
 }
 
+// DeregisterDeviceCommand is the app-facing (self-service) logout decouple: the caller drops the
+// FCM push binding + revokes its OWN device (scoped by registered_by = actor), so a logged-out user
+// stops receiving pushes on that device. Distinct from the admin RevokeDeviceCommand (operator-scoped).
+type DeregisterDeviceCommand struct {
+	TenantID string
+	ActorID  string
+	DeviceID string
+}
+
 type Repository interface {
 	ListOperators(ctx context.Context, params ListOperatorsParams) ([]domain.OperatorProfile, error)
 	CreateOperator(ctx context.Context, cmd CreateOperatorCommand) (domain.OperatorProfile, error)
@@ -131,4 +140,5 @@ type Repository interface {
 	RegisterDevice(ctx context.Context, cmd RegisterDeviceCommand) (domain.DeviceSummary, error)
 	HeartbeatDevice(ctx context.Context, cmd HeartbeatDeviceCommand) (domain.DeviceSummary, error)
 	GetDeviceForActor(ctx context.Context, tenantID, actorID, deviceID string) (domain.DeviceSummary, error)
+	DeregisterDevice(ctx context.Context, cmd DeregisterDeviceCommand) (domain.DeviceSummary, error)
 }

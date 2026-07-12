@@ -443,3 +443,6 @@ func (f *fakeRepo) RegisterDevice(context.Context, ports.RegisterDeviceCommand) 
 func (f *fakeRepo) HeartbeatDevice(context.Context, ports.HeartbeatDeviceCommand) (domain.DeviceSummary, error) {
 	return f.device, nil
 }
+func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceCommand) (domain.DeviceSummary, error) {
+	return f.device, nil
+}

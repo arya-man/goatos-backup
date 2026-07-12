@@ -171,6 +171,34 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /app/devices/{device_id}/deregister:
+    post:
+      tags:
+        - Operator App Bootstrap
+      operationId: deregisterAppDevice
+      summary: Deregister the authenticated operator's own device on logout (decouples the FCM push binding).
+      description: >
+        Self-service logout decouple. Clears the stored FCM push token binding and revokes the
+        caller's OWN device (scoped by the device's registered_by = actor), so a signed-out user
+        stops receiving pushes on that device. Idempotent for an already-revoked device the actor
+        owns; an unknown device, or a device registered by another operator, returns 404.
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: Device deregistered (push binding cleared, device revoked).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No such device registered by this operator.
   /app/tasks:
     get:
       tags:

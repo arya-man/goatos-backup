@@ -222,6 +222,23 @@ func (s *Service) RevokeDevice(ctx context.Context, cmd ports.RevokeDeviceComman
 	return &domain.DeviceResponse{Device: item, TraceID: traceID}, nil
 }
 
+func (s *Service) DeregisterDevice(ctx context.Context, cmd ports.DeregisterDeviceCommand, traceID string) (*domain.DeviceResponse, error) {
+	if err := validateTenant(cmd.TenantID); err != nil {
+		return nil, err
+	}
+	if !uuidutil.IsUUIDString(cmd.ActorID) {
+		return nil, BadRequest("invalid_actor", "an authenticated actor is required")
+	}
+	if !uuidutil.IsUUIDString(cmd.DeviceID) {
+		return nil, BadRequest("invalid_device_id", "device_id must be a UUID")
+	}
+	item, err := s.repo.DeregisterDevice(ctx, cmd)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &domain.DeviceResponse{Device: item, TraceID: traceID}, nil
+}
+
 func (s *Service) ListSourceCandidates(ctx context.Context, params ports.ListSourceCandidatesParams, traceID string) (*domain.SourceCandidateListResponse, error) {
 	if err := validateTenant(params.TenantID); err != nil {
 		return nil, err

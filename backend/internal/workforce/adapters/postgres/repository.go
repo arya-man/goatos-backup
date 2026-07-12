@@ -517,6 +517,47 @@ ORDER BY usg.valid_from DESC, usg.grant_id DESC`), tenantID, actorID)
 	return scanGrants(rows)
 }
 
+// DeregisterDevice is the app-facing logout decouple: clears the FCM push binding and revokes the
+// caller's OWN device (scoped by registered_by = actor), so a logged-out user stops receiving pushes
+// on that device. Idempotent-ish: an unknown/foreign device_id affects 0 rows -> ErrNotFound.
+func (r *Repository) DeregisterDevice(ctx context.Context, cmd ports.DeregisterDeviceCommand) (domain.DeviceSummary, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.DeviceSummary{}, err
+	}
+	defer rollback(ctx, tx)
+	tag, err := tx.Exec(ctx, `
+UPDATE workforce_member_devices
+SET status = 'revoked',
+    push_token_hash = NULL,
+    revoked_by = $3::uuid,
+    revoked_at = now(),
+    metadata = metadata || jsonb_build_object('revocation_reason', 'app_logout_decouple'),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND device_id = $2::uuid
+  AND registered_by = $3::uuid`,
+		cmd.TenantID,
+		cmd.DeviceID,
+		cmd.ActorID,
+	)
+	if err != nil {
+		return domain.DeviceSummary{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.DeviceSummary{}, ports.ErrNotFound
+	}
+	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "app.device.deregister", "workforce_member_device", cmd.DeviceID, nil, map[string]any{"reason": "app_logout_decouple"}); err != nil {
+		return domain.DeviceSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.DeviceSummary{}, err
+	}
+	return r.GetDeviceForActor(contextWithoutCancel(ctx), cmd.TenantID, cmd.ActorID, cmd.DeviceID)
+}
+
 func (r *Repository) RegisterDevice(ctx context.Context, cmd ports.RegisterDeviceCommand) (domain.DeviceSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
