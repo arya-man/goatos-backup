@@ -365,6 +365,7 @@ private fun SyncRow(item: SyncItem) {
         "SHED_SUBMIT" -> stringResource(DesignSystemR.string.sync_optype_shed)
         "PROOF_UPLOAD" -> stringResource(DesignSystemR.string.sync_optype_proof)
         "RESCHEDULE" -> stringResource(DesignSystemR.string.sync_optype_reschedule)
+        "VERIFICATION_VERDICT" -> stringResource(DesignSystemR.string.sync_optype_verification_verdict)
         else -> item.opType
     }
     // Backend error (data) wins; otherwise a localized per-state detail.

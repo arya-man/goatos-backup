@@ -276,6 +276,8 @@ private fun navItemLabel(key: String, fallback: String): String = when (key.lowe
     "alerts", "notifications" -> stringResource(DesignSystemR.string.nav_alerts)
     "vaccination", "sheds", "pc.vaccination", "execution" -> stringResource(DesignSystemR.string.nav_vaccination)
     "you", "profile", "settings" -> stringResource(DesignSystemR.string.nav_you)
+    // Standalone Verifier section (context/architecture/verifier-app-and-flow.md).
+    "verify", "verification", "video_verification" -> stringResource(DesignSystemR.string.nav_verify)
     else -> fallback
 }
 

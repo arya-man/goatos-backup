@@ -9,6 +9,8 @@ import org.junit.Test
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationDecision
+import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import java.io.IOException
 
 /**
@@ -84,6 +86,25 @@ class SyncRepositoryTest {
         val secondId = (second as AppResult.Ok).value
         assertEquals(firstId, secondId)
         assertEquals(1, repo.observeStatus().value.items.size)
+    }
+
+    @Test
+    fun `enqueueVerificationVerdict is durable and drains against the fake api`() = runBlocking {
+        val api = ScriptedAppApi().apply { submitVerificationVerdictFn = { _, _, _ -> VerificationVerdictResponseDto() } }
+        val repo = repository(api = api)
+
+        val result = repo.enqueueVerificationVerdict(
+            itemId = "item-1",
+            decision = VerificationDecision.REJECTED,
+            reason = "Operator not in frame",
+            rowVersion = 1,
+        )
+
+        assertTrue(result is AppResult.Ok)
+        val status = repo.observeStatus().value
+        assertEquals(1, status.items.size)
+        assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
+        assertEquals(1, api.verdictCalls.size)
     }
 
     @Test

@@ -45,6 +45,10 @@ import sg.mesha.goatos.feature.sheds.ShedsEvent
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
 import sg.mesha.goatos.feature.timetable.TimetableScreen
+import sg.mesha.goatos.feature.verify.VerifyDetailEvent
+import sg.mesha.goatos.feature.verify.VerifyDetailScreen
+import sg.mesha.goatos.feature.verify.VerifyQueueEvent
+import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.viewmodel.AlertsViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.CalendarViewModel
@@ -59,6 +63,8 @@ import sg.mesha.goatos.viewmodel.ScanViewModel
 import sg.mesha.goatos.viewmodel.ShedsViewModel
 import sg.mesha.goatos.viewmodel.SubmitViewModel
 import sg.mesha.goatos.viewmodel.TimetableViewModel
+import sg.mesha.goatos.viewmodel.VerifyDetailViewModel
+import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
 
 // Route ids. The backend nav item hrefs map onto these; unknown hrefs fall through
 // to a placeholder rather than crashing (robust static graph).
@@ -77,6 +83,25 @@ object Routes {
     /** Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — TRD §14: mobile
      *  never writes positions/leave/backups, all CRUD stays web-only. */
     const val TIMETABLE = "/timetable"
+
+    // Standalone Verifier section (context/architecture/verifier-app-and-flow.md). A verifier's
+    // bootstrap nav contains ONLY this — see MeshaIcons.forNavKey/GoatOsShell.navItemLabel's
+    // "verify" key mapping. VERIFY is the queue; VERIFY_DETAIL drills to one item's video +
+    // approve/reject, threading both the item id AND its category (the detail VM re-observes
+    // that SAME category's Room cache scope rather than adding a second network call).
+    const val VERIFY = "/verify"
+    const val VERIFY_DETAIL = "/verify/item"
+    const val VERIFY_ITEM_ARG = "itemId"
+    const val VERIFY_CATEGORY_ARG = "category"
+
+    fun verifyDetailRoute(itemId: String, category: String?): String {
+        val args = listOfNotNull(
+            VERIFY_ITEM_ARG to itemId,
+            category?.takeIf { it.isNotBlank() }?.let { VERIFY_CATEGORY_ARG to it },
+        )
+        return "$VERIFY_DETAIL?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
+    }
+
     const val START = CALENDAR
 
     /** Optional shed-id arg on the record route so a tapped shed opens ITS record. */
@@ -578,6 +603,46 @@ fun AppNavHost(
             val vm: TimetableViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             TimetableScreen(state = state, onEvent = vm::onEvent)
+        }
+
+        // Standalone Verifier section (context/architecture/verifier-app-and-flow.md): a
+        // verifier's bootstrap nav contains ONLY VERIFY, so this is their entire app. A row
+        // drills to VERIFY_DETAIL with both the item id and ITS category threaded through, so
+        // the detail VM re-observes that exact Room cache scope (no second network round trip).
+        composable(Routes.VERIFY) {
+            val vm: VerifyQueueViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            VerifyQueueScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is VerifyQueueEvent.OpenItem ->
+                            navController.navigate(Routes.verifyDetailRoute(event.itemId, event.category)) { launchSingleTop = true }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = "${Routes.VERIFY_DETAIL}?${Routes.VERIFY_ITEM_ARG}={${Routes.VERIFY_ITEM_ARG}}" +
+                "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.VERIFY_ITEM_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) {
+            val vm: VerifyDetailViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            VerifyDetailScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        VerifyDetailEvent.Close -> navController.popBackStack()
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
         }
     }
 }

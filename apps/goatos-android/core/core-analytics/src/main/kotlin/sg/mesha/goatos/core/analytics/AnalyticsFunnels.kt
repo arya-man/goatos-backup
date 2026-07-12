@@ -36,6 +36,14 @@ object AnalyticsFunnels {
         const val SUBMIT_ATTEMPTED: String = "funnel_submit_attempted"
         const val SUBMIT_SUCCEEDED: String = "funnel_submit_succeeded"
         const val SUBMIT_FAILED: String = "funnel_submit_failed"
+
+        // Standalone Verifier section funnel (context/architecture/verifier-app-and-flow.md):
+        // login → bootstrap → verify-queue-opened → verify-item-opened → verify-verdict-submitted.
+        const val VERIFY_QUEUE_OPENED: String = "funnel_verify_queue_opened"
+        const val VERIFY_ITEM_OPENED: String = "funnel_verify_item_opened"
+        const val VERIFY_VERDICT_ATTEMPTED: String = "funnel_verify_verdict_attempted"
+        const val VERIFY_VERDICT_SUCCEEDED: String = "funnel_verify_verdict_succeeded"
+        const val VERIFY_VERDICT_FAILED: String = "funnel_verify_verdict_failed"
     }
 
     /** Event parameter keys used by the helpers below. */
@@ -47,6 +55,9 @@ object AnalyticsFunnels {
         const val OUTCOME: String = "outcome"
         const val REASON: String = "reason"
         const val SCANNED_COUNT: String = "scanned_count"
+        const val CATEGORY: String = "category"
+        const val ITEM_ID: String = "item_id"
+        const val DECISION: String = "decision"
     }
 
     /** Call from wherever a vaccination drive is opened (a calendar/drive-list row tap) — see
@@ -101,5 +112,36 @@ object AnalyticsFunnels {
 
     fun trackSubmitFailed(analytics: AnalyticsPort, taskId: String, reason: String) {
         analytics.track(Events.SUBMIT_FAILED, mapOf(Params.TASK_ID to taskId, Params.REASON to reason))
+    }
+
+    // --- Standalone Verifier section (VerifyQueueViewModel / VerifyDetailViewModel, :app) ----
+
+    /** Call when the Verifier queue screen first loads/refreshes for a category scope. */
+    fun trackVerifyQueueOpened(analytics: AnalyticsPort, category: String?) {
+        analytics.track(Events.VERIFY_QUEUE_OPENED, buildMap { category?.let { put(Params.CATEGORY, it) } })
+    }
+
+    /** Call when a queue row is tapped and the detail screen opens. */
+    fun trackVerifyItemOpened(analytics: AnalyticsPort, itemId: String, category: String) {
+        analytics.track(Events.VERIFY_ITEM_OPENED, mapOf(Params.ITEM_ID to itemId, Params.CATEGORY to category))
+    }
+
+    /** Call when Approve/Reject is tapped, before the outbox enqueue. [decision] is
+     *  `"approved"`/`"rejected"` ([sg.mesha.goatos.core.network.dto.VerificationDecision]). */
+    fun trackVerifyVerdictAttempted(analytics: AnalyticsPort, itemId: String, decision: String) {
+        analytics.track(Events.VERIFY_VERDICT_ATTEMPTED, mapOf(Params.ITEM_ID to itemId, Params.DECISION to decision))
+    }
+
+    /** Call once the verdict is durably queued to the outbox (optimistic — see SyncRepository). */
+    fun trackVerifyVerdictSucceeded(analytics: AnalyticsPort, itemId: String, decision: String) {
+        analytics.track(Events.VERIFY_VERDICT_SUCCEEDED, mapOf(Params.ITEM_ID to itemId, Params.DECISION to decision))
+    }
+
+    /** Call when the verdict could not even be queued (e.g. a local storage error). */
+    fun trackVerifyVerdictFailed(analytics: AnalyticsPort, itemId: String, decision: String, reason: String) {
+        analytics.track(
+            Events.VERIFY_VERDICT_FAILED,
+            mapOf(Params.ITEM_ID to itemId, Params.DECISION to decision, Params.REASON to reason),
+        )
     }
 }

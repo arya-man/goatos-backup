@@ -13,6 +13,7 @@
     <string name="nav_overview">अवलोकन</string>
     <string name="nav_calendar">कैलेंडर</string>
     <string name="nav_alerts">अलर्ट</string>
+    <string name="nav_verify">सत्यापन</string>
     <string name="lang_sheet_title">भाषा चुनें</string>
     <string name="lang_sheet_subtitle">इस फ़ोन की हर स्क्रीन के लिए रखा गया</string>
     <string name="lang_sheet_footer">टीम बढ़ने पर और भाषाएँ जोड़ी जाएँगी</string>
@@ -49,6 +50,7 @@
     <string name="sync_optype_shed">शेड रिकॉर्ड</string>
     <string name="sync_optype_proof">वीडियो प्रूफ़</string>
     <string name="sync_optype_reschedule">पुनर्निर्धारण</string>
+    <string name="sync_optype_verification_verdict">सत्यापन निर्णय</string>
 
     <string name="sync_notification_channel_name">बैकग्राउंड सिंक</string>
     <string name="sync_notification_channel_description">वैक्सीनेशन प्रूफ़ वीडियो और ड्राइव सबमिशन बैकग्राउंड में अपलोड होने की प्रगति दिखाता है, भले ही ऐप बंद हो।</string>

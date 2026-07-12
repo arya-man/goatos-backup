@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Standalone Verifier section (context/architecture/verifier-app-and-flow.md). Row DATA
+  (titles/subtitles/status/category labels) is backend-composed; only static UI chrome is
+  extracted here for localization.
+  telemetry:exempt: static string resources only, no product code — AnalyticsPort/
+  AnalyticsFunnels wiring lives in VerifyQueueViewModel/VerifyDetailViewModel (:app).
+-->
+<resources>
+    <string name="verify_queue_title">Video verification</string>
+    <string name="verify_queue_refresh">Refresh</string>
+    <string name="verify_queue_empty">Queue clear</string>
+    <string name="verify_queue_empty_subtitle">No pending videos to verify right now</string>
+    <string name="verify_queue_load_more">Load more</string>
+    <string name="verify_queue_loading_more">Loading more…</string>
+
+    <string name="verify_detail_close">Close</string>
+    <string name="verify_detail_context_title">Context</string>
+    <string name="verify_detail_shed_label">Shed</string>
+    <string name="verify_detail_park_label">Park</string>
+    <string name="verify_detail_operator_label">Operator</string>
+    <string name="verify_detail_captured_label">Captured</string>
+    <string name="verify_detail_no_media">No video attached to this item</string>
+    <string name="verify_detail_approve">Approve</string>
+    <string name="verify_detail_reject">Reject</string>
+    <string name="verify_detail_already_decided">Already decided — no further action needed</string>
+    <string name="verify_detail_submitting">Submitting…</string>
+
+    <string name="verify_reject_dialog_title">Reject with reason</string>
+    <string name="verify_reject_dialog_subtitle">A reason is required so the authority can act on this violation</string>
+    <string name="verify_reject_dialog_placeholder">What went wrong?</string>
+    <string name="verify_reject_dialog_confirm">Confirm reject</string>
+    <string name="verify_reject_dialog_cancel">Cancel</string>
+    <string name="verify_reject_dialog_error_required">Enter a reason before rejecting</string>
+
+    <string name="verify_status_pending">Pending</string>
+    <string name="verify_status_approved">Approved</string>
+    <string name="verify_status_rejected">Rejected</string>
+    <string name="verify_category_all">All</string>
+</resources>

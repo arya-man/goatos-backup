@@ -20,6 +20,9 @@ import sg.mesha.goatos.core.network.dto.SubmissionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ValidationIssueDto
 import sg.mesha.goatos.core.network.dto.ValidationReportDto
+import sg.mesha.goatos.core.network.dto.VerificationDecision
+import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import java.io.IOException
 
 /** Table-driven coverage of the outbox drain contract: enqueue -> drain, idempotent retry
@@ -325,6 +328,51 @@ class SyncEngineTest {
 
         assertEquals(idempotencyKey, seenKey)
         assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-r1")!!.status)
+    }
+
+    @Test
+    fun `dispatches a VERIFICATION_VERDICT item via the submitVerificationVerdict endpoint with its idempotency key`() = runBlocking {
+        val store = FakeOutboxStore()
+        val idempotencyKey = "item-1-verdict-1"
+        store.insert(
+            OutboxEntity(
+                id = "row-v1",
+                opType = OutboxOpType.VERIFICATION_VERDICT.name,
+                groupKey = "item-1",
+                idempotencyKey = idempotencyKey,
+                payloadJson = syncJson.encodeToString(
+                    VerificationVerdictPayload(
+                        itemId = "item-1",
+                        request = VerificationVerdictRequestDto(decision = VerificationDecision.APPROVED, rowVersion = 1),
+                    ),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        var seenKey: String? = null
+        var seenDecision: String? = null
+        val api = ScriptedAppApi().apply {
+            submitVerificationVerdictFn = { itemId, key, request ->
+                seenKey = key
+                seenDecision = request.decision
+                VerificationVerdictResponseDto()
+            }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        assertEquals(idempotencyKey, seenKey)
+        assertEquals(VerificationDecision.APPROVED, seenDecision)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-v1")!!.status)
     }
 
     @Test

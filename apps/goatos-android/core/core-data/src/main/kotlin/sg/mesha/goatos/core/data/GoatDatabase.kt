@@ -28,6 +28,8 @@ import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
+import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
+import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
 
 /**
  * The on-device SSOT database (docs/decisions/android-offline-first.md). v1 held only the
@@ -37,7 +39,10 @@ import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
  * one-shot network call. v3 (see [MIGRATION_2_3]) adds the task-detail cache (MOB-001) so the
  * Scan -> Submit operator task read is offline-first too, not a network-only pass-through.
  * v4 (see [MIGRATION_3_4]) adds the scanned-goat + proof-capture tables (MOB-002) — the
- * Room-first SSOT behind Submit's `goat_scan`/`video_proof` recording-form controls.
+ * Room-first SSOT behind Submit's `goat_scan`/`video_proof` recording-form controls. v5 (see
+ * [MIGRATION_4_5]) adds the verification-queue cache — the standalone Verifier section's
+ * category-filtered media queue (context/architecture/verifier-app-and-flow.md) offline-first
+ * from day one, same as every other screen-facing read model.
  */
 @Database(
     entities = [
@@ -55,8 +60,9 @@ import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
         TaskDetailCacheEntity::class,
         ScannedGoatEntity::class,
         ProofCaptureEntity::class,
+        VerificationQueueCacheEntity::class,
     ],
-    version = 4,
+    version = 5,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -78,4 +84,5 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun taskDetailCacheDao(): TaskDetailCacheDao
     abstract fun scannedGoatDao(): ScannedGoatDao
     abstract fun proofCaptureDao(): ProofCaptureDao
+    abstract fun verificationQueueCacheDao(): VerificationQueueCacheDao
 }

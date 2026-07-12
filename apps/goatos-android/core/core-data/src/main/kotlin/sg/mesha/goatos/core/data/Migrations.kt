@@ -103,3 +103,18 @@ val MIGRATION_3_4: Migration = object : Migration(3, 4) {
         )
     }
 }
+
+/**
+ * v4 -> v5: adds the verification-queue cache table — the standalone Verifier section's
+ * category-filtered media queue (context/architecture/verifier-app-and-flow.md). Purely
+ * additive, same JSON-blob-by-scope shape as [MIGRATION_1_2]'s tables.
+ */
+val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `verification_queue_cache` " +
+                "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}
