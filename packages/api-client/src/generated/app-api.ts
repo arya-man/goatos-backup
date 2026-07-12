@@ -4068,7 +4068,6 @@ export interface operations {
                 due_after?: string;
                 due_before?: string;
                 cursor?: string;
-                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -4106,7 +4105,6 @@ export interface operations {
                 due_after?: string;
                 due_before?: string;
                 cursor?: string;
-                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -4179,7 +4177,6 @@ export interface operations {
                 due_after?: string;
                 due_before?: string;
                 cursor?: string;
-                offset?: number;
                 limit?: number;
             };
             header?: never;
@@ -4214,7 +4211,6 @@ export interface operations {
                 work_state?: components["schemas"]["WorkState"];
                 severity?: components["schemas"]["ProcessIntegritySeverity"];
                 cursor?: string;
-                offset?: number;
                 limit?: number;
             };
             header?: never;

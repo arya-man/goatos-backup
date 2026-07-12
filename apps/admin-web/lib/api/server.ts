@@ -377,7 +377,6 @@ export async function getVaccinationActionCenter(
     asOf?: string;
     dueBefore?: string;
     cursor?: string;
-    offset?: number;
     limit?: number;
   } = {},
 ): Promise<ApiResult<ActionCenterResponse>> {
@@ -395,7 +394,6 @@ export async function getVaccinationActionCenter(
         as_of: params.asOf,
         due_before: params.dueBefore,
         cursor: params.cursor,
-        offset: params.offset,
         limit: params.limit ?? 200,
       }),
     }),
@@ -439,7 +437,6 @@ export async function getVaccinationAdherence(
     severity?: ProcessIntegritySeverity;
     asOf?: string;
     cursor?: string;
-    offset?: number;
     limit?: number;
   } = {},
 ): Promise<ApiResult<ProtocolAdherenceResponse>> {
@@ -456,7 +453,6 @@ export async function getVaccinationAdherence(
         severity: params.severity,
         as_of: params.asOf,
         cursor: params.cursor,
-        offset: params.offset,
         limit: params.limit ?? 200,
       }),
     }),
@@ -473,7 +469,6 @@ export async function getVaccinationControlTower(
     workState?: WorkState;
     severity?: ProcessIntegritySeverity;
     cursor?: string;
-    offset?: number;
     limit?: number;
   } = {},
 ): Promise<ApiResult<ControlTowerResponse>> {
@@ -491,7 +486,6 @@ export async function getVaccinationControlTower(
         work_state: params.workState,
         severity: params.severity,
         cursor: params.cursor,
-        offset: params.offset,
         limit: params.limit,
       }),
     }),

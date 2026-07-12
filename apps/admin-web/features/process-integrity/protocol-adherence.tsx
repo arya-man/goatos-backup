@@ -4,10 +4,9 @@ import { Syringe, X } from "lucide-react";
 import { getVaccinationAdherence } from "@/lib/api/server";
 import type { AdherenceRow, ProcessIntegrityEvidence, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
 import { copy, optionalCopy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "./process-integrity";
-import { backendPage, maxPageFor, pageResult } from "./pagination";
 import { ClipText, Tag } from "@/components/ui-primitives";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 
@@ -101,50 +100,63 @@ export async function ProtocolAdherencePage({
   const scope = parseScope(sp);
   const { parkId, asOf } = backendScope(scope);
   const pageSizeOptions = tablePageSizes(pageContract, "adherence-ledger");
-  const requestedPage = backendPage(sp, "adh", pageSizeOptions, 10);
+  const PATH = "/protocol-adherence";
+  const requestedPageSize = (pageSizeOptions.find((size) => size === boundedInt(one(sp, "adh_limit"), 10, 1, 100)) ?? 10) as VaccinationPageSize;
+  const adhCursor = one(sp, "adh_cursor");
+  const adhCursorStack = sp.adh_cursor_stack;
+  const adhPage = boundedInt(one(sp, "adh_page"), 1, 1, 1000000);
 
   const result = await getVaccinationAdherence({
     parkId,
     asOf,
     workState: workStateFilter === "all" ? undefined : workStateFilter,
     severity: severityFilter === "all" ? undefined : severityFilter,
-    limit: requestedPage.pageSize,
-    offset: requestedPage.offset,
+    limit: requestedPageSize,
+    cursor: adhCursor,
   });
 
   const summary = result.ok ? result.data.summary : null;
   const rows: AdherenceRow[] = result.ok ? result.data.rows : [];
   const hasLedgerFilters = severityFilter !== "all" || workStateFilter !== "all";
   const totalCount = result.ok ? result.data.total_count : 0;
-  const maxPage = maxPageFor(totalCount, requestedPage.pageSize);
-  if (result.ok && requestedPage.page > maxPage) {
+  const nextCursor = result.ok ? result.data.next_cursor : undefined;
+  const start = totalCount === 0 ? 0 : (adhPage - 1) * requestedPageSize + 1;
+  const end = totalCount === 0 ? 0 : Math.min(totalCount, start + rows.length - 1);
+  const paged = { items: rows, page: adhPage, pageSize: requestedPageSize, total: totalCount, start, end };
+  const nextHref = nextCursor ? hrefWithPagedCursor(PATH, sp, "adh_cursor", nextCursor, "adh_page", "adh_cursor_stack") : null;
+  const prevHref = hrefPreviousPagedCursor(PATH, sp, "adh_cursor", "adh_page", "adh_cursor_stack");
+  if (result.ok && adhPage > 1 && !adhCursor && !adhCursorStack) {
     redirect(scopeHref("/protocol-adherence", scope, {}, {
       severity: severityFilter,
       state: workStateFilter,
-      adh_page: String(maxPage),
-      adh_limit: String(requestedPage.pageSize),
+      adh_page: "1",
+      adh_limit: String(requestedPageSize),
     }));
   }
-  const paged = pageResult(rows, totalCount, requestedPage.page, requestedPage.pageSize);
   const ledgerLabels = adherenceLedgerLabels(pageContract);
   const selectedRowId = one(sp, "adh_row");
   const selectedRow = selectedRowId ? rows.find((row) => row.row_id === selectedRowId) : undefined;
 
   // Filter links preserve the full top-bar scope (scopeHref) + the page severity filter.
+  // Filter/page-size changes reset to page 1 and drop the cursor stack (keyset restart).
   function hrefWith(overrides: Record<string, string | undefined>): string {
     return scopeHref("/protocol-adherence", scope, {}, {
       severity: severityFilter,
       state: workStateFilter,
       adh_page: String(paged.page),
       adh_limit: String(paged.pageSize),
+      adh_cursor: undefined,
+      adh_cursor_stack: undefined,
       ...overrides,
     });
   }
   function pagerHref(page: number): string {
+    if (page > paged.page) return nextHref ?? hrefWith({});
+    if (page < paged.page) return prevHref ?? hrefWith({});
     return hrefWith({ adh_page: String(page) });
   }
   function pageSizeHref(pageSize: VaccinationPageSize): string {
-    return hrefWith({ adh_page: "1", adh_limit: String(pageSize) });
+    return hrefWith({ adh_page: "1", adh_limit: String(pageSize), adh_cursor: undefined, adh_cursor_stack: undefined });
   }
   const closeDrawerHref = hrefWith({ adh_row: undefined });
   const rowDrawerHref = (row: AdherenceRow) => hrefWith({ adh_row: row.row_id });

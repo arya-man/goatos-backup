@@ -106,7 +106,7 @@ func TestActionCenterParsesBoundedVaccinationQuery(t *testing.T) {
 		"&shed_id="+handlerShed+
 		"&work_state=verification_pending&severity=watch&owner_id="+handlerOwner+
 		"&protocol_version_id="+handlerVer+
-		"&due_after=2026-06-20T00:00:00Z&due_before=2026-07-01T00:00:00Z&limit=999&offset=20&cursor="+cursor, nil)
+		"&due_after=2026-06-20T00:00:00Z&due_before=2026-07-01T00:00:00Z&limit=999&cursor="+cursor, nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
 	rec := httptest.NewRecorder()
 
@@ -136,9 +136,6 @@ func TestActionCenterParsesBoundedVaccinationQuery(t *testing.T) {
 	}
 	if q.Limit != maxLimit {
 		t.Fatalf("limit = %d want %d", q.Limit, maxLimit)
-	}
-	if q.Offset != 20 {
-		t.Fatalf("offset = %d want 20", q.Offset)
 	}
 	if q.Cursor == nil || q.Cursor.SortPriority != 5 {
 		t.Fatalf("cursor = %+v", q.Cursor)
@@ -328,7 +325,10 @@ func TestActionCenterRejectsMalformedOrOversizedCursor(t *testing.T) {
 	}
 }
 
-func TestActionCenterRejectsOversizedOffset(t *testing.T) {
+// The read path is keyset/cursor-only (C35-013): a stray offset query param is
+// silently ignored, not parsed into pagination and not rejected. The request
+// still succeeds and reaches the reader with no offset semantics.
+func TestActionCenterIgnoresOffsetParam(t *testing.T) {
 	reader := &fakeReader{}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader))
@@ -339,18 +339,14 @@ func TestActionCenterRejectsOversizedOffset(t *testing.T) {
 
 	mux.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadRequest {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if reader.actionQuery.TenantID != "" {
-		t.Fatalf("reader was called for oversized offset: %+v", reader.actionQuery)
+	if reader.actionQuery.TenantID != handlerTenant {
+		t.Fatalf("reader was not called with a valid query: %+v", reader.actionQuery)
 	}
-	var body errorEnvelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode error envelope: %v", err)
-	}
-	if body.Code != "offset_too_large" {
-		t.Fatalf("error code = %q", body.Code)
+	if reader.actionQuery.Cursor != nil {
+		t.Fatalf("offset param must not become a cursor: %+v", reader.actionQuery.Cursor)
 	}
 }
 

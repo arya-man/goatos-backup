@@ -190,7 +190,7 @@ func TestProtocolAdherenceSummaryUsesFullFilteredSetNotCurrentPage(t *testing.T)
 		AdherenceSummary: fullSummary,
 	}}).WithClock(func() time.Time { return due })
 
-	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1", Limit: 1, Offset: 500})
+	got, err := svc.ProtocolAdherence(context.Background(), domain.Query{TenantID: "tenant-1", Limit: 1})
 	if err != nil {
 		t.Fatalf("adherence: %v", err)
 	}

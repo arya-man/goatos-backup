@@ -16,7 +16,6 @@ import {
   WORK_STATE_ORDER,
   type Tone,
 } from "./process-integrity";
-import { backendPage, maxPageFor, pageResult } from "./pagination";
 import { SopChecklist } from "./sop-checklist";
 import {
   VACCINATION_DRIVE_SOP_STEPS,
@@ -134,7 +133,9 @@ export async function VaccinationActionCenterPage({
   const actionKey = one(sp, "action_key");
   const boardPageSizeOptions = tablePageSizes(pageContract, "work-board");
   const queuePageSizeOptions = tablePageSizes(pageContract, "verification-queue");
-  const requestedBoardPage = backendPage(sp, "ac", boardPageSizeOptions, 10);
+  const requestedBoardPageSize = boardPageSizeOptions.find((size) => size === boundedInt(one(sp, "ac_limit"), 10, 1, 100)) ?? 10;
+  const boardCursor = one(sp, "ac_cursor");
+  const boardCursorStack = sp.ac_cursor_stack;
   const requestedQueuePageSize = queuePageSizeOptions.find((size) => size === boundedInt(one(sp, "verify_limit"), 10, 1, 100)) ?? 10;
   const queuePage = boundedInt(one(sp, "verify_page"), 1, 1, 1000000);
   const queueCursor = one(sp, "verify_cursor");
@@ -142,7 +143,8 @@ export async function VaccinationActionCenterPage({
   const requestPlan = actionCenterRequestPlan({
     stateFilter,
     severityFilter,
-    requestedBoardPage,
+    requestedBoardPage: { pageSize: requestedBoardPageSize },
+    boardCursor,
     requestedQueuePageSize,
     queueCursor,
     parkId,
@@ -167,17 +169,18 @@ export async function VaccinationActionCenterPage({
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const severityOptions = optionGroup(pageContract, "severity_chips");
   const boardTotalCount = actionCenter.ok ? actionCenter.data.total_count : 0;
-  const maxBoardPage = maxPageFor(boardTotalCount, requestedBoardPage.pageSize);
-  if (actionCenter.ok && requestedBoardPage.page > maxBoardPage) {
-    redirect(scopeHref("/action-center", scope, {}, {
-      bucket: view === "verify" ? "verify" : undefined,
-      severity: severityFilter,
-      state: stateFilter,
-      ac_page: String(maxBoardPage),
-      ac_limit: String(requestedBoardPage.pageSize),
-    }));
-  }
-  const boardPaged = pageResult(items, boardTotalCount, requestedBoardPage.page, requestedBoardPage.pageSize);
+  const boardNextCursor = actionCenter.ok ? actionCenter.data.next_cursor : undefined;
+  const boardPage = boundedInt(one(sp, "ac_page"), 1, 1, 1000000);
+  const boardStart = boardTotalCount === 0 ? 0 : (boardPage - 1) * requestedBoardPageSize + 1;
+  const boardEnd = boardTotalCount === 0 ? 0 : Math.min(boardTotalCount, boardStart + items.length - 1);
+  const boardPaged = {
+    items,
+    page: boardPage,
+    pageSize: requestedBoardPageSize,
+    total: boardTotalCount,
+    start: boardStart,
+    end: boardEnd,
+  };
   const queueTotalPages = Math.max(1, Math.ceil(queueTotalCount / requestedQueuePageSize));
   const normalizedQueuePage = Math.min(queuePage, queueTotalPages);
   const queueStart = queueTotalCount === 0 ? 0 : (normalizedQueuePage - 1) * requestedQueuePageSize + 1;
@@ -191,7 +194,14 @@ export async function VaccinationActionCenterPage({
     start: queueStart,
     end: queueEnd,
   };
-  const nextCursor = actionCenter.ok ? actionCenter.data.next_cursor : undefined;
+  const boardNextHref =
+    boardNextCursor
+      ? hrefWithPagedCursor(PATH, sp, "ac_cursor", boardNextCursor, "ac_page", "ac_cursor_stack")
+      : null;
+  const boardPrevHref = hrefPreviousPagedCursor(PATH, sp, "ac_cursor", "ac_page", "ac_cursor_stack");
+  if (boardPage > 1 && !boardCursor && !boardCursorStack) {
+    redirect(hrefWithPagedCursor(PATH, sp, "ac_cursor", null, "ac_page", "ac_cursor_stack") || hrefWith({ ac_page: "1", ac_cursor: undefined, ac_cursor_stack: undefined }));
+  }
   const queueNextHref =
     queue?.ok && queue.data.next_cursor
       ? hrefWithPagedCursor(PATH, sp, "verify_cursor", queue.data.next_cursor, "verify_page", "verify_cursor_stack")
@@ -220,6 +230,8 @@ export async function VaccinationActionCenterPage({
       state: stateFilter,
       ac_page: String(boardPaged.page),
       ac_limit: String(boardPaged.pageSize),
+      ac_cursor: undefined,
+      ac_cursor_stack: undefined,
       verify_page: String(queuePaged.page),
       verify_limit: String(queuePaged.pageSize),
       verify_cursor: undefined,
@@ -228,10 +240,12 @@ export async function VaccinationActionCenterPage({
     });
   }
   function boardPagerHref(page: number): string {
+    if (page > boardPaged.page) return boardNextHref ?? hrefWith({ bucket: undefined });
+    if (page < boardPaged.page) return boardPrevHref ?? hrefWith({ bucket: undefined });
     return hrefWith({ ac_page: String(page), ac_row: undefined });
   }
   function boardPageSizeHref(pageSize: VaccinationPageSize): string {
-    return hrefWith({ ac_page: "1", ac_limit: String(pageSize), ac_row: undefined });
+    return hrefWith({ ac_page: "1", ac_limit: String(pageSize), ac_cursor: undefined, ac_cursor_stack: undefined, ac_row: undefined });
   }
   function queuePagerHref(page: number): string {
     if (page > queuePaged.page) return queueNextHref ?? hrefWith({ bucket: "verify" });
@@ -492,7 +506,7 @@ export async function VaccinationActionCenterPage({
 	                </>
 	              ) : null}
             </div>
-          ) : nextCursor ? (
+          ) : boardNextCursor ? (
 	            <div className="muted small" style={{ marginBottom: 12 }}>
 	              {copy(pageContract, "note.board_paging")}
 	            </div>

@@ -4,12 +4,12 @@ import { AlertTriangle, CheckCircle2, MapPin, ShieldCheck, X } from "lucide-reac
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { firstAuthRequiredError, getVaccinationControlTower } from "@/lib/api/server";
 import type { ControlTowerAlert, ProcessIntegritySeverity, WorkState } from "@/lib/api/server";
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { Tag } from "@/components/ui-primitives";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
-import { backendPage, maxPageFor, pageResult, SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-integrity";
+import { SEVERITY_ORDER, WORK_STATE_ORDER, type Tone } from "@/features/process-integrity";
 
 // Severity tint for the alert-band icon chip.
 const SEVERITY_FILL: Record<ProcessIntegritySeverity, { bg: string; fg: string }> = {
@@ -67,14 +67,18 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
   const stateFilter = (workStateOptions.some((option) => option.key === stateParam) ? stateParam : "all") as WorkState | "all";
   const openGapLabels = tableLabels(pageContract, "open-gaps");
   const pageSizeOptions = tablePageSizes(pageContract, "open-gaps");
-  const requestedPage = backendPage(sp, "ct", pageSizeOptions, 10);
+  const CT_PATH = "/";
+  const requestedPageSize = (pageSizeOptions.find((size) => size === boundedInt(one(sp, "ct_limit"), 10, 1, 100)) ?? 10) as VaccinationPageSize;
+  const ctCursor = one(sp, "ct_cursor");
+  const ctCursorStack = sp.ct_cursor_stack;
+  const ctPage = boundedInt(one(sp, "ct_page"), 1, 1, 1000000);
   const result = await getVaccinationControlTower({
     parkId,
     asOf,
     workState: stateFilter === "all" ? undefined : stateFilter,
     severity: severityFilter === "all" ? undefined : severityFilter,
-    limit: requestedPage.pageSize,
-    offset: requestedPage.offset,
+    limit: requestedPageSize,
+    cursor: ctCursor,
   });
   const authError = firstAuthRequiredError(result);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
@@ -98,34 +102,43 @@ export async function ControlTowerPage({ searchParams, pageContract }: { searchP
   const hasAlertFilters = severityFilter !== "all" || stateFilter !== "all";
   const band = alerts.slice(0, 5);
   const totalCount = result.ok ? result.data.total_count : 0;
-  const maxPage = maxPageFor(totalCount, requestedPage.pageSize);
-  if (result.ok && requestedPage.page > maxPage) {
+  const nextCursor = result.ok ? result.data.next_cursor : undefined;
+  const start = totalCount === 0 ? 0 : (ctPage - 1) * requestedPageSize + 1;
+  const end = totalCount === 0 ? 0 : Math.min(totalCount, start + alerts.length - 1);
+  const paged = { items: alerts, page: ctPage, pageSize: requestedPageSize, total: totalCount, start, end };
+  const nextHref = nextCursor ? hrefWithPagedCursor(CT_PATH, sp, "ct_cursor", nextCursor, "ct_page", "ct_cursor_stack") : null;
+  const prevHref = hrefPreviousPagedCursor(CT_PATH, sp, "ct_cursor", "ct_page", "ct_cursor_stack");
+  if (result.ok && ctPage > 1 && !ctCursor && !ctCursorStack) {
     redirect(scopeHref("/", scope, {}, {
       ct_severity: severityFilter,
       ct_state: stateFilter,
-      ct_page: String(maxPage),
-      ct_limit: String(requestedPage.pageSize),
+      ct_page: "1",
+      ct_limit: String(requestedPageSize),
     }));
   }
-  const paged = pageResult(alerts, totalCount, requestedPage.page, requestedPage.pageSize);
   const ownerUnassignedLabel = copy(pageContract, "label.owner_unassigned");
   const selectedAlertId = one(sp, "ct_alert");
   const selectedAlert = selectedAlertId ? alerts.find((alert) => alert.row_id === selectedAlertId) : undefined;
 
+  // Filter/page-size changes reset to page 1 and drop the cursor stack (keyset restart).
   function hrefWith(overrides: Record<string, string | undefined>): string {
     return scopeHref("/", scope, {}, {
       ct_severity: severityFilter,
       ct_state: stateFilter,
       ct_page: String(paged.page),
       ct_limit: String(paged.pageSize),
+      ct_cursor: undefined,
+      ct_cursor_stack: undefined,
       ...overrides,
     });
   }
   function pagerHref(page: number): string {
+    if (page > paged.page) return nextHref ?? hrefWith({});
+    if (page < paged.page) return prevHref ?? hrefWith({});
     return hrefWith({ ct_page: String(page) });
   }
   function pageSizeHref(pageSize: VaccinationPageSize): string {
-    return hrefWith({ ct_page: "1", ct_limit: String(pageSize) });
+    return hrefWith({ ct_page: "1", ct_limit: String(pageSize), ct_cursor: undefined, ct_cursor_stack: undefined });
   }
 
   const alertDrawerHref = (alert: ControlTowerAlert) => hrefWith({ ct_alert: alert.row_id });

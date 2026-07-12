@@ -128,7 +128,7 @@ func TestListRowsUsesKeysetCursorAfterFiltering(t *testing.T) {
 	}
 }
 
-func TestListRowsUsesOffsetAndKeepsFilteredTotal(t *testing.T) {
+func TestListRowsUsesCursorAndKeepsFilteredTotal(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -146,21 +146,28 @@ func TestListRowsUsesOffsetAndKeepsFilteredTotal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first page: %v", err)
 	}
+	if first.NextCursor == nil {
+		t.Fatalf("first page has no next cursor")
+	}
+	cursor, err := domain.DecodeCursor(*first.NextCursor)
+	if err != nil {
+		t.Fatalf("decode cursor: %v", err)
+	}
 	second, err := repo.ListRows(ctx, domain.Query{
 		TenantID:  piTenant,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Limit:     1,
-		Offset:    1,
+		Cursor:    &cursor,
 	})
 	if err != nil {
-		t.Fatalf("offset page: %v", err)
+		t.Fatalf("second page: %v", err)
 	}
 	if len(first.Rows) != 1 || len(second.Rows) != 1 {
 		t.Fatalf("rows first/second = %d/%d, want 1/1", len(first.Rows), len(second.Rows))
 	}
 	if first.Rows[0].RowID == second.Rows[0].RowID {
-		t.Fatalf("offset did not advance: %s", first.Rows[0].RowID)
+		t.Fatalf("cursor did not advance: %s", first.Rows[0].RowID)
 	}
 	if first.TotalCount != second.TotalCount || second.TotalCount < 2 {
 		t.Fatalf("total count first/second = %d/%d, want same filtered total >=2", first.TotalCount, second.TotalCount)

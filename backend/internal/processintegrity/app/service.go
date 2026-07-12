@@ -114,7 +114,6 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 		summaryQuery.WorkState = nil
 		summaryQuery.Severity = nil
 		summaryQuery.OwnerID = nil
-		summaryQuery.Offset = 0
 		summaryQuery.Cursor = nil
 		summaryQuery.Limit = 1
 		summaryCounts, err = s.repo.CountByWorkState(ctx, summaryQuery)

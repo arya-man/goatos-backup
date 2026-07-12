@@ -14,4 +14,3 @@ export { VaccinationWorkflowDrilldownPage } from "./workflow-drilldown";
 // Shared process-integrity presentation model. Owned here (the command-room model); Preventive Care (PC) / Vaccination
 // operations reuses WORK_STATE_META etc. via this barrel rather than a deep submodule path.
 export * from "./process-integrity";
-export * from "./pagination";

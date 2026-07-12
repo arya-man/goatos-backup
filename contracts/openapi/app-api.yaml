@@ -900,12 +900,6 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
-        - name: offset
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
         - name: limit
           in: query
           required: false
@@ -995,12 +989,6 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
-        - name: offset
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
         - name: limit
           in: query
           required: false
@@ -1165,12 +1153,6 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
-        - name: offset
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
         - name: limit
           in: query
           required: false
@@ -1242,12 +1224,6 @@ paths:
             type: string
             minLength: 1
             maxLength: 512
-        - name: offset
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 0
         - name: limit
           in: query
           required: false

@@ -24,7 +24,7 @@ const (
 	defaultLimit             = 100
 	maxLimit                 = 500
 	countQueryArgCount       = 15
-	rowsQueryArgCount        = 20
+	rowsQueryArgCount        = 19
 	projectionPruneBatchSize = 5000
 )
 
@@ -573,9 +573,6 @@ func normalizeQuery(q domain.Query) domain.Query {
 	if q.Limit > maxLimit {
 		q.Limit = maxLimit
 	}
-	if q.Offset < 0 {
-		q.Offset = 0
-	}
 	if q.AsOf.IsZero() {
 		q.AsOf = time.Now().In(biztime.DefaultLocation())
 	}
@@ -615,7 +612,6 @@ func queryArgs(q domain.Query) []any {
 		cursorDue,
 		cursorRow,
 		int32(q.Limit + 1),
-		int32(q.Offset),
 	}
 	if len(args) != rowsQueryArgCount {
 		panic(fmt.Sprintf("processintegrity: query arg count drifted: got %d want %d", len(args), rowsQueryArgCount))
@@ -1593,8 +1589,7 @@ SELECT
     OR (sort_priority, due_at, row_id) > ($16::int, $17::timestamptz, $18::text)
   )
 ORDER BY sort_priority ASC, due_at ASC, row_id ASC
-LIMIT $19
-OFFSET $20;
+LIMIT $19;
 `
 
 const processIntegrityProjectionCountsSQL = `
@@ -1620,8 +1615,7 @@ projection_args AS (
     $16::int AS cursor_sort,
     $17::timestamptz AS cursor_due,
     $18::text AS cursor_row,
-    $19::int AS row_limit,
-    $20::int AS row_offset
+    $19::int AS row_limit
 )
 INSERT INTO process_integrity_projection_rows (
   tenant_id,
@@ -1758,9 +1752,9 @@ SELECT
   latest_evidence_at,
   latest_rejection_reason,
   audit_ref,
-  $21::bigint,
-  $22::timestamptz,
-  $22::timestamptz
+  $20::bigint,
+  $21::timestamptz,
+  $21::timestamptz
 FROM all_rows
 CROSS JOIN projection_args
 ON CONFLICT (tenant_id, projection_version, row_id) DO UPDATE SET

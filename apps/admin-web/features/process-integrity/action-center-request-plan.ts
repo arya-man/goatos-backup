@@ -8,8 +8,8 @@ type ActionCenterRequestPlanInput = {
   severityFilter: ProcessIntegritySeverity | "all";
   requestedBoardPage: {
     pageSize: number;
-    offset: number;
   };
+  boardCursor?: string;
   requestedQueuePageSize: number;
   queueCursor?: string;
   parkId?: string;
@@ -23,7 +23,7 @@ export type ActionCenterRequestPlan = {
     workState?: WorkState;
     severity?: ProcessIntegritySeverity;
     limit: number;
-    offset: number;
+    cursor?: string;
   };
   verificationQueue: {
     parkId?: string;
@@ -40,7 +40,7 @@ export function actionCenterRequestPlan(input: ActionCenterRequestPlanInput): Ac
       workState: input.stateFilter === "all" ? undefined : input.stateFilter,
       severity: input.severityFilter === "all" ? undefined : input.severityFilter,
       limit: input.requestedBoardPage.pageSize,
-      offset: input.requestedBoardPage.offset,
+      cursor: input.boardCursor,
     },
     verificationQueue: {
       parkId: input.parkId,

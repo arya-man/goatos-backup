@@ -11,7 +11,7 @@ const actionCenterSource = readFileSync(path.join(adminWebRoot, "features/proces
 const allState = actionCenterRequestPlan({
   stateFilter: "all",
   severityFilter: "all",
-  requestedBoardPage: { pageSize: 10, offset: 0 },
+  requestedBoardPage: { pageSize: 10 },
   requestedQueuePageSize: 25,
   queueCursor: "opaque-queue-cursor",
   parkId: "park-1",
@@ -20,7 +20,8 @@ const allState = actionCenterRequestPlan({
 
 assertEqual(allState.actionCenter.workState, undefined, "all-state board must use one unfiltered Action Center request");
 assertEqual(allState.actionCenter.limit, 10, "all-state board request must use the requested page size");
-assertEqual(allState.actionCenter.offset, 0, "all-state board request must preserve pagination offset");
+assertEqual(allState.actionCenter.cursor, undefined, "first board page must not send a keyset cursor");
+assertEqual("offset" in allState.actionCenter, false, "board request must not send OFFSET pagination");
 assertEqual(allState.verificationQueue.limit, 25, "verification queue request must use the requested page size");
 assertEqual(allState.verificationQueue.cursor, "opaque-queue-cursor", "verification queue request must preserve the current cursor");
 assertEqual(Object.keys(allState).length, 2, "Action Center request plan must not carry per-lane sample requests");
@@ -28,14 +29,16 @@ assertEqual(Object.keys(allState).length, 2, "Action Center request plan must no
 const filtered = actionCenterRequestPlan({
   stateFilter: "overdue",
   severityFilter: "at_risk",
-  requestedBoardPage: { pageSize: 25, offset: 50 },
+  requestedBoardPage: { pageSize: 25 },
+  boardCursor: "opaque-board-cursor",
   requestedQueuePageSize: 50,
 });
 
 assertEqual(filtered.actionCenter.workState, "overdue", "single-state board must request only the selected work state");
 assertEqual(filtered.actionCenter.severity, "at_risk", "severity filter must be sent to the backend");
 assertEqual(filtered.actionCenter.limit, 25, "filtered board request must use the requested page size");
-assertEqual(filtered.actionCenter.offset, 50, "filtered board request must preserve pagination offset");
+assertEqual(filtered.actionCenter.cursor, "opaque-board-cursor", "board request must forward the keyset cursor for the current page");
+assertEqual("offset" in filtered.actionCenter, false, "filtered board request must not send OFFSET pagination");
 
 assertIncludes(actionCenterSource, "Promise.all([", "Action Center must parallelize independent server requests");
 assertNotIncludes(actionCenterSource, "boardSampleStates", "Action Center must not restore per-lane sample request fanout");

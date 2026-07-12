@@ -174,7 +174,6 @@ type Query struct {
 	DueBefore          time.Time
 	AsOf               time.Time
 	Limit              int
-	Offset             int
 	Cursor             *Cursor
 	IncludeCompleted   bool
 	OnlyBrokenOrAtRisk bool
