@@ -4,10 +4,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- CameraX proof capture (docs/mobile/trd-operator-mobile.md §2/§7). Needed on every
-         supported OS version (minSdk 29) — always requested, never SDK-gated.
-         required="false": proof capture is an optional capability (TRD §14 renderer,
-         never a gatekeeper) — a camera-less device must still be installable. -->
+    <!-- CameraX proof capture (docs/mobile/trd-operator-mobile.md §2/§7; MOB-002 "Camera-only
+         capture" anti-fraud rule — docs/mobile/proof-capture-sync-and-e2e.md). Live in-app
+         video recording is the ONLY way to produce a `video_proof` capture: mandatory for the
+         capture/submit surface (operator/park-manager role), gated at that surface's entry
+         (docs/mobile/proof-capture-sync-and-e2e.md §4). -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
@@ -31,6 +32,16 @@
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
+
+    <!-- Storage for captured proof videos (MOB-002, docs/mobile/proof-capture-sync-and-e2e.md
+         §4 mandatory-permission gate). Videos are written to this app's OWN PRIVATE storage
+         (`Context.filesDir` — never external/MediaStore/gallery, part of the "Camera-only
+         capture" anti-fraud rule) — WRITE_EXTERNAL_STORAGE is declared only up to API 32 for
+         the mandatory-permission gate's own completeness on legacy devices; API 33+ needs no
+         storage permission at all for an app-private directory. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <application
         android:name=".GoatOsApplication"

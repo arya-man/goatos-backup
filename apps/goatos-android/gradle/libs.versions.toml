@@ -58,6 +58,10 @@ benchmark = "1.5.0-alpha07"
 androidxTestRunner = "1.6.2"
 androidxTestJunit = "1.2.1"
 uiautomator = "2.3.0"
+# CameraX — in-app LIVE video recording only for proof capture (MOB-002 anti-fraud rule:
+# camera-only, no gallery/file-picker path). 1.4.2 is the latest stable line compatible with
+# minSdk 29 / compileSdk 36 at scaffold.
+cameraX = "1.4.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -103,6 +107,11 @@ androidx-test-runner = { group = "androidx.test", name = "runner", version.ref =
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestJunit" }
 androidx-test-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmark" }
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "cameraX" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraX" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
+androidx-camera-video = { group = "androidx.camera", name = "camera-video", version.ref = "cameraX" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
 
 [plugins]
 # AGP 9+ has built-in Kotlin: Android modules apply NO kotlin.android plugin.

@@ -43,9 +43,14 @@ class SubmitViewModelIdentityTest {
     fun `submit loads exact route task and never selects first assigned task`() = runTest(dispatcher) {
         val repository = CapturingTasksRepository()
         val viewModel = SubmitViewModel(
-            repository,
-            NoopSyncRepository(),
-            SavedStateHandle(mapOf("taskId" to "task-selected")),
+            repo = repository,
+            syncRepository = NoopSyncRepository(),
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            scanSource = sg.mesha.goatos.rfid.FakeScanSource(),
+            proofCaptureSource = sg.mesha.goatos.capture.FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            savedStateHandle = SavedStateHandle(mapOf("taskId" to "task-selected")),
         )
 
         advanceUntilIdle()

@@ -27,6 +27,11 @@ data class SyncQueueItem(
     val createdAt: Long,
     val updatedAt: Long,
     val lastError: String?,
+    /** Raw JSON of the last successful app-api response (mirrors
+     *  [sg.mesha.goatos.core.database.outbox.OutboxEntity.resultJson]) — lets a caller decode
+     *  the original server result (e.g. a registered proof's server id) on a SUCCEEDED item
+     *  without a second network call. Null until [status] reaches [SyncItemStatus.SUCCEEDED]. */
+    val resultJson: String? = null,
 ) {
     /** Terminal, non-retryable TRANSPORT failure — the TRD's "dead-letter after N attempts,
      *  visible + actionable" state. A [conflict] item is terminal for a different reason

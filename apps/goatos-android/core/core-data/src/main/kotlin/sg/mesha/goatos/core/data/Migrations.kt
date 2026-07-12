@@ -43,3 +43,45 @@ val MIGRATION_2_3: Migration = object : Migration(2, 3) {
         )
     }
 }
+
+/**
+ * v3 -> v4: adds the scanned-goat + proof-capture tables (MOB-002,
+ * docs/mobile/proof-capture-sync-and-e2e.md §3) — Room-first SSOT for Submit's `goat_scan` /
+ * `video_proof` recording-form controls. Purely additive.
+ */
+val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `scanned_goat_capture` " +
+                "(`id` TEXT NOT NULL, `taskId` TEXT NOT NULL, `fieldKey` TEXT NOT NULL, " +
+                "`tag` TEXT NOT NULL, `capturedAtMs` INTEGER NOT NULL, " +
+                "`syncStatus` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_scanned_goat_capture_taskId_fieldKey_tag` " +
+                "ON `scanned_goat_capture` (`taskId`, `fieldKey`, `tag`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_scanned_goat_capture_taskId_fieldKey_capturedAtMs` " +
+                "ON `scanned_goat_capture` (`taskId`, `fieldKey`, `capturedAtMs`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `proof_capture` " +
+                "(`id` TEXT NOT NULL, `taskId` TEXT NOT NULL, `fieldKey` TEXT NOT NULL, " +
+                "`proofSubject` TEXT NOT NULL, `localUri` TEXT NOT NULL, `mimeType` TEXT NOT NULL, " +
+                "`caption` TEXT, `capturedAtMs` INTEGER NOT NULL, " +
+                "`capturedStartMs` INTEGER NOT NULL DEFAULT 0, `capturedEndMs` INTEGER NOT NULL DEFAULT 0, " +
+                "`capturedByPrincipalId` TEXT, `syncStatus` TEXT NOT NULL, " +
+                "`idempotencyKey` TEXT NOT NULL, `outboxItemId` TEXT, `serverProofId` TEXT, " +
+                "`lastError` TEXT, PRIMARY KEY(`id`))",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_proof_capture_idempotencyKey` " +
+                "ON `proof_capture` (`idempotencyKey`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_proof_capture_taskId_fieldKey` " +
+                "ON `proof_capture` (`taskId`, `fieldKey`)",
+        )
+    }
+}

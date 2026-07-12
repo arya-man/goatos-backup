@@ -35,25 +35,66 @@ vendor SDK, no visible or invisible `EditText` (see `rfid-keyboard-reader.md`).
 
 The vaccination SOP requires proof video(s). Per the current maintainer rule:
 
-- **Minimum 1 video, maximum 5.**
-- **`shed_video` (proof_subject `shed`) is mandatory.** `vial_lot_video` and
-  `administration_video` are optional. The operator may add extra videos beyond
-  the three named subjects (e.g. multiple sheds/batches in one drive) up to the
-  cap of 5 total.
+- **All three named videos are mandatory: `shed_video`, `vial_lot_video`, and
+  `administration_video` (proof subjects `shed` / `vial_lot` / `administration`).**
+  The operator may add up to **2 further optional videos** beyond the three
+  named ones, each with a free-text caption — so **minimum 3, maximum 5** total.
+  Submit stays blocked until all 3 mandatory videos are captured; the 2 extras
+  are optional.
 - Each field carries a plain `description` (form DSL supports `description`) so the
   operator sees what each video is for. Admin edits these in the SOP form-builder;
-  they are served in `form_dsl`, never hardcoded on the client.
+  they are served in `form_dsl`, never hardcoded on the client. The 3-mandatory +
+  2-optional-with-caption SHAPE is a client business rule (the cap + which slots
+  get a caption); WHICH fields are actually required, and their labels/
+  descriptions, stay server-driven via `form_dsl` `required`/`help_text` — the
+  client never hardcodes a field as required independent of what the server says.
+
+## 2a. Camera-only capture (anti-fraud) — HARD BUSINESS RULE
+
+Every proof video (all 3 mandatory + up to 2 optional) **must be captured by
+LIVE, in-app camera recording only.**
+
+- **Banned:** any file picker, gallery import, `ACTION_GET_CONTENT`,
+  `ACTION_PICK`, or a generic gallery-capable chooser (including the platform
+  `ACTION_VIDEO_CAPTURE` intent, which can itself surface a chooser on some
+  OEM camera apps) — there is no code path anywhere in the capture surface
+  that can turn an existing file on the device into a `video_proof` capture.
+- **Why:** the proof only means something if the operator is physically
+  present recording live, right now. A picker lets them submit an old or
+  unrelated video and fake verification — that defeats the entire point of a
+  medical proof video.
+- **Implementation:** in-app CameraX live recording
+  (`androidx.camera:camera-video` `Recorder`/`VideoCapture`, `androidx.camera:camera-view`'s
+  `PreviewView` for the live preview) — see `InAppVideoRecorderOverlay`
+  (`apps/goatos-android/app/.../capture/InAppVideoRecorder.kt`). The recorded
+  file is written to this app's **own private storage**
+  (`Context.filesDir`, never `getExternalFilesDir`/MediaStore/the shared
+  gallery), so it is never visible to — or swappable by — any other app.
+- **Freshness/attribution metadata:** every capture stores its device-clock
+  record start (`capturedStartMs`) and stop (`capturedEndMs`) — duration is
+  derived — plus the recording operator's principal id
+  (`capturedByPrincipalId`), on the Room proof row and in the metadata sent
+  with the registration upload (`captured_start_ms`/`captured_end_ms`/
+  `duration_ms`/`captured_by_principal_id`). A verifier can see this was a
+  live, timed, attributable recording. Geotag/park-location capture is a
+  nice-to-have this build does NOT implement — noted as REMAINING.
+- The captured file still goes Room-first (proof row + sync status), then a
+  background metadata-registration upload, exactly like every other capture
+  in this design — camera-only changes WHERE the bytes come from, not the
+  Room-first/outbox pipeline that follows.
 
 Field meanings (authored in the SOP, shown to the operator):
 
 | Subject | Field | Proves |
 | --- | --- | --- |
 | `shed` | shed_video (mandatory) | which shed / drive / group being vaccinated |
-| `vial_lot` | vial_lot_video (optional) | the vaccine vial + lot/batch number (traceability) |
-| `administration` | administration_video (optional) | the actual injection — dose given, not just logged |
+| `vial_lot` | vial_lot_video (mandatory) | the vaccine vial + lot/batch number (traceability) |
+| `administration` | administration_video (mandatory) | the actual injection — dose given, not just logged |
+| `extra` | operator-added, up to 2 (optional, captioned) | anything else the operator judges worth proving (e.g. a second shed/batch) |
 
-Capture is abstracted behind a `ProofCaptureSource` port (CameraX in production,
-a fake/injected file in tests) for the same testability reasons as `ScanSource`.
+Capture is abstracted behind a `ProofCaptureSource` port — in production, LIVE
+in-app CameraX recording ONLY (§2a, camera-only anti-fraud rule); a
+fake/injected file in tests — for the same testability reasons as `ScanSource`.
 Each captured video is written to Room first (§3) as a proof row with its
 `proof_subject`, then queued for upload.
 
@@ -89,14 +130,25 @@ older Android), storage, and notifications. These are **mandatory**:
 
 ## 5. Role gating
 
-- **Capture + submit:** ground operator / park manager only. They scan goats,
-  capture videos, and submit the drive.
-- **Approve / reject:** park-manager-and-above (Director / CxO / CEO) do **not**
-  capture. They only review the submitted proof videos and approve or request
-  rework — matching the SOP workflow `operator_submission → proof_verification →
-  accepted | rework`.
-- Role is derived from `/app/bootstrap`; the capture surface is not shown to
-  approver-only roles.
+- **Mobile = capture + upload ONLY.** The Goat OS Android app has no approve/
+  reject screen and no verification queue — that surface does not exist on
+  mobile, full stop.
+- **Capture + submit (mobile):** ground operator / park manager (the
+  TaskExecute/ground tier) only. They scan goats, capture videos, and submit
+  the drive. Role is derived from `/app/bootstrap` (an operator profile
+  present = capture allowed); the capture surface — and the mandatory
+  permission gate in front of it — never render for a principal with no
+  operator profile.
+- **Leadership on mobile:** a leadership principal (Director / CxO / CEO / a
+  dedicated video-verification role) simply keeps their existing read-only
+  mobile nav (Overview / Calendar / Alerts) — no capture surface, no
+  approve/reject affordance, nothing verification-related on the phone at all.
+- **Approve / reject (proof_verification → accepted | rework):** lives
+  entirely on the **admin-web frontend** — the Head/Director/CEO/Video-
+  Verification-Team review captured proof videos and approve or request
+  rework there, matching the SOP workflow `operator_submission →
+  proof_verification → accepted | rework`. This is out of mobile scope
+  entirely; do not build any part of it on mobile.
 
 ## 6. E2E testing (emulator, no BT/camera hardware)
 

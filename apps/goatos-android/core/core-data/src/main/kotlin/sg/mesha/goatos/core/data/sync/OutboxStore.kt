@@ -92,6 +92,7 @@ fun OutboxEntity.toSyncQueueItem(): SyncQueueItem = SyncQueueItem(
     createdAt = createdAt,
     updatedAt = updatedAt,
     lastError = lastError,
+    resultJson = resultJson,
 )
 
 /** Active rows + bounded recent terminals -> the [SyncStatus] snapshot the UI renders.

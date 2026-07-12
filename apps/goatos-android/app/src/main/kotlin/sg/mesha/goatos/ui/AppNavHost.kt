@@ -20,6 +20,9 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import sg.mesha.goatos.capture.BindVideoCaptureSource
+import sg.mesha.goatos.capture.CaptureAccessGate
+import sg.mesha.goatos.capture.rememberDelegatingProofCaptureSource
 import sg.mesha.goatos.feature.calendar.CalendarDayScreen
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarScreen
@@ -365,7 +368,14 @@ fun AppNavHost(
         ) {
             val vm: SubmitViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            SubmitScreen(state = state, onEvent = vm::onEvent)
+            // Mandatory permission gate (§4): camera/Bluetooth/location/notifications/storage
+            // ALL granted before the capture surface renders at all — no degraded path.
+            CaptureAccessGate {
+                // MOB-002 camera-only capture: binds the LIVE in-app recorder to this screen's
+                // composition lifecycle only — released the moment Submit leaves composition.
+                BindVideoCaptureSource(rememberDelegatingProofCaptureSource())
+                SubmitScreen(state = state, onEvent = vm::onEvent)
+            }
         }
 
         // Leadership overview — a decision drills to reschedule; the "doses given" KPI

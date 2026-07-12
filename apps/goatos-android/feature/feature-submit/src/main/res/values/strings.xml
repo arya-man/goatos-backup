@@ -24,6 +24,7 @@
     <string name="submit_sync_conflict">Server rejected the submission.</string>
     <string name="submit_sync_dead_letter">Sync failed after %1$d attempts — tap retry.</string>
     <string name="submit_sync_no_task">No task assigned to you to submit.</string>
+    <string name="submit_sync_role_blocked">Capture and submit are limited to field operators and park managers.</string>
     <string name="submit_sync_load_failed">Couldn\'t load your task. Tap retry.</string>
     <string name="submit_sync_queue_failed">Couldn\'t queue the submission — tap retry.</string>
     <string name="submit_sync_retry_failed">Couldn\'t retry — tap retry again.</string>

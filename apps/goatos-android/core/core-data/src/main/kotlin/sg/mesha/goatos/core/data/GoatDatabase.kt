@@ -2,6 +2,10 @@ package sg.mesha.goatos.core.data
 
 import androidx.room.Database
 import androidx.room.RoomDatabase
+import sg.mesha.goatos.core.database.capture.ProofCaptureDao
+import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
+import sg.mesha.goatos.core.database.capture.ScannedGoatDao
+import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.data.cache.AdherenceCacheDao
 import sg.mesha.goatos.core.data.cache.AdherenceCacheEntity
 import sg.mesha.goatos.core.data.cache.CalendarCacheDao
@@ -32,6 +36,8 @@ import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
  * Adherence, and Insights (gaps/coverage) — so every read screen observes Room instead of a
  * one-shot network call. v3 (see [MIGRATION_2_3]) adds the task-detail cache (MOB-001) so the
  * Scan -> Submit operator task read is offline-first too, not a network-only pass-through.
+ * v4 (see [MIGRATION_3_4]) adds the scanned-goat + proof-capture tables (MOB-002) — the
+ * Room-first SSOT behind Submit's `goat_scan`/`video_proof` recording-form controls.
  */
 @Database(
     entities = [
@@ -47,8 +53,10 @@ import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
         RosterTimetableCacheEntity::class,
         RosterCoverageCacheEntity::class,
         TaskDetailCacheEntity::class,
+        ScannedGoatEntity::class,
+        ProofCaptureEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -64,4 +72,6 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun rosterTimetableCacheDao(): RosterTimetableCacheDao
     abstract fun rosterCoverageCacheDao(): RosterCoverageCacheDao
     abstract fun taskDetailCacheDao(): TaskDetailCacheDao
+    abstract fun scannedGoatDao(): ScannedGoatDao
+    abstract fun proofCaptureDao(): ProofCaptureDao
 }

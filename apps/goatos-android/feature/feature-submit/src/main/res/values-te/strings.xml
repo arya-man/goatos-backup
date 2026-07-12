@@ -16,6 +16,7 @@
     <string name="submit_sync_conflict">సర్వర్ సమర్పణను తిరస్కరించింది।</string>
     <string name="submit_sync_dead_letter">%1$d ప్రయత్నాల తర్వాత సింక్ విఫలమైంది — మళ్లీ ప్రయత్నించడానికి నొక్కండి।</string>
     <string name="submit_sync_no_task">మీకు సమర్పించడానికి ఎటువంటి టాస్క్ కేటాయించబడలేదు।</string>
+    <string name="submit_sync_role_blocked">క్యాప్చర్ మరియు సమర్పణ ఫీల్డ్ ఆపరేటర్లు మరియు పార్క్ మేనేజర్లకు మాత్రమే పరిమితం.</string>
     <string name="submit_sync_load_failed">మీ టాస్క్‌ను లోడ్ చేయలేకపోయాం। మళ్లీ ప్రయత్నించడానికి నొక్కండి।</string>
     <string name="submit_sync_queue_failed">సమర్పణను క్యూలో ఉంచలేకపోయాం — మళ్లీ ప్రయత్నించడానికి నొక్కండి।</string>
     <string name="submit_sync_retry_failed">మళ్లీ ప్రయత్నించలేకపోయాం — మళ్లీ ప్రయత్నించడానికి నొక్కండి।</string>

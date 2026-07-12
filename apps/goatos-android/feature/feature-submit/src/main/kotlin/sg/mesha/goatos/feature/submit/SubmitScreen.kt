@@ -98,6 +98,10 @@ data class SubmitUiState(
     val isQueueFailed: Boolean = false,
     /** True when a retry request failed (DEAD_LETTER state). */
     val isRetryFailed: Boolean = false,
+    /** MOB-002 role gate: true when the signed-in principal has no operator profile (e.g. a
+     *  leadership/approver-only role) — capture + submit are ground-operator/park-manager
+     *  only (docs/mobile/proof-capture-sync-and-e2e.md §5). */
+    val isCaptureRoleBlocked: Boolean = false,
     /** MOB-002: the SOP `form_dsl` recording form for this task, rendered inline below the
      *  shed-record summary. Null when the task's form has no fields to capture — the shed
      *  record is then just the vaccine-group summary, as before. */
@@ -114,6 +118,15 @@ sealed interface SubmitEvent {
     data class FormText(val key: String, val value: String) : SubmitEvent
     /** Operator picked an option for a picker recording-form field (option VALUE, not label). */
     data class FormPick(val key: String, val value: String) : SubmitEvent
+    /** Tapped a `goat_scan` field's scan zone — starts capture if idle, stops if scanning
+     *  (MOB-002, docs/mobile/proof-capture-sync-and-e2e.md §1). */
+    data class ScanToggled(val key: String) : SubmitEvent
+    /** Tapped a `video_proof` field's proof box — launches one video capture (MOB-002 §2). */
+    data class CaptureVideoRequested(val key: String) : SubmitEvent
+    /** Edited the caption of an operator-added EXTRA proof video. */
+    data class ProofCaptionChanged(val key: String, val proofId: String, val caption: String) : SubmitEvent
+    /** Removed an operator-added EXTRA proof video (named/mandatory subjects cannot be removed). */
+    data class ProofRemoved(val key: String, val proofId: String) : SubmitEvent
 }
 
 // --- Goat OS dark tokens (exact values from docs/mobile/design-system.md). ---
@@ -153,6 +166,8 @@ private fun SyncState.tone(): BannerTone = when (this) {
 private fun syncLabelFor(state: SubmitUiState): String = when {
     state.isLoadingTask ->
         stringResource(R.string.submit_sync_loading)
+    state.isCaptureRoleBlocked ->
+        stringResource(R.string.submit_sync_role_blocked)
     state.syncState == SyncState.DRAFT && state.canSubmit ->
         stringResource(R.string.submit_sync_ready)
     state.isNoTaskAssigned ->
@@ -219,9 +234,11 @@ fun SubmitScreen(
                         fields = runner.fields,
                         onToggle = { key, checked -> onEvent(SubmitEvent.FormToggle(key, checked)) },
                         onText = { key, value -> onEvent(SubmitEvent.FormText(key, value)) },
-                        onScan = { },
+                        onScan = { key -> onEvent(SubmitEvent.ScanToggled(key)) },
                         onPick = { key, value -> onEvent(SubmitEvent.FormPick(key, value)) },
-                        onCaptureVideo = { },
+                        onCaptureVideo = { key -> onEvent(SubmitEvent.CaptureVideoRequested(key)) },
+                        onCaption = { key, proofId, caption -> onEvent(SubmitEvent.ProofCaptionChanged(key, proofId, caption)) },
+                        onRemoveProof = { key, proofId -> onEvent(SubmitEvent.ProofRemoved(key, proofId)) },
                     )
                 }
                 runner.blockedReason?.let { reason ->

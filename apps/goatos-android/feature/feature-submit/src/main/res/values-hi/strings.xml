@@ -16,6 +16,7 @@
     <string name="submit_sync_conflict">सर्वर ने सबमिशन को अस्वीकार किया।</string>
     <string name="submit_sync_dead_letter">%1$d प्रयासों के बाद सिंक विफल — पुनः प्रयास करने के लिए टैप करें।</string>
     <string name="submit_sync_no_task">आपके लिए सबमिट करने के लिए कोई कार्य नियत नहीं है।</string>
+    <string name="submit_sync_role_blocked">रिकॉर्डिंग और सबमिट केवल फील्ड ऑपरेटर और पार्क मैनेजर के लिए है।</string>
     <string name="submit_sync_load_failed">आपके कार्य को लोड नहीं जा सका। पुनः प्रयास करने के लिए टैप करें।</string>
     <string name="submit_sync_queue_failed">सबमिशन को कतार में नहीं किया जा सका — पुनः प्रयास करने के लिए टैप करें।</string>
     <string name="submit_sync_retry_failed">पुनः प्रयास नहीं किया जा सका — फिर से पुनः प्रयास करने के लिए टैप करें।</string>

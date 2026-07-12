@@ -16,6 +16,12 @@ import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.auth.currentFirebaseIdTokenBlocking
 import sg.mesha.goatos.core.data.BootstrapCache
 import sg.mesha.goatos.core.data.BootstrapCacheDao
+import sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
+import sg.mesha.goatos.core.database.capture.ProofCaptureDao
+import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.data.AdherenceRepository
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.CalendarRepository
@@ -70,8 +76,12 @@ import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.NetworkFactory
+import sg.mesha.goatos.capture.DelegatingProofCaptureSource
+import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.rfid.BtHidScanSource
 import sg.mesha.goatos.rfid.KeyboardWedgeRfidReader
 import sg.mesha.goatos.rfid.RfidReaderPort
+import sg.mesha.goatos.rfid.ScanSource
 import sg.mesha.goatos.sync.SyncWorkScheduler
 import javax.inject.Singleton
 
@@ -133,6 +143,12 @@ object AppModule {
 
     @Provides
     fun provideTaskDetailCacheDao(db: GoatDatabase): TaskDetailCacheDao = db.taskDetailCacheDao()
+
+    @Provides
+    fun provideScannedGoatDao(db: GoatDatabase): ScannedGoatDao = db.scannedGoatDao()
+
+    @Provides
+    fun provideProofCaptureDao(db: GoatDatabase): ProofCaptureDao = db.proofCaptureDao()
 
     @Provides
     @Singleton
@@ -230,6 +246,39 @@ object AppModule {
         timetableDao: RosterTimetableCacheDao,
         coverageDao: RosterCoverageCacheDao,
     ): RosterRepository = DefaultRosterRepository(api, timetableDao, coverageDao)
+
+    // --- MOB-002 capture (docs/mobile/proof-capture-sync-and-e2e.md) -------------------
+    // Room-first SSOT behind Submit's `goat_scan`/`video_proof` recording-form controls.
+    // BtHidScanSource wraps the SAME RfidReaderPort singleton the shed-roster Scan screen
+    // uses — Android owns one BT-HID connection; only one screen enables capture at a time.
+
+    @Provides
+    @Singleton
+    fun provideScanSource(reader: RfidReaderPort): ScanSource = BtHidScanSource(reader)
+
+    @Provides
+    @Singleton
+    fun provideDelegatingProofCaptureSource(): DelegatingProofCaptureSource = DelegatingProofCaptureSource()
+
+    @Provides
+    @Singleton
+    fun provideProofCaptureSource(delegate: DelegatingProofCaptureSource): ProofCaptureSource = delegate
+
+    @Provides
+    @Singleton
+    fun provideScanCaptureRepository(dao: ScannedGoatDao): ScanCaptureRepository = DefaultScanCaptureRepository(dao)
+
+    @Provides
+    @Singleton
+    fun provideProofCaptureRepository(
+        dao: ProofCaptureDao,
+        syncRepository: SyncRepository,
+        appScope: CoroutineScope,
+    ): ProofCaptureRepository = DefaultProofCaptureRepository(
+        dao = dao,
+        syncRepository = syncRepository,
+        appScope = appScope,
+    )
 
     // --- Offline sync engine (outbox) --------------------------------------------------
     // The engine runs on this Hilt-provided, app-lifetime CoroutineScope (a Singleton, never

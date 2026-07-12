@@ -165,6 +165,15 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
+    // In-app LIVE camera video capture for proof recording (MOB-002 anti-fraud rule: camera-
+    // only, no gallery/file picker). camera-video's Recorder + camera-view's PreviewView back
+    // the `video_proof` capture screen; no other module needs CameraX, so it stays :app-only.
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.video)
+    implementation(libs.androidx.camera.view)
+
     // Virtual-time coroutine testing (runTest/advanceTimeBy) for the offline-banner debounce.
     testImplementation(libs.kotlinx.coroutines.test)
 }
