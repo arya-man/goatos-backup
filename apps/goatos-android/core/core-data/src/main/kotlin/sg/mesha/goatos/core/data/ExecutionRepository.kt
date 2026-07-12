@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.common.Resource
@@ -17,6 +16,8 @@ import sg.mesha.goatos.core.data.cache.ExecutionShedCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
+import sg.mesha.goatos.core.data.cache.enforceCacheBounds
+import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
@@ -152,10 +153,12 @@ class DefaultExecutionRepository(
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
-    ): Flow<Resource<VaccinationExecutionResponseDto>> =
-        rowsDao.observe(cacheKey(parkId, workState, asOf, dueBefore, limit?.toString()))
-            .map { it.toResource() }
+    ): Flow<Resource<VaccinationExecutionResponseDto>> {
+        val key = cacheKey(parkId, workState, asOf, dueBefore, limit?.toString())
+        return rowsDao.observe(key)
+            .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
+    }
 
     override suspend fun refreshRows(
         parkId: String?,
@@ -167,6 +170,7 @@ class DefaultExecutionRepository(
         val dto = rows(parkId, workState, asOf, dueBefore, limit, cursor = null)
         val key = cacheKey(parkId, workState, asOf, dueBefore, limit?.toString())
         rowsDao.upsert(ExecutionRowsCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+        rowsDao.enforceCacheBounds()
     }
 
     override suspend fun appendRows(
@@ -179,9 +183,15 @@ class DefaultExecutionRepository(
     ): Result<Unit> = runCatching {
         rowsAppendMutex.withLock {
             val key = cacheKey(parkId, workState, asOf, dueBefore, limit?.toString())
-            val current = rowsDao.get(key)
-                ?.let { json.decodeFromString<VaccinationExecutionResponseDto>(it.dtoJson) }
-                ?: throw ExecutionRowsCursorException("execution continuation has no cached first page")
+            val currentEntity = rowsDao.get(key)
+            val current = readCachedJson<VaccinationExecutionResponseDto>(
+                json = json,
+                cacheKey = key,
+                dtoJson = currentEntity?.dtoJson,
+                updatedAt = currentEntity?.updatedAt,
+                now = clock(),
+                quarantine = { rowsDao.delete(it) },
+            ).data ?: throw ExecutionRowsCursorException("execution continuation has no cached first page")
             if (current.nextCursor != cursor) {
                 throw ExecutionRowsCursorException("execution cursor is stale or belongs to another filter")
             }
@@ -212,10 +222,12 @@ class DefaultExecutionRepository(
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
-    ): Flow<Resource<VaccinationExecutionShedDrilldownDto>> =
-        shedDao.observe(cacheKey(shedId, asOf, dueBefore, limit?.toString()))
-            .map { it.toResource() }
+    ): Flow<Resource<VaccinationExecutionShedDrilldownDto>> {
+        val key = cacheKey(shedId, asOf, dueBefore, limit?.toString())
+        return shedDao.observe(key)
+            .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
+    }
 
     override suspend fun refreshShed(
         shedId: String,
@@ -226,6 +238,7 @@ class DefaultExecutionRepository(
         val dto = shed(shedId, asOf, dueBefore, limit)
         val key = cacheKey(shedId, asOf, dueBefore, limit?.toString())
         shedDao.upsert(ExecutionShedCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+        shedDao.enforceCacheBounds()
     }
 
     override suspend fun scanRoster(
@@ -239,10 +252,12 @@ class DefaultExecutionRepository(
         shedId: String,
         taskId: String,
         limit: Int?,
-    ): Flow<Resource<ScanRosterResponseDto>> =
-        scanRosterDao.observe(scanRosterScopeKey(shedId, taskId, limit))
-            .map { it.toResource() }
+    ): Flow<Resource<ScanRosterResponseDto>> {
+        val key = scanRosterScopeKey(shedId, taskId, limit)
+        return scanRosterDao.observe(key)
+            .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
+    }
 
     override suspend fun refreshScanRoster(
         shedId: String,
@@ -252,6 +267,7 @@ class DefaultExecutionRepository(
         val dto = scanRoster(shedId, taskId, cursor = null, limit = limit)
         val key = scanRosterScopeKey(shedId, taskId, limit)
         scanRosterDao.upsert(ScanRosterCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+        scanRosterDao.enforceCacheBounds()
     }
 
     override suspend fun appendScanRoster(
@@ -262,9 +278,15 @@ class DefaultExecutionRepository(
     ): Result<Unit> = runCatching {
         scanAppendMutex.withLock {
             val key = scanRosterScopeKey(shedId, taskId, limit)
-            val current = scanRosterDao.get(key)
-                ?.let { json.decodeFromString<ScanRosterResponseDto>(it.dtoJson) }
-                ?: throw ScanRosterCursorException("scan roster continuation has no cached first page")
+            val currentEntity = scanRosterDao.get(key)
+            val current = readCachedJson<ScanRosterResponseDto>(
+                json = json,
+                cacheKey = key,
+                dtoJson = currentEntity?.dtoJson,
+                updatedAt = currentEntity?.updatedAt,
+                now = clock(),
+                quarantine = { scanRosterDao.delete(it) },
+            ).data ?: throw ScanRosterCursorException("scan roster continuation has no cached first page")
             if (current.nextCursor != cursor) {
                 throw ScanRosterCursorException("scan roster cursor is stale or belongs to another task")
             }
@@ -279,23 +301,41 @@ class DefaultExecutionRepository(
         }
     }
 
-    private fun ExecutionRowsCacheEntity?.toResource(): Resource<VaccinationExecutionResponseDto> =
-        Resource(
-            data = this?.let { runCatching { json.decodeFromString<VaccinationExecutionResponseDto>(it.dtoJson) }.getOrNull() },
-            lastSyncedAt = this?.updatedAt,
+    private suspend fun ExecutionRowsCacheEntity?.toResource(key: String): Resource<VaccinationExecutionResponseDto> {
+        val cached = readCachedJson<VaccinationExecutionResponseDto>(
+            json = json,
+            cacheKey = key,
+            dtoJson = this?.dtoJson,
+            updatedAt = this?.updatedAt,
+            now = clock(),
+            quarantine = { rowsDao.delete(it) },
         )
+        return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+    }
 
-    private fun ExecutionShedCacheEntity?.toResource(): Resource<VaccinationExecutionShedDrilldownDto> =
-        Resource(
-            data = this?.let { runCatching { json.decodeFromString<VaccinationExecutionShedDrilldownDto>(it.dtoJson) }.getOrNull() },
-            lastSyncedAt = this?.updatedAt,
+    private suspend fun ExecutionShedCacheEntity?.toResource(key: String): Resource<VaccinationExecutionShedDrilldownDto> {
+        val cached = readCachedJson<VaccinationExecutionShedDrilldownDto>(
+            json = json,
+            cacheKey = key,
+            dtoJson = this?.dtoJson,
+            updatedAt = this?.updatedAt,
+            now = clock(),
+            quarantine = { shedDao.delete(it) },
         )
+        return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+    }
 
-    private fun ScanRosterCacheEntity?.toResource(): Resource<ScanRosterResponseDto> =
-        Resource(
-            data = this?.let { runCatching { json.decodeFromString<ScanRosterResponseDto>(it.dtoJson) }.getOrNull() },
-            lastSyncedAt = this?.updatedAt,
+    private suspend fun ScanRosterCacheEntity?.toResource(key: String): Resource<ScanRosterResponseDto> {
+        val cached = readCachedJson<ScanRosterResponseDto>(
+            json = json,
+            cacheKey = key,
+            dtoJson = this?.dtoJson,
+            updatedAt = this?.updatedAt,
+            now = clock(),
+            quarantine = { scanRosterDao.delete(it) },
         )
+        return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+    }
 
     private fun scanRosterScopeKey(shedId: String, taskId: String, limit: Int?): String =
         cacheKey(shedId, taskId, limit?.toString())

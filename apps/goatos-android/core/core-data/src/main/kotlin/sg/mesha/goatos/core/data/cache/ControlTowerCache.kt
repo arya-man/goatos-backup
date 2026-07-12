@@ -17,10 +17,25 @@ data class ControlTowerCacheEntity(
 )
 
 @Dao
-interface ControlTowerCacheDao {
+interface ControlTowerCacheDao : JsonBlobCacheDao<ControlTowerCacheEntity> {
     @Query("SELECT * FROM control_tower_cache WHERE cacheKey = :cacheKey")
-    fun observe(cacheKey: String): Flow<ControlTowerCacheEntity?>
+    override fun observe(cacheKey: String): Flow<ControlTowerCacheEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(entity: ControlTowerCacheEntity)
+    override suspend fun upsert(entity: ControlTowerCacheEntity)
+
+    @Query("DELETE FROM control_tower_cache WHERE cacheKey = :cacheKey")
+    override suspend fun delete(cacheKey: String)
+
+    @Query("SELECT COUNT(*) FROM control_tower_cache")
+    override suspend fun count(): Int
+
+    @Query("SELECT COALESCE(SUM(LENGTH(dtoJson)), 0) FROM control_tower_cache")
+    override suspend fun totalBytes(): Long
+
+    @Query(
+        "DELETE FROM control_tower_cache WHERE cacheKey IN " +
+            "(SELECT cacheKey FROM control_tower_cache ORDER BY updatedAt ASC LIMIT :n)",
+    )
+    override suspend fun deleteOldest(n: Int)
 }

@@ -17,10 +17,25 @@ data class CalendarCacheEntity(
 )
 
 @Dao
-interface CalendarCacheDao {
+interface CalendarCacheDao : JsonBlobCacheDao<CalendarCacheEntity> {
     @Query("SELECT * FROM calendar_cache WHERE cacheKey = :cacheKey")
-    fun observe(cacheKey: String): Flow<CalendarCacheEntity?>
+    override fun observe(cacheKey: String): Flow<CalendarCacheEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(entity: CalendarCacheEntity)
+    override suspend fun upsert(entity: CalendarCacheEntity)
+
+    @Query("DELETE FROM calendar_cache WHERE cacheKey = :cacheKey")
+    override suspend fun delete(cacheKey: String)
+
+    @Query("SELECT COUNT(*) FROM calendar_cache")
+    override suspend fun count(): Int
+
+    @Query("SELECT COALESCE(SUM(LENGTH(dtoJson)), 0) FROM calendar_cache")
+    override suspend fun totalBytes(): Long
+
+    @Query(
+        "DELETE FROM calendar_cache WHERE cacheKey IN " +
+            "(SELECT cacheKey FROM calendar_cache ORDER BY updatedAt ASC LIMIT :n)",
+    )
+    override suspend fun deleteOldest(n: Int)
 }

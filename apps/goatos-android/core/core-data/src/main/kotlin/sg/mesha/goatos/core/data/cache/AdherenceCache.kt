@@ -17,10 +17,25 @@ data class AdherenceCacheEntity(
 )
 
 @Dao
-interface AdherenceCacheDao {
+interface AdherenceCacheDao : JsonBlobCacheDao<AdherenceCacheEntity> {
     @Query("SELECT * FROM adherence_cache WHERE cacheKey = :cacheKey")
-    fun observe(cacheKey: String): Flow<AdherenceCacheEntity?>
+    override fun observe(cacheKey: String): Flow<AdherenceCacheEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(entity: AdherenceCacheEntity)
+    override suspend fun upsert(entity: AdherenceCacheEntity)
+
+    @Query("DELETE FROM adherence_cache WHERE cacheKey = :cacheKey")
+    override suspend fun delete(cacheKey: String)
+
+    @Query("SELECT COUNT(*) FROM adherence_cache")
+    override suspend fun count(): Int
+
+    @Query("SELECT COALESCE(SUM(LENGTH(dtoJson)), 0) FROM adherence_cache")
+    override suspend fun totalBytes(): Long
+
+    @Query(
+        "DELETE FROM adherence_cache WHERE cacheKey IN " +
+            "(SELECT cacheKey FROM adherence_cache ORDER BY updatedAt ASC LIMIT :n)",
+    )
+    override suspend fun deleteOldest(n: Int)
 }

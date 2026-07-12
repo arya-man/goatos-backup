@@ -4,13 +4,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
+import sg.mesha.goatos.core.data.cache.enforceCacheBounds
+import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 
@@ -87,10 +88,12 @@ class DefaultControlTowerRepository(
         asOf: String?,
         cursor: String?,
         limit: Int?,
-    ): Flow<Resource<ControlTowerResponseDto>> =
-        dao.observe(cacheKey(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit?.toString()))
-            .map { it.toResource() }
+    ): Flow<Resource<ControlTowerResponseDto>> {
+        val key = cacheKey(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit?.toString())
+        return dao.observe(key)
+            .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default) // JSON decode + DTO->Resource off the Main collector
+    }
 
     override suspend fun refreshSummary(
         parkId: String?,
@@ -105,11 +108,18 @@ class DefaultControlTowerRepository(
         val dto = summary(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit)
         val key = cacheKey(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit?.toString())
         dao.upsert(ControlTowerCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+        dao.enforceCacheBounds()
     }
 
-    private fun ControlTowerCacheEntity?.toResource(): Resource<ControlTowerResponseDto> =
-        Resource(
-            data = this?.let { runCatching { json.decodeFromString<ControlTowerResponseDto>(it.dtoJson) }.getOrNull() },
-            lastSyncedAt = this?.updatedAt,
+    private suspend fun ControlTowerCacheEntity?.toResource(key: String): Resource<ControlTowerResponseDto> {
+        val cached = readCachedJson<ControlTowerResponseDto>(
+            json = json,
+            cacheKey = key,
+            dtoJson = this?.dtoJson,
+            updatedAt = this?.updatedAt,
+            now = clock(),
+            quarantine = { dao.delete(it) },
         )
+        return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+    }
 }

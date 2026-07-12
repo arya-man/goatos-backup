@@ -4,13 +4,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.cache.AdherenceCacheDao
 import sg.mesha.goatos.core.data.cache.AdherenceCacheEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
+import sg.mesha.goatos.core.data.cache.enforceCacheBounds
+import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 
@@ -88,10 +89,12 @@ class DefaultAdherenceRepository(
         asOf: String?,
         cursor: String?,
         limit: Int?,
-    ): Flow<Resource<ProtocolAdherenceResponseDto>> =
-        dao.observe(cacheKey(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit?.toString()))
-            .map { it.toResource() }
+    ): Flow<Resource<ProtocolAdherenceResponseDto>> {
+        val key = cacheKey(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit?.toString())
+        return dao.observe(key)
+            .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default) // JSON decode + DTO->Resource off the Main collector
+    }
 
     override suspend fun refreshAdherence(
         parkId: String?,
@@ -106,11 +109,18 @@ class DefaultAdherenceRepository(
         val dto = adherence(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit)
         val key = cacheKey(parkId, shedId, workState, severity, dueBefore, asOf, cursor, limit?.toString())
         dao.upsert(AdherenceCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+        dao.enforceCacheBounds()
     }
 
-    private fun AdherenceCacheEntity?.toResource(): Resource<ProtocolAdherenceResponseDto> =
-        Resource(
-            data = this?.let { runCatching { json.decodeFromString<ProtocolAdherenceResponseDto>(it.dtoJson) }.getOrNull() },
-            lastSyncedAt = this?.updatedAt,
+    private suspend fun AdherenceCacheEntity?.toResource(key: String): Resource<ProtocolAdherenceResponseDto> {
+        val cached = readCachedJson<ProtocolAdherenceResponseDto>(
+            json = json,
+            cacheKey = key,
+            dtoJson = this?.dtoJson,
+            updatedAt = this?.updatedAt,
+            now = clock(),
+            quarantine = { dao.delete(it) },
         )
+        return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+    }
 }

@@ -4,13 +4,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.cache.CalendarCacheDao
 import sg.mesha.goatos.core.data.cache.CalendarCacheEntity
 import sg.mesha.goatos.core.data.cache.cacheKey
+import sg.mesha.goatos.core.data.cache.enforceCacheBounds
+import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 
@@ -93,10 +94,12 @@ class DefaultCalendarRepository(
         includeDateMarkers: Boolean,
         cursor: String?,
         limit: Int?,
-    ): Flow<Resource<CalendarEventListResponseDto>> =
-        dao.observe(cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers.toString(), cursor, limit?.toString()))
-            .map { it.toResource() }
+    ): Flow<Resource<CalendarEventListResponseDto>> {
+        val key = cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers.toString(), cursor, limit?.toString())
+        return dao.observe(key)
+            .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
+    }
 
     override suspend fun refreshEvents(
         parkId: String?,
@@ -112,11 +115,18 @@ class DefaultCalendarRepository(
         val dto = events(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers, cursor, limit)
         val key = cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers.toString(), cursor, limit?.toString())
         dao.upsert(CalendarCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+        dao.enforceCacheBounds()
     }
 
-    private fun CalendarCacheEntity?.toResource(): Resource<CalendarEventListResponseDto> =
-        Resource(
-            data = this?.let { runCatching { json.decodeFromString<CalendarEventListResponseDto>(it.dtoJson) }.getOrNull() },
-            lastSyncedAt = this?.updatedAt,
+    private suspend fun CalendarCacheEntity?.toResource(key: String): Resource<CalendarEventListResponseDto> {
+        val cached = readCachedJson<CalendarEventListResponseDto>(
+            json = json,
+            cacheKey = key,
+            dtoJson = this?.dtoJson,
+            updatedAt = this?.updatedAt,
+            now = clock(),
+            quarantine = { dao.delete(it) },
         )
+        return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+    }
 }

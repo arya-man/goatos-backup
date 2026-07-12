@@ -20,15 +20,30 @@ data class InsightsGapsCacheEntity(
 )
 
 @Dao
-interface InsightsGapsCacheDao {
+interface InsightsGapsCacheDao : JsonBlobCacheDao<InsightsGapsCacheEntity> {
     @Query("SELECT * FROM insights_gaps_cache WHERE cacheKey = :cacheKey")
-    fun observe(cacheKey: String): Flow<InsightsGapsCacheEntity?>
+    override fun observe(cacheKey: String): Flow<InsightsGapsCacheEntity?>
 
     @Query("SELECT * FROM insights_gaps_cache WHERE cacheKey = :cacheKey")
     suspend fun get(cacheKey: String): InsightsGapsCacheEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(entity: InsightsGapsCacheEntity)
+    override suspend fun upsert(entity: InsightsGapsCacheEntity)
+
+    @Query("DELETE FROM insights_gaps_cache WHERE cacheKey = :cacheKey")
+    override suspend fun delete(cacheKey: String)
+
+    @Query("SELECT COUNT(*) FROM insights_gaps_cache")
+    override suspend fun count(): Int
+
+    @Query("SELECT COALESCE(SUM(LENGTH(dtoJson)), 0) FROM insights_gaps_cache")
+    override suspend fun totalBytes(): Long
+
+    @Query(
+        "DELETE FROM insights_gaps_cache WHERE cacheKey IN " +
+            "(SELECT cacheKey FROM insights_gaps_cache ORDER BY updatedAt ASC LIMIT :n)",
+    )
+    override suspend fun deleteOldest(n: Int)
 }
 
 @Entity(tableName = "insights_coverage_cache")
@@ -39,10 +54,25 @@ data class InsightsCoverageCacheEntity(
 )
 
 @Dao
-interface InsightsCoverageCacheDao {
+interface InsightsCoverageCacheDao : JsonBlobCacheDao<InsightsCoverageCacheEntity> {
     @Query("SELECT * FROM insights_coverage_cache WHERE cacheKey = :cacheKey")
-    fun observe(cacheKey: String): Flow<InsightsCoverageCacheEntity?>
+    override fun observe(cacheKey: String): Flow<InsightsCoverageCacheEntity?>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(entity: InsightsCoverageCacheEntity)
+    override suspend fun upsert(entity: InsightsCoverageCacheEntity)
+
+    @Query("DELETE FROM insights_coverage_cache WHERE cacheKey = :cacheKey")
+    override suspend fun delete(cacheKey: String)
+
+    @Query("SELECT COUNT(*) FROM insights_coverage_cache")
+    override suspend fun count(): Int
+
+    @Query("SELECT COALESCE(SUM(LENGTH(dtoJson)), 0) FROM insights_coverage_cache")
+    override suspend fun totalBytes(): Long
+
+    @Query(
+        "DELETE FROM insights_coverage_cache WHERE cacheKey IN " +
+            "(SELECT cacheKey FROM insights_coverage_cache ORDER BY updatedAt ASC LIMIT :n)",
+    )
+    override suspend fun deleteOldest(n: Int)
 }
