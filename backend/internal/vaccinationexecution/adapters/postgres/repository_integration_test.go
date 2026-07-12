@@ -66,7 +66,7 @@ func TestListVaccinationExecutionProjection(t *testing.T) {
 	seedVaccinationExecutionProjection(t, ctx, pool)
 
 	repo := NewRepository(pool, 5*time.Second)
-	rows, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
 		TenantID:  testTenant,
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Limit:     10,
@@ -216,7 +216,7 @@ func TestListVaccinationExecutionPageUsesStableCursorAndFilteredTotal(t *testing
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Limit:     1,
 	}
-	first, err := repo.ListVaccinationExecutionPage(ctx, query)
+	first, err := projectedExecutionPage(t, ctx, repo, query)
 	if err != nil {
 		t.Fatalf("first page: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestListVaccinationExecutionPageUsesStableCursorAndFilteredTotal(t *testing
 		t.Fatalf("first page rows=%d total=%d cursor=%v", len(first.Rows), first.TotalCount, first.NextCursor)
 	}
 	query.Cursor = first.NextCursor
-	second, err := repo.ListVaccinationExecutionPage(ctx, query)
+	second, err := projectedExecutionPage(t, ctx, repo, query)
 	if err != nil {
 		t.Fatalf("second page: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestListVaccinationExecutionExcludesCanceledObligations(t *testing.T) {
 	// Pin as_of after the accepted dose (administered 2026-06-26): completions are now as_of-bounded, so an
 	// unset as_of would default to wall-clock now and (depending on the run date) drop the future dose. This
 	// test asserts canceled-obligation exclusion, not as_of behavior, so it must use a deterministic as_of.
-	rows, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
 		TenantID:  testTenant,
 		AsOf:      time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -308,7 +308,7 @@ func TestListVaccinationExecutionFiltersWorkStateBeforeLimit(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 	state := domain.WorkStateBlocked
-	rows, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
 		TenantID:  testTenant,
 		WorkState: &state,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
@@ -349,7 +349,7 @@ func TestListVaccinationExecutionSurfacesTaskReworkAsRejected(t *testing.T) {
 
 	state := domain.WorkStateRejected
 	repo := NewRepository(pool, 5*time.Second)
-	rows, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
 		TenantID:  testTenant,
 		WorkState: &state,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
@@ -393,7 +393,7 @@ func TestListVaccinationExecutionPrioritizesActionableRowsOverClosedHistory(t *t
 	insertProjectionObligation(t, ctx, pool, testBlockedObligation, testBlockedBatch, testBlockedGoat, "scheduled", "2026-06-30 00:00:00+00", "vaccexec-blocked-priority")
 
 	repo := NewRepository(pool, 5*time.Second)
-	rows, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
 		TenantID:  testTenant,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -424,7 +424,7 @@ func TestListVaccinationExecutionSkipsOldClosedRows(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 	state := domain.WorkStateCompleted
-	rows, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{
+	rows, err := projectedExecutionList(t, ctx, repo, domain.ExecutionQuery{
 		TenantID:  testTenant,
 		WorkState: &state,
 		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
@@ -1445,6 +1445,9 @@ func TestShedSummaryReadsSeededShed(t *testing.T) {
 	repo := NewRepository(pool, 0)
 
 	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	if _, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: asOf.Add(30 * 24 * time.Hour)}); err != nil {
+		t.Fatalf("RecomputeShedProjection: %v", err)
+	}
 	rows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
 		TenantID:  testTenant,
 		AsOf:      asOf,
@@ -1516,6 +1519,9 @@ ON CONFLICT (tenant_id) DO UPDATE
 	}
 
 	repo := NewRepository(pool, 0)
+	if _, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: asOf.Add(30 * 24 * time.Hour)}); err != nil {
+		t.Fatalf("RecomputeShedProjection: %v", err)
+	}
 	rows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
 		TenantID:  testTenant,
 		AsOf:      asOf,
@@ -1589,4 +1595,27 @@ func shedSummaryByShed(rows []domain.ShedSummaryProjection, shedID string) *doma
 		}
 	}
 	return nil
+}
+
+func recomputeExecutionProjection(t *testing.T, ctx context.Context, repo *Repository, q domain.ExecutionQuery) domain.ExecutionProjectionRecomputeResult {
+	t.Helper()
+	result, err := repo.RecomputeExecutionProjection(ctx, domain.ExecutionProjectionRecomputeRequest{TenantID: q.TenantID, AsOf: q.AsOf, DueBefore: q.DueBefore})
+	if err != nil {
+		t.Fatalf("RecomputeExecutionProjection: %v", err)
+	}
+	return result
+}
+
+func projectedExecutionList(t *testing.T, ctx context.Context, repo *Repository, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error) {
+	t.Helper()
+	recomputeExecutionProjection(t, ctx, repo, q)
+	return repo.ListVaccinationExecution(ctx, q)
+}
+
+func projectedExecutionPage(t *testing.T, ctx context.Context, repo *Repository, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error) {
+	t.Helper()
+	if q.Cursor == nil {
+		recomputeExecutionProjection(t, ctx, repo, q)
+	}
+	return repo.ListVaccinationExecutionPage(ctx, q)
 }

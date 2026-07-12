@@ -91,10 +91,11 @@ type ExecutionRow struct {
 }
 
 type ExecutionResponse struct {
-	Source     string         `json:"source"`
-	Rows       []ExecutionRow `json:"rows"`
-	TotalCount int64          `json:"totalCount"`
-	NextCursor *string        `json:"nextCursor,omitempty"`
+	Source     string               `json:"source"`
+	Rows       []ExecutionRow       `json:"rows"`
+	TotalCount int64                `json:"totalCount"`
+	NextCursor *string              `json:"nextCursor,omitempty"`
+	Freshness  *ProjectionFreshness `json:"freshness,omitempty"`
 }
 
 type DriveSummary struct {
@@ -129,15 +130,16 @@ type ShedDrilldown struct {
 }
 
 type ExecutionQuery struct {
-	TenantID  string
-	ParkID    *string
-	ShedID    *string
-	WorkState *WorkState
-	Severity  *Severity
-	Cursor    *ExecutionCursor
-	AsOf      time.Time
-	DueBefore time.Time
-	Limit     int
+	TenantID       string
+	ParkID         *string
+	ShedID         *string
+	WorkState      *WorkState
+	Severity       *Severity
+	Cursor         *ExecutionCursor
+	AsOf           time.Time
+	DueBefore      time.Time
+	HistoricalAsOf bool
+	Limit          int
 }
 
 // ---- Vaccination operations read model (cohort × protocol matrix + per-cohort detail) ----
@@ -227,11 +229,12 @@ type OperationsQuery struct {
 	ParkID   *string
 	// ShedID optionally narrows the cohort×protocol rollup to a single shed (used by the shed-detail
 	// vaccine breakdown, which re-aggregates the shed's cohort cells per protocol). Empty = all sheds.
-	ShedID    *string
-	AsOf      time.Time
-	DueBefore time.Time
-	Limit     int
-	Cursor    *OperationsCursor
+	ShedID         *string
+	AsOf           time.Time
+	DueBefore      time.Time
+	HistoricalAsOf bool
+	Limit          int
+	Cursor         *OperationsCursor
 }
 
 // ScanRosterRow represents a single per-animal vaccination obligation for mobile scan screen.
@@ -341,6 +344,7 @@ type ExecutionProjectionPage struct {
 	Rows       []ExecutionProjection
 	TotalCount int64
 	NextCursor *ExecutionCursor
+	Freshness  *ProjectionFreshness
 }
 
 // ---- Vaccination gaps read model (animals excluded from the coverage denominator because their
@@ -520,9 +524,10 @@ type PageInfo struct {
 }
 
 type ShedSummaryResponse struct {
-	Source string           `json:"source"`
-	Rows   []ShedSummaryRow `json:"rows"`
-	Page   PageInfo         `json:"page"`
+	Source    string               `json:"source"`
+	Rows      []ShedSummaryRow     `json:"rows"`
+	Page      PageInfo             `json:"page"`
+	Freshness *ProjectionFreshness `json:"freshness,omitempty"`
 }
 
 // ShedSummarySort is the whitelisted sort vocabulary (the ORDER BY fragment is chosen in Go from this
@@ -538,17 +543,18 @@ const (
 )
 
 type ShedSummaryQuery struct {
-	TenantID  string
-	ParkID    *string
-	ShedID    *string
-	Status    *ShedStatus
-	Capacity  *CapacityStatus
-	Search    *string
-	AsOf      time.Time
-	DueBefore time.Time
-	Sort      ShedSummarySort
-	Limit     int
-	Offset    int
+	TenantID       string
+	ParkID         *string
+	ShedID         *string
+	Status         *ShedStatus
+	Capacity       *CapacityStatus
+	Search         *string
+	AsOf           time.Time
+	DueBefore      time.Time
+	HistoricalAsOf bool
+	Sort           ShedSummarySort
+	Limit          int
+	Offset         int
 }
 
 // ShedSummaryProjection is one aggregated shed straight from SQL, before the service attaches the
@@ -569,6 +575,7 @@ type ShedSummaryProjection struct {
 	LastDone   *time.Time
 	NextDue    *time.Time
 	TotalCount int // window COUNT(*) OVER() of the filtered set, for PageInfo.Total
+	Freshness  *ProjectionFreshness
 }
 
 // ShedProjectionRecomputeRequest asks the projector to rebuild the tenant's shed-wise vaccination read
@@ -576,8 +583,9 @@ type ShedSummaryProjection struct {
 // the request path only (RecomputeShedProjection); ShedSummary itself still reads the live compute-on-read
 // CTE until the request path is explicitly flipped (C35-002 follow-up).
 type ShedProjectionRecomputeRequest struct {
-	TenantID string
-	AsOf     time.Time
+	TenantID  string
+	AsOf      time.Time
+	DueBefore time.Time
 }
 
 // ShedProjectionRecomputeResult reports what a shed-projection recompute committed: the new (now serving)

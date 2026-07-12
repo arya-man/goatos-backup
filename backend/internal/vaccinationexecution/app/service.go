@@ -55,7 +55,7 @@ func (s *Service) VaccinationExecutionPage(ctx context.Context, q domain.Executi
 		}
 		next = &encoded
 	}
-	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next}, nil
+	return domain.ExecutionResponse{Source: domain.SourceAPI, Rows: rows, TotalCount: page.TotalCount, NextCursor: next, Freshness: page.Freshness}, nil
 }
 
 func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (domain.ShedDrilldown, bool, error) {
@@ -675,6 +675,12 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 		Source: domain.SourceAPI,
 		Rows:   rows,
 		Page:   domain.PageInfo{Total: total, Limit: limit, Offset: offset},
+		Freshness: func() *domain.ProjectionFreshness {
+			if len(projections) > 0 {
+				return projections[0].Freshness
+			}
+			return nil
+		}(),
 	}, nil
 }
 
@@ -685,11 +691,12 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 // not an active shed. The per-shed animal roster is a separate keyset endpoint (ShedAnimals).
 func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.OperationsQuery) (domain.ShedDetailResponse, bool, error) {
 	projections, err := s.repo.ShedSummary(ctx, domain.ShedSummaryQuery{
-		TenantID:  q.TenantID,
-		ShedID:    &shedID,
-		AsOf:      q.AsOf,
-		DueBefore: q.DueBefore,
-		Limit:     1,
+		TenantID:       q.TenantID,
+		ShedID:         &shedID,
+		AsOf:           q.AsOf,
+		DueBefore:      q.DueBefore,
+		HistoricalAsOf: q.HistoricalAsOf,
+		Limit:          1,
 	})
 	if err != nil {
 		return domain.ShedDetailResponse{}, false, err

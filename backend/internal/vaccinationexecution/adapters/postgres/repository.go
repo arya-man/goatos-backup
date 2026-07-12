@@ -36,9 +36,10 @@ func authorizedParkFilter(ctx context.Context, tenantID string) []string {
 }
 
 const (
-	defaultQueryTimeout     = 3 * time.Second
-	defaultClosedHistoryAge = 14 * 24 * time.Hour
-	defaultExecutionHorizon = 30 * 24 * time.Hour
+	defaultQueryTimeout             = 3 * time.Second
+	defaultClosedHistoryAge         = 14 * 24 * time.Hour
+	defaultExecutionHorizon         = 30 * 24 * time.Hour
+	maxVaccinationProjectionLiveLag = 5 * time.Minute
 )
 
 type Repository struct {
@@ -74,7 +75,6 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	if q.WorkState != nil {
 		workState = string(*q.WorkState)
 	}
-	closedAfter := asOf.Add(-defaultClosedHistoryAge)
 	parkID := ""
 	if q.ParkID != nil {
 		parkID = *q.ParkID
@@ -96,11 +96,23 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 		cursorDueMicros = q.Cursor.SortDueMicros
 		cursorRowKey = q.Cursor.SortRowKey
 	}
-	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL, q.TenantID, parkID, shedID, q.DueBefore, q.Limit, workState, asOf, closedAfter, severity, cursorPresent, cursorRank, cursorDueMicros, cursorRowKey)
+	servingVersion, freshness, ok := r.servingExecutionProjectionVersion(ctx, q.TenantID, asOf, q.DueBefore, q.HistoricalAsOf)
+	if !ok {
+		return domain.ExecutionProjectionPage{}, domain.ErrProjectionUnavailable
+	}
+	rows, err := r.pool.Query(ctx, vaccinationExecutionProjectionReadSQL,
+		q.TenantID, servingVersion, parkID, shedID, workState, severity,
+		cursorPresent, cursorRank, cursorDueMicros, cursorRowKey, q.Limit)
 	if err != nil {
 		return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: list vaccination execution: %w", err)
 	}
 	defer rows.Close()
+	page, err := scanExecutionProjectionPage(rows, q.Limit)
+	page.Freshness = freshness
+	return page, err
+}
+
+func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProjectionPage, error) {
 	out := []domain.ExecutionProjection{}
 	var totalCount int64
 	for rows.Next() {
@@ -189,12 +201,163 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 		return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: iterate vaccination execution: %w", err)
 	}
 	var next *domain.ExecutionCursor
-	if len(out) > q.Limit {
-		out = out[:q.Limit]
+	if len(out) > limit {
+		out = out[:limit]
 		last := out[len(out)-1]
 		next = &domain.ExecutionCursor{SortRank: last.SortRank, SortDueMicros: last.SortDueMicros, SortRowKey: last.SortRowKey}
 	}
 	return domain.ExecutionProjectionPage{Rows: out, TotalCount: totalCount, NextCursor: next}, nil
+}
+
+const executionProjectionBuildRowBudget = 1_000_000
+
+// RecomputeExecutionProjection runs the canonical point-in-time replay once, off-request, and atomically
+// publishes a versioned row set. Request serving never invokes vaccinationExecutionSQL.
+func (r *Repository) RecomputeExecutionProjection(ctx context.Context, req domain.ExecutionProjectionRecomputeRequest) (result domain.ExecutionProjectionRecomputeResult, retErr error) {
+	tenantID := strings.TrimSpace(req.TenantID)
+	if tenantID == "" {
+		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: tenant id is required")
+	}
+	asOf := req.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	dueBefore := req.DueBefore
+	if dueBefore.IsZero() {
+		dueBefore = asOf.Add(defaultExecutionHorizon)
+	}
+	closedAfter := asOf.Add(-defaultClosedHistoryAge)
+	defer func() {
+		if retErr != nil {
+			r.markExecutionProjectionFailed(tenantID, asOf, dueBefore, closedAfter, retErr)
+		}
+	}()
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 86168))`, tenantID); err != nil {
+		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: lock: %w", err)
+	}
+	var version int64
+	var projectedAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT (extract(epoch FROM clock_timestamp())*1000000)::bigint, clock_timestamp()`).Scan(&version, &projectedAt); err != nil {
+		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: stamp: %w", err)
+	}
+	rawRows, err := tx.Query(ctx, vaccinationExecutionSQL, tenantID, "", "", dueBefore,
+		executionProjectionBuildRowBudget, "", asOf, closedAfter, "", false, 0, int64(0), "")
+	if err != nil {
+		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: replay: %w", err)
+	}
+	page, err := scanExecutionProjectionPage(rawRows, executionProjectionBuildRowBudget)
+	rawRows.Close()
+	if err != nil {
+		return domain.ExecutionProjectionRecomputeResult{}, err
+	}
+	if page.NextCursor != nil {
+		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: row budget %d exhausted", executionProjectionBuildRowBudget)
+	}
+	columns := []string{
+		"tenant_id", "projection_version", "park_id", "park_name", "shed_id", "shed_name", "animal_stage",
+		"batch_id", "protocol_name", "dose_code", "due_at", "obligation_count", "scheduled_count", "due_count",
+		"in_progress_count", "completed_count", "missed_count", "deferred_count", "canceled_count",
+		"completion_recorded", "completion_accepted", "completion_rejected", "completion_reversed", "batch_status",
+		"task_state", "operator_name", "park_head_name", "verifier_name", "usable_for_vaccination", "is_quarantine",
+		"is_icu", "health_deferred_count", "obligation_id", "sop_task_id", "sop_version_id", "sop_task_row_version",
+		"completion_id", "work_state", "severity", "sort_rank", "sort_due_micros", "sort_row_key", "projected_at",
+	}
+	copyRows := make([][]any, 0, len(page.Rows))
+	for _, p := range page.Rows {
+		copyRows = append(copyRows, []any{
+			tenantID, version, p.ParkID, p.ParkName, p.ShedID, p.ShedName, p.AnimalStage, p.BatchID,
+			p.ProtocolName, p.DoseCode, p.DueAt, p.ObligationCount, p.ScheduledCount, p.DueCount,
+			p.InProgressCount, p.CompletedCount, p.MissedCount, p.DeferredCount, p.CanceledCount,
+			p.CompletionRecorded, p.CompletionAccepted, p.CompletionRejected, p.CompletionReversed,
+			p.BatchStatus, p.TaskState, p.OperatorName, p.ParkHeadName, p.VerifierName, p.UsableForVaccination,
+			p.IsQuarantine, p.IsICU, p.HealthDeferredCount, p.ObligationID, p.SOPTaskID, p.SOPVersionID,
+			p.SOPTaskRowVersion, p.CompletionID, string(p.WorkState), executionSeverity(p.WorkState), p.SortRank,
+			p.SortDueMicros, p.SortRowKey, projectedAt,
+		})
+	}
+	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"vaccination_execution_projection_rows"}, columns, pgx.CopyFromRows(copyRows)); err != nil {
+		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: copy rows: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO vaccination_execution_projection_state
+  (tenant_id,projection_version,serving_projection_version,projected_at,as_of,due_before,closed_after,row_count,freshness_status,serving_state,last_error,updated_at)
+VALUES ($1::uuid,$2,$2,$3,$4,$5,$6,$7,'green','fresh',NULL,now())
+ON CONFLICT (tenant_id) DO UPDATE SET
+  projection_version=EXCLUDED.projection_version, serving_projection_version=EXCLUDED.serving_projection_version,
+  projected_at=EXCLUDED.projected_at, as_of=EXCLUDED.as_of, due_before=EXCLUDED.due_before,
+  closed_after=EXCLUDED.closed_after, row_count=EXCLUDED.row_count, freshness_status='green',
+  serving_state='fresh', last_error=NULL, updated_at=now()`, tenantID, version, projectedAt, asOf, dueBefore, closedAfter, len(page.Rows)); err != nil {
+		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: publish: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: commit: %w", err)
+	}
+	committed = true
+	if err := r.pruneOldExecutionProjectionRows(ctx, tenantID, version); err != nil {
+		return domain.ExecutionProjectionRecomputeResult{}, err
+	}
+	return domain.ExecutionProjectionRecomputeResult{TenantID: tenantID, ProjectionVersion: version, ProjectedAt: projectedAt, AsOf: asOf, Rows: int64(len(page.Rows))}, nil
+}
+
+func (r *Repository) markExecutionProjectionFailed(tenantID string, asOf, dueBefore, closedAfter time.Time, cause error) {
+	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
+	defer cancel()
+	message := cause.Error()
+	if len(message) > 2000 {
+		message = message[:2000]
+	}
+	_, _ = r.pool.Exec(ctx, `
+INSERT INTO vaccination_execution_projection_state
+  (tenant_id,projection_version,serving_projection_version,projected_at,as_of,due_before,closed_after,row_count,freshness_status,serving_state,last_error,updated_at)
+VALUES ($1::uuid,0,NULL,now(),$2,$3,$4,0,'red','failed',$5,now())
+ON CONFLICT (tenant_id) DO UPDATE SET freshness_status='red',
+  serving_state=CASE WHEN vaccination_execution_projection_state.serving_projection_version IS NULL THEN 'failed' ELSE 'stale' END,
+  last_error=EXCLUDED.last_error,updated_at=now()`, tenantID, asOf, dueBefore, closedAfter, message)
+}
+
+func (r *Repository) pruneOldExecutionProjectionRows(ctx context.Context, tenantID string, servingVersion int64) error {
+	for batch := 0; batch < 1000; batch++ {
+		tag, err := r.pool.Exec(ctx, `
+WITH doomed AS (
+  SELECT tenant_id,projection_version,sort_row_key
+  FROM vaccination_execution_projection_rows
+  WHERE tenant_id=$1::uuid AND projection_version<>$2::bigint
+  ORDER BY projection_version,sort_row_key LIMIT 5000
+)
+DELETE FROM vaccination_execution_projection_rows rows USING doomed
+WHERE rows.tenant_id=doomed.tenant_id AND rows.projection_version=doomed.projection_version
+  AND rows.sort_row_key=doomed.sort_row_key`, tenantID, servingVersion)
+		if err != nil {
+			return fmt.Errorf("vaccination execution projection: prune: %w", err)
+		}
+		if tag.RowsAffected() < 5000 {
+			return nil
+		}
+	}
+	return fmt.Errorf("vaccination execution projection: prune batch budget exhausted")
+}
+
+func executionSeverity(state domain.WorkState) string {
+	switch state {
+	case domain.WorkStateCompleted:
+		return "ok"
+	case domain.WorkStateScheduled, domain.WorkStateDue, domain.WorkStateInProgress, domain.WorkStateDeferred, domain.WorkStateVerificationPending:
+		return "watch"
+	case domain.WorkStateProofPending, domain.WorkStateOverdue, domain.WorkStateMissed:
+		return "at_risk"
+	default:
+		return "broken"
+	}
 }
 
 // VaccinationOperations returns one row per cohort (park · shed · stage) × vaccination protocol, with the
@@ -395,6 +558,56 @@ func int32Ptr(v pgtype.Int4) *int32 {
 	i := v.Int32
 	return &i
 }
+
+func (r *Repository) servingExecutionProjectionVersion(ctx context.Context, tenantID string, asOf, dueBefore time.Time, historical bool) (int64, *domain.ProjectionFreshness, bool) {
+	var version int64
+	var projectedAt, projectedAsOf time.Time
+	var status string
+	err := r.pool.QueryRow(ctx, `
+SELECT serving_projection_version,projected_at,as_of,freshness_status
+FROM vaccination_execution_projection_state
+WHERE tenant_id=$1::uuid
+  AND serving_projection_version IS NOT NULL
+  AND serving_state IN ('fresh','stale','rebuilding')
+  AND (
+    ($4::boolean AND as_of=$2::timestamptz AND due_before=$3::timestamptz)
+    OR
+    (NOT $4::boolean AND as_of <= $2::timestamptz
+      AND $2::timestamptz-as_of <= $5::interval
+      AND (as_of AT TIME ZONE 'Asia/Kolkata')::date=($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+      AND (due_before AT TIME ZONE 'Asia/Kolkata')::date=($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date)
+  )`, tenantID, asOf, dueBefore, historical, maxVaccinationProjectionLiveLag.String()).Scan(&version, &projectedAt, &projectedAsOf, &status)
+	if err != nil || version <= 0 {
+		return 0, nil, false
+	}
+	lag := asOf.Sub(projectedAsOf)
+	if lag < 0 {
+		lag = 0
+	}
+	return version, &domain.ProjectionFreshness{ProjectionVersion: version, ProjectedAt: projectedAt, AsOf: projectedAsOf, Status: status, LagSeconds: int64(lag.Seconds())}, true
+}
+
+const vaccinationExecutionProjectionReadSQL = `
+WITH filtered AS (
+  SELECT rows.*, COUNT(*) OVER()::bigint AS total_count
+  FROM vaccination_execution_projection_rows rows
+  WHERE tenant_id=$1::uuid AND projection_version=$2::bigint
+    AND ($3::text='' OR park_id=$3::text)
+    AND ($4::text='' OR shed_id=$4::text)
+    AND ($5::text='' OR work_state=$5::text)
+    AND ($6::text='' OR severity=$6::text)
+)
+SELECT park_id, park_name, shed_id, shed_name, animal_stage, batch_id, protocol_name, dose_code,
+  due_at, obligation_count, scheduled_count, due_count, in_progress_count, completed_count,
+  missed_count, deferred_count, canceled_count, completion_recorded, completion_accepted,
+  completion_rejected, completion_reversed, batch_status, task_state, operator_name, park_head_name,
+  verifier_name, usable_for_vaccination, is_quarantine, is_icu, health_deferred_count, obligation_id,
+  sop_task_id, sop_version_id, sop_task_row_version, completion_id, work_state, total_count,
+  sort_rank, sort_due_micros, sort_row_key
+FROM filtered
+WHERE NOT $7::boolean OR (sort_rank,sort_due_micros,sort_row_key) > ($8::int,$9::bigint,$10::text)
+ORDER BY sort_rank,sort_due_micros,sort_row_key
+LIMIT ($11::int+1);`
 
 // vaccinationExecutionSQL is point-in-time correct as of $7 (as_of): completions are bounded by as_of and
 // the obligation bucket is reconstructed AT as_of (completed via completed_at/as_of-bounded completion;
@@ -1436,75 +1649,7 @@ func (r *Repository) CapacityConfig(ctx context.Context, tenantID string) (domai
 // and status filters page correctly), filtered + offset-paginated, each row carrying the window total.
 // Manager/Backup are attached later by the service.
 func (r *Repository) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
-	cfg, err := r.CapacityConfig(ctx, q.TenantID)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	limit := q.Limit
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
-	}
-	offset := q.Offset
-	if offset < 0 {
-		offset = 0
-	}
-	asOf := q.AsOf
-	if asOf.IsZero() {
-		asOf = time.Now().In(biztime.DefaultLocation())
-	}
-	dueBefore := q.DueBefore
-	if dueBefore.IsZero() {
-		dueBefore = asOf.Add(defaultExecutionHorizon)
-	}
-	status := ""
-	if q.Status != nil {
-		status = string(*q.Status)
-	}
-	capacity := ""
-	if q.Capacity != nil {
-		capacity = string(*q.Capacity)
-	}
-	query := strings.Replace(shedSummarySQL, "__ORDER_BY__", shedSummaryOrderBy(q.Sort), 1)
-	rows, err := r.pool.Query(ctx, query,
-		q.TenantID, asOf, dueBefore, optStr(q.ParkID), optStr(q.ShedID), optStr(q.Search),
-		status, capacity, cfg.MaxPerDay, cfg.MaxBufferDays, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("vaccination execution: shed summary: %w", err)
-	}
-	defer rows.Close()
-	out := []domain.ShedSummaryProjection{}
-	for rows.Next() {
-		var row domain.ShedSummaryProjection
-		var animals, due, openCells, sessions, total int64
-		var capacityStatus, shedStatus string
-		var lastDone, nextDue pgtype.Timestamptz
-		if err := rows.Scan(
-			&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName,
-			&animals, &due, &openCells, &sessions, &capacityStatus, &shedStatus,
-			&lastDone, &nextDue, &total,
-		); err != nil {
-			return nil, fmt.Errorf("vaccination execution: scan shed summary: %w", err)
-		}
-		row.Animals = int(animals)
-		row.DueAnimals = int(due)
-		row.OpenCells = int(openCells)
-		row.Sessions = int(sessions)
-		row.Capacity = domain.CapacityStatus(capacityStatus)
-		row.Status = domain.ShedStatus(shedStatus)
-		row.LastDone = timePtr(lastDone)
-		row.NextDue = timePtr(nextDue)
-		row.TotalCount = int(total)
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("vaccination execution: iterate shed summary: %w", err)
-	}
-	return out, nil
+	return r.listShedProjection(ctx, q)
 }
 
 // shedSummarySQL rolls the per-obligation as-of reconstruction up to ONE row per active shed with

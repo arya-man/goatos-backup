@@ -1,4 +1,4 @@
-# vaccinationexecution shed read model (C35-002, vaccinationexecution half)
+# vaccinationexecution CQRS read models (C35-002)
 
 ## Defect
 
@@ -19,14 +19,16 @@ indexed lookup against a materialized row.
 `processintegrity` already solved the equivalent problem for Action Center / Protocol Adherence
 (`process_integrity_projection_rows` / `process_integrity_projection_state`, migrations 000159 +
 000160, `RecomputeProjection` in `backend/internal/processintegrity/adapters/postgres/repository.go`).
-This change ports the same shape to the `ShedSummary` half of vaccinationexecution.
+This series ports the same shape to `ShedSummary` and `ListVaccinationExecutionPage`.
 
 ## What landed in this change (scoped increment, option b)
 
-1. **Zero request-path behavior change.** `ShedSummary` / `GET /vaccination/sheds` is untouched:
-   it still reads the live `shedSummarySQL` CTE in `repository.go`, still honors `as_of`, and its
-   god-cte baseline entry is unchanged. This document does not close C35-002; it lands the
-   infrastructure the follow-up flip needs.
+1. **Projection-only request paths.** `GET /vaccination/sheds` and `GET /vaccination/execution`
+   read versioned projection tables through indexed filters/keysets. Missing, stale, or incompatible
+   snapshots return retryable `projection_unavailable`; neither endpoint falls back to a live CTE.
+   Responses carry projection version, projected/as-of instants, status, and lag seconds. Explicit
+   historical `as_of` reads require an exact matching snapshot; live reads accept at most five minutes
+   of lag within matching `Asia/Kolkata` business-date horizon buckets.
 2. **Read-model tables** (`backend/migrations/postgres/000167_vaccination_shed_projection.sql`):
    - `vaccination_shed_projection_rows` — one row per (tenant, projection_version, shed), holding
      exactly the fields `domain.ShedSummaryProjection` needs (park/shed identity, `Animals`,
@@ -80,19 +82,11 @@ This change ports the same shape to the `ShedSummary` half of vaccinationexecuti
      existing `RecomputeProjection` (process-integrity) call — the deploy-seed population step, so
      a freshly seeded environment does not start with a cold shed projection.
 
-## Explicitly NOT done here (follow-up)
+## Explicitly not complete
 
-`ShedSummary` does **not** read `vaccination_shed_projection_rows` yet. Flipping the request path
-is a separate, later change, gated on:
-
-- the scheduled `vaccination-shed-projection-recompute` Cloud Run Job actually running for a
-  sustained period in an environment (so the projection is never cold on first flip);
-- a decision on the read-time fallback behavior when a tenant has no serving projection version
-  yet (processintegrity's answer was `domain.ErrProjectionUnavailable` — refuse the live CTE
-  fallback rather than silently reintroducing the god-CTE on the request path; the same call needs
-  to be made explicitly for `ShedSummary` before the flip, not inherited by default); and
-- re-running the parity test against real seeded/staging data volumes, not only the unit fixture,
-  immediately before the cutover.
-
-Until that follow-up lands, `ShedSummary` remains the one and only serving path for
-`GET /vaccination/sheds`, and the god-cte baseline entry for this file stays as-is.
+- `VaccinationOperations` remains compute-on-read until migration 000169 and its request flip land.
+- The current projector is a full-tenant off-request repair/rebuild, maintained by the scheduled
+  vaccination projector/sweeper. This removes latency from requests but is **not** the final 1M steady
+  state. A durable dirty-scope queue and bounded tenant/park/shed/date shard worker with checkpoint,
+  retry, and DLQ state must make scoped incremental refresh the normal path; full rebuild then becomes
+  repair only. Do not certify C35-002 or 1M readiness until that worker and staging cardinality proof land.

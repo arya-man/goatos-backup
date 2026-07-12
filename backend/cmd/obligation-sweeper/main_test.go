@@ -1,11 +1,43 @@
 package main
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/app"
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
+	vaccexecdomain "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
+
+type fakeVaccinationProjectionRefresher struct {
+	shedReq      vaccexecdomain.ShedProjectionRecomputeRequest
+	executionReq vaccexecdomain.ExecutionProjectionRecomputeRequest
+}
+
+func (f *fakeVaccinationProjectionRefresher) RecomputeShedProjection(_ context.Context, req vaccexecdomain.ShedProjectionRecomputeRequest) (vaccexecdomain.ShedProjectionRecomputeResult, error) {
+	f.shedReq = req
+	return vaccexecdomain.ShedProjectionRecomputeResult{Rows: 2}, nil
+}
+
+func (f *fakeVaccinationProjectionRefresher) RecomputeExecutionProjection(_ context.Context, req vaccexecdomain.ExecutionProjectionRecomputeRequest) (vaccexecdomain.ExecutionProjectionRecomputeResult, error) {
+	f.executionReq = req
+	return vaccexecdomain.ExecutionProjectionRecomputeResult{Rows: 3}, nil
+}
+
+func TestScheduledSweeperRefreshesVaccinationReadModelsWithOneAsOf(t *testing.T) {
+	asOf := time.Date(2026, 7, 12, 21, 0, 0, 0, time.FixedZone("IST", 5*60*60+30*60))
+	fake := &fakeVaccinationProjectionRefresher{}
+	if err := refreshVaccinationReadModels(context.Background(), fake, "tenant-1", asOf); err != nil {
+		t.Fatal(err)
+	}
+	if fake.shedReq.TenantID != "tenant-1" || !fake.shedReq.AsOf.Equal(asOf) || !fake.shedReq.DueBefore.Equal(asOf.Add(30*24*time.Hour)) {
+		t.Fatalf("shed refresh request = %#v", fake.shedReq)
+	}
+	if !fake.executionReq.AsOf.Equal(fake.shedReq.AsOf) || !fake.executionReq.DueBefore.Equal(fake.shedReq.DueBefore) {
+		t.Fatalf("execution refresh request=%#v shed=%#v", fake.executionReq, fake.shedReq)
+	}
+}
 
 // TestActorIDAlwaysRequired verifies that the worker cannot start without its
 // audited task-creator identity. SOP bindings are normally discovered from the
