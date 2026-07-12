@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 )
@@ -41,7 +40,6 @@ type ProcessedEvent struct {
 	SubscriptionID  string
 	MessageID       string
 	DeliveryAttempt int
-	ClaimToken      string
 	Now             time.Time
 }
 
@@ -182,7 +180,6 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 		SubscriptionID:  firstNonEmpty(subscriptionID, "direct"),
 		MessageID:       message.ID,
 		DeliveryAttempt: message.DeliveryAttempt,
-		ClaimToken:      uuid.NewString(),
 		Now:             s.now().UTC(),
 	}
 	if s.processedStore != nil {
