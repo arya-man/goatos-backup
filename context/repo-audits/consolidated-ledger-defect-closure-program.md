@@ -9,7 +9,7 @@ counts as fixed**.
 ## Small Prompt for a New Session
 
 ```text
-Execute the consolidated ledger-closure program as coordinator. Parallelize only independent findings. For every fix, commit real-flow E2E, shared Claude/Codex anti-pattern rules, mechanical guards/self-tests, and required CI—nothing memory-only. Counter-review, update the one ledger, then push the fully gated result with git mesha-push main. Do not merge stg or deploy.
+Run the entire consolidated ledger-closure program from current main as a persistent coordinator. Treat the committed C35-010 counter-review override as the mandatory first repair, reconstruct the live tally, then continue P0→P3 through every remaining or falsely closed row; never stop after one fix and never ask me for per-row review. Parallelize only independent clusters. For every fix, commit real-flow E2E, shared Claude/Codex rules, mechanical guards/self-tests, required CI, current-SHA proof, and internal counter-review; update the one ledger and immediately take the next row. If one row is blocked, record hard evidence and continue all other work. Stop only when zero fixable rows remain and the full integrated gate passes. Then integrate and push the exact tested HEAD to main with git mesha-push main, verify origin/main and required current-SHA CI, and give me one final whole-ledger report with fixed, genuinely blocked, and zero improperly closed rows. Do not merge stg or deploy.
 ```
 
 `AGENTS.md` routes that prompt to this file and the live ledger. Never copy the
@@ -49,6 +49,82 @@ competing truth or overlapping edits:
 8. Pushing `main` advances the head of the existing `main -> stg` PR. Do not
    merge that PR or deploy to staging/production without a separate explicit
    instruction.
+
+## Persistent Whole-Ledger Terminal Condition
+
+This is one continuing closure job, not one task per finding. The coordinator
+must keep selecting and fixing the next highest-priority unblocked root until
+the terminal condition below is satisfied:
+
+1. Do not return control merely because one row was fixed, committed, pushed,
+   countered, or blocked. Update the ledger, then immediately continue with the
+   next row.
+2. Do not request maintainer review between rows. Use independent worker/counter
+   agents internally and reserve the maintainer's review for one final integrated
+   whole-ledger result.
+3. A blocked row does not stop the program. Record the exact external blocker,
+   preserve the strongest proof, and continue every other independent row.
+   Missing local tooling is not automatically an external blocker: install or
+   repair reproducible repo tooling when safe, use another clean worktree, or
+   run the committed CI/device/environment path before declaring it blocked.
+4. Context compaction, agent completion, token limits, and session continuation
+   are resumptions, not terminal states. Reconstruct from Git plus the canonical
+   ledger and continue without replaying completed work.
+5. A row marked fixed but challenged by counter-review is reopened immediately;
+   its attempted patch stays in the integration history only if it is safe, and
+   the coordinator repairs the surviving path before moving on.
+6. Stop only when all of the following are simultaneously true:
+   - zero fixable rows remain;
+   - every remaining blocked row has reproducible hard external evidence and no
+     independent work remains;
+   - all accepted fixes are integrated on one clean HEAD with current-SHA proof;
+   - the full applicable backend, SQL, API, admin-web, Android, architecture,
+     scale, performance, memory, retry, security, E2E, guard, and CI gates pass;
+   - the canonical ledger counts and proof packets are mechanically reconciled;
+   - one final independent whole-ledger counter-review is ready.
+7. After that terminal gate, integrate the exact tested HEAD onto latest
+   `main`, publish with `git mesha-push main`, verify `origin/main` resolves to
+   the intended SHA, and require the current-SHA GitHub checks to execute and
+   pass. Only then return one final report to the maintainer. The report must
+   state fixed, genuinely externally blocked, reopened/regressed, and improperly
+   closed counts; the last category must be zero. No per-row review request.
+
+## Mandatory First Repair: C35-010 Counter-Review Override
+
+At `main` SHA `fe5f3188`, Codex counter-review rejected the claimed C35-010
+closure. Until the surviving paths below are repaired with current-SHA proof,
+the live starting tally is **40 open (2 P0, 19 P1, 15 P2, 4 P3)**, not 39:
+
+1. **P0 lifecycle survivor:** `goatMatchesEligibility` checks a normal authored
+   `lifecycle=alive` selector before calling `deferredReason`, so an in-care goat
+   represented as `lifecycle_status=sick|under_treatment|quarantine|icu` is
+   excluded instead of receiving a visible deferred obligation. The repository
+   deliberately returns these lifecycle rows, and the old lifecycle test still
+   asserts exclusion. Compute the clinical defer decision before the lifecycle
+   rejection, while continuing to reject true exit states such as dead, sold,
+   culled, transferred, lost, merged, and inactive.
+2. **False-green guard:** `check-clinical-defer-states.mjs` scans each line
+   independently and only tracked backend Go/SQL. Multiline JSON, ordinary Go
+   `DeferStates` struct literals, TypeScript/config authoring, and the partial
+   authoritative mock escape it. Replace this with structured/whole-file
+   coverage of every authoring and seed surface; add adversarial self-tests for
+   those bypasses and make any exception require owner, issue, exact scope, and
+   expiry.
+3. **Incomplete closure proof:** replace the ledger's `<post-commit SHA>` and
+   pending peer-counter text with the real integrated SHA. Add production-shaped
+   HTTP/service-to-Postgres publish rejection E2E; the existing validator unit
+   and repository-direct Postgres setup do not prove the public publish flow.
+   Require actual current-SHA GitHub jobs/checks; an empty run/check list is not
+   green.
+
+C35-010 may close only after unit and real-Postgres tests use the canonical
+matrix selectors (`lifecycle=alive`, normal health targeting) and prove every
+clinical health/lifecycle/location representation becomes `deferred` with its
+status event, healthy remains scheduled, exit states remain excluded/canceled,
+the strengthened guard catches every bypass above, the live publish route
+rejects partial authoring, and independent counter-review passes. After closing
+it, immediately continue the rest of the ledger under the persistent terminal
+condition; do not return for maintainer review.
 
 ## 1. Start From Ground Truth
 
