@@ -62,22 +62,6 @@ locals {
         GOATOS_TENANT_ID = var.dev_tenant_id
       }
     }
-    vaccination_projection_worker = {
-      name                = "goatos-dev-vaccination-projection-worker"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/vaccination-projection-worker"]
-      args                = ["-timeout=4m", "-limit=100", "-lease-for=2m"]
-      timeout             = "300s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "* * * * *"
-      env = {
-        GOATOS_ENV                          = "dev"
-        GOATOS_ALLOW_DEV_CLOUDSQL_TARGET    = "true"
-        GOATOS_DEV_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
-        GOATOS_PG_QUERY_TIMEOUT             = "30s"
-      }
-    }
     obligation_sweeper = {
       name                = "goatos-dev-obligation-sweeper"
       service_account_key = "obligation_sweeper"

@@ -14,9 +14,14 @@ import (
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
-// This file owns the full repair/bootstrap projector for vaccination_shed_projection_rows/state.
-// ShedSummary serves only the indexed projection. Normal refresh is the dirty-scope shard worker in
-// dirty_projection.go; whole-tenant replay here is never the scheduled steady-state path.
+// This file is the projector half of C35-002 for vaccinationexecution: it builds and refreshes
+// vaccination_shed_projection_rows / vaccination_shed_projection_state (migration 000167) off the request
+// path. ShedSummary (repository.go) is now flipped to serve GET /vaccination/sheds exclusively from this
+// projection (an indexed tenant+projection_version lookup) -- the live compute-on-read god-CTE has been
+// removed from the request path. The scheduled recompute job (vaccination-shed-projection-recompute, run
+// every 5 minutes, mirroring process-integrity-projection-recompute) keeps this table fresh in each
+// environment; RecomputeShedProjection is the only writer.
+// See context/execution/vaccexec-readmodel-design.md for the full design + rollout plan.
 
 const (
 	defaultShedProjectionFresh   = 5 * time.Minute
@@ -75,7 +80,7 @@ func (r *Repository) RecomputeShedProjection(ctx context.Context, req domain.She
 	}()
 
 	if _, err := tx.Exec(ctx, vaccinationShedProjectionInsertSQL,
-		req.TenantID, asOf, dueBefore, cfg.MaxPerDay, cfg.MaxBufferDays, projectionVersion, projectedAt, nil); err != nil {
+		req.TenantID, asOf, dueBefore, cfg.MaxPerDay, cfg.MaxBufferDays, projectionVersion, projectedAt); err != nil {
 		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: insert rows: %w", err)
 	}
 
@@ -379,7 +384,6 @@ WITH alive AS (
     AND g.lifecycle_status = 'alive'
     AND g.merged_into_goat_id IS NULL
     AND g.shed_id IS NOT NULL
-    AND ($8::uuid[] IS NULL OR g.shed_id = ANY($8::uuid[]))
   GROUP BY g.shed_id
 ),
 completions AS (
@@ -450,7 +454,6 @@ raw AS (
     AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND oi.due_at <= $3::timestamptz
     AND g.shed_id IS NOT NULL
-    AND ($8::uuid[] IS NULL OR g.shed_id = ANY($8::uuid[]))
 ),
 effective AS (
   SELECT

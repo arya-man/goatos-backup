@@ -585,8 +585,9 @@ type ShedSummaryProjection struct {
 }
 
 // ShedProjectionRecomputeRequest asks the projector to rebuild the tenant's shed-wise vaccination read
-// model (vaccination_shed_projection_rows) from canonical obligation/goat/capacity tables. This is the
-// full repair/bootstrap operation; ShedSummary always reads the indexed projection.
+// model (vaccination_shed_projection_rows) from canonical obligation/goat/capacity tables. This runs OFF
+// the request path only (RecomputeShedProjection); ShedSummary itself still reads the live compute-on-read
+// CTE until the request path is explicitly flipped (C35-002 follow-up).
 type ShedProjectionRecomputeRequest struct {
 	TenantID  string
 	AsOf      time.Time

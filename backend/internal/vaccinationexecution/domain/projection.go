@@ -50,19 +50,3 @@ type OperationsProjectionRecomputeResult struct {
 	AsOf              time.Time
 	Rows              int64
 }
-
-type DirtyProjectionWorkerRequest struct {
-	WorkerID  string
-	Limit     int
-	LeaseFor  time.Duration
-	AsOf      time.Time
-	DueBefore time.Time
-}
-
-type DirtyProjectionWorkerResult struct {
-	Claimed      int
-	Completed    int
-	Retried      int
-	DeadLettered int
-	Tenants      int
-}
