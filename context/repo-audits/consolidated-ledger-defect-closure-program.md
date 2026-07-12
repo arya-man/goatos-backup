@@ -9,7 +9,7 @@ counts as fixed**.
 ## Small Prompt for a New Session
 
 ```text
-Execute the consolidated Goat OS ledger-closure program as coordinator. Parallelize only independent findings, integrate proof-backed fixes, enforce independent counter-review and the one ledger, then push the fully gated result to main with git mesha-push main. Do not merge main -> stg or deploy.
+Execute the consolidated ledger-closure program as coordinator. Parallelize only independent findings. For every fix, commit real-flow E2E, shared Claude/Codex anti-pattern rules, mechanical guards/self-tests, and required CI—nothing memory-only. Counter-review, update the one ledger, then push the fully gated result with git mesha-push main. Do not merge stg or deploy.
 ```
 
 `AGENTS.md` routes that prompt to this file and the live ledger. Never copy the
@@ -119,6 +119,31 @@ same class of defect from returning:
 6. Record the agent-rule change, guard, self-test, CI job, real-flow E2E command,
    artifact, and current SHA in the finding's proof packet. If a new guard is
    genuinely inapplicable, state the concrete reason instead of omitting it.
+
+## 2B. Committed Rule Durability Gate
+
+Chat, agent memory, local-only hooks, generated graphs, attachments, and
+uncommitted handoff notes are context, not durable Goat OS rules. Any reusable
+instruction discovered while fixing the ledger must land in Git in the same
+fix series:
+
+- always-on Claude + Codex working rules -> `AGENTS.md`; `CLAUDE.md` and
+  `CODEX.md` remain committed shims that both route to it;
+- review lenses and anti-pattern checklists ->
+  `.agents/skills/goatos-code-review/` and the applicable committed reference;
+- build and architecture execution rules -> `.agents/skills/goatos-build/`,
+  `context/`, or the authoritative ADR/TRD/runbook;
+- mechanical enforcement and adversarial self-tests -> `tools/agent-hooks/`
+  or the owning test package;
+- required merge gates -> `.github/workflows/` plus the matching local command
+  or Make target.
+
+Before declaring a finding fixed, the coordinator must prove every new rule,
+guard, self-test, and workflow is tracked (`git ls-files <path>`), present at
+the integrated HEAD (`git show HEAD:<path>`), and included in the current-SHA
+proof packet. If another fresh Claude or Codex session cannot discover and
+enforce the rule from a clean clone, the rule does not exist and the finding
+stays open.
 
 ## 3. Proof Packet Required Per Fix
 
