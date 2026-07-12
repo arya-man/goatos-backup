@@ -1232,7 +1232,8 @@ func (r *Repository) vaccineLotOptions(ctx context.Context, tenantID, batchID, s
 	// FEFO "not expired" is an India-business-day comparison, not the DB server's UTC CURRENT_DATE
 	// (a lot expiring today in Asia/Kolkata must not rank as usable past IST midnight). See
 	// GoatOS time semantics: derive the business day and pass it as a bound parameter.
-	bizToday := time.Now().In(biztime.DefaultLocation()).Format("2006-01-02")
+	businessDay := businessDateUTC(time.Now())
+	bizToday := businessDay.Format("2006-01-02")
 	rows, err := r.pool.Query(ctx, `
 WITH RECURSIVE chain AS (
   SELECT location_id, parent_location_id, 0 AS depth FROM locations
@@ -1278,7 +1279,7 @@ ORDER BY CASE WHEN s.status='active' AND s.quantity_in_stock>s.quantity_reserved
 		reason := ""
 		if status != "active" {
 			reason = "lot_" + status
-		} else if expiry.Valid && expiry.Time.Before(time.Now().UTC().Truncate(24*time.Hour)) {
+		} else if expiry.Valid && expiry.Time.Before(businessDay) {
 			reason = "lot_expired"
 		} else if available == "0" {
 			reason = "no_available_quantity"
@@ -1298,6 +1299,14 @@ ORDER BY CASE WHEN s.status='active' AND s.quantity_in_stock>s.quantity_reserved
 		source.DisabledReason = &reason
 	}
 	return source, rows.Err()
+}
+
+// businessDateUTC converts an instant to the India business-calendar date while
+// keeping a UTC location on the date-only value used by pgtype.Date. It lets SQL
+// ranking and response disabled-state checks share exactly one captured day.
+func businessDateUTC(now time.Time) time.Time {
+	businessNow := now.In(biztime.DefaultLocation())
+	return time.Date(businessNow.Year(), businessNow.Month(), businessNow.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func (r *Repository) routeSiteOptions(ctx context.Context, tenantID, batchID string) (domain.TaskOptionSource, error) {

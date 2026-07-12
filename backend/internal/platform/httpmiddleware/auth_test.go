@@ -432,7 +432,7 @@ func TestAuthFailsClosedForUnregisteredProtectedRoute(t *testing.T) {
 	assertAuthErrorCode(t, rec, "route_not_registered")
 }
 
-func TestCalendarRoutesMayUseScopedGrantsWithoutBroadeningOtherRoutes(t *testing.T) {
+func TestFieldRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T) {
 	scopedGrant := permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: "86000000-0000-4000-8000-000000000701"}
 	mw := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {scopedGrant}}})
 	calendarHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -450,8 +450,23 @@ func TestCalendarRoutesMayUseScopedGrantsWithoutBroadeningOtherRoutes(t *testing
 		t.Fatalf("calendar status=%d body=%s", calendarRec.Code, calendarRec.Body.String())
 	}
 
+	appHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		grants := AuthGrantsFromContext(r.Context())
+		if len(grants) != 1 || grants[0] != scopedGrant {
+			t.Fatalf("grants=%#v want scoped app vaccination grant", grants)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	appReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/55000000-0000-4000-8000-000000000001/roster", nil)
+	appReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	appRec := httptest.NewRecorder()
+	appHandler.ServeHTTP(appRec, appReq)
+	if appRec.Code != http.StatusNoContent {
+		t.Fatalf("app vaccination status=%d body=%s", appRec.Code, appRec.Body.String())
+	}
+
 	otherHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		t.Fatal("scoped grant should not authorize non-calendar route")
+		t.Fatal("scoped grant should not authorize admin vaccination route")
 	})))
 	otherReq := httptest.NewRequest(http.MethodGet, "/vaccination/operations", nil)
 	otherReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))

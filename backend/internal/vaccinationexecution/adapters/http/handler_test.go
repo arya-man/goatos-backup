@@ -299,8 +299,11 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body["taskId"] != taskID || body["nextCursor"] == "" {
+	if body["taskId"] != taskID || body["next_cursor"] == nil || body["next_cursor"] == "" {
 		t.Fatalf("response=%#v", body)
+	}
+	if _, ok := body["nextCursor"]; ok {
+		t.Fatalf("response contains stale camelCase cursor key: %#v", body)
 	}
 }
 
