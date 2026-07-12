@@ -1243,6 +1243,63 @@ Guardrail needed: Android integration test with a >2-page roster asserting every
 | Graph freshness gate | C35-021 | Compare graph SHA to HEAD and require full rebuild for structural-change threshold before architecture proof. |
 | Release-system availability monitor | C35-008, C35-009, C35-012 | Alert on startup failure/zero jobs; branch protection blocks missing checks; retain current-SHA evidence. |
 
+## 8A. Deferred Validation, CI, and Anti-Pattern Wave
+
+This backlog is deliberately **deferred until the root-bug closure wave finishes**. It records missing proof without spending the current bug-fix runway building a larger test platform. A fixed row stays fixed when its root behavior and focused regression proof are valid; the entries below state what is still *not certified*. Minimum regression proof for medical safety, authorization/data isolation, destructive logout, idempotency, and data-loss paths is never optional. Broader browser/device/load certification and generalized static rules may be completed later.
+
+### Proof still missing or incomplete on fixed rows
+
+| Fixed row | Proof already present | Deferred proof / guardrail debt |
+| --- | --- | --- |
+| C35-003 | Entrypoint fail-closed test, Terraform validation, deployment-shape guard | Run the deployed Cloud Run job shape with the real configured actor and prove task creation for a 1,000-batch page. |
+| C35-004 | Set-based real-Postgres creation, audit cardinality, replay without duplicates | Assert query/transaction count at 100/1,000 batches; inject crash/retry between task and audit work; record worker memory/deadline budgets. |
+| C35-007 | Migration/index drift checks and registered EXPLAIN-plan case | Execute with production-skewed 1M/5M data and enforce p95/p99, rows scanned, sort/spill, memory, and deadline thresholds on the same SHA. |
+| C35-008 | Android compile and unit gate, local JDK/SDK/emulator fallback | Add emulator instrumentation, Room migration tests, process-death/offline tests, baseline profile, macrobenchmark, Compose metrics, leak/heap/battery assertions, and low-end-device budgets. |
+| C35-010 | Clinical unit/real-Postgres matrix and HTTP -> service -> Postgres publish rejection | Remote current-SHA Actions evidence remains unavailable under C35-012; later add property/fuzz coverage for authoring permutations without weakening the existing medical E2E. |
+| C35-014 | Closed/open request-plan static regression and admin-web build/type gates | Browser/server E2E must count actual network requests with picker closed/open and prove complete month markers beyond one item page. |
+| C35-015 | O(1) service-call unit proof and real-Postgres latest-version batch query | Add HTTP/SSR browser E2E, response-byte/payload budgets, summary DTO enforcement, cursor pagination, and error/auth/empty behavior. Current `limit=200` full-version response is not certified. |
+| C35-016 | Whole-tree static fanout guard with owner/issue/reason/expiry exceptions | Replace/augment regex matching with syntax/AST or call-graph analysis, run runtime request/query-count assertions, and fail CI when exceptions expire. |
+| C35-020 | Honest ratchet output, production-worker scan, adversarial expiry/anonymous/new-debt tests | Burn 49 known offenders to zero by deadline, cover non-Go/SSR/mobile equivalents, and keep `RATCHET PASS` separate from actual 1M/5M scale certification. |
+| C35-023 | Cancellation, budget, and real-Postgres failure propagation tests | Run million-row prune, crash/restart/checkpoint/retry, last-known-good serving, durable progress, and observable metric/audit E2E. |
+| C35-025 | Real-Postgres visible-name keyset ordering and page continuity | Add HTTP -> generated client -> UI navigation with duplicate names, rename-between-pages, stale/legacy cursor handling, and no skip/duplicate assertions. |
+| FIXCHK-003 | Exact snake_case handler contract assertion and cursor decode | Add generated-client plus Android integration across more than two pages; reject camelCase-only, missing, stale, and non-advancing cursors end to end. |
+
+### Global validation/tooling debt discovered during closure
+
+| Deferred ID | Gap to close later | Required later outcome |
+| --- | --- | --- |
+| VAL-GAP-001 | `go test ./...` starts many Docker/Postgres packages concurrently; each reapplies all migrations and the local run hit Go's 10-minute package timeout. | Shard DB packages or bound package concurrency, isolate/reuse test databases safely, preserve per-package timeouts, and make the broad local gate deterministic instead of blank for ten minutes. |
+| VAL-GAP-002 | NEW-E2E-001: the batch-drive Control Tower story returns zero alert rows. | Fix the projector or stabilize the clock boundary, then keep the business-flow E2E deterministic. |
+| VAL-GAP-003 | C35-012: remote Actions may start zero jobs because of organization billing/platform state. | Monitor missing/startup-failed checks and retain local same-runner proof without treating remote unavailability as a reason to stop fixing product bugs. |
+| VAL-GAP-004 | Current scale guard still carries 49 time-bounded known offenders. | Track owner/issue/expiry burn-down and never label a ratchet pass as scale certification. |
+| VAL-GAP-005 | Static guards can miss aliases, dynamic calls, multiline syntax, generated clients, or a new source tree. | Add whole-tree coverage manifests, adversarial self-tests, AST/call-graph checks where practical, and fail on unowned/unexpired coverage exceptions. |
+| VAL-GAP-006 | Focused tests can mutate tracked HTML report artifacts during local execution. | Write reports to disposable output or restore/check them automatically so test execution never leaves a dirty tree or hides product diffs. |
+
+### Anti-pattern families to block in the later wave
+
+| Later rule family | Patterns to reject |
+| --- | --- |
+| Pagination and payload | Unpaginated production lists, oversized limits, full-detail DTOs in list responses, OFFSET on large tables, ignored/non-advancing/stale cursors, and bulk Room/network reads. Require bounded keyset pages, summary DTOs, byte budgets, and load-more/prefetch. |
+| Cross-boundary fanout | DB/API/network calls inside loops, maps, `Promise.all`, Compose/Flow collectors, worker pages, or sibling adapters. Require batch APIs plus runtime query/request-count budgets. |
+| Android source of truth | Screen powered directly by network or in-memory samples, whole-response JSON blobs, network continuation after Room writes, missing Room cursor/page ownership, and process-death data loss. Require network -> Room -> Flow -> UI, durable drafts/outbox, offline/error/empty truth, and principal-scoped storage. |
+| Logout and tenancy | Any app-owned DB row, file, preference, job, credential, navigation/singleton state, draft/outbox item, device/FCM binding, or cache surviving logout/account switch. Require wipe inventory plus offline restart proof. |
+| Lifecycle and memory | Unscoped flows, Main-thread decode/map, unkeyed dynamic lists, unbounded feeds/outboxes, leaked collectors/jobs, duplicate reads, unstable item identity, and missing heap/frame/scan-latency budgets. |
+| Reliability and replay | Swallowed errors, best-effort cleanup with no telemetry, side effects outside replay-safe boundaries, missing idempotency keys, retry storms, partial transactions, and non-durable progress. Require cancellation/fault injection and restart proof. |
+| Time and business semantics | UTC/device-locale decisions for India business dates, mixed time zones across SQL/API/UI, live-clock flaky tests, and unpinned boundary behavior. Require `Asia/Kolkata` contracts and frozen-clock matrices. |
+| Scale and database plans | Compute-on-read god queries, missing projection-unavailable behavior, unregistered EXPLAIN plans, sequential writes, broad scans/sorts, baselined debt presented as green, and reports detached from the tested SHA/data cardinality. |
+| E2E truthfulness | Static/grep/typecheck evidence presented as E2E, direct service calls bypassing HTTP/auth/DB, mock/sample rows, assertion on stale field names, skipped gates, and screenshots without business-chain state proof. |
+
+### Parallel execution contract for the later wave
+
+Most deferred testing can run in parallel **after a stable bug-fix batch lands**:
+
+- Backend/Postgres/fault-injection lane: C35-003/004/007/023/025 and VAL-GAP-002.
+- Admin-web/browser/request/payload lane: C35-014/015/016.
+- Android/emulator/Room/performance lane: C35-008, FIXCHK-003, and the remaining MOB rows.
+- CI/static-rule/scale lane: C35-020 and VAL-GAP-001/003/004/005/006.
+
+Agents must use isolated branches/worktrees and must not edit the shared ledger, `AGENTS.md`, Claude/Codex rules, or shared workflow files concurrently. One coordinator integrates those shared files sequentially, runs the combined gate **once per integrated batch**, records real failures, and pushes. Tests that depend on a changed API/schema must wait for that contract to land; browser/mobile E2E must wait for backend behavior to stabilize. This avoids rebuilding CI after every individual bug while still making the later guardrail wave exhaustive.
+
 ## 9. Final Summary Table
 
 The common ledger contains the original 40 counted findings plus NEW-E2E-001, discovered during closure gating: **41 tracked, 12 fixed with proof, 29 open**. FIXCHK-004 remains merged into C35-006/C35-018 and is not double-counted. Claude additions CL-001…003 remain countered; CL-004 survives open. Every retained row is peer-reconciled.
