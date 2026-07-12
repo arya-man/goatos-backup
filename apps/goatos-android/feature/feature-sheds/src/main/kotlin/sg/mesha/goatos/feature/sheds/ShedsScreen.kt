@@ -114,6 +114,12 @@ data class ShedRow(
     val progressLabel: String,
     val progressFraction: Float,
     val actionLabel: String? = null,
+    val shedId: String = id,
+    val driveId: String? = null,
+    val batchId: String? = null,
+    val taskId: String? = null,
+    val sopVersionId: String? = null,
+    val taskRowVersion: Int? = null,
 )
 
 /** Full screen state. Header fields + the shed list + optional roster/kernel context.

@@ -5,4 +5,6 @@
     <string name="scan_badge_two_tags">2 ట్యాగ్‌లు</string>
     <string name="scan_search_placeholder">RFID ట్యాగ్ కోసం వెతకండి…</string>
     <string name="scan_search_empty">సరిపోయే జంతువులు లేవు</string>
+    <string name="scan_load_more">మరిన్ని లోడ్ చేయండి</string>
+    <string name="scan_loading_more">లోడ్ అవుతోంది…</string>
 </resources>

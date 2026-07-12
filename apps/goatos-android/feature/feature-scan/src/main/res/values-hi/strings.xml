@@ -5,4 +5,6 @@
     <string name="scan_badge_two_tags">2 टैग</string>
     <string name="scan_search_placeholder">किसी भी RFID टैग को खोजें…</string>
     <string name="scan_search_empty">कोई मेल खाने वाले पशु नहीं</string>
+    <string name="scan_load_more">और लोड करें</string>
+    <string name="scan_loading_more">लोड हो रहा है…</string>
 </resources>

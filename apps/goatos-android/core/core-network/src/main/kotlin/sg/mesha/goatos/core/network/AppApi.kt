@@ -213,6 +213,8 @@ interface AppApi {
     /** GET /app/vaccination/execution/sheds/{shed_id}/roster — per-animal scan roster with RFID tags. */
     suspend fun getScanRoster(
         shedId: String,
+        taskId: String,
+        cursor: String? = null,
         limit: Int? = null,
     ): ScanRosterResponseDto
 
@@ -357,6 +359,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun getScanRoster(
         shedId: String,
+        taskId: String,
+        cursor: String?,
         limit: Int?,
     ): ScanRosterResponseDto = ScanRosterResponseDto(source = "fake", rows = emptyList())
 

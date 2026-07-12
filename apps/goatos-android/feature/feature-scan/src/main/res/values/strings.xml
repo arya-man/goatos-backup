@@ -6,4 +6,6 @@
     <string name="scan_badge_two_tags">2 tags</string>
     <string name="scan_search_placeholder">Search either RFID tag…</string>
     <string name="scan_search_empty">No matching animals</string>
+    <string name="scan_load_more">Load more</string>
+    <string name="scan_loading_more">Loading…</string>
 </resources>
