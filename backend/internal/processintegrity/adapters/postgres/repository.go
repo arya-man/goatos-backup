@@ -871,6 +871,12 @@ raw AS (
       -- pulled (even if old) to re-bucket; completed_at > as_of only matches historical as_of queries, so
       -- the common as_of = now path pulls no extra closed history.
       OR (oi.status = 'completed' AND oi.completed_at > $10::timestamptz)
+      -- A row completed within the closed-history window ending at as_of must also be pulled so a
+      -- just-completed alert shows as 'completed' even when its due_at is older than the window. The
+      -- recency key for completed work is completion time ($11 = as_of - closed-history-age), NOT due
+      -- date: a batch drive can finalize an obligation whose due_at is weeks old, and at as_of = now that
+      -- row would otherwise vanish from the projection entirely (NEW-E2E-001).
+      OR (oi.status = 'completed' AND oi.completed_at >= $11::timestamptz AND oi.completed_at <= $10::timestamptz)
     )
 ),
 located AS (

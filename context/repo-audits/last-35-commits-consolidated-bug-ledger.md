@@ -1,6 +1,8 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Current closure state after the counter-fix batch: **41 tracked, 12 fixed with proof, 29 open — 1 P0, 16 P1, 10 P2, 2 P3.** Fixed rows are C35-003/004/007/008/010/014/015/016/020/023/025 and FIXCHK-003. NEW-E2E-001 is an additional open P1, so it increases the tracked total from the original 40 to 41. C35-002, C35-005 and C35-013 remain explicitly partial/open; no partial is counted closed.
+> Current closure state after the counter-fix batch: **41 tracked, 13 fixed with proof, 28 open — 1 P0, 15 P1, 10 P2, 2 P3.** Fixed rows are C35-003/004/007/008/010/014/015/016/020/023/025, FIXCHK-003, and NEW-E2E-001. NEW-E2E-001 (the +1 that took the tracked total 40→41) is now FIXED with proof — a real projector defect, see its row. C35-002, C35-005 and C35-013 remain explicitly partial/open; no partial is counted closed.
+>
+> Closure detail (Claude, NEW-E2E-001 + the C35-015 gating pass): **NEW-E2E-001** — `TestKernelStoryC_BatchDriveVerifyControlTower` failed deterministically (control-tower alert row = 0); **ROOT-CAUSED + FIXED** — the projector's closed-history inclusion keyed recency off due-date not completion-time, so a near-now completion with an old due_at vanished from the projection; now green (`totalProjRows` 0→1, full `backend/tests/e2e/...` suite green). While gating **C35-015** on `make ci-local`, two PRE-EXISTING failures independent of C35-015 were also cleared: the stale sqlc schema snapshots (missing `herd_register_goat_projection_scope_idx`/`planned_batch_finalization_keyset_idx`) were regenerated + pushed → sqlc-check green; contract-drift was only a dirty-tree artifact (uncommitted generated client), green on commit.
 >
 > Counter-review correction: C35-003/004/007/014/016/020/023/025 were previously claimed fixed before their root paths or guards were complete. The candidate now repairs those surviving defects and adds focused adversarial/real-Postgres/plan proof. C35-015 is independently accepted as a valid closure of its exact N+1 finding; its endpoint still returns a bounded list of full version payloads and has no cursor, so this closure is **not** broader payload-size or pagination certification. C35-012 remains an open remote-release-availability finding, but it does not block local closure: hosted workflows and `make ci-local JOB=...` now invoke the same checked-in runner.
 >
@@ -1104,9 +1106,9 @@ Guardrail needed: Static lint for unkeyed dynamic items plus Compose test that i
 ID: NEW-E2E-001  
 Priority: P1  
 Title: Control-tower batch-drive kernel E2E fails deterministically (alert row = 0) on the current tip  
-Status: open  
+Status: FIXED + PUSHED (real projector root-cause fix)  
 Origin: found while gating C35-015 on `make ci-local` (surfaced by the go-test-./… gate)  
-Verdict: CONFIRMED (deterministic, pre-existing)  
+Verdict: CONFIRMED (deterministic, pre-existing) → ROOT-CAUSED + FIXED  
 Prior mapping: none — new  
 Layman explanation: A production-path kernel test that proves a batch vaccination drive raises exactly one control-tower alert now finds zero.  
 Evidence: `backend/tests/e2e/story_c_batch_drive_verify_test.go:236` — "Control tower alert clears / still exactly one control-tower row for this shed/rule/batch: FAILED (rows=0)". Reproduces in isolation on clean `4bc951d6` (`go test ./tests/e2e/ -run TestKernelStoryC_BatchDriveVerifyControlTower`, 5.27s). Proven independent of C35-015: `git diff 4bc951d6 HEAD --name-only` touches only SOP + sqlc-snapshot + admin-client files — zero processintegrity/control-tower/e2e/migration paths, so the E2E and its migration-built test DB are byte-identical to `4bc951d6`.  
@@ -1116,7 +1118,9 @@ Business impact: If real, batch-drive exceptions may not surface in Control Towe
 Root-cause-or-band-aid verdict: Unfixed — untouched by this pass, recorded honestly rather than silently absorbed.  
 E2E / guardrail status: RED on the current tip; blocks the ci-local go-test gate until triaged.  
 Fix sketch: Reproduce with a pinned clock; if time-sensitive, stabilize the assertion window; if the alert row is genuinely missing, trace the control-tower projector for batch-drive alerts.  
-Guardrail needed: Deterministic-clock harness for the kernel E2E so `now`-derived assertions are reproducible.
+Guardrail needed: Deterministic-clock harness for the kernel E2E so `now`-derived assertions are reproducible.  
+Root cause (found by instrumenting the projection at the failure point): NOT time-of-run flakiness — a real projector defect. The two verified obligations had `due_at = 2026-06-09` (~33 days before now) but `completed_at ≈ now`. The projector's closed-history inclusion window in `processIntegrityBaseSQL` (`backend/internal/processintegrity/adapters/postgres/repository.go`) keyed recency off the DUE date (`oi.due_at >= as_of - 14d`) plus a historical `oi.completed_at > as_of` branch. A row completed near-now but with a due_at older than the 14-day window matched neither branch, so the whole control-tower row vanished from the projection at `as_of = now` (`totalProjRows = 0` after the post-verify recompute). Pre-completion it projected fine because open/overdue rows are always included regardless of age.  
+Fix (pushed): add a branch that pulls completed rows recent by COMPLETION time within the closed-history window — `OR (oi.status = 'completed' AND oi.completed_at >= $11 AND oi.completed_at <= $10)` ($11 = as_of − closed-history-age, $10 = as_of). The read filter still gates these (`IncludeCompleted` / `due_at >= $11`), so default open-work views don't leak old completed rows; adherence completed-counts get more correct. Proof: `TestKernelStoryC_BatchDriveVerifyControlTower` now passes (`totalProjRows = 1`, work_state=completed, process_intact=true), full `internal/processintegrity/...` green (incl. real-Postgres integration), full e2e suite green.
 
 ### FIXCHK-001
 
