@@ -23,6 +23,14 @@ origin/main: c239fbc5 perf: enforce API latency ceilings
 branch anchor before this handoff commit: 695cfbb0
 ```
 
+> **Update 2026-07-12 (post-consolidation):** `origin/main` has since advanced to
+> `6d5e3202` — the analytics taxonomy merge (see §5), fast-forwarded on top of
+> `f85b612d`. This continuation branch was cut before that merge, so it is
+> **behind `main`** by those commits. Merge/rebase `origin/main` into this branch
+> before the next slice so the analytics work rides along, and do **not** reset
+> `main` back to `c239fbc5` — that would drop the already-merged analytics commit.
+> Local `main` already contains `6d5e3202`.
+
 Always re-run `git status`, `git fetch origin main`, and `git log` because the
 exact branch HEAD will include the handoff commit itself.
 
@@ -148,18 +156,24 @@ business-data retention rule. Actual scans/drafts/submissions stay durable.
 A clean separate worktree/branch exists:
 
 ```text
-/Users/ravi/mesha/.worktrees/goatos-analytics-rebuild
-agent/analytics-taxonomy-rebuild
-origin/agent/analytics-taxonomy-rebuild
-f9a4affb feat(android): mobile analytics event taxonomy + principal identity (noop-backed)
+origin/main:                             6d5e3202  (analytics MERGED — live on main)
+origin/agent/analytics-taxonomy-rebuild: f9a4affb  (pre-rebase preservation copy)
+worktree:                                /Users/ravi/mesha/.worktrees/goatos-analytics-rebuild
 ```
 
-It rebuilds the parked analytics WIP against the real `AnalyticsPort`, keeps the
-runtime binding no-op, and adds taxonomy/identity tests. It is pushed for
-preservation but not merged into the continuation branch. Review `f9a4affb`
-independently under the mobile,
-privacy, lifecycle, and external-egress gates; then cherry-pick only if approved.
-Firebase egress/setup remains a separately gated action.
+It rebuilds the parked analytics WIP against the **real** `AnalyticsPort`
+(`track` plus a new `setUserProperty`), adds the `AnalyticsEvents` taxonomy and
+`AnalyticsContext`, keeps the runtime binding no-op (real Firebase egress stays
+separately gated), and wires `GoatOsApplication` + `BootstrapViewModel` +
+`SessionViewModel`. Taxonomy/identity/sign-out tests plus the full `:app`
+dev-debug unit suite passed.
+
+**Status correction (2026-07-12):** contrary to the pre-consolidation note, this
+candidate was **approved by the maintainer and merged to `origin/main`** as
+`6d5e3202` (fast-forward `f85b612d..6d5e3202`), re-tested green on the rebased
+base first. `f9a4affb` on `origin/agent/analytics-taxonomy-rebuild` is the
+**pre-rebase preservation copy**, not an unmerged candidate — no cherry-pick is
+pending. The remaining analytics work is real Firebase egress, still gated.
 
 ## 6. Preserved unpublished evidence
 
