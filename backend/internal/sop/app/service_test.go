@@ -758,7 +758,10 @@ func TestListAgedFailedSubmissionFanoutsRejectsInvalidAge(t *testing.T) {
 // growing the SOP count does not add per-SOP detail calls (C35-015 — no list-then-N-details N+1). The
 // service must batch every listed SOP's latest version into a single LatestVersionsFor call.
 func TestListSOPsLoadsLatestVersionsInOneBatchCall(t *testing.T) {
-	for _, n := range []int{1, 50, 200} {
+	// The public list contract caps one keyset page at 100 rows. Exercise that
+	// maximum here; larger result sets continue through next_cursor rather than
+	// widening a single batch response.
+	for _, n := range []int{1, 50, 100} {
 		repo := newFakeRepo()
 		defs := make([]domain.SOPDefinition, n)
 		versions := make(map[string]domain.SOPVersion, n)
@@ -771,7 +774,7 @@ func TestListSOPsLoadsLatestVersionsInOneBatchCall(t *testing.T) {
 		repo.latestVersionsForResult = versions
 		service := NewService(repo)
 
-		resp, err := service.ListSOPs(context.Background(), ports.ListSOPsParams{TenantID: testTenantID, Limit: 200}, "trace")
+		resp, err := service.ListSOPs(context.Background(), ports.ListSOPsParams{TenantID: testTenantID, Limit: 100}, "trace")
 		if err != nil {
 			t.Fatalf("n=%d: ListSOPs error: %v", n, err)
 		}
