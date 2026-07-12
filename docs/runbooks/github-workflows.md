@@ -595,8 +595,9 @@ Publishes CI and E2E report categories to GitHub Pages as one combined site:
                       stories with direct derived-state seeding forbidden)
 /e2e-hrms-report/     HRMS roster/RBAC kernel-story E2E report
 /scale-audit-e2e-report/
-                      scale-audit fix E2E report plus the staging-certification
-                      boundary for the 1M gate
+                      scale-audit fix E2E report BOUND to current-SHA latency
+                      gates; shows VERIFIED only when gates pass, UNVERIFIED
+                      when gates have not run, FAILED when gates fail
 ```
 
 Runs on:
@@ -604,13 +605,14 @@ Runs on:
 ```text
 push to main touching apps/goatos-android/**, backend/tests/e2e/**,
   backend/internal/**, scale/perf/E2E report inputs, the nav-graph/gallery
-  generator scripts, AGENTS.md, or this workflow file
+  generator scripts, tools/ci/**, context/execution/**, AGENTS.md, or this
+  workflow file
 a daily cron at 03:00 UTC (the screenshot gallery and E2E report are meant
   to stay fresh even with no code change that day)
 workflow_dispatch (manual run from the Actions tab)
 ```
 
-Five report jobs plus one publisher:
+Six report jobs plus one publisher:
 
 ```text
 mobile-screenshots  installs a JDK + the Android SDK platform for
@@ -626,12 +628,48 @@ e2e-report           starts Docker-based ephemeral Postgres (same pgtest
 e2e-hrms-report      runs the HRMS roster/RBAC E2E harness and publishes the
                      generated story report
 scale-audit-e2e-report
-                     renders context/execution/scale-audit-fix-e2e-report-
-                     2026-07-11.md into a Pages category so local E2E proof
-                     and certification boundaries are visible in GitHub
+                     uses tools/ci/generate-scale-audit-report.py to render
+                     context/execution/scale-audit-fix-e2e-report-2026-07-11.md
+                     into a Pages category, binding the report to current-SHA
+                     latency gate artifacts (when/if they exist). Report shows:
+                     - UNVERIFIED (yellow) when no gates have run
+                     - VERIFIED (green) when all gates pass
+                     - FAILED (red) when any gate fails
 publish              downloads all report artifacts, assembles _site/ with a
                      linking index page, and deploys via actions/deploy-pages
 ```
+
+### Scale Audit E2E Report Certification
+
+The scale-audit-e2e-report job generates an HTML report that binds the
+scale-audit findings (local/backend E2E proof) to the results of the latency
+gates (api-latency-gate and process-integrity-latency-check) for the same
+commit SHA.
+
+**Certification states:**
+
+- **UNVERIFIED** (yellow): No latency gate artifacts found for this SHA.
+  The report explains the gates have not run. The markdown report content is
+  still published, but the report footer indicates the SHA is not certified.
+
+- **VERIFIED** (green): Latency gates ran and all passed for this SHA. The
+  report embeds gate results (p95 latency, check names, pass/fail status) and
+  shows the report as certified.
+
+- **FAILED** (red): Latency gates ran but at least one failed. The report
+  shows which endpoints/checks failed and does not certify the SHA.
+
+**Current behavior (July 2026):**
+
+Today the latency gates run only during staging certification, not on every
+CI push. So main branch scale-audit reports will show UNVERIFIED. This is
+correct: the report is bound to the real gates, not to a static markdown file.
+
+**Future behavior (when gates are automated):**
+
+When latency gates are wired into CI (a future feature), the scale-audit job
+will consume their outputs and the report will automatically show VERIFIED or
+FAILED for each commit.
 
 **One-time repo setting required**: Settings -> Pages -> Build and
 deployment -> Source must be set to **"GitHub Actions"** (not "Deploy from a
@@ -640,15 +678,23 @@ their artifacts are downloadable from the run's Summary/Artifacts panel, but
 the `publish` job fails at the `actions/deploy-pages` step because there is no
 configured Pages environment to deploy into.
 
-A failure in `mobile-screenshots` almost always means a Paparazzi golden
-mismatch (a real visual regression) or an Android SDK/AGP version drift on
-the runner — check the uploaded `screenshot-gallery` artifact and the
-`recordPaparazziDevDebug` log first. A failure in `e2e-report` means one of
-the kernel-story assertions broke — read the failing `story.Assert`
-message, it is written to explain the business expectation in plain English,
-not just the SQL/Go that checked it. A failure in `scale-audit-e2e-report`
-usually means the committed markdown report moved or was deleted without
-updating the Pages category.
+**Common failures:**
+
+- `scale-audit-e2e-report` fails: Check whether the markdown source file
+  moved or was deleted. Verify
+  `context/execution/scale-audit-fix-e2e-report-2026-07-11.md` exists, and
+  `tools/ci/generate-scale-audit-report.py` exists and is executable.
+- Report shows UNVERIFIED: Gates have not run for this SHA. This is expected
+  on main until gates are automated in CI.
+- Report shows FAILED: A latency gate exceeded its threshold. Investigate
+  the specific endpoint/check that failed and optimize the code path.
+- `A failure in `mobile-screenshots` almost always means a Paparazzi golden
+  mismatch (a real visual regression) or an Android SDK/AGP version drift on
+  the runner — check the uploaded `screenshot-gallery` artifact and the
+  `recordPaparazziDevDebug` log first. A failure in `e2e-report` means one of
+  the kernel-story assertions broke — read the failing `story.Assert`
+  message, it is written to explain the business expectation in plain English,
+  not just the SQL/Go that checked it.
 
 ## stg-pr-gate.yml
 
