@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/ports"
@@ -46,7 +47,7 @@ func TestCreateItemIsIdempotentOnReplay_RealPostgres(t *testing.T) {
 			RefID:   tenantID,
 		},
 		MediaRefs:      []string{"proof-1", "proof-2"},
-		CapturedAt:     time.Now().UTC(),
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey: "vaccination:submission:sub-1",
 	}
 
@@ -102,7 +103,7 @@ func TestRecordVerdictLifecycle_RealPostgres(t *testing.T) {
 		TenantID: tenantID, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
 		Source:         domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: tenantID},
 		MediaRefs:      []string{"proof-1"},
-		CapturedAt:     time.Now().UTC(),
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey: "vaccination:submission:sub-2",
 	})
 	if err != nil {
@@ -185,7 +186,7 @@ func TestListQueueKeysetIsBoundedAndOrdered_RealPostgres(t *testing.T) {
 	tenantID := newTenant(t, ctx, pool)
 
 	const total = 25
-	base := time.Now().Add(-time.Hour).UTC()
+	base := time.Now().In(biztime.DefaultLocation()).Add(-time.Hour)
 	for i := 0; i < total; i++ {
 		_, err := repo.CreateItem(ctx, domain.CreateItem{
 			TenantID: tenantID, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
