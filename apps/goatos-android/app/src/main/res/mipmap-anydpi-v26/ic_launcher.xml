@@ -1,13 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Mesha adaptive launcher icon = the exact web `.logo` mark. Foreground = the web login
-     logo (green #7CCB45 ring + translucent rgba(124,203,69,.15) fill + centered Devanagari
-     "मे"), exported straight from the rendered web DOM so the glyph shape/weight matches the
-     browser pixel-for-pixel (no re-guessed font). Mark diameter ≈ 65% of canvas, centered,
-     so it clears BOTH every launcher mask (circle/squircle/rounded-square/teardrop) AND the
-     Android-12 splash inner-2/3 crop — the same crop that fragmented the old 90% ring. The
-     translucent fill + transparent corners composite over the #0E1512 background tile to
-     reproduce the web logo. The Android-12 system splash reuses this foreground, so this one
-     asset fixes the launcher icon AND the splash together. -->
+<!-- Mesha adaptive launcher icon = the Devanagari "मे" mark, no ring, no fill disc. Foreground =
+     just the green #7CCB45 glyph (thin weight 400, a little larger than before) on a transparent
+     layer, rendered by the real browser font engine via SVG foreignObject so the glyph shape/matra
+     matches the web logo pixel-for-pixel (no re-guessed font). Glyph height ≈ 40% of the 108dp
+     layer, centered, so it sits well inside every launcher mask (circle/squircle/rounded-square/
+     teardrop) AND the Android-12 splash inner-2/3 crop. The transparent layer composites over the
+     #0E1512 background tile to show a green glyph on near-black. The Android-12 system splash
+     reuses this foreground, so this one asset drives the launcher icon AND the splash together. -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background" />
     <foreground android:drawable="@drawable/ic_launcher_foreground" />
