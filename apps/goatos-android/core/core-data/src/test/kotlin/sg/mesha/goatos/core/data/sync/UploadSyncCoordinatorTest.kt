@@ -1,17 +1,38 @@
 package sg.mesha.goatos.core.data.sync
 
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
+import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
+import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import java.io.IOException
+
+/**
+ * Deterministic dispatchers on the `runTest` scheduler. [SyncEngine.drainOnce] `launch`es one
+ * coroutine per outbox group on `dispatchers.io`; backed by the real multi-threaded `Dispatchers.IO`
+ * those groups race, so which snapshot a pass observed (and thus which sub-test flaked) varied run to
+ * run. A single [StandardTestDispatcher] serializes every launch in FIFO order — deterministic and
+ * faithful to real suspend/resume ordering.
+ */
+private fun TestScope.testDispatchers(): DispatcherProvider {
+    val dispatcher = StandardTestDispatcher(testScheduler)
+    return object : DispatcherProvider {
+        override val io = dispatcher
+        override val default = dispatcher
+        override val main = dispatcher
+    }
+}
 
 /**
  * Coverage for the drain loop behind the background upload foreground service
@@ -69,10 +90,10 @@ class UploadSyncCoordinatorTest {
     )
 
     @Test
-    fun `nothing queued reports Idle immediately without touching the engine`() = runBlocking {
+    fun `nothing queued reports Idle immediately without touching the engine`() = runTest {
         val store = FakeOutboxStore()
         val api = ScriptedAppApi()
-        val coordinator = UploadSyncCoordinator(SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }), store)
+        val coordinator = UploadSyncCoordinator(SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }, dispatchers = testDispatchers()), store)
         val progress = mutableListOf<Pair<Int, Int>>()
 
         val outcome = coordinator.run { done, total -> progress += done to total }
@@ -83,12 +104,12 @@ class UploadSyncCoordinatorTest {
     }
 
     @Test
-    fun `drains every queued proof upload and reports Idle when the relevant queue empties`() = runBlocking {
+    fun `drains every queued proof upload and reports Idle when the relevant queue empties`() = runTest {
         val store = FakeOutboxStore()
         store.insert(proofUploadRow(id = "row-1", idempotencyKey = "key-1"))
         store.insert(proofUploadRow(id = "row-2", groupKey = "shed-2", idempotencyKey = "key-2"))
         val api = ScriptedAppApi()
-        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }, dispatchers = testDispatchers())
         val coordinator = UploadSyncCoordinator(engine, store)
         val progress = mutableListOf<Pair<Int, Int>>()
 
@@ -104,11 +125,11 @@ class UploadSyncCoordinatorTest {
     }
 
     @Test
-    fun `ignores non-upload op types entirely (VERIFY_TASK never starts a drain pass)`() = runBlocking {
+    fun `ignores non-upload op types entirely (VERIFY_TASK never starts a drain pass)`() = runTest {
         val store = FakeOutboxStore()
         store.insert(verifyTaskRow(id = "row-v1", idempotencyKey = "verify-key-1"))
         val api = ScriptedAppApi()
-        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }, dispatchers = testDispatchers())
         val coordinator = UploadSyncCoordinator(engine, store)
 
         val outcome = coordinator.run()
@@ -120,11 +141,11 @@ class UploadSyncCoordinatorTest {
     }
 
     @Test
-    fun `offline reports Waiting on the first pass without spending an attempt`() = runBlocking {
+    fun `offline reports Waiting on the first pass without spending an attempt`() = runTest {
         val store = FakeOutboxStore()
         store.insert(proofUploadRow())
         val api = ScriptedAppApi()
-        val engine = SyncEngine(store, api, connectivityGate = { false }, clock = { 0L })
+        val engine = SyncEngine(store, api, connectivityGate = { false }, clock = { 0L }, dispatchers = testDispatchers())
         val coordinator = UploadSyncCoordinator(engine, store)
 
         val outcome = coordinator.run()
@@ -135,13 +156,13 @@ class UploadSyncCoordinatorTest {
     }
 
     @Test
-    fun `a transport failure that backs off reports Waiting instead of spinning`() = runBlocking {
+    fun `a transport failure that backs off reports Waiting instead of spinning`() = runTest {
         val store = FakeOutboxStore()
         store.insert(proofUploadRow())
         val api = ScriptedAppApi().apply {
             registerProofFn = { _, _ -> throw IOException("network down") }
         }
-        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }, backoff = BackoffPolicy { 60_000L })
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }, backoff = BackoffPolicy { 60_000L }, dispatchers = testDispatchers())
         val coordinator = UploadSyncCoordinator(engine, store)
         var passes = 0
         val outcome = coordinator.run { _, _ -> passes++ }
@@ -154,7 +175,7 @@ class UploadSyncCoordinatorTest {
     }
 
     @Test
-    fun `a reclaimed stranded IN_FLIGHT row still drains through the coordinator`() = runBlocking {
+    fun `a reclaimed stranded IN_FLIGHT row still drains through the coordinator`() = runTest {
         val store = FakeOutboxStore()
         store.insert(proofUploadRow(idempotencyKey = "stranded-key"))
         // Simulate a kill mid-upload: the row was marked IN_FLIGHT, then the process died before
@@ -162,7 +183,7 @@ class UploadSyncCoordinatorTest {
         store.markInFlight("row-1", now = 5L)
         assertEquals(OutboxStatus.IN_FLIGHT.name, store.findById("row-1")!!.status)
         val api = ScriptedAppApi()
-        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 10L })
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 10L }, dispatchers = testDispatchers())
         val coordinator = UploadSyncCoordinator(engine, store)
 
         val outcome = coordinator.run()
@@ -172,12 +193,12 @@ class UploadSyncCoordinatorTest {
     }
 
     @Test
-    fun `total high-water-marks across the run so a mid-run enqueue never regresses the fraction`() = runBlocking {
+    fun `total high-water-marks across the run so a mid-run enqueue never regresses the fraction`() = runTest {
         val store = FakeOutboxStore()
         store.insert(proofUploadRow(id = "row-1", idempotencyKey = "key-1", createdAt = 0L))
         val api = ScriptedAppApi()
         var addedSecond = false
-        api.registerProofFn = { _, _ ->
+        api.registerProofFn = { key, request ->
             // While the FIRST row is dispatching, a second video finishes capture and gets
             // enqueued concurrently (mirrors a real capture racing the upload of an earlier one).
             // SyncEngine's own batch-fetch semantics (a fresh eligibleForDrain snapshot is only
@@ -189,9 +210,25 @@ class UploadSyncCoordinatorTest {
                 addedSecond = true
                 store.insert(proofUploadRow(id = "row-2", groupKey = "shed-2", idempotencyKey = "key-2", createdAt = 1L))
             }
-            sg.mesha.goatos.core.network.dto.ProofUploadResponseDto()
+            // Mirror FakeAppApi.registerProof — a VALID envelope with a non-blank proofId. An empty
+            // ProofUploadResponseDto() (blank proofId) makes dispatchProofUpload throw
+            // NonRetryableSyncException("Proof registration did not return a proof id."), which is what
+            // made this row terminal-FAILED; the empty DTO predated the two-step register→upload
+            // dispatch and was invalid for it. The side effect above (enqueue row-2 mid-dispatch) is
+            // the only thing this hook actually needs to script.
+            ProofUploadResponseDto(
+                proof = ProofReferenceDto(
+                    proofId = "fake-proof-$key",
+                    proofType = request.proofType,
+                    subjectType = request.subjectType,
+                    subjectId = request.subjectId,
+                    uploadState = "pending",
+                ),
+                uploadUrl = "https://fake.local/proofs/upload",
+                uploadMethod = "PUT",
+            )
         }
-        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L }, dispatchers = testDispatchers())
         val coordinator = UploadSyncCoordinator(engine, store)
         val progress = mutableListOf<Pair<Int, Int>>()
 
