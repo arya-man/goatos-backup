@@ -55,13 +55,6 @@ export type OwnerPresentationMeta = {
 
 export type OwnerPresentationMap = Record<string, OwnerPresentationMeta>;
 
-const FALLBACK_OWNER_TABS: Array<{ key: CalendarOwnerFilter; label: string; scopeLabel: string }> = [
-  { key: "all", label: "All", scopeLabel: "All owner lanes" },
-  { key: "pc", label: "Preventive Care (PC)", scopeLabel: "Preventive Care (PC)" },
-  { key: "inventory", label: "Inventory / Stock", scopeLabel: "Inventory / Stock" },
-  { key: "admin_data_ops", label: "Admin / Data Ops", scopeLabel: "Admin / Data Ops" },
-];
-
 const FALLBACK_OWNER_CONFIG: Record<CalendarOwnerFilter, FallbackOwnerConfig> = {
   all: {
     key: "all",
@@ -147,7 +140,7 @@ export function fallbackCalendarPresentation(pageContract: AdminUiPageContract, 
       title: copy(pageContract, `calendar.week.title.${activeOwnerKey}`),
       scope_label: activeOwnerScopeLabel,
       scope_only_message: copy(pageContract, `calendar.week.scope_only.${activeOwnerKey}`),
-      clear_scope_label: "all verticals",
+      clear_scope_label: copy(pageContract, "calendar.week.clear_scope"),
       whole_period_message: copy(pageContract, "calendar.week.whole_period"),
       all_days_selected_label: copy(pageContract, "calendar.week.all_days_selected"),
       clear_day_label: copy(pageContract, "calendar.week.clear_day"),
@@ -189,7 +182,7 @@ export function fallbackCalendarPresentation(pageContract: AdminUiPageContract, 
     active_owner_label: activeOwnerLabel,
     active_owner_scope_label: activeOwnerScopeLabel,
     active_owner_color: active.color,
-    all_owners_selected_label: "all verticals",
+    all_owners_selected_label: copy(pageContract, "week.all_owners_selected_label"),
   };
 }
 

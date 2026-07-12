@@ -9,7 +9,7 @@ import type {
   VaccinationQueueItem,
   WorkState,
 } from "@/lib/api/server";
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, hrefWithoutAction, one, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import {
   SEVERITY_ORDER,
@@ -22,7 +22,6 @@ import {
   VACCINATION_DRIVE_SOP_STEPS,
   VaccinationFilterButton,
   VisibleTableSearch,
-  paginateRows,
   VaccinationTablePager,
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
@@ -32,6 +31,8 @@ import { actionCenterRequestPlan } from "./action-center-request-plan";
 import { WorkBoard, actionWorkTitle } from "./work-board";
 import { Tag } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
+
+const PATH = "/action-center";
 
 // Backend has no manual priority field — it is derived from computed severity.
 const PRIORITY_BY_SEVERITY: Record<ProcessIntegritySeverity, "high" | "med" | "low"> = {
@@ -134,10 +135,16 @@ export async function VaccinationActionCenterPage({
   const boardPageSizeOptions = tablePageSizes(pageContract, "work-board");
   const queuePageSizeOptions = tablePageSizes(pageContract, "verification-queue");
   const requestedBoardPage = backendPage(sp, "ac", boardPageSizeOptions, 10);
+  const requestedQueuePageSize = queuePageSizeOptions.find((size) => size === boundedInt(one(sp, "verify_limit"), 10, 1, 100)) ?? 10;
+  const queuePage = boundedInt(one(sp, "verify_page"), 1, 1, 1000000);
+  const queueCursor = one(sp, "verify_cursor");
+  const queueCursorStack = sp.verify_cursor_stack;
   const requestPlan = actionCenterRequestPlan({
     stateFilter,
     severityFilter,
     requestedBoardPage,
+    requestedQueuePageSize,
+    queueCursor,
     parkId,
     asOf,
   });
@@ -153,6 +160,7 @@ export async function VaccinationActionCenterPage({
   const items: ActionCenterObligation[] = actionCenter.ok ? actionCenter.data.items : [];
   const boardRows = items;
   const queueItems: VaccinationQueueItem[] = queue.ok ? queue.data.items : [];
+  const queueTotalCount = queue.ok ? queue.data.total_count : 0;
   const verificationHeaders = tableLabels(pageContract, "verification-queue");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const severityOptions = optionGroup(pageContract, "severity_chips");
@@ -168,8 +176,28 @@ export async function VaccinationActionCenterPage({
     }));
   }
   const boardPaged = pageResult(items, boardTotalCount, requestedBoardPage.page, requestedBoardPage.pageSize);
-  const queuePaged = paginateRows(queueItems, sp, "verify", 10, queuePageSizeOptions);
+  const queueTotalPages = Math.max(1, Math.ceil(queueTotalCount / requestedQueuePageSize));
+  const normalizedQueuePage = Math.min(queuePage, queueTotalPages);
+  const queueStart = queueTotalCount === 0 ? 0 : (normalizedQueuePage - 1) * requestedQueuePageSize + 1;
+  const queueEnd = queueTotalCount === 0 ? 0 : Math.min(queueTotalCount, queueStart + queueItems.length - 1);
+  const queuePaged = {
+    items: queueItems,
+    page: normalizedQueuePage,
+    pageSize: requestedQueuePageSize,
+    total: queueTotalCount,
+    totalPages: queueTotalPages,
+    start: queueStart,
+    end: queueEnd,
+  };
   const nextCursor = actionCenter.ok ? actionCenter.data.next_cursor : undefined;
+  const queueNextHref =
+    queue.ok && queue.data.next_cursor
+      ? hrefWithPagedCursor(PATH, sp, "verify_cursor", queue.data.next_cursor, "verify_page", "verify_cursor_stack")
+      : null;
+  const queuePrevHref = hrefPreviousPagedCursor(PATH, sp, "verify_cursor", "verify_page", "verify_cursor_stack");
+  if (queue.ok && normalizedQueuePage > 1 && !queueCursor && !queueCursorStack) {
+    redirect(hrefWith({ bucket: "verify", verify_page: "1", verify_limit: String(requestedQueuePageSize), verify_cursor: undefined, verify_cursor_stack: undefined }));
+  }
   const selectedActionRowId = one(sp, "ac_row");
   const selectedActionRow = selectedActionRowId ? boardRows.find((row) => row.row_id === selectedActionRowId) : undefined;
 
@@ -192,6 +220,8 @@ export async function VaccinationActionCenterPage({
       ac_limit: String(boardPaged.pageSize),
       verify_page: String(queuePaged.page),
       verify_limit: String(queuePaged.pageSize),
+      verify_cursor: undefined,
+      verify_cursor_stack: undefined,
       ...overrides,
     });
   }
@@ -202,12 +232,14 @@ export async function VaccinationActionCenterPage({
     return hrefWith({ ac_page: "1", ac_limit: String(pageSize), ac_row: undefined });
   }
   function queuePagerHref(page: number): string {
+    if (page > queuePaged.page) return queueNextHref ?? hrefWith({ bucket: "verify" });
+    if (page < queuePaged.page) return queuePrevHref ?? hrefWith({ bucket: "verify" });
     return hrefWith({ bucket: "verify", verify_page: String(page) });
   }
   function queuePageSizeHref(pageSize: VaccinationPageSize): string {
-    return hrefWith({ bucket: "verify", verify_page: "1", verify_limit: String(pageSize) });
+    return hrefWith({ bucket: "verify", verify_page: "1", verify_limit: String(pageSize), verify_cursor: undefined, verify_cursor_stack: undefined });
   }
-  const verifyReturnTo = hrefWith({ bucket: "verify" });
+  const verifyReturnTo = hrefWithoutAction(PATH, { ...sp, bucket: "verify" });
   const stateFilterLinks = [
     { label: copy(pageContract, "filter.all"), href: hrefWith({ state: "all", ac_page: "1", ac_row: undefined }), active: stateFilter === "all", count: totalCount },
     ...WORK_STATE_ORDER.map((state) => ({
@@ -254,7 +286,7 @@ export async function VaccinationActionCenterPage({
 	          {copy(pageContract, "view.status_board")}
 	        </Link>
 	        <Link href={hrefWith({ bucket: "verify" })} replace scroll={false} className={view === "verify" ? "on" : ""}>
-	          {copy(pageContract, "view.sop_queues")} <span className="cbq">{queueItems.length}</span>
+	          {copy(pageContract, "view.sop_queues")} <span className="cbq">{queueTotalCount}</span>
 	        </Link>
 	      </div>
 
@@ -275,7 +307,7 @@ export async function VaccinationActionCenterPage({
 	          <div className="hd">
 	            <Video className="ic" style={{ color: "var(--info)" }} aria-hidden="true" />
 	            <h3>{copy(pageContract, "section.verification.title")}</h3>
-	            <Tag tone={queueItems.length ? "warn" : "mut"}>{queueItems.length}</Tag>
+	            <Tag tone={queueTotalCount ? "warn" : "mut"}>{queueTotalCount}</Tag>
 	            <div className="sp" style={{ flex: 1 }} />
 	            <span className="muted small">{copy(pageContract, "section.verification.note")}</span>
 	          </div>
@@ -286,14 +318,14 @@ export async function VaccinationActionCenterPage({
 	              title={copy(pageContract, "filter.verification.title")}
 	              searchReason={copy(pageContract, "filter.verification.search_reason")}
 	              filterReason={copy(pageContract, "filter.verification.filter_reason")}
-	              rowsLabel={`${queuePaged.start}-${queuePaged.end} of ${queueItems.length} rows · ${copy(pageContract, "filter.verification.rows_suffix")}`}
+	              rowsLabel={`${queuePaged.start}-${queuePaged.end} of ${queueTotalCount} rows · ${copy(pageContract, "filter.verification.rows_suffix")}`}
 	              facets={verificationHeaders}
 	            />
             <span className="muted small">
-              {queuePaged.start}-{queuePaged.end} of {queueItems.length} rows
+              {queuePaged.start}-{queuePaged.end} of {queueTotalCount} rows
             </span>
           </div>
-          {queueItems.length === 0 ? (
+          {queueTotalCount === 0 ? (
             <div className="bd">
 	              <p className="muted small" style={{ margin: 0 }}>
 	                {copy(pageContract, "section.verification.empty")}
@@ -384,7 +416,7 @@ export async function VaccinationActionCenterPage({
 	                {copy(pageContract, "filter.due")} <span className="qc">{dueCount}</span>
 	              </Link>
 	              <Link href={hrefWith({ bucket: "verify", verify_page: "1" })} replace scroll={false} className="">
-	                {copy(pageContract, "filter.awaiting_verification")} <span className="qc">{queueItems.length}</span>
+	                {copy(pageContract, "filter.awaiting_verification")} <span className="qc">{queueTotalCount}</span>
 	              </Link>
             </div>
             <span className="sp" style={{ flex: 1 }} />

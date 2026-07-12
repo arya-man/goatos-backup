@@ -15,6 +15,7 @@ func TestKernelStoryS_LatePregnancyHold(t *testing.T) {
 		"A pregnant doe in her late-pregnancy window (months 4–5) must have doses held with "+
 			"late_pregnancy_hold — not scheduled into an active shed drive.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedID  = "f4000000-0000-4000-8000-000000000001"

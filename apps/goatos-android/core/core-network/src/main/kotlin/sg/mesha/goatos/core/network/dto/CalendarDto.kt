@@ -51,6 +51,15 @@ data class CalendarKeyLabelDto(
 )
 
 @Serializable
+data class CalendarDateMarkerDto(
+    @SerialName("date") val date: String = "",
+    @SerialName("event_count") val eventCount: Int = 0,
+    @SerialName("completed_count") val completedCount: Int = 0,
+    @SerialName("open_count") val openCount: Int = 0,
+    @SerialName("drive_count") val driveCount: Int = 0,
+)
+
+@Serializable
 data class CalendarPresentationDto(
     @SerialName("page_title") val pageTitle: String = "",
     @SerialName("page_subtitle") val pageSubtitle: String = "",
@@ -131,5 +140,6 @@ data class CalendarEventListResponseDto(
     @SerialName("source") val source: String = "api",
     @SerialName("presentation") val presentation: CalendarPresentationDto = CalendarPresentationDto(),
     @SerialName("items") val items: List<CalendarEventDto> = emptyList(),
+    @SerialName("date_markers") val dateMarkers: List<CalendarDateMarkerDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
 )

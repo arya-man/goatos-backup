@@ -28,6 +28,7 @@ func TestKernelStoryQ_SickAndICULocationDefer(t *testing.T) {
 			"'healthy'), but it is moved into a shed flagged is_icu=true -- the recheck must defer it purely "+
 			"from the location flag. Both doses reopen and realign once the goat is healthy/relocated again.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_q", 21, 0, []string{"sick", "icu", "quarantine", "under_treatment"})
 

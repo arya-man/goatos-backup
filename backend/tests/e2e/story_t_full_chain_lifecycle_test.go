@@ -25,6 +25,7 @@ func TestKernelStoryT_FullChainLifecycle(t *testing.T) {
 			"cancelled forever). The obligation set is asserted at each step so the whole chain, not just "+
 			"one transition, is proven to compose correctly on a single goat.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const shedOldID = "e6000000-0000-4000-8000-000000000001"
 	const stageOldID = "e6000000-0000-4000-8000-00000000000a"

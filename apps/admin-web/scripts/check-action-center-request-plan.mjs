@@ -12,6 +12,8 @@ const allState = actionCenterRequestPlan({
   stateFilter: "all",
   severityFilter: "all",
   requestedBoardPage: { pageSize: 10, offset: 0 },
+  requestedQueuePageSize: 25,
+  queueCursor: "opaque-queue-cursor",
   parkId: "park-1",
   asOf: "2026-07-11T12:00:00+05:30",
 });
@@ -19,13 +21,15 @@ const allState = actionCenterRequestPlan({
 assertEqual(allState.actionCenter.workState, undefined, "all-state board must use one unfiltered Action Center request");
 assertEqual(allState.actionCenter.limit, 10, "all-state board request must use the requested page size");
 assertEqual(allState.actionCenter.offset, 0, "all-state board request must preserve pagination offset");
-assertEqual(allState.verificationQueue.limit, 200, "verification queue request must stay bounded");
+assertEqual(allState.verificationQueue.limit, 25, "verification queue request must use the requested page size");
+assertEqual(allState.verificationQueue.cursor, "opaque-queue-cursor", "verification queue request must preserve the current cursor");
 assertEqual(Object.keys(allState).length, 2, "Action Center request plan must not carry per-lane sample requests");
 
 const filtered = actionCenterRequestPlan({
   stateFilter: "overdue",
   severityFilter: "at_risk",
   requestedBoardPage: { pageSize: 25, offset: 50 },
+  requestedQueuePageSize: 50,
 });
 
 assertEqual(filtered.actionCenter.workState, "overdue", "single-state board must request only the selected work state");

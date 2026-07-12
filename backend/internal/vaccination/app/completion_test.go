@@ -358,8 +358,8 @@ func (r *completionRepoFake) RecordCompletionsFromSubmission(context.Context, st
 	return 0, nil
 }
 
-func (r *completionRepoFake) ListRecordedCompletions(context.Context, string, string, int32) ([]domain.RecordedCompletion, error) {
-	return nil, nil
+func (r *completionRepoFake) ListRecordedCompletions(context.Context, string, string, *domain.RecordedCompletionCursor, int32) (domain.RecordedCompletionPage, error) {
+	return domain.RecordedCompletionPage{}, nil
 }
 
 func (r *completionRepoFake) GetLastAcceptedForGoat(context.Context, string, string) (domain.LastAccepted, bool, error) {

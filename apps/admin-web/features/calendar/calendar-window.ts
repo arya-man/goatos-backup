@@ -28,3 +28,13 @@ export function weekWindow(anchorKey: string): CalendarDateWindow {
   const dateKey = (value: Date) => value.toISOString().slice(0, 10);
   return { dateFrom: dateKey(monday), dateTo: dateKey(sunday) };
 }
+
+/** Rolling 45-day history window ending on the anchor IST business date. */
+export function historyWindow(anchorKey: string): CalendarDateWindow {
+  const [year, month, day] = anchorKey.split("-").map(Number);
+  const anchor = new Date(Date.UTC(year, month - 1, day));
+  const start = new Date(anchor);
+  start.setUTCDate(anchor.getUTCDate() - 44);
+  const dateKey = (value: Date) => value.toISOString().slice(0, 10);
+  return { dateFrom: dateKey(start), dateTo: dateKey(anchor) };
+}

@@ -30,6 +30,13 @@ type ParsedDriveEvent struct {
 	TenantID string // for tenant-wide catch-up when shed is absent
 }
 
+type ParsedHistoryEvent struct {
+	Day    string
+	ParkID string
+	ShedID string
+	RuleID string
+}
+
 // ParseDriveEventID accepts batch and catch-up drive calendar event IDs.
 func ParseDriveEventID(eventID string) (ParsedDriveEvent, error) {
 	eventID = strings.TrimSpace(eventID)
@@ -47,6 +54,27 @@ func ParseDriveEventID(eventID string) (ParsedDriveEvent, error) {
 		return ParsedDriveEvent{Catchup: true, TenantID: parts[2], RuleID: parts[4], DueDay: parts[6]}, nil
 	}
 	return ParsedDriveEvent{}, ErrInvalidEventID
+}
+
+func ParseHistoryEventID(eventID string) (ParsedHistoryEvent, error) {
+	eventID = strings.TrimSpace(eventID)
+	parts := strings.Split(eventID, ":")
+	if len(parts) != 5 || parts[0] != "history" || !isDueDay(parts[1]) {
+		return ParsedHistoryEvent{}, ErrInvalidEventID
+	}
+	if !isHistoryScopeID(parts[2]) || !isHistoryScopeID(parts[3]) || !uuidutil.IsUUIDString(parts[4]) {
+		return ParsedHistoryEvent{}, ErrInvalidEventID
+	}
+	return ParsedHistoryEvent{
+		Day:    parts[1],
+		ParkID: parts[2],
+		ShedID: parts[3],
+		RuleID: parts[4],
+	}, nil
+}
+
+func isHistoryScopeID(value string) bool {
+	return value == "none" || uuidutil.IsUUIDString(value)
 }
 
 func isDueDay(value string) bool {

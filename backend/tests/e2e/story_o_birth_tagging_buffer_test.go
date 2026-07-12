@@ -29,6 +29,7 @@ func TestKernelStoryO_BirthTaggingBuffer(t *testing.T) {
 			"respect the 24-hour tagging buffer: no dose may ever be due before DOB + 24h, since a kid "+
 			"cannot be RFID-tagged and enrolled until a day after birth.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const shedID = "ef000000-0000-4000-8000-000000000001"
 	const stageID = "ef000000-0000-4000-8000-000000000002"

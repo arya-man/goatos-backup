@@ -853,6 +853,37 @@ type GoatOwnership struct {
 	CreatedBy    pgtype.UUID
 }
 
+type HerdRegisterGoatProjection struct {
+	TenantID          pgtype.UUID
+	GoatID            pgtype.UUID
+	DisplayID         string
+	ParkID            pgtype.UUID
+	FarmID            pgtype.UUID
+	CurrentLocationID pgtype.UUID
+	Breed             pgtype.Text
+	Sex               string
+	LifecycleStatus   string
+	IsKid             bool
+	IsUntagged        bool
+	ProjectedAt       pgtype.Timestamptz
+}
+
+type HerdRegisterSummaryProjection struct {
+	HerdRegisterSummaryProjectionID int64
+	TenantID                        pgtype.UUID
+	ParkID                          pgtype.UUID
+	FarmID                          pgtype.UUID
+	CurrentLocationID               pgtype.UUID
+	Breed                           pgtype.Text
+	Sex                             string
+	LifecycleStatus                 string
+	ActiveCount                     int64
+	AdultCount                      int64
+	KidCount                        int64
+	UntaggedKidCount                int64
+	ProjectedAt                     pgtype.Timestamptz
+}
+
 type IdempotencyKey struct {
 	IdempotencyKey string
 	TenantID       pgtype.UUID
@@ -1538,15 +1569,16 @@ type ProcessIntegrityProjectionRow struct {
 }
 
 type ProcessIntegrityProjectionState struct {
-	TenantID          pgtype.UUID
-	ProjectionVersion int64
-	ProjectedAt       pgtype.Timestamptz
-	AsOf              pgtype.Timestamptz
-	RowCount          int64
-	FreshnessStatus   string
-	ServingState      string
-	LastError         pgtype.Text
-	UpdatedAt         pgtype.Timestamptz
+	TenantID                 pgtype.UUID
+	ProjectionVersion        int64
+	ProjectedAt              pgtype.Timestamptz
+	AsOf                     pgtype.Timestamptz
+	RowCount                 int64
+	FreshnessStatus          string
+	ServingState             string
+	LastError                pgtype.Text
+	UpdatedAt                pgtype.Timestamptz
+	ServingProjectionVersion pgtype.Int8
 }
 
 type ProcurementHfVaccinationEvidence struct {

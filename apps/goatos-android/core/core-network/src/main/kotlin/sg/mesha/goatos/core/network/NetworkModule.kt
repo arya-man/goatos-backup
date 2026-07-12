@@ -89,6 +89,7 @@ interface AppApiService {
         @Query("status") status: String?,
         @Query("date_from") dateFrom: String?,
         @Query("date_to") dateTo: String?,
+        @Query("include_date_markers") includeDateMarkers: Boolean?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
     ): CalendarEventListResponseDto
@@ -216,10 +217,21 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
         status: String?,
         dateFrom: String?,
         dateTo: String?,
+        includeDateMarkers: Boolean,
         cursor: String?,
         limit: Int?,
     ): CalendarEventListResponseDto =
-        service.listCalendarVaccinationEvents(parkId, shedId, ownerKey, status, dateFrom, dateTo, cursor, limit)
+        service.listCalendarVaccinationEvents(
+            parkId,
+            shedId,
+            ownerKey,
+            status,
+            dateFrom,
+            dateTo,
+            includeDateMarkers.takeIf { it },
+            cursor,
+            limit,
+        )
 
     override suspend fun getVaccinationControlTower(
         parkId: String?,

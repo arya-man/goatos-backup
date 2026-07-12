@@ -62,8 +62,7 @@ func completeVaccinationObligationThroughSOP(t *testing.T, fx *Fixture, versionI
 	}
 	accepted, err := h.Service.VerifyTask(fx.Ctx, sopports.ReviewTaskCommand{
 		TenantID: fxTenant, ActorID: reviewerID, TaskID: taskID,
-		Body:         sopdomain.ReviewTaskRequest{Reason: "E2E downstream setup accepted", RowVersion: submitted.Task.RowVersion},
-		ReviewGrants: []sopports.ReviewGrant{{ScopeType: "park", ScopeID: fxPark}},
+		Body: sopdomain.ReviewTaskRequest{Reason: "E2E downstream setup accepted", RowVersion: submitted.Task.RowVersion},
 	}, "e2e-review-"+key)
 	if err != nil || accepted.Task.State != "accepted" {
 		t.Fatalf("%s review generated vaccination work: response=%+v err=%v", key, accepted, err)

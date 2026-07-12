@@ -28,6 +28,7 @@ func TestKernelStoryG_KidDoseBundle(t *testing.T) {
 			"materialize one scheduled dose per row, each due at the kid's birth date plus the row's "+
 			"age offset, with the correct due window. This is the standard kid course every kid inherits.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const shedID = "e7000000-0000-4000-8000-000000000001"
 	const stageID = "e7000000-0000-4000-8000-000000000002"

@@ -84,14 +84,14 @@ Switch role = repeat step 2 with a different `GOATOS_LOCAL_USER_ID` (grant it on
 | role (`-role`) | suggested user-id | can do |
 |---|---|---|
 | `operator` | `…000101` (the script default) | EXECUTE a drive: scan → submit + proof. Cannot close/verify. |
-| `park_head` | `…000102` | close + post verification (leadership) |
-| `pc_director` | `…000103` | close + post verification (leadership) |
-| `ceo_internal` | `…000104` | close + post verification (leadership) |
-| `verifier` | `…000105` | post verification |
+| `park_head` | `…000102` | leadership follow-up in app; close + post verification on admin-web |
+| `pc_director` | `…000103` | leadership follow-up in app; close + post verification on admin-web |
+| `ceo_internal` | `…000104` | leadership follow-up in app; close + post verification on admin-web |
+| `verifier` | `…000105` | leadership follow-up in app; post verification on admin-web |
 
-(`…` = `90000000-0000-4000-8000-0000000001`.) The business rule: **Director / CEO / CxO / Park Head /
-verifier close + verify; operators/managers only execute.** Closing/verification happens on the web
-(admin-web) and, where wired, the app; the operator path is app-only execution.
+(`…` = `90000000-0000-4000-8000-0000000001`.) The current business rule: **Director / CEO / CxO / Park Head /
+verifier can close + verify through admin-web; operators execute only.** On mobile today, leadership is
+follow-up/read-only (plus assign where granted); the operator path is app-only execution.
 
 Valid roles (from `seed-dev-grant`): `admin`, `verifier`, `park_head`, `pc_director`, `operator`,
 `ceo_internal`.

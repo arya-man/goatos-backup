@@ -11,6 +11,7 @@ var (
 	ErrStockMovementConflict = errors.New("vaccination: stock movement idempotency conflict")
 	ErrCompletionNotOpen     = errors.New("vaccination: completion obligation is not open")
 	ErrFutureManualCampaign  = errors.New("vaccination: manual campaign as_of is in the future")
+	ErrInvalidCursor         = errors.New("vaccination: invalid cursor")
 )
 
 // NewCompletion is the input to record one administered dose against an obligation.
@@ -92,6 +93,17 @@ type RecordedCompletion struct {
 	AdministeredAt time.Time
 	Doses          int32
 	RouteSite      string
+}
+
+type RecordedCompletionCursor struct {
+	AdministeredAt time.Time
+	CompletionID   string
+}
+
+type RecordedCompletionPage struct {
+	Items      []RecordedCompletion
+	TotalCount int64
+	NextCursor *string
 }
 
 // LastAccepted is the most recent accepted administration for a goat (next-due / SM-7 basis).

@@ -2275,6 +2275,12 @@ paths:
             type: integer
             minimum: 1
             maximum: 500
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor returned by the previous verification-queue page.
+          schema:
+            type: string
       responses:
         "200":
           description: Vaccination verification queue.
@@ -6679,11 +6685,17 @@ components:
       additionalProperties: false
       required:
         - items
+        - total_count
       properties:
         items:
           type: array
           items:
             $ref: "#/components/schemas/VaccinationQueueItem"
+        total_count:
+          type: integer
+          format: int64
+        next_cursor:
+          type: string
     ImpactPreviewInput:
       type: object
       additionalProperties: false

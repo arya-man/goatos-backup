@@ -11,11 +11,11 @@
 
     <!-- Empty states -->
     <string name="calendar_week_empty">ಡ್ರೈವ್ ನಿಗದಿಸಲಾಗಿಲ್ಲ</string>
-    <string name="calendar_history_empty">ಹಿಂದಿನ ಡ್ರೈವ್ ಇಲ್ಲ</string>
+    <string name="calendar_history_empty">ಅಂಗೀಕೃತ ಪೂರ್ಣಗೊಳింపు ಇತಿಹಾಸ ಇಲ್ಲ</string>
     <string name="calendar_day_sheet_empty">ಈ ದಿನ ಯಾವುದೇ ಡ್ರೈವ್ ನಿಗದಿಯಾಗಿಲ್ಲ</string>
 
     <!-- Month grid hint -->
-    <string name="calendar_month_hint">ಅದರ ಡ್ರೈವ್‌ಗಳಿಗಾಗಿ ದಿನವನ್ನು ಟ್ಯಾಪ್ ಮಾಡಿ · ಚುಕ್ಕೆಗಳು = ಡ್ರೈವ್ ದಿನಗಳು</string>
+    <string name="calendar_month_hint">ಆ ದಿನದ ಬಾಕಿ ಕೆಲಸ ಅಥವಾ ಪೂರ್ಣಗೊಳிப்பு ಇತಿಹಾಸಕ್ಕಾಗಿ ಟ್ಯಾಪ್ ಮಾಡಿ · ಚುಕ್ಕೆಗಳು = ತೆರೆದ ಕೆಲಸ, ಮಂಕಾದ ಚುಕ್ಕೆಗಳು = ಪೂರ್ಣಗೊಂಡ ಇತಿಹಾಸ</string>
 
     <!-- Accessibility descriptions -->
     <string name="calendar_button_menu">ಮೆನು</string>
@@ -23,6 +23,6 @@
     <string name="calendar_button_refresh">ರಿಫ್ರೆಶ್</string>
 
     <!-- History section label (prefix before dynamic count) -->
-    <string name="calendar_history_label">ಹಿಂದಿನ ಡ್ರೈವ್‌ಗಳು</string>
+    <string name="calendar_history_label">ಅಂಗೀಕೃತ ಪೂರ್ಣಗೊಳింపు ಇತಿಹಾಸ</string>
     <string name="calendar_cta_open">ತೆರೆಯಿರಿ</string>
 </resources>

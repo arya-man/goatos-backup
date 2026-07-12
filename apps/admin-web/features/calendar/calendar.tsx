@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info } from "lucide-react";
 import { actionFeedbackCopy, copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, hrefWithPagedCursor, hrefPreviousPagedCursor, boundedInt, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
@@ -13,8 +13,8 @@ import {
   ownerMetaFromPresentation,
   ownerScopeLabel,
   presentationQueryToSearch,
-  type CalendarEvent,
   type CalendarDateMarker,
+  type CalendarEvent,
   type CalendarOwnerFilter,
   type CalendarOwnerPresentationTab,
   type CalendarPresentation,
@@ -23,21 +23,17 @@ import {
 } from "./calendar-contract";
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { CalendarEventDrawer } from "./calendar-event-drawer";
-import { CalendarDriveSummaryDrawer, type CalendarDriveSummaryEvent } from "./calendar-drive-summary-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
-import { monthWindow, weekWindow } from "./calendar-window";
+import { historyWindow, monthWindow, weekWindow } from "./calendar-window";
 
 const PATH = "/calendar";
 
-// IST weekday short name for an arbitrary event instant (for the day filter).
 function weekdayOf(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const wd = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", weekday: "short" }).format(d);
-  return wd; // "Mon".."Sun"
+  return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", weekday: "short" }).format(d);
 }
 
-// Business "today" in the operating-tenant timezone (IST). Used for the month highlight + agenda "TODAY".
 function istToday(): string {
   return todayIso();
 }
@@ -49,7 +45,6 @@ function timeOf(iso: string): string {
 }
 
 function dateKey(iso: string): string {
-  // Bucket by IST calendar day (events carry an absolute instant; group by the day they fall on in IST).
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
   return fmtIstDate(iso);
@@ -63,150 +58,33 @@ function dateHeading(key: string, today: string, pageContract: AdminUiPageContra
   return `${wd} · ${optionLabel(pageContract, "calendar_months", String(d.getMonth())).slice(0, 3).toUpperCase()} ${d.getDate()}`;
 }
 
-function asDriveSummaryEvent(event: CalendarEvent): CalendarDriveSummaryEvent {
-  return event as CalendarDriveSummaryEvent;
-}
-
-function uniqueStrings(values: Array<string | null | undefined>): string[] {
-  return Array.from(
-    new Set(
-      values
-        .map((value) => value?.trim())
-        .filter((value): value is string => Boolean(value)),
-    ),
-  );
-}
-
-function genericScopeLabel(value: string | null | undefined): boolean {
-  const normalized = (value || "").trim().toLowerCase();
-  return normalized === "" || normalized === "catch-up drive" || normalized === "vaccination drive" || normalized === "review queue";
-}
-
-function driveStage(event: CalendarEvent): "drive" | "review" | "skip" {
-  switch (event.event_type) {
-    case "vaccination_defer_review":
-    case "vaccination_evidence_review":
-    case "vaccination_proof_verification":
-    case "vaccination_rework_due":
-    case "vaccination_config_activation_review":
-      return "review";
-    case "vaccine_stock_readiness":
-    case "vaccine_cold_chain_check":
-    case "vaccine_reorder_expiry_grn":
-    case "pc_stock_anti_misuse":
-      return "skip";
-    default:
-      return "drive";
-  }
-}
-
-function vaccineLabel(event: CalendarEvent): string {
-  const named = event.vaccine_name?.trim();
-  if (named) return named;
-  return event.title
-    .replace(/^Preventive Care Vaccination Matrix\s+/i, "")
-    .replace(/\s+catch-up drive$/i, "")
-    .replace(/\s+due$/i, "")
-    .trim();
-}
-
-function parkLabel(event: CalendarEvent): string {
-  if (!genericScopeLabel(event.park_code)) return event.park_code!.trim();
-  if (!genericScopeLabel(event.shed_name)) return event.shed_name!.trim();
-  return "Park";
-}
-
-function summarizeLabels(labels: string[], fallback: string): string {
-  if (labels.length === 0) return fallback;
-  if (labels.length <= 3) return labels.join(" · ");
-  return `${labels.slice(0, 3).join(" · ")} +${labels.length - 3} more`;
-}
-
-function aggregateCalendarEvents(events: CalendarEvent[]): CalendarDriveSummaryEvent[] {
-  if (events.some((event) => Boolean((event as { aggregated?: boolean }).aggregated))) {
-    return events as CalendarDriveSummaryEvent[];
-  }
-  const grouped = new Map<string, CalendarEvent[]>();
-  for (const event of events) {
-    const stage = driveStage(event);
-    if (stage === "skip") continue;
-    const bucket = [dateKey(event.due_at), event.owner_key || "pc", parkLabel(event), stage].join("|");
-    const rows = grouped.get(bucket) ?? [];
-    rows.push(event);
-    grouped.set(bucket, rows);
-  }
-  return Array.from(grouped.entries())
-    .map(([bucket, rows]) => {
-      const first = rows[0];
-      const stage = driveStage(first);
-      const date = dateKey(first.due_at);
-      const park = parkLabel(first);
-      const sheds = uniqueStrings(rows.map((row) => row.shed_name));
-      const vaccines = uniqueStrings(rows.map((row) => vaccineLabel(row)));
-      const collapsedCount = rows.length;
-      const scheduledCount = rows.filter((row) => ["scheduled", "due", "overdue", "missed", "in_progress", "proof_pending", "verification_pending", "rework_due"].includes(row.status)).length;
-      const deferredCount = rows.filter((row) => row.status === "deferred").length;
-      const reviewCount = stage === "review" ? collapsedCount : 0;
-      const targetCount = rows.reduce((sum, row) => sum + row.target_count, 0);
-      const summaryPrimary =
-        stage === "review"
-          ? `${collapsedCount} follow-up ${collapsedCount === 1 ? "item" : "items"} queued`
-          : `${vaccines.length || collapsedCount} vaccine ${vaccines.length === 1 ? "queue" : "queues"}${sheds.length ? ` across ${sheds.length} shed${sheds.length === 1 ? "" : "s"}` : ""}`;
-      const summarySecondary =
-        stage === "review"
-          ? summarizeLabels(vaccines, "Open to inspect review exceptions")
-          : summarizeLabels(vaccines, "Open to inspect vaccine mix");
-      const summaryTertiary =
-        collapsedCount > 1 ? `${collapsedCount} loaded drive rows grouped into one card` : stage === "review" ? "Review items grouped by drive day" : "Grouped by drive day";
-      return {
-        ...first,
-        event_id: `parkdrive:${bucket.replace(/\|/g, ":").replace(/\s+/g, "-").toLowerCase()}`,
-        title: stage === "review" ? `${park} review queue` : `${park} vaccination drive`,
-        subtitle: stage === "review" ? "Review queue" : "Park drive",
-        target_count: targetCount,
-        aggregated: true,
-        all_day: true,
-        summary_primary: summaryPrimary,
-        summary_secondary: summarySecondary,
-        summary_tertiary: summaryTertiary,
-        shed_count: sheds.length,
-        vaccine_count: vaccines.length,
-        drive_count: collapsedCount,
-        catch_up_count: rows.filter((row) => row.title.toLowerCase().includes("catch-up")).length,
-        scheduled_count: scheduledCount,
-        deferred_count: deferredCount,
-        review_count: reviewCount,
-        shed_labels: sheds,
-        vaccine_labels: vaccines,
-        due_at: `${date}T00:00:00+05:30`,
-      } as CalendarDriveSummaryEvent;
-    })
-    .sort((a, b) => a.due_at.localeCompare(b.due_at) || a.title.localeCompare(b.title));
-}
-
-function EventRow({ event, href, ownerMeta, pageContract }: { event: CalendarEvent; href: string; ownerMeta: OwnerPresentationMap; pageContract: AdminUiPageContract }) {
-  const summary = asDriveSummaryEvent(event);
-  const meta = summary.aggregated
-    ? [summary.subtitle, ownerLabel(event.owner_key, ownerMeta)]
-        .filter(Boolean)
-        .join(" · ")
-    : [optionLabel(pageContract, "calendar_status", event.status), event.subtitle, event.park_code, event.shed_name, ownerLabel(event.owner_key, ownerMeta)]
+function EventRow({
+  event,
+  href,
+  ownerMeta,
+  pageContract,
+}: {
+  event: CalendarEvent;
+  href: string;
+  ownerMeta: OwnerPresentationMap;
+  pageContract: AdminUiPageContract;
+}) {
+  const meta = [
+    optionLabel(pageContract, "calendar_status", event.status),
+    event.subtitle,
+    event.park_code,
+    event.shed_name,
+    ownerLabel(event.owner_key, ownerMeta),
+  ]
     .filter(Boolean)
     .join(" · ");
   return (
     <Link href={href} replace scroll={false} className="ev celllink" style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
-      <div className="et">{summary.all_day ? "ALL DAY" : timeOf(event.due_at)}</div>
+      <div className="et">{timeOf(event.due_at)}</div>
       <div className="eb">
         <b>{event.title}</b>
         <div className="em">{meta}</div>
-        {summary.summary_primary ? (
-          <div className="em" style={{ color: "var(--text)", fontWeight: 650 }}>
-            {summary.summary_primary}
-          </div>
-        ) : null}
-        {summary.summary_secondary ? <div className="em">{summary.summary_secondary}</div> : null}
       </div>
-      {summary.aggregated ? <span className="erem">DRIVE</span> : null}
     </Link>
   );
 }
@@ -221,67 +99,176 @@ export async function VaccinationCalendarPage({
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
   const { parkId, asOf } = backendScope(scope);
+  const requestedStatus = one(sp, "status") === "completed" ? "completed" : undefined;
+  const historyMode = requestedStatus === "completed";
   const datePickerOpen = one(sp, "view") === "month";
+  const currentViewKey = historyMode ? "history" : datePickerOpen ? "month" : "week";
   const requestedOwnerKey = (one(sp, "owner_key") || "all") as CalendarOwnerFilter;
   const selectedEventId = one(sp, "event");
-  const groupedSelection = selectedEventId?.startsWith("parkdrive:") ?? false;
+  const listCursor = one(sp, "cursor");
+  const listPage = boundedInt(one(sp, "page"), 1, 1, 1000);
   const targetsCursor = one(sp, "targets_cursor");
   const targetsPage = boundedInt(one(sp, "targets_page"), 1, 1, 1000);
   const today = istToday();
   const dayFilter = one(sp, "day") || undefined;
+  const effectiveDayFilter = historyMode ? undefined : dayFilter;
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
 
-  // Agenda fetches from the selected as-of date; the compact date picker separately fetches the whole
-  // selected month so drive days are highlighted even when the visible agenda window is empty.
   const anchorKey = asOf ? asOf.slice(0, 10) : today;
   const pickerWindow = monthWindow(anchorKey);
   const agendaWindow = weekWindow(anchorKey);
+  const completedWindow = historyWindow(anchorKey);
+  const listWindow = historyMode ? completedWindow : agendaWindow;
 
   const [list, pickerList, detail, targets] = await Promise.all([
-    getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom: agendaWindow.dateFrom, dateTo: agendaWindow.dateTo }),
-    getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom: pickerWindow.dateFrom, dateTo: pickerWindow.dateTo, includeDateMarkers: true }),
-    selectedEventId && !groupedSelection ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),
-    selectedEventId && !groupedSelection ? getCalendarDriveTargets(selectedEventId, { cursor: targetsCursor, limit: 10 }) : Promise.resolve(null),
+    getCalendarVaccinationEvents({
+      parkId,
+      ownerKey: requestedOwnerKey,
+      status: requestedStatus,
+      dateFrom: listWindow.dateFrom,
+      dateTo: listWindow.dateTo,
+      cursor: listCursor,
+    }),
+    getCalendarVaccinationEvents({
+      parkId,
+      ownerKey: requestedOwnerKey,
+      status: historyMode ? requestedStatus : undefined,
+      dateFrom: pickerWindow.dateFrom,
+      dateTo: pickerWindow.dateTo,
+      includeDateMarkers: true,
+    }),
+    selectedEventId ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),
+    selectedEventId && !historyMode ? getCalendarDriveTargets(selectedEventId, { cursor: targetsCursor, limit: 10 }) : Promise.resolve(null),
   ]);
 
-  const rawEvents = list.ok ? list.data.items : [];
-  const events = aggregateCalendarEvents(rawEvents);
-  const rawPickerEvents = pickerList.ok ? pickerList.data.items : rawEvents;
-  const pickerEvents = aggregateCalendarEvents(rawPickerEvents);
+  const events = list.ok ? list.data.items : [];
+  const pickerEvents = pickerList.ok ? pickerList.data.items : events;
   if (list.ok && !list.data.presentation) {
     throw new Error(copy(pageContract, "error.presentation_missing"));
   }
   const presentation = list.ok && list.data.presentation ? list.data.presentation : fallbackCalendarPresentation(pageContract, requestedOwnerKey);
   const ownerMeta = ownerMetaFromPresentation(presentation);
   const activeOwnerKey = presentation.active_owner_key as CalendarOwnerFilter;
+  const historyTabLabel = presentation.view_tabs.find((tab) => tab.key === "history")?.label || optionLabel(pageContract, "calendar_view_tabs", "history");
+  const weekTabLabel = presentation.view_tabs.find((tab) => tab.key === "week")?.label || optionLabel(pageContract, "calendar_view_tabs", "week");
+  const monthTabLabel = presentation.view_tabs.find((tab) => tab.key === "month")?.label || optionLabel(pageContract, "calendar_view_tabs", "month");
 
   function hrefWith(overrides: Record<string, string | undefined>): string {
-    return scopeHref(PATH, scope, {}, { view: datePickerOpen ? "month" : undefined, owner_key: activeOwnerKey === "all" ? undefined : activeOwnerKey, day: dayFilter, ...overrides });
+    return scopeHref(PATH, scope, {}, {
+      view: datePickerOpen ? "month" : undefined,
+      owner_key: activeOwnerKey === "all" ? undefined : activeOwnerKey,
+      status: requestedStatus,
+      day: effectiveDayFilter,
+      cursor: listCursor,
+      page: listPage > 1 ? String(listPage) : undefined,
+      ...overrides,
+    });
   }
-  const hrefForTab = (tab: CalendarPresentationTab | CalendarOwnerPresentationTab) => hrefWith({ ...presentationQueryToSearch(tab.query), event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
+
+  const hrefForOwnerTab = (tab: CalendarOwnerPresentationTab) =>
+    hrefWith({
+      ...presentationQueryToSearch(tab.query),
+      event: undefined,
+      cursor: undefined,
+      page: undefined,
+      cursor_stack: undefined,
+      targets_cursor: undefined,
+      targets_page: undefined,
+      targets_cursor_stack: undefined,
+    });
+  const hrefForWorkstreamTab = (tab: CalendarPresentationTab) =>
+    hrefWith({
+      ...presentationQueryToSearch(tab.query),
+      event: undefined,
+      cursor: undefined,
+      page: undefined,
+      cursor_stack: undefined,
+      targets_cursor: undefined,
+      targets_page: undefined,
+      targets_cursor_stack: undefined,
+    });
   const eventHref = (id: string) => hrefWith({ event: id, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
   const closeHref = hrefWith({ event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
-  const weekHref = hrefWith({ view: undefined, event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
-  const pickerMonthHref = (date: string) => hrefWith({ as_of: date, view: "month", day: undefined, event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
-  const pickerDateHref = (date: string) => hrefWith({ as_of: date, view: undefined, day: undefined, event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
+  const weekHref = hrefWith({
+    status: undefined,
+    view: undefined,
+    event: undefined,
+    cursor: undefined,
+    page: undefined,
+    cursor_stack: undefined,
+    targets_cursor: undefined,
+    targets_page: undefined,
+    targets_cursor_stack: undefined,
+  });
+  const historyHref = hrefWith({
+    status: "completed",
+    view: undefined,
+    day: undefined,
+    event: undefined,
+    cursor: undefined,
+    page: undefined,
+    cursor_stack: undefined,
+    targets_cursor: undefined,
+    targets_page: undefined,
+    targets_cursor_stack: undefined,
+  });
+  const pickerMonthHref = (date: string) =>
+    hrefWith({
+      as_of: date,
+      view: "month",
+      day: undefined,
+      event: undefined,
+      cursor: undefined,
+      page: undefined,
+      cursor_stack: undefined,
+      targets_cursor: undefined,
+      targets_page: undefined,
+      targets_cursor_stack: undefined,
+    });
+  const pickerDateHref = (date: string, historyOnly = false) =>
+    hrefWith({
+      as_of: date,
+      status: historyOnly ? "completed" : undefined,
+      view: undefined,
+      day: undefined,
+      event: undefined,
+      cursor: undefined,
+      page: undefined,
+      cursor_stack: undefined,
+      targets_cursor: undefined,
+      targets_page: undefined,
+      targets_cursor_stack: undefined,
+    });
 
   const sel = detail && detail.ok ? detail.data : null;
-  const groupedSel = groupedSelection
-    ? (events.find((event) => event.event_id === selectedEventId) as CalendarDriveSummaryEvent | undefined) ?? null
-    : null;
   const spForTargets: RouteSearchParams = { ...sp, event: selectedEventId };
-  function scopedTargetsHref(href: string | null): string | null {
+  const spForList: RouteSearchParams = {
+    ...sp,
+    event: undefined,
+    targets_cursor: undefined,
+    targets_page: undefined,
+    targets_cursor_stack: undefined,
+  };
+
+  function scopedHref(href: string | null): string | null {
     if (!href) return null;
     const [path, query = ""] = href.split("?");
     const extra = Object.fromEntries(new URLSearchParams(query));
     return scopeHref(path, scope, {}, extra);
   }
+
+  const listNextHref =
+    list.ok && list.data.next_cursor
+      ? scopedHref(hrefWithPagedCursor(PATH, spForList, "cursor", list.data.next_cursor, "page", "cursor_stack"))
+      : null;
+  const listPrevHref = scopedHref(hrefPreviousPagedCursor(PATH, spForList, "cursor", "page", "cursor_stack"));
+  const listOnPage = list.ok ? list.data.items.length : 0;
   const targetsNextHref =
     targets && targets.ok && targets.data.next_cursor
-      ? scopedTargetsHref(hrefWithPagedCursor(PATH, spForTargets, "targets_cursor", targets.data.next_cursor, "targets_page", "targets_cursor_stack"))
+      ? scopedHref(hrefWithPagedCursor(PATH, spForTargets, "targets_cursor", targets.data.next_cursor, "targets_page", "targets_cursor_stack"))
       : null;
-  const targetsPrevHref = scopedTargetsHref(hrefPreviousPagedCursor(PATH, spForTargets, "targets_cursor", "targets_page", "targets_cursor_stack"));
+  const targetsPrevHref = scopedHref(hrefPreviousPagedCursor(PATH, spForTargets, "targets_cursor", "targets_page", "targets_cursor_stack"));
   const targetsOnPage = targets && targets.ok ? targets.data.items.length : 0;
 
   return (
@@ -293,14 +280,10 @@ export async function VaccinationCalendarPage({
         </div>
         <div className="sp" />
         <div className="subtabs calview-tabs" style={{ margin: 0 }}>
-          <Link href={weekHref} replace scroll={false} className={datePickerOpen ? "" : "on"}>
-            {optionLabel(pageContract, "calendar_view_tabs", "week")}
+          <Link href={weekHref} replace scroll={false} className={currentViewKey === "week" ? "on" : ""}>
+            {weekTabLabel}
           </Link>
-          <CalendarMonthPicker
-            label={optionLabel(pageContract, "calendar_view_tabs", "month")}
-            open={datePickerOpen}
-            closeHref={weekHref}
-          >
+          <CalendarMonthPicker label={monthTabLabel} open={currentViewKey === "month"} closeHref={historyMode ? historyHref : weekHref}>
             <CalendarDatePicker
               events={pickerEvents}
               dateMarkers={pickerList.ok ? pickerList.data.date_markers : []}
@@ -313,6 +296,9 @@ export async function VaccinationCalendarPage({
               dateHref={pickerDateHref}
             />
           </CalendarMonthPicker>
+          <Link href={historyHref} replace scroll={false} className={currentViewKey === "history" ? "on" : ""}>
+            {historyTabLabel}
+          </Link>
         </div>
       </div>
 
@@ -320,7 +306,7 @@ export async function VaccinationCalendarPage({
         {presentation.owner_tabs.map((tab) => (
           <Link
             key={tab.key}
-            href={hrefForTab(tab)}
+            href={hrefForOwnerTab(tab)}
             replace
             scroll={false}
             className={activeOwnerKey === tab.key || tab.active ? "on" : tab.enabled ? "" : "disabled"}
@@ -336,7 +322,7 @@ export async function VaccinationCalendarPage({
         <div className="subtabs" style={{ margin: "0 0 14px" }} aria-label={copy(pageContract, "filter.workstream.aria")}>
           {presentation.workstream_tabs.map((tab) =>
             tab.enabled && !tab.active ? (
-              <Link key={tab.key} href={hrefForTab(tab)} replace scroll={false} title={tab.disabled_reason || undefined}>
+              <Link key={tab.key} href={hrefForWorkstreamTab(tab)} replace scroll={false} title={tab.disabled_reason || undefined}>
                 {tab.label}
               </Link>
             ) : (
@@ -372,34 +358,41 @@ export async function VaccinationCalendarPage({
           <b>{list.error.code ?? list.error.kind}</b>&nbsp;{list.error.message}
         </div>
       ) : null}
-      {selectedEventId && !groupedSelection && detail && !detail.ok ? (
+      {selectedEventId && detail && !detail.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
           <b>{detail.error.code ?? detail.error.kind}</b>&nbsp;{detail.error.message}
         </div>
       ) : null}
 
-      <WeekView
-        events={events}
-        today={today}
-        eventHref={eventHref}
-        ownerKey={activeOwnerKey}
-        presentation={presentation}
-        ownerMeta={ownerMeta}
-        clearOwnerHref={hrefWith({ owner_key: undefined, event: undefined })}
-        dayFilter={dayFilter}
-        clearDayHref={hrefWith({ day: undefined, event: undefined })}
-        pageContract={pageContract}
-      />
-      {events.length === 0 ? <EmptyState ok={list.ok} presentation={presentation} /> : null}
-
-      {groupedSel ? (
-        <CalendarDriveSummaryDrawer
-          event={groupedSel}
-          closeHref={closeHref}
-          scope={scope}
+      {historyMode ? (
+        <HistoryView
+          events={events}
+          today={today}
+          eventHref={eventHref}
+          ownerKey={activeOwnerKey}
+          ownerMeta={ownerMeta}
+          pageContract={pageContract}
+          title={historyTabLabel}
+        />
+      ) : (
+        <WeekView
+          events={events}
+          today={today}
+          eventHref={eventHref}
+          ownerKey={activeOwnerKey}
+          presentation={presentation}
+          ownerMeta={ownerMeta}
+          clearOwnerHref={hrefWith({ owner_key: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
+          dayFilter={effectiveDayFilter}
+          clearDayHref={hrefWith({ day: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           pageContract={pageContract}
         />
-      ) : sel ? (
+      )}
+
+      {events.length === 0 ? <EmptyState ok={list.ok} presentation={presentation} mode={historyMode ? "history" : "week"} pageContract={pageContract} /> : null}
+      {list.ok ? <EventPager nextHref={listNextHref} prevHref={listPrevHref} page={listPage} rowsOnPage={listOnPage} pageContract={pageContract} /> : null}
+
+      {sel ? (
         <CalendarEventDrawer
           detail={sel}
           targets={targets && targets.ok ? targets.data.items : null}
@@ -420,7 +413,6 @@ export async function VaccinationCalendarPage({
   );
 }
 
-// ── Week (agenda) view ─────────────────────────────────────────────────────────────────────────────
 function WeekView({
   events,
   today,
@@ -444,13 +436,13 @@ function WeekView({
   clearDayHref: string;
   pageContract: AdminUiPageContract;
 }) {
-  const scoped = dayFilter ? events.filter((e) => weekdayOf(e.due_at) === dayFilter) : events;
+  const scoped = dayFilter ? events.filter((event) => weekdayOf(event.due_at) === dayFilter) : events;
   const sorted = [...scoped].sort((a, b) => a.due_at.localeCompare(b.due_at));
   const byDate = new Map<string, CalendarEvent[]>();
-  for (const e of sorted) {
-    const key = dateKey(e.due_at);
+  for (const event of sorted) {
+    const key = dateKey(event.due_at);
     const bucket = byDate.get(key) ?? [];
-    bucket.push(e);
+    bucket.push(event);
     byDate.set(key, bucket);
   }
   const selectedOwnerLabel = ownerScopeLabel(ownerKey, ownerMeta);
@@ -504,8 +496,8 @@ function WeekView({
             Array.from(byDate.entries()).map(([key, rows]) => (
               <div key={key}>
                 <div className="dh">{dateHeading(key, today, pageContract)}</div>
-                {rows.map((e) => (
-                  <EventRow key={e.event_id} event={e} href={eventHref(e.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
+                {rows.map((event) => (
+                  <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
                 ))}
               </div>
             ))
@@ -516,7 +508,91 @@ function WeekView({
   );
 }
 
-// ── Compact month picker ───────────────────────────────────────────────────────────────────────────
+function HistoryView({
+  events,
+  today,
+  eventHref,
+  ownerKey,
+  ownerMeta,
+  pageContract,
+  title,
+}: {
+  events: CalendarEvent[];
+  today: string;
+  eventHref: (id: string) => string;
+  ownerKey: CalendarOwnerFilter;
+  ownerMeta: OwnerPresentationMap;
+  pageContract: AdminUiPageContract;
+  title: string;
+}) {
+  const sorted = [...events].sort((a, b) => b.due_at.localeCompare(a.due_at));
+  const byDate = new Map<string, CalendarEvent[]>();
+  for (const event of sorted) {
+    const key = dateKey(event.due_at);
+    const bucket = byDate.get(key) ?? [];
+    bucket.push(event);
+    byDate.set(key, bucket);
+  }
+  return (
+    <div className="card">
+      <div className="hd">
+        <Clock className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+        <h3>{title}</h3>
+        <Tag tone={ownerKey === "all" ? "mut" : "info"}>{ownerScopeLabel(ownerKey, ownerMeta)}</Tag>
+      </div>
+      <div className="bd">
+        <div className="agenda">
+          {Array.from(byDate.entries()).map(([key, rows]) => (
+            <div key={key}>
+              <div className="dh">{dateHeading(key, today, pageContract)}</div>
+              {rows.map((event) => (
+                <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EventPager({
+  nextHref,
+  prevHref,
+  page,
+  rowsOnPage,
+  pageContract,
+}: {
+  nextHref: string | null;
+  prevHref: string | null;
+  page: number;
+  rowsOnPage: number;
+  pageContract: AdminUiPageContract;
+}) {
+  if (!nextHref && !prevHref) return null;
+  return (
+    <div className="subtabs" style={{ marginTop: 14, justifyContent: "space-between" }}>
+      {prevHref ? (
+        <Link href={prevHref} replace scroll={false}>
+          {copy(pageContract, "action.previous")}
+        </Link>
+      ) : (
+        <span className="disabled">{copy(pageContract, "action.previous")}</span>
+      )}
+      <span className="muted small">
+        {copy(pageContract, "pager.page")} {page} · {rowsOnPage} {copy(pageContract, "pager.rows").toLowerCase()}
+      </span>
+      {nextHref ? (
+        <Link href={nextHref} replace scroll={false}>
+          {copy(pageContract, "action.next")}
+        </Link>
+      ) : (
+        <span className="disabled">{copy(pageContract, "action.next")}</span>
+      )}
+    </div>
+  );
+}
+
 function CalendarDatePicker({
   events,
   dateMarkers,
@@ -536,7 +612,7 @@ function CalendarDatePicker({
   presentation: CalendarPresentation;
   pageContract: AdminUiPageContract;
   monthHref: (date: string) => string;
-  dateHref: (date: string) => string;
+  dateHref: (date: string, historyOnly?: boolean) => string;
 }) {
   const anchor = new Date(`${anchorKey}T00:00:00+05:30`);
   const year = Number.isNaN(anchor.getTime()) ? Number(today.slice(0, 4)) : anchor.getFullYear();
@@ -544,10 +620,10 @@ function CalendarDatePicker({
   const weekdays = optionGroup(pageContract, "calendar_weekdays");
 
   const byDate = new Map<string, CalendarEvent[]>();
-  for (const e of events) {
-    const key = dateKey(e.due_at);
+  for (const event of events) {
+    const key = dateKey(event.due_at);
     const bucket = byDate.get(key) ?? [];
-    bucket.push(e);
+    bucket.push(event);
     byDate.set(key, bucket);
   }
   const markerByDate = new Map<string, CalendarDateMarker>();
@@ -578,24 +654,24 @@ function CalendarDatePicker({
         </Link>
       </div>
       <div className="calpicker-grid">
-        {weekdays.map((d) => (
-          <span key={d.key} className="calpicker-dow">
-            {d.label.slice(0, 3)}
+        {weekdays.map((weekday) => (
+          <span key={weekday.key} className="calpicker-dow">
+            {weekday.label.slice(0, 3)}
           </span>
         ))}
-        {cells.map((cell, i) => {
-          if (cell === null) return <span key={`out-${i}`} className="calpicker-day out" />;
+        {cells.map((cell, index) => {
+          if (cell === null) return <span key={`out-${index}`} className="calpicker-day out" />;
           const dayEvents = byDate.get(cell.key) ?? [];
           const marker = markerByDate.get(cell.key);
           const hasDrive = dayEvents.length > 0;
           const hasHistory = (marker?.completed_count ?? 0) > 0;
           const hasOpenWork = (marker?.open_count ?? 0) > 0;
-          const owners = Array.from(new Set(dayEvents.map((e) => e.owner_key))).slice(0, 3);
+          const owners = Array.from(new Set(dayEvents.map((event) => event.owner_key))).slice(0, 3);
           const eventCount = marker?.event_count ?? dayEvents.length;
           return (
             <Link
               key={cell.key}
-              href={dateHref(cell.key)}
+              href={dateHref(cell.key, hasHistory && !hasOpenWork)}
               replace
               scroll={false}
               className={`calpicker-day${cell.key === today ? " today" : ""}${cell.key === anchorKey ? " selected" : ""}${eventCount ? " has-events" : ""}${hasDrive ? " has-drive" : ""}${hasHistory ? " has-history" : ""}${hasOpenWork ? " has-open-work" : ""}`}
@@ -603,7 +679,7 @@ function CalendarDatePicker({
                 dayEvents.length
                   ? dayEvents
                       .slice(0, 4)
-                      .map((e) => `${asDriveSummaryEvent(e).all_day ? "All day" : timeOf(e.due_at)} ${eventTypeMeta(e.event_type, presentation).label} - ${e.title}`)
+                      .map((event) => `${timeOf(event.due_at)} ${eventTypeMeta(event.event_type, presentation).label} - ${event.title}`)
                       .join("\n")
                   : undefined
               }
@@ -621,7 +697,9 @@ function CalendarDatePicker({
         })}
       </div>
       <div className="calpicker-note">
-        <span className="calpicker-dot drive" /> Drive day
+        <span className="calpicker-dot drive" /> {copy(pageContract, "calendar.picker.drive_hint")}
+        <span className="calpicker-dot other" /> {copy(pageContract, "calendar.picker.other_hint")}
+        <span className="calpicker-dot history" /> {copy(pageContract, "calendar.picker.history_hint")}
         <span className="sp" />
         <span>{presentation.month.as_of_hint}</span>
       </div>
@@ -629,15 +707,27 @@ function CalendarDatePicker({
   );
 }
 
-function EmptyState({ ok, presentation }: { ok: boolean; presentation: CalendarPresentation }) {
+function EmptyState({
+  ok,
+  presentation,
+  mode,
+  pageContract,
+}: {
+  ok: boolean;
+  presentation: CalendarPresentation;
+  mode: "week" | "history";
+  pageContract: AdminUiPageContract;
+}) {
+  const okTitle = mode === "history" ? copy(pageContract, "calendar.history.empty") : presentation.week.empty_message;
+  const okBody = mode === "history" ? copy(pageContract, "calendar.history.empty_note") : presentation.empty_state.ok_message;
   return (
     <div className="calempty" role="status">
       <span className="calempty-ic">
         {ok ? <CalendarDays className="ic" aria-hidden="true" /> : <Info className="ic" aria-hidden="true" />}
       </span>
       <div className="calempty-copy">
-        <b>{ok ? presentation.week.empty_message : presentation.empty_state.error_message}</b>
-        <span>{ok ? presentation.empty_state.ok_message : presentation.empty_state.error_message}</span>
+        <b>{ok ? okTitle : presentation.empty_state.error_message}</b>
+        <span>{ok ? okBody : presentation.empty_state.error_message}</span>
       </div>
       {ok ? <Tag tone="mut">{presentation.active_owner_scope_label}</Tag> : null}
     </div>

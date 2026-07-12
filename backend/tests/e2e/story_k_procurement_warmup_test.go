@@ -26,6 +26,7 @@ func TestKernelStoryK_ProcurementWarmup(t *testing.T) {
 			"but held (deferred, warm-up reason), so nobody vaccinates a still-settling animal. After the 7-day "+
 			"cool-off the same dose is released onto the herd schedule, due 7 days after farm entry.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const shedID = "eb000000-0000-4000-8000-000000000001"
 	const stageID = "eb000000-0000-4000-8000-000000000002"

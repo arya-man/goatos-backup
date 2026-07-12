@@ -19,7 +19,7 @@ func TestKernelStoryAG_RecurringCalendarLifecycle(t *testing.T) {
 			"history, SM-7 schedules exactly one next cycle from the actual administration date, Calendar "+
 			"shows both the past completed marker and future work, and a production culled exit removes only "+
 			"the future obligation while retaining history.")
-	story.Certify("backend kernel + SOP proof/submission/review + outbox relay/consumer")
+	story.Certify("backend kernel + SOP proof/submission/review + durable outbox envelope + domain consumer")
 	defer story.Finish()
 
 	const (
@@ -73,8 +73,13 @@ func TestKernelStoryAG_RecurringCalendarLifecycle(t *testing.T) {
 	story.Assert("Calendar history read succeeded", err == nil, "err=%v", err)
 	story.Assert("past accepted dose appears as completed history", err == nil && len(history.Items) == 1 && history.Items[0].EventType == calendardomain.EventVaccinationHistory,
 		"items=%d", len(history.Items))
+	historyCompleted, historyOpen := 0, 0
+	if len(history.DateMarkers) > 0 {
+		historyCompleted = history.DateMarkers[0].CompletedCount
+		historyOpen = history.DateMarkers[0].OpenCount
+	}
 	story.Assert("past date marker is completed-only", err == nil && len(history.DateMarkers) == 1 && history.DateMarkers[0].CompletedCount == 1 && history.DateMarkers[0].OpenCount == 0,
-		"markers=%+v", history.DateMarkers)
+		"markers=%d completed=%d open=%d", len(history.DateMarkers), historyCompleted, historyOpen)
 
 	future, err := fx.Calendar.ListEvents(fx.Ctx, calendardomain.Query{
 		TenantID: fxTenant, OwnerKey: calendardomain.OwnerAll,
@@ -82,10 +87,18 @@ func TestKernelStoryAG_RecurringCalendarLifecycle(t *testing.T) {
 		Limit: 20, IncludeDateMarkers: true, Scope: calendardomain.ScopeFilter{TenantWide: true},
 	})
 	story.Assert("Calendar future read succeeded", err == nil, "err=%v", err)
+	futureStatus := ""
+	if len(future.Items) > 0 {
+		futureStatus = future.Items[0].Status
+	}
 	story.Assert("future recurrence appears as open Calendar work", err == nil && len(future.Items) == 1 && future.Items[0].Status != calendardomain.StatusCompleted,
-		"items=%+v", future.Items)
+		"items=%d status=%q", len(future.Items), futureStatus)
+	futureOpen := 0
+	if len(future.DateMarkers) > 0 {
+		futureOpen = future.DateMarkers[0].OpenCount
+	}
 	story.Assert("future marker counts open work", err == nil && len(future.DateMarkers) == 1 && future.DateMarkers[0].OpenCount == 1,
-		"markers=%+v", future.DateMarkers)
+		"markers=%d open=%d", len(future.DateMarkers), futureOpen)
 
 	story.Step("Cull the goat through identity and refresh Calendar",
 		"The production culled exit emits goat.exited and SM-3 cancels the next obligation. Refresh tombstones it from Calendar while accepted history remains queryable.")
@@ -100,7 +113,7 @@ func TestKernelStoryAG_RecurringCalendarLifecycle(t *testing.T) {
 		DateFrom: wantNextDue.AddDate(0, 0, -1), DateTo: wantNextDue.AddDate(0, 0, 1),
 		Limit: 20, IncludeDateMarkers: true, Scope: calendardomain.ScopeFilter{TenantWide: true},
 	})
-	story.Assert("future Calendar work disappears after exit", err == nil && len(futureAfterExit.Items) == 0, "items=%+v err=%v", futureAfterExit.Items, err)
+	story.Assert("future Calendar work disappears after exit", err == nil && len(futureAfterExit.Items) == 0, "items=%d err=%v", len(futureAfterExit.Items), err)
 	historyAfterExit, err := fx.Calendar.ListEvents(fx.Ctx, calendardomain.Query{
 		TenantID: fxTenant, OwnerKey: calendardomain.OwnerAll, Status: &completed,
 		DateFrom: administeredAt.AddDate(0, 0, -1), DateTo: administeredAt.AddDate(0, 0, 1),

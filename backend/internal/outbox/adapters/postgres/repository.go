@@ -169,6 +169,90 @@ WHERE outbox_id = $1
 	return result, nil
 }
 
+// ClaimMessage claims one specific pending outbox row for publishing without touching other ready
+// rows. It is used by local harnesses that need to drive one durable envelope through the
+// production consumer path without draining unrelated pending setup events.
+func (r *Repository) ClaimMessage(ctx context.Context, outboxID string, now time.Time) (*domain.Message, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
+	var message domain.Message
+	err = tx.QueryRow(ctx, `
+SELECT
+  outbox_id::text,
+  tenant_id::text,
+  event_id::text,
+  event_type,
+  schema_version,
+  aggregate_type,
+  aggregate_id::text,
+  topic,
+  headers,
+  payload,
+  idempotency_key,
+  trace_id,
+  attempt_count,
+  created_at,
+  updated_at
+FROM outbox_messages
+WHERE outbox_id = $1::uuid
+  AND status = 'pending'
+  AND (next_attempt_at IS NULL OR next_attempt_at <= $2)
+FOR UPDATE`, outboxID, now).Scan(
+		&message.OutboxID,
+		&message.TenantID,
+		&message.EventID,
+		&message.EventType,
+		&message.SchemaVersion,
+		&message.AggregateType,
+		&message.AggregateID,
+		&message.Topic,
+		&message.Headers,
+		&message.Payload,
+		&message.IdempotencyKey,
+		&message.TraceID,
+		&message.AttemptCount,
+		&message.CreatedAt,
+		&message.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tag, err := tx.Exec(ctx, `
+UPDATE outbox_messages
+SET status = 'publishing',
+    attempt_count = attempt_count + 1,
+    next_attempt_at = NULL,
+    updated_at = $2
+WHERE outbox_id = $1::uuid
+  AND status = 'pending'`, outboxID, now)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, pgx.ErrNoRows
+	}
+	message.AttemptCount++
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	committed = true
+	return &message, nil
+}
+
 func (r *Repository) MarkPublished(ctx context.Context, outboxID string, now time.Time) error {
 	return r.execStatusUpdate(ctx, `
 UPDATE outbox_messages

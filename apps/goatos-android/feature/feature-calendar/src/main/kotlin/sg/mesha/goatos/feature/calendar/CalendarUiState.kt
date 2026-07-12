@@ -64,6 +64,7 @@ data class CalendarMonthDay(
     val dateKey: String?,
     val dayNumber: String?,
     val hasWork: Boolean = false,
+    val hasCompletedHistory: Boolean = false,
     val dotTone: CalendarTone = CalendarTone.Neutral,
     val isSelected: Boolean = false,
 )
@@ -92,6 +93,8 @@ data class CalendarDayUiState(
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
+    val hasMore: Boolean = false,
+    val isLoadingMore: Boolean = false,
 )
 
 // @Immutable: every field is a val built once from a fixed List — the compiler otherwise
@@ -121,6 +124,8 @@ data class CalendarUiState(
     val weekDays: List<CalendarWeekDay> = emptyList(),
     val weekItems: List<CalendarItem> = emptyList(),
     val weekEmptyLabel: String = "",
+    val weekHasMore: Boolean = false,
+    val weekLoadingMore: Boolean = false,
     // MONTH
     val monthLabel: String = "",
     val monthWeekdayLabels: List<String> = emptyList(),
@@ -130,6 +135,8 @@ data class CalendarUiState(
     val historyLabel: String = "",
     val historyRows: List<CalendarHistoryRow> = emptyList(),
     val historyEmptyLabel: String = "",
+    val historyHasMore: Boolean = false,
+    val historyLoadingMore: Boolean = false,
 )
 
 /** User intents. The ViewModel maps each to a backend read/drill — the screen decides nothing. */
@@ -139,10 +146,16 @@ sealed interface CalendarEvent {
     /** Week-strip day tap — re-scopes the week agenda list in place (stays on the calendar). */
     data class TapDay(val dateKey: String) : CalendarEvent
 
-    /** Month-grid day tap — opens that day's drives as their OWN L1 screen (nav host routes it). */
-    data class OpenDay(val dateKey: String) : CalendarEvent
+    /** Month-grid day tap — opens that day's drives as their OWN L1 screen (nav host routes it).
+     *  History-only days request the completed-history branch explicitly so a visible muted marker
+     *  never drills into an empty open-work query. */
+    data class OpenDay(val dateKey: String, val showCompletedHistory: Boolean = false) : CalendarEvent
 
     data class TapItem(val itemId: String) : CalendarEvent
+
+    data object LoadMoreWeek : CalendarEvent
+
+    data object LoadMoreHistory : CalendarEvent
 
     /** Header refresh — reloads the calendar (mock `.vhead` refresh affordance). */
     data object Refresh : CalendarEvent

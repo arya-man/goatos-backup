@@ -11,11 +11,11 @@
 
     <!-- Empty states -->
     <string name="calendar_week_empty">డ్రైవ్‌లు షెడ్యూల్ చేయబడలేదు</string>
-    <string name="calendar_history_empty">గత డ్రైవ్‌లు లేవు</string>
+    <string name="calendar_history_empty">అంగీకరించిన పూర్తి చరిత్ర లేదు</string>
     <string name="calendar_day_sheet_empty">ఈ రోజు ఎలాంటి డ్రైవ్ షెడ్యూల్ చేయలేదు</string>
 
     <!-- Month grid hint -->
-    <string name="calendar_month_hint">దాని డ్రైవ్‌ల కోసం ఒక రోజుని నొక్కండి · చుక్కలు = డ్రైవ్ రోజులు</string>
+    <string name="calendar_month_hint">ఆ రోజు బాకీ పని లేదా పూర్తి చరిత్ర కోసం రోజును నొక్కండి · చుక్కలు = ఓపెన్ పని, మసక చుక్కలు = పూర్తి చరిత్ర</string>
 
     <!-- Accessibility descriptions -->
     <string name="calendar_button_menu">మెనూ</string>
@@ -23,6 +23,6 @@
     <string name="calendar_button_refresh">రిఫ్రెష్</string>
 
     <!-- History section label (prefix before dynamic count) -->
-    <string name="calendar_history_label">గత డ్రైవ్‌లు</string>
+    <string name="calendar_history_label">అంగీకరించిన పూర్తి చరిత్ర</string>
     <string name="calendar_cta_open">తెరవండి</string>
 </resources>

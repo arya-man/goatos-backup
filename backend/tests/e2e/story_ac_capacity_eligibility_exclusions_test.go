@@ -31,6 +31,7 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 			"released, and one goat needing two vaccines counts as two cells. capacity_status follows those "+
 			"cells — never the raw headcount — while the merged shed headline still surfaces overdue work.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	// Small tenant cap so capacity_status is sensitive to the exact cell count: 2 vaccinations/day, 1 buffer
 	// day => a 2-day safe window (sessions <= 1 -> within_cap; <= 2 -> over_cap/split; > 2 -> needs review).

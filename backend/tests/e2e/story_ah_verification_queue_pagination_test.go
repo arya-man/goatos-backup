@@ -25,6 +25,7 @@ func TestKernelStoryAH_VerificationQueuePagesPastFormerCap(t *testing.T) {
 	story := NewStory(t, "story-ah", "Verification queue reaches every row beyond the former 200 cap",
 		"Two hundred and fifty-one real generated obligations are recorded for review. Operators traverse the production HTTP queue at 10, 25 and 50 rows per page without skips, duplicates, false totals or a hidden client cap.")
 	defer story.Finish()
+	story.Certify("backend kernel + production verification-queue HTTP handler")
 
 	const (
 		shedID   = "82000000-0000-4000-8000-000000000001"

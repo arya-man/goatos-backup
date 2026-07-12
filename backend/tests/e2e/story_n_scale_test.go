@@ -30,6 +30,7 @@ func TestKernelStoryN_Scale(t *testing.T) {
 			"control-tower read path must be keyset-paginated -- each page returns at most its page size with "+
 			"a cursor to the next, so a director's dashboard never scans the whole herd to render one screen.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const shedCount = 6
 	const goatsPerShed = 8
@@ -119,7 +120,7 @@ func TestKernelStoryN_Scale(t *testing.T) {
 		len(page1.Rows) == pageSize, "rows=%d", len(page1.Rows))
 	story.Assert(fmt.Sprintf("total count reports all %d shed/rule rows without materializing them in the page", shedCount),
 		page1.TotalCount == int64(shedCount), "total=%d", page1.TotalCount)
-	story.Assert("a next-page cursor is returned (keyset pagination, bounded reads)", page1.NextCursor != nil, "next_cursor=%v", page1.NextCursor)
+	story.Assert("a next-page cursor is returned (keyset pagination, bounded reads)", page1.NextCursor != nil, "next_cursor=%s", detailString(page1.NextCursor))
 
 	story.Step("Paging through with the cursor covers the full set without overlap",
 		"Follow the cursor to the next page. The second page returns the remaining rows, disjoint from the "+

@@ -167,11 +167,11 @@ func TestHandleMessageMarksPermanentHandlerErrorProcessed(t *testing.T) {
 		ID:   "msg-permanent",
 		Data: testEnvelope(t, "goat.created", "10000000-0000-4000-8000-000000000009"),
 	})
-	if err != nil {
-		t.Fatalf("HandleMessage: %v", err)
+	if err == nil {
+		t.Fatal("expected permanent handler error to NACK for DLQ")
 	}
-	if store.completed != 1 || store.failed != 0 {
-		t.Fatalf("store=%#v, want permanent failure marked processed", store)
+	if store.completed != 0 || store.failed != 1 {
+		t.Fatalf("store=%#v, want permanent failure marked failed for DLQ", store)
 	}
 }
 
@@ -207,11 +207,11 @@ func TestHandleMessageAcksAfterDispatchWhenProcessedFinalizationFails(t *testing
 		ID:   "msg-finalize-lost",
 		Data: testEnvelope(t, "goat.created", "10000000-0000-4000-8000-000000000008"),
 	})
-	if err != nil {
-		t.Fatalf("HandleMessage: %v", err)
+	if err == nil {
+		t.Fatal("expected processed-event finalization error")
 	}
-	if calls != 1 || store.completed != 1 || store.failed != 0 {
-		t.Fatalf("calls=%d store=%#v, want dispatch acked without failed mark", calls, store)
+	if calls != 1 || store.completed != 1 || store.failed != 1 {
+		t.Fatalf("calls=%d store=%#v, want dispatch recorded then failed finalization marked", calls, store)
 	}
 }
 

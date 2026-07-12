@@ -68,6 +68,9 @@ func ValidateEventID(eventID string) error {
 	if _, err := ParseDriveEventID(eventID); err == nil {
 		return nil
 	}
+	if _, err := ParseHistoryEventID(eventID); err == nil {
+		return nil
+	}
 	eventID = strings.TrimSpace(eventID)
 	if eventID == "" || len(eventID) > 256 {
 		return ErrInvalidEventID

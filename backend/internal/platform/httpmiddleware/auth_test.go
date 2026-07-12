@@ -463,6 +463,36 @@ func TestCalendarRoutesMayUseScopedGrantsWithoutBroadeningOtherRoutes(t *testing
 	assertAuthErrorCode(t, otherRec, "permission_denied")
 }
 
+func TestAdminTaskReviewRoutesRequireTenantScopedVerifyRole(t *testing.T) {
+	scopedGrant := permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: "86000000-0000-4000-8000-000000000701"}
+	tenantGrant := permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "tenant", ScopeID: authTestTenant}
+
+	scopedMW := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {scopedGrant}}})
+	scopedHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(scopedMW.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("park-scoped grant should not authorize admin task review route")
+	})))
+	scopedReq := httptest.NewRequest(http.MethodPost, "/admin/tasks/63000000-0000-4000-8000-000000000001/verify", nil)
+	scopedReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	scopedRec := httptest.NewRecorder()
+	scopedHandler.ServeHTTP(scopedRec, scopedReq)
+	if scopedRec.Code != http.StatusForbidden {
+		t.Fatalf("scoped status=%d body=%s", scopedRec.Code, scopedRec.Body.String())
+	}
+	assertAuthErrorCode(t, scopedRec, "permission_denied")
+
+	tenantMW := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {tenantGrant}}})
+	tenantHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(tenantMW.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	tenantReq := httptest.NewRequest(http.MethodPost, "/admin/tasks/63000000-0000-4000-8000-000000000001/verify", nil)
+	tenantReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	tenantRec := httptest.NewRecorder()
+	tenantHandler.ServeHTTP(tenantRec, tenantReq)
+	if tenantRec.Code != http.StatusNoContent {
+		t.Fatalf("tenant status=%d body=%s", tenantRec.Code, tenantRec.Body.String())
+	}
+}
+
 func TestDevHeadersRequireExplicitLocalOptIn(t *testing.T) {
 	if _, err := NewAuthMiddleware(AuthConfig{Mode: AuthModeDevHeaders, Environment: "prod", DevHeadersAllowed: true}, nil, grantAdapter{fakeGrantSource{}}, slog.Default()); err == nil {
 		t.Fatal("dev_headers accepted prod environment")

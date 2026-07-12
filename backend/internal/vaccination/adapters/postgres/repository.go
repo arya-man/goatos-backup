@@ -1424,28 +1424,52 @@ func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, s
 
 // ListRecordedCompletions returns completions awaiting review (status='recorded'), earliest
 // administered first (the Verification queue).
-func (r *Repository) ListRecordedCompletions(ctx context.Context, tenantID, parkID string, limit int32) ([]domain.RecordedCompletion, error) {
+func (r *Repository) ListRecordedCompletions(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
-		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
+		return domain.RecordedCompletionPage{}, fmt.Errorf("vaccination: tenant id: %w", err)
 	}
 	var park pgtype.UUID
 	if parkID != "" {
 		park, err = pgconv.UUID(parkID)
 		if err != nil {
-			return nil, fmt.Errorf("vaccination: park id: %w", err)
+			return domain.RecordedCompletionPage{}, fmt.Errorf("vaccination: park id: %w", err)
 		}
 	}
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := r.queries.ListRecordedCompletions(ctx, vaccinationdb.ListRecordedCompletionsParams{
-		TenantID: tenant, ParkID: park, RowLimit: limit,
+	totalCount, err := r.queries.CountRecordedCompletions(ctx, vaccinationdb.CountRecordedCompletionsParams{
+		TenantID: tenant,
+		ParkID:   park,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("vaccination: list recorded completions: %w", err)
+		return domain.RecordedCompletionPage{}, fmt.Errorf("vaccination: count recorded completions: %w", err)
+	}
+	var cursorAdministeredAt pgtype.Timestamptz
+	var cursorCompletionID pgtype.UUID
+	if cursor != nil {
+		cursorAdministeredAt = pgtype.Timestamptz{Time: cursor.AdministeredAt.UTC(), Valid: true}
+		cursorCompletionID, err = pgconv.UUID(cursor.CompletionID)
+		if err != nil {
+			return domain.RecordedCompletionPage{}, fmt.Errorf("vaccination: cursor completion id: %w", err)
+		}
+	}
+	rows, err := r.queries.ListRecordedCompletions(ctx, vaccinationdb.ListRecordedCompletionsParams{
+		TenantID:             tenant,
+		ParkID:               park,
+		CursorAdministeredAt: cursorAdministeredAt,
+		CursorCompletionID:   cursorCompletionID,
+		RowLimitPlusOne:      limit + 1,
+	})
+	if err != nil {
+		return domain.RecordedCompletionPage{}, fmt.Errorf("vaccination: list recorded completions: %w", err)
+	}
+	hasMore := len(rows) > int(limit)
+	if hasMore {
+		rows = rows[:int(limit)]
 	}
 	out := make([]domain.RecordedCompletion, 0, len(rows))
 	for _, row := range rows {
@@ -1461,7 +1485,23 @@ func (r *Repository) ListRecordedCompletions(ctx context.Context, tenantID, park
 			RouteSite:      row.RouteSite,
 		})
 	}
-	return out, nil
+	var nextCursor *string
+	if hasMore && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		encoded, err := domain.EncodeRecordedCompletionCursor(domain.RecordedCompletionCursor{
+			AdministeredAt: last.AdministeredAt.Time,
+			CompletionID:   last.CompletionID,
+		})
+		if err != nil {
+			return domain.RecordedCompletionPage{}, fmt.Errorf("vaccination: encode recorded completion cursor: %w", err)
+		}
+		nextCursor = &encoded
+	}
+	return domain.RecordedCompletionPage{
+		Items:      out,
+		TotalCount: totalCount,
+		NextCursor: nextCursor,
+	}, nil
 }
 
 // ListCompletionsByGoat returns a goat's vaccination history (most recent first).

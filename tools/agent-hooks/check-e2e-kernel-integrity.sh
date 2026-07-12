@@ -33,18 +33,14 @@ collect_named_artifacts() {
   while IFS= read -r -d '' file; do
     local rel
     rel="${file#"$repo"/}"
-    # macOS still ships Bash 3, which has no ${var,,} lowercase expansion.
-    rel="$(printf '%s' "$rel" | tr '[:upper:]' '[:lower:]')"
-    if [[ "$rel" =~ (e2e|smoke|proof) ]]; then
-      # Legacy proof scripts are manual operator artifacts (for live/procurement checks),
-      # not kernel-e2e fixtures, and are covered by dedicated live-run workflows.
-      if [[ "$rel" == tools/dev/*-proof.sh ]]; then
-        continue
-      fi
-      source_files+=("$file")
+    # Legacy proof scripts are manual operator artifacts (for live/procurement checks),
+    # not kernel-e2e fixtures, and are covered by dedicated live-run workflows.
+    if [[ "$rel" == tools/dev/*-proof.sh ]]; then
+      continue
     fi
+    source_files+=("$file")
   done < <(find "$dir" -type f \( \
-    -name '*.sql' -o -name '*.sh' -o -name '*.bash' -o -name '*.mjs' -o \
+    -name '*.go' -o -name '*.sql' -o -name '*.sh' -o -name '*.bash' -o -name '*.mjs' -o \
     -name '*.js' -o -name '*.ts' -o -name '*.py' -o -name '*.json' \
   \) -print0)
 }

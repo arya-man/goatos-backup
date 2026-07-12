@@ -19,6 +19,7 @@ func TestKernelStoryD_MultiShedFEFO(t *testing.T) {
 			"the earliest-expiry stock lot, and SM-5 consumes that lot when both doses are accepted; the later "+
 			"lot remains untouched.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedAID  = "e1000000-0000-4000-8000-0000000000d1"
@@ -85,8 +86,7 @@ func TestKernelStoryD_MultiShedFEFO(t *testing.T) {
 		"batch=%s", batchID)
 	reviewed, err := sopHarness.Service.VerifyTask(fx.Ctx, sopports.ReviewTaskCommand{
 		TenantID: fxTenant, ActorID: verifier, TaskID: taskID,
-		Body:         sopdomain.ReviewTaskRequest{Reason: "multi-shed proof accepted", RowVersion: submitted.Task.RowVersion},
-		ReviewGrants: []sopports.ReviewGrant{{ScopeType: "park", ScopeID: fxPark}},
+		Body: sopdomain.ReviewTaskRequest{Reason: "multi-shed proof accepted", RowVersion: submitted.Task.RowVersion},
 	}, "story-d-verify")
 	reviewedState := ""
 	if reviewed != nil {

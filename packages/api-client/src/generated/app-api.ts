@@ -2423,6 +2423,9 @@ export interface components {
         };
         VaccinationQueueResponse: {
             items: components["schemas"]["VaccinationQueueItem"][];
+            /** Format: int64 */
+            total_count: number;
+            next_cursor?: string;
         };
         /** @description Config impact-preview filter. Empty filter dims mean "any". Preview is aggregate-only over the eligibility rollup, so there is no per-goat dose count and no time-relative warmup on this path. */
         ImpactPreviewInput: {
@@ -4846,6 +4849,8 @@ export interface operations {
                 /** @description Optional park scope (top-bar park); filters the queue to that park's completions. */
                 park_id?: string;
                 limit?: number;
+                /** @description Opaque keyset cursor returned by the previous verification-queue page. */
+                cursor?: string;
             };
             header?: never;
             path?: never;

@@ -66,6 +66,7 @@ type Fixture struct {
 	Proto    *protopg.Repository
 	Identity *identityapp.Service
 	Obl      *oblpg.Repository
+	Outbox   *outboxpg.Repository
 	Vacc     *vaccpg.Repository
 	VaccExec *vaccexecpg.Repository
 	Proof    *proofpg.Repository
@@ -106,6 +107,7 @@ func NewFixture(t *testing.T) *Fixture {
 	proto := protopg.NewRepository(pool, timeout)
 	identity := identityapp.NewService(identitypg.NewRepository(pool, timeout))
 	obl := oblpg.NewRepository(pool, timeout)
+	outboxRepo := outboxpg.NewRepository(pool, timeout)
 	vacc := vaccpg.NewRepository(pool, timeout)
 	bus := domainconsumerwiring.BuildDomainBus(pool, timeout, nil)
 	validator, err := outboxapp.NewEnvelopeValidator(filepath.Join("..", "..", "..", "contracts", "jsonschema", "domain-event-envelope.schema.json"))
@@ -114,7 +116,7 @@ func NewFixture(t *testing.T) *Fixture {
 	}
 	consumer := domainconsumerapp.NewService(bus, validator).
 		WithProcessedEventStore(domainconsumerpg.NewProcessedEventStore(pool, timeout))
-	relay := outboxapp.NewService(outboxpg.NewRepository(pool, timeout), e2eConsumerPublisher{consumer: consumer}, validator, outboxapp.Config{
+	relay := outboxapp.NewService(outboxRepo, e2eConsumerPublisher{consumer: consumer}, validator, outboxapp.Config{
 		Limit: 100, MaxAttempts: 5, BackoffBase: time.Millisecond, BackoffMax: time.Millisecond,
 	})
 	return &Fixture{
@@ -125,6 +127,7 @@ func NewFixture(t *testing.T) *Fixture {
 		Proto:    proto,
 		Identity: identity,
 		Obl:      obl,
+		Outbox:   outboxRepo,
 		Vacc:     vacc,
 		VaccExec: vaccexecpg.NewRepository(pool, timeout),
 		Proof:    proofpg.NewRepository(pool, timeout),
@@ -290,10 +293,12 @@ func (f *Fixture) dispatchIdentityOutbox(goatID, eventType string) {
 	f.dispatchOutbox(goatID, eventType)
 }
 
-// dispatchOutbox feeds a real durable outbox envelope through the production domain-consumer
+// dispatchOutbox feeds ONE real durable outbox envelope through the production domain-consumer
 // service. This exercises schema validation, durable processed-event claim/dedupe/finalization,
-// and the same registered business handlers used by the deployed subscriber. Pub/Sub transport
-// ACK/NACK itself is covered at its adapter seam; a non-nil service error is what makes it NACK.
+// and the same registered business handlers used by the deployed subscriber, without draining
+// unrelated pending outbox rows that belong to other story setup steps. The relay's own
+// claim/publish state machine is covered at its adapter seam; here the E2E proof target is the
+// durable envelope + consumer path.
 func (f *Fixture) dispatchOutbox(aggregateID, eventType string) {
 	f.T.Helper()
 	var outboxID string
@@ -308,29 +313,29 @@ LIMIT 1`, fxTenant, aggregateID, eventType).Scan(&outboxID, &payload, &status); 
 		f.T.Fatalf("read %s outbox for %s: %v", eventType, aggregateID, err)
 	}
 	if status != "published" {
-		result, err := f.Relay.RunUntilDrained(f.Ctx)
+		now := time.Now().UTC()
+		claimed, err := f.Outbox.ClaimMessage(f.Ctx, outboxID, now)
 		if err != nil {
-			f.T.Fatalf("relay %s outbox for %s: %v", eventType, aggregateID, err)
+			f.T.Fatalf("claim %s outbox for %s: %v", eventType, aggregateID, err)
 		}
-		status = f.scanText(`SELECT status FROM outbox_messages WHERE tenant_id=$1 AND outbox_id=$2`, fxTenant, outboxID)
-		if status != "published" {
-			f.T.Fatalf("relay %s outbox for %s: status=%s result=%+v", eventType, aggregateID, status, result)
-		}
-	}
-	// A first call exercises the durable consumer through the Relay path.
-	if status == "published" {
 		if err := f.Consumer.HandleMessage(f.Ctx, domainconsumerapp.Message{
-			ID:   outboxID,
-			Data: payload,
+			ID:   claimed.OutboxID,
+			Data: claimed.Payload,
 			Attributes: map[string]string{
-				"outbox_id":  outboxID,
-				"event_type": eventType,
-				"tenant_id":  fxTenant,
+				"outbox_id":  claimed.OutboxID,
+				"event_id":   claimed.EventID,
+				"event_type": claimed.EventType,
+				"tenant_id":  claimed.TenantID,
 			},
 			DeliveryAttempt: 1,
 		}); err != nil {
 			f.T.Fatalf("consume %s outbox for %s: %v", eventType, aggregateID, err)
 		}
+		if err := f.Outbox.MarkPublished(f.Ctx, claimed.OutboxID, now); err != nil {
+			f.T.Fatalf("mark %s outbox published for %s: %v", eventType, aggregateID, err)
+		}
+		outboxID = claimed.OutboxID
+		payload = claimed.Payload
 	}
 
 	// A second call deliberately models Pub/Sub redelivery of the same envelope.
@@ -592,7 +597,7 @@ type Story struct {
 // shared report.
 func NewStory(t *testing.T, id, title, narrative string) *Story {
 	t.Helper()
-	return &Story{t: t, result: StoryResult{ID: id, Title: title, Narrative: narrative, Certification: "backend kernel", Pass: true}}
+	return &Story{t: t, result: StoryResult{ID: id, Title: title, Narrative: narrative, Pass: true}}
 }
 
 // Certify declares the highest surface this story actually enters through. It is rendered in the

@@ -246,6 +246,29 @@ func (q *Queries) CountEligibleShedScopes(ctx context.Context, arg CountEligible
 	return total, err
 }
 
+const countRecordedCompletions = `-- name: CountRecordedCompletions :one
+SELECT COUNT(*)::bigint
+FROM vaccination_completions vc
+LEFT JOIN goats g ON g.tenant_id = vc.tenant_id AND g.goat_id = vc.goat_id
+WHERE vc.tenant_id = $1
+  AND vc.status = 'recorded'
+  AND ($2::uuid IS NULL OR g.park_id = $2::uuid)
+`
+
+type CountRecordedCompletionsParams struct {
+	TenantID pgtype.UUID
+	ParkID   pgtype.UUID
+}
+
+// Verification queue total for the current tenant/park filter. Exact total_count must stay honest even
+// when the client is reading a later cursor page.
+func (q *Queries) CountRecordedCompletions(ctx context.Context, arg CountRecordedCompletionsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecordedCompletions, arg.TenantID, arg.ParkID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getAcceptableVaccinationCompletion = `-- name: GetAcceptableVaccinationCompletion :one
 SELECT completion_id::text AS completion_id,
        status,
@@ -670,14 +693,20 @@ LEFT JOIN sop_tasks st
   ON st.tenant_id = ss.tenant_id AND st.task_id = ss.task_id
 WHERE vc.tenant_id = $1 AND vc.status = 'recorded'
   AND ($2::uuid IS NULL OR g.park_id = $2::uuid)
+  AND (
+    $3::timestamptz IS NULL
+    OR (vc.administered_at, vc.completion_id) > ($3::timestamptz, $4::uuid)
+  )
 ORDER BY vc.administered_at ASC, vc.completion_id ASC
-LIMIT $3
+LIMIT $5
 `
 
 type ListRecordedCompletionsParams struct {
-	TenantID pgtype.UUID
-	ParkID   pgtype.UUID
-	RowLimit int32
+	TenantID             pgtype.UUID
+	ParkID               pgtype.UUID
+	CursorAdministeredAt pgtype.Timestamptz
+	CursorCompletionID   pgtype.UUID
+	RowLimitPlusOne      int32
 }
 
 type ListRecordedCompletionsRow struct {
@@ -696,7 +725,13 @@ type ListRecordedCompletionsRow struct {
 // Uses vaccination_completions_review_idx (tenant_id, administered_at) WHERE status='recorded'. The
 // optional park_id scope filters by the completed goat's park so the top-bar park scope reaches the queue.
 func (q *Queries) ListRecordedCompletions(ctx context.Context, arg ListRecordedCompletionsParams) ([]ListRecordedCompletionsRow, error) {
-	rows, err := q.db.Query(ctx, listRecordedCompletions, arg.TenantID, arg.ParkID, arg.RowLimit)
+	rows, err := q.db.Query(ctx, listRecordedCompletions,
+		arg.TenantID,
+		arg.ParkID,
+		arg.CursorAdministeredAt,
+		arg.CursorCompletionID,
+		arg.RowLimitPlusOne,
+	)
 	if err != nil {
 		return nil, err
 	}

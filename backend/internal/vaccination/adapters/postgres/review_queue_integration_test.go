@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -76,15 +77,15 @@ func TestListRecordedCompletionsQueue(t *testing.T) {
 		t.Fatalf("accept: applied=%v err=%v", applied, err)
 	}
 
-	queue, err := vacc.ListRecordedCompletions(ctx, impTenant, "", 100)
+	queue, err := vacc.ListRecordedCompletions(ctx, impTenant, "", nil, 100)
 	if err != nil {
 		t.Fatalf("list recorded: %v", err)
 	}
-	if len(queue) != 2 {
-		t.Fatalf("want 2 recorded (accepted excluded), got %d", len(queue))
+	if len(queue.Items) != 2 || queue.TotalCount != 2 || queue.NextCursor != nil {
+		t.Fatalf("want 2 recorded (accepted excluded), got %#v", queue)
 	}
-	if queue[0].CompletionID != cidEarly || queue[1].CompletionID != cidLate {
-		t.Fatalf("want earliest administered first [%s,%s], got [%s,%s]", cidEarly, cidLate, queue[0].CompletionID, queue[1].CompletionID)
+	if queue.Items[0].CompletionID != cidEarly || queue.Items[1].CompletionID != cidLate {
+		t.Fatalf("want earliest administered first [%s,%s], got [%s,%s]", cidEarly, cidLate, queue.Items[0].CompletionID, queue.Items[1].CompletionID)
 	}
 }
 
@@ -172,11 +173,11 @@ VALUES ($1, $2, $3, $4, $5::uuid, 'goat:' || $5::text, 'needs_review', '{}'::jso
 		t.Fatalf("record: applied=%v err=%v", applied, err)
 	}
 
-	queue, err := vacc.ListRecordedCompletions(ctx, impTenant, "", 100)
+	queue, err := vacc.ListRecordedCompletions(ctx, impTenant, "", nil, 100)
 	if err != nil {
 		t.Fatalf("list recorded: %v", err)
 	}
-	if len(queue) != 1 || queue[0].CompletionID != cid || queue[0].SOPTaskID != task || queue[0].SOPTaskVersion != 4 {
+	if len(queue.Items) != 1 || queue.TotalCount != 1 || queue.Items[0].CompletionID != cid || queue.Items[0].SOPTaskID != task || queue.Items[0].SOPTaskVersion != 4 {
 		t.Fatalf("queue task handle = %#v", queue)
 	}
 }
@@ -255,29 +256,127 @@ func TestListRecordedCompletionsParkScope(t *testing.T) {
 	cidParkB := rec(gB, "parkb", time.Date(2026, 6, 21, 0, 0, 0, 0, time.UTC))
 
 	// All parks: both recorded completions present.
-	all, err := vacc.ListRecordedCompletions(ctx, impTenant, "", 100)
+	all, err := vacc.ListRecordedCompletions(ctx, impTenant, "", nil, 100)
 	if err != nil {
 		t.Fatalf("list all: %v", err)
 	}
-	if len(all) != 2 {
-		t.Fatalf("all parks: want 2 recorded, got %d", len(all))
+	if len(all.Items) != 2 || all.TotalCount != 2 {
+		t.Fatalf("all parks: want 2 recorded, got %#v", all)
 	}
 
 	// Scoped to CBE: only the CBE completion; the other park is excluded.
-	cbe, err := vacc.ListRecordedCompletions(ctx, impTenant, impCbe, 100)
+	cbe, err := vacc.ListRecordedCompletions(ctx, impTenant, impCbe, nil, 100)
 	if err != nil {
 		t.Fatalf("list cbe: %v", err)
 	}
-	if len(cbe) != 1 || cbe[0].CompletionID != cidCbe {
+	if len(cbe.Items) != 1 || cbe.TotalCount != 1 || cbe.Items[0].CompletionID != cidCbe {
 		t.Fatalf("park=CBE: want only %s, got %#v", cidCbe, cbe)
 	}
 
 	// Scoped to park B: only park B's completion.
-	parkBRows, err := vacc.ListRecordedCompletions(ctx, impTenant, parkB, 100)
+	parkBRows, err := vacc.ListRecordedCompletions(ctx, impTenant, parkB, nil, 100)
 	if err != nil {
 		t.Fatalf("list parkB: %v", err)
 	}
-	if len(parkBRows) != 1 || parkBRows[0].CompletionID != cidParkB {
+	if len(parkBRows.Items) != 1 || parkBRows.TotalCount != 1 || parkBRows.Items[0].CompletionID != cidParkB {
 		t.Fatalf("park=B: want only %s, got %#v", cidParkB, parkBRows)
+	}
+}
+
+func TestListRecordedCompletionsQueueCursorPagination(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.queue.cursor", Name: "Queue Cursor", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	goatIDs := []string{
+		"30000000-0000-4000-8000-0000000000d1",
+		"30000000-0000-4000-8000-0000000000d2",
+		"30000000-0000-4000-8000-0000000000d3",
+	}
+	for _, goatID := range goatIDs {
+		seedGenGoat(t, ctx, pool, goatID, "alive")
+	}
+	doses := int32(1)
+	administeredAt := time.Date(2026, 6, 20, 0, 0, 0, 0, time.UTC)
+	recorded := make([]string, 0, len(goatIDs))
+	for i, goatID := range goatIDs {
+		key := fmt.Sprintf("cursor-%d", i)
+		obID, applied, err := obl.InsertObligation(ctx, obldomain.NewObligation{
+			TenantID: impTenant, ProtocolVersionID: versionID, RuleID: ruleID,
+			TargetType: "goat", TargetID: goatID, ScopeType: "tenant", ScopeID: impTenant,
+			DueAt: administeredAt, Status: "scheduled", IdempotencyKey: "qcursor-ob-" + key, Sequence: 1,
+		})
+		if err != nil || !applied {
+			t.Fatalf("obligation %s: applied=%v err=%v", key, applied, err)
+		}
+		cid, applied, err := vacc.RecordCompletion(ctx, vaccdomain.NewCompletion{
+			TenantID: impTenant, ObligationID: obID, GoatID: goatID, Doses: &doses, RouteSite: "SC",
+			AdministeredAt: administeredAt, Status: "recorded", IdempotencyKey: "qcursor-" + key,
+		})
+		if err != nil || !applied {
+			t.Fatalf("record %s: applied=%v err=%v", key, applied, err)
+		}
+		recorded = append(recorded, cid)
+	}
+
+	page1, err := vacc.ListRecordedCompletions(ctx, impTenant, "", nil, 2)
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	if len(page1.Items) != 2 || page1.TotalCount != 3 || page1.NextCursor == nil {
+		t.Fatalf("page1 = %#v", page1)
+	}
+	cursor, err := vaccdomain.DecodeRecordedCompletionCursor(*page1.NextCursor)
+	if err != nil {
+		t.Fatalf("decode next cursor: %v", err)
+	}
+	if cursor.AdministeredAt != administeredAt || cursor.CompletionID != page1.Items[1].CompletionID {
+		t.Fatalf("cursor = %+v, page1 second row = %#v", cursor, page1.Items[1])
+	}
+	page2, err := vacc.ListRecordedCompletions(ctx, impTenant, "", &cursor, 2)
+	if err != nil {
+		t.Fatalf("page2: %v", err)
+	}
+	if len(page2.Items) != 1 || page2.TotalCount != 3 || page2.NextCursor != nil {
+		t.Fatalf("page2 = %#v", page2)
+	}
+	seen := map[string]struct{}{}
+	for _, item := range append(page1.Items, page2.Items...) {
+		if _, exists := seen[item.CompletionID]; exists {
+			t.Fatalf("duplicate completion %s across pages", item.CompletionID)
+		}
+		seen[item.CompletionID] = struct{}{}
+	}
+	for _, cid := range recorded {
+		if _, ok := seen[cid]; !ok {
+			t.Fatalf("missing completion %s across pages", cid)
+		}
 	}
 }

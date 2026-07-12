@@ -19,6 +19,7 @@ func TestKernelStoryB_ClinicalHoldRecovery(t *testing.T) {
 			"recovers, and the next recheck must reopen the held dose and realign its due date onto the "+
 			"recovery-time calendar -- the real SM-2 health-recovery path, not a stand-in.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_b", 21, 0, []string{"sick", "quarantine", "icu"})
 

@@ -22,6 +22,16 @@ WHERE c.tenant_id = @tenant_id AND s.task_id = @task_id AND c.status = 'recorded
   AND c.sop_submission_item_id IS NOT NULL
 ORDER BY c.completion_id;
 
+-- name: CountRecordedCompletions :one
+-- Verification queue total for the current tenant/park filter. Exact total_count must stay honest even
+-- when the client is reading a later cursor page.
+SELECT COUNT(*)::bigint
+FROM vaccination_completions vc
+LEFT JOIN goats g ON g.tenant_id = vc.tenant_id AND g.goat_id = vc.goat_id
+WHERE vc.tenant_id = @tenant_id
+  AND vc.status = 'recorded'
+  AND (sqlc.narg('park_id')::uuid IS NULL OR g.park_id = sqlc.narg('park_id')::uuid);
+
 -- name: ListRecordedCompletions :many
 -- Verification queue: completions awaiting review (status='recorded'), earliest administered first.
 -- Uses vaccination_completions_review_idx (tenant_id, administered_at) WHERE status='recorded'. The
@@ -41,8 +51,12 @@ LEFT JOIN sop_tasks st
   ON st.tenant_id = ss.tenant_id AND st.task_id = ss.task_id
 WHERE vc.tenant_id = @tenant_id AND vc.status = 'recorded'
   AND (sqlc.narg('park_id')::uuid IS NULL OR g.park_id = sqlc.narg('park_id')::uuid)
+  AND (
+    sqlc.narg('cursor_administered_at')::timestamptz IS NULL
+    OR (vc.administered_at, vc.completion_id) > (sqlc.narg('cursor_administered_at')::timestamptz, sqlc.narg('cursor_completion_id')::uuid)
+  )
 ORDER BY vc.administered_at ASC, vc.completion_id ASC
-LIMIT @row_limit;
+LIMIT @row_limit_plus_one;
 
 -- name: GetLastAcceptedCompletionForGoat :one
 -- Next-due / SM-7 basis: most recent accepted administration for a goat.

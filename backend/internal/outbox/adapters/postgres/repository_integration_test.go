@@ -61,6 +61,31 @@ func TestOutboxRelayWithDockerPostgres(t *testing.T) {
 		assertOutboxState(t, pool, future.OutboxID, domain.StatusPending, 0, "", true, false)
 	})
 
+	t.Run("claim specific pending row leaves unrelated pending rows untouched", func(t *testing.T) {
+		repo := NewRepository(pool, 5*time.Second)
+		older := insertOutboxMessage(t, pool, outboxRow{Suffix: 5, Status: domain.StatusPending})
+		target := insertOutboxMessage(t, pool, outboxRow{Suffix: 6, Status: domain.StatusPending})
+
+		claimed, err := repo.ClaimMessage(ctx, target.OutboxID, outboxTestNow)
+		if err != nil {
+			t.Fatalf("ClaimMessage: %v", err)
+		}
+		if claimed == nil || claimed.OutboxID != target.OutboxID {
+			t.Fatalf("claimed row=%#v want %s", claimed, target.OutboxID)
+		}
+
+		assertOutboxState(t, pool, target.OutboxID, "publishing", 1, "", false, false)
+		assertOutboxState(t, pool, older.OutboxID, domain.StatusPending, 0, "", false, false)
+		if _, err := pool.Exec(ctx, `
+UPDATE outbox_messages
+SET status = 'published',
+    published_at = $2,
+    updated_at = $2
+WHERE outbox_id IN ($1::uuid, $3::uuid)`, target.OutboxID, outboxTestNow, older.OutboxID); err != nil {
+			t.Fatalf("cleanup claimed-row test state: %v", err)
+		}
+	})
+
 	t.Run("two workers do not publish the same row", func(t *testing.T) {
 		row := insertOutboxMessage(t, pool, outboxRow{Suffix: 10, Status: domain.StatusPending})
 		started := make(chan struct{})

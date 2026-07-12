@@ -27,33 +27,49 @@ func TestServiceAddsBackendControlledPresentation(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	resp, err := svc.ListEvents(context.Background(), domain.Query{
 		TenantID: "00000000-0000-4000-8000-000000000001",
-		OwnerKey: domain.OwnerPC,
+		OwnerKey: domain.OwnerInventory,
 		DateFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
 		DateTo:   time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if resp.Presentation.ActiveOwnerKey != domain.OwnerPC {
-		t.Fatalf("active owner = %q, want %q", resp.Presentation.ActiveOwnerKey, domain.OwnerPC)
+	if resp.Presentation.ActiveOwnerKey != domain.OwnerInventory {
+		t.Fatalf("active owner = %q, want %q", resp.Presentation.ActiveOwnerKey, domain.OwnerInventory)
 	}
-	if len(resp.Presentation.OwnerTabs) != 4 || resp.Presentation.OwnerTabs[1].Label != "Preventive Care (PC)" || !resp.Presentation.OwnerTabs[1].Active {
-		t.Fatalf("owner tabs = %#v, want backend-owned PC tab active in configured order", resp.Presentation.OwnerTabs)
+	if len(resp.Presentation.OwnerTabs) != 4 || resp.Presentation.OwnerTabs[2].Label != "Inventory / Stock" || !resp.Presentation.OwnerTabs[2].Active {
+		t.Fatalf("owner tabs = %#v, want backend-owned inventory tab active in configured order", resp.Presentation.OwnerTabs)
 	}
-	if len(resp.Presentation.WorkstreamTabs) == 0 || resp.Presentation.WorkstreamTabs[0].Label != "Vaccination" || !resp.Presentation.WorkstreamTabs[0].Active {
-		t.Fatalf("workstream tabs = %#v, want vaccination workstream copy", resp.Presentation.WorkstreamTabs)
+	if len(resp.Presentation.WorkstreamTabs) == 0 || resp.Presentation.WorkstreamTabs[0].Label != "All Inventory / Stock" || !resp.Presentation.WorkstreamTabs[0].Active {
+		t.Fatalf("workstream tabs = %#v, want inventory workstream copy", resp.Presentation.WorkstreamTabs)
 	}
-	if len(resp.Presentation.Rhythm.Days) < 2 || resp.Presentation.Rhythm.Days[1].Label != "PREP" {
-		t.Fatalf("rhythm days = %#v, want vaccination rhythm labels", resp.Presentation.Rhythm.Days)
+	if len(resp.Presentation.Rhythm.Days) < 2 || resp.Presentation.Rhythm.Days[1].Label != "FEFO" {
+		t.Fatalf("rhythm days = %#v, want inventory rhythm labels", resp.Presentation.Rhythm.Days)
 	}
 	if len(resp.Presentation.ViewTabs) != 3 {
 		t.Fatalf("view tabs = %#v, want week/month/history tabs", resp.Presentation.ViewTabs)
+	}
+	if resp.Presentation.PageSubtitle != "Vaccination due work and accepted completion history by time, owner lane, park, shed, and date." {
+		t.Fatalf("page subtitle = %q", resp.Presentation.PageSubtitle)
 	}
 	if resp.Presentation.ViewTabs[0].Key != "week" || resp.Presentation.ViewTabs[1].Key != "month" || resp.Presentation.ViewTabs[2].Key != "history" {
 		t.Fatalf("view tabs = %#v, want week/month/history tabs", resp.Presentation.ViewTabs)
 	}
 	if resp.Presentation.ViewTabs[2].Query["status"] != domain.StatusCompleted {
 		t.Fatalf("completed view tab query = %#v, want status=completed", resp.Presentation.ViewTabs[2].Query)
+	}
+	foundHistoryLabel := false
+	for _, item := range resp.Presentation.EventTypes {
+		if item.Key == domain.EventVaccinationHistory && item.Label == "Completed vaccination history" {
+			foundHistoryLabel = true
+			break
+		}
+	}
+	if !foundHistoryLabel {
+		t.Fatalf("event types = %#v, want completed vaccination history label published", resp.Presentation.EventTypes)
+	}
+	if resp.Presentation.Month.CellNote != "Each cell shows that day's due-work and completion markers. Tap an event for its rich detail." {
+		t.Fatalf("month cell note = %q", resp.Presentation.Month.CellNote)
 	}
 }
 

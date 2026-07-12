@@ -123,8 +123,8 @@ func (s *Service) LastAccepted(ctx context.Context, tenantID, goatID string) (do
 
 // VerificationQueue returns completions awaiting review (status='recorded'), earliest administered
 // first.
-func (s *Service) VerificationQueue(ctx context.Context, tenantID, parkID string, limit int32) ([]domain.RecordedCompletion, error) {
-	return s.repo.ListRecordedCompletions(ctx, tenantID, parkID, limit)
+func (s *Service) VerificationQueue(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error) {
+	return s.repo.ListRecordedCompletions(ctx, tenantID, parkID, cursor, limit)
 }
 
 // RecomputeEligibilityRollup fully rebuilds the tenant's vaccination eligibility rollup read model from

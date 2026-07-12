@@ -44,6 +44,17 @@ truncated, and still unsafe at 1M animals even if it looks fine on a local
 fixture. If a temporary UI collapse is needed for a mock/demo, it must be
 clearly partial/debug-only and must not invent authoritative totals.
 
+The narrow Calendar exception is accepted vaccination completion history: a
+read-only timeline behind the explicit `status=completed` path. That history is
+not active work, not a park-drive rollup, and not a second projection row. It
+may be derived at read time from canonical accepted completions plus completed
+obligations when the query stays tenant-scoped, date-bounded, keyset-paginated,
+and honest about truncation. Default month/date-marker responses may include
+read-only completed markers so users can see recent completed days in the same
+calendar surface, but open-work pages must not turn those markers into
+aggregated operational totals, suppress pagination truth, or blur them into the
+authoritative active-work list.
+
 When an E2E run, scale audit, or feature proof is generated while fixing one of
 these issues, commit the report and publish it through the GitHub Pages report
 site. Local-only proof must say that it is local-only and must not be described

@@ -264,6 +264,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
         items(state.weekItems, key = { it.id }) { item ->
             EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id)) })
         }
+        if (state.weekHasMore) {
+            item {
+                LoadMoreButton(
+                    label = stringResource(R.string.calendar_load_more_day),
+                    loading = state.weekLoadingMore,
+                    onClick = { onEvent(CalendarEvent.LoadMoreWeek) },
+                )
+            }
+        }
     }
 }
 
@@ -448,7 +457,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
                 MonthCell(
                     cell = cell,
                     modifier = Modifier.weight(1f),
-                    onClick = { cell.dateKey?.let { onEvent(CalendarEvent.OpenDay(it)) } },
+                    onClick = {
+                        cell.dateKey?.let {
+                            onEvent(
+                                CalendarEvent.OpenDay(
+                                    dateKey = it,
+                                    showCompletedHistory = !cell.hasWork && cell.hasCompletedHistory,
+                                ),
+                            )
+                        }
+                    },
                 )
             }
             repeat(7 - week.size) { Spacer(Modifier.weight(1f)) }
@@ -486,7 +504,7 @@ private fun MonthCell(
             .background(MeshaColors.Surf)
             .border(
                 1.dp,
-                if (cell.isSelected || cell.hasWork) MeshaColors.Brand else MeshaColors.Hair,
+                if (cell.isSelected || cell.hasWork || cell.hasCompletedHistory) MeshaColors.Brand else MeshaColors.Hair,
                 RoundedCornerShape(10.dp),
             )
             .clickable(enabled = cell.dateKey != null, onClick = onClick),
@@ -495,11 +513,11 @@ private fun MonthCell(
     ) {
         Text(
             text = cell.dayNumber,
-            color = if (cell.hasWork) MeshaColors.Ink else MeshaColors.Muted,
+            color = if (cell.hasWork || cell.hasCompletedHistory) MeshaColors.Ink else MeshaColors.Muted,
             fontSize = 12.sp,
             fontWeight = FontWeight.W600,
         )
-        if (cell.hasWork) {
+        if (cell.hasWork || cell.hasCompletedHistory) {
             Box(
                 Modifier
                     .padding(top = 3.dp)
@@ -527,6 +545,7 @@ fun CalendarDayScreen(
     state: CalendarDayUiState,
     onBack: () -> Unit = {},
     onItemTap: (String) -> Unit = {},
+    onLoadMore: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -572,6 +591,15 @@ fun CalendarDayScreen(
                 items(state.items, key = { it.id }) { item ->
                     EventCard(item = item, onClick = { onItemTap(item.id) })
                 }
+                if (state.hasMore) {
+                    item {
+                        LoadMoreButton(
+                            label = stringResource(R.string.calendar_load_more_day),
+                            loading = state.isLoadingMore,
+                            onClick = onLoadMore,
+                        )
+                    }
+                }
             }
             item { Spacer(Modifier.size(24.dp)) }
         }
@@ -597,6 +625,15 @@ private fun androidx.compose.foundation.lazy.LazyListScope.historyContent(
     } else {
         items(state.historyRows, key = { it.id }) { row ->
             HistoryRow(row = row, onClick = { onEvent(CalendarEvent.TapItem(row.id)) })
+        }
+        if (state.historyHasMore) {
+            item {
+                LoadMoreButton(
+                    label = stringResource(R.string.calendar_load_more_history),
+                    loading = state.historyLoadingMore,
+                    onClick = { onEvent(CalendarEvent.LoadMoreHistory) },
+                )
+            }
         }
     }
 }
@@ -665,6 +702,28 @@ private fun SectionLabel(text: String) {
         letterSpacing = 0.55.sp,
         modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp),
     )
+}
+
+@Composable
+private fun LoadMoreButton(label: String, loading: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MeshaColors.Surf2)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
+            .clickable(enabled = !loading, onClick = onClick)
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = if (loading) stringResource(R.string.calendar_loading_more) else label,
+            color = if (loading) MeshaColors.Muted else MeshaColors.Brand2,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.W700,
+        )
+    }
 }
 
 @Composable

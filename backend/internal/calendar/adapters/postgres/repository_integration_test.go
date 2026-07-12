@@ -1454,6 +1454,10 @@ INSERT INTO vaccination_completions (
 	if history.EventType != domain.EventVaccinationHistory || history.Status != domain.StatusCompleted || history.TargetCount != 2 {
 		t.Fatalf("history event=%#v, want completed history with two targets", history)
 	}
+	expectedHistoryEventID := "history:2025-12-09:" + testParkA + ":" + testShedA + ":" + ruleID
+	if history.EventID != expectedHistoryEventID {
+		t.Fatalf("history event id=%q, want stable grouped id %q", history.EventID, expectedHistoryEventID)
+	}
 	if len(list.DateMarkers) != 1 || list.DateMarkers[0].Date != "2025-12-09" || list.DateMarkers[0].CompletedCount != 2 || list.DateMarkers[0].OpenCount != 0 {
 		t.Fatalf("history date markers=%#v, want one completed marker with two administrations", list.DateMarkers)
 	}

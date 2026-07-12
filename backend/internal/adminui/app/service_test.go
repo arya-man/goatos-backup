@@ -135,6 +135,17 @@ func TestCalendarOwnerTabsHaveFallbackPresentationGroups(t *testing.T) {
 	}
 }
 
+func TestCalendarBootstrapPublishesHistoryAwareCopy(t *testing.T) {
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "calendar")
+
+	if page.Subtitle != "Vaccination due work and accepted completion history by time, owner lane, park, shed, and date." {
+		t.Fatalf("calendar subtitle = %q", page.Subtitle)
+	}
+	if page.Copy["calendar.month.cell_note"] != "Each cell shows that day's due-work and completion markers. Tap an event for its rich detail." {
+		t.Fatalf("calendar month cell note = %q", page.Copy["calendar.month.cell_note"])
+	}
+}
+
 func TestSourceLoadContractPublishesProcurementSexSelector(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "source-load")
 	if got := page.Copy["field.sex"]; got != "Sex" {

@@ -183,3 +183,7 @@ func (r *bootstrapLocaleRepo) RegisterDevice(context.Context, ports.RegisterDevi
 func (r *bootstrapLocaleRepo) HeartbeatDevice(context.Context, ports.HeartbeatDeviceCommand) (domain.DeviceSummary, error) {
 	return domain.DeviceSummary{}, ports.ErrNotFound
 }
+
+func (r *bootstrapLocaleRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceCommand) (domain.DeviceSummary, error) {
+	return domain.DeviceSummary{}, ports.ErrNotFound
+}

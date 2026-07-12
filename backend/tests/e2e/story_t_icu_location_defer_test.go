@@ -15,6 +15,7 @@ func TestKernelStoryT_ICULocationDefer(t *testing.T) {
 		"A kid lives in an ICU-marked shed. Generation must defer its dose for ICU/clinical hold — "+
 			"the animal is not eligible for shed drive batching until it leaves ICU care.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedID  = "f5000000-0000-4000-8000-000000000001"

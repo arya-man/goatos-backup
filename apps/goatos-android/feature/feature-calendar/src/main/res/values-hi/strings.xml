@@ -11,11 +11,11 @@
 
     <!-- Empty states -->
     <string name="calendar_week_empty">कोई ड्राइव शेड्यूल नहीं है</string>
-    <string name="calendar_history_empty">कोई पिछली ड्राइव नहीं</string>
+    <string name="calendar_history_empty">कोई स्वीकृत पूर्णता इतिहास नहीं</string>
     <string name="calendar_day_sheet_empty">इस दिन कोई ड्राइव शेड्यूल नहीं</string>
 
     <!-- Month grid hint -->
-    <string name="calendar_month_hint">किसी दिन को उसकी ड्राइवों के लिए टैप करें · बिंदु = ड्राइव के दिन</string>
+    <string name="calendar_month_hint">किसी दिन के देय काम या पूर्णता इतिहास के लिए टैप करें · बिंदु = खुला काम, फीके बिंदु = पूर्णता इतिहास</string>
 
     <!-- Accessibility descriptions -->
     <string name="calendar_button_menu">मेनू</string>
@@ -23,6 +23,6 @@
     <string name="calendar_button_refresh">ताज़ा करें</string>
 
     <!-- History section label (prefix before dynamic count) -->
-    <string name="calendar_history_label">पिछली ड्राइवें</string>
+    <string name="calendar_history_label">स्वीकृत पूर्णता इतिहास</string>
     <string name="calendar_cta_open">खोलें</string>
 </resources>

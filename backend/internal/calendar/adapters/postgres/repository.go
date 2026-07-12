@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -126,8 +127,12 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	event, err := scanCalendarEventWithDetail(r.pool.QueryRow(ctx, calendarDetailSQL, q.TenantID, q.EventID, tenantWide, parkIDs, shedIDs), &detailRaw, &linksRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if obligationID, ok := completedHistoryObligationID(q.EventID); ok {
-			event, err = scanCalendarEventWithDetail(r.pool.QueryRow(ctx, calendarCompletedHistoryDetailSQL, q.TenantID, obligationID, q.EventID, tenantWide, parkIDs, shedIDs), &detailRaw, &linksRaw)
+		if history, ok := completedHistoryEventKey(q.EventID); ok {
+			event, err = scanCalendarEventWithDetail(
+				r.pool.QueryRow(ctx, calendarCompletedHistoryDetailSQL, q.TenantID, history.Day, history.ParkID, history.ShedID, history.RuleID, q.EventID, tenantWide, parkIDs, shedIDs),
+				&detailRaw,
+				&linksRaw,
+			)
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.CalendarEventDetail{}, ports.ErrNotFound
@@ -1396,7 +1401,17 @@ func (r *Repository) PruneClosedVaccinationProjection(ctx context.Context, tenan
 func (r *Repository) eventExists(ctx context.Context, tenantID, eventID string, scope domain.ScopeFilter) error {
 	var exists bool
 	tenantWide, parkIDs, shedIDs := scopeArgs(scope)
-	obligationID, historyID := completedHistoryObligationID(eventID)
+	history, historyID := completedHistoryEventKey(eventID)
+	historyRuleID := "00000000-0000-0000-0000-000000000000"
+	historyDay := "1970-01-01"
+	historyParkID := "none"
+	historyShedID := "none"
+	if historyID {
+		historyRuleID = history.RuleID
+		historyDay = history.Day
+		historyParkID = history.ParkID
+		historyShedID = history.ShedID
+	}
 	if err := r.pool.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM calendar_event_projections
@@ -1406,21 +1421,19 @@ SELECT EXISTS (
   UNION ALL
   SELECT 1
   FROM obligation_instances oi
+  JOIN vaccination_completions c
+    ON c.tenant_id = oi.tenant_id AND c.obligation_id = oi.obligation_id AND c.status = 'accepted'
   JOIN goats g
     ON g.tenant_id = oi.tenant_id AND oi.target_type = 'goat' AND g.goat_id = oi.target_id
   WHERE $6::bool
     AND oi.tenant_id = $1::uuid
-    AND oi.obligation_id = $7::uuid
+    AND oi.rule_id = $7::uuid
     AND oi.status = 'completed'
+    AND (c.administered_at AT TIME ZONE 'Asia/Kolkata')::date = $8::date
+    AND g.park_id::text IS NOT DISTINCT FROM nullif($9::text, 'none')
+    AND g.shed_id::text IS NOT DISTINCT FROM nullif($10::text, 'none')
     AND ($3::bool OR g.park_id::text = ANY($4::text[]) OR g.shed_id::text = ANY($5::text[]))
-    AND EXISTS (
-      SELECT 1
-      FROM vaccination_completions c
-      WHERE c.tenant_id = oi.tenant_id
-        AND c.obligation_id = oi.obligation_id
-        AND c.status = 'accepted'
-    )
-)`, tenantID, eventID, tenantWide, parkIDs, shedIDs, historyID, obligationID).Scan(&exists); err != nil {
+)`, tenantID, eventID, tenantWide, parkIDs, shedIDs, historyID, historyRuleID, historyDay, historyParkID, historyShedID).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -1429,20 +1442,15 @@ SELECT EXISTS (
 	return nil
 }
 
-func completedHistoryObligationID(eventID string) (string, bool) {
-	eventID = strings.TrimSpace(eventID)
-	if !strings.HasPrefix(eventID, "obligation:") {
-		return "00000000-0000-0000-0000-000000000000", false
+func completedHistoryEventKey(eventID string) (domain.ParsedHistoryEvent, bool) {
+	parsed, err := domain.ParseHistoryEventID(strings.TrimSpace(eventID))
+	if err != nil {
+		return domain.ParsedHistoryEvent{}, false
 	}
-	id := strings.TrimPrefix(eventID, "obligation:")
-	if _, err := domain.ParseDriveEventID(eventID); err == nil || id == "" {
-		return "00000000-0000-0000-0000-000000000000", false
+	if !uuidutil.IsUUIDString(parsed.RuleID) {
+		return domain.ParsedHistoryEvent{}, false
 	}
-	// ValidateEventID owns the UUID syntax contract for obligation event ids.
-	if err := domain.ValidateEventID(eventID); err != nil {
-		return "00000000-0000-0000-0000-000000000000", false
-	}
-	return id, true
+	return parsed, true
 }
 
 func (r *Repository) notificationActionByID(ctx context.Context, tenantID, eventID, requestID string) (domain.CalendarActionResponse, error) {
@@ -1661,7 +1669,10 @@ func calendarOutboxEnvelope(tenantID, eventID, eventType, schemaRef, aggregateTy
 const calendarListSQL = `
 WITH completed_history AS (
   SELECT
-    'obligation:' || min(oi.obligation_id::text) AS event_id,
+    'history:' || ((vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date)::text || ':' ||
+      COALESCE(g.park_id::text, 'none') || ':' ||
+      COALESCE(g.shed_id::text, 'none') || ':' ||
+      pr.rule_id::text AS event_id,
     'vaccination_history'::text AS event_type,
     'pc'::text AS owner_key,
     pd.name || ' ' || pr.dose_code || ' completed' AS title,
@@ -1881,43 +1892,27 @@ WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
   AND ($3::bool OR park_id::text = ANY($4::text[]) OR shed_id::text = ANY($5::text[]))`
 
 const calendarCompletedHistoryDetailSQL = `
-WITH anchor AS (
-  SELECT
-    oi.rule_id,
-    g.park_id,
-    g.shed_id,
-    (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date AS administered_day
-  FROM vaccination_completions vc
-  JOIN obligation_instances oi
-    ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
-  JOIN goats g
-    ON g.tenant_id = oi.tenant_id AND oi.target_type = 'goat' AND g.goat_id = oi.target_id
-  WHERE vc.tenant_id = $1::uuid
-    AND vc.status = 'accepted'
-    AND oi.obligation_id = $2::uuid
-    AND oi.status = 'completed'
-),
-members AS (
+WITH members AS (
   SELECT oi.*, vc.administered_at, g.park_id, g.shed_id
-  FROM anchor a
-  JOIN vaccination_completions vc
-    ON vc.tenant_id = $1::uuid
-   AND vc.status = 'accepted'
-   AND (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date = a.administered_day
+  FROM vaccination_completions vc
   JOIN obligation_instances oi
     ON oi.tenant_id = vc.tenant_id
    AND oi.obligation_id = vc.obligation_id
-   AND oi.rule_id = a.rule_id
+   AND oi.rule_id = $5::uuid
    AND oi.status = 'completed'
    AND oi.target_type = 'goat'
   JOIN goats g
-    ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
-   AND g.park_id IS NOT DISTINCT FROM a.park_id
-   AND g.shed_id IS NOT DISTINCT FROM a.shed_id
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+  WHERE vc.tenant_id = $1::uuid
+    AND vc.status = 'accepted'
+    AND (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date = $2::date
+    AND g.park_id::text IS NOT DISTINCT FROM nullif($3::text, 'none')
+    AND g.shed_id::text IS NOT DISTINCT FROM nullif($4::text, 'none')
 ),
 grouped AS (
   SELECT
-    $3::text AS event_id,
+    $6::text AS event_id,
     'vaccination_history'::text AS event_type,
     'pc'::text AS owner_key,
     pd.name || ' ' || pr.dose_code || ' completed' AS title,
@@ -1985,7 +1980,7 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
        source_label, assignee_label, executor_role, verifier_label, reminder_state,
        primary_notification_channel, escalation_state, system, cross_cutting, links, detail
 FROM grouped
-WHERE ($4::bool OR park_id = ANY($5::text[]) OR shed_id = ANY($6::text[]))`
+WHERE ($7::bool OR park_id = ANY($8::text[]) OR shed_id = ANY($9::text[]))`
 
 const calendarHistorySQL = `
 WITH history AS (

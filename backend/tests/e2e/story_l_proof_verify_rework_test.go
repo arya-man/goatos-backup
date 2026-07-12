@@ -136,8 +136,7 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 			"the completed/coverage count must stay 0, and the reserved stock must not be consumed.")
 	reworked, err := sopService.ReworkTask(fx.Ctx, sopports.ReviewTaskCommand{
 		TenantID: fxTenant, ActorID: verifierID, TaskID: taskID,
-		Body:         sopdomain.ReviewTaskRequest{Reason: "video_unclear_rework", RowVersion: first.Task.RowVersion},
-		ReviewGrants: []sopports.ReviewGrant{{ScopeType: "park", ScopeID: fxPark}},
+		Body: sopdomain.ReviewTaskRequest{Reason: "video_unclear_rework", RowVersion: first.Task.RowVersion},
 	}, "story-l-rework")
 	story.Assert("SOP rework review ran without error", err == nil && reworked != nil && reworked.Task.State == "rework_requested", "err=%v", err)
 	if err != nil {
@@ -173,11 +172,16 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 			"is consumed, and the execution rollup shows coverage advance to 1.")
 	accepted, err := sopService.VerifyTask(fx.Ctx, sopports.ReviewTaskCommand{
 		TenantID: fxTenant, ActorID: verifierID, TaskID: taskID,
-		Body:         sopdomain.ReviewTaskRequest{Reason: "corrected proof accepted", RowVersion: second.Task.RowVersion},
-		ReviewGrants: []sopports.ReviewGrant{{ScopeType: "park", ScopeID: fxPark}},
+		Body: sopdomain.ReviewTaskRequest{Reason: "corrected proof accepted", RowVersion: second.Task.RowVersion},
 	}, "story-l-accept")
 	story.Assert("SOP accept ran without error", err == nil, "err=%v", err)
-	story.Assert("the reworked dose was accepted and the obligation completed", err == nil && accepted.Task.State == "accepted", "state=%v", accepted)
+	acceptedState := ""
+	acceptedRowVersion := 0
+	if accepted != nil {
+		acceptedState = accepted.Task.State
+		acceptedRowVersion = accepted.Task.RowVersion
+	}
+	story.Assert("the reworked dose was accepted and the obligation completed", err == nil && accepted.Task.State == "accepted", "task_state=%q row_version=%d", acceptedState, acceptedRowVersion)
 
 	statusFinal := fx.scanText(`SELECT status FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, fxTenant, oblID)
 	story.Assert("obligation is now completed", statusFinal == "completed", "status=%q", statusFinal)

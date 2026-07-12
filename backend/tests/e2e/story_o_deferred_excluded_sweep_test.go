@@ -16,6 +16,7 @@ func TestKernelStoryO_DeferredExcludedFromSweep(t *testing.T) {
 		"Three goats share a shed. One is held after becoming sick; two are healthy and due. "+
 			"The sweeper must batch only the two healthy goats — the deferred dose must stay unbatched.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedID   = "f0000000-0000-4000-8000-000000000001"

@@ -26,6 +26,7 @@ func TestKernelStoryJ_ShedShiftRescope(t *testing.T) {
 			"re-scope the goat's open obligation to Shed-New so the new shed's drive counts it and the old "+
 			"shed no longer does. A stale, out-of-order redelivery must not rewind the scope.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	fx.PublishSimpleProtocol("vaccination.e2e.story_j", 21, 14, nil)
 

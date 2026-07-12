@@ -6,7 +6,7 @@ Scope: backend/contracts for the Preventive Care (PC) Vaccination Calendar slice
 
 ## Kernel 13-Step Review
 
-1. Canonical business event: published source-backed vaccination protocol rules, generated obligations/batches, linked SOP proof/verification/rework tasks, and config/source review tasks produce dated human Calendar events through the `calendar-vaccination-projector` production refresh path into `calendar_event_projections`.
+1. Canonical business event: published source-backed vaccination protocol rules, generated obligations/batches, linked SOP proof/verification/rework tasks, and config/source review tasks produce dated human Calendar events through the `calendar-vaccination-projector` production refresh path into `calendar_event_projections`. Accepted vaccination completion history is the narrow exception: it is rendered as a read-only timeline from canonical `vaccination_completions` joined to completed obligations, not as a second hot projection row.
 2. Transaction boundary: nudge/snooze/reminder and escalation acknowledge/resolve writes persist idempotency, durable notification/snooze/escalation state, audit rows, status events, and outbox messages in one Postgres transaction.
 3. Trigger rule: vaccination due work remains owned by the protocol/obligation engine; Calendar admits only projection rows with due/window, executable owner, source backing, and human action.
 4. Obligation/task/review/batch: event rows carry source target type/id plus protocol/rule/batch/SOP/link detail for Preventive Care (PC), inventory, and admin-data-ops work.
@@ -14,8 +14,8 @@ Scope: backend/contracts for the Preventive Care (PC) Vaccination Calendar slice
 6. Deadline crossing: `overdue`, `blocked`, `rework_due`, and escalation state are Calendar read-model statuses derived from source state, without mutating obligation truth.
 7. Proof/evidence: detail blocks include source/rule, SOP proof, verification, stock, and history links; proof/rework rows are represented as dated human actions.
 8. Verification/acceptance: verification pending/rejected/rework events carry verifier labels and proof/verification detail, preserving the SOP verification boundary.
-9. Read models: Calendar list/detail/history are source-backed projection reads with action/audit/notification/snooze/escalation history and tenant/park/shed authorization scope; they do not reconstruct truth in frontend state.
-10. Scale: list API enforces 45-day max, keyset cursor pagination, max 200 rows, tenant/owner/status/park/shed filters plus actor-scope predicates, and `CalendarVaccinationWidestList` query-plan validation. Service or frontend code must not bump the raw limit, aggregate those rows in memory, clear `next_cursor`, and present the collapsed result as authoritative park-drive truth.
+9. Read models: Calendar active work reads come from source-backed projections; accepted vaccination completion history is a separate read-time branch over canonical accepted completions and completed obligations. Detail/history responses still carry action/audit/notification/snooze/escalation history with tenant/park/shed authorization scope, and the frontend does not reconstruct truth in client state.
+10. Scale: list API enforces 45-day max, keyset cursor pagination, max 200 rows, tenant/owner/status/park/shed filters plus actor-scope predicates, and `CalendarVaccinationWidestList` query-plan validation. Service or frontend code must not bump the raw limit, aggregate those rows in memory, clear `next_cursor`, and present the collapsed result as authoritative park-drive truth. The accepted-history branch stays read-only and independently paginated behind explicit `status=completed` history traversal, while the default month/date-marker response may still show read-only completed markers for recent past days.
 11. Operations: projector and sweepers have bounded `-limit`; reminder/escalation sweepers require an explicit tenant and persist each event in its own transaction; outbox rows feed the relay/domain event path; audit/history rows carry tenant, event id, action, channel, trace, status, and idempotency metadata.
 12. Local Docker parity: fresh Docker Postgres applies migrations, runs the same seed/projector/sweeper command binaries, and queries durable rows.
 13. Seed/E2E data: seed covers CBE/CPT, Preventive Care (PC) / Inventory/Admin Data Ops, due/overdue/future/in-progress/proof/verification/rework/deferred/blocked/snoozed/escalated statuses, negative system exclusion, scope-negative cases, reminder history, and escalation acknowledgement/resolution regressions.
@@ -37,6 +37,7 @@ Scope: backend/contracts for the Preventive Care (PC) Vaccination Calendar slice
   - `npm --prefix packages/api-client run generate`
 - Docker-backed regression coverage:
   - production projection refresh from a source-backed vaccination obligation.
+  - accepted vaccination completion history is derived from canonical completions/obligations without inserting a second projection row, while stable grouped history ids still resolve detail/history reads.
   - calendar park-drive grain comes from `calendar-vaccination-projector` / projection rows, not request-path or frontend read-time aggregation.
   - list pagination remains honest (`next_cursor` preserved when more rows exist); the read path does not hide truncation behind collapsed counts.
   - tenant/park/shed scoped list/detail/nudge enforcement.

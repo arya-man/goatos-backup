@@ -31,6 +31,7 @@ func TestKernelStoryR_PregnancyAndMilkingDefer(t *testing.T) {
 			"open dose with reason 'milking_window_hold', regardless of the pregnancy policy; leaving "+
 			"milking resumes scheduling.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const pregnancyRuleDSL = `{"pregnancy_policy":{"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5}}`
 	versionID, ruleIDs := fx.PublishScheduleProtocol("vaccination.e2e.story_r", pregnancyRuleDSL,

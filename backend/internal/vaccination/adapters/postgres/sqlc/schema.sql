@@ -1048,6 +1048,244 @@ $$;
 
 
 --
+-- Name: herd_register_apply_summary_delta(uuid, uuid, uuid, uuid, text, text, text, bigint, bigint, bigint, bigint); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.herd_register_apply_summary_delta(p_tenant_id uuid, p_park_id uuid, p_farm_id uuid, p_current_location_id uuid, p_breed text, p_sex text, p_lifecycle_status text, p_active_delta bigint, p_adult_delta bigint, p_kid_delta bigint, p_untagged_kid_delta bigint) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  UPDATE herd_register_summary_projection
+  SET active_count = active_count + p_active_delta,
+      adult_count = adult_count + p_adult_delta,
+      kid_count = kid_count + p_kid_delta,
+      untagged_kid_count = untagged_kid_count + p_untagged_kid_delta,
+      projected_at = now()
+  WHERE tenant_id = p_tenant_id
+    AND park_id IS NOT DISTINCT FROM p_park_id
+    AND farm_id IS NOT DISTINCT FROM p_farm_id
+    AND current_location_id IS NOT DISTINCT FROM p_current_location_id
+    AND breed IS NOT DISTINCT FROM p_breed
+    AND sex = p_sex
+    AND lifecycle_status = p_lifecycle_status;
+
+  IF FOUND THEN
+    RETURN;
+  END IF;
+
+  IF p_active_delta < 0 OR p_adult_delta < 0 OR p_kid_delta < 0 OR p_untagged_kid_delta < 0 THEN
+    RAISE EXCEPTION 'herd register projection drift: missing summary row for tenant %, park %, breed %, sex %, status %',
+      p_tenant_id, p_park_id, p_breed, p_sex, p_lifecycle_status;
+  END IF;
+
+  INSERT INTO herd_register_summary_projection (
+    tenant_id, park_id, farm_id, current_location_id, breed, sex, lifecycle_status,
+    active_count, adult_count, kid_count, untagged_kid_count, projected_at
+  ) VALUES (
+    p_tenant_id, p_park_id, p_farm_id, p_current_location_id, p_breed, p_sex, p_lifecycle_status,
+    p_active_delta, p_adult_delta, p_kid_delta, p_untagged_kid_delta, now()
+  )
+  ON CONFLICT ON CONSTRAINT herd_register_summary_projection_scope_key
+  DO UPDATE SET
+    active_count = herd_register_summary_projection.active_count + EXCLUDED.active_count,
+    adult_count = herd_register_summary_projection.adult_count + EXCLUDED.adult_count,
+    kid_count = herd_register_summary_projection.kid_count + EXCLUDED.kid_count,
+    untagged_kid_count = herd_register_summary_projection.untagged_kid_count + EXCLUDED.untagged_kid_count,
+    projected_at = now();
+END;
+$$;
+
+
+--
+-- Name: herd_register_goats_after_write_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.herd_register_goats_after_write_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    DELETE FROM herd_register_goat_projection
+    WHERE tenant_id = OLD.tenant_id AND goat_id = OLD.goat_id;
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND (OLD.tenant_id, OLD.goat_id) IS DISTINCT FROM (NEW.tenant_id, NEW.goat_id) THEN
+    DELETE FROM herd_register_goat_projection
+    WHERE tenant_id = OLD.tenant_id AND goat_id = OLD.goat_id;
+  END IF;
+  PERFORM herd_register_refresh_goat_projection(NEW.tenant_id, NEW.goat_id);
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: herd_register_identifiers_after_write_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.herd_register_identifiers_after_write_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    PERFORM herd_register_refresh_goat_projection(OLD.tenant_id, OLD.goat_id);
+    RETURN OLD;
+  ELSIF TG_OP = 'INSERT' THEN
+    PERFORM herd_register_refresh_goat_projection(NEW.tenant_id, NEW.goat_id);
+    RETURN NEW;
+  END IF;
+
+  PERFORM herd_register_refresh_goat_projection(OLD.tenant_id, OLD.goat_id);
+  IF (OLD.tenant_id, OLD.goat_id) IS DISTINCT FROM (NEW.tenant_id, NEW.goat_id) THEN
+    PERFORM herd_register_refresh_goat_projection(NEW.tenant_id, NEW.goat_id);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: herd_register_is_kid(text, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.herd_register_is_kid(p_age_band text, p_management_stage text) RETURNS boolean
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $$
+  SELECT lower(COALESCE(p_age_band, '')) = 'kid'
+      OR (
+        lower(COALESCE(p_age_band, '')) NOT IN ('kid', 'adult')
+        AND upper(COALESCE(p_management_stage, '')) ~ '^K[0-9]'
+      );
+$$;
+
+
+--
+-- Name: herd_register_projection_summary_trg(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.herd_register_projection_summary_trg() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP IN ('UPDATE', 'DELETE') THEN
+    PERFORM herd_register_apply_summary_delta(
+      OLD.tenant_id, OLD.park_id, OLD.farm_id, OLD.current_location_id,
+      OLD.breed, OLD.sex, OLD.lifecycle_status,
+      -1,
+      CASE WHEN OLD.is_kid THEN 0 ELSE -1 END,
+      CASE WHEN OLD.is_kid THEN -1 ELSE 0 END,
+      CASE WHEN OLD.is_kid AND OLD.is_untagged THEN -1 ELSE 0 END
+    );
+  END IF;
+
+  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+    PERFORM herd_register_apply_summary_delta(
+      NEW.tenant_id, NEW.park_id, NEW.farm_id, NEW.current_location_id,
+      NEW.breed, NEW.sex, NEW.lifecycle_status,
+      1,
+      CASE WHEN NEW.is_kid THEN 0 ELSE 1 END,
+      CASE WHEN NEW.is_kid THEN 1 ELSE 0 END,
+      CASE WHEN NEW.is_kid AND NEW.is_untagged THEN 1 ELSE 0 END
+    );
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: herd_register_refresh_goat_projection(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.herd_register_refresh_goat_projection(p_tenant_id uuid, p_goat_id uuid) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO herd_register_goat_projection (
+    tenant_id, goat_id, display_id, park_id, farm_id, current_location_id,
+    breed, sex, lifecycle_status, is_kid, is_untagged, projected_at
+  )
+  SELECT
+    g.tenant_id,
+    g.goat_id,
+    g.display_id,
+    g.park_id,
+    g.farm_id,
+    g.current_location_id,
+    g.breed,
+    g.sex,
+    g.lifecycle_status,
+    herd_register_is_kid(g.age_band, g.management_stage),
+    NOT EXISTS (
+      SELECT 1
+      FROM goat_identifiers gi
+      WHERE gi.tenant_id = g.tenant_id
+        AND gi.goat_id = g.goat_id
+        AND gi.identifier_type = 'animal_identifier_1'
+        AND gi.status = 'active'
+    ),
+    now()
+  FROM goats g
+  WHERE g.tenant_id = p_tenant_id
+    AND g.goat_id = p_goat_id
+    AND g.merged_into_goat_id IS NULL
+  ON CONFLICT (tenant_id, goat_id)
+  DO UPDATE SET
+    display_id = EXCLUDED.display_id,
+    park_id = EXCLUDED.park_id,
+    farm_id = EXCLUDED.farm_id,
+    current_location_id = EXCLUDED.current_location_id,
+    breed = EXCLUDED.breed,
+    sex = EXCLUDED.sex,
+    lifecycle_status = EXCLUDED.lifecycle_status,
+    is_kid = EXCLUDED.is_kid,
+    is_untagged = EXCLUDED.is_untagged,
+    projected_at = EXCLUDED.projected_at
+  WHERE (
+    herd_register_goat_projection.display_id,
+    herd_register_goat_projection.park_id,
+    herd_register_goat_projection.farm_id,
+    herd_register_goat_projection.current_location_id,
+    herd_register_goat_projection.breed,
+    herd_register_goat_projection.sex,
+    herd_register_goat_projection.lifecycle_status,
+    herd_register_goat_projection.is_kid,
+    herd_register_goat_projection.is_untagged
+  ) IS DISTINCT FROM (
+    EXCLUDED.display_id,
+    EXCLUDED.park_id,
+    EXCLUDED.farm_id,
+    EXCLUDED.current_location_id,
+    EXCLUDED.breed,
+    EXCLUDED.sex,
+    EXCLUDED.lifecycle_status,
+    EXCLUDED.is_kid,
+    EXCLUDED.is_untagged
+  );
+
+  IF NOT FOUND THEN
+    -- NOT FOUND also follows a no-op ON CONFLICT. Delete only when the canonical
+    -- goat is absent or merged; otherwise the current projection is already exact.
+    DELETE FROM herd_register_goat_projection p
+    WHERE p.tenant_id = p_tenant_id
+      AND p.goat_id = p_goat_id
+      AND NOT EXISTS (
+        SELECT 1 FROM goats g
+        WHERE g.tenant_id = p_tenant_id
+          AND g.goat_id = p_goat_id
+          AND g.merged_into_goat_id IS NULL
+      );
+  END IF;
+END;
+$$;
+
+
+--
 -- Name: location_seeded_scope_guard(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2887,6 +3125,62 @@ CREATE TABLE public.goats (
 
 
 --
+-- Name: herd_register_goat_projection; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.herd_register_goat_projection (
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    display_id text NOT NULL,
+    park_id uuid,
+    farm_id uuid,
+    current_location_id uuid,
+    breed text,
+    sex text NOT NULL,
+    lifecycle_status text NOT NULL,
+    is_kid boolean NOT NULL,
+    is_untagged boolean NOT NULL,
+    projected_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: herd_register_summary_projection; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.herd_register_summary_projection (
+    herd_register_summary_projection_id bigint NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id uuid,
+    farm_id uuid,
+    current_location_id uuid,
+    breed text,
+    sex text NOT NULL,
+    lifecycle_status text NOT NULL,
+    active_count bigint DEFAULT 0 NOT NULL,
+    adult_count bigint DEFAULT 0 NOT NULL,
+    kid_count bigint DEFAULT 0 NOT NULL,
+    untagged_kid_count bigint DEFAULT 0 NOT NULL,
+    projected_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT herd_register_summary_projection_nonnegative_check CHECK (((active_count >= 0) AND (adult_count >= 0) AND (kid_count >= 0) AND (untagged_kid_count >= 0)))
+);
+
+
+--
+-- Name: herd_register_summary_project_herd_register_summary_project_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.herd_register_summary_projection ALTER COLUMN herd_register_summary_projection_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.herd_register_summary_project_herd_register_summary_project_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: idempotency_keys; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3909,6 +4203,7 @@ CREATE TABLE public.process_integrity_projection_state (
     serving_state text DEFAULT 'never_synced'::text NOT NULL,
     last_error text,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    serving_projection_version bigint,
     CONSTRAINT process_integrity_projection_state_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
     CONSTRAINT process_integrity_projection_state_row_count_check CHECK ((row_count >= 0)),
     CONSTRAINT process_integrity_projection_state_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text])))
@@ -5826,6 +6121,30 @@ ALTER TABLE ONLY public.goats
 
 ALTER TABLE ONLY public.goats
     ADD CONSTRAINT goats_tenant_goat_unique UNIQUE (tenant_id, goat_id);
+
+
+--
+-- Name: herd_register_goat_projection herd_register_goat_projection_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.herd_register_goat_projection
+    ADD CONSTRAINT herd_register_goat_projection_pkey PRIMARY KEY (tenant_id, goat_id);
+
+
+--
+-- Name: herd_register_summary_projection herd_register_summary_projection_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.herd_register_summary_projection
+    ADD CONSTRAINT herd_register_summary_projection_pkey PRIMARY KEY (herd_register_summary_projection_id);
+
+
+--
+-- Name: herd_register_summary_projection herd_register_summary_projection_scope_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.herd_register_summary_projection
+    ADD CONSTRAINT herd_register_summary_projection_scope_key UNIQUE NULLS NOT DISTINCT (tenant_id, park_id, farm_id, current_location_id, breed, sex, lifecycle_status);
 
 
 --
@@ -8284,6 +8603,20 @@ CREATE INDEX goats_tenant_sex_display_idx ON public.goats USING btree (tenant_id
 
 
 --
+-- Name: herd_register_goat_projection_display_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX herd_register_goat_projection_display_uidx ON public.herd_register_goat_projection USING btree (tenant_id, display_id);
+
+
+--
+-- Name: herd_register_summary_projection_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX herd_register_summary_projection_scope_idx ON public.herd_register_summary_projection USING btree (tenant_id, lifecycle_status, park_id, breed, sex, farm_id, current_location_id) INCLUDE (active_count, adult_count, kid_count, untagged_kid_count);
+
+
+--
 -- Name: idempotency_keys_expires_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9040,13 +9373,6 @@ CREATE INDEX process_integrity_projection_rows_protocol_idx ON public.process_in
 
 
 --
--- Name: process_integrity_projection_rows_row_uidx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX process_integrity_projection_rows_row_uidx ON public.process_integrity_projection_rows USING btree (tenant_id, row_id);
-
-
---
 -- Name: process_integrity_projection_rows_scope_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9054,10 +9380,59 @@ CREATE INDEX process_integrity_projection_rows_scope_idx ON public.process_integ
 
 
 --
+-- Name: process_integrity_projection_rows_serving_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_serving_due_idx ON public.process_integrity_projection_rows USING btree (tenant_id, projection_version, category, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_serving_hot_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_serving_hot_idx ON public.process_integrity_projection_rows USING btree (tenant_id, projection_version, category, sort_priority, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_serving_protocol_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_serving_protocol_idx ON public.process_integrity_projection_rows USING btree (tenant_id, projection_version, category, protocol_version_id, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_serving_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_serving_scope_idx ON public.process_integrity_projection_rows USING btree (tenant_id, projection_version, category, park_id, shed_id, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_serving_severity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_serving_severity_idx ON public.process_integrity_projection_rows USING btree (tenant_id, projection_version, category, severity, sort_priority, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_serving_work_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_rows_serving_work_idx ON public.process_integrity_projection_rows USING btree (tenant_id, projection_version, category, work_state, sort_priority, due_at, row_id);
+
+
+--
 -- Name: process_integrity_projection_rows_severity_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX process_integrity_projection_rows_severity_idx ON public.process_integrity_projection_rows USING btree (tenant_id, category, severity, sort_priority, due_at, row_id);
+
+
+--
+-- Name: process_integrity_projection_rows_version_row_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX process_integrity_projection_rows_version_row_uidx ON public.process_integrity_projection_rows USING btree (tenant_id, projection_version, row_id);
 
 
 --
@@ -9551,17 +9926,17 @@ CREATE INDEX user_scope_grants_user_active_idx ON public.user_scope_grants USING
 
 
 --
--- Name: vaccination_completions_batch_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX vaccination_completions_batch_idx ON public.vaccination_completions USING btree (tenant_id, batch_id, status);
-
-
---
 -- Name: vaccination_completions_accepted_history_calendar_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX vaccination_completions_accepted_history_calendar_idx ON public.vaccination_completions USING btree (tenant_id, administered_at, obligation_id) WHERE (status = 'accepted'::text);
+
+
+--
+-- Name: vaccination_completions_batch_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_completions_batch_idx ON public.vaccination_completions USING btree (tenant_id, batch_id, status);
 
 
 --
@@ -10937,6 +11312,27 @@ CREATE TRIGGER goats_prevent_merged_write_trg BEFORE UPDATE ON public.goats FOR 
 
 
 --
+-- Name: goats herd_register_goats_after_write_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER herd_register_goats_after_write_trg AFTER INSERT OR DELETE OR UPDATE OF tenant_id, goat_id, display_id, park_id, farm_id, current_location_id, breed, sex, lifecycle_status, age_band, management_stage, merged_into_goat_id ON public.goats FOR EACH ROW EXECUTE FUNCTION public.herd_register_goats_after_write_trg();
+
+
+--
+-- Name: goat_identifiers herd_register_identifiers_after_write_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER herd_register_identifiers_after_write_trg AFTER INSERT OR DELETE OR UPDATE OF tenant_id, goat_id, identifier_type, status ON public.goat_identifiers FOR EACH ROW EXECUTE FUNCTION public.herd_register_identifiers_after_write_trg();
+
+
+--
+-- Name: herd_register_goat_projection herd_register_projection_summary_after_write_trg; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER herd_register_projection_summary_after_write_trg AFTER INSERT OR DELETE OR UPDATE OF park_id, farm_id, current_location_id, breed, sex, lifecycle_status, is_kid, is_untagged ON public.herd_register_goat_projection FOR EACH ROW EXECUTE FUNCTION public.herd_register_projection_summary_trg();
+
+
+--
 -- Name: identity_correction_requests identity_correction_requests_block_merged_goat_child_write_trg; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -12138,6 +12534,22 @@ ALTER TABLE ONLY public.goats
 
 ALTER TABLE ONLY public.goats
     ADD CONSTRAINT goats_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: herd_register_goat_projection herd_register_goat_projection_goat_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.herd_register_goat_projection
+    ADD CONSTRAINT herd_register_goat_projection_goat_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id) ON DELETE CASCADE;
+
+
+--
+-- Name: herd_register_summary_projection herd_register_summary_projection_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.herd_register_summary_projection
+    ADD CONSTRAINT herd_register_summary_projection_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

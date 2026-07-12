@@ -10,6 +10,8 @@ type ActionCenterRequestPlanInput = {
     pageSize: number;
     offset: number;
   };
+  requestedQueuePageSize: number;
+  queueCursor?: string;
   parkId?: string;
   asOf?: string;
 };
@@ -26,6 +28,7 @@ export type ActionCenterRequestPlan = {
   verificationQueue: {
     parkId?: string;
     limit: number;
+    cursor?: string;
   };
 };
 
@@ -41,7 +44,8 @@ export function actionCenterRequestPlan(input: ActionCenterRequestPlanInput): Ac
     },
     verificationQueue: {
       parkId: input.parkId,
-      limit: 200,
+      limit: input.requestedQueuePageSize,
+      cursor: input.queueCursor,
     },
   };
 }

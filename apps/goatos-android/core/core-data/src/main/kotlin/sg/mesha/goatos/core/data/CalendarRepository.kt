@@ -28,6 +28,7 @@ interface CalendarRepository {
         status: String? = null,
         dateFrom: String? = null,
         dateTo: String? = null,
+        includeDateMarkers: Boolean = false,
         cursor: String? = null,
         limit: Int? = null,
     ): CalendarEventListResponseDto
@@ -41,6 +42,7 @@ interface CalendarRepository {
         status: String? = null,
         dateFrom: String? = null,
         dateTo: String? = null,
+        includeDateMarkers: Boolean = false,
         cursor: String? = null,
         limit: Int? = null,
     ): Flow<Resource<CalendarEventListResponseDto>>
@@ -54,6 +56,7 @@ interface CalendarRepository {
         status: String? = null,
         dateFrom: String? = null,
         dateTo: String? = null,
+        includeDateMarkers: Boolean = false,
         cursor: String? = null,
         limit: Int? = null,
     ): Result<Unit>
@@ -72,10 +75,11 @@ class DefaultCalendarRepository(
         status: String?,
         dateFrom: String?,
         dateTo: String?,
+        includeDateMarkers: Boolean,
         cursor: String?,
         limit: Int?,
     ): CalendarEventListResponseDto =
-        api.listCalendarVaccinationEvents(parkId, shedId, ownerKey, status, dateFrom, dateTo, cursor, limit)
+        api.listCalendarVaccinationEvents(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers, cursor, limit)
 
     override fun observeEvents(
         parkId: String?,
@@ -84,10 +88,11 @@ class DefaultCalendarRepository(
         status: String?,
         dateFrom: String?,
         dateTo: String?,
+        includeDateMarkers: Boolean,
         cursor: String?,
         limit: Int?,
     ): Flow<Resource<CalendarEventListResponseDto>> =
-        dao.observe(cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, cursor, limit?.toString()))
+        dao.observe(cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers.toString(), cursor, limit?.toString()))
             .map { it.toResource() }
 
     override suspend fun refreshEvents(
@@ -97,11 +102,12 @@ class DefaultCalendarRepository(
         status: String?,
         dateFrom: String?,
         dateTo: String?,
+        includeDateMarkers: Boolean,
         cursor: String?,
         limit: Int?,
     ): Result<Unit> = runCatching {
-        val dto = events(parkId, shedId, ownerKey, status, dateFrom, dateTo, cursor, limit)
-        val key = cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, cursor, limit?.toString())
+        val dto = events(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers, cursor, limit)
+        val key = cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers.toString(), cursor, limit?.toString())
         dao.upsert(CalendarCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
     }
 

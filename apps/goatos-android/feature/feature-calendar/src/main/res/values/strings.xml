@@ -17,11 +17,11 @@
 
     <!-- Empty states -->
     <string name="calendar_week_empty">No drives scheduled</string>
-    <string name="calendar_history_empty">No past drives</string>
+    <string name="calendar_history_empty">No accepted completion history</string>
     <string name="calendar_day_sheet_empty">No drives scheduled this day</string>
 
     <!-- Month grid hint -->
-    <string name="calendar_month_hint">Tap a day for its drives · dots = drive days</string>
+    <string name="calendar_month_hint">Tap a day for due work or completion history · dots = open work, muted dots = completed history</string>
 
     <!-- Accessibility descriptions -->
     <string name="calendar_button_menu">Menu</string>
@@ -29,8 +29,13 @@
     <string name="calendar_button_refresh">Refresh</string>
 
     <!-- History section label (prefix before dynamic count) -->
-    <string name="calendar_history_label">Past drives</string>
+    <string name="calendar_history_label">Accepted completion history</string>
 
     <!-- Card call-to-action verb (drill into a drive) -->
     <string name="calendar_cta_open">Open</string>
+
+    <!-- Pagination -->
+    <string name="calendar_load_more_day">Load more drives</string>
+    <string name="calendar_load_more_history">Load more history</string>
+    <string name="calendar_loading_more">Loading…</string>
 </resources>

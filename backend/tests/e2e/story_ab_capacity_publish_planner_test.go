@@ -47,6 +47,7 @@ func TestKernelStoryAB_CapacityPublishPlannerParity(t *testing.T) {
 			"planner must read the SYNCED cap — a shed within the cap runs in one day, an over-cap load splits "+
 			"across the safe window, and a load past the window is flagged Needs review.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	protoSvc := protoapp.NewService(fx.Proto)
 

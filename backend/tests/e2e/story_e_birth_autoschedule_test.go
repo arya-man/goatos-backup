@@ -17,6 +17,7 @@ func TestKernelStoryE_BirthAutoSchedule(t *testing.T) {
 			"obligations at 4w, 7w, 12w, 16w, and 20w post-birth. Each schedule respects the "+
 			"protocol's offset/window. On recovery from quarantine/illness, closed obligations reopen.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	fx.PublishSimpleProtocol("vaccination.e2e.story_e", 21, 14, nil)
 

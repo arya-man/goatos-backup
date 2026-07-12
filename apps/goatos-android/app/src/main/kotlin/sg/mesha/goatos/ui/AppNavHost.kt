@@ -4,8 +4,6 @@ import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -14,7 +12,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.net.Uri
@@ -96,10 +93,16 @@ object Routes {
 
     const val CALENDAR_DAY = "/calendarDay"
     const val CALENDAR_DAY_ARG = "dateKey"
+    const val CALENDAR_DAY_STATUS_ARG = "status"
 
-    /** Day-detail (L1) screen opened by a month-grid day tap (arg = ISO date key). */
-    fun calendarDayRoute(dateKey: String): String =
-        "$CALENDAR_DAY?$CALENDAR_DAY_ARG=${Uri.encode(dateKey)}"
+    /** Day-detail (L1) screen opened by a month-grid day tap (arg = ISO date key). History-only
+     *  month cells carry `status=completed` so a visible completion marker never drills into an
+     *  empty open-work day query. */
+    fun calendarDayRoute(dateKey: String, showCompletedHistory: Boolean = false): String =
+        buildString {
+            append("$CALENDAR_DAY?$CALENDAR_DAY_ARG=${Uri.encode(dateKey)}")
+            if (showCompletedHistory) append("&$CALENDAR_DAY_STATUS_ARG=completed")
+        }
 
     fun rescheduleRoute(obligationId: String?): String =
         if (obligationId.isNullOrBlank()) RESCHEDULE else "$RESCHEDULE?$RESCHEDULE_OBLIGATION_ARG=${Uri.encode(obligationId)}"
@@ -107,18 +110,22 @@ object Routes {
 
 /**
  * Maps a backend calendar deep-link ([CalendarItem.target]/[CalendarHistoryRow.target])
- * to an app route. A shed-scoped target opens that shed's record; anything else drills
- * into the vaccination execution list. The row's context is no longer discarded.
+ * to an app route. Live shed-scoped work opens the execute loop, explicit `record/...` targets
+ * open the read-only record, and anything else falls back to the vaccination landing.
  */
 private fun calendarTargetRoute(target: String?): String {
     if (target.isNullOrBlank()) return Routes.VACCINATION
+    if (target.contains("scan/")) {
+        val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
+        return Routes.scanRoute(id.ifBlank { null })
+    }
     // Past-drive/history rows point at a read-only record.
     if (target.contains("record/")) {
         val id = target.substringAfter("record/").substringBefore('/').substringBefore('?')
         return Routes.recordRoute(id.ifBlank { null })
     }
     val shedId = shedIdFromTarget(target)
-    return if (shedId != null) Routes.recordRoute(shedId) else Routes.VACCINATION
+    return if (shedId != null) Routes.scanRoute(shedId) else Routes.VACCINATION
 }
 
 /** Extracts a shed id from a backend href, supporting `.../sheds/{id}` and `?shed_id={id}`. */
@@ -188,7 +195,7 @@ fun AppNavHost(
                         // A MONTH-grid day tap opens the day's own L1 screen (real drill),
                         // never an inline sheet under the grid.
                         is CalendarEvent.OpenDay ->
-                            navController.navigate(Routes.calendarDayRoute(event.dateKey)) { launchSingleTop = true }
+                            navController.navigate(Routes.calendarDayRoute(event.dateKey, event.showCompletedHistory)) { launchSingleTop = true }
                         // A WEEK-strip day tap is in-screen selection (re-scopes the week agenda
                         // list to that day) and must NOT navigate. Handled by CalendarViewModel.
                         is CalendarEvent.TapDay -> vm.onEvent(event)
@@ -201,9 +208,14 @@ fun AppNavHost(
         // Calendar day detail (L1) — opened by a MONTH-grid day tap. Its own screen showing
         // that day's drives; Back pops to the calendar, an item drills to its backend target.
         composable(
-            route = "${Routes.CALENDAR_DAY}?${Routes.CALENDAR_DAY_ARG}={${Routes.CALENDAR_DAY_ARG}}",
+            route = "${Routes.CALENDAR_DAY}?${Routes.CALENDAR_DAY_ARG}={${Routes.CALENDAR_DAY_ARG}}&${Routes.CALENDAR_DAY_STATUS_ARG}={${Routes.CALENDAR_DAY_STATUS_ARG}}",
             arguments = listOf(
                 navArgument(Routes.CALENDAR_DAY_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument(Routes.CALENDAR_DAY_STATUS_ARG) {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -219,6 +231,7 @@ fun AppNavHost(
                     val target = state.items.firstOrNull { it.id == itemId }?.target
                     navController.navigate(calendarTargetRoute(target)) { launchSingleTop = true }
                 },
+                onLoadMore = vm::loadMore,
             )
         }
 
@@ -478,11 +491,6 @@ fun AppNavHost(
             TimetableScreen(state = state, onEvent = vm::onEvent)
         }
     }
-}
-
-@Composable
-internal fun UnknownRoute(href: String) {
-    Text(text = "Screen: $href", modifier = Modifier.padding(16.dp))
 }
 
 /**

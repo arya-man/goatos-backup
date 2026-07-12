@@ -16,6 +16,7 @@ func TestKernelStoryZ_MissedCatchUpBatch(t *testing.T) {
 		"Three healthy goats receive generated work. The oldest window crosses missed while two remain "+
 			"scheduled. The real sweeper batches all three into the same catch-up drive.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedID   = "ec000000-0000-4000-8000-000000000001"

@@ -16,6 +16,7 @@ func TestKernelStoryP_StockBlockedDrive(t *testing.T) {
 		"Two goats are due in one shed but only one vaccine dose is in stock. The sweeper forms the "+
 			"drive but marks it stock-blocked — no partial reserve, no silent execution.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedID  = "f1000000-0000-4000-8000-000000000001"

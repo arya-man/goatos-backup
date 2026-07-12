@@ -27,6 +27,7 @@ func TestKernelStoryH_AdultSchedule(t *testing.T) {
 			"booster) four weeks later -- the 4-week gap honoring the live→live spacing rule. The generation "+
 			"engine must materialize both doses at the correct dates.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const shedID = "e8000000-0000-4000-8000-000000000001"
 	const stageID = "e8000000-0000-4000-8000-000000000002"

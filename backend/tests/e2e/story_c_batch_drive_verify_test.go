@@ -45,7 +45,7 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 			"the drive. Before the verifier reviews the proof, the control tower shows an open "+
 			"verification-pending alert (not process-intact). Once the verifier accepts both doses, the "+
 			"control tower shows the drive completed and the alert cleared.")
-	story.Certify("backend kernel + SOP proof/submission/review")
+	story.Certify("backend kernel + SOP proof/submission/review + authenticated admin-web HTTP review route")
 	defer story.Finish()
 
 	const (
@@ -194,9 +194,9 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 	}
 
 	story.Step("Director accepts the task through the admin-web HTTP review route",
-		"One independent scoped web review reaches the SOP handler, passes route permissions and task-scope review grants, then fans out to both recorded completions, consuming reserved doses and completing both obligations.")
+		"One independent tenant-scoped admin-web review reaches the SOP handler, passes task.verify authorization, then fans out to both recorded completions, consuming reserved doses and completing both obligations.")
 	grantSource := storyAAGrantSource{byActor: map[string][]permissions.ActiveGrant{
-		verifierID: {{Role: permissions.RoleDirector, ScopeType: "tenant", ScopeID: fxTenant}},
+		verifierID: {{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: fxTenant}},
 	}}
 	auth, authErr := httpmiddleware.NewAuthMiddleware(httpmiddleware.AuthConfig{
 		Mode: httpmiddleware.AuthModeDevHeaders, DevHeadersAllowed: true, Environment: "test",

@@ -15,20 +15,21 @@ import (
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
-// TestKernelStoryAJ_LeadershipReviewRoutes proves web/app leadership closure parity without
-// bypassing the vaccination kernel. A real drive is generated, proof-backed submission records the
-// dose, operator/ordinary-manager HTTP attempts are denied before mutation, Director reworks it via
-// the admin-web route, the operator re-submits, and CEO/CXO accepts via the app route. The accept
-// path fans out through SM-5, emits durable vaccination.completed, and SM-7 creates exactly one
-// next yearly obligation.
+// TestKernelStoryAJ_LeadershipReviewRoutes proves the current admin-web leadership review closure
+// path without bypassing the vaccination kernel. A real drive is generated, proof-backed
+// submission records the dose, operator/scoped-grant HTTP attempts are denied before mutation, a
+// Director reworks it via the admin-web route, the operator re-submits, and CEO/CXO accepts via
+// the same admin-web review route. The accept path fans out through SM-5, emits durable
+// vaccination.completed, and SM-7 creates exactly one next yearly obligation.
 func TestKernelStoryAJ_LeadershipReviewRoutes(t *testing.T) {
 	fx := NewFixture(t)
-	story := NewStory(t, "story-aj", "Leadership web/app review closes real vaccination drives",
-		"A real vaccination drive goes through proof-backed SOP submission. Operators and ordinary "+
-			"managers cannot close it. A Director can request rework through the admin-web review route; "+
-			"after the operator re-submits, CEO/CXO accepts through the Android/app route. Only the "+
+	story := NewStory(t, "story-aj", "Leadership admin-web review closes real vaccination drives",
+		"A real vaccination drive goes through proof-backed SOP submission. Operators and park-scoped "+
+			"leadership grants cannot close it through tenant-level admin review routes. A Director can "+
+			"request rework through the admin-web review route; after the operator re-submits, CEO/CXO "+
+			"accepts through the same admin-web route. Only the "+
 			"accepted leadership review completes the obligation and schedules the next yearly cycle.")
-	story.Certify("authenticated admin-web/app HTTP + SOP proof/submission/rework/review + vaccination.completed consumer")
+	story.Certify("authenticated admin-web HTTP + SOP proof/submission/rework/review + vaccination.completed consumer")
 	defer story.Finish()
 
 	const (
@@ -87,7 +88,13 @@ func TestKernelStoryAJ_LeadershipReviewRoutes(t *testing.T) {
 			"Submission fanout creates a recorded completion but does not complete the obligation yet.")
 	administeredAt := due.Add(9 * time.Hour)
 	first, err := h.submit(taskID, shedID, operatorID, lotID, []string{goatID}, administeredAt, "story-aj-submit-1", "subcutaneous")
-	story.Assert("first proof-backed submission succeeded", err == nil && first != nil && first.Task.State == "needs_review", "state=%v err=%v", first, err)
+	firstState := ""
+	firstRowVersion := 0
+	if first != nil {
+		firstState = first.Task.State
+		firstRowVersion = first.Task.RowVersion
+	}
+	story.Assert("first proof-backed submission succeeded", err == nil && first != nil && first.Task.State == "needs_review", "task_state=%q row_version=%d err=%v", firstState, firstRowVersion, err)
 	if err != nil {
 		return
 	}
@@ -95,13 +102,13 @@ func TestKernelStoryAJ_LeadershipReviewRoutes(t *testing.T) {
 		fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=$2::uuid AND status='recorded'`, fxTenant, obligationID) == 1,
 		"obligation=%s", obligationID)
 
-	story.Step("HTTP review gates reject operator and ordinary manager before mutation",
-		"Both app and admin-web review routes use route permissions plus SOP review grants. Operators and ordinary managers cannot verify or rework a vaccination drive.")
+	story.Step("Admin-web review gates reject operator and park-scoped leadership grant before mutation",
+		"The current review surface is the admin-web SOP task verify/rework route. Operators cannot close a vaccination drive there, and park-scoped grants do not authorize tenant-level admin review routes.")
 	grantSource := storyAAGrantSource{byActor: map[string][]permissions.ActiveGrant{
 		operatorID: {{Role: permissions.RoleOperator, ScopeType: "tenant", ScopeID: fxTenant}},
-		managerID:  {{Role: permissions.RoleManager, ScopeType: "tenant", ScopeID: fxTenant}},
-		directorID: {{Role: permissions.RoleDirector, ScopeType: "tenant", ScopeID: fxTenant}},
-		cxoID:      {{Role: permissions.RoleCXO, ScopeType: "tenant", ScopeID: fxTenant}},
+		managerID:  {{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: fxPark}},
+		directorID: {{Role: permissions.RolePCDirector, ScopeType: "tenant", ScopeID: fxTenant}},
+		cxoID:      {{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: fxTenant}},
 	}}
 	auth, authErr := httpmiddleware.NewAuthMiddleware(httpmiddleware.AuthConfig{
 		Mode: httpmiddleware.AuthModeDevHeaders, DevHeadersAllowed: true, Environment: "test",
@@ -125,8 +132,8 @@ func TestKernelStoryAJ_LeadershipReviewRoutes(t *testing.T) {
 	for _, denied := range []struct {
 		label, actor, route string
 	}{
-		{"operator app verify", operatorID, "/app/vaccination/tasks/" + taskID + "/verify"},
-		{"ordinary manager admin rework", managerID, "/admin/tasks/" + taskID + "/rework"},
+		{"operator admin verify", operatorID, "/admin/tasks/" + taskID + "/verify"},
+		{"park-scoped leadership grant admin rework", managerID, "/admin/tasks/" + taskID + "/rework"},
 	} {
 		rec := review(http.MethodPost, denied.route, denied.actor, first.Task.RowVersion, "not authorized")
 		story.Assert(denied.label+" denied", rec.Code == http.StatusForbidden, "HTTP=%d body=%s", rec.Code, rec.Body.String())
@@ -136,7 +143,7 @@ func TestKernelStoryAJ_LeadershipReviewRoutes(t *testing.T) {
 	}
 
 	story.Step("Director reworks through the admin-web review route",
-		"The admin-web route writes the same SOP review state as mobile/app review. Rework rejects the recorded completion, leaves the obligation open, and consumes no stock.")
+		"The admin-web review route writes the real SOP review state. Rework rejects the recorded completion, leaves the obligation open, and consumes no stock.")
 	rec := review(http.MethodPost, "/admin/tasks/"+taskID+"/rework", directorID, first.Task.RowVersion, "director requests clearer proof")
 	story.Assert("Director can rework through admin-web route", rec.Code == http.StatusOK, "HTTP=%d body=%s", rec.Code, rec.Body.String())
 	if rec.Code != http.StatusOK {
@@ -151,15 +158,21 @@ func TestKernelStoryAJ_LeadershipReviewRoutes(t *testing.T) {
 			fx.countRows(`SELECT count(*) FROM inventory_stock_movements WHERE tenant_id=$1 AND batch_id=$2::uuid AND movement_type='consume'`, fxTenant, batchID) == 0,
 		"obligation=%s batch=%s", obligationID, batchID)
 
-	story.Step("Operator re-submits and CEO/CXO verifies through the app route",
-		"The second submission is a fresh proof-backed attempt. CEO/CXO closes it through the same app route Android calls; SM-5 accepts the completion and completes the obligation.")
+	story.Step("Operator re-submits and CEO/CXO verifies through the admin-web route",
+		"The second submission is a fresh proof-backed attempt. CEO/CXO closes it through the current admin-web review route; SM-5 accepts the completion and completes the obligation.")
 	second, err := h.submit(taskID, shedID, operatorID, lotID, []string{goatID}, administeredAt.Add(30*time.Minute), "story-aj-submit-2", "subcutaneous")
-	story.Assert("second proof-backed submission succeeded", err == nil && second != nil && second.Task.State == "needs_review", "state=%v err=%v", second, err)
+	secondState := ""
+	secondRowVersion := 0
+	if second != nil {
+		secondState = second.Task.State
+		secondRowVersion = second.Task.RowVersion
+	}
+	story.Assert("second proof-backed submission succeeded", err == nil && second != nil && second.Task.State == "needs_review", "task_state=%q row_version=%d err=%v", secondState, secondRowVersion, err)
 	if err != nil {
 		return
 	}
-	rec = review(http.MethodPost, "/app/vaccination/tasks/"+taskID+"/verify", cxoID, second.Task.RowVersion, "CEO/CXO accepted corrected proof")
-	story.Assert("CEO/CXO can verify through app route", rec.Code == http.StatusOK, "HTTP=%d body=%s", rec.Code, rec.Body.String())
+	rec = review(http.MethodPost, "/admin/tasks/"+taskID+"/verify", cxoID, second.Task.RowVersion, "CEO/CXO accepted corrected proof")
+	story.Assert("CEO/CXO can verify through admin-web route", rec.Code == http.StatusOK, "HTTP=%d body=%s", rec.Code, rec.Body.String())
 	if rec.Code != http.StatusOK {
 		return
 	}

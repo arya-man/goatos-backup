@@ -47,7 +47,7 @@ type Repository interface {
 
 	// ListRecordedCompletions returns completions awaiting review (status='recorded'), earliest
 	// administered first (the Verification queue). parkID is an optional park scope (empty = all parks).
-	ListRecordedCompletions(ctx context.Context, tenantID, parkID string, limit int32) ([]domain.RecordedCompletion, error)
+	ListRecordedCompletions(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error)
 
 	// GetLastAcceptedForGoat returns the most recent accepted administration; found is false when none.
 	GetLastAcceptedForGoat(ctx context.Context, tenantID, goatID string) (rec domain.LastAccepted, found bool, err error)

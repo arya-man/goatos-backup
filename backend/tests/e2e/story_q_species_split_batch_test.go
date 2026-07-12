@@ -16,6 +16,7 @@ func TestKernelStoryQ_SpeciesSplitBatch(t *testing.T) {
 		"Two goats in one shed and two sheep in another, all due for the same rule. The sweeper must form "+
 			"two separate shed drives — one per species — never mixing goat and sheep in one batch.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedA   = "f2000000-0000-4000-8000-000000000001"

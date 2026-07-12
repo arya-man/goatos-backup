@@ -17,6 +17,7 @@ func TestKernelStoryW_SickMissedSweepSafety(t *testing.T) {
 			"health command emits goat.health.changed, and the production recheck/sweeper path excludes that "+
 			"animal while batching the two healthy shed-mates.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedID   = "f8000000-0000-4000-8000-000000000001"

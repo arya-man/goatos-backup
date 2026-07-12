@@ -16,6 +16,7 @@ func TestKernelStoryX_MissingEntryDateDefer(t *testing.T) {
 		"A procured adult arrives without a farm-entry date. Generation must create a deferred "+
 			"missing-entry-date obligation, not a schedulable post-arrival dose. The sweeper must not batch it.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedID  = "e9000000-0000-4000-8000-000000000001"

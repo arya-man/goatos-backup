@@ -16,6 +16,7 @@ func TestKernelStoryV_SweepClinicalDefer(t *testing.T) {
 		"Three goats share a shed with scheduled doses. One turns sick before the sweeper runs. "+
 			"SM-4's pre-batch clinical recheck must defer that goat and batch only the two healthy animals.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedID   = "f7000000-0000-4000-8000-000000000001"

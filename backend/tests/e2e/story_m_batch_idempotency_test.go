@@ -26,6 +26,7 @@ func TestKernelStoryM_BatchIdempotency(t *testing.T) {
 			"payload is rejected outright. Flaky networks and retried mobile submits can never double-count "+
 			"a vaccination.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedID     = "ed000000-0000-4000-8000-000000000001"

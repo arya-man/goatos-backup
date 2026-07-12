@@ -511,7 +511,7 @@ export async function getVaccinationWorkflowDrilldown(
 }
 
 export async function getVaccinationVerificationQueue(
-  params: { parkId?: string; limit?: number } = {},
+  params: { parkId?: string; limit?: number; cursor?: string } = {},
 ): Promise<ApiResult<VaccinationQueueResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -519,7 +519,7 @@ export async function getVaccinationVerificationQueue(
   return request(() =>
     client.request<VaccinationQueueResponse>("/vaccination/verification-queue", {
       cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, limit: params.limit ?? 100 }),
+      query: compactQuery({ park_id: params.parkId, limit: params.limit ?? 100, cursor: params.cursor }),
     }),
   );
 }

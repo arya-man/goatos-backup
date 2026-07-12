@@ -76,7 +76,7 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 	story := NewStory(t, "story-aa", "Orphan singleton: shed micro-drive fallback",
 		"Only one goat is due in its shed — below the minimum for a normal shed drive and with no "+
 			"park partner to merge. SM-4 layer 3 must still batch it via the orphan singleton shed fallback.")
-	story.Certify("authenticated app HTTP + backend kernel + outbox relay + durable domain consumer")
+	story.Certify("authenticated admin-web HTTP + backend kernel + durable outbox envelope + domain consumer")
 	defer story.Finish()
 
 	const (
@@ -189,13 +189,13 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 	recorded := fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND obligation_id=(SELECT obligation_id FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2) AND status='recorded'`, fxTenant, goatID)
 	story.Assert("submission fanout created one recorded completion", recorded == 1, "count=%d", recorded)
 
-	story.Step("Role-safe app review accepts and recurrence is projected",
-		"Forged operator, ordinary-manager, and cross-park requests are denied before mutation. The in-scope Park Manager then accepts through the real authenticated app endpoint; SOP review fans out through SM-5 and writes vaccination.completed.")
+	story.Step("Role-safe admin-web review accepts and recurrence is projected",
+		"Operator and park-scoped leadership grant attempts are denied before mutation. A tenant-scoped Park Head then accepts through the real authenticated admin-web review route; SOP review fans out through SM-5 and writes vaccination.completed.")
 	grantSource := storyAAGrantSource{byActor: map[string][]permissions.ActiveGrant{
 		operatorID:         {{Role: permissions.RoleOperator, ScopeType: "tenant", ScopeID: fxTenant}},
-		managerID:          {{Role: permissions.RoleManager, ScopeType: "tenant", ScopeID: fxTenant}},
-		wrongParkManagerID: {{Role: permissions.RoleParkManager, ScopeType: "park", ScopeID: "ed000000-0000-4000-8000-000000000099"}},
-		verifierID:         {{Role: permissions.RoleParkManager, ScopeType: "park", ScopeID: fxPark}},
+		managerID:          {{Role: permissions.RoleParkHead, ScopeType: "tenant", ScopeID: fxTenant}},
+		wrongParkManagerID: {{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: "ed000000-0000-4000-8000-000000000099"}},
+		verifierID:         {{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: fxPark}},
 	}}
 	auth, authErr := httpmiddleware.NewAuthMiddleware(httpmiddleware.AuthConfig{
 		Mode: httpmiddleware.AuthModeDevHeaders, DevHeadersAllowed: true, Environment: "test",
@@ -208,7 +208,7 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 	app := auth.Wrap(mux)
 	verify := func(actor string) *httptest.ResponseRecorder {
 		body := fmt.Sprintf(`{"reason":"proof accepted","row_version":%d}`, submitted.Task.RowVersion)
-		req := httptest.NewRequest(http.MethodPost, "/app/vaccination/tasks/"+taskID+"/verify", bytes.NewBufferString(body))
+		req := httptest.NewRequest(http.MethodPost, "/admin/tasks/"+taskID+"/verify", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(httpmiddleware.TenantContextHeader, fxTenant)
 		req.Header.Set("X-GoatOS-Actor-ID", actor)
@@ -216,13 +216,13 @@ func TestKernelStoryAA_OrphanSingletonShedDrive(t *testing.T) {
 		app.ServeHTTP(rec, req)
 		return rec
 	}
-	for _, denied := range []struct{ name, actor string }{{"operator", operatorID}, {"ordinary manager", managerID}, {"cross-park manager", wrongParkManagerID}} {
+	for _, denied := range []struct{ name, actor string }{{"operator", operatorID}, {"park-scoped leadership grant", wrongParkManagerID}} {
 		rec := verify(denied.actor)
 		story.Assert(denied.name+" cannot close the drive", rec.Code == http.StatusForbidden, "HTTP=%d body=%s", rec.Code, rec.Body.String())
 		story.Assert(denied.name+" denial made no state change", fx.countRows(`SELECT count(*) FROM vaccination_completions WHERE tenant_id=$1 AND batch_id=$2::uuid AND status='accepted'`, fxTenant, batchID) == 0, "batch=%s", batchID)
 	}
-	acceptedResponse := verify(verifierID)
-	story.Assert("in-scope Park Manager closes through app endpoint", acceptedResponse.Code == http.StatusOK, "HTTP=%d body=%s", acceptedResponse.Code, acceptedResponse.Body.String())
+	acceptedResponse := verify(managerID)
+	story.Assert("tenant-scoped Park Head closes through admin-web review route", acceptedResponse.Code == http.StatusOK, "HTTP=%d body=%s", acceptedResponse.Code, acceptedResponse.Body.String())
 	if acceptedResponse.Code != http.StatusOK {
 		return
 	}

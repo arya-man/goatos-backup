@@ -19,6 +19,7 @@ func TestKernelStoryAF_CapacityBreachKeepsOverdueHeadline(t *testing.T) {
 			"shed when any animal is late. The merged Status chip must show Overdue; the separate "+
 			"Capacity chip must still show Needs review so managers can find the capacity breach.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	fx.exec("tight capacity for collision proof",
 		`UPDATE vaccination_capacity_config

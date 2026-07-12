@@ -25,7 +25,7 @@ import (
 // Reads is the slice of the vaccination service this handler needs.
 type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
-	VerificationQueue(ctx context.Context, tenantID, parkID string, limit int32) ([]domain.RecordedCompletion, error)
+	VerificationQueue(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error)
 }
 
 // ManualCampaignGenerator materializes deliberate manual_campaign schedule rows for a published
@@ -306,7 +306,9 @@ type queueItem struct {
 }
 
 type queueResponse struct {
-	Items []queueItem `json:"items"`
+	Items      []queueItem `json:"items"`
+	TotalCount int64       `json:"total_count"`
+	NextCursor *string     `json:"next_cursor,omitempty"`
 }
 
 // VerificationQueue lists completions awaiting review (earliest administered first), bounded by limit
@@ -329,14 +331,23 @@ func (h *Handler) VerificationQueue(w http.ResponseWriter, r *http.Request) {
 		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
 		return
 	}
-	rows, err := h.svc.VerificationQueue(r.Context(), tenantID(r), parkID, limit)
+	var cursor *domain.RecordedCompletionCursor
+	if value := strings.TrimSpace(r.URL.Query().Get("cursor")); value != "" {
+		decoded, err := domain.DecodeRecordedCompletionCursor(value)
+		if err != nil {
+			h.badRequest(w, r, "invalid_cursor", "cursor must be an opaque queue cursor returned by the previous page")
+			return
+		}
+		cursor = &decoded
+	}
+	page, err := h.svc.VerificationQueue(r.Context(), tenantID(r), parkID, cursor, limit)
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
 		return
 	}
-	items := make([]queueItem, 0, len(rows))
-	for _, c := range rows {
+	items := make([]queueItem, 0, len(page.Items))
+	for _, c := range page.Items {
 		items = append(items, queueItem{
 			CompletionID:   c.CompletionID,
 			ObligationID:   c.ObligationID,
@@ -350,7 +361,7 @@ func (h *Handler) VerificationQueue(w http.ResponseWriter, r *http.Request) {
 			WorkState:      "verification_pending",
 		})
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, queueResponse{Items: items})
+	httpresponse.WriteJSON(w, http.StatusOK, queueResponse{Items: items, TotalCount: page.TotalCount, NextCursor: page.NextCursor})
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {

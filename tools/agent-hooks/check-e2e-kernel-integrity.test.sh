@@ -67,12 +67,30 @@ if ! GOATOS_E2E_INTEGRITY_ROOT="$safe_browser_root" bash "$guard" >/dev/null 2>&
   exit 1
 fi
 
+neutral_browser_root="$tmp/browser_neutral_helper"
+mkdir -p "$neutral_browser_root/backend/tests/e2e" "$neutral_browser_root/apps/admin-web/scripts/nested"
+printf 'package e2e\n' > "$neutral_browser_root/backend/tests/e2e/baseline_test.go"
+printf 'await sql(`INSERT INTO process_integrity_projection_rows (tenant_id) VALUES ($1)`)\n' > "$neutral_browser_root/apps/admin-web/scripts/nested/db-helper.mjs"
+if GOATOS_E2E_INTEGRITY_ROOT="$neutral_browser_root" bash "$guard" >/dev/null 2>&1; then
+  printf 'e2e-kernel-integrity self-test browser_neutral_helper: neutral helper under apps/admin-web/scripts was not rejected\n' >&2
+  exit 1
+fi
+
 nested_root="$tmp/nested_path"
 mkdir -p "$nested_root/backend/tests/e2e" "$nested_root/tools/dev/E2E/fixtures"
 printf 'package e2e\n' > "$nested_root/backend/tests/e2e/baseline_test.go"
 printf 'DELETE FROM sop_tasks WHERE tenant_id = $1\n' > "$nested_root/tools/dev/E2E/fixtures/seed.sql"
 if GOATOS_E2E_INTEGRITY_ROOT="$nested_root" bash "$guard" >/dev/null 2>&1; then
   printf 'e2e-kernel-integrity self-test nested_path: neutral filename under E2E path was not rejected\n' >&2
+  exit 1
+fi
+
+tools_dev_go_root="$tmp/tools_dev_go"
+mkdir -p "$tools_dev_go_root/backend/tests/e2e" "$tools_dev_go_root/tools/dev/helpers"
+printf 'package e2e\n' > "$tools_dev_go_root/backend/tests/e2e/baseline_test.go"
+printf 'package helpers; const seed = `INSERT INTO obligation_instances (obligation_id) VALUES ($1)`\n' > "$tools_dev_go_root/tools/dev/helpers/seed.go"
+if GOATOS_E2E_INTEGRITY_ROOT="$tools_dev_go_root" bash "$guard" >/dev/null 2>&1; then
+  printf 'e2e-kernel-integrity self-test tools_dev_go: compiled Go helper under tools/dev was not rejected\n' >&2
   exit 1
 fi
 

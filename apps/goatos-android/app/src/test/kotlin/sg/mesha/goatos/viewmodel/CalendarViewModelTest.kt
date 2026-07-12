@@ -1,52 +1,64 @@
 package sg.mesha.goatos.viewmodel
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Test
-import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.network.dto.CalendarDateMarkerDto
 import sg.mesha.goatos.core.network.dto.CalendarEventDto
-import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
-import sg.mesha.goatos.core.network.dto.CalendarPresentationDto
+import sg.mesha.goatos.feature.calendar.CalendarTone
+import kotlinx.serialization.json.JsonPrimitive
 import java.time.LocalDate
 
 class CalendarViewModelTest {
 
     @Test
-    fun `calendar windows stay bounded to current month and forty five history days`() {
+    fun `calendar windows stay bounded to current week month and forty five history days`() {
         val today = LocalDate.of(2026, 7, 12)
 
+        assertEquals(CalendarDateRange("2026-07-06", "2026-07-12"), calendarWeekRange(today))
         assertEquals(CalendarDateRange("2026-07-01", "2026-07-31"), calendarMonthRange(today))
         assertEquals(CalendarDateRange("2026-05-29", "2026-07-12"), calendarHistoryRange(today))
     }
 
     @Test
-    fun `open work and explicit completed history merge without duplicate event ids`() {
-        val open = CalendarEventDto(
-            eventId = "drive:future",
-            status = "due",
-            dueAt = "2026-07-17T03:30:00Z",
+    fun `month days render open and completed markers distinctly`() {
+        val monthDays = buildMonthDays(
+            markers = listOf(
+                CalendarDateMarkerDto(date = "2026-07-02", openCount = 2, eventCount = 2),
+                CalendarDateMarkerDto(date = "2026-07-05", completedCount = 3, eventCount = 3),
+            ),
+            today = LocalDate.of(2026, 7, 12),
         )
-        val completed = CalendarEventDto(
-            eventId = "obligation:history",
+
+        val secondDay = monthDays.first { it.dateKey == "2026-07-02" }
+        val fifthDay = monthDays.first { it.dateKey == "2026-07-05" }
+
+        assertEquals(true, secondDay.hasWork)
+        assertEquals(CalendarTone.Ok, secondDay.dotTone)
+        assertEquals(false, fifthDay.hasWork)
+        assertEquals(true, fifthDay.hasCompletedHistory)
+        assertEquals(CalendarTone.Muted, fifthDay.dotTone)
+    }
+
+    @Test
+    fun `workflow calendar rows open shed scan target on mobile`() {
+        val target = CalendarEventDto(
+            eventId = "calendar:task",
+            shedId = "shed-1",
+            links = mapOf("workflow" to JsonPrimitive("/vaccination/workflows/calendar:task")),
+        ).routeTarget()
+
+        assertEquals("scan/shed-1", target)
+    }
+
+    @Test
+    fun `completed history rows stay on shed record target`() {
+        val target = CalendarEventDto(
+            eventId = "calendar:history",
+            shedId = "shed-1",
             status = COMPLETED_STATUS,
-            dueAt = "2026-07-01T03:30:00Z",
-        )
-        val presentation = CalendarPresentationDto(pageTitle = "Calendar")
+            links = mapOf("vaccination" to JsonPrimitive("/vaccination/execution/sheds/shed-1")),
+        ).routeTarget()
 
-        val merged = mergeCalendarResources(
-            Resource(
-                data = CalendarEventListResponseDto(presentation = presentation, items = listOf(open)),
-                lastSyncedAt = 100,
-            ),
-            Resource(
-                data = CalendarEventListResponseDto(items = listOf(completed, open)),
-                lastSyncedAt = 200,
-            ),
-        )
-
-        assertNotNull(merged.data)
-        assertEquals(listOf("obligation:history", "drive:future"), merged.data?.items?.map { it.eventId })
-        assertEquals("Calendar", merged.data?.presentation?.pageTitle)
-        assertEquals(200L, merged.lastSyncedAt)
+        assertEquals("record/shed-1", target)
     }
 }

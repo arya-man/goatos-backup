@@ -26,6 +26,7 @@ func TestKernelStoryAD_LiveAsOfGuard(t *testing.T) {
 			"September and call the July 18 dose overdue. Historical as_of remains allowed, but future "+
 			"as_of is clamped to the server's Asia/Kolkata now.")
 	defer story.Finish()
+	story.Certify("backend kernel + production vaccination execution HTTP handler")
 
 	serverNow := time.Date(2026, 7, 11, 18, 15, 0, 0, biztime.DefaultLocation())
 	dueAt := time.Date(2026, 7, 18, 0, 0, 0, 0, biztime.DefaultLocation())
@@ -57,10 +58,10 @@ func TestKernelStoryAD_LiveAsOfGuard(t *testing.T) {
 	}
 	story.Assert("future as_of does not mark July 18 work overdue",
 		row.Status == vaccexecdomain.ShedStatusScheduled,
-		"status=%q next_due=%v due=%d done=%d", row.Status, row.NextDue, row.Due, row.Done)
+		"status=%q next_due=%s due=%d done=%d", row.Status, detailString(row.NextDue), row.Due, row.Done)
 	story.Assert("next due stays the July 18 business date",
 		row.NextDue != nil && *row.NextDue == "2026-07-18",
-		"next_due=%v", row.NextDue)
+		"next_due=%s", detailString(row.NextDue))
 
 	story.Step("Explicit live as_of and future as_of produce the same live classification",
 		"The same route with as_of set to the server's current July 11 instant should produce the same "+
@@ -71,7 +72,7 @@ func TestKernelStoryAD_LiveAsOfGuard(t *testing.T) {
 	}
 	story.Assert("future URL and live URL agree on status",
 		liveRow.Status == row.Status && liveRow.NextDue != nil && row.NextDue != nil && *liveRow.NextDue == *row.NextDue,
-		"future_status=%q live_status=%q future_next=%v live_next=%v", row.Status, liveRow.Status, row.NextDue, liveRow.NextDue)
+		"future_status=%q live_status=%q future_next=%s live_next=%s", row.Status, liveRow.Status, detailString(row.NextDue), detailString(liveRow.NextDue))
 }
 
 func requestShedSummaryRow(t *testing.T, mux *http.ServeMux, shedID, asOf string) (vaccexecdomain.ShedSummaryRow, bool) {

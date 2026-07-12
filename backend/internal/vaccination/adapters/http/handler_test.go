@@ -16,10 +16,12 @@ import (
 )
 
 type fakeImpact struct {
-	got      domain.ImpactRequest
-	preview  domain.ImpactPreview
-	queue    []domain.RecordedCompletion
-	gotLimit int32
+	got         domain.ImpactRequest
+	preview     domain.ImpactPreview
+	queue       domain.RecordedCompletionPage
+	gotLimit    int32
+	gotCursor   *domain.RecordedCompletionCursor
+	gotQueuePark string
 }
 
 func (f *fakeImpact) ImpactPreview(_ context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error) {
@@ -27,8 +29,10 @@ func (f *fakeImpact) ImpactPreview(_ context.Context, req domain.ImpactRequest) 
 	return f.preview, nil
 }
 
-func (f *fakeImpact) VerificationQueue(_ context.Context, _ string, _ string, limit int32) ([]domain.RecordedCompletion, error) {
+func (f *fakeImpact) VerificationQueue(_ context.Context, _ string, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error) {
 	f.gotLimit = limit
+	f.gotCursor = cursor
+	f.gotQueuePark = parkID
 	return f.queue, nil
 }
 
@@ -252,8 +256,19 @@ func TestDirectCompletionReviewEndpointsAreNotMounted(t *testing.T) {
 }
 
 func TestVerificationQueueShapeAndLimit(t *testing.T) {
-	fake := &fakeImpact{queue: []domain.RecordedCompletion{
-		{CompletionID: "c1", GoatID: "g1", SOPTaskID: "task-1", SOPTaskVersion: 7, Doses: 1},
+	next, err := domain.EncodeRecordedCompletionCursor(domain.RecordedCompletionCursor{
+		CompletionID:   "00000000-0000-4000-8000-000000000001",
+		AdministeredAt: time.Date(2026, 7, 12, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("encode cursor: %v", err)
+	}
+	fake := &fakeImpact{queue: domain.RecordedCompletionPage{
+		Items: []domain.RecordedCompletion{
+			{CompletionID: "c1", GoatID: "g1", SOPTaskID: "task-1", SOPTaskVersion: 7, Doses: 1},
+		},
+		TotalCount: 251,
+		NextCursor: &next,
 	}}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(fake, nil))
@@ -267,7 +282,7 @@ func TestVerificationQueueShapeAndLimit(t *testing.T) {
 		t.Fatalf("limit must clamp to 500, got %d", fake.gotLimit)
 	}
 	var resp queueResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Items) != 1 || resp.Items[0].CompletionID != "c1" || resp.Items[0].SOPTaskID != "task-1" || resp.Items[0].SOPTaskVersion != 7 {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil || len(resp.Items) != 1 || resp.Items[0].CompletionID != "c1" || resp.Items[0].SOPTaskID != "task-1" || resp.Items[0].SOPTaskVersion != 7 || resp.TotalCount != 251 || resp.NextCursor == nil || *resp.NextCursor != next {
 		t.Fatalf("queue response: %+v err=%v", resp, err)
 	}
 
@@ -275,5 +290,28 @@ func TestVerificationQueueShapeAndLimit(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/verification-queue?limit=-3", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad limit: want 400, got %d", rec.Code)
+	}
+
+	cursor, err := domain.EncodeRecordedCompletionCursor(domain.RecordedCompletionCursor{
+		CompletionID:   "00000000-0000-4000-8000-0000000000aa",
+		AdministeredAt: time.Date(2026, 7, 12, 13, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("encode cursor: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/verification-queue?park_id=00000000-0000-4000-8000-0000000000bb&cursor="+cursor, nil)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cursor request: want 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if fake.gotCursor == nil || fake.gotCursor.CompletionID != "00000000-0000-4000-8000-0000000000aa" || fake.gotQueuePark != "00000000-0000-4000-8000-0000000000bb" {
+		t.Fatalf("cursor/park not forwarded: cursor=%+v park=%q", fake.gotCursor, fake.gotQueuePark)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/verification-queue?cursor=not-a-real-cursor", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad cursor: want 400, got %d", rec.Code)
 	}
 }

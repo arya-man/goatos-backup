@@ -16,6 +16,7 @@ func TestKernelStoryU_ParkConsolidationMerge(t *testing.T) {
 		"Each of two sheds has only one due goat — below the minimum for a shed drive. SM-4 layer 2 "+
 			"must merge them into one park-scoped consolidation drive.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedA  = "f6000000-0000-4000-8000-000000000001"

@@ -16,6 +16,7 @@ func TestKernelStoryR_MissingDOBDefer(t *testing.T) {
 		"A kid is registered without a date of birth. Generation must create a deferred missing-DOB "+
 			"obligation (visible process gap), not a schedulable dose. The sweeper must not batch it.")
 	defer story.Finish()
+	story.Certify("backend kernel")
 
 	const (
 		shedID  = "f3000000-0000-4000-8000-000000000001"

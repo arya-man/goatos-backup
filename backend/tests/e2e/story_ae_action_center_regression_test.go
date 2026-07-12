@@ -16,7 +16,7 @@ func TestKernelStoryAE_ActionCenterRegression(t *testing.T) {
 		"Two goats generate the same shed/day vaccination work through goat.created. One is accepted "+
 			"through SM-5; the durable vaccination.completed consumer creates its next 182-day cycle. The "+
 			"Action Center removes completed history from the hot board while retaining the future cycle.")
-	story.Certify("backend kernel + SOP proof/submission/review + outbox relay/consumer")
+	story.Certify("backend kernel + SOP proof/submission/review + durable outbox envelope + domain consumer")
 	defer story.Finish()
 
 	const (
