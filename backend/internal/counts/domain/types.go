@@ -384,3 +384,32 @@ type Readiness struct {
 	LatestProjectionTarget   *time.Time
 	LatestProjectionRowCount int64
 }
+
+// HerdRegisterSummaryCounts is a single row from herd_register_summary_projection.
+type HerdRegisterSummaryCounts struct {
+	ParkID            *string
+	FarmID            *string
+	CurrentLocationID *string
+	Breed             *string
+	Sex               string
+	LifecycleStatus   string
+	ActiveCount       int64
+	AdultCount        int64
+	KidCount          int64
+	UntaggedKidCount  int64
+	ProjectedAt       time.Time
+}
+
+// HerdRegisterSummary is the exact summary from herd_register_summary_projection.
+type HerdRegisterSummary struct {
+	Items []HerdRegisterSummaryCounts
+}
+
+// HerdRegisterSummaryQuery is the query for herd register summary.
+type HerdRegisterSummaryQuery struct {
+	TenantID        string
+	LifecycleStatus *string
+	ParkID          *string
+	Breed           *string
+	Sex             *string
+}

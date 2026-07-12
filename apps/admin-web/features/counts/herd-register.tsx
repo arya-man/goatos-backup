@@ -8,10 +8,11 @@ import { dash } from "@/lib/format";
 import { actionFeedbackCopy, copy, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
+  getHerdRegisterSummary,
   listAnimalStages,
-  searchAllGoats,
   searchGoats,
   type GoatSearchResponse,
+  type HerdRegisterSummaryResponse,
 } from "@/lib/api/server";
 import { getHerdRegisterLocations } from "@/lib/api/herd-locations";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -86,42 +87,29 @@ function weightLabel(weight: number | null | undefined): string {
   return typeof weight === "number" && Number.isFinite(weight) ? `${weight.toFixed(weight % 1 === 0 ? 0 : 1)}` : "—";
 }
 
-function isActiveGoat(g: GoatRow): boolean {
-  const status = String(g.lifecycle_status ?? "").toLowerCase();
-  return status === "alive" || status === "active";
-}
-
-function isKidGoat(g: GoatRow): boolean {
-  const band = String(g.age_band ?? "").trim().toLowerCase();
-  if (band === "kid") return true;
-  if (band === "adult") return false;
-
-  const stage = String(g.management_stage ?? "").trim().toUpperCase();
-  if (/^K\d/.test(stage)) return true;
-
-  // Last resort when stage/age_band are missing: kid-tagged operational sheds only.
-  const shedText = [g.location_path.shed_name, g.location_path.shed_code]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  return /\b(kid|kids|weaner|nursery)\b/.test(shedText);
-}
-
-function isUntagged(g: GoatRow): boolean {
-  return !g.animal_identifier_1;
-}
-
-function buildHerdSummary(pageContract: AdminUiPageContract, rows: GoatRow[]) {
-  const activeRows = rows.filter(isActiveGoat);
-  const kidRows = activeRows.filter(isKidGoat);
-  const adultRows = activeRows.filter((g) => !isKidGoat(g));
-  const untaggedKids = kidRows.filter(isUntagged).length;
-  const scopedSub = `${activeRows.length} ${copy(pageContract, "label.live_rows")}`;
+// KPIs come from the maintained herd-register summary projection (exact, bounded,
+// tenant+filter scoped) — never a full-herd scan. `summary === null` means the
+// projection read failed/was unavailable: show an honest dash, never a full-herd fallback.
+function buildHerdSummary(pageContract: AdminUiPageContract, summary: HerdRegisterSummaryResponse | null) {
+  const totals = summary
+    ? summary.items.reduce(
+        (acc, row) => ({
+          active: acc.active + row.activeCount,
+          adult: acc.adult + row.adultCount,
+          kid: acc.kid + row.kidCount,
+          untaggedKid: acc.untaggedKid + row.untaggedKidCount,
+        }),
+        { active: 0, adult: 0, kid: 0, untaggedKid: 0 },
+      )
+    : null;
+  const fmt = (value: number | undefined) => (totals ? `${value}` : dash(null));
+  const unavailable = copy(pageContract, "section.summary.unavailable");
+  const activeSub = totals ? `${totals.active} ${copy(pageContract, "label.live_rows")}` : unavailable;
   return [
-    { label: copy(pageContract, "label.active"), value: `${activeRows.length}`, sub: scopedSub },
-    { label: copy(pageContract, "label.adults"), value: `${adultRows.length}`, sub: copy(pageContract, "label.live_scoped_register") },
-    { label: copy(pageContract, "label.kids"), value: `${kidRows.length}`, sub: copy(pageContract, "label.stage_shed_inferred") },
-    { label: copy(pageContract, "label.untagged_kids"), value: `${untaggedKids}`, sub: copy(pageContract, "label.identity") },
+    { label: copy(pageContract, "label.active"), value: fmt(totals?.active), sub: activeSub },
+    { label: copy(pageContract, "label.adults"), value: fmt(totals?.adult), sub: totals ? copy(pageContract, "label.live_scoped_register") : unavailable },
+    { label: copy(pageContract, "label.kids"), value: fmt(totals?.kid), sub: totals ? copy(pageContract, "label.stage_shed_inferred") : unavailable },
+    { label: copy(pageContract, "label.untagged_kids"), value: fmt(totals?.untaggedKid), sub: totals ? copy(pageContract, "label.identity") : unavailable },
   ];
 }
 
@@ -159,7 +147,7 @@ export async function HerdRegisterPage({
   // Real goats + real location options for the write drawers, in parallel.
   const [result, summaryResult, locations, stagesResult] = await Promise.all([
     searchGoats({ limit: pageSize, cursor, q, breed, sex, park_id: parkId, status }),
-    searchAllGoats({ q, breed, sex, park_id: parkId, status }),
+    getHerdRegisterSummary({ lifecycle_status: status, park_id: parkId, breed, sex }),
     getHerdRegisterLocations(),
     listAnimalStages(),
   ]);
@@ -179,8 +167,8 @@ export async function HerdRegisterPage({
     : [];
 
   const goats: GoatRow[] = result.ok ? result.data.items : [];
-  const summaryRows: GoatRow[] = summaryResult.ok ? summaryResult.data : goats;
-  const summaryCards = buildHerdSummary(pageContract, summaryRows);
+  // Honest state: an unavailable projection read shows a dash, NOT a full-herd fallback.
+  const summaryCards = buildHerdSummary(pageContract, summaryResult.ok ? summaryResult.data : null);
   const nextCursor = result.ok ? result.data.next_cursor ?? null : null;
   const nextHref = hrefWithCursor(pathname, sp, nextCursor);
   const prevHref = hrefPreviousCursor(pathname, sp);

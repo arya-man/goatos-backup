@@ -1100,6 +1100,85 @@ WHERE tenant_id=$1::uuid
 	}
 }
 
+// TestRepositoryHerdRegisterSummaryReadsProjection proves the Herd Register KPI reader
+// serves exact counts from herd_register_summary_projection (maintained by the migration
+// 000164 live triggers on goat writes), NOT by scanning the goats table. C35-005.
+func TestRepositoryHerdRegisterSummaryReadsProjection(t *testing.T) {
+	ctx := context.Background()
+	pool := setupCountsDB(t, ctx)
+	repo := NewRepository(pool, 3*time.Second)
+
+	// Seed goats via raw INSERT (goats are identity-owned). Migration 000164's
+	// AFTER-write triggers maintain both projection tables convergently.
+	insertHerdGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a1", "G-900001", "female", "beetal", "alive", "adult")
+	insertHerdGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a2", "G-900002", "male", "beetal", "alive", "kid")
+	insertHerdGoat(t, ctx, pool, "20000000-0000-4000-8000-0000000000a3", "G-900003", "female", "sirohi", "alive", "adult")
+
+	// Exact summary over alive goats: one row per (park, farm, location, breed, sex, status) grain.
+	summary, err := repo.GetHerdRegisterSummary(ctx, domain.HerdRegisterSummaryQuery{
+		TenantID:        countsTenant,
+		LifecycleStatus: strPtr("alive"),
+	})
+	if err != nil {
+		t.Fatalf("GetHerdRegisterSummary: %v", err)
+	}
+	if len(summary.Items) != 3 {
+		t.Fatalf("summary rows=%d, want 3 dimension-grain rows", len(summary.Items))
+	}
+	var totalActive, totalAdult, totalKid, totalUntaggedKid int64
+	for _, row := range summary.Items {
+		totalActive += row.ActiveCount
+		totalAdult += row.AdultCount
+		totalKid += row.KidCount
+		totalUntaggedKid += row.UntaggedKidCount
+	}
+	if totalActive != 3 || totalAdult != 2 || totalKid != 1 {
+		t.Fatalf("summary totals active=%d adult=%d kid=%d, want 3/2/1", totalActive, totalAdult, totalKid)
+	}
+	// No identifiers seeded, so the lone kid is untagged.
+	if totalUntaggedKid != 1 {
+		t.Fatalf("summary untagged_kid=%d, want 1 (kid without active identifier)", totalUntaggedKid)
+	}
+
+	// Breed filter narrows to the beetal grain rows (adult female + kid male).
+	beetal, err := repo.GetHerdRegisterSummary(ctx, domain.HerdRegisterSummaryQuery{
+		TenantID:        countsTenant,
+		LifecycleStatus: strPtr("alive"),
+		Breed:           strPtr("beetal"),
+	})
+	if err != nil {
+		t.Fatalf("GetHerdRegisterSummary(beetal): %v", err)
+	}
+	if len(beetal.Items) != 2 {
+		t.Fatalf("beetal summary rows=%d, want 2", len(beetal.Items))
+	}
+	var beetalActive int64
+	for _, row := range beetal.Items {
+		if row.Breed == nil || *row.Breed != "beetal" {
+			t.Fatalf("beetal filter leaked non-beetal row=%+v", row)
+		}
+		beetalActive += row.ActiveCount
+	}
+	if beetalActive != 2 {
+		t.Fatalf("beetal active=%d, want 2", beetalActive)
+	}
+}
+
+func insertHerdGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, displayID, sex, breed, lifecycle, ageBand string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goats (
+  goat_id, tenant_id, display_id, species, breed, sex, lifecycle_status,
+  age_band, custodian_party_id, current_location_id, park_id
+) VALUES (
+  $1::uuid, $2::uuid, $3, 'goat', $4, $5, $6, $7,
+  '00000000-0000-4000-8000-000000001001'::uuid, $8::uuid, $9::uuid
+)`,
+		goatID, countsTenant, displayID, breed, sex, lifecycle, ageBand, countsShedA, countsPark); err != nil {
+		t.Fatalf("seed herd goat %s: %v", displayID, err)
+	}
+}
+
 func setupCountsDB(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
 	pgtest.SkipIfNoDocker(t)

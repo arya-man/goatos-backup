@@ -1118,6 +1118,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/herd-register/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get exact summary counts from the herd register summary projection. */
+        get: operations["getHerdRegisterSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3206,6 +3223,26 @@ export interface components {
             /** @description Read-only traceability echo (the governing business-rule doc, e.g. vaccination-rules.md) — never a raw threshold the client could compute from. */
             policyRevision: string;
         };
+        HerdRegisterSummaryCounts: {
+            /** Format: uuid */
+            parkId?: string | null;
+            /** Format: uuid */
+            farmId?: string | null;
+            /** Format: uuid */
+            currentLocationId?: string | null;
+            breed?: string | null;
+            sex: string;
+            lifecycleStatus: string;
+            activeCount: number;
+            adultCount: number;
+            kidCount: number;
+            untaggedKidCount: number;
+            /** Format: date-time */
+            projectedAt: string;
+        };
+        HerdRegisterSummaryResponse: {
+            items: components["schemas"]["HerdRegisterSummaryCounts"][];
+        };
     };
     responses: {
         /** @description Validation error. */
@@ -5283,6 +5320,34 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getHerdRegisterSummary: {
+        parameters: {
+            query?: {
+                lifecycle_status?: string;
+                park_id?: string;
+                breed?: string;
+                sex?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Exact summary counts from projection. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HerdRegisterSummaryResponse"];
+                };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];

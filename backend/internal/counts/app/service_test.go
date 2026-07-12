@@ -97,6 +97,10 @@ func (f *fakeRepo) Readiness(context.Context, string) (domain.Readiness, error) 
 	return domain.Readiness{}, nil
 }
 
+func (f *fakeRepo) GetHerdRegisterSummary(context.Context, domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error) {
+	return domain.HerdRegisterSummary{}, nil
+}
+
 func TestRecordBaseCountAnchorDefaultsPhysicalSource(t *testing.T) {
 	repo := &fakeRepo{}
 	svc := NewService(repo)

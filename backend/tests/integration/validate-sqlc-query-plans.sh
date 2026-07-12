@@ -1153,6 +1153,22 @@ ORDER BY due_at ASC, event_id ASC
 LIMIT 200;"
 }
 
+validate_herd_register_summary_plan() {
+  # C35-005: Herd Register KPIs read the bounded summary projection via the scope
+  # index (tenant_id, lifecycle_status, park_id, breed, sex, ...), never an
+  # aggregate over the goats table. Prove the tenant+status KPI path is indexed.
+  explain_must_use_index "HerdRegisterSummary" 'Seq Scan on herd_register_summary_projection' "EXPLAIN (COSTS OFF)
+SELECT park_id, farm_id, current_location_id, breed, sex, lifecycle_status,
+       active_count, adult_count, kid_count, untagged_kid_count, projected_at
+FROM herd_register_summary_projection
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND lifecycle_status = COALESCE(NULLIF('alive', ''), lifecycle_status)
+  AND (''::text = '' OR park_id = NULLIF(''::text, '')::uuid)
+  AND (''::text = '' OR breed = ''::text)
+  AND (''::text = '' OR sex = ''::text)
+ORDER BY park_id, farm_id, current_location_id, breed, sex, lifecycle_status;"
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -1188,5 +1204,6 @@ validate_feed_shed_history_plan
 validate_procurement_source_entry_plans
 validate_operations_audit_plans
 validate_calendar_vaccination_plans
+validate_herd_register_summary_plan
 
 echo "Validated current hot-path query plans"

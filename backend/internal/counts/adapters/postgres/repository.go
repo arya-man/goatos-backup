@@ -2472,3 +2472,72 @@ func defaultString(value, fallback string) string {
 	}
 	return value
 }
+
+// GetHerdRegisterSummary reads exact summary counts from herd_register_summary_projection.
+// Returns the scoped summary rows (all matching the filter dimensions) for business KPIs.
+func (r *Repository) GetHerdRegisterSummary(ctx context.Context, req domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	const query = `
+SELECT
+  park_id::text,
+  farm_id::text,
+  current_location_id::text,
+  breed,
+  sex,
+  lifecycle_status,
+  active_count,
+  adult_count,
+  kid_count,
+  untagged_kid_count,
+  projected_at
+FROM herd_register_summary_projection
+WHERE tenant_id = $1
+  AND lifecycle_status = COALESCE(NULLIF($2, ''), lifecycle_status)
+  AND ($3 = '' OR park_id = NULLIF($3, '')::uuid)
+  AND ($4 = '' OR breed = $4)
+  AND ($5 = '' OR sex = $5)
+ORDER BY park_id, farm_id, current_location_id, breed, sex, lifecycle_status`
+
+	rows, err := r.pool.Query(ctx, query,
+		req.TenantID,
+		ptrValue(req.LifecycleStatus),
+		ptrValue(req.ParkID),
+		ptrValue(req.Breed),
+		ptrValue(req.Sex),
+	)
+	if err != nil {
+		return domain.HerdRegisterSummary{}, fmt.Errorf("herd register summary: query: %w", err)
+	}
+	defer rows.Close()
+
+	out := []domain.HerdRegisterSummaryCounts{}
+	for rows.Next() {
+		var counts domain.HerdRegisterSummaryCounts
+		if err := rows.Scan(
+			&counts.ParkID,
+			&counts.FarmID,
+			&counts.CurrentLocationID,
+			&counts.Breed,
+			&counts.Sex,
+			&counts.LifecycleStatus,
+			&counts.ActiveCount,
+			&counts.AdultCount,
+			&counts.KidCount,
+			&counts.UntaggedKidCount,
+			&counts.ProjectedAt,
+		); err != nil {
+			return domain.HerdRegisterSummary{}, fmt.Errorf("herd register summary: scan: %w", err)
+		}
+		out = append(out, counts)
+	}
+
+	if err := rows.Err(); err != nil {
+		return domain.HerdRegisterSummary{}, fmt.Errorf("herd register summary: iterate: %w", err)
+	}
+
+	return domain.HerdRegisterSummary{
+		Items: out,
+	}, nil
+}

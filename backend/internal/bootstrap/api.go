@@ -22,6 +22,7 @@ import (
 	calendarhttp "github.com/vgoats/goatos/backend/internal/calendar/adapters/http"
 	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
+	countshttp "github.com/vgoats/goatos/backend/internal/counts/adapters/http"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	feedhttp "github.com/vgoats/goatos/backend/internal/feed/adapters/http"
@@ -287,6 +288,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)))
 	appConfigHandler := appconfighttp.NewHandler(appconfigapp.NewService(appconfigapp.ConfigFromEnv()), log)
 	countsService := countsapp.NewService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	herdRegisterService := countsapp.NewHerdRegisterService(countspg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	herdRegisterHandler := countshttp.NewHandler(herdRegisterService, log)
 	feedService := feedapp.NewService(feedpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithCountsReadiness(countsService).
 		WithCountsProjectionProvider(countsService).
@@ -363,6 +366,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	calendarhttp.Register(protectedMux, calendarHandler)
 	adminuihttp.Register(protectedMux, adminUIHandler)
 	appconfighttp.Register(protectedMux, appConfigHandler)
+	countshttp.Register(protectedMux, herdRegisterHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 

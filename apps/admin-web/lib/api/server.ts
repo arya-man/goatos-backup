@@ -323,23 +323,48 @@ export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<G
   );
 }
 
-const HERD_SEARCH_MAX_PAGE_SIZE = 100;
+// Herd Register summary read model. The row list stays on bounded /goats/search
+// (searchGoats) because those render fields (tag1/tag2, weight, health, breeding)
+// are NOT in the projection; KPI totals come from the exact summary projection.
 
-/** Walk /goats/search cursors until exhausted so herd-register KPIs can use exact scoped totals. */
-export async function searchAllGoats(
-  params: Omit<HerdSearchParams, "limit" | "cursor">,
-): Promise<ApiResult<GoatSearchResponse["items"]>> {
-  const items: GoatSearchResponse["items"] = [];
-  let cursor: string | undefined;
-  for (;;) {
-    // serial-await: allow cursor pagination depends on the previous page's next_cursor.
-    const page = await searchGoats({ ...params, limit: HERD_SEARCH_MAX_PAGE_SIZE, cursor });
-    if (!page.ok) return page;
-    items.push(...page.data.items);
-    if (!page.data.next_cursor) break;
-    cursor = page.data.next_cursor;
-  }
-  return { ok: true, data: items };
+export type HerdRegisterSummaryCounts = {
+  parkId: string | null;
+  farmId: string | null;
+  currentLocationId: string | null;
+  breed: string | null;
+  sex: string;
+  lifecycleStatus: string;
+  activeCount: number;
+  adultCount: number;
+  kidCount: number;
+  untaggedKidCount: number;
+  projectedAt: string;
+};
+
+export type HerdRegisterSummaryResponse = {
+  items: HerdRegisterSummaryCounts[];
+};
+
+export type HerdRegisterSummaryParams = {
+  lifecycle_status?: string;
+  park_id?: string;
+  breed?: string;
+  sex?: string;
+};
+
+/** Read exact summary counts from the herd_register_summary_projection. */
+export async function getHerdRegisterSummary(
+  params: HerdRegisterSummaryParams,
+): Promise<ApiResult<HerdRegisterSummaryResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HerdRegisterSummaryResponse>("/herd-register/summary", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
 }
 
 export async function getGoatPassport(goatId: string): Promise<ApiResult<GoatPassportResponse>> {

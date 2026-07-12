@@ -27,6 +27,7 @@ tags:
   - name: Feed Direction
   - name: Calendar
   - name: Vaccination Passport
+  - name: Herd Register
 paths:
   /admin/tasks/review-fanouts/retry:
     post:
@@ -2644,6 +2645,51 @@ paths:
                 $ref: "#/components/schemas/AppConfigResponse"
         "304":
           description: Config unchanged since the given ETag.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /herd-register/summary:
+    get:
+      tags:
+        - Herd Register
+      operationId: getHerdRegisterSummary
+      summary: Get exact summary counts from the herd register summary projection.
+      parameters:
+        - name: lifecycle_status
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Filter by lifecycle status
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+            description: Filter by park ID
+        - name: breed
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Filter by breed
+        - name: sex
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Filter by sex
+      responses:
+        "200":
+          description: Exact summary counts from projection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HerdRegisterSummaryResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -8619,3 +8665,59 @@ components:
           description: >-
             Read-only traceability echo (the governing business-rule doc, e.g.
             vaccination-rules.md) — never a raw threshold the client could compute from.
+    HerdRegisterSummaryCounts:
+      type: object
+      additionalProperties: false
+      required:
+        - sex
+        - lifecycleStatus
+        - activeCount
+        - adultCount
+        - kidCount
+        - untaggedKidCount
+        - projectedAt
+      properties:
+        parkId:
+          type: string
+          format: uuid
+          nullable: true
+        farmId:
+          type: string
+          format: uuid
+          nullable: true
+        currentLocationId:
+          type: string
+          format: uuid
+          nullable: true
+        breed:
+          type: string
+          nullable: true
+        sex:
+          type: string
+        lifecycleStatus:
+          type: string
+        activeCount:
+          type: integer
+          minimum: 0
+        adultCount:
+          type: integer
+          minimum: 0
+        kidCount:
+          type: integer
+          minimum: 0
+        untaggedKidCount:
+          type: integer
+          minimum: 0
+        projectedAt:
+          type: string
+          format: date-time
+    HerdRegisterSummaryResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/HerdRegisterSummaryCounts"
