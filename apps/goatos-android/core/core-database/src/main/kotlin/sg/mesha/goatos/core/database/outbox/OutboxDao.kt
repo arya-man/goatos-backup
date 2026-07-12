@@ -95,4 +95,11 @@ interface OutboxDao {
      *  in progress, so any IN_FLIGHT row is necessarily stranded, not actively being sent. */
     @Query("UPDATE outbox SET status = 'QUEUED', updatedAt = :now WHERE status = 'IN_FLIGHT'")
     suspend fun reclaimInFlight(now: Long): Int
+
+    /** Wipes the entire outbox. Used ONLY by the logout full clean-slate wipe (C35-001): any
+     *  operator-authored write not yet synced belongs to the departing user's session and must
+     *  never survive to the next principal on this device (regardless of QUEUED/FAILED/
+     *  IN_FLIGHT/SUCCEEDED status). Never called from the drain/retry path. */
+    @Query("DELETE FROM outbox")
+    suspend fun clearAll()
 }

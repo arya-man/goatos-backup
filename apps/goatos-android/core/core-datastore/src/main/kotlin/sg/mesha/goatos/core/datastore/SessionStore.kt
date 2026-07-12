@@ -29,6 +29,12 @@ interface SessionStore {
     val language: Flow<String>
     suspend fun currentLanguage(): String
     suspend fun setLanguage(code: String)
+
+    /** Full wipe (logout clean-slate, C35-001): clears EVERY persisted key in this store —
+     *  the session token AND the language preference — so no residual per-user state survives
+     *  to the next principal signed in on this device. [setBearerToken] alone only ever
+     *  touched the token key. */
+    suspend fun clear()
 }
 
 class DataStoreSessionStore(
@@ -61,6 +67,10 @@ class DataStoreSessionStore(
     override suspend fun setLanguage(code: String) {
         context.sessionDataStore.edit { it[Keys.LANGUAGE] = normalizeLanguageTag(code) }
     }
+
+    override suspend fun clear() {
+        context.sessionDataStore.edit { it.clear() }
+    }
 }
 
 /** In-memory fake for tests/previews. */
@@ -73,6 +83,10 @@ class FakeSessionStore : SessionStore {
     override val language: Flow<String> = lang
     override suspend fun currentLanguage(): String = lang.value
     override suspend fun setLanguage(code: String) { lang.value = normalizeLanguageTag(code) }
+    override suspend fun clear() {
+        token.value = null
+        lang.value = DEFAULT_LANGUAGE_TAG
+    }
 }
 
 private fun normalizeLanguageTag(code: String?): String =

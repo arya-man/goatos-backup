@@ -17,6 +17,8 @@ import dagger.assisted.AssistedInject
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import sg.mesha.goatos.core.data.sync.SyncEngine
+import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
+import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -64,7 +66,7 @@ class SyncWorker @AssistedInject constructor(
 @Singleton
 class SyncWorkScheduler @Inject constructor(
     @ApplicationContext private val context: Context,
-) : SyncRetryScheduler {
+) : SyncRetryScheduler, SyncJobsCanceller, SyncJobsScheduler {
     fun schedule() {
         val request = PeriodicWorkRequestBuilder<SyncWorker>(PERIOD_MINUTES, TimeUnit.MINUTES)
             .setConstraints(syncConstraints())
@@ -72,6 +74,9 @@ class SyncWorkScheduler @Inject constructor(
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(UNIQUE_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
     }
+
+    /** [SyncJobsScheduler] port — see its KDoc for why a fresh sign-in must call this. */
+    override fun scheduleAll() = schedule()
 
     override fun scheduleAt(epochMillis: Long) {
         synchronized(retryScheduleLock) {
@@ -95,6 +100,16 @@ class SyncWorkScheduler @Inject constructor(
         synchronized(retryScheduleLock) {
             retryPrefs().edit().remove(KEY_NEXT_RETRY_AT).commit()
         }
+    }
+
+    /** Logout clean-slate (C35-001): cancels BOTH the periodic drain and any pending one-time
+     *  retry work, then clears the persisted retry-schedule marker — so nothing tries to drain
+     *  (or re-arm a retry for) an outbox that the logout wipe just deleted. */
+    override fun cancelAll() {
+        val workManager = WorkManager.getInstance(context)
+        workManager.cancelUniqueWork(UNIQUE_WORK_NAME)
+        workManager.cancelUniqueWork(UNIQUE_RETRY_WORK_NAME)
+        clearScheduledRetry()
     }
 
     private fun syncConstraints(): Constraints =

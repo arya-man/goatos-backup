@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -16,10 +17,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.auth.AuthRepository
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.data.LogoutCoordinator
+import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.feature.auth.LoginError
 import java.io.IOException
@@ -67,6 +71,8 @@ class SessionViewModel @Inject constructor(
     private val sessionStore: SessionStore,
     private val authRepository: AuthRepository,
     private val analytics: AnalyticsPort,
+    private val logoutCoordinator: LogoutCoordinator,
+    private val syncJobsScheduler: SyncJobsScheduler,
 ) : ViewModel() {
 
     val isAuthed: StateFlow<Boolean> = sessionStore.bearerToken
@@ -125,10 +131,15 @@ class SessionViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Full clean-slate logout (C35-001): delegates to the shared [LogoutCoordinator] — the
+     * SAME path [sg.mesha.goatos.viewmodel.ProfileViewModel.signOut] uses — so every
+     * authority-sensitive local store (Room caches, outbox, device identity, session) is
+     * wiped, not just the bearer token this ViewModel happens to hold.
+     */
     fun signOut() {
         viewModelScope.launch {
-            authRepository.signOut()
-            sessionStore.setBearerToken(null)
+            logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
             analytics.track(AnalyticsEvents.SIGN_OUT)
             _uiState.value = LoginUiState()
         }
@@ -154,6 +165,11 @@ class SessionViewModel @Inject constructor(
             return
         }
         sessionStore.setBearerToken(FIREBASE_SESSION_MARKER)
+        // A prior signOut() cancelled the periodic/retry WorkManager backstop
+        // (LogoutCoordinator's clean-slate wipe) — re-arm it for this new session.
+        // ExistingPeriodicWorkPolicy.KEEP makes this idempotent when it was never cancelled.
+        // WorkManager's enqueue does disk I/O on the calling thread, so hop off Main.
+        withContext(Dispatchers.IO) { syncJobsScheduler.scheduleAll() }
         analytics.track(AnalyticsEvents.LOGIN_SUCCESS)
         _uiState.update { it.copy(isLoading = false, errorReason = null, errorDetail = null) }
     }
@@ -167,6 +183,7 @@ class SessionViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(errorReason = null, errorDetail = null) }
             sessionStore.setBearerToken(token)
+            withContext(Dispatchers.IO) { syncJobsScheduler.scheduleAll() }
         }
     }
 

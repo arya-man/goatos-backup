@@ -137,6 +137,11 @@ interface AppApi {
     /** POST /app/devices/{device_id}/heartbeat — refresh device liveness + app version. */
     suspend fun heartbeatDevice(deviceId: String, request: HeartbeatDeviceRequestDto): DeviceResponseDto
 
+    /** POST /app/devices/{device_id}/deregister — logout clean-slate (C35-001): clears the
+     *  stored FCM push-token binding and revokes THIS device (self-service, scoped to the
+     *  caller's own registration). Idempotent for an already-revoked device the actor owns. */
+    suspend fun deregisterDevice(deviceId: String): DeviceResponseDto
+
     /** GET /vaccination/execution — execution rows grouped by park + shed. */
     suspend fun listVaccinationExecution(
         parkId: String? = null,
@@ -292,6 +297,9 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
 
     override suspend fun heartbeatDevice(deviceId: String, request: HeartbeatDeviceRequestDto): DeviceResponseDto =
         DeviceResponseDto(device = DeviceSummaryDto(deviceId = deviceId, status = "active"))
+
+    override suspend fun deregisterDevice(deviceId: String): DeviceResponseDto =
+        DeviceResponseDto(device = DeviceSummaryDto(deviceId = deviceId, status = "revoked"))
 
     override suspend fun listVaccinationExecution(
         parkId: String?,

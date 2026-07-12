@@ -24,6 +24,10 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            // LogoutCoordinator (C35-001) logs a best-effort failure via android.util.Log on
+            // its plain-JUnit (non-Robolectric) test path; without this, any unmocked
+            // android.* call throws instead of no-op'ing under the plain unit-test runner.
+            isReturnDefaultValues = true
         }
     }
 }

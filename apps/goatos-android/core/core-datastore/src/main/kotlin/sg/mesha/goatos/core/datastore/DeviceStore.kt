@@ -24,6 +24,12 @@ interface DeviceStore {
     suspend fun appInstallId(): String
     suspend fun deviceId(): String?
     suspend fun setDeviceId(id: String?)
+
+    /** Full wipe (logout clean-slate, C35-001): clears BOTH [appInstallId] and [deviceId] so
+     *  the next principal on this device gets a fresh install identity and re-registers a new
+     *  device record instead of inheriting the departing user's device binding. The next
+     *  [appInstallId] call after this regenerates a brand-new UUID. */
+    suspend fun clear()
 }
 
 class DataStoreDeviceStore(
@@ -51,6 +57,10 @@ class DataStoreDeviceStore(
             if (id.isNullOrBlank()) prefs.remove(Keys.DEVICE_ID) else prefs[Keys.DEVICE_ID] = id
         }
     }
+
+    override suspend fun clear() {
+        context.deviceDataStore.edit { it.clear() }
+    }
 }
 
 /** In-memory fake for tests/previews. */
@@ -61,4 +71,8 @@ class FakeDeviceStore : DeviceStore {
         installId ?: UUID.randomUUID().toString().also { installId = it }
     override suspend fun deviceId(): String? = device
     override suspend fun setDeviceId(id: String?) { device = id }
+    override suspend fun clear() {
+        installId = null
+        device = null
+    }
 }

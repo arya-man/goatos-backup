@@ -64,6 +64,9 @@ interface AppApiService {
         @Body request: HeartbeatDeviceRequestDto,
     ): DeviceResponseDto
 
+    @POST("app/devices/{device_id}/deregister")
+    suspend fun deregisterDevice(@Path("device_id") deviceId: String): DeviceResponseDto
+
     @GET("vaccination/execution")
     suspend fun listVaccinationExecution(
         @Query("park_id") parkId: String?,
@@ -192,6 +195,9 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
 
     override suspend fun heartbeatDevice(deviceId: String, request: HeartbeatDeviceRequestDto): DeviceResponseDto =
         service.heartbeatDevice(deviceId, request)
+
+    override suspend fun deregisterDevice(deviceId: String): DeviceResponseDto =
+        service.deregisterDevice(deviceId)
 
     override suspend fun listVaccinationExecution(
         parkId: String?,

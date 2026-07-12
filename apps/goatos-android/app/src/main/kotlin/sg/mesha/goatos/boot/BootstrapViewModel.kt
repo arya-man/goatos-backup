@@ -45,6 +45,19 @@ class BootstrapViewModel @Inject constructor(
         load()
     }
 
+    /**
+     * Discards whatever nav state is currently held (logout clean-slate, C35-001). This
+     * ViewModel is Activity-scoped (`by viewModels()` in `MainActivity`, not tied to the
+     * session), so without this it would keep the departing user's [BootstrapUiState.Ready]
+     * across a logout — the next principal signing in on the SAME device/Activity would
+     * momentarily render the prior user's nav/identity until something happened to trigger
+     * another [load]. Callers must follow a reset with [load] once a new session is
+     * established (see `MainActivity`'s auth-state observer).
+     */
+    fun reset() {
+        _state.value = BootstrapUiState.Loading
+    }
+
     fun load() {
         viewModelScope.launch {
             _state.value = BootstrapUiState.Loading

@@ -31,6 +31,9 @@ import sg.mesha.goatos.boot.BootstrapUiState
 import sg.mesha.goatos.boot.BootstrapViewModel
 import sg.mesha.goatos.boot.SessionViewModel
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.first
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
@@ -65,6 +68,21 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(AppLocaleState.tag) { runCatching { sessionStore.setLanguage(AppLocaleState.tag) } }
                 ProvideAppLocale {
                 val authed by sessionViewModel.isAuthed.collectAsStateWithLifecycle()
+                // Logout clean-slate (C35-001): BootstrapViewModel is Activity-scoped, so it
+                // otherwise survives a logout with the departing user's Ready(navState) still
+                // held. `null` marks "not yet observed" (first composition, e.g. app cold start
+                // with an existing session) so the ViewModel's own initial load isn't duplicated;
+                // an actual false -> true edge (a fresh sign-in after a logout, same Activity)
+                // forces a real reload instead of ever rendering stale nav/identity.
+                var previousAuthed by remember { mutableStateOf<Boolean?>(null) }
+                LaunchedEffect(authed) {
+                    val wasAuthed = previousAuthed
+                    previousAuthed = authed
+                    when {
+                        !authed -> bootstrapViewModel.reset()
+                        wasAuthed == false -> bootstrapViewModel.load()
+                    }
+                }
                 if (!authed) {
                     val uiState by sessionViewModel.uiState.collectAsStateWithLifecycle()
                     // dev flavor: local HS256 bearer; stg/prod: real Firebase Auth.

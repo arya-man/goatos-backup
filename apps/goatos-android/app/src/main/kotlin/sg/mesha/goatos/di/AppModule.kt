@@ -29,8 +29,11 @@ import sg.mesha.goatos.core.data.DefaultTasksRepository
 import sg.mesha.goatos.core.data.DefaultVaccinationInsightsRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.GoatDatabase
+import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.data.DefaultRosterRepository
+import sg.mesha.goatos.core.data.RoomScreenCacheStore
 import sg.mesha.goatos.core.data.RosterRepository
+import sg.mesha.goatos.core.data.ScreenCacheStore
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.VaccinationInsightsRepository
 import sg.mesha.goatos.core.data.buildGoatDatabase
@@ -48,8 +51,11 @@ import sg.mesha.goatos.core.data.sync.ConnectivityGate
 import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
 import sg.mesha.goatos.core.data.sync.OutboxStore
+import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
 import sg.mesha.goatos.core.data.sync.SyncEngine
+import sg.mesha.goatos.core.data.sync.SyncJobsCanceller
+import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
 import sg.mesha.goatos.core.data.sync.SyncRetryScheduler
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.database.outbox.OutboxDao
@@ -115,6 +121,10 @@ object AppModule {
 
     @Provides
     fun provideInsightsCoverageCacheDao(db: GoatDatabase): InsightsCoverageCacheDao = db.insightsCoverageCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideScreenCacheStore(db: GoatDatabase): ScreenCacheStore = RoomScreenCacheStore(db)
 
     @Provides
     @Singleton
@@ -223,6 +233,10 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideOutboxWiper(dao: OutboxDao): OutboxWiper = OutboxWiper { dao.clearAll() }
+
+    @Provides
+    @Singleton
     fun provideAppScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Provides
@@ -233,6 +247,32 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSyncRetryScheduler(scheduler: SyncWorkScheduler): SyncRetryScheduler = scheduler
+
+    @Provides
+    @Singleton
+    fun provideSyncJobsCanceller(scheduler: SyncWorkScheduler): SyncJobsCanceller = scheduler
+
+    @Provides
+    @Singleton
+    fun provideSyncJobsScheduler(scheduler: SyncWorkScheduler): SyncJobsScheduler = scheduler
+
+    @Provides
+    @Singleton
+    fun provideLogoutCoordinator(
+        api: AppApi,
+        deviceStore: DeviceStore,
+        sessionStore: SessionStore,
+        screenCacheStore: ScreenCacheStore,
+        outboxWiper: OutboxWiper,
+        syncJobsCanceller: SyncJobsCanceller,
+    ): LogoutCoordinator = LogoutCoordinator(
+        api = api,
+        deviceStore = deviceStore,
+        sessionStore = sessionStore,
+        screenCacheStore = screenCacheStore,
+        outboxWiper = outboxWiper,
+        syncJobsCanceller = syncJobsCanceller,
+    )
 
     @Provides
     @Singleton

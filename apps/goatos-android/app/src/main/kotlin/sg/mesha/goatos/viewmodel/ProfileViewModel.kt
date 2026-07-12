@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.auth.AuthRepository
 import sg.mesha.goatos.core.data.BootstrapRepository
-import sg.mesha.goatos.core.datastore.SessionStore
+import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.feature.profile.ProfileUiState
 import sg.mesha.goatos.feature.profile.RfidRowStatus
@@ -29,9 +29,9 @@ import javax.inject.Inject
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     private val bootstrap: BootstrapRepository,
-    private val sessionStore: SessionStore,
     private val authRepository: AuthRepository,
     private val reader: RfidReaderPort,
+    private val logoutCoordinator: LogoutCoordinator,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(placeholder())
@@ -66,22 +66,23 @@ class ProfileViewModel @Inject constructor(
     }
 
     /**
-     * Ends the session from the authenticated shell. Signs out of Firebase FIRST so no Firebase
-     * `currentUser` (and no mintable ID token) survives a "signed out" state, then clears the
-     * session marker so the MainActivity login gate flips. Mirrors SessionViewModel.signOut;
-     * `authRepository.signOut()` is a harmless no-op on the dev/bearer flavor.
+     * Full clean-slate logout (C35-001): delegates to the shared [LogoutCoordinator] — the
+     * SAME path [sg.mesha.goatos.boot.SessionViewModel.signOut] uses — so this entry point
+     * (You/Settings) wipes every authority-sensitive local store exactly like the session
+     * gate's sign-out does, instead of only dropping the bearer token. `authRepository.signOut`
+     * is a harmless no-op on the dev/bearer flavor; the coordinator runs it at the one correct
+     * point in the sequence (after the backend device-deregister attempt, before local wipes).
      */
     fun signOut() {
         viewModelScope.launch {
-            authRepository.signOut()
-            sessionStore.setBearerToken(null)
+            logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
         }
     }
 
     /**
      * Switches the app-wide locale via [AppLocaleState] — the same call LoginScreen makes —
      * so the whole tree recomposes in the new language, not just this row's label.
-     * MainActivity observes [AppLocaleState.tag] and persists it to [SessionStore] itself
+     * MainActivity observes [AppLocaleState.tag] and persists it to `SessionStore` itself
      * (see MainActivity's `LaunchedEffect(AppLocaleState.tag)`), so this no longer writes
      * SessionStore directly: one source of truth, one place that persists it.
      */
