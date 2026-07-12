@@ -1,11 +1,17 @@
 -- +goose Up
 BEGIN;
 
--- The repository migration runner executes statements individually. We intentionally avoid locking
--- canonical identity tables in SHARE ROW EXCLUSIVE mode here to prevent writer stalls on large herds.
--- Instead, this migration performs a full set-based projection backfill and then enables live write
--- triggers so normal upstream updates continue without a write-time lock. Any brief in-flight window is
--- bounded by normal backfill semantics and accepted for this online migration.
+-- C35-005 live-write convergence fix: the maintenance triggers are created BEFORE the projection is
+-- backfilled, and the backfill is an idempotent, convergent upsert. From the moment the triggers exist,
+-- every concurrent canonical write (goats / goat_identifiers) already maintains the projection, so there
+-- is no window where a write lands after the backfill snapshot but before the triggers are installed
+-- (the original ordering's gap). The backfill then converges with any rows the live triggers already
+-- wrote via ON CONFLICT ... DO UPDATE (a no-op when the derived row already matches), and the summary is
+-- built incrementally by the live summary trigger — so we never run a full set-based summary insert that
+-- could double-count against concurrent trigger deltas. We still avoid a SHARE ROW EXCLUSIVE lock on the
+-- canonical identity tables to prevent writer stalls on large herds. The repository migration runner may
+-- execute statements individually, so correctness relies on statement ORDER (triggers before backfill),
+-- not on this BEGIN/COMMIT forming one transaction.
 
 -- Herd Register request paths serve one cursor page from goats and exact KPI
 -- counts from this incrementally maintained read model. The summary relation is
@@ -34,6 +40,13 @@ COMMENT ON TABLE herd_register_goat_projection IS
 
 CREATE UNIQUE INDEX herd_register_goat_projection_display_uidx
   ON herd_register_goat_projection (tenant_id, display_id);
+
+-- Keyset page index for the bounded Herd Register goat list read (tenant + scope filters, ordered by
+-- display_id) so the request path pages the projection instead of scanning the goats table.
+CREATE INDEX herd_register_goat_projection_scope_idx
+  ON herd_register_goat_projection (
+    tenant_id, lifecycle_status, park_id, breed, sex, display_id
+  );
 
 CREATE TABLE herd_register_summary_projection (
   herd_register_summary_projection_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -78,55 +91,6 @@ AS $$
         AND upper(COALESCE(p_management_stage, '')) ~ '^K[0-9]'
       );
 $$;
-
--- Initial projection is set-based. Creating the maintenance triggers after the
--- backfill avoids millions of row-triggered aggregate upserts during migration.
-INSERT INTO herd_register_goat_projection (
-  tenant_id, goat_id, display_id, park_id, farm_id, current_location_id,
-  breed, sex, lifecycle_status, is_kid, is_untagged, projected_at
-)
-SELECT
-  g.tenant_id,
-  g.goat_id,
-  g.display_id,
-  g.park_id,
-  g.farm_id,
-  g.current_location_id,
-  g.breed,
-  g.sex,
-  g.lifecycle_status,
-  herd_register_is_kid(g.age_band, g.management_stage),
-  NOT EXISTS (
-    SELECT 1
-    FROM goat_identifiers gi
-    WHERE gi.tenant_id = g.tenant_id
-      AND gi.goat_id = g.goat_id
-      AND gi.identifier_type = 'animal_identifier_1'
-      AND gi.status = 'active'
-  ),
-  now()
-FROM goats g
-WHERE g.merged_into_goat_id IS NULL;
-
-INSERT INTO herd_register_summary_projection (
-  tenant_id, park_id, farm_id, current_location_id, breed, sex, lifecycle_status,
-  active_count, adult_count, kid_count, untagged_kid_count, projected_at
-)
-SELECT
-  tenant_id,
-  park_id,
-  farm_id,
-  current_location_id,
-  breed,
-  sex,
-  lifecycle_status,
-  count(*)::bigint,
-  count(*) FILTER (WHERE NOT is_kid)::bigint,
-  count(*) FILTER (WHERE is_kid)::bigint,
-  count(*) FILTER (WHERE is_kid AND is_untagged)::bigint,
-  now()
-FROM herd_register_goat_projection
-GROUP BY tenant_id, park_id, farm_id, current_location_id, breed, sex, lifecycle_status;
 
 CREATE FUNCTION herd_register_apply_summary_delta(
   p_tenant_id uuid,
@@ -219,6 +183,8 @@ BEGIN
 END;
 $$;
 
+-- The summary trigger is installed BEFORE the goat-projection backfill so the incremental summary is
+-- maintained by the same delta path the runtime uses; the backfill's INSERTs build the summary row-by-row.
 CREATE TRIGGER herd_register_projection_summary_after_write_trg
 AFTER INSERT OR DELETE OR UPDATE OF
   park_id, farm_id, current_location_id, breed, sex, lifecycle_status, is_kid, is_untagged
@@ -328,6 +294,7 @@ BEGIN
 END;
 $$;
 
+-- Canonical maintenance triggers are installed BEFORE the backfill so no concurrent write is missed.
 CREATE TRIGGER herd_register_goats_after_write_trg
 AFTER INSERT OR DELETE OR UPDATE OF
   tenant_id, goat_id, display_id, park_id, farm_id, current_location_id,
@@ -361,6 +328,71 @@ AFTER INSERT OR DELETE OR UPDATE OF
   tenant_id, goat_id, identifier_type, status
 ON goat_identifiers
 FOR EACH ROW EXECUTE FUNCTION herd_register_identifiers_after_write_trg();
+
+-- Idempotent, convergent backfill. Triggers are already live, so this INSERT ... ON CONFLICT DO UPDATE
+-- either creates the projection row (firing the summary +1 delta) or converges with a row the live
+-- triggers already wrote (a no-op when values match, so no double count). The summary_projection is built
+-- entirely by the summary trigger firing on these INSERTs — there is NO separate set-based summary insert
+-- that could race the concurrent trigger deltas.
+INSERT INTO herd_register_goat_projection (
+  tenant_id, goat_id, display_id, park_id, farm_id, current_location_id,
+  breed, sex, lifecycle_status, is_kid, is_untagged, projected_at
+)
+SELECT
+  g.tenant_id,
+  g.goat_id,
+  g.display_id,
+  g.park_id,
+  g.farm_id,
+  g.current_location_id,
+  g.breed,
+  g.sex,
+  g.lifecycle_status,
+  herd_register_is_kid(g.age_band, g.management_stage),
+  NOT EXISTS (
+    SELECT 1
+    FROM goat_identifiers gi
+    WHERE gi.tenant_id = g.tenant_id
+      AND gi.goat_id = g.goat_id
+      AND gi.identifier_type = 'animal_identifier_1'
+      AND gi.status = 'active'
+  ),
+  now()
+FROM goats g
+WHERE g.merged_into_goat_id IS NULL
+ON CONFLICT (tenant_id, goat_id)
+DO UPDATE SET
+  display_id = EXCLUDED.display_id,
+  park_id = EXCLUDED.park_id,
+  farm_id = EXCLUDED.farm_id,
+  current_location_id = EXCLUDED.current_location_id,
+  breed = EXCLUDED.breed,
+  sex = EXCLUDED.sex,
+  lifecycle_status = EXCLUDED.lifecycle_status,
+  is_kid = EXCLUDED.is_kid,
+  is_untagged = EXCLUDED.is_untagged,
+  projected_at = EXCLUDED.projected_at
+WHERE (
+  herd_register_goat_projection.display_id,
+  herd_register_goat_projection.park_id,
+  herd_register_goat_projection.farm_id,
+  herd_register_goat_projection.current_location_id,
+  herd_register_goat_projection.breed,
+  herd_register_goat_projection.sex,
+  herd_register_goat_projection.lifecycle_status,
+  herd_register_goat_projection.is_kid,
+  herd_register_goat_projection.is_untagged
+) IS DISTINCT FROM (
+  EXCLUDED.display_id,
+  EXCLUDED.park_id,
+  EXCLUDED.farm_id,
+  EXCLUDED.current_location_id,
+  EXCLUDED.breed,
+  EXCLUDED.sex,
+  EXCLUDED.lifecycle_status,
+  EXCLUDED.is_kid,
+  EXCLUDED.is_untagged
+);
 
 COMMIT;
 

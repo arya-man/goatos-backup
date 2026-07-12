@@ -29,10 +29,14 @@ type fakeReader struct {
 	countsQuery   domain.Query
 	workflowQuery domain.Query
 	workflowID    string
+	err           error
 }
 
 func (f *fakeReader) ActionCenter(_ context.Context, q domain.Query) (domain.ActionCenterResponse, error) {
 	f.actionQuery = q
+	if f.err != nil {
+		return domain.ActionCenterResponse{}, f.err
+	}
 	return domain.ActionCenterResponse{Source: domain.SourceAPI, Items: []domain.Row{}}, nil
 }
 
@@ -57,6 +61,32 @@ func (f *fakeReader) WorkflowDrilldown(_ context.Context, q domain.Query, rowID 
 	f.workflowQuery = q
 	f.workflowID = rowID
 	return domain.WorkflowDrilldownResponse{}, false, nil
+}
+
+// TestActionCenterProjectionUnavailableReturns503 proves the C35-002 typed error surfaces as an honest,
+// retryable 503 (projection_unavailable), not a 500 and not a silent empty-with-200.
+func TestActionCenterProjectionUnavailableReturns503(t *testing.T) {
+	reader := &fakeReader{err: domain.ErrProjectionUnavailable}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/action-center", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Code != "projection_unavailable" {
+		t.Fatalf("error code = %q, want projection_unavailable", body.Code)
+	}
 }
 
 func TestActionCenterParsesBoundedVaccinationQuery(t *testing.T) {
