@@ -23,7 +23,7 @@ import (
 
 const (
 	defaultQueryTimeout    = 3 * time.Second
-	defaultProjectionFresh = 5 * time.Minute
+	defaultProjectionFresh = 7 * time.Minute // > 5m refresh schedule; serve LKG through a late cycle instead of 503 (handoff P0-B)
 )
 
 type Repository struct {
@@ -45,7 +45,18 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	defer cancel()
 	projection, err := r.servingProjection(ctx, q.TenantID, q.DateFrom, q.DateTo)
 	if err != nil {
-		return domain.CalendarEventListResponse{}, err
+		// A pure completed/accepted-history list is served entirely from the canonical
+		// completed_history CTE (vaccination_completions), independent of the hot calendar
+		// projection, so it must serve even when that projection is absent or stale — this is
+		// the bounded canonical-history exception. Every other status is backed by
+		// calendar_event_projections and stays fail-closed. GetEventDetail already reads history
+		// canonically without this gate; this keeps ListEvents consistent with it.
+		completedOnly := q.Status != nil && *q.Status == domain.StatusCompleted
+		if !completedOnly || (!errors.Is(err, ports.ErrProjectionStale) && !errors.Is(err, ports.ErrProjectionUnavailable)) {
+			return domain.CalendarEventListResponse{}, err
+		}
+		// servingProjection returns best-effort metadata alongside ErrProjectionStale and a zero
+		// value for ErrProjectionUnavailable; either is fine to surface for a canonical read.
 	}
 	limit := q.Limit
 	if limit <= 0 {

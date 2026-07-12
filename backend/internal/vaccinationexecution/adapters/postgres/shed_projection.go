@@ -24,7 +24,7 @@ import (
 // See context/execution/vaccexec-readmodel-design.md for the full design + rollout plan.
 
 const (
-	defaultShedProjectionFresh   = 5 * time.Minute
+	defaultShedProjectionFresh   = 7 * time.Minute // > 5m refresh schedule; serve LKG through a late cycle instead of 503 (handoff P0-B)
 	shedProjectionPruneBatchSize = 5000
 )
 
@@ -355,6 +355,7 @@ func (r *Repository) listShedProjection(ctx context.Context, q domain.ShedSummar
 	return out, nil
 }
 
+// scale-guard:ignore: shed-only bounded offset. Rows are one-per-shed (physical parks x sheds per tenant, bounded to thousands, never per-animal/1M), the same accepted case as the sibling ShedSummary read in repository.go tracked under C35-020 (expires 2026-09-30). Keyset replacement is tracked there; this projection read inherits that debt, it does not add a new unbounded scan.
 const shedProjectionReadSQL = `
 SELECT park_id,park_name,shed_id,shed_name,animals,due_animals,open_cells,sessions,
   capacity_status,shed_status,last_done,next_due,COUNT(*) OVER()::bigint

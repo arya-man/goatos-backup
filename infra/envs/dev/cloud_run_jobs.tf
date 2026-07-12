@@ -81,6 +81,20 @@ locals {
         GOATOS_NOTIFICATION_DISPATCHER_RUN_URL   = local.notification_dispatcher_run_url
       }
     }
+    process_integrity_projector = {
+      name                = "goatos-dev-process-integrity-projector"
+      service_account_key = "vaccination_generator"
+      command             = ["/app/bin/process-integrity-projection-recompute"]
+      args                = ["-timeout=9m"]
+      timeout             = "600s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/5 * * * *"
+      env = {
+        GOATOS_TENANT_ID        = var.dev_tenant_id
+        GOATOS_PG_QUERY_TIMEOUT = "30s"
+      }
+    }
     calendar_projector = {
       name                = "goatos-dev-calendar-projector"
       service_account_key = "calendar_projector"

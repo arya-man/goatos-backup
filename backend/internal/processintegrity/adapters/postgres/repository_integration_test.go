@@ -597,10 +597,21 @@ func TestProcessIntegrityBuildPreservesFreshLastKnownGood(t *testing.T) {
 	if _, err := repo.ListRows(ctx, q); err != nil {
 		t.Fatalf("last-known-good unavailable after replacement failure: %v", err)
 	}
-	execPI(t, ctx, pool, "expire last-known-good", `
+	// A last-known-good projection a little older than one 5-minute refresh cycle (here 6
+	// minutes) must still serve: the freshness TTL (7m) sits above the refresh schedule so a
+	// single jittered/slow build cycle does not open a 503 gap (handoff P0-B mitigation).
+	execPI(t, ctx, pool, "late-but-within-ttl last-known-good", `
 UPDATE process_integrity_projection_state
 SET projected_at=$2::timestamptz,as_of=$2::timestamptz
 WHERE tenant_id=$1::uuid`, piTenant, asOf.Add(-6*time.Minute))
+	if _, err := repo.ListRows(ctx, q); err != nil {
+		t.Fatalf("last-known-good within TTL after a late cycle: %v", err)
+	}
+	// Beyond the TTL the projection is genuinely stale and must fail closed.
+	execPI(t, ctx, pool, "expire last-known-good", `
+UPDATE process_integrity_projection_state
+SET projected_at=$2::timestamptz,as_of=$2::timestamptz
+WHERE tenant_id=$1::uuid`, piTenant, asOf.Add(-8*time.Minute))
 	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
 		t.Fatalf("expired last-known-good error=%v, want ErrProjectionStale", err)
 	}

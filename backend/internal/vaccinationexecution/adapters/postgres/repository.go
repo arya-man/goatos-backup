@@ -36,10 +36,14 @@ func authorizedParkFilter(ctx context.Context, tenantID string) []string {
 }
 
 const (
-	defaultQueryTimeout             = 3 * time.Second
-	defaultClosedHistoryAge         = 14 * 24 * time.Hour
-	defaultExecutionHorizon         = 30 * 24 * time.Hour
-	maxVaccinationProjectionLiveLag = 5 * time.Minute
+	defaultQueryTimeout     = 3 * time.Second
+	defaultClosedHistoryAge = 14 * 24 * time.Hour
+	defaultExecutionHorizon = 30 * 24 * time.Hour
+	// Serving freshness TTL. Kept comfortably ABOVE the 5-minute projector refresh
+	// schedule so scheduler jitter or a nonzero build duration on one cycle still serves
+	// the last-known-good projection instead of flapping to a typed 503 in the gap between
+	// "prior version aged out" and "next build committed" (handoff P0-B mitigation).
+	maxVaccinationProjectionLiveLag = 7 * time.Minute
 )
 
 type Repository struct {
@@ -304,7 +308,7 @@ ON CONFLICT (tenant_id) DO UPDATE SET
 		return domain.ExecutionProjectionRecomputeResult{}, fmt.Errorf("vaccination execution projection: commit: %w", err)
 	}
 	committed = true
-	if err := r.pruneOldExecutionProjectionRows(ctx, tenantID, version); err != nil {
+	if err := r.pruneOldExecutionProjectionRows(ctx, tenantID); err != nil {
 		return domain.ExecutionProjectionRecomputeResult{}, err
 	}
 	return domain.ExecutionProjectionRecomputeResult{TenantID: tenantID, ProjectionVersion: version, ProjectedAt: projectedAt, AsOf: asOf, Rows: int64(len(page.Rows))}, nil
@@ -327,18 +331,31 @@ ON CONFLICT (tenant_id) DO UPDATE SET
   last_error=EXCLUDED.last_error,updated_at=now()`, tenantID, asOf, dueBefore, closedAfter, message)
 }
 
-func (r *Repository) pruneOldExecutionProjectionRows(ctx context.Context, tenantID string, servingVersion int64) error {
+// pruneOldExecutionProjectionRows deletes every projection version other than the one the
+// state row currently advertises as serving. It re-derives serving_projection_version inside
+// the DELETE (rather than trusting the version captured before tx commit / advisory-lock
+// release) so an overlapping recompute that has already published a NEWER serving version is
+// never pruned: a stale post-commit prune must never delete the live serving rows and leave
+// a green state pointing at zero rows. Mirrors the shed_projection / process-integrity prune.
+func (r *Repository) pruneOldExecutionProjectionRows(ctx context.Context, tenantID string) error {
 	for batch := 0; batch < 1000; batch++ {
+		// scale-guard:ignore: bounded per-run batch-delete loop (<=1000 batches x LIMIT 5000, breaks when RowsAffected<5000; same shape as the obligation/idempotency sweepers and shed_projection prune), not an unbounded per-row DB call.
 		tag, err := r.pool.Exec(ctx, `
-WITH doomed AS (
-  SELECT tenant_id,projection_version,sort_row_key
-  FROM vaccination_execution_projection_rows
-  WHERE tenant_id=$1::uuid AND projection_version<>$2::bigint
-  ORDER BY projection_version,sort_row_key LIMIT 5000
+WITH serving AS (
+  SELECT serving_projection_version
+  FROM vaccination_execution_projection_state
+  WHERE tenant_id=$1::uuid AND serving_projection_version IS NOT NULL
+),
+doomed AS (
+  SELECT rows.tenant_id,rows.projection_version,rows.sort_row_key
+  FROM vaccination_execution_projection_rows rows
+  JOIN serving ON true
+  WHERE rows.tenant_id=$1::uuid AND rows.projection_version<>serving.serving_projection_version
+  ORDER BY rows.projection_version,rows.sort_row_key LIMIT 5000
 )
 DELETE FROM vaccination_execution_projection_rows rows USING doomed
 WHERE rows.tenant_id=doomed.tenant_id AND rows.projection_version=doomed.projection_version
-  AND rows.sort_row_key=doomed.sort_row_key`, tenantID, servingVersion)
+  AND rows.sort_row_key=doomed.sort_row_key`, tenantID)
 		if err != nil {
 			return fmt.Errorf("vaccination execution projection: prune: %w", err)
 		}
@@ -509,7 +526,7 @@ func (r *Repository) RecomputeOperationsProjection(ctx context.Context, req doma
 		return domain.OperationsProjectionRecomputeResult{}, err
 	}
 	committed = true
-	if err = r.pruneOldOperationsProjectionRows(ctx, tenantID, version); err != nil {
+	if err = r.pruneOldOperationsProjectionRows(ctx, tenantID); err != nil {
 		return domain.OperationsProjectionRecomputeResult{}, err
 	}
 	return domain.OperationsProjectionRecomputeResult{TenantID: tenantID, ProjectionVersion: version, ProjectedAt: projectedAt, AsOf: asOf, Rows: int64(len(projected))}, nil
@@ -531,12 +548,21 @@ func (r *Repository) markOperationsProjectionFailed(tenantID string, asOf, dueBe
   last_error=EXCLUDED.last_error,updated_at=now()`, tenantID, asOf, dueBefore, message)
 }
 
-func (r *Repository) pruneOldOperationsProjectionRows(ctx context.Context, tenantID string, version int64) error {
+// pruneOldOperationsProjectionRows deletes every version other than the currently-serving one,
+// re-derived from the state row inside the DELETE so an overlapping recompute that already
+// published a newer serving version is never pruned (see pruneOldExecutionProjectionRows).
+func (r *Repository) pruneOldOperationsProjectionRows(ctx context.Context, tenantID string) error {
 	for batch := 0; batch < 1000; batch++ {
-		tag, err := r.pool.Exec(ctx, `WITH doomed AS (
- SELECT tenant_id,projection_version,park_id,shed_id,stage,protocol_id FROM vaccination_operations_projection_rows
- WHERE tenant_id=$1::uuid AND projection_version<>$2 ORDER BY projection_version,park_id,shed_id,stage,protocol_id LIMIT 5000)
- DELETE FROM vaccination_operations_projection_rows rows USING doomed WHERE rows.tenant_id=doomed.tenant_id AND rows.projection_version=doomed.projection_version AND rows.park_id=doomed.park_id AND rows.shed_id=doomed.shed_id AND rows.stage=doomed.stage AND rows.protocol_id=doomed.protocol_id`, tenantID, version)
+		// scale-guard:ignore: bounded per-run batch-delete loop (<=1000 batches x LIMIT 5000, breaks when RowsAffected<5000; same shape as the obligation/idempotency sweepers and shed_projection prune), not an unbounded per-row DB call.
+		tag, err := r.pool.Exec(ctx, `WITH serving AS (
+ SELECT serving_projection_version FROM vaccination_operations_projection_state
+ WHERE tenant_id=$1::uuid AND serving_projection_version IS NOT NULL),
+doomed AS (
+ SELECT rows.tenant_id,rows.projection_version,rows.park_id,rows.shed_id,rows.stage,rows.protocol_id
+ FROM vaccination_operations_projection_rows rows JOIN serving ON true
+ WHERE rows.tenant_id=$1::uuid AND rows.projection_version<>serving.serving_projection_version
+ ORDER BY rows.projection_version,rows.park_id,rows.shed_id,rows.stage,rows.protocol_id LIMIT 5000)
+ DELETE FROM vaccination_operations_projection_rows rows USING doomed WHERE rows.tenant_id=doomed.tenant_id AND rows.projection_version=doomed.projection_version AND rows.park_id=doomed.park_id AND rows.shed_id=doomed.shed_id AND rows.stage=doomed.stage AND rows.protocol_id=doomed.protocol_id`, tenantID)
 		if err != nil {
 			return err
 		}
@@ -699,6 +725,16 @@ WHERE tenant_id=$1::uuid
 	return version, &domain.ProjectionFreshness{ProjectionVersion: version, ProjectedAt: projectedAt, AsOf: projectedAsOf, Status: status, LagSeconds: int64(lag.Seconds())}, true
 }
 
+// NOTE(scale, C35-020 follow-up): total_count is an exact filtered COUNT(*) OVER() over the
+// matched set before the keyset+LIMIT, so each page scans the full filtered slice. This is
+// bounded because vaccination_execution_projection_rows is a PRE-AGGREGATED projection grouped by
+// (park,shed,batch_id,rule_id,protocol_name,dose_code) — cardinality is shed x open-batch x
+// protocol x dose (thousands per tenant), NOT per-animal/per-obligation (millions) like the
+// process-integrity rows that earned the dedicated COUNT-before-LIMIT guard. It is the same
+// accepted class as the shed read's COUNT(*) OVER(). An exact FILTERED total cannot be
+// precomputed for arbitrary park/shed/state/severity combos; making it truly O(page) requires
+// dropping the exact total for keyset has_more (LIMIT+1 already fetched) — a response-contract
+// change tracked as a follow-up, not shipped here.
 const vaccinationExecutionProjectionReadSQL = `
 WITH filtered AS (
   SELECT rows.*, COUNT(*) OVER()::bigint AS total_count

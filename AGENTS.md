@@ -408,6 +408,20 @@ Do:
   was it followed, where did it break, who owns next action, what is due by
   when, what evidence proves it, and what alert/escalation fires when a deadline
   is crossed.
+- For any projection-backed serving read behind a freshness/coverage gate
+  (Vaccination execution/operations/shed, CT/AC/PA, Calendar), follow the
+  Serving-Read Freshness Contract in
+  `docs/decisions/high-scale-dashboard-projections.md` (also in the
+  `kernel-scale-lens` skill), Claude AND Codex: (1) freshness TTL must exceed the
+  projector refresh schedule (jitter headroom) and is AGE-based — never widen the
+  TTL to mask a date-coverage bug; (2) date coverage is inclusive-query vs
+  exclusive projection `date_to` — project one day beyond the max query range
+  (45d ⇒ 46d), and fixed-date tests seed the window around their fixed dates, not
+  `now±N`; (3) a rebuild keeps serving last-known-good and a failed rebuild never
+  clobbers it; (4) reads served entirely from a bounded canonical index
+  (completed/accepted history) are NOT gated on the hot projection; (5) a prune of
+  non-serving versions re-derives `serving_projection_version` inside the DELETE,
+  never a version captured before the txn/advisory-lock released.
 - Treat every Android READ screen as offline-first with Room as the single source
   of truth for the UI (hard rule — Claude, Codex, and humans). Backend owns the data;
   on-device, the screen renders from Room and the network refresh runs in the

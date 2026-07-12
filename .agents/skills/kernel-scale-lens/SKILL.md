@@ -42,6 +42,32 @@ no partial read model). Post-commit "best-effort" sync only for an already-
 committed replay. Canonical: `PublishVersionWithCapacity` + its rollback
 regression test.
 
+## Serving-read freshness + date-window contract (projection reads)
+For any read served from a projection behind a freshness/coverage gate
+(Vaccination execution/operations/shed, CT/AC/PA, Calendar). Full rule +
+code anchors: `docs/decisions/high-scale-dashboard-projections.md` →
+"Serving-Read Freshness Contract".
+- **TTL > refresh schedule.** Serving TTL is an AGE bound; if it equals the
+  refresh cadence, jitter + build time opens a 503 gap. Keep TTL above schedule
+  (5-min schedule → 7-min TTL). It is ORTHOGONAL to date coverage — **never widen
+  the TTL to mask a coverage bug** (fresh by age ≠ compatible by date).
+- **Date window = inclusive-query vs exclusive-bound.** A read that expands an
+  inclusive query `date_to` by +1 day must be covered by a projected window whose
+  stored `date_to` is that exclusive bound; provision the projector 1 day beyond
+  the max query range (45d ⇒ 46d). FIXED-date tests seed the window around their
+  fixed dates, not `now±N`.
+- **LKG.** A rebuild on an already-serving tenant keeps serving the prior version
+  (stays fresh/green, not `rebuilding`); a failed rebuild never clobbers LKG. Only
+  first-ever / no-serving-version / over-TTL / explicitly-stale fails closed 503.
+- **Canonical-history bypass.** A read served ENTIRELY from a bounded canonical
+  index (completed/accepted history) must NOT be gated on hot-projection freshness;
+  gate on the exact query shape (`status=completed` only), not the endpoint.
+- **Prune re-derives the serving version INSIDE the DELETE** (`WITH serving AS
+  (SELECT serving_projection_version ...) ... WHERE projection_version <>
+  serving...`). Never trust a version captured before the txn/advisory-lock
+  released — an overlapping newer build's rows get deleted, leaving a green pointer
+  to zero rows (silent wrong-empty, not 503).
+
 ## Idempotency (every write path)
 Accept/derive a stable key; persist key + semantic fingerprint in the same txn as
 the side effects; exact replay returns the original result with no new side

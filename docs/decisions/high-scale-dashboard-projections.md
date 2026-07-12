@@ -359,9 +359,70 @@ farm, breed, and delivery facts. Goat identity linkage is useful evidence, but
 an unmatched historical death event must not disappear from event-based
 mortality totals merely because the exact passport could not be resolved.
 
+## Serving-Read Freshness Contract
+
+Status: accepted global rule. Applies to every projection-backed serving read
+that carries a freshness/coverage gate (Vaccination execution/operations/shed,
+CT/AC/PA process-integrity, Calendar). Learned from the API-projection recovery;
+each rule below was a real production-shaped defect.
+
+1. **Freshness TTL must exceed the projector refresh schedule.** The serving TTL
+   is an *age* bound. If TTL equals the refresh cadence, scheduler jitter plus any
+   nonzero build duration opens a gap between "prior version aged out" and "next
+   build committed" and the request returns a typed retryable `503`. Keep the TTL
+   comfortably above the schedule (e.g. 5-minute schedule → 7-minute TTL), or
+   derive it from a measured schedule + build SLO. This is jitter protection only;
+   it is **orthogonal to date-window coverage and must never be widened to mask a
+   coverage bug** (a TTL bump cannot fix a coverage mismatch — the projection is
+   fresh by age but incompatible by date).
+
+2. **Date-window coverage is inclusive-query vs exclusive-projection bound.** A
+   read that converts an inclusive query `date_to` to an exclusive upper bound
+   (`date_to + 1 day`) must be covered by a projected window whose stored
+   `date_to` is that exclusive bound. Provision the projector one day beyond the
+   maximum queryable range (max query range 45d ⇒ project 46d). A query whose
+   inclusive last day sits on the projected coverage serves; one day past the
+   exclusive bound fails closed. Tests (and fixtures) that use **fixed historical
+   dates must seed the projected window around those dates**, not `now ± N`.
+
+3. **Last-known-good during rebuild.** A rebuild on a tenant that already has a
+   serving version keeps serving that version — its state row stays `fresh`/
+   `green`, it is **not** flipped to `rebuilding`. A failed replacement build never
+   clobbers the prior serving snapshot; it expires only by normal freshness
+   policy. Only a first-ever build (no serving pointer), a failed build with no
+   prior serving version, an explicitly stale/failed state, or an over-TTL
+   projection fails closed with a typed `503`. Publish new serving metadata only
+   after the atomic version swap commits.
+
+4. **Canonical/history reads bypass the hot-projection gate.** A read served
+   ENTIRELY from a bounded canonical index (e.g. completed / accepted-history) is
+   independent of the hot projection and must serve even when that projection is
+   absent or stale. Only projection-backed statuses fail-closed. Gate on the exact
+   query shape (e.g. `status = completed` only), never on the endpoint.
+
+5. **Prune re-derives the current serving version inside the DELETE.** A cleanup
+   that removes non-serving projection versions must re-read
+   `serving_projection_version` from the state row *inside* the delete statement
+   (`WITH serving AS (SELECT serving_projection_version ...) ... WHERE
+   projection_version <> serving.serving_projection_version`). Never trust a
+   version value captured before the transaction committed / the tenant advisory
+   lock released: an overlapping newer build can publish and flip the serving
+   pointer, and a stale post-commit prune would then delete the live rows, leaving
+   a `green` state pointing at zero rows — a silent wrong-empty read, not a `503`.
+
+6. **Serialize a tenant's projection writers** with a shared advisory lock and
+   derive the live `as_of` *after* acquiring it, so a queued build cannot publish
+   an already-expired timestamp. Wrap page-refresh + tombstone + state publication
+   for a slice in one transaction; upsert state on first bootstrap.
+
 ## Acceptance Checklist
 
 Before building a large dashboard feature, confirm:
+
+- Freshness TTL exceeds the refresh schedule; date-window coverage honors the
+  inclusive-query/exclusive-bound rule; canonical/history reads are not gated on
+  the hot projection; prune re-derives the serving version. (Serving-Read
+  Freshness Contract above.)
 
 - A PRD/TRD or design section exists.
 - A system diagram exists.

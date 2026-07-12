@@ -83,6 +83,36 @@ WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, testTenantID); err !=
 	}
 }
 
+// TestCalendarProjectionCoverageUsesInclusiveQueryExclusiveBound pins the date-window contract
+// independently of the freshness TTL: ListEvents treats the query DateTo as an inclusive business
+// date and expands it by +24h, while calendar_projection_state.date_to is the exclusive upper
+// bound. A query whose inclusive last day sits on the projected coverage serves; one day past the
+// exclusive bound fails closed as stale. This is the bug behind the earlier calendar failures and
+// is orthogonal to the age-based staleness proven in the process-integrity LKG test.
+func TestCalendarProjectionCoverageUsesInclusiveQueryExclusiveBound(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	base := time.Now().UTC().Truncate(24 * time.Hour)
+	// Projection covers [base, base+30d) — date_to is the exclusive upper bound.
+	seedCalendarProjectionStateWindow(t, ctx, pool, base, base.Add(30*24*time.Hour))
+	q := domain.Query{TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: base, Limit: 10, Scope: domain.ScopeFilter{TenantWide: true}}
+
+	// Inclusive last covered day: requestedExclusive (DateTo+24h) == projected date_to -> served.
+	q.DateTo = base.Add(29 * 24 * time.Hour)
+	if _, err := repo.ListEvents(ctx, q); err != nil {
+		t.Fatalf("inclusive last covered day must serve, got %v", err)
+	}
+	// One inclusive day past the exclusive bound: requestedExclusive exceeds date_to -> stale.
+	q.DateTo = base.Add(30 * 24 * time.Hour)
+	if _, err := repo.ListEvents(ctx, q); !errors.Is(err, ports.ErrProjectionStale) {
+		t.Fatalf("inclusive day past exclusive bound must be stale, got %v", err)
+	}
+}
+
 func TestCalendarAcceptedHistoryRangePlanUsesPartialIndex(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -136,7 +166,10 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 
 	repo := NewRepository(pool, 5*time.Second)
 	from := time.Now().UTC().Add(-24 * time.Hour)
-	to := time.Now().UTC().Add(45 * 24 * time.Hour)
+	// Stay one day inside the seeded projected window (date_to = now+45d): ListEvents expands an
+	// inclusive DateTo by +24h for coverage, matching production's 46d-projector / 45d-max-range
+	// headroom, so query the window's inclusive last day rather than its exclusive edge.
+	to := time.Now().UTC().Add(44 * 24 * time.Hour)
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID,
 		OwnerKey: domain.OwnerAll,
@@ -635,7 +668,7 @@ func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDa
 	seedProtocolRuleVaccineName(t, ctx, pool, versionA, ruleA, "ET+TT")
 	seedVaccinationBatchForShed(t, ctx, pool, batchA, versionA, testParkA, testShedA, dueAt, obligationA)
 	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
-		TenantID: testTenantID, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 100,
+		TenantID: testTenantID, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(48 * time.Hour), Limit: 100,
 	}); err != nil {
 		t.Fatalf("first RefreshVaccinationProjection: %v", err)
 	}
@@ -647,7 +680,7 @@ WHERE tenant_id=$1::uuid AND event_id=$2 AND status <> 'canceled'`, 1, testTenan
 	seedProtocolRuleVaccineName(t, ctx, pool, versionB, ruleB, "PPR")
 	seedVaccinationBatchForShed(t, ctx, pool, batchB, versionB, testParkA, testShedB, dueAt.Add(10*time.Minute), obligationB)
 	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
-		TenantID: testTenantID, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 100,
+		TenantID: testTenantID, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(48 * time.Hour), Limit: 100,
 	}); err != nil {
 		t.Fatalf("second RefreshVaccinationProjection: %v", err)
 	}
@@ -716,7 +749,7 @@ WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`, testTenantID, obligationID
 		t.Fatalf("defer obligation: %v", err)
 	}
 	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
-		TenantID: testTenantID, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 100,
+		TenantID: testTenantID, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(48 * time.Hour), Limit: 100,
 	}); err != nil {
 		t.Fatalf("RefreshVaccinationProjection: %v", err)
 	}
@@ -1030,7 +1063,7 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 	count, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
 		TenantID: testTenantID,
 		DateFrom: now.Add(-24 * time.Hour),
-		DateTo:   now.Add(24 * time.Hour),
+		DateTo:   now.Add(48 * time.Hour),
 		Limit:    100,
 	})
 	if err != nil {
@@ -1072,7 +1105,7 @@ func TestCalendarProjectionAndListIncludePastDueOpenExceptions(t *testing.T) {
 	count, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
 		TenantID: testTenantID,
 		DateFrom: now,
-		DateTo:   now.Add(24 * time.Hour),
+		DateTo:   now.Add(48 * time.Hour),
 		Limit:    100,
 	})
 	if err != nil {
@@ -2017,6 +2050,9 @@ SET park_id=$2::uuid, shed_id=$3::uuid, current_location_id=$3::uuid, updated_at
 	openEventID := "calendar:86000000-0000-4000-8000-000000000938"
 	openDueAt := administeredAt.Add(8 * 24 * time.Hour)
 	seedCalendarProjection(t, ctx, pool, openEventID, openDueAt, "not_scheduled")
+	// This open-work query uses fixed historical dates, so seed the projected window around those
+	// dates (exclusive upper bound = query DateTo + 1 day) instead of the now-relative default.
+	seedCalendarProjectionStateWindow(t, ctx, pool, administeredAt.Add(-24*time.Hour), openDueAt.Add(48*time.Hour))
 	markerList, err := repo.ListEvents(ctx, domain.Query{
 		TenantID:           testTenantID,
 		OwnerKey:           domain.OwnerAll,
@@ -2142,15 +2178,27 @@ func assertDriveTargets(t *testing.T, ctx context.Context, repo *Repository, eve
 
 func seedCalendarProjectionState(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
+	// Default now-relative window for tests that query around "now". Callers whose queries use
+	// fixed historical dates must instead seed a window around those dates via
+	// seedCalendarProjectionStateWindow so the projected coverage actually contains the request.
+	seedCalendarProjectionStateWindow(t, ctx, pool, time.Now().UTC().Add(-90*24*time.Hour), time.Now().UTC().Add(45*24*time.Hour))
+}
+
+// seedCalendarProjectionStateWindow seeds a fresh serving projection covering [from, to). Because
+// ListEvents converts an inclusive query DateTo to an exclusive upper bound (DateTo+24h) for the
+// coverage check, callers pass `to` as the EXCLUSIVE upper bound: the last inclusive query day + 1
+// day. This mirrors production, where the projector covers now+46d for a 45-day max query range.
+func seedCalendarProjectionStateWindow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, from, to time.Time) {
+	t.Helper()
 	if _, err := pool.Exec(ctx, `
 INSERT INTO calendar_projection_state (
   tenant_id, slice_key, projection_version, projected_at, date_from, date_to,
   freshness_status, serving_state
 ) VALUES ($1::uuid, 'vaccination', (extract(epoch FROM now()) * 1000)::bigint, now(),
-  now() - interval '90 days', now() + interval '45 days', 'green', 'fresh')
+  $2::timestamptz, $3::timestamptz, 'green', 'fresh')
 ON CONFLICT (tenant_id, slice_key) DO UPDATE SET
-  projection_version = EXCLUDED.projection_version,
-  projected_at = now(), freshness_status = 'green', serving_state = 'fresh', last_error = NULL`, testTenantID); err != nil {
+  projection_version = EXCLUDED.projection_version, date_from = EXCLUDED.date_from, date_to = EXCLUDED.date_to,
+  projected_at = now(), freshness_status = 'green', serving_state = 'fresh', last_error = NULL`, testTenantID, from, to); err != nil {
 		t.Fatalf("seed calendar projection state: %v", err)
 	}
 }

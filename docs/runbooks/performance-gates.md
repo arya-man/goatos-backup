@@ -95,9 +95,16 @@ For Control Tower, Action Center, Calendar, and Protocol Adherence:
   day contract so partial timestamps cannot produce mismatched totals;
 - read APIs query the projection by tenant, category, scope, state, due window,
   owner, and cursor;
-- stale, failed, rebuilding, never-synced, or over-five-minute projections fail
-  closed with a typed retryable `503`; they never replay canonical tables and
-  never silently serve old process state;
+- a rebuild in progress on a tenant that already has a serving version keeps
+  serving that last-known-good version (its state row stays `fresh`/`green` and
+  is not flipped to `rebuilding`), so a scheduled replacement build never opens a
+  503 gap over a compatible last-known-good projection. Only a genuine first-ever
+  build (no serving pointer), a failed build with no prior serving version, an
+  explicitly stale/failed state, or a projection older than the freshness TTL
+  fails closed with a typed retryable `503`; the request path never replays
+  canonical tables. The freshness TTL (7 minutes) sits above the 5-minute
+  projector schedule so one jittered or slow refresh cycle still serves the
+  last-known-good projection instead of flapping to 503;
 - successful responses expose version, `projected_at`, `as_of`, freshness, and
   serving state;
 - staging reports include scaled `EXPLAIN (ANALYZE, BUFFERS)` and API p95/p99.
@@ -106,20 +113,31 @@ Current residual: the five-minute scheduled process-integrity projector is a
 full tenant rebuild. It is the repair/backfill path and is idempotent with an
 atomic last-known-good version swap, but the event-driven dirty-scope
 queue/worker is not implemented yet. Until that consumer lands, the API's
-five-minute fail-closed policy is the correctness boundary; a scheduler delay
-is visible as `projection_stale`, not hidden by request-time recompute.
+freshness-TTL fail-closed policy is the correctness boundary; a scheduler delay
+beyond the 7-minute TTL is visible as `projection_stale`, not hidden by
+request-time recompute. Because the TTL exceeds the 5-minute schedule, a single
+late or slow rebuild cycle still serves the last-known-good version rather than
+503-ing, but a build that runs longer than the TTL window is still a real gap
+and is the reason the bounded incremental projector remains the required
+follow-up.
 
 Calendar follows the same freshness boundary through
-`calendar_projection_state`: the off-request projector marks rebuilding before
-its bounded page loop, publishes a fresh version only after refresh/tombstone
-completion, and marks failures red. List responses expose that version and
-timestamp; missing, rebuilding, failed, or older-than-five-minute state returns
-a typed `503`. Accepted completion history remains a bounded canonical-history
-exception backed by
-`vaccination_completions_accepted_history_calendar_idx`. Calendar event rows do
-not yet use a multi-generation serving pointer, so a failed partial refresh is
-made unavailable rather than serving a claimed last-known-good generation; the
-dirty-scope/versioned Calendar worker is the remaining architecture follow-up.
+`calendar_projection_state`: the off-request projector now runs the whole page
+refresh, tombstone, and state publication inside one Repeatable Read
+transaction, so a failed partial refresh rolls back atomically and the prior
+committed `calendar_projection_state` row and event rows are left untouched —
+the last-known-good generation keeps serving through ordinary transaction
+atomicity rather than being made unavailable. It upserts state on first
+bootstrap, publishes a fresh version only after the refresh/tombstone loop
+commits, and marks genuine failures red only when there is no prior serving
+version. List responses expose that version and timestamp; a missing/first-ever,
+no-serving-version-failed, or older-than-TTL (7 minute) state returns a typed
+`503`. Accepted completion history remains a bounded canonical-history exception
+backed by `vaccination_completions_accepted_history_calendar_idx`. Two follow-ups
+remain: the single large refresh transaction holds a longer lock/keeps more dead
+tuples across a big multi-page rebuild, and Calendar still lacks the dirty-scope/
+versioned multi-generation worker — both are folded into the bounded incremental
+projector follow-up.
 
 Manual process-integrity rebuild:
 

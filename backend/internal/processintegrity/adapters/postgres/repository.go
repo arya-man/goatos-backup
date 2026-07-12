@@ -21,7 +21,7 @@ import (
 const (
 	defaultQueryTimeout      = 3 * time.Second
 	defaultClosedHistoryAge  = 14 * 24 * time.Hour
-	defaultProjectionFresh   = 5 * time.Minute
+	defaultProjectionFresh   = 7 * time.Minute // > 5m refresh schedule; serve LKG through a late cycle instead of 503 (handoff P0-B)
 	defaultLimit             = 100
 	maxLimit                 = 500
 	countQueryArgCount       = 15
@@ -391,6 +391,7 @@ func (r *Repository) pruneOldProjectionRowsWithBatchSize(ctx context.Context, te
 			return fmt.Errorf("prune row budget exhausted after %d rows; retry required", totalRowsDeleted)
 		}
 
+		// scale-guard:ignore: bounded per-run batch-delete loop (maxBatchesPerCall/maxRowsPerCall/ctx-deadline guards cap it, LIMIT $2 per batch; same shape as the obligation/idempotency sweepers), not an unbounded per-row DB call. The projector write loop remains the C35-020 baselined debt.
 		tag, err := r.pool.Exec(ctx, `
 WITH serving AS (
   SELECT serving_projection_version
