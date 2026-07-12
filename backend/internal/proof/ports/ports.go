@@ -14,6 +14,10 @@ var (
 	ErrNotFound          = errors.New("proof: not found")
 	ErrUnsupported       = errors.New("proof: unsupported storage operation")
 	ErrIntegrityMismatch = errors.New("proof: storage object integrity mismatch")
+	// ErrIdempotencyConflict is returned when a CreateProof call reuses an Idempotency-Key
+	// already bound to a different logical request (different scope/subject/mime/type) —
+	// a same-key exact replay is NOT an error, it returns the original Artifact.
+	ErrIdempotencyConflict = errors.New("proof: idempotency key belongs to a different request")
 )
 
 type Repository interface {

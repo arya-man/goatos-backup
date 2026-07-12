@@ -37,6 +37,41 @@ data class ProofUploadResponseDto(
     @SerialName("trace_id") val traceId: String = "",
 )
 
+/** Request body for `POST /app/proofs/{proof_id}/complete` — the completion step of the
+ *  signed-upload flow, called once the video bytes have actually been PUT to [ProofUploadResponseDto.uploadUrl]
+ *  (see [sg.mesha.goatos.core.network.ProofBlobUploader]). [contentHash]/[sizeBytes] are the
+ *  CLIENT's own streamed measurement; the backend re-derives/validates them from the stored
+ *  object where it can (GCS HEAD, local file re-hash) so a forged client value can't corrupt
+ *  the record. */
+@Serializable
+data class ProofCompleteRequestDto(
+    @SerialName("content_hash") val contentHash: String = "",
+    @SerialName("mime_type") val mimeType: String = "",
+    @SerialName("size_bytes") val sizeBytes: Long = 0,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    @SerialName("metadata") val metadata: Map<String, JsonElement> = emptyMap(),
+)
+
+@Serializable
+data class ProofCompleteResponseDto(
+    @SerialName("proof") val proof: ProofArtifactDto = ProofArtifactDto(),
+)
+
+/** The completed/updated proof artifact as returned by the complete-upload endpoint. */
+@Serializable
+data class ProofArtifactDto(
+    @SerialName("proof_id") val proofId: String = "",
+    @SerialName("storage_provider") val storageProvider: String = "",
+    @SerialName("proof_type") val proofType: String = "",
+    @SerialName("subject_type") val subjectType: String = "",
+    @SerialName("subject_id") val subjectId: String? = null,
+    @SerialName("upload_state") val uploadState: String = "",
+    @SerialName("mime_type") val mimeType: String = "",
+    @SerialName("size_bytes") val sizeBytes: Long = 0,
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    @SerialName("content_hash") val contentHash: String = "",
+)
+
 fun ProofUploadRequestDto.forCreateUpload(): ProofUploadRequestDto {
     val normalizedScopeType = scopeType.ifBlank { if (!legacyTaskId.isNullOrBlank()) "task" else "shed" }
     val normalizedScopeId = scopeId.ifBlank {

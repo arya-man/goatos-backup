@@ -2,6 +2,7 @@ package sg.mesha.goatos.core.data.sync
 
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.FakeAppApi
+import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
@@ -19,6 +20,16 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     var submitAppTaskFn: (suspend (String, String, SubmitTaskRequestDto) -> SubmissionResponseDto)? = null
     var rescheduleObligationFn: (suspend (String, String, RescheduleObligationRequestDto) -> RescheduleObligationResponseDto)? = null
     var registerProofFn: (suspend (String, ProofUploadRequestDto) -> ProofUploadResponseDto)? = null
+
+    /** Scripts the binary-PUT + complete step ([AppApi.uploadProofBlob]) — the hook a test
+     *  installs to act as a fake object store: assert the (proofId, uploadUrl, filePath) it was
+     *  called with, capture "uploaded" bytes, or throw to exercise the resumable-retry path. */
+    var uploadProofBlobFn: (suspend (String, String, String, Map<String, String>, String, String, Long?) -> ProofCompleteResponseDto)? = null
+
+    /** Every [uploadProofBlob] call, in order — lets a test assert how many times bytes were
+     *  (re-)streamed across a failure + retry. */
+    val uploadProofBlobCalls: MutableList<String> =
+        java.util.concurrent.CopyOnWriteArrayList<String>()
 
     /** (taskId, header Idempotency-Key) for every [submitAppTask] call — asserts the outbox sends
      *  the SAME key on every retry (and actually sends one at all). Thread-safe: the drain fans out
@@ -47,4 +58,18 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
 
     override suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto =
         registerProofFn?.invoke(idempotencyKey, request) ?: delegate.registerProof(idempotencyKey, request)
+
+    override suspend fun uploadProofBlob(
+        proofId: String,
+        uploadUrl: String,
+        uploadMethod: String,
+        uploadHeaders: Map<String, String>,
+        mimeType: String,
+        filePath: String,
+        durationMs: Long?,
+    ): ProofCompleteResponseDto {
+        uploadProofBlobCalls += proofId
+        return uploadProofBlobFn?.invoke(proofId, uploadUrl, uploadMethod, uploadHeaders, mimeType, filePath, durationMs)
+            ?: delegate.uploadProofBlob(proofId, uploadUrl, uploadMethod, uploadHeaders, mimeType, filePath, durationMs)
+    }
 }

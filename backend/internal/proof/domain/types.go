@@ -36,6 +36,12 @@ type CreateUpload struct {
 	SubjectID   *string
 	UploadedBy  *string
 	Metadata    map[string]any
+	// IdempotencyKey is the stable per-capture key the mobile outbox sends verbatim on every
+	// retry (Idempotency-Key header). Empty for callers that don't need replay protection.
+	// A replay with the SAME key and the SAME logical request returns the original Artifact
+	// (never mints a second object); a same-key/different-request replay is rejected with
+	// ports.ErrIdempotencyConflict.
+	IdempotencyKey string
 }
 
 type CompleteUpload struct {

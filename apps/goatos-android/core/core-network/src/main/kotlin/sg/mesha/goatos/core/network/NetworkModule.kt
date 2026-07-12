@@ -22,6 +22,8 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
+import sg.mesha.goatos.core.network.dto.ProofCompleteRequestDto
+import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.forCreateUpload
@@ -184,6 +186,12 @@ interface AppApiService {
         @Body request: ProofUploadRequestDto,
     ): ProofUploadResponseDto
 
+    @POST("app/proofs/{proof_id}/complete")
+    suspend fun completeProofUpload(
+        @Path("proof_id") proofId: String,
+        @Body request: ProofCompleteRequestDto,
+    ): ProofCompleteResponseDto
+
     @GET("app/vaccination/gaps")
     suspend fun getVaccinationGaps(
         @Query("park_id") parkId: String?,
@@ -205,8 +213,14 @@ interface AppApiService {
     ): RetrofitResponse<AppConfigResponseDto>
 }
 
-/** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic. */
-class RetrofitAppApi(private val service: AppApiService) : AppApi {
+/** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic.
+ *  [blobUploader] handles the binary PUT half of the proof-upload flow — a separate collaborator
+ *  because it targets an arbitrary signed URL (often a third-party storage host), not this
+ *  Retrofit service's fixed JSON base URL. */
+class RetrofitAppApi(
+    private val service: AppApiService,
+    private val blobUploader: ProofBlobUploader,
+) : AppApi {
     override suspend fun bootstrap(deviceId: String?): BootstrapDto = service.bootstrap(deviceId)
 
     override suspend fun registerDevice(request: RegisterDeviceRequestDto): DeviceResponseDto =
@@ -332,6 +346,40 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
     override suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto =
         service.registerProof(idempotencyKey, request.forCreateUpload())
 
+    override suspend fun uploadProofBlob(
+        proofId: String,
+        uploadUrl: String,
+        uploadMethod: String,
+        uploadHeaders: Map<String, String>,
+        mimeType: String,
+        filePath: String,
+        durationMs: Long?,
+    ): ProofCompleteResponseDto {
+        val result = blobUploader.putFile(
+            uploadUrl = uploadUrl,
+            uploadMethod = uploadMethod,
+            uploadHeaders = uploadHeaders,
+            mimeType = mimeType,
+            filePath = filePath,
+        )
+        val request = when (result) {
+            is ProofBlobPutResult.Uploaded -> ProofCompleteRequestDto(
+                contentHash = result.contentHash,
+                mimeType = mimeType,
+                sizeBytes = result.sizeBytes,
+                durationMs = durationMs,
+            )
+            // Bytes were already durable from a prior attempt — size/hash unknown to THIS call;
+            // sizeBytes = 0 tells the backend to trust the stored object rather than compare.
+            ProofBlobPutResult.AlreadyExists -> ProofCompleteRequestDto(
+                mimeType = mimeType,
+                sizeBytes = 0,
+                durationMs = durationMs,
+            )
+        }
+        return service.completeProofUpload(proofId, request)
+    }
+
     override suspend fun getVaccinationGaps(
         parkId: String?,
         limit: Int?,
@@ -406,6 +454,23 @@ object NetworkFactory {
             .retryOnConnectionFailure(true)
             .build()
 
+    /**
+     * BARE client for the proof-blob PUT — deliberately built WITHOUT [BearerAuthInterceptor]:
+     * a production upload target is a third-party storage host (GCS), and this app's bearer
+     * token must never be attached to a request leaving its own API host
+     * ([OkHttpProofBlobUploader] attaches it explicitly, only for a same-host relative URL).
+     * Wider write/read/call timeouts than the JSON client — a multi-minute proof video over a
+     * slow field connection must not be capped by the small-JSON-body budget; per-operation
+     * (not total-elapsed) timeouts still bound a stalled socket.
+     */
+    fun bareOkHttp(): OkHttpClient =
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(2, TimeUnit.MINUTES)
+            .writeTimeout(2, TimeUnit.MINUTES)
+            .retryOnConnectionFailure(true)
+            .build()
+
     fun retrofit(baseUrl: String, client: OkHttpClient): Retrofit =
         Retrofit.Builder()
             .baseUrl(baseUrl)
@@ -413,13 +478,19 @@ object NetworkFactory {
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
 
+    fun proofBlobUploader(baseUrl: String, tokenProvider: () -> String?): ProofBlobUploader =
+        OkHttpProofBlobUploader(bareOkHttp(), baseUrl, tokenProvider)
+
     fun appApi(
         baseUrl: String,
         tokenProvider: () -> String?,
         tenantIdProvider: () -> String? = { null },
         localeProvider: () -> String? = { null },
     ): AppApi =
-        RetrofitAppApi(retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider)).create())
+        RetrofitAppApi(
+            retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider)).create(),
+            proofBlobUploader(baseUrl, tokenProvider),
+        )
 }
 
 private fun normalizedLocaleTag(raw: String?): String {

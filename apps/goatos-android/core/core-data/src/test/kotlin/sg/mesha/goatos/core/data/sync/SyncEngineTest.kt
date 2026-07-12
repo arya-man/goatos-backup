@@ -8,7 +8,11 @@ import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
+import sg.mesha.goatos.core.network.dto.ProofArtifactDto
+import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
+import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
@@ -352,6 +356,154 @@ class SyncEngineTest {
         engine.drainOnce()
 
         assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-p1")!!.status)
+    }
+
+    private fun queuedProofUpload(
+        id: String = "row-p1",
+        idempotencyKey: String = "proof-key-1",
+        localFilePath: String = "/data/user/0/sg.mesha.goatos/files/captures/shed.mp4",
+        maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
+    ) = OutboxEntity(
+        id = id,
+        opType = OutboxOpType.PROOF_UPLOAD.name,
+        groupKey = "shed-1",
+        idempotencyKey = idempotencyKey,
+        payloadJson = syncJson.encodeToString(
+            ProofUploadPayload(
+                request = ProofUploadRequestDto(mimeType = "video/mp4", scopeType = "shed", scopeId = "shed-1", subjectType = "shed"),
+                localFilePath = localFilePath,
+                durationMs = 4_500L,
+            ),
+        ),
+        status = OutboxStatus.QUEUED.name,
+        attemptCount = 0,
+        maxAttempts = maxAttempts,
+        conflict = false,
+        createdAt = 0L,
+        updatedAt = 0L,
+        nextAttemptAt = 0L,
+        lastError = null,
+        resultJson = null,
+    )
+
+    @Test
+    fun `PROOF_UPLOAD streams the captured file's bytes to the signed URL, completes, then reaches SYNCED`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(queuedProofUpload())
+        var registerCalls = 0
+        val api = ScriptedAppApi().apply {
+            registerProofFn = { idempotencyKey, request ->
+                registerCalls++
+                ProofUploadResponseDto(
+                    proof = ProofReferenceDto(proofId = "server-proof-9", proofType = request.proofType, subjectType = request.subjectType, uploadState = "pending"),
+                    uploadUrl = "https://storage.example/bucket/object-9",
+                    uploadMethod = "PUT",
+                    headers = mapOf("x-goog-if-generation-match" to "0"),
+                )
+            }
+            uploadProofBlobFn = { proofId, uploadUrl, uploadMethod, uploadHeaders, mimeType, filePath, _ ->
+                // Standing in for the real fake object store (OkHttpProofBlobUploaderTest covers
+                // the ACTUAL byte-streaming HTTP contract) — this asserts SyncEngine wires the
+                // registerProof response straight through, unmodified, to the byte-upload step.
+                assertEquals("server-proof-9", proofId)
+                assertEquals("https://storage.example/bucket/object-9", uploadUrl)
+                assertEquals("PUT", uploadMethod)
+                assertEquals("0", uploadHeaders["x-goog-if-generation-match"])
+                assertEquals("video/mp4", mimeType)
+                assertEquals("/data/user/0/sg.mesha.goatos/files/captures/shed.mp4", filePath)
+                ProofCompleteResponseDto(proof = ProofArtifactDto(proofId = proofId, uploadState = "completed"))
+            }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        val row = store.findById("row-p1")!!
+        assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(1, registerCalls)
+        assertEquals(listOf("server-proof-9"), api.uploadProofBlobCalls)
+        // The Room-facing decode path (CaptureRepository.decodeServerProofId) reads exactly this
+        // shape back out of resultJson — prove the dispatch echoes the COMPLETED proof id, not
+        // just the pre-upload registration response.
+        val decoded = syncJson.decodeFromString<ProofUploadResponseDto>(row.resultJson!!)
+        assertEquals("server-proof-9", decoded.proof.proofId)
+        assertEquals("completed", decoded.proof.uploadState)
+    }
+
+    @Test
+    fun `a byte-upload failure is resumable — retried with the SAME idempotency key until it succeeds`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(queuedProofUpload())
+        var clockNow = 0L
+        val registerKeys = mutableListOf<String>()
+        var uploadAttempt = 0
+        val api = ScriptedAppApi().apply {
+            registerProofFn = { idempotencyKey, request ->
+                registerKeys += idempotencyKey
+                // A real retry re-mints a FRESH signed URL every attempt (backend CreateProof is
+                // now idempotent by key — see backend/internal/proof/adapters/postgres) — model
+                // that here so the test also proves the engine doesn't cache a stale URL.
+                ProofUploadResponseDto(
+                    proof = ProofReferenceDto(proofId = "server-proof-9", proofType = request.proofType, subjectType = request.subjectType, uploadState = "pending"),
+                    uploadUrl = "https://storage.example/bucket/object-9?attempt=${registerKeys.size}",
+                    uploadMethod = "PUT",
+                )
+            }
+            uploadProofBlobFn = { proofId, _, _, _, _, _, _ ->
+                uploadAttempt++
+                if (uploadAttempt == 1) {
+                    throw java.io.IOException("simulated field-network drop mid-upload")
+                }
+                ProofCompleteResponseDto(proof = ProofArtifactDto(proofId = proofId, uploadState = "completed"))
+            }
+        }
+        val engine = SyncEngine(
+            store,
+            api,
+            connectivityGate = { true },
+            clock = { clockNow },
+            backoff = BackoffPolicy { 100L },
+        )
+
+        // Attempt 1: registerProof succeeds, the byte PUT fails — the row backs off, NOT
+        // dead-lettered (still under maxAttempts), and the outbox item itself is untouched (same
+        // idempotency key persists for the retry).
+        engine.drainOnce()
+        var row = store.findById("row-p1")!!
+        assertEquals(OutboxStatus.FAILED.name, row.status)
+        assertTrue("must be retryable, not dead-lettered", !row.conflict)
+        assertEquals(1, row.attemptCount)
+        assertEquals(1, uploadAttempt)
+        assertEquals(listOf("proof-key-1"), registerKeys)
+
+        // Advance past the backoff window and drain again — the SAME idempotency key is reused
+        // (never a new one on retry, matching every other dispatch* here), the whole
+        // register->upload->complete pipeline re-runs, and this time it succeeds.
+        clockNow = row.nextAttemptAt
+        engine.drainOnce()
+
+        row = store.findById("row-p1")!!
+        assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
+        assertEquals(2, uploadAttempt)
+        assertEquals(listOf("proof-key-1", "proof-key-1"), registerKeys)
+        assertEquals(listOf("server-proof-9", "server-proof-9"), api.uploadProofBlobCalls)
+    }
+
+    @Test
+    fun `a proof registration that returns no proof id is a terminal (non-retryable) conflict`() = runBlocking {
+        val store = FakeOutboxStore()
+        store.insert(queuedProofUpload())
+        val api = ScriptedAppApi().apply {
+            registerProofFn = { _, _ -> ProofUploadResponseDto() } // blank proof id
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        val row = store.findById("row-p1")!!
+        assertEquals(OutboxStatus.FAILED.name, row.status)
+        assertTrue("a structurally broken response must terminalize, not burn the retry budget", row.conflict)
+        assertTrue(api.uploadProofBlobCalls.isEmpty())
     }
 
     // --- Batching + Boolean drain-pass contract -------------------------------------------------

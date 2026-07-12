@@ -9,6 +9,9 @@ import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.EnrichedPositionListResponseDto
 import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
+import sg.mesha.goatos.core.network.dto.ProofArtifactDto
+import sg.mesha.goatos.core.network.dto.ProofCompleteResponseDto
+import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
@@ -270,6 +273,26 @@ interface AppApi {
      *  idempotency key exactly like [submitAppTask] / [rescheduleObligation]. */
     suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto
 
+    /**
+     * The binary-PUT + completion pass that follows a successful [registerProof]
+     * (docs/mobile/proof-capture-sync-and-e2e.md §3): streams [filePath]'s bytes (this app's own
+     * private storage, chunked, never buffered whole-file) to [uploadUrl]/[uploadMethod]/
+     * [uploadHeaders] exactly as `registerProof` returned them, then calls
+     * `POST /app/proofs/{proof_id}/complete`. Idempotent: a retry re-derives a fresh signed URL
+     * via a fresh [registerProof] call first (never reuses a stale/expired one), and a PUT whose
+     * object a prior attempt already wrote (GCS 412) short-circuits straight to the complete
+     * call — see [ProofBlobUploader].
+     */
+    suspend fun uploadProofBlob(
+        proofId: String,
+        uploadUrl: String,
+        uploadMethod: String,
+        uploadHeaders: Map<String, String>,
+        mimeType: String,
+        filePath: String,
+        durationMs: Long?,
+    ): ProofCompleteResponseDto
+
     /** GET /app/vaccination/gaps — animals excluded from vaccination coverage with reasons.
      *  Backs the mobile "Data gaps" overlay. */
     suspend fun getVaccinationGaps(
@@ -418,7 +441,32 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getMyCoverage(): MyCoverageResponseDto = MyCoverageResponseDto()
 
     override suspend fun registerProof(idempotencyKey: String, request: ProofUploadRequestDto): ProofUploadResponseDto =
-        ProofUploadResponseDto()
+        ProofUploadResponseDto(
+            proof = ProofReferenceDto(
+                proofId = "fake-proof-$idempotencyKey",
+                proofType = request.proofType,
+                subjectType = request.subjectType,
+                subjectId = request.subjectId,
+                uploadState = "pending",
+            ),
+            uploadUrl = "https://fake.local/proofs/upload",
+            uploadMethod = "PUT",
+        )
+
+    // Test/dev scaffolding — does not touch the filesystem or network; a proof is simply marked
+    // completed under the id `registerProof` handed back, so previews/unit tests that don't care
+    // about the real byte-streaming path (see OkHttpProofBlobUploader) compile and pass.
+    override suspend fun uploadProofBlob(
+        proofId: String,
+        uploadUrl: String,
+        uploadMethod: String,
+        uploadHeaders: Map<String, String>,
+        mimeType: String,
+        filePath: String,
+        durationMs: Long?,
+    ): ProofCompleteResponseDto = ProofCompleteResponseDto(
+        proof = ProofArtifactDto(proofId = proofId, uploadState = "completed", mimeType = mimeType, durationMs = durationMs),
+    )
 
     override suspend fun getVaccinationGaps(
         parkId: String?,

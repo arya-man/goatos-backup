@@ -13,6 +13,8 @@ import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.dto.ProofReferenceDto
+import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -244,10 +246,54 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
+    /**
+     * The full signed-upload flow as ONE outbox dispatch (docs/mobile/proof-capture-sync-and-e2e.md
+     * §3): register the proof's metadata (mints a signed URL), stream the captured video's bytes
+     * to that URL, then call the completion endpoint. A row only reaches SYNCED here — i.e. once
+     * this whole function returns — so "SYNCED" now means the video is actually durable
+     * server-side, not just that metadata was registered (closes the boundary
+     * `CaptureRepository`'s kdoc used to call out).
+     *
+     * Resumable / idempotent by construction: [processItem] retries this ENTIRE function on any
+     * failure (same stored [OutboxEntity.idempotencyKey] every time, never a new one — same
+     * contract as every other dispatch* here). A retry therefore always calls [AppApi.registerProof]
+     * again FIRST, which — now that proof creation is idempotent server-side on that key
+     * (backend/internal/proof/adapters/postgres — CreateProof ON CONFLICT) — returns the SAME
+     * proof_id with a FRESH signed URL rather than a stale/expired one. [AppApi.uploadProofBlob]
+     * treats a GCS 412 (the object a prior attempt already fully wrote) as success, not failure,
+     * so a crash between a successful PUT and the completion call self-heals on the next attempt
+     * instead of re-uploading the bytes.
+     */
     private suspend fun dispatchProofUpload(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<ProofUploadPayload>(item.payloadJson)
-        val response = api.registerProof(item.idempotencyKey, payload.request)
-        return syncJson.encodeToString(response)
+        val registered = api.registerProof(item.idempotencyKey, payload.request)
+        val proofId = registered.proof.proofId
+        if (proofId.isBlank()) {
+            throw NonRetryableSyncException("Proof registration did not return a proof id.")
+        }
+        val completed = api.uploadProofBlob(
+            proofId = proofId,
+            uploadUrl = registered.uploadUrl,
+            uploadMethod = registered.uploadMethod,
+            uploadHeaders = registered.headers,
+            mimeType = payload.request.mimeType,
+            filePath = payload.localFilePath,
+            durationMs = payload.durationMs,
+        )
+        // Re-shaped into the SAME ProofUploadResponseDto/ProofReferenceDto envelope the metadata
+        // registration step used to echo, so CaptureRepository's decodeServerProofId keeps
+        // working unchanged — it only ever reads `.proof.proofId`.
+        return syncJson.encodeToString(
+            ProofUploadResponseDto(
+                proof = ProofReferenceDto(
+                    proofId = completed.proof.proofId.ifBlank { proofId },
+                    proofType = completed.proof.proofType,
+                    subjectType = completed.proof.subjectType,
+                    subjectId = completed.proof.subjectId,
+                    uploadState = completed.proof.uploadState,
+                ),
+            ),
+        )
     }
 
     private suspend fun dispatchVerifyTask(item: OutboxEntity): String {

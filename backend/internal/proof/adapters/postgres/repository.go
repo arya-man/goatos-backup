@@ -3,9 +3,12 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -40,13 +43,15 @@ func (r *Repository) CreateProof(ctx context.Context, in domain.CreateUpload, pr
 	if err != nil {
 		return domain.Artifact{}, err
 	}
+	idempotencyKey := strings.TrimSpace(in.IdempotencyKey)
+	fingerprint := createFingerprint(in)
 	row := r.pool.QueryRow(ctx, `
 WITH new_proof AS (
   SELECT gen_random_uuid() AS proof_id
 )
 INSERT INTO proof_artifacts (
   proof_id, tenant_id, storage_provider, object_key, mime_type, scope_type, scope_id,
-  subject_type, subject_id, proof_type, uploaded_by, metadata
+  subject_type, subject_id, proof_type, uploaded_by, metadata, idempotency_key, request_fingerprint
 )
 SELECT
   proof_id,
@@ -60,8 +65,14 @@ SELECT
   nullif($7, '')::uuid,
   $8,
   nullif($9, '')::uuid,
-  $10::jsonb
+  $10::jsonb,
+  nullif($11, ''),
+  $12
 FROM new_proof
+-- A repeat call with the SAME (tenant, idempotency_key) — the mobile outbox retries the whole
+-- registration+upload dispatch with its stored key verbatim — must never mint a second object.
+-- The partial unique index only covers non-NULL keys, so a caller with no key always inserts.
+ON CONFLICT (tenant_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
 RETURNING
   proof_id::text, tenant_id::text, storage_provider, object_key, content_hash, mime_type,
   size_bytes, duration_ms, upload_state, scope_type, scope_id::text, subject_type,
@@ -77,8 +88,60 @@ RETURNING
 		in.ProofType,
 		ptrValue(in.UploadedBy),
 		metadata,
+		idempotencyKey,
+		fingerprint,
 	)
-	return scanArtifact(row)
+	artifact, err := scanArtifact(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if idempotencyKey == "" {
+			// Should not happen (the partial index never fires for a NULL key), but never
+			// swallow an unexpected zero-row insert into a false "replay".
+			return domain.Artifact{}, err
+		}
+		return r.replayByIdempotencyKey(ctx, in.TenantID, idempotencyKey, fingerprint)
+	}
+	return artifact, err
+}
+
+// replayByIdempotencyKey resolves the CreateProof ON CONFLICT branch: the row that already
+// owns (tenant_id, idempotency_key). An exact replay (same request_fingerprint) returns the
+// original Artifact untouched — no second object, no mutation. A same-key/different-payload
+// replay is rejected so it can never silently return an unrelated proof.
+func (r *Repository) replayByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, fingerprint string) (domain.Artifact, error) {
+	row := r.pool.QueryRow(ctx, `
+SELECT
+  proof_id::text, tenant_id::text, storage_provider, object_key, content_hash, mime_type,
+  size_bytes, duration_ms, upload_state, scope_type, scope_id::text, subject_type,
+  subject_id::text, proof_type, uploaded_by::text, metadata, created_at, uploaded_at,
+  updated_at, row_version, request_fingerprint
+FROM proof_artifacts
+WHERE tenant_id = $1::uuid
+  AND idempotency_key = $2
+LIMIT 1`, tenantID, idempotencyKey)
+	artifact, existingFingerprint, err := scanArtifactWithFingerprint(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Lost a genuine race with a concurrent inserter that has not committed yet — from the
+		// caller's perspective this looks like "not found"; the mobile outbox retries and will
+		// see the now-committed row on the next attempt.
+		return domain.Artifact{}, ports.ErrNotFound
+	}
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	if existingFingerprint != fingerprint {
+		return domain.Artifact{}, ports.ErrIdempotencyConflict
+	}
+	return artifact, nil
+}
+
+// createFingerprint captures the fields that define "the same logical create request" — enough
+// to detect a same-key/different-payload replay without over-fingerprinting free-form metadata.
+func createFingerprint(in domain.CreateUpload) string {
+	h := sha256.New()
+	h.Write([]byte(strings.Join([]string{
+		in.ScopeType, in.ScopeID, in.SubjectType, ptrValue(in.SubjectID), in.ProofType, in.MimeType,
+	}, "\x1f")))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func (r *Repository) GetProof(ctx context.Context, tenantID, proofID string) (domain.Artifact, error) {
@@ -196,12 +259,25 @@ type rowScanner interface {
 }
 
 func scanArtifact(row rowScanner) (domain.Artifact, error) {
+	out, _, err := scanArtifactRow(row, false)
+	return out, err
+}
+
+// scanArtifactWithFingerprint scans a row selected with an extra trailing request_fingerprint
+// column (see replayByIdempotencyKey) — used only for the idempotent-replay comparison, never
+// exposed on domain.Artifact.
+func scanArtifactWithFingerprint(row rowScanner) (domain.Artifact, string, error) {
+	return scanArtifactRow(row, true)
+}
+
+func scanArtifactRow(row rowScanner, withFingerprint bool) (domain.Artifact, string, error) {
 	var out domain.Artifact
 	var duration pgtype.Int8
 	var subjectID, uploadedBy pgtype.Text
 	var metadata []byte
 	var uploadedAt pgtype.Timestamptz
-	if err := row.Scan(
+	var fingerprint string
+	dest := []any{
 		&out.ProofID,
 		&out.TenantID,
 		&out.StorageProvider,
@@ -222,8 +298,12 @@ func scanArtifact(row rowScanner) (domain.Artifact, error) {
 		&uploadedAt,
 		&out.UpdatedAt,
 		&out.RowVersion,
-	); err != nil {
-		return domain.Artifact{}, err
+	}
+	if withFingerprint {
+		dest = append(dest, &fingerprint)
+	}
+	if err := row.Scan(dest...); err != nil {
+		return domain.Artifact{}, "", err
 	}
 	if duration.Valid {
 		v := duration.Int64
@@ -235,7 +315,7 @@ func scanArtifact(row rowScanner) (domain.Artifact, error) {
 	out.Metadata = decodeMap(metadata)
 	out.CreatedAt = out.CreatedAt.UTC()
 	out.UpdatedAt = out.UpdatedAt.UTC()
-	return out, nil
+	return out, fingerprint, nil
 }
 
 func decodeMap(raw []byte) map[string]any {

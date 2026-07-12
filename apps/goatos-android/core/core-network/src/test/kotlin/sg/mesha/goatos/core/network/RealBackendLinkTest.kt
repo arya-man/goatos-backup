@@ -23,7 +23,7 @@ class RealBackendLinkTest {
         assumeTrue("set GOATOS_TEST_BEARER + run the backend on :8080", token.isNotBlank())
         val baseUrl = System.getenv("GOATOS_TEST_BASE_URL") ?: "http://127.0.0.1:8080/"
 
-        val api = NetworkFactory.appApi(baseUrl) { token }
+        val api = NetworkFactory.appApi(baseUrl, tokenProvider = { token })
 
         runBlocking {
             val boot = api.bootstrap()

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/proof/domain"
+	"github.com/vgoats/goatos/backend/internal/proof/ports"
 )
 
 func TestCompleteProofDoesNotMutateCompletedArtifact(t *testing.T) {
@@ -149,6 +151,71 @@ WHERE tenant_id = $1::uuid
 	}
 	if _, ok := got.proof.Metadata["late"]; ok {
 		t.Fatalf("late metadata should not be merged into completed proof: %#v", got.proof.Metadata)
+	}
+}
+
+func TestCreateProofIsIdempotentByKey(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	subjectID := "30000000-0000-4000-8000-000000000001"
+	create := domain.CreateUpload{
+		TenantID:       "00000000-0000-4000-8000-000000000001",
+		ProofType:      "video",
+		MimeType:       "video/mp4",
+		ScopeType:      "task",
+		ScopeID:        "20000000-0000-4000-8000-000000000001",
+		SubjectType:    "shed",
+		SubjectID:      &subjectID,
+		Metadata:       map[string]any{"created": "true"},
+		IdempotencyKey: "proof-upload:task-1:capture-1",
+	}
+
+	first, err := repo.CreateProof(ctx, create, "gcs")
+	if err != nil {
+		t.Fatalf("first CreateProof() error = %v", err)
+	}
+
+	// A retried outbox dispatch reuses the SAME stored idempotency key verbatim (see
+	// SyncEngine's dispatch kdoc) — this must return the ORIGINAL proof, never mint a second
+	// object/row for the same capture.
+	second, err := repo.CreateProof(ctx, create, "gcs")
+	if err != nil {
+		t.Fatalf("replayed CreateProof() error = %v", err)
+	}
+	if second.ProofID != first.ProofID || second.ObjectKey != first.ObjectKey {
+		t.Fatalf("idempotent replay minted a different proof/object: first=%#v second=%#v", first, second)
+	}
+
+	var rowCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM proof_artifacts WHERE idempotency_key = $1`, create.IdempotencyKey).Scan(&rowCount); err != nil {
+		t.Fatalf("count proof_artifacts: %v", err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("proof_artifacts rows for idempotency key = %d, want 1", rowCount)
+	}
+
+	// Same key, different logical request (different mime type) must be rejected rather than
+	// silently returning the unrelated original proof.
+	conflicting := create
+	conflicting.MimeType = "video/quicktime"
+	if _, err := repo.CreateProof(ctx, conflicting, "gcs"); !errors.Is(err, ports.ErrIdempotencyConflict) {
+		t.Fatalf("same-key different-payload CreateProof() error = %v, want ErrIdempotencyConflict", err)
+	}
+
+	// No idempotency key at all (a non-mobile/legacy caller) always inserts a fresh row —
+	// unchanged pre-existing behavior.
+	noKey := create
+	noKey.IdempotencyKey = ""
+	third, err := repo.CreateProof(ctx, noKey, "gcs")
+	if err != nil {
+		t.Fatalf("CreateProof() without idempotency key error = %v", err)
+	}
+	if third.ProofID == first.ProofID {
+		t.Fatalf("caller without an idempotency key must always get a fresh proof")
 	}
 }
 

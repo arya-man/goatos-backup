@@ -99,17 +99,16 @@ private fun ScannedGoatEntity.toRow() = ScannedGoatRow(fieldKey = fieldKey, tag 
 /**
  * Room-first SSOT for a task's `video_proof` recording-form fields
  * (docs/mobile/proof-capture-sync-and-e2e.md §2/§3). Every captured video is persisted to
- * Room BEFORE any network call, then a metadata registration write
+ * Room BEFORE any network call, then a signed-upload write
  * ([SyncRepository.enqueueProofUpload]) is queued through the SAME durable outbox the
  * shed-submit write uses — background, survives process death, exactly-once via the row's
  * own idempotency key. [observeProofs] status transitions PENDING -> IN_FLIGHT -> SYNCED/FAILED
  * mirror the outbox item this capture drives (Photos/Drive "uploading -> synced" model).
  *
- * NOTE (documented boundary, not new to this build — see `core-network`'s
- * `ProofUploadRequestDto` kdoc): [SyncRepository.enqueueProofUpload] registers proof METADATA
- * and gets back a signed upload URL; the actual binary PUT of the video bytes to that URL is a
- * separate pass this repository does not perform. A row therefore reaches [CaptureSyncStatus.SYNCED]
- * once metadata registration succeeds, not once the video bytes are actually durable server-side.
+ * [SyncRepository.enqueueProofUpload]'s single outbox dispatch now runs the FULL signed-upload
+ * flow (register metadata -> stream the video bytes to the signed URL -> call the completion
+ * endpoint — see [sg.mesha.goatos.core.data.sync.SyncEngine.dispatchProofUpload]), so a row only
+ * reaches [CaptureSyncStatus.SYNCED] once the video is actually durable server-side.
  */
 interface ProofCaptureRepository {
     fun observeProofs(taskId: String): Flow<List<ProofCaptureRow>>
@@ -240,6 +239,8 @@ class DefaultProofCaptureRepository(
                     groupKey = scopeId.ifBlank { entity.taskId },
                     idempotencyKey = entity.idempotencyKey,
                     request = request,
+                    localFilePath = entity.localUri,
+                    durationMs = (entity.capturedEndMs - entity.capturedStartMs).coerceAtLeast(0),
                 )
             ) {
                 is AppResult.Ok -> {

@@ -107,15 +107,16 @@ func (h *Handler) CreateUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target, err := h.service.CreateUpload(r.Context(), domain.CreateUpload{
-		TenantID:    tenantID(r),
-		ProofType:   req.ProofType,
-		MimeType:    req.MimeType,
-		ScopeType:   req.ScopeType,
-		ScopeID:     req.ScopeID,
-		SubjectType: req.SubjectType,
-		SubjectID:   req.SubjectID,
-		UploadedBy:  actorPtr(r),
-		Metadata:    req.Metadata,
+		TenantID:       tenantID(r),
+		ProofType:      req.ProofType,
+		MimeType:       req.MimeType,
+		ScopeType:      req.ScopeType,
+		ScopeID:        req.ScopeID,
+		SubjectType:    req.SubjectType,
+		SubjectID:      req.SubjectID,
+		UploadedBy:     actorPtr(r),
+		Metadata:       req.Metadata,
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	if err != nil {
 		h.respondErr(w, r, err)
@@ -226,6 +227,9 @@ func (h *Handler) respondErr(w http.ResponseWriter, r *http.Request, err error) 
 	case errors.Is(err, ports.ErrIntegrityMismatch):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "proof_integrity_mismatch", Message: "proof upload does not match storage object", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrIdempotencyConflict):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+			errorEnvelope{Code: "idempotency_key_conflict", Message: "idempotency key already belongs to a different proof upload request", TraceID: traceID(r)}, nil)
 	default:
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)

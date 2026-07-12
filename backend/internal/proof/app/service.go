@@ -212,6 +212,7 @@ func normalizeCreate(in *domain.CreateUpload) {
 	in.ScopeType = strings.TrimSpace(in.ScopeType)
 	in.ScopeID = strings.TrimSpace(in.ScopeID)
 	in.SubjectType = strings.TrimSpace(in.SubjectType)
+	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
 	if in.SubjectID != nil {
 		v := strings.TrimSpace(*in.SubjectID)
 		in.SubjectID = &v

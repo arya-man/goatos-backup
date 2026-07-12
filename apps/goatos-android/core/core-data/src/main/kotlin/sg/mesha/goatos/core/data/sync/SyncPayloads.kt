@@ -30,10 +30,15 @@ data class ReschedulePayload(
     @SerialName("request") val request: RescheduleObligationRequestDto,
 )
 
-/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.PROOF_UPLOAD]. */
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.PROOF_UPLOAD].
+ *  [localFilePath] is the captured video's location in this app's OWN private storage
+ *  (`Context.filesDir` — see `InAppVideoRecorder`); [SyncEngine.dispatchProofUpload] streams it
+ *  to the signed URL `registerProof` returns (docs/mobile/proof-capture-sync-and-e2e.md §3). */
 @Serializable
 data class ProofUploadPayload(
     @SerialName("request") val request: ProofUploadRequestDto,
+    @SerialName("local_file_path") val localFilePath: String = "",
+    @SerialName("duration_ms") val durationMs: Long? = null,
 )
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.VERIFY_TASK].

@@ -257,7 +257,13 @@ private class FakeSyncRepository : SyncRepository {
 
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: RescheduleObligationRequestDto): AppResult<String> = error("unused")
 
-    override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto): AppResult<String> {
+    override suspend fun enqueueProofUpload(
+        groupKey: String,
+        idempotencyKey: String,
+        request: ProofUploadRequestDto,
+        localFilePath: String,
+        durationMs: Long?,
+    ): AppResult<String> {
         val id = "outbox-${nextId++}"
         enqueueCalls += EnqueueCall(idempotencyKey, id, request)
         status.value = status.value.copy(

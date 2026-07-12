@@ -325,6 +325,8 @@ private class CapturingSyncRepository : SyncRepository {
         groupKey: String,
         idempotencyKey: String,
         request: ProofUploadRequestDto,
+        localFilePath: String,
+        durationMs: Long?,
     ): AppResult<String> = error("unused")
 
     override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")

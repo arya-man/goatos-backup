@@ -77,11 +77,20 @@ interface SyncRepository {
         request: RescheduleObligationRequestDto,
     ): AppResult<String>
 
-    /** Enqueues a captured-proof registration write (`POST /app/proofs/uploads`). */
+    /** Enqueues a captured-proof registration write (`POST /app/proofs/uploads`), followed by
+     *  the binary PUT of [localFilePath]'s bytes and the completion call
+     *  (`POST /app/proofs/{proof_id}/complete`) — all three steps run as ONE outbox dispatch
+     *  (see [SyncEngine.dispatchProofUpload]), so the row only reaches SYNCED once the video is
+     *  actually durable server-side, not just registered. [localFilePath] is this app's own
+     *  private-storage path for the captured video; [durationMs] is the capture's measured
+     *  duration (freshness metadata, docs/mobile/proof-capture-sync-and-e2e.md "Camera-only
+     *  capture"). */
     suspend fun enqueueProofUpload(
         groupKey: String,
         idempotencyKey: String,
         request: ProofUploadRequestDto,
+        localFilePath: String,
+        durationMs: Long?,
     ): AppResult<String>
 
     /** Enqueues a leadership verify action on a record task (C35-011). */
@@ -204,11 +213,15 @@ class DefaultSyncRepository(
         groupKey: String,
         idempotencyKey: String,
         request: ProofUploadRequestDto,
+        localFilePath: String,
+        durationMs: Long?,
     ): AppResult<String> = enqueue(
         opType = OutboxOpType.PROOF_UPLOAD,
         groupKey = groupKey,
         idempotencyKey = idempotencyKey,
-        payloadJson = syncJson.encodeToString(ProofUploadPayload(request = request)),
+        payloadJson = syncJson.encodeToString(
+            ProofUploadPayload(request = request, localFilePath = localFilePath, durationMs = durationMs),
+        ),
     )
 
     override suspend fun enqueueVerifyTask(
