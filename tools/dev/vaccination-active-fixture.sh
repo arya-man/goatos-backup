@@ -155,3 +155,26 @@ resolve_vaccination_fixture() {
   export VERSION RULE BOOSTER_RULE BOOSTER_TRIGGER SOPVER SOP_VERSION ITEM VACCINE_ITEM LOT VACCINE_LOT
   export MATRIX_SUMMARY RULE_SUMMARY BOOSTER_SUMMARY
 }
+
+# Persistent-local proof scripts create isolated goats/sheds/batches on purpose. Always put the
+# developer database back onto the canonical workbook seed before returning, even when a proof
+# fails halfway through. Set GOATOS_KEEP_VACCINATION_PROOF_FIXTURES=1 only for an explicit manual
+# forensic session; normal proof runs must never leak their fixtures into Calendar/Vaccination.
+install_vaccination_proof_cleanup_trap() {
+  restore_canonical_vaccination_seed_after_proof() {
+    local proof_status=$?
+    trap - EXIT
+    if [ "${GOATOS_KEEP_VACCINATION_PROOF_FIXTURES:-0}" != "1" ]; then
+      echo "restoring canonical local vaccination seed after proof..." >&2
+      (
+        cd "$BACKEND"
+        GOATOS_ENV=local GOATOS_TENANT_ID="$TENANT" \
+          go run ./cmd/seed-vaccination-real -tenant-id "$TENANT" -purge-fixtures=true
+      ) >/tmp/goatos-vaccination-proof-restore.log 2>&1 || {
+        echo "WARNING canonical vaccination seed restore failed; see /tmp/goatos-vaccination-proof-restore.log" >&2
+      }
+    fi
+    exit "$proof_status"
+  }
+  trap restore_canonical_vaccination_seed_after_proof EXIT
+}

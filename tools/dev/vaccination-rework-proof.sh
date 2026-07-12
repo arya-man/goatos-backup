@@ -23,6 +23,7 @@ jqp(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null
 has(){ grep -q "$1" <<<"$2" && echo HIT || echo MISS; }
 fail(){ echo "FAIL $*" >&2; exit 1; }
 . "$(cd "$(dirname "$0")" && pwd)/vaccination-active-fixture.sh"
+install_vaccination_proof_cleanup_trap
 
 relay_once(){
   local out

@@ -212,7 +212,35 @@ export function CalendarEventDrawer({
             <Tag tone={status.tone}>{status.label}</Tag>
             <Tag tone={severity.tone}>{severity.label}</Tag>
             <Tag tone="info">{ownerLabel(event.owner_key, ownerMeta)}</Tag>
+            {event.all_day ? <Tag tone="info">{copy(pageContract, "calendar.drive.all_day")}</Tag> : null}
           </div>
+
+          {event.aggregated ? (
+            <div style={{ marginBottom: 16 }}>
+              <div className="metagrid">
+                <MetaCell k={copy(pageContract, "calendar.drive.sheds")} v={event.shed_count} />
+                <MetaCell k={copy(pageContract, "calendar.drive.vaccines")} v={event.vaccine_count} />
+                <MetaCell k={copy(pageContract, "calendar.drive.doses")} v={event.target_count} />
+                <MetaCell k={copy(pageContract, "calendar.drive.packets")} v={event.drive_count} />
+              </div>
+              {event.vaccine_labels.length ? (
+                <div style={{ marginTop: 12 }}>
+                  <div className="b700" style={{ marginBottom: 8 }}>{copy(pageContract, "calendar.drive.vaccine_mix")}</div>
+                  <div className="chipset">
+                    {event.vaccine_labels.map((label) => <Tag key={label} tone="info">{label}</Tag>)}
+                  </div>
+                </div>
+              ) : null}
+              {event.shed_labels.length ? (
+                <div style={{ marginTop: 12 }}>
+                  <div className="b700" style={{ marginBottom: 8 }}>{copy(pageContract, "calendar.drive.shed_coverage")}</div>
+                  <div className="chipset">
+                    {event.shed_labels.map((label) => <Tag key={label} tone="mut">{label}</Tag>)}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {/* Mock metagrid: When / Reminder / Channel / Escalates. Channel from the API summary field. */}
           <div className="metagrid">

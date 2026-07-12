@@ -79,6 +79,7 @@ assert_outbox_published(){
   [ "$not_published" = "0" ] || fail "$label outbox has non-published rows=$not_published"
 }
 . "$(cd "$(dirname "$0")" && pwd)/vaccination-active-fixture.sh"
+install_vaccination_proof_cleanup_trap
 
 TOKEN=$(cd "$BACKEND" && go run ./cmd/mint-dev-token -tenant-id "$TENANT" -user-id "$USER" -ttl 2h 2>/dev/null)
 A=(-H "Authorization: Bearer $TOKEN")

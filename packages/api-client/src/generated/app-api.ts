@@ -1909,6 +1909,11 @@ export interface components {
             owner_key: components["schemas"]["CalendarOwnerKey"];
             title: string;
             subtitle: string;
+            aggregated: boolean;
+            all_day: boolean;
+            summary_primary: string;
+            summary_secondary: string;
+            summary_tertiary: string;
             status: components["schemas"]["CalendarStatus"];
             severity: components["schemas"]["CalendarSeverity"];
             /** Format: date-time */
@@ -1930,6 +1935,15 @@ export interface components {
             cohort_name: string | null;
             target_type: string;
             target_count: number;
+            shed_count: number;
+            vaccine_count: number;
+            drive_count: number;
+            catch_up_count: number;
+            scheduled_count: number;
+            deferred_count: number;
+            review_count: number;
+            shed_labels: string[];
+            vaccine_labels: string[];
             /** Format: uuid */
             protocol_id: string | null;
             /** Format: uuid */

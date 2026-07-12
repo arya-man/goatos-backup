@@ -66,6 +66,11 @@ type CalendarEvent struct {
 	OwnerKey                   string          `json:"owner_key"`
 	Title                      string          `json:"title"`
 	Subtitle                   string          `json:"subtitle"`
+	Aggregated                 bool            `json:"aggregated"`
+	AllDay                     bool            `json:"all_day"`
+	SummaryPrimary             string          `json:"summary_primary"`
+	SummarySecondary           string          `json:"summary_secondary"`
+	SummaryTertiary            string          `json:"summary_tertiary"`
 	Status                     string          `json:"status"`
 	Severity                   string          `json:"severity"`
 	DueAt                      time.Time       `json:"due_at"`
@@ -81,6 +86,15 @@ type CalendarEvent struct {
 	CohortName                 *string         `json:"cohort_name"`
 	TargetType                 string          `json:"target_type"`
 	TargetCount                int             `json:"target_count"`
+	ShedCount                  int             `json:"shed_count"`
+	VaccineCount               int             `json:"vaccine_count"`
+	DriveCount                 int             `json:"drive_count"`
+	CatchUpCount               int             `json:"catch_up_count"`
+	ScheduledCount             int             `json:"scheduled_count"`
+	DeferredCount              int             `json:"deferred_count"`
+	ReviewCount                int             `json:"review_count"`
+	ShedLabels                 []string        `json:"shed_labels"`
+	VaccineLabels              []string        `json:"vaccine_labels"`
 	ProtocolID                 *string         `json:"protocol_id"`
 	ProtocolVersionID          *string         `json:"protocol_version_id"`
 	RuleID                     *string         `json:"rule_id"`

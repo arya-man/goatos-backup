@@ -37,6 +37,7 @@ assert_eq(){ local label=$1 want=$2 got=$3; [ "$want" = "$got" ] || fail "$label
 assert_hit(){ local label=$1 needle=$2 haystack=$3; [ "$(has "$needle" "$haystack")" = HIT ] || fail "$label missing $needle"; }
 assert_no_hit(){ local label=$1 needle=$2 haystack=$3; [ "$(has "$needle" "$haystack")" = MISS ] || fail "$label unexpectedly contains $needle"; }
 . "$(cd "$(dirname "$0")" && pwd)/vaccination-active-fixture.sh"
+install_vaccination_proof_cleanup_trap
 
 STAMP=$(date +%s)
 RUN_DAY_SECOND=$((STAMP % 86400))

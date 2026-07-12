@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -517,6 +518,89 @@ WHERE tenant_id=$1::uuid
 	legacyBatchID := fmt.Sprintf("batch:%s:rule:%s:shed:%s", batchID, ruleID, testShedA)
 	seedScopedCalendarProjection(t, ctx, pool, legacyBatchID, batchID, testParkA, testShedA, false)
 	assertDriveTargets(t, ctx, repo, legacyBatchID, obligationIDs)
+}
+
+func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDayParkDrive(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	dueAt := stableSameLocalDayDueAt(time.Now().UTC())
+	const (
+		protocolA   = "86000000-0000-4000-8000-00000000c101"
+		versionA    = "86000000-0000-4000-8000-00000000c102"
+		ruleA       = "86000000-0000-4000-8000-00000000c103"
+		batchA      = "86000000-0000-4000-8000-00000000c104"
+		obligationA = "86000000-0000-4000-8000-00000000c105"
+		protocolB   = "86000000-0000-4000-8000-00000000c201"
+		versionB    = "86000000-0000-4000-8000-00000000c202"
+		ruleB       = "86000000-0000-4000-8000-00000000c203"
+		batchB      = "86000000-0000-4000-8000-00000000c204"
+		obligationB = "86000000-0000-4000-8000-00000000c205"
+	)
+	seedVaccinationObligation(t, ctx, pool, protocolA, versionA, ruleA, obligationA, dueAt)
+	seedProtocolRuleVaccineName(t, ctx, pool, versionA, ruleA, "ET+TT")
+	seedVaccinationBatchForShed(t, ctx, pool, batchA, versionA, testParkA, testShedA, dueAt, obligationA)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 100,
+	}); err != nil {
+		t.Fatalf("first RefreshVaccinationProjection: %v", err)
+	}
+	assertCount(t, ctx, pool, "single source keeps stable batch event", `
+SELECT count(*) FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2 AND status <> 'canceled'`, 1, testTenantID, batchEventID(batchA))
+
+	seedVaccinationObligation(t, ctx, pool, protocolB, versionB, ruleB, obligationB, dueAt.Add(10*time.Minute))
+	seedProtocolRuleVaccineName(t, ctx, pool, versionB, ruleB, "PPR")
+	seedVaccinationBatchForShed(t, ctx, pool, batchB, versionB, testParkA, testShedB, dueAt.Add(10*time.Minute), obligationB)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 100,
+	}); err != nil {
+		t.Fatalf("second RefreshVaccinationProjection: %v", err)
+	}
+
+	wantID := parkDriveEventID(testParkA, dueAt)
+	var gotID string
+	var targetCount, shedCount, vaccineCount, driveCount int
+	var allDay, aggregated bool
+	var shedLabels, vaccineLabels []string
+	if err := pool.QueryRow(ctx, `
+SELECT event_id, target_count,
+       (detail #>> '{summary,shed_count}')::int,
+       (detail #>> '{summary,vaccine_count}')::int,
+       (detail #>> '{summary,drive_count}')::int,
+       ARRAY(SELECT jsonb_array_elements_text(detail #> '{summary,shed_labels}')),
+       ARRAY(SELECT jsonb_array_elements_text(detail #> '{summary,vaccine_labels}'))
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND source_target_type='park_drive' AND status <> 'canceled'`, testTenantID).Scan(
+		&gotID, &targetCount, &shedCount, &vaccineCount, &driveCount, &shedLabels, &vaccineLabels,
+	); err != nil {
+		t.Fatalf("query grouped park drive: %v", err)
+	}
+	if gotID != wantID || targetCount != 2 || shedCount != 2 || vaccineCount != 2 || driveCount != 2 {
+		t.Fatalf("grouped drive id=%s targets=%d sheds=%d vaccines=%d packets=%d", gotID, targetCount, shedCount, vaccineCount, driveCount)
+	}
+	if !slices.Equal(shedLabels, []string{"Test Shed 0711", "Test Shed 0712"}) || !slices.Equal(vaccineLabels, []string{"ET+TT", "PPR"}) {
+		t.Fatalf("grouped labels sheds=%v vaccines=%v", shedLabels, vaccineLabels)
+	}
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents grouped park drive: %v", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("ListEvents grouped park drive items=%#v", list.Items)
+	}
+	allDay, aggregated = list.Items[0].AllDay, list.Items[0].Aggregated
+	if !allDay || !aggregated || list.Items[0].ShedCount != 2 || list.Items[0].VaccineCount != 2 {
+		t.Fatalf("ListEvents summary=%#v", list.Items[0])
+	}
+	assertCount(t, ctx, pool, "superseded raw batch card tombstoned", `
+SELECT count(*) FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2 AND status='canceled'`, 1, testTenantID, batchEventID(batchA))
 }
 
 func TestCalendarVaccinationProjectionCollapsesMultipleRulesIntoSingleCatchupDrive(t *testing.T) {
@@ -1881,6 +1965,14 @@ func catchupParkEventID(parkID string, dueAt time.Time) string {
 	return fmt.Sprintf("catchup:park:%s:due:%s", parkID, day)
 }
 
+func parkDriveEventID(parkID string, dueAt time.Time) string {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		loc = time.FixedZone("IST", 5*60*60+30*60)
+	}
+	return fmt.Sprintf("parkdrive:park:%s:date:%s", parkID, dueAt.In(loc).Format("2006-01-02"))
+}
+
 func stableSameLocalDayDueAt(now time.Time) time.Time {
 	loc, err := time.LoadLocation("Asia/Kolkata")
 	if err != nil {
@@ -2228,7 +2320,12 @@ SET due_at = EXCLUDED.due_at,
 
 func seedVaccinationBatch(t *testing.T, ctx context.Context, pool *pgxpool.Pool, batchID, versionID string, dueAt time.Time, obligationIDs ...string) {
 	t.Helper()
-	seedCalendarLocations(t, ctx, pool, testParkA, testShedA)
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, dueAt, obligationIDs...)
+}
+
+func seedVaccinationBatchForShed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, batchID, versionID, parkID, shedID string, dueAt time.Time, obligationIDs ...string) {
+	t.Helper()
+	seedCalendarLocations(t, ctx, pool, parkID, shedID)
 	_, err := pool.Exec(ctx, `
 INSERT INTO obligation_batches (
   batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status,
@@ -2246,7 +2343,7 @@ SET scope_type = 'shed',
     estimated_targets = EXCLUDED.estimated_targets,
     planned_quantity = EXCLUDED.planned_quantity,
     updated_at = now()`,
-		batchID, testTenantID, versionID, testShedA, dueAt, len(obligationIDs))
+		batchID, testTenantID, versionID, shedID, dueAt, len(obligationIDs))
 	if err != nil {
 		t.Fatalf("seed vaccination batch: %v", err)
 	}
@@ -2258,9 +2355,25 @@ SET batch_id = $3::uuid,
     scope_id = $4::uuid,
     updated_at = now()
 WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
-			testTenantID, obligationID, batchID, testShedA); err != nil {
+			testTenantID, obligationID, batchID, shedID); err != nil {
 			t.Fatalf("attach obligation %s to batch: %v", obligationID, err)
 		}
+	}
+}
+
+func seedProtocolRuleVaccineName(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID, ruleID, vaccineName string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO protocol_rule_dimensions (
+  tenant_id, protocol_version_id, rule_id, category, ruleset_family,
+  selector_key, dose_code, source_dose_code, vaccine_code, vaccine_json
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'vaccination', 'calendar-projection-test',
+  $3::text, 'first', 'first', lower(replace($4, ' ', '_')), jsonb_build_object('name', $4)
+)
+ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE
+SET vaccine_json = EXCLUDED.vaccine_json`, testTenantID, versionID, ruleID, vaccineName); err != nil {
+		t.Fatalf("seed protocol rule vaccine dimension: %v", err)
 	}
 }
 

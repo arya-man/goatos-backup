@@ -80,10 +80,18 @@ function EventRow({
     .join(" · ");
   return (
     <Link href={href} replace scroll={false} className="ev celllink" style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
-      <div className="et">{timeOf(event.due_at)}</div>
+      <div className="et">{event.all_day ? copy(pageContract, "calendar.drive.all_day") : timeOf(event.due_at)}</div>
       <div className="eb">
         <b>{event.title}</b>
         <div className="em">{meta}</div>
+        {event.aggregated ? (
+          <div className="metagrid" style={{ marginTop: 10 }}>
+            <div><div className="k">{copy(pageContract, "calendar.drive.sheds")}</div><div className="v">{event.shed_count}</div></div>
+            <div><div className="k">{copy(pageContract, "calendar.drive.vaccines")}</div><div className="v">{event.vaccine_count}</div></div>
+            <div><div className="k">{copy(pageContract, "calendar.drive.doses")}</div><div className="v">{event.target_count}</div></div>
+          </div>
+        ) : null}
+        {event.summary_tertiary ? <div className="em" style={{ marginTop: 7 }}>{event.summary_tertiary}</div> : null}
       </div>
     </Link>
   );
@@ -687,7 +695,7 @@ function CalendarDatePicker({
                 dayEvents.length
                   ? dayEvents
                       .slice(0, 4)
-                      .map((event) => `${timeOf(event.due_at)} ${eventTypeMeta(event.event_type, presentation).label} - ${event.title}`)
+                      .map((event) => `${event.all_day ? copy(pageContract, "calendar.drive.all_day") : timeOf(event.due_at)} ${eventTypeMeta(event.event_type, presentation).label} - ${event.title}`)
                       .join("\n")
                   : undefined
               }

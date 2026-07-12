@@ -5147,6 +5147,11 @@ components:
         - owner_key
         - title
         - subtitle
+        - aggregated
+        - all_day
+        - summary_primary
+        - summary_secondary
+        - summary_tertiary
         - status
         - severity
         - due_at
@@ -5162,6 +5167,15 @@ components:
         - cohort_name
         - target_type
         - target_count
+        - shed_count
+        - vaccine_count
+        - drive_count
+        - catch_up_count
+        - scheduled_count
+        - deferred_count
+        - review_count
+        - shed_labels
+        - vaccine_labels
         - protocol_id
         - protocol_version_id
         - rule_id
@@ -5190,6 +5204,16 @@ components:
         title:
           type: string
         subtitle:
+          type: string
+        aggregated:
+          type: boolean
+        all_day:
+          type: boolean
+        summary_primary:
+          type: string
+        summary_secondary:
+          type: string
+        summary_tertiary:
           type: string
         status:
           $ref: "#/components/schemas/CalendarStatus"
@@ -5244,6 +5268,35 @@ components:
         target_count:
           type: integer
           minimum: 0
+        shed_count:
+          type: integer
+          minimum: 0
+        vaccine_count:
+          type: integer
+          minimum: 0
+        drive_count:
+          type: integer
+          minimum: 0
+        catch_up_count:
+          type: integer
+          minimum: 0
+        scheduled_count:
+          type: integer
+          minimum: 0
+        deferred_count:
+          type: integer
+          minimum: 0
+        review_count:
+          type: integer
+          minimum: 0
+        shed_labels:
+          type: array
+          items:
+            type: string
+        vaccine_labels:
+          type: array
+          items:
+            type: string
         protocol_id:
           type:
             - string

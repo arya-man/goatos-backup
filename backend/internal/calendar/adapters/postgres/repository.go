@@ -1709,7 +1709,13 @@ WITH completed_history AS (
       pr.rule_id::text AS event_id,
     'vaccination_history'::text AS event_type,
     'pc'::text AS owner_key,
-    pd.name || ' ' || pr.dose_code || ' completed' AS title,
+    COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name) || ' · ' ||
+      CASE
+        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%_first' THEN 'First dose'
+        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%_booster' THEN 'Booster'
+        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%adult_revac%' THEN 'Revaccination'
+        ELSE COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code)
+      END || ' completed' AS title,
     COALESCE(loc.shed_name, loc.park_code, 'Accepted vaccination history') AS subtitle,
     'completed'::text AS status,
     'info'::text AS severity,
@@ -1729,7 +1735,7 @@ WITH completed_history AS (
     pd.protocol_id::text AS protocol_id,
     pv.protocol_version_id::text AS protocol_version_id,
     pr.rule_id::text AS rule_id,
-    pd.name AS vaccine_name,
+    COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name) AS vaccine_name,
     pr.dose_code,
     true AS source_backed,
     'Accepted vaccination administration history'::text AS source_label,
@@ -1749,8 +1755,10 @@ WITH completed_history AS (
     ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
   JOIN protocol_definitions pd
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-  JOIN protocol_rules pr
-    ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+	JOIN protocol_rules pr
+	  ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+  LEFT JOIN protocol_rule_dimensions prd
+    ON prd.tenant_id = pr.tenant_id AND prd.rule_id = pr.rule_id
   LEFT JOIN locations scope_loc
     ON scope_loc.tenant_id = oi.tenant_id
    AND scope_loc.location_id = oi.scope_id
@@ -1792,6 +1800,7 @@ WITH completed_history AS (
   GROUP BY
     loc.park_id, loc.park_code, loc.shed_id, loc.shed_name,
     pd.protocol_id, pv.protocol_version_id, pr.rule_id, pd.name, pr.dose_code,
+    prd.vaccine_json, prd.source_dose_code,
     (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date
 ),
 candidates AS (
@@ -1801,7 +1810,21 @@ candidates AS (
            cohort_id::text, cohort_name, target_type, target_count, protocol_id::text,
            protocol_version_id::text, rule_id::text, vaccine_name, dose_code, source_backed,
            source_label, assignee_label, executor_role, verifier_label, reminder_state,
-           primary_notification_channel, escalation_state, system, cross_cutting, links
+           primary_notification_channel, escalation_state, system, cross_cutting, links,
+           event_type = 'vaccination_drive' AS aggregated,
+           event_type = 'vaccination_drive' AS all_day,
+           COALESCE(detail->'summary'->>'summary_primary', '') AS summary_primary,
+           COALESCE(detail->'summary'->>'summary_secondary', '') AS summary_secondary,
+           COALESCE(detail->'summary'->>'summary_tertiary', '') AS summary_tertiary,
+           COALESCE((detail->'summary'->>'shed_count')::int, CASE WHEN shed_id IS NULL THEN 0 ELSE 1 END) AS shed_count,
+           COALESCE((detail->'summary'->>'vaccine_count')::int, CASE WHEN vaccine_name IS NULL THEN 0 ELSE 1 END) AS vaccine_count,
+           COALESCE((detail->'summary'->>'drive_count')::int, CASE WHEN event_type = 'vaccination_drive' THEN 1 ELSE 0 END) AS drive_count,
+           COALESCE((detail->'summary'->>'catch_up_count')::int, 0) AS catch_up_count,
+           COALESCE((detail->'summary'->>'scheduled_count')::int, 0) AS scheduled_count,
+           COALESCE((detail->'summary'->>'deferred_count')::int, 0) AS deferred_count,
+           COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
+           ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
+           ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels
     FROM calendar_event_projections
     WHERE tenant_id = $1::uuid
       AND slice_key = 'vaccination'
@@ -1827,7 +1850,21 @@ candidates AS (
            cohort_id::text, cohort_name, target_type, target_count, protocol_id::text,
            protocol_version_id::text, rule_id::text, vaccine_name, dose_code, source_backed,
            source_label, assignee_label, executor_role, verifier_label, reminder_state,
-           primary_notification_channel, escalation_state, system, cross_cutting, links
+           primary_notification_channel, escalation_state, system, cross_cutting, links,
+           event_type = 'vaccination_drive' AS aggregated,
+           event_type = 'vaccination_drive' AS all_day,
+           COALESCE(detail->'summary'->>'summary_primary', '') AS summary_primary,
+           COALESCE(detail->'summary'->>'summary_secondary', '') AS summary_secondary,
+           COALESCE(detail->'summary'->>'summary_tertiary', '') AS summary_tertiary,
+           COALESCE((detail->'summary'->>'shed_count')::int, CASE WHEN shed_id IS NULL THEN 0 ELSE 1 END) AS shed_count,
+           COALESCE((detail->'summary'->>'vaccine_count')::int, CASE WHEN vaccine_name IS NULL THEN 0 ELSE 1 END) AS vaccine_count,
+           COALESCE((detail->'summary'->>'drive_count')::int, CASE WHEN event_type = 'vaccination_drive' THEN 1 ELSE 0 END) AS drive_count,
+           COALESCE((detail->'summary'->>'catch_up_count')::int, 0) AS catch_up_count,
+           COALESCE((detail->'summary'->>'scheduled_count')::int, 0) AS scheduled_count,
+           COALESCE((detail->'summary'->>'deferred_count')::int, 0) AS deferred_count,
+           COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
+           ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
+           ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels
     FROM calendar_event_projections
     WHERE tenant_id = $1::uuid
       AND slice_key = 'vaccination'
@@ -1853,7 +1890,15 @@ candidates AS (
            cohort_id, cohort_name, target_type, target_count, protocol_id,
            protocol_version_id, rule_id, vaccine_name, dose_code, source_backed,
            source_label, assignee_label, executor_role, verifier_label, reminder_state,
-           primary_notification_channel, escalation_state, system, cross_cutting, links
+           primary_notification_channel, escalation_state, system, cross_cutting, links,
+           false AS aggregated, false AS all_day,
+           ''::text AS summary_primary, ''::text AS summary_secondary, ''::text AS summary_tertiary,
+           CASE WHEN shed_id IS NULL THEN 0 ELSE 1 END AS shed_count,
+           CASE WHEN vaccine_name IS NULL THEN 0 ELSE 1 END AS vaccine_count,
+           0::int AS drive_count, 0::int AS catch_up_count, 0::int AS scheduled_count,
+           0::int AS deferred_count, 0::int AS review_count,
+           CASE WHEN shed_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[shed_name] END AS shed_labels,
+           CASE WHEN vaccine_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[vaccine_name] END AS vaccine_labels
     FROM completed_history
     WHERE ($2::text = '' OR owner_key = $2::text)
       AND $3::text = 'completed'
@@ -1870,7 +1915,10 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
        cohort_id, cohort_name, target_type, target_count, protocol_id,
        protocol_version_id, rule_id, vaccine_name, dose_code, source_backed,
        source_label, assignee_label, executor_role, verifier_label, reminder_state,
-       primary_notification_channel, escalation_state, system, cross_cutting, links
+       primary_notification_channel, escalation_state, system, cross_cutting, links,
+       aggregated, all_day, summary_primary, summary_secondary, summary_tertiary,
+       shed_count, vaccine_count, drive_count, catch_up_count, scheduled_count,
+       deferred_count, review_count, shed_labels, vaccine_labels
 FROM candidates
 ORDER BY due_at ASC, event_id ASC
 LIMIT $10`
@@ -1964,7 +2012,22 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
        cohort_id::text, cohort_name, target_type, target_count, protocol_id::text,
        protocol_version_id::text, rule_id::text, vaccine_name, dose_code, source_backed,
        source_label, assignee_label, executor_role, verifier_label, reminder_state,
-       primary_notification_channel, escalation_state, system, cross_cutting, links, detail
+       primary_notification_channel, escalation_state, system, cross_cutting, links,
+       event_type = 'vaccination_drive' AS aggregated,
+       event_type = 'vaccination_drive' AS all_day,
+       COALESCE(detail->'summary'->>'summary_primary', '') AS summary_primary,
+       COALESCE(detail->'summary'->>'summary_secondary', '') AS summary_secondary,
+       COALESCE(detail->'summary'->>'summary_tertiary', '') AS summary_tertiary,
+       COALESCE((detail->'summary'->>'shed_count')::int, CASE WHEN shed_id IS NULL THEN 0 ELSE 1 END) AS shed_count,
+       COALESCE((detail->'summary'->>'vaccine_count')::int, CASE WHEN vaccine_name IS NULL THEN 0 ELSE 1 END) AS vaccine_count,
+       COALESCE((detail->'summary'->>'drive_count')::int, CASE WHEN event_type = 'vaccination_drive' THEN 1 ELSE 0 END) AS drive_count,
+       COALESCE((detail->'summary'->>'catch_up_count')::int, 0) AS catch_up_count,
+       COALESCE((detail->'summary'->>'scheduled_count')::int, 0) AS scheduled_count,
+       COALESCE((detail->'summary'->>'deferred_count')::int, 0) AS deferred_count,
+       COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
+       ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
+       ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
+       detail
 FROM calendar_event_projections
 WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
   AND system = false
@@ -2028,7 +2091,13 @@ grouped AS (
     $6::text AS event_id,
     'vaccination_history'::text AS event_type,
     'pc'::text AS owner_key,
-    pd.name || ' ' || pr.dose_code || ' completed' AS title,
+    COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name) || ' · ' ||
+      CASE
+        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%_first' THEN 'First dose'
+        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%_booster' THEN 'Booster'
+        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%adult_revac%' THEN 'Revaccination'
+        ELSE COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code)
+      END || ' completed' AS title,
     COALESCE(m.shed_name, m.park_code, 'Accepted vaccination history') AS subtitle,
     'completed'::text AS status,
     'info'::text AS severity,
@@ -2048,7 +2117,7 @@ grouped AS (
     pd.protocol_id::text AS protocol_id,
     pv.protocol_version_id::text AS protocol_version_id,
     pr.rule_id::text AS rule_id,
-    pd.name AS vaccine_name,
+    COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name) AS vaccine_name,
     pr.dose_code,
     true AS source_backed,
     'Accepted vaccination administration history'::text AS source_label,
@@ -2079,15 +2148,27 @@ grouped AS (
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
   JOIN protocol_rules pr
     ON pr.tenant_id = m.tenant_id AND pr.rule_id = m.rule_id
+  LEFT JOIN protocol_rule_dimensions prd
+    ON prd.tenant_id = pr.tenant_id AND prd.rule_id = pr.rule_id
   GROUP BY m.park_id, m.park_code, m.shed_id, m.shed_name,
-    pd.protocol_id, pv.protocol_version_id, pr.rule_id, pd.name, pr.dose_code
+    pd.protocol_id, pv.protocol_version_id, pr.rule_id, pd.name, pr.dose_code,
+    prd.vaccine_json, prd.source_dose_code
 )
 SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
        window_end, timezone, timezone_source, park_id, park_code, shed_id, shed_name,
        cohort_id, cohort_name, target_type, target_count, protocol_id,
        protocol_version_id, rule_id, vaccine_name, dose_code, source_backed,
        source_label, assignee_label, executor_role, verifier_label, reminder_state,
-       primary_notification_channel, escalation_state, system, cross_cutting, links, detail
+       primary_notification_channel, escalation_state, system, cross_cutting, links,
+       false AS aggregated, false AS all_day,
+       ''::text AS summary_primary, ''::text AS summary_secondary, ''::text AS summary_tertiary,
+       CASE WHEN shed_id IS NULL THEN 0 ELSE 1 END AS shed_count,
+       CASE WHEN vaccine_name IS NULL THEN 0 ELSE 1 END AS vaccine_count,
+       0::int AS drive_count, 0::int AS catch_up_count, 0::int AS scheduled_count,
+       0::int AS deferred_count, 0::int AS review_count,
+       CASE WHEN shed_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[shed_name] END AS shed_labels,
+       CASE WHEN vaccine_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[vaccine_name] END AS vaccine_labels,
+       detail
 FROM grouped
 WHERE ($7::bool OR park_id = ANY($8::text[]) OR shed_id = ANY($9::text[]))`
 
@@ -2378,7 +2459,9 @@ catchup_drive_events AS (
         'catchup', true,
         'queue_count', grouped.queue_count,
         'queue_preview', queue_meta.queue_preview,
-        'shed_count', grouped.shed_count
+        'shed_count', grouped.shed_count,
+        'shed_labels', to_jsonb(grouped.shed_labels),
+        'vaccine_labels', to_jsonb(grouped.vaccine_labels)
       ),
       'source_and_rule', jsonb_build_object(
         'due_day', grouped.due_day,
@@ -2413,6 +2496,11 @@ catchup_drive_events AS (
         DISTINCT COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
         ORDER BY COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
       ) AS queue_labels,
+      array_agg(DISTINCT loc.shed_name ORDER BY loc.shed_name) FILTER (WHERE loc.shed_name IS NOT NULL) AS shed_labels,
+      array_agg(
+        DISTINCT COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name)
+        ORDER BY COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name)
+      ) AS vaccine_labels,
       min(oi.due_at) AS due_at,
       min(COALESCE(oi.window_start, oi.due_at)) AS window_start,
       max(COALESCE(oi.window_end, oi.due_at + make_interval(days => pr.due_window_days))) AS window_end,
@@ -2436,6 +2524,8 @@ catchup_drive_events AS (
       ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
     JOIN protocol_rules pr
       ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+    LEFT JOIN protocol_rule_dimensions prd
+      ON prd.tenant_id = pr.tenant_id AND prd.rule_id = pr.rule_id
     LEFT JOIN locations scope_loc
       ON scope_loc.tenant_id = oi.tenant_id
      AND scope_loc.location_id = oi.scope_id
@@ -2557,7 +2647,10 @@ batch_events AS (
         'owner', 'PC',
         'target_count', grouped.target_count,
         'queue_count', grouped.queue_count,
-        'queue_preview', queue_meta.queue_preview
+        'queue_preview', queue_meta.queue_preview,
+        'shed_count', 1,
+        'shed_labels', jsonb_build_array(grouped.shed_name),
+        'vaccine_labels', to_jsonb(grouped.vaccine_labels)
       ),
       'source_and_rule', jsonb_build_object(
         'protocol_version_id', grouped.protocol_version_id,
@@ -2593,7 +2686,11 @@ batch_events AS (
       array_agg(
         DISTINCT COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
         ORDER BY COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
-      ) AS queue_labels
+      ) AS queue_labels,
+      array_agg(
+        DISTINCT COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name)
+        ORDER BY COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name)
+      ) AS vaccine_labels
     FROM obligation_batches ob
     JOIN obligation_instances oi
       ON oi.tenant_id = ob.tenant_id AND oi.batch_id = ob.batch_id
@@ -2603,6 +2700,8 @@ batch_events AS (
       ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
     JOIN protocol_rules pr
       ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+    LEFT JOIN protocol_rule_dimensions prd
+      ON prd.tenant_id = pr.tenant_id AND prd.rule_id = pr.rule_id
     LEFT JOIN locations scope_loc
       ON scope_loc.tenant_id = ob.tenant_id AND scope_loc.location_id = ob.scope_id
     LEFT JOIN locations scope_parent
@@ -2646,6 +2745,148 @@ batch_events AS (
         ELSE split_part(grouped.queue_labels[1], '|', 1) || ', ' || split_part(grouped.queue_labels[2], '|', 1) || ', ' || split_part(grouped.queue_labels[3], '|', 1) || ' +' || (grouped.queue_count - 3)::text || ' more'
       END AS queue_preview
   ) queue_meta
+),
+drive_sources AS (
+  SELECT * FROM batch_events
+  UNION ALL
+  SELECT * FROM catchup_drive_events
+),
+park_drive_groups AS (
+  SELECT
+    park_id,
+    max(park_code) AS park_code,
+    to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS due_day,
+    min(due_at) AS first_due_at,
+    min(window_start) AS window_start,
+    max(window_end) AS window_end,
+    sum(target_count)::int AS target_count,
+    count(*)::int AS drive_count,
+    sum(target_count) FILTER (WHERE source_target_type = 'catchup')::int AS catch_up_count,
+    sum(target_count) FILTER (WHERE source_target_type = 'batch')::int AS scheduled_count,
+    sum(target_count) FILTER (WHERE status = 'deferred')::int AS deferred_count,
+    min(event_id) AS single_event_id,
+    min(source_target_type) AS single_source_target_type,
+    min(source_target_id::text)::uuid AS single_source_target_id,
+    bool_or(status = 'completed') AND bool_and(status IN ('completed', 'canceled')) AS all_completed,
+    bool_or(status = 'missed') AS has_missed,
+    bool_or(status = 'in_progress') AS has_in_progress,
+    bool_or(status = 'deferred') AS has_deferred,
+    bool_or(status IN ('proof_pending', 'verification_pending', 'rejected', 'rework_due')) AS has_review,
+    bool_or(status NOT IN ('completed', 'canceled') AND due_at < now()) AS has_overdue,
+    jsonb_agg(event_id ORDER BY event_id) AS source_event_ids
+  FROM drive_sources
+  GROUP BY park_id, to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
+),
+park_drive_events AS (
+  SELECT
+    CASE
+      WHEN grouped.drive_count = 1 THEN grouped.single_event_id
+      WHEN grouped.park_id IS NOT NULL THEN 'parkdrive:park:' || grouped.park_id::text || ':date:' || grouped.due_day
+      ELSE 'parkdrive:tenant:' || $1::text || ':date:' || grouped.due_day
+    END AS event_id,
+    'vaccination_drive'::text AS event_type,
+    'pc'::text AS owner_key,
+    CASE WHEN grouped.park_id IS NOT NULL THEN 'Park vaccination drive' ELSE 'Vaccination drive' END AS title,
+    cardinality(shed_meta.labels)::text || ' sheds · ' || cardinality(vaccine_meta.labels)::text || ' vaccines' AS subtitle,
+    CASE
+      WHEN grouped.has_missed THEN 'missed'
+      WHEN grouped.has_review THEN 'verification_pending'
+      WHEN grouped.has_overdue THEN 'overdue'
+      WHEN grouped.has_in_progress THEN 'in_progress'
+      WHEN grouped.has_deferred THEN 'deferred'
+      WHEN grouped.all_completed THEN 'completed'
+      ELSE 'scheduled'
+    END AS status,
+    CASE
+      WHEN grouped.has_missed OR grouped.has_overdue THEN 'critical'
+      WHEN grouped.first_due_at <= now() + interval '24 hours' THEN 'warning'
+      ELSE 'info'
+    END AS severity,
+    grouped.due_day::date::timestamp AT TIME ZONE 'Asia/Kolkata' AS due_at,
+    grouped.window_start,
+    grouped.window_end,
+    'Asia/Kolkata'::text AS timezone,
+    'india_only'::text AS timezone_source,
+    grouped.park_id,
+    grouped.park_code,
+    NULL::uuid AS shed_id,
+    NULL::text AS shed_name,
+    NULL::uuid AS cohort_id,
+    NULL::text AS cohort_name,
+    CASE WHEN grouped.park_id IS NULL THEN 'tenant'::text ELSE 'park'::text END AS target_type,
+    grouped.target_count,
+    NULL::uuid AS protocol_id,
+    NULL::uuid AS protocol_version_id,
+    NULL::uuid AS rule_id,
+    CASE
+      WHEN cardinality(vaccine_meta.labels) = 1 THEN vaccine_meta.labels[1]
+      ELSE cardinality(vaccine_meta.labels)::text || ' vaccines'
+    END AS vaccine_name,
+    CASE
+      WHEN cardinality(vaccine_meta.labels) = 0 THEN NULL::text
+      WHEN cardinality(vaccine_meta.labels) = 1 THEN vaccine_meta.labels[1]
+      WHEN cardinality(vaccine_meta.labels) = 2 THEN vaccine_meta.labels[1] || ', ' || vaccine_meta.labels[2]
+      ELSE vaccine_meta.labels[1] || ', ' || vaccine_meta.labels[2] || ' +' || (cardinality(vaccine_meta.labels) - 2)::text || ' more'
+    END AS dose_code,
+    true AS source_backed,
+    'Park/day vaccination drive projection'::text AS source_label,
+    CASE WHEN grouped.drive_count = 1 THEN grouped.single_source_target_type ELSE 'park_drive'::text END AS source_target_type,
+    CASE WHEN grouped.drive_count = 1 THEN grouped.single_source_target_id ELSE COALESCE(grouped.park_id, $1::uuid) END AS source_target_id,
+    'PC drive team'::text AS assignee_label,
+    'pc_vaccinator'::text AS executor_role,
+    'PC verifier'::text AS verifier_label,
+    'not_scheduled'::text AS reminder_state,
+    'local-stub'::text AS primary_notification_channel,
+    'none'::text AS escalation_state,
+    false AS system,
+    false AS cross_cutting,
+    jsonb_build_object('vaccination', '/vaccination') AS links,
+    jsonb_build_object(
+      'summary', jsonb_build_object(
+        'owner', 'PC',
+        'target_count', grouped.target_count,
+        'summary_primary', grouped.target_count::text || ' scheduled doses',
+        'summary_secondary', cardinality(shed_meta.labels)::text || ' sheds · ' || cardinality(vaccine_meta.labels)::text || ' vaccines',
+        'summary_tertiary', CASE
+          WHEN cardinality(vaccine_meta.labels) = 0 THEN ''
+          WHEN cardinality(vaccine_meta.labels) = 1 THEN vaccine_meta.labels[1]
+          WHEN cardinality(vaccine_meta.labels) = 2 THEN vaccine_meta.labels[1] || ', ' || vaccine_meta.labels[2]
+          ELSE vaccine_meta.labels[1] || ', ' || vaccine_meta.labels[2] || ' +' || (cardinality(vaccine_meta.labels) - 2)::text || ' more'
+        END,
+        'shed_count', cardinality(shed_meta.labels),
+        'vaccine_count', cardinality(vaccine_meta.labels),
+        'drive_count', grouped.drive_count,
+        'catch_up_count', COALESCE(grouped.catch_up_count, 0),
+        'scheduled_count', COALESCE(grouped.scheduled_count, 0),
+        'deferred_count', COALESCE(grouped.deferred_count, 0),
+        'review_count', CASE WHEN grouped.has_review THEN 1 ELSE 0 END,
+        'shed_labels', to_jsonb(shed_meta.labels),
+        'vaccine_labels', to_jsonb(vaccine_meta.labels)
+      ),
+      'source_and_rule', jsonb_build_object('business_date', grouped.due_day, 'source_event_ids', grouped.source_event_ids),
+      'execution', jsonb_build_object('work_state', CASE WHEN grouped.all_completed THEN 'completed' ELSE 'open' END, 'source_event_ids', grouped.source_event_ids),
+      'stock', jsonb_build_object(),
+      'proof', jsonb_build_object(),
+      'verification', jsonb_build_object('verifier', 'PC verifier'),
+      'notification_channels', jsonb_build_array('local-stub'),
+      'notification_policy', jsonb_build_object('nudge_allowed', true),
+      'links', jsonb_build_object('vaccination', '/vaccination')
+    ) AS detail
+  FROM park_drive_groups grouped
+  CROSS JOIN LATERAL (
+    SELECT COALESCE(array_agg(DISTINCT label ORDER BY label), ARRAY[]::text[]) AS labels
+    FROM drive_sources source
+    CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(source.detail->'summary'->'shed_labels') = 'array' THEN source.detail->'summary'->'shed_labels' ELSE '[]'::jsonb END) AS shed(label)
+    WHERE source.park_id IS NOT DISTINCT FROM grouped.park_id
+      AND (source.due_at AT TIME ZONE 'Asia/Kolkata')::date = grouped.due_day::date
+  ) shed_meta
+  CROSS JOIN LATERAL (
+    SELECT COALESCE(array_agg(DISTINCT label ORDER BY label), ARRAY[]::text[]) AS labels
+    FROM drive_sources source
+    CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(source.detail->'summary'->'vaccine_labels') = 'array' THEN source.detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END) AS vaccine(label)
+    WHERE source.park_id IS NOT DISTINCT FROM grouped.park_id
+      AND (source.due_at AT TIME ZONE 'Asia/Kolkata')::date = grouped.due_day::date
+  ) vaccine_meta
 ),
 sop_events AS (
   SELECT DISTINCT ON (st.task_id)
@@ -2834,9 +3075,7 @@ config_events AS (
 source_events AS (
   SELECT * FROM obligation_events
   UNION ALL
-  SELECT * FROM batch_events
-  UNION ALL
-  SELECT * FROM catchup_drive_events
+  SELECT * FROM park_drive_events
   UNION ALL
   SELECT * FROM sop_events
   UNION ALL
@@ -3075,11 +3314,41 @@ tombstoned AS (
     AND cep.system = false
     AND cep.due_at >= $2::timestamptz
     AND cep.due_at < $3::timestamptz
-    AND cep.source_target_type IN ('obligation', 'batch', 'catchup', 'sop_task', 'protocol_version')
+    AND cep.source_target_type IN ('obligation', 'batch', 'catchup', 'park_drive', 'sop_task', 'protocol_version')
     AND cep.status NOT IN ('completed', 'canceled')
-    AND NOT EXISTS (
-      SELECT 1 FROM source_event_ids source
-      WHERE source.event_id = cep.event_id
+    AND (
+      (
+        cep.source_target_type IN ('batch', 'catchup')
+        AND EXISTS (
+          SELECT 1
+          FROM calendar_event_projections grouped_drive
+          CROSS JOIN LATERAL jsonb_array_elements_text(
+            COALESCE(grouped_drive.detail->'source_and_rule'->'source_event_ids', '[]'::jsonb)
+          ) AS child(event_id)
+          WHERE grouped_drive.tenant_id = cep.tenant_id
+            AND grouped_drive.slice_key = 'vaccination'
+            AND grouped_drive.source_target_type = 'park_drive'
+            AND grouped_drive.status NOT IN ('completed', 'canceled')
+            AND child.event_id = cep.event_id
+        )
+      )
+      OR (
+        cep.source_target_type = 'park_drive'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements_text(
+            COALESCE(cep.detail->'source_and_rule'->'source_event_ids', '[]'::jsonb)
+          ) AS child(event_id)
+          JOIN source_event_ids source ON source.event_id = child.event_id
+        )
+      )
+      OR (
+        cep.source_target_type NOT IN ('park_drive')
+        AND NOT EXISTS (
+          SELECT 1 FROM source_event_ids source
+          WHERE source.event_id = cep.event_id
+        )
+      )
     )
   RETURNING 1
 )
@@ -3128,7 +3397,11 @@ func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]
 		&versionID, &ruleID, &vaccineName, &doseCode, &event.SourceBacked,
 		&event.SourceLabel, &assignee, &executor, &verifier, &event.ReminderState,
 		&event.PrimaryNotificationChannel, &event.EscalationState, &event.System,
-		&event.CrossCutting, &links,
+		&event.CrossCutting, &links, &event.Aggregated, &event.AllDay,
+		&event.SummaryPrimary, &event.SummarySecondary, &event.SummaryTertiary,
+		&event.ShedCount, &event.VaccineCount, &event.DriveCount, &event.CatchUpCount,
+		&event.ScheduledCount, &event.DeferredCount, &event.ReviewCount,
+		&event.ShedLabels, &event.VaccineLabels,
 	}
 	if detail != nil {
 		dest = append(dest, detail)
