@@ -15,7 +15,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
-import sg.mesha.goatos.core.network.dto.VerificationItemDto
+import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.feature.verify.VerificationQueueRow
@@ -117,7 +117,7 @@ class VerifyQueueViewModel @Inject constructor(
      *  localized chrome string; every other label is the raw backend category key, humanized
      *  client-side only as a display fallback until the backend ships a proper display label
      *  per registry entry (verification-module-design.md §2.3). */
-    private fun categoryOptions(items: List<VerificationItemDto>, selected: String?): List<VerifyCategoryOption> {
+    private fun categoryOptions(items: List<VerificationQueueItem>, selected: String?): List<VerifyCategoryOption> {
         val seen = items.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
         if (seen.isEmpty() && selected == null) return emptyList()
         val options = mutableListOf(VerifyCategoryOption(value = null, label = null))
@@ -128,12 +128,12 @@ class VerifyQueueViewModel @Inject constructor(
         return options
     }
 
-    private fun VerificationItemDto.toRow(): VerificationQueueRow = VerificationQueueRow(
-        id = id,
+    private fun VerificationQueueItem.toRow(): VerificationQueueRow = VerificationQueueRow(
+        id = itemId,
         category = category,
         categoryLabel = humanizeCategory(category),
-        title = shedLabel ?: sourceRef.module.ifBlank { category },
-        subtitle = listOfNotNull(parkLabel, operatorName, capturedAt).joinToString(" · "),
+        title = shedId ?: source.module.ifBlank { category },
+        subtitle = listOfNotNull(parkId, operatorId, capturedAt).joinToString(" · "),
         statusTone = statusTone(status),
     )
 }

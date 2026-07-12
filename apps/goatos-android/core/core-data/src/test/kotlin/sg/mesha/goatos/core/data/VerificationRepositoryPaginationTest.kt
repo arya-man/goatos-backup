@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.network.AppApi
-import sg.mesha.goatos.core.network.dto.VerificationItemDto
+import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 
@@ -41,7 +41,7 @@ class VerificationRepositoryPaginationTest {
 
         val merged = mergeVerificationQueuePage(first, second)
 
-        assertEquals(listOf("item-1", "item-2", "item-3"), merged.items.map { it.id })
+        assertEquals(listOf("item-1", "item-2", "item-3"), merged.items.map { it.itemId })
         assertNull(merged.nextCursor)
     }
 
@@ -54,7 +54,7 @@ class VerificationRepositoryPaginationTest {
 
             val cached = repository.observeQueue(category = "vaccine", limit = PAGE_SIZE).first().data!!
             assertEquals(TOTAL_ITEMS, cached.items.size)
-            assertEquals(TOTAL_ITEMS, cached.items.map { it.id }.distinct().size)
+            assertEquals(TOTAL_ITEMS, cached.items.map { it.itemId }.distinct().size)
             assertNull(cached.nextCursor)
             assertEquals(listOf(null, "cursor-1"), requests.map { it.cursor })
             assertTrue(requests.all { it.category == "vaccine" && it.limit == PAGE_SIZE })
@@ -163,8 +163,8 @@ class VerificationRepositoryPaginationTest {
         return VerificationQueueResponseDto(items = items, nextCursor = next)
     }
 
-    private fun item(id: String) = VerificationItemDto(
-        id = id,
+    private fun item(id: String) = VerificationQueueItem(
+        itemId = id,
         category = "vaccine",
         status = VerificationStatus.PENDING,
     )

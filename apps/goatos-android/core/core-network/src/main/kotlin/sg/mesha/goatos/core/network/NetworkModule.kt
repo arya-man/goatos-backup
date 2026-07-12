@@ -215,10 +215,6 @@ interface AppApiService {
         @Header("If-None-Match") eTag: String?,
     ): RetrofitResponse<AppConfigResponseDto>
 
-    // TODO(verification-contract): the `verification` bounded context is being built in
-    // parallel (context/architecture/verification-module-design.md); route/DTO shape is
-    // hand-derived from that design doc, not yet in contracts/openapi/app-api.yaml. Swap for
-    // the generated client once published.
     @GET("verification/queue")
     suspend fun listVerificationQueue(
         @Query("category") category: String?,

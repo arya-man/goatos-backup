@@ -138,5 +138,5 @@ internal fun mergeVerificationQueuePage(
     current: VerificationQueueResponseDto,
     page: VerificationQueueResponseDto,
 ): VerificationQueueResponseDto = page.copy(
-    items = (current.items + page.items).distinctBy { it.id },
+    items = (current.items + page.items).distinctBy { it.itemId },
 )

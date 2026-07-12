@@ -324,9 +324,7 @@ interface AppApi {
     /** GET /verification/queue — the standalone Verifier section's media queue
      *  (context/architecture/verifier-app-and-flow.md), keyset-paginated (~20/page) and
      *  filtered to [category] (`vaccine`/`feed_direction`/`diagnosis`/`death_post_mortem`/
-     *  `breeding`/…, `null` = every category this verifier is assigned). CONTRACT NOTE: the
-     *  backend `verification` bounded context is being built in parallel — see the TODO on
-     *  [sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto]. */
+     *  `breeding`/…, `null` = every category this verifier is assigned). Per contracts/openapi/app-api.yaml. */
     suspend fun listVerificationQueue(
         category: String? = null,
         cursor: String? = null,

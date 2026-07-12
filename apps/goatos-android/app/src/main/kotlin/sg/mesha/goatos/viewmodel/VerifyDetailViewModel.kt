@@ -19,7 +19,7 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.VerificationRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VerificationDecision
-import sg.mesha.goatos.core.network.dto.VerificationItemDto
+import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationStatus
 import sg.mesha.goatos.feature.verify.VerifyContextKind
 import sg.mesha.goatos.feature.verify.VerifyContextRow
@@ -71,9 +71,9 @@ class VerifyDetailViewModel @Inject constructor(
     // Cache-first: the tapped row's category scope Room cache already holds this item's full
     // media + context (docs/decisions/android-offline-first.md), lifecycle-aware via
     // WhileSubscribed(5_000) like every other observed-Room StateFlow in this app.
-    private val observedItem: StateFlow<VerificationItemDto?> =
+    private val observedItem: StateFlow<VerificationQueueItem?> =
         repo.observeQueue(category = category)
-            .map { resource -> resource.data?.items?.firstOrNull { it.id == itemId } }
+            .map { resource -> resource.data?.items?.firstOrNull { it.itemId == itemId } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val state: StateFlow<VerifyDetailUiState> = combine(
@@ -131,7 +131,7 @@ class VerifyDetailViewModel @Inject constructor(
         }
     }
 
-    private fun VerificationItemDto?.toUiState(localDecision: String?, flags: VerifyDetailFlags): VerifyDetailUiState {
+    private fun VerificationQueueItem?.toUiState(localDecision: String?, flags: VerifyDetailFlags): VerifyDetailUiState {
         if (this == null) {
             return VerifyDetailUiState(
                 itemId = itemId,
@@ -143,9 +143,9 @@ class VerifyDetailViewModel @Inject constructor(
         }
         val effectiveStatus = localDecision ?: status
         return VerifyDetailUiState(
-            itemId = id,
+            itemId = itemId,
             categoryLabel = humanizeCategory(category),
-            media = media.map { VerifyMediaItem(signedUrl = it.signedUrl, mimeType = it.mimeType, proofSubject = it.proofSubject) },
+            media = media.map { VerifyMediaItem(signedUrl = it.downloadUrl, mimeType = it.mimeType ?: "", proofSubject = it.proofId ?: "") },
             context = buildContext(this),
             statusTone = statusTone(effectiveStatus),
             rowVersion = rowVersion,
@@ -158,10 +158,10 @@ class VerifyDetailViewModel @Inject constructor(
         )
     }
 
-    private fun buildContext(item: VerificationItemDto): List<VerifyContextRow> = listOfNotNull(
-        item.shedLabel?.let { VerifyContextRow(VerifyContextKind.SHED, it) },
-        item.parkLabel?.let { VerifyContextRow(VerifyContextKind.PARK, it) },
-        item.operatorName?.let { VerifyContextRow(VerifyContextKind.OPERATOR, it) },
+    private fun buildContext(item: VerificationQueueItem): List<VerifyContextRow> = listOfNotNull(
+        item.shedId?.let { VerifyContextRow(VerifyContextKind.SHED, it) },
+        item.parkId?.let { VerifyContextRow(VerifyContextKind.PARK, it) },
+        item.operatorId?.let { VerifyContextRow(VerifyContextKind.OPERATOR, it) },
         item.capturedAt?.let { VerifyContextRow(VerifyContextKind.CAPTURED_AT, it) },
     )
 }
