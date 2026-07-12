@@ -52,6 +52,10 @@ eviction, or a DAO reading a whole table into memory, OOMs low-end phones.
 - Dynamic `LazyColumn` items need a **stable unique key** (not index) + `contentType`.
 - Release camera/recorder/BT capture + observers on lifecycle stop.
 
+## Backend contract owns visibility
+The mobile UI must NOT gate visibility by role (`role ==`); render the backend-composed
+nav/actions/disabled-reasons contract. Machine-blocked by `make mobile-contract-ownership-guard`.
+
 ## Test integrity
 No committed `@Ignore`/`@Disabled`/commented-`// @Test`; no flaky wall-clock
 assertions; no fake-green — run `./gradlew … testStgDebugUnitTest --rerun-tasks`
