@@ -85,3 +85,33 @@ Missing to reach the target:
 Vaccination ships correctly today on the flat 4-role RBAC because it is the only
 module. The matrix above is the near-term foundation to build BEFORE the 2nd
 module (Deworming / Feed) so a new vertical does not require rewiring roles/nav.
+
+## Truth table — who can DO what (target model)
+
+Role → job:
+
+| Role | Job |
+| --- | --- |
+| Operator / Assistant Manager (AM) | ground execution — do the task, capture proof (RFID scan + record videos), submit |
+| Manager (per vertical, per park) | run the vertical's daily ops, supervise AMs, can also capture, manage local roster |
+| Verifier (NEW — the Video Verification Team) | watch the uploaded media, approve/reject + mandatory reason. Only that. |
+| Head (Ops-Head) | park/vertical oversight + standards; act on verified items |
+| Director (per vertical) | own the vertical — plan/logistics/oversee execution, set SOPs, act, penalise |
+| CEO / CxO (5 founders) | full authority |
+
+Capability matrix (✅ yes · ❌ no · ~ partial/scoped):
+
+| Capability | Operator/AM | Manager | Verifier | Head | Director | CEO/CxO |
+| --- | :--: | :--: | :--: | :--: | :--: | :--: |
+| Execute + capture proof (ground) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Verify media (approve/reject + reason) | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ override |
+| Act on verdict (accept/escalate/penalise) | ❌ | ~ local | ❌ | ✅ | ✅ | ✅ |
+| Manage roster / operators | ❌ | ~ local | ❌ | ✅ | ✅ | ✅ |
+| Plan + own SOPs (weekly cadence) | ❌ | ❌ | ❌ | ~ park | ✅ | ✅ |
+| Publish SOP / protocol | ❌ | ❌ | ❌ | ❌ | ~ SOP | ✅ |
+| Mobile surface | Capture (own module) | Capture (vertical) | standalone Verifier section | read-only overview | read-only overview | read-only |
+| Web surface | — | roster/local | Verification queue | act + oversight | plan/act/config | everything |
+
+Hard rules: capture = ground only (Operator + Manager); verify = Verifier only
+(human video team); act = Head/Director/CEO. Separation of duty — nobody both
+captures and verifies the same work.
