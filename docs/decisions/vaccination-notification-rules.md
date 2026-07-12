@@ -101,7 +101,10 @@ Business events the vaccination slice raises, and whether they notify:
 | Obligation `scheduled → due` window opens | sweeper / projection at window start | yes — reminder ladder starts |
 | Reminder tick | scheduler, inside the reminder window | yes — the cadence in §3 |
 | `due → in_progress` | field batch started | low-priority ack to head/manager |
-| `→ completed` | proof accepted (`vaccination_completion`) | rollup only (digest), no push spam |
+| `→ proof_pending` | execution done, proof (SOP video) uploaded | no push (interim state) |
+| `→ verification_pending` | proof queued for review | **yes — notify the verifier** (whoever can action the review for that scope) |
+| `→ rejected` / `rework_due` | **verifier rejects the proof** | **yes — notify the operator who did it (+ park head)** so they redo |
+| `→ completed` (verified/approved) | proof accepted (`vaccination_completion`) | rollup only (digest), no push spam |
 | `due → overdue` | window closed, still open | yes — high priority + escalation start |
 | `→ missed` | sweeper `MarkMissedBefore` crosses deadline | yes — escalation |
 | `→ deferred` | health block (sick / quarantine / ICU / pregnancy window) | manager only |
@@ -200,6 +203,36 @@ ladder would be thousands of pushes/day. So leadership receives:
 Directors also get the **operational** ladder for department-wide events (stock
 buffer low, biosecurity) per the PHC handbook SLAs, not per-drive reminders.
 
+### 4c. Verification & rework — route to whoever can act, never bomb leadership
+
+Verification is its own loop: after execution the proof (SOP video) goes
+`proof_pending → verification_pending`, and the verifier either approves
+(`→ completed`) or rejects (`→ rejected` / `rework_due`). Notifications follow the
+**"notify the person who can action it"** rule — the recipient is resolved by
+*capability + scope*, not by seniority:
+
+| Event | Who is notified | Why | Priority |
+|---|---|---|---|
+| `verification_pending` (proof waiting) | the **verifier(s)** with review capability for that park/scope (`VerifierLabel` / video-verification role, `scope_type='center'` + `scope_id=park`) | they are the only ones who can act — "N proofs waiting for you" | normal (batched per verifier per park per day) |
+| `rejected` / `rework_due` (verifier rejected) | the **operator who performed it** + that park's **park head** | they must redo the drive — this is the one verification event that must reach the field fast | high |
+| `→ completed` (approved) | no push | success is the default; shows in the daily rollup only | — |
+
+**Leadership (Director / COO / CXO) are excluded from routine verification and
+rework notifications** — no per-proof, no per-rejection push. This is the
+"don't bombard CXO/CEO" rule stated explicitly. They see verification only as an
+aggregate in the daily digest (e.g. "12 pending review, 3 rejected, 1 aging"),
+and receive an individual escalation **only** when the loop breaks — not on a
+single rejection:
+
+- a proof sits in `verification_pending` past its review SLA (aging — no verifier
+  acted), or
+- the same drive is rejected repeatedly (rework loop — e.g. ≥ N rejections), or
+- `vaccination_config_activation_review` / policy-level approvals that genuinely
+  need a leader's sign-off.
+
+So a normal reject → operator + park head. A *stuck* or *looping* verification →
+escalation up the ladder (§5). Leadership gets the exception, never the routine.
+
 ---
 
 ## 5. The reusable rule framework (how future features auto-derive notifs)
@@ -236,6 +269,21 @@ notification_policy:
     - roles: [phc_director, coo, cxo]
       digest_only: true                               # all-park rollup, not per-drive
       digest: { at: "18:00", group_by: park }
+  # verification loop — route by capability, never to leadership by default
+  verification:
+    - on: verification_pending
+      to: { capability: verify_vaccination, scope: { by: park, from: event.park_id } }
+      priority: normal
+    - on: [rejected, rework_due]
+      to: { actor: event.performed_by, plus_roles: [park_head], scope: park }
+      priority: high
+    - on: completed                                   # approved
+      to: none                                        # digest rollup only
+    # leadership sees verification ONLY as aggregate + these exceptions:
+    escalate_to_leadership_when:
+      - verification_pending aged past review_sla
+      - rework_loop: rejections >= 3 on same drive
+      - config_activation_review                      # policy-level sign-off
   # escalation ladder (overdue -> missed)
   escalation:
     - after: overdue + 0h   -> { roles: [operator, park_head], scope: park }
