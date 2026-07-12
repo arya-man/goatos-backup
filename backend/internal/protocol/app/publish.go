@@ -645,6 +645,9 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 	if _, ok := eligibility["defer_states"]; !ok {
 		return fmt.Errorf("%w: vaccination matrix eligibility.defer_states required", ErrNotPublishable)
 	}
+	if err := rejectPartialClinicalDeferStates(eligibility, "rule_dsl.eligibility.defer_states"); err != nil {
+		return err
+	}
 	if _, ok := eligibility["exclude_reproductive_states"]; !ok {
 		return fmt.Errorf("%w: vaccination matrix eligibility.exclude_reproductive_states required", ErrNotPublishable)
 	}
@@ -654,6 +657,9 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 			return err
 		}
 		if err := rejectUnknownSexSelector(rowEligibility, fmt.Sprintf("matrix_rows[%d].eligibility.sex", idx)); err != nil {
+			return err
+		}
+		if err := rejectPartialClinicalDeferStates(rowEligibility, fmt.Sprintf("matrix_rows[%d].eligibility.defer_states", idx)); err != nil {
 			return err
 		}
 	}
@@ -1699,6 +1705,35 @@ func rawSelectorValues(raw json.RawMessage) ([]string, error) {
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+// rejectPartialClinicalDeferStates rejects a defer_states array that is present
+// and non-empty but omits any mandatory clinical safety state. An absent or
+// empty defer_states maps to the engine's safe full default and is allowed
+// (see domain.MandatoryClinicalDeferStates and vaccination.deferStateSet). A
+// present, non-empty, partial list is an unsafe authored payload — it would let
+// a sick/under-treatment animal's open work be cancelled instead of deferred —
+// and must fail publish rather than be silently rewritten (C35-010).
+func rejectPartialClinicalDeferStates(obj map[string]json.RawMessage, field string) error {
+	raw, ok := obj["defer_states"]
+	if !ok {
+		return nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" || trimmed == "[]" {
+		return nil
+	}
+	values, err := rawSelectorValues(raw)
+	if err != nil {
+		return fmt.Errorf("%w: %s must be a string or array of strings", ErrNotPublishable, field)
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	if missing := domain.MissingMandatoryClinicalDeferStates(values); len(missing) > 0 {
+		return fmt.Errorf("%w: %s omits mandatory clinical safety states %v; sick/under_treatment/quarantine/icu are safety blocks that must be deferred, not cancelled (leave defer_states empty to use the safe default)", ErrNotPublishable, field, missing)
+	}
+	return nil
 }
 
 func normalizeSelectorValue(field, value string) (string, error) {

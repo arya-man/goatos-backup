@@ -32,6 +32,11 @@ jobs:
           make api-latency-policy-test
       - name: Scale anti-pattern guard
         run: make scale-guard
+      - name: Clinical defer-state medical-safety guard
+        # Blocks the C35-010 anti-pattern: a partial clinical defer_states list in
+        # production code/seeds (sick/under_treatment/quarantine/icu are mandatory
+        # safety blocks). Runs its adversarial self-test, then a whole-tree scan.
+        run: make clinical-defer-guard
       - name: Mobile list-fetch anti-pattern guard
         # Diff-scoped: only scans mobile .kt changed vs the base, so a commit with no mobile
         # code passes instantly. See docs/decisions/mobile-data-fetch-anti-patterns.md.

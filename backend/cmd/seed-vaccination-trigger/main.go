@@ -252,7 +252,7 @@ INSERT INTO protocol_versions (
 	) VALUES (
 	  '` + localVersionID + `', $1::uuid, '` + localProtocolID + `', 'park', '` + localParkID + `', 1,
 	  'Retired matrix dev baseline', 'draft', DATE '2026-01-01', DATE '2028-01-01',
-	  '{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid","inventory_item_id":"00000000-0000-4000-8000-00000000b001","manufacturer":"Mesha matrix dev baseline","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","quarantine","icu"]},"schedule":[{"dose_code":"ET_TT_4W","trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":0,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}]}'::jsonb,
+	  '{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid","inventory_item_id":"00000000-0000-4000-8000-00000000b001","manufacturer":"Mesha matrix dev baseline","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"schedule":[{"dose_code":"ET_TT_4W","trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":0,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}]}'::jsonb,
 	  '{"required_proofs":["shed","vial_lot","administration"],"seed":"vaccination-matrix-dev-baseline"}'::jsonb,
 	  '` + localSOPVersionID + `', NULL
 	)
@@ -273,7 +273,7 @@ INSERT INTO protocol_rules (
 	)
 	SELECT
 	  '` + localRuleID + `'::uuid, $1::uuid, '` + localVersionID + `'::uuid, 'ET_TT_4W', 1, 'birth_age',
-	  28, 7, 0, 'none', 'immediate', '{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","quarantine","icu"]}'::jsonb,
+	  28, 7, 0, 'none', 'immediate', '{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]}'::jsonb,
 	  '` + localSOPVersionID + `'::uuid, '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 10
 	WHERE EXISTS (
 	  SELECT 1
@@ -318,7 +318,7 @@ INSERT INTO protocol_versions (
 ) VALUES (
   '` + localV1VersionID + `', $1::uuid, '` + localV1ProtocolID + `', 'park', '` + localParkID + `', 1,
   'V1 matrix proof baseline', 'draft', DATE '2026-01-01', DATE '2028-01-01',
-  '{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid","inventory_item_id":"00000000-0000-4000-8000-00000000b001","manufacturer":"Mesha matrix dev baseline","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","quarantine","icu"]},"missed_dose_policy":"pc_approval","schedule":[{"dose_code":"ET_TT_4W","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":0,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}},{"dose_code":"ET_TT_7W","sequence":2,"trigger_type":"after_previous_completion","offset_days":21,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":21,"repeat":"none","catch_up":"pc_approval","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}]}'::jsonb,
+  '{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"toxoid","inventory_item_id":"00000000-0000-4000-8000-00000000b001","manufacturer":"Mesha matrix dev baseline","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"missed_dose_policy":"pc_approval","schedule":[{"dose_code":"ET_TT_4W","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":0,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}},{"dose_code":"ET_TT_7W","sequence":2,"trigger_type":"after_previous_completion","offset_days":21,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":21,"repeat":"none","catch_up":"pc_approval","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}]}'::jsonb,
   '{"required_proofs":["shed","vial_lot","administration"],"seed":"vaccination-v1-matrix-proof-baseline"}'::jsonb,
   '` + localSOPVersionID + `', NULL
 )
@@ -340,7 +340,7 @@ INSERT INTO protocol_rules (
 SELECT
   '` + localV1PrimaryID + `'::uuid, $1::uuid, '` + localV1VersionID + `'::uuid, 'ET_TT_4W', 1, 'birth_age',
   28, 7, 0, 'none', 'immediate',
-  '{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","quarantine","icu"]}'::jsonb,
+  '{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]}'::jsonb,
   '` + localSOPVersionID + `'::uuid, '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 10
 WHERE EXISTS (
   SELECT 1
@@ -359,7 +359,7 @@ INSERT INTO protocol_rules (
 SELECT
   '` + localV1BoosterID + `'::uuid, $1::uuid, '` + localV1VersionID + `'::uuid, 'ET_TT_7W', 2, 'after_previous_completion',
   21, 7, 21, 'none', 'pc_approval',
-  '{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","quarantine","icu"]}'::jsonb,
+  '{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]}'::jsonb,
   '` + localSOPVersionID + `'::uuid, '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 20
 WHERE EXISTS (
   SELECT 1

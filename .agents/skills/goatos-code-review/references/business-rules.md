@@ -61,6 +61,24 @@ Rule shapes a reviewer checks (illustrative values — verify against source):
   animal is left waiting past the window. (Verify window values against the doc;
   review this flow via `references/kernel-and-scale.md` → "Defer-recovery
   re-entry".)
+- **Clinical defer set is MANDATORY, not an authored subset (C35-010):** the four
+  clinical states `sick`, `under_treatment`, `quarantine`, `icu` are non-optional
+  safety blocks. A published rule's `eligibility.defer_states` may only ADD states,
+  never drop one of these. REJECT any review where:
+  - publish/validation accepts a present, non-empty `defer_states` that omits a
+    mandatory clinical state (an empty list is fine — it maps to the safe default),
+    or silently rewrites an out-of-range value instead of failing;
+  - the generator treats a partial authored list as authoritative, so a
+    sick/under-treatment animal falls out of eligibility and its open work is
+    **cancelled/left scheduled instead of deferred** (wrong medical action = P0);
+  - the mandatory set is re-hardcoded in a new place instead of routing through the
+    single source of truth `protocol/domain.MandatoryClinicalDeferStates`
+    (`EffectiveClinicalDeferStates` / `MissingMandatoryClinicalDeferStates`); the
+    existing SQL siblings (`vaccination_eligibility_rollups` usable flag,
+    `ListRecoverableDeferredVaccinationGoatIDs`) must stay in sync with it.
+  Mechanical backstop: `make clinical-defer-guard`
+  (`tools/agent-hooks/check-clinical-defer-states.mjs`, required in CI). Source:
+  `docs/preventive-care-vaccination/vaccination-rules.md`.
 - **Drive batching:** may hold a due shed/tag group up to the batching window to
   combine with a compatible same-park group — ONE-TIME per obligation/dose cycle,
   no rolling postponement.

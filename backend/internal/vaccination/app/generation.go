@@ -1541,21 +1541,19 @@ func deferredReason(g domain.EligibleGoat, allowed []string) string {
 	return ""
 }
 
+// deferStateSet resolves the effective clinical-defer set for a rule. Authored
+// defer_states may only ADD states; the mandatory clinical safety blocks (sick,
+// under_treatment, quarantine, icu) are always deferred regardless of what the
+// authored list contains. This keeps the runtime medically safe even for a
+// protocol version that was published before the publish-time guard existed:
+// a sick/under-treatment animal under a partial or empty defer list is held for
+// recovery, never cancelled/excluded. See protodomain.EffectiveClinicalDeferStates
+// and docs/preventive-care-vaccination/vaccination-rules.md (C35-010).
 func deferStateSet(allowed []string) map[string]bool {
-	if len(allowed) == 0 {
-		return map[string]bool{
-			"sick":            true,
-			"under_treatment": true,
-			"quarantine":      true,
-			"icu":             true,
-		}
-	}
-	allowedStates := make(map[string]bool, len(allowed))
-	for _, state := range allowed {
-		normalized := strings.ToLower(strings.TrimSpace(state))
-		if normalized != "" {
-			allowedStates[normalized] = true
-		}
+	effective := protodomain.EffectiveClinicalDeferStates(allowed)
+	allowedStates := make(map[string]bool, len(effective))
+	for _, state := range effective {
+		allowedStates[state] = true
 	}
 	return allowedStates
 }

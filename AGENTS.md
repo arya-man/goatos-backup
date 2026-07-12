@@ -459,6 +459,24 @@ Do:
   publishes the declared default; an explicit out-of-range value is sent verbatim
   so the backend rejects it) — never coerce blank to `0` or to an invented value,
   and never let a React default become authored business truth.
+- Treat the clinical defer set as a mandatory medical safety block, never an
+  authored subset (C35-010). The four clinical states `sick`, `under_treatment`,
+  `quarantine`, `icu` are non-optional postponement rules per
+  `docs/preventive-care-vaccination/vaccination-rules.md`: an animal in any of them
+  must have its open vaccination work DEFERRED (held for recovery), never cancelled
+  or left scheduled — a wrong medical action is P0 regardless of how cleanly it
+  compiles. A published rule's `eligibility.defer_states` may only ADD states; it
+  may never drop one of the four. Enforce on BOTH layers: publish/validation must
+  REJECT a present, non-empty `defer_states` that omits any mandatory clinical
+  state (an empty/absent list maps to the safe full default), and the generator
+  must union the mandatory set in regardless of the authored list so an
+  already-published partial rule is still safe at runtime. The single source of
+  truth is `backend/internal/protocol/domain.MandatoryClinicalDeferStates`
+  (`EffectiveClinicalDeferStates` / `MissingMandatoryClinicalDeferStates`) — do not
+  re-hardcode the set elsewhere; the SQL siblings
+  (`vaccination_eligibility_rollups` usable flag,
+  `ListRecoverableDeferredVaccinationGoatIDs`) must stay in sync with it. Mechanical
+  backstop: `make clinical-defer-guard` (required in CI).
 - Treat Goat OS time semantics as India-business-calendar semantics. Physical
   storage may use `timestamptz`/absolute instants, but every business meaning
   derived from those instants — scheduling, due/missed buckets, reminder keys,

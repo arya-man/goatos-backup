@@ -1,6 +1,8 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Reconciliation status: **UPDATED for HEAD `d2a7fbcf` — 40 open (2 P0, 19 P1, 15 P2, 4 P3).** Codex wrote C35-001…C35-025; Claude counter-reviewed them and added CL-001…CL-004 (Codex countered CL-001/002/003 by evidence — all conceded by Claude; CL-004 survives P3). Codex then ran a dedicated whole-app Android pass (L0→L3 nav, paging, Room SSOT, network→Room→UI, offline/empty/error, lifecycle, memory, prior-fix verification) and added MOB-001…MOB-011. **Claude independently counter-reviewed all 11 MOB findings against HEAD, and Codex accepts those counters after rechecking the code.** A later fixed/not-fixed check found FIXCHK-001…FIXCHK-004. Counter-review confirms FIXCHK-001/002/003 as independent open defects; FIXCHK-004's behavior is real but is the same root already recorded by C35-006/C35-018, so its exact transport evidence is merged there and it is not double-counted. Claude's own new-bug hunt found nothing beyond the 11 and the already-tracked ScanViewModel-1000 (C35-006/018); its UI-side hypothesis was correctly cleared (23 actual `collectAsStateWithLifecycle(...)` call sites, 0 plain `collectAsState(...)` calls), so MOB-010 is VM-side only. Claude's tentative NEW-M3 marker concern is countered: marker aggregation is deliberately independent of the `limit=1` item page and has direct integration proof. See §5. One canonical ledger; no competing list; no product code fixed (STOP RULE).
+> Closure progress: **C35-010 (P0) FIXED WITH PROOF on `integration/ledger-cleanup-handoff-20260712` → 39 open (1 P0, 19 P1, 15 P2, 4 P3).** The mandatory clinical defer set (sick/under_treatment/quarantine/icu) is now enforced at the runtime generator (union — safe even for already-published partial rules), rejected when partial at publish, corrected in the trigger seed, and backstopped by `make clinical-defer-guard` (CI-required, with adversarial self-test) plus AGENTS.md + the goatos-code-review lens. Real-Postgres E2E proves a sick/under-treatment animal under partial authoring is now deferred (3 deferred, was 1), not cancelled. Remaining P0 = C35-001 (Android logout), externally blocked (no Java runtime on this host). See C35-010 proof packet in §5-detail.
+>
+> Reconciliation status: **UPDATED for HEAD `d2a7fbcf` — 40 open (2 P0, 19 P1, 15 P2, 4 P3) at audit time.** Codex wrote C35-001…C35-025; Claude counter-reviewed them and added CL-001…CL-004 (Codex countered CL-001/002/003 by evidence — all conceded by Claude; CL-004 survives P3). Codex then ran a dedicated whole-app Android pass (L0→L3 nav, paging, Room SSOT, network→Room→UI, offline/empty/error, lifecycle, memory, prior-fix verification) and added MOB-001…MOB-011. **Claude independently counter-reviewed all 11 MOB findings against HEAD, and Codex accepts those counters after rechecking the code.** A later fixed/not-fixed check found FIXCHK-001…FIXCHK-004. Counter-review confirms FIXCHK-001/002/003 as independent open defects; FIXCHK-004's behavior is real but is the same root already recorded by C35-006/C35-018, so its exact transport evidence is merged there and it is not double-counted. Claude's own new-bug hunt found nothing beyond the 11 and the already-tracked ScanViewModel-1000 (C35-006/018); its UI-side hypothesis was correctly cleared (23 actual `collectAsStateWithLifecycle(...)` call sites, 0 plain `collectAsState(...)` calls), so MOB-010 is VM-side only. Claude's tentative NEW-M3 marker concern is countered: marker aggregation is deliberately independent of the `limit=1` item page and has direct integration proof. See §5. One canonical ledger; no competing list; no product code fixed (STOP RULE).
 
 > Closure execution: follow
 > `context/repo-audits/consolidated-ledger-defect-closure-program.md`. One
@@ -111,7 +113,7 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 | C35-007 | P1 | Planned-batch finalization query lacks matching plan/index gate | open, confirmed |
 | C35-008 | P1 | Android changes can merge without an Android compile/test gate | open, confirmed |
 | C35-009 | P1 | Published scale report is prose, not current-SHA scale execution | open, confirmed |
-| C35-010 | P0 | Partial clinical defer authoring can cancel unsafe work | open, confirmed |
+| C35-010 | P0 | Partial clinical defer authoring can cancel unsafe work | **FIXED WITH PROOF** (runtime union + publish reject + seed fix + CI guard) |
 | C35-011 | P1 | Mobile leadership record has no verify/rework action | open, confirmed |
 | C35-012 | P1 | Current release evidence is unavailable: Actions fail before any job | open, confirmed |
 | C35-013 | P2 | Action Center loads both tabs and retains OFFSET board debt | open, confirmed |
@@ -248,7 +250,7 @@ Claude counter-reviewed every original Codex C35 finding against HEAD. Codex the
 | C35-007 | **AGREE / CONFIRMED + ADD.** No matching index/plan case. **New:** `GOATOS_PG_QUERY_TIMEOUT=30s` now makes the unindexed finalization query *fatal*, not just slow. | CONVERGED — P1 open (Claude note) |
 | C35-008 | **AGREE / CONFIRMED.** Self-verified `ci.yml`+`android-quality.yml`: only a hardcoded-hex grep on ordinary PR. | CONVERGED — P1 open |
 | C35-009 | **AGREE / CONFIRMED + ADD.** No latency gate in ordinary CI; 1M cert unrun. **New:** `report_certification_test.go` now fails undeclared certification surfaces (partial guard). | CONVERGED — P1 open |
-| C35-010 | **AGREE / CONFIRMED + ESCALATE.** Self-verified `publish.go` key-only check + `generation.go:1586` cancel path. Claude recommends **P0** (wrong medical action). | CONVERGED — P0 open; Codex accepts escalation |
+| C35-010 | **AGREE / CONFIRMED + ESCALATE.** Self-verified `publish.go` key-only check + `generation.go:1586` cancel path. Claude recommends **P0** (wrong medical action). | **FIXED WITH PROOF** — runtime union (`deferStateSet`→`protodomain.EffectiveClinicalDeferStates`) + publish reject-partial + trigger-seed fix + `make clinical-defer-guard` (CI). RED→GREEN unit + real-Postgres deferred 1→3; full backend suite green (story_ab fixture corrected). See §5-detail proof packet |
 | C35-011 | **AGREE / CONFIRMED.** `RecordScreen.kt` read-only (`RecordEvent.Close` only). | CONVERGED — P1 open |
 | C35-012 | **PLAUSIBLE / CANNOT INDEPENDENTLY VERIFY.** No `gh`/GitHub connector in Claude's session. Codex reverified authenticated `vgoats/goatos` state: PR #3 has empty checks and exact-HEAD push/PR runs are both zero-job `startup_failure`. | CONVERGED — P1 CONFIRMED gate unavailability; cause remains unproven |
 | C35-013 | **AGREE / CONFIRMED.** Board OFFSET + both lanes fetched in one `Promise.all`; queue itself now cursor-based (BUG-013 fixed). | CONVERGED — P2 open |
@@ -479,21 +481,38 @@ Guardrail needed: Workflow test that asserts report job depends on and consumes 
 ID: C35-010  
 Priority: P0  
 Title: Partial clinical defer authoring can cancel vaccination work for sick goats  
-Status: open  
+Status: fixed with proof  
 Origin: prior-ledger  
-Verdict: CONFIRMED  
+Verdict: CONFIRMED → FIXED  
 Prior mapping: BUG-030; vaccination business-rule backlog  
 Layman explanation: A published rule can remember to defer ICU goats but forget sick/under-treatment goats; those goats then look ineligible and their work is canceled instead of safely deferred.  
-Evidence: `backend/internal/protocol/app/publish.go:640-659` validates that `defer_states` exists but does not require the clinical set. `backend/internal/vaccination/app/generation.go:1521-1560` uses any nonempty partial list as authored; `:1583-1588` evaluates health eligibility separately. Seeded defaults now contain the full set, but tests such as Story AB still demonstrate accepted partial ICU/quarantine configuration.  
+Evidence (pre-fix): `backend/internal/protocol/app/publish.go:640-659` validated that `defer_states` exists but not its contents. `backend/internal/vaccination/app/generation.go:1544` treated any nonempty partial list as authored (empty → safe full default; partial → partial only), and `:1586` excluded a non-deferred clinical goat. The canonical publish fixture `validVaccinationMatrixRuleDSL()` and the `seed-vaccination-trigger` seed both used partial `defer_states` (`["icu","quarantine"]` / missing `under_treatment`), so the shape was live, not hypothetical.  
 Prod reachability: Any admin-authored/published rule with `health=healthy` and a partial clinical defer list.  
 Failure scenario: A goat becomes sick; regeneration sees it outside health eligibility, fails to derive a defer reason, and cancels open work instead of preserving it deferred for recovery.  
 Business impact: Wrong medical workflow state and lost follow-up vaccination after recovery.  
-Root-cause-or-band-aid verdict: Default seed fixed; authoring invariant/root cause remains.  
-Counterargument: Product may intentionally allow each protocol to choose which states defer versus exclude.  
-Why it survives / why downgraded: The current runtime performs the wrong medical workflow action—cancellation instead of a safety hold—without an explicit policy choice or recovery proof. The audit's priority rule makes wrong medical action P0.  
-E2E / guardrail status: missing/false-green; current stories use safe defaults or intentionally partial fixtures but do not assert sick recovery under partial authoring.  
-Fix sketch: Encode explicit per-clinical-state policy (`defer`, `exclude`, `allow`) with safe mandatory defaults and reject ambiguous publish payloads.  
-Guardrail needed: Publish schema/property tests and kernel E2E for sick, under-treatment, quarantine, ICU, cap=0, recovery/reopen, and partial inputs.
+Root-cause-or-band-aid verdict: ROOT FIXED across every affected layer — runtime union (true root, universal), publish reject (authoring), seed correction, static guard.  
+
+Proof packet:
+- Finding / root cluster: C35-010 (BUG-030) — partial clinical `defer_states` cancels sick/under-treatment vaccination work.
+- Branch + full HEAD: `integration/ledger-cleanup-handoff-20260712` @ `<post-commit SHA>` (see reconciliation header).
+- Root cause: the mandatory clinical safety set (`sick`, `under_treatment`, `quarantine`, `icu`) was treated as an authored, overridable list. A present-but-partial `defer_states` published cleanly and the generator honored only the partial set, so a clinically-blocked animal fell out of eligibility and its open obligation was cancelled/left scheduled instead of deferred.
+- Changed production paths: `backend/internal/protocol/domain/clinical_defer.go` (new single source of truth — `MandatoryClinicalDeferStates`, `EffectiveClinicalDeferStates`, `MissingMandatoryClinicalDeferStates`); `backend/internal/vaccination/app/generation.go` `deferStateSet` now unions the mandatory set (runtime always-safe, even for already-published partial rules); `backend/internal/protocol/app/publish.go` `validateVaccinationMatrix` rejects a present, non-empty, partial `defer_states` at top-level + each matrix row (live on `Service.PublishVersion`); `backend/cmd/seed-vaccination-trigger/main.go` partial seed corrected to the full set.
+- Failing reproduction before fix: `TestDeferStateSetAlwaysCoversMandatoryClinicalStates`, `TestDeferredReasonHoldsSickGoatUnderPartialAuthoring`, `TestGoatMatchesEligibilityDefersSickUnderHealthyOnlyRule` (all RED pre-fix: `deferStateSet(["icu"])` omitted `sick`; sick goat reason `""`; sick goat excluded), and `TestValidateVaccinationMatrixRejectsPartialClinicalDeferStates` (partial published with nil error pre-fix).
+- Layer tests: domain `internal/protocol/domain` (helper table tests), generation `internal/vaccination/app`, publish `internal/protocol/app` — all green.
+- Real Postgres / SQL evidence: `internal/vaccination/adapters/postgres` `TestGenerationDefersClinicalStatesUnderPartialAuthoring` — publishes a partial-authored version, seeds alive+sick+under_treatment+quarantine goats, runs the production `GenerationService` on a real DB; asserts `Deferred==3` (was 1 pre-fix), sick+under_treatment+quarantine each persist one `status='deferred'` obligation **and** a `deferred` status-event, healthy stays `scheduled`. PASS (3.56s). Confirmed the SQL candidate query (`repository.go:2106`) surfaces clinical lifecycle states so the Go layer owns the defer decision; the sibling clinical literals (`vaccination_eligibility_rollups` usable flag `:1765`, `ListRecoverableDeferredVaccinationGoatIDs` `:1869`) are consistent with the constant.
+- Contract + API evidence: publish guard runs inside `Service.PublishVersion → ValidateExecutionContract → validateVaccinationMatrix`; ErrNotPublishable returned with the missing states named. No OpenAPI/DTO change (validation-only; no new field).
+- Frontend / Android E2E evidence: N/A — server-side generation/publish correctness; no admin-web/Android surface change.
+- Retry / idempotency fault matrix: N/A for this change — reuses the existing generation idempotency (obligation keys); `TestSM1GenerationIdempotentAndDeferVisible` re-run remains green.
+- Pagination boundary matrix: N/A — no list/pagination path changed.
+- Performance / query-count / memory evidence: N/A — no new query or query-shape; `deferStateSet` is O(authored)+O(4) in-memory set construction; no scale-guard delta (still 51 baselined).
+- Security / tenant / role / scope evidence: N/A — invariant is tenant-agnostic; no auth path changed.
+- Static guard + adversarial self-test: `tools/agent-hooks/check-clinical-defer-states.mjs` — blocks any non-empty partial clinical `defer_states` in production Go/SQL/seeds and asserts the canonical constant is intact; `--self-test` passes 10 adversarial cases (good full/superset/case-insensitive/empty PASS; partials FAIL; ignore hatch honored). Whole-tree scan clean.
+- Ordinary-PR required check and current-SHA artifact: `make clinical-defer-guard` wired into the required `guardrails` job in `.github/workflows/ci.yml` (ordinary PR) and `.github/workflows/stg-pr-gate.yml`; the new Go tests run under CI `go test ./...`.
+- Known limits or external blocks: publish reject fires only for full vaccination **matrix rulesets** (`validateVaccinationMatrix`); minimal non-matrix vaccination DSLs written directly by seed CLIs bypass publish validation, but (a) the runtime union makes them safe and (b) the static guard scans seed files — no unsafe path survives. Android/device gates remain externally blocked (no Java runtime on this host).
+- Independent counter-review verdict: self-adversarial counter-review confirmed root-cause across layers, no defer consumer bypasses `deferStateSet`, publish guard is on the live path; peer Codex counter-review pending on the integrated HEAD.
+- Ledger status/count reconciliation: P0 count 2 → 1; open 40 → 39.  
+
+Guardrail delivered: `make clinical-defer-guard` (CI-required) + AGENTS.md always-on rule + `goatos-code-review` business-rules lens; single source of truth `protocol/domain.MandatoryClinicalDeferStates`.
 
 ### C35-011
 
@@ -1184,7 +1203,7 @@ Guardrail needed: Android integration test with a >2-page roster asserting every
 
 ## 9. Final Summary Table
 
-The one common file contains the original **26 peer-converged** findings plus **11 dedicated-mobile findings confirmed by both agents**, plus **3 independent post-fix verification residuals** = **40 open findings**. FIXCHK-004 is confirmed behavior merged into C35-006/C35-018, so it is retained for traceability but not double-counted. Claude additions CL-001…003 remain countered in §7 (CL-004 survives P3). Every retained row is peer-reconciled.
+The one common file contains the original **26 peer-converged** findings plus **11 dedicated-mobile findings confirmed by both agents**, plus **3 independent post-fix verification residuals** = **40 open findings at audit time; now 39 open** after C35-010 (P0) was FIXED WITH PROOF on `integration/ledger-cleanup-handoff-20260712`. FIXCHK-004 is confirmed behavior merged into C35-006/C35-018, so it is retained for traceability but not double-counted. Claude additions CL-001…003 remain countered in §7 (CL-004 survives P3). Every retained row is peer-reconciled.
 
 | Priority | Confirmed open | Plausible/Unproven open | Total | Main themes |
 | --- | ---: | ---: | ---: | --- |
@@ -1194,8 +1213,8 @@ The one common file contains the original **26 peer-converged** findings plus **
 | P3 | 4 | 0 | 4 | Human-visible ordering, dead code, graph freshness, weak cursor assertion |
 | **Total** | **39** | **1** | **40** | — |
 
-**By reconciliation state:** all 40 open rows are peer-reconciled. FIXCHK-001/002/003 are confirmed post-fix residuals; FIXCHK-004 is merged. Open ledger: 39 CONFIRMED + 1 PLAUSIBLE (C35-024). Fixed-with-proof (not counted as open): BUG-012, BUG-013, BUG-015, seeded-history scope, history-vs-future semantics, kernel migrations 000162/163, repair service, undeclared-cert guard; handoff C1 resolved. Park-scope app-route authorization and cursor test proof are reopened as FIXCHK-001 and FIXCHK-003.
+**By reconciliation state:** the 40 audit-time rows are peer-reconciled; **C35-010 (P0) is now FIXED WITH PROOF, leaving 39 open**. FIXCHK-001/002/003 are confirmed post-fix residuals; FIXCHK-004 is merged. Open ledger: 38 CONFIRMED + 1 PLAUSIBLE (C35-024). Fixed-with-proof (not counted as open): BUG-012, BUG-013, BUG-015, seeded-history scope, history-vs-future semantics, kernel migrations 000162/163, repair service, undeclared-cert guard; handoff C1 resolved. Park-scope app-route authorization and cursor test proof are reopened as FIXCHK-001 and FIXCHK-003.
 
 **Three guardrails carry the most leverage:** destructive logout certification (C35-001); current-SHA Room/paging/workflow/performance Android certification (C35-006/008/011/017/018/019 plus MOB-001…011); and current-SHA scale/latency + cross-boundary fanout gates (C35-002/004/005/007/009/013/014/015/016/020). FIXCHK-001 also needs a dedicated app scoped-grant route matrix.
 
-Final state: **ONE COMMON LEDGER, UPDATED FOR HEAD `d2a7fbcf`.** 40 open — 2 P0, 19 P1, 15 P2, 4 P3. The original 26 (C35/CL), 11 mobile (MOB), and 3 independent FIXCHK findings are peer-reconciled by both agents; FIXCHK-004 is merged into C35-006/C35-018. No product code was fixed (STOP RULE).
+Final state: **ONE COMMON LEDGER.** Audit snapshot for HEAD `d2a7fbcf` was 40 open (2 P0, 19 P1, 15 P2, 4 P3). **Closure in progress on `integration/ledger-cleanup-handoff-20260712`: C35-010 (P0) FIXED WITH PROOF → 39 open (1 P0, 19 P1, 15 P2, 4 P3).** The original 26 (C35/CL), 11 mobile (MOB), and 3 independent FIXCHK findings are peer-reconciled by both agents; FIXCHK-004 is merged into C35-006/C35-018. The STOP RULE (no product code fixed) applied at audit time; the closure program has since authorized fixes, and C35-010 is the first landed with a full proof packet.
