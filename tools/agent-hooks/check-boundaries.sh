@@ -201,9 +201,13 @@ if command -v rg >/dev/null 2>&1; then
   if [ -d "apps/admin-web" ]; then
     if rg -n "$admin_web_data_pattern" "${admin_web_code[@]}" \
       --glob '!node_modules/**' >/tmp/goatos-admin-web-data-boundary-warnings 2>/dev/null; then
-      cat /tmp/goatos-admin-web-data-boundary-warnings
-      echo "Admin web must use Goat OS backend APIs only; direct Sheets/App Script/BigQuery/XLSX data access is forbidden."
-      fail=1
+      # Firebase Auth endpoints (token refresh / identity) are AUTH, not Sheets/BigQuery/App-Script DATA access; exclude them.
+      if grep -viE 'securetoken\.googleapis\.com|identitytoolkit\.googleapis\.com|firebaseinstallations\.googleapis\.com' /tmp/goatos-admin-web-data-boundary-warnings \
+        >/tmp/goatos-admin-web-data-boundary-filtered; then
+        cat /tmp/goatos-admin-web-data-boundary-filtered
+        echo "Admin web must use Goat OS backend APIs only; direct Sheets/App Script/BigQuery/XLSX data access is forbidden."
+        fail=1
+      fi
     fi
     if rg -ni "$admin_web_visible_branding_pattern" \
       apps/admin-web/app apps/admin-web/components apps/admin-web/features apps/admin-web/lib/api/server.ts \

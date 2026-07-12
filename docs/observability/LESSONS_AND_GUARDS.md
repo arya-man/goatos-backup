@@ -637,6 +637,49 @@ For any new admin-web observability code, run `make guardrails` locally and conf
 
 ---
 
+### 22. Cloud SQL socket does NOT auto-mount in a multi-container Cloud Run **Job**
+
+**Symptom:** The API **Service** rolled out perfectly as 2 containers (app + collector
+sidecar) — `/readyz` = 204 (DB reachable), `http_server_*` + `db_client_*` metrics flowing
+to GMP. But the identical sidecar pattern on a kernel **Job** (`domain-event-processed-sweeper`)
+failed every run with exit 1:
+`ping postgres: ... dial unix /cloudsql/goatos-stg:...:goatos-stg-core-db/.s.PGSQL.5432:
+connect: no such file or directory`. Telemetry itself initialized fine
+(`otel_telemetry_enabled` logged); the app just couldn't reach Postgres.
+
+**Root cause (Cloud Run platform behavior, not our code):** the
+`run.googleapis.com/cloudsql-instances` annotation auto-mounts the `/cloudsql/...` unix
+socket into the container(s) of a **Service** even when it has a sidecar — but for a
+multi-container **Job** the socket is **not** mounted into the app container (single-container
+Jobs mount it; adding a second container breaks the auto-mount). The annotation is present
+on the deployed Job but the socket never appears. Separately, `gcloud run ... --format=export`
+**drops** the cloudsql annotation on round-trip, so a naive YAML `replace` loses it entirely
+(fixed by re-injecting it at `spec.template.metadata.annotations`, but that alone still isn't
+enough for a multi-container Job).
+
+**Status / fix:** the **API service telemetry is LIVE** (sidecar works for services). The
+**13 kernel Jobs are NOT rolled out** — the collector-sidecar-on-Jobs design is blocked by
+this limitation. **Do not** roll the sidecar onto the Jobs. Two forward paths (pick per env):
+1. **Log-based metrics (recommended for short-lived Jobs):** the kernel Jobs already emit
+   structured `RunResult` counts (published, dead_letters, reclaimed, consumer lag, sweeper
+   batch, notify success) to stdout → Cloud Logging. Define Cloud Monitoring **log-based
+   metrics** from those logs and point the kernel-pipeline dashboard panels at them. No
+   sidecar, no Cloud SQL mount issue, no double-run risk. This is the standard pattern for
+   ephemeral Jobs.
+2. **In-process GCP exporter for Jobs:** extend `platform/observability` so that when a Job
+   detects it's short-lived, it exports metrics/traces **directly** to Cloud Monitoring /
+   Cloud Trace (the GCP exporters) with a force-flush on exit, instead of OTLP-to-a-sidecar.
+   Bigger code change; keeps everything as real OTel metrics.
+
+**Prevention / next-env note:** never assume Service behavior == Job behavior on Cloud Run.
+Any multi-container Job that needs Cloud SQL must be proven with a real `execute` before
+rollout. When editing live Jobs via YAML, re-inject the cloudsql annotation (export drops it)
+AND verify the socket actually mounts. Always **canary a single Job with `maxRetries=0`** (so
+a failure can't double-run) and restore the original single-container config immediately if it
+fails — a kernel Job left broken stops that stage of the pipeline.
+
+---
+
 ## PRE-DEPLOY CHECKLIST (mandatory for any env: dev, stg, prod)
 
 > **PRE-PUSH (every commit, before deploy):** run repo-root **`make guardrails`** and
