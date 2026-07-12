@@ -115,6 +115,24 @@ func TestActorIDAlwaysRequired(t *testing.T) {
 	}
 }
 
+func TestVaccinationFullProjectionRefreshIsRepairOnlyByDefault(t *testing.T) {
+	t.Setenv("GOATOS_SWEEPER_PROJECT_VACCINATION_READ_MODELS", "")
+	cfg, err := parseFlags([]string{"-tenant-id", "tenant-1", "-actor-id", "actor-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ProjectVaccinationReadModels {
+		t.Fatal("scheduled sweeper must not run a full-tenant vaccination projection rebuild by default")
+	}
+	cfg, err = parseFlags([]string{"-tenant-id", "tenant-1", "-actor-id", "actor-1", "-project-vaccination-read-models=true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ProjectVaccinationReadModels {
+		t.Fatal("explicit repair flag must enable full vaccination projection rebuild")
+	}
+}
+
 // TestTaskCreatorImplementsBatchTaskCreatorForBulkOperations verifies that
 // task creation uses the BatchTaskCreator interface when available to avoid N+1.
 // This is C35-004: bulk task creation still does per-batch DB writes.

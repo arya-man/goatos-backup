@@ -82,14 +82,14 @@ locals {
       }
     }
     vaccination_shed_projector = {
-      name                = "goatos-stg-vaccination-shed-projector"
+      name                = "goatos-stg-vaccination-projection-worker"
       service_account_key = "vaccination_generator"
-      command             = ["/app/bin/vaccination-shed-projection-recompute"]
-      args                = ["-timeout=9m"]
-      timeout             = "600s"
+      command             = ["/app/bin/vaccination-projection-worker"]
+      args                = ["-timeout=4m", "-limit=100", "-lease-for=2m"]
+      timeout             = "300s"
       memory              = "512Mi"
       cpu                 = "1"
-      schedule            = "*/5 * * * *"
+      schedule            = "* * * * *"
       env = {
         GOATOS_ENV                          = "stg"
         GOATOS_ALLOW_STG_CLOUDSQL_TARGET    = "true"

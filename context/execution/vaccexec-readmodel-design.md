@@ -74,21 +74,31 @@ This series ports the same shape to `ShedSummary`, `ListVaccinationExecutionPage
    asserts the projection rows equal the live rows field-by-field (Animals, DueAnimals, OpenCells,
    Sessions, Capacity, Status, LastDone, NextDue) for every seeded shed. This is the proof that the
    projector reproduces exactly what the request path serves today.
-5. **Refresh wiring** so the projection stays fresh in every environment, mirroring
-   `process_integrity_projector` exactly:
+5. **Repair/bootstrap wiring**:
    - `backend/cmd/vaccination-shed-projection-recompute/main.go` — a CLI, same shape as
      `backend/cmd/process-integrity-projection-recompute`.
    - `make vaccination-shed-projection-recompute` (Makefile) runs it locally.
-   - `infra/envs/stg/cloud_run_jobs.tf` adds a `vaccination_shed_projector` entry to
-     `local.kernel_jobs` (Cloud Run Job + Cloud Scheduler `*/5 * * * *`, reusing the
-     `vaccination_generator` service account exactly like `process_integrity_projector` does).
-     `process_integrity_projector` itself is stg-only today (not in `infra/envs/dev`), so this
-     mirrors that same scope rather than inventing a dev job with no precedent.
+   - full `Recompute*Projection` commands remain explicit bootstrap/repair tools; the obligation
+     sweeper's `project-vaccination-read-models` flag now defaults false so scheduled steady state
+     cannot accidentally return to recurring full-tenant canonical replay.
    - `backend/Dockerfile` builds `vaccination-shed-projection-recompute` into `/app/bin/` alongside
      `process-integrity-projection-recompute`.
    - `backend/cmd/seed-vaccination-real/main.go` calls `RecomputeShedProjection` right after the
      existing `RecomputeProjection` (process-integrity) call — the deploy-seed population step, so
      a freshly seeded environment does not start with a cold shed projection.
+
+6. **Event-driven steady-state projection worker** (migration 000172):
+   - source-table triggers transactionally coalesce invalidations by tenant + shed + IST business
+     date in the shared `projection_dirty_scopes` ledger (`family='vaccination'`); CT/AC/PA/Calendar
+     can use the same `projection_enqueue_dirty_scope` contract instead of creating parallel queues;
+   - bounded `FOR UPDATE SKIP LOCKED` claims carry lease owner/token/expiry, exponential retry,
+     max attempts, DLQ state, and a durable projection-version checkpoint;
+   - one tenant batch copies unchanged projection rows, recomputes canonical data only for the
+     claimed shed IDs, and flips shed/execution/operations serving versions plus queue checkpoints
+     in one transaction;
+   - missing serving pointers invoke one full bootstrap, after which every normal source mutation
+     uses the shard path;
+   - dev and stg run `/app/bin/vaccination-projection-worker` every minute with at most 100 scopes.
 
 ## Explicitly not complete
 
@@ -139,8 +149,5 @@ What changed in `repository.go`:
 
 - Migration 000169 stores the cohort x protocol operations matrix with human-name keyset ordering and
   a version/freshness state row; its request path has no canonical fallback.
-- The current projector is a full-tenant off-request repair/rebuild, maintained by the scheduled
-  vaccination projector/sweeper. This removes latency from requests but is **not** the final 1M steady
-  state. A durable dirty-scope queue and bounded tenant/park/shed/date shard worker with checkpoint,
-  retry, and DLQ state must make scoped incremental refresh the normal path; full rebuild then becomes
-  repair only. Do not certify C35-002 or 1M readiness until that worker and staging cardinality proof land.
+- Full rebuild is repair/bootstrap only; incremental dirty-shed replacement is the scheduled normal
+  path. C35-002 still needs staging-scale cardinality/throughput evidence before final 1M certification.
