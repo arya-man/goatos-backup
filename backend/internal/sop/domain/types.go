@@ -60,7 +60,8 @@ type SOPVersion struct {
 }
 
 type SOPListResponse struct {
-	Items []SOPDefinition `json:"items"`
+	Items      []SOPDefinition `json:"items"`
+	NextCursor *string         `json:"next_cursor"`
 	// LatestVersions embeds each listed SOP's latest version keyed by sop_id, so a list consumer that
 	// needs version-derived facets (domain/trigger/steps/gates from form_dsl + proof_policy) does not
 	// fan out one GetSOP detail call per row (C35-002/C35-015: list-then-N-details N+1). Populated by

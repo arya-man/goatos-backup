@@ -35,11 +35,20 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 func (r *Repository) ListSOPs(ctx context.Context, params ports.ListSOPsParams) ([]domain.SOPDefinition, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	var cursorUpdatedAt any
+	var cursorSOPID any
+	if params.Cursor != nil {
+		cursorUpdatedAt = params.Cursor.UpdatedAt
+		cursorSOPID = params.Cursor.SOPID
+	}
 	rows, err := r.pool.Query(ctx, sopSelectSQL(`
 WHERE sd.tenant_id = $1::uuid
   AND ($2 = '' OR sd.status = $2)
+  AND ($3 = '' OR sd.code LIKE $3 || '%')
+  AND ($4 = '' OR sd.code ILIKE '%' || $4 || '%' OR sd.name ILIKE '%' || $4 || '%' OR sd.description ILIKE '%' || $4 || '%')
+  AND ($5::timestamptz IS NULL OR (sd.updated_at, sd.sop_id) < ($5::timestamptz, $6::uuid))
 ORDER BY sd.updated_at DESC, sd.sop_id DESC
-LIMIT $3`), params.TenantID, params.Status, params.Limit)
+LIMIT $7`), params.TenantID, params.Status, params.CodePrefix, params.Search, cursorUpdatedAt, cursorSOPID, params.Limit)
 	if err != nil {
 		return nil, err
 	}

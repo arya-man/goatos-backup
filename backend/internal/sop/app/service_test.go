@@ -809,6 +809,38 @@ func TestListSOPsWithoutVersionsOmitsLatestVersions(t *testing.T) {
 	}
 }
 
+func TestListSOPsNormalizesFiltersAndReturnsOpaqueNextCursor(t *testing.T) {
+	repo := newFakeRepo()
+	repo.listSOPsResult = []domain.SOPDefinition{
+		{SOPID: "70000000-0000-4000-8000-000000000002", TenantID: testTenantID, Code: "vaccination.drive", UpdatedAt: "2026-07-12T10:00:00Z"},
+		{SOPID: "70000000-0000-4000-8000-000000000001", TenantID: testTenantID, Code: "vaccination.booster", UpdatedAt: "2026-07-12T09:00:00Z"},
+	}
+	repo.latestVersionsForResult = map[string]domain.SOPVersion{
+		repo.listSOPsResult[0].SOPID: {SOPID: repo.listSOPsResult[0].SOPID, SOPVersionID: testVersionID},
+	}
+	service := NewService(repo)
+
+	resp, err := service.ListSOPs(context.Background(), ports.ListSOPsParams{
+		TenantID: testTenantID, Status: " active ", CodePrefix: " Vaccination. ", Search: " Drive ", Limit: 1,
+	}, "trace")
+	if err != nil {
+		t.Fatalf("ListSOPs error: %v", err)
+	}
+	if len(resp.Items) != 1 || resp.NextCursor == nil {
+		t.Fatalf("items=%d next=%v, want one item plus cursor", len(resp.Items), resp.NextCursor)
+	}
+	if repo.lastListSOPs.Status != "active" || repo.lastListSOPs.CodePrefix != "vaccination." || repo.lastListSOPs.Search != "Drive" || repo.lastListSOPs.Limit != 2 {
+		t.Fatalf("repo params = %#v", repo.lastListSOPs)
+	}
+	if len(repo.lastLatestVersionsForIDs) != 1 || repo.lastLatestVersionsForIDs[0] != resp.Items[0].SOPID {
+		t.Fatalf("latest version ids = %#v, want only visible page", repo.lastLatestVersionsForIDs)
+	}
+	decoded, err := domain.DecodeSOPCursor(*resp.NextCursor)
+	if err != nil || decoded.SOPID != resp.Items[0].SOPID {
+		t.Fatalf("next cursor=%+v err=%v", decoded, err)
+	}
+}
+
 type fakeRepo struct {
 	task                        domain.TaskSummary
 	version                     domain.SOPVersion
@@ -823,6 +855,7 @@ type fakeRepo struct {
 	submitReplay                bool
 	reviewCalls                 int
 	listSOPsResult              []domain.SOPDefinition
+	lastListSOPs                ports.ListSOPsParams
 	latestVersionsForResult     map[string]domain.SOPVersion
 	latestVersionsForCalls      int
 	lastLatestVersionsForIDs    []string
@@ -861,7 +894,8 @@ func newFakeRepo() *fakeRepo {
 	}
 }
 
-func (f *fakeRepo) ListSOPs(context.Context, ports.ListSOPsParams) ([]domain.SOPDefinition, error) {
+func (f *fakeRepo) ListSOPs(_ context.Context, params ports.ListSOPsParams) ([]domain.SOPDefinition, error) {
+	f.lastListSOPs = params
 	return f.listSOPsResult, nil
 }
 func (f *fakeRepo) LatestVersionsFor(_ context.Context, _ string, sopIDs []string) (map[string]domain.SOPVersion, error) {

@@ -1466,6 +1466,7 @@ export interface components {
             latest_versions?: {
                 [key: string]: components["schemas"]["SOPVersion"];
             };
+            next_cursor: string | null;
             trace_id: string;
         };
         SOPResponse: {
@@ -4029,7 +4030,10 @@ export interface operations {
         parameters: {
             query?: {
                 status?: string;
+                code_prefix?: string;
+                q?: string;
                 limit?: number;
+                cursor?: string;
             };
             header?: never;
             path?: never;

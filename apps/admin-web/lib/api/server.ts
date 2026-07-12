@@ -920,14 +920,20 @@ export async function submitAppTask(
 // (SOPDefinition only); the SOP Library fetches per-SOP detail to read the latest version's
 // form_dsl + proof_policy for the card facets. No client-side mock rows, no fake `source: mock`.
 
-export async function listSops(params: { status?: string; limit?: number } = {}): Promise<ApiResult<SOPListResponse>> {
+export async function listSops(params: { status?: string; codePrefix?: string; q?: string; limit?: number; cursor?: string } = {}): Promise<ApiResult<SOPListResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAdminApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<SOPListResponse>("/admin/sops", {
       cache: "no-store",
-      query: compactQuery({ status: params.status, limit: params.limit ?? 200 }),
+      query: compactQuery({
+        status: params.status,
+        code_prefix: params.codePrefix,
+        q: params.q,
+        limit: params.limit ?? 25,
+        cursor: params.cursor,
+      }),
     }),
   );
 }

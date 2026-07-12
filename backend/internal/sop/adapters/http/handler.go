@@ -56,10 +56,22 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 
 func (h *Handler) ListSOPs(w nethttp.ResponseWriter, r *nethttp.Request) {
 	q := r.URL.Query()
+	var cursor *domain.SOPCursor
+	if raw := strings.TrimSpace(q.Get("cursor")); raw != "" {
+		decoded, err := domain.DecodeSOPCursor(raw)
+		if err != nil {
+			h.respond(w, r, nil, app.BadRequest("invalid_cursor", "cursor must be a valid SOP list cursor"))
+			return
+		}
+		cursor = &decoded
+	}
 	result, err := h.service.ListSOPs(r.Context(), ports.ListSOPsParams{
-		TenantID: tenantID(r),
-		Status:   q.Get("status"),
-		Limit:    parseLimit(q.Get("limit")),
+		TenantID:   tenantID(r),
+		Status:     q.Get("status"),
+		CodePrefix: q.Get("code_prefix"),
+		Search:     q.Get("q"),
+		Cursor:     cursor,
+		Limit:      parseLimit(q.Get("limit")),
 	}, traceID(r))
 	h.respond(w, r, result, err)
 }

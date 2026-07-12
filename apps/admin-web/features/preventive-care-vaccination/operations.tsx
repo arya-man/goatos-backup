@@ -1,4 +1,4 @@
-import { getSop, isAuthRequiredError, listSops } from "@/lib/api/server";
+import { isAuthRequiredError, listSops } from "@/lib/api/server";
 import { isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
 import { type RouteSearchParams } from "@/lib/search-params";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -13,21 +13,24 @@ import { VaccinationHeaderActions } from "./vaccination-action-dialogs";
 type LinkedSop = { view: SopCardView | null; error?: { code?: string; message: string } | null; authRequired?: boolean };
 
 async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
-  const listed = await listSops({ limit: 200 });
+  let listed = await listSops({ status: "active", codePrefix: "vaccination.", limit: 1 });
   if (!listed.ok) {
     if (isAuthRequiredError(listed.error)) return { view: null, authRequired: true };
     return { view: null, error: { code: listed.error.code, message: listed.error.message } };
   }
+  // An installation may have only a draft/retired vaccination SOP while policy is being authored.
+  // Keep that visible as the explicit fallback, still bounded to one server-filtered row.
+  if (listed.data.items.length === 0) {
+    listed = await listSops({ codePrefix: "vaccination.", limit: 1 });
+    if (!listed.ok) {
+      if (isAuthRequiredError(listed.error)) return { view: null, authRequired: true };
+      return { view: null, error: { code: listed.error.code, message: listed.error.message } };
+    }
+  }
   const defs = listed.data.items.filter((d) => isVaccinationSop(d.code, d.name));
   if (defs.length === 0) return { view: null }; // no vaccination SOP authored yet (distinct from a load failure)
-  const primary = defs.find((d) => d.status === "active") ?? defs[0];
-  const detail = await getSop(primary.sop_id);
-  if (!detail.ok) {
-    // A detail-fetch failure must surface, not silently degrade to a version-less view that reads as success.
-    if (isAuthRequiredError(detail.error)) return { view: null, authRequired: true };
-    return { view: null, error: { code: detail.error.code, message: detail.error.message } };
-  }
-  return { view: toSopView(primary, detail.data.latest_version ?? null) };
+  const primary = defs[0];
+  return { view: toSopView(primary, listed.data.latest_versions?.[primary.sop_id] ?? null) };
 }
 
 // Preventive Care (PC) · Vaccination — the SHED-WISE operations floor:

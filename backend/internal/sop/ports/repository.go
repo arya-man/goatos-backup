@@ -17,9 +17,12 @@ var (
 )
 
 type ListSOPsParams struct {
-	TenantID string
-	Status   string
-	Limit    int
+	TenantID   string
+	Status     string
+	CodePrefix string
+	Search     string
+	Cursor     *domain.SOPCursor
+	Limit      int
 }
 
 type ListTasksParams struct {

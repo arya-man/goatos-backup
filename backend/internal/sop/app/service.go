@@ -72,10 +72,28 @@ func (s *Service) ListSOPs(ctx context.Context, params ports.ListSOPsParams, tra
 		return nil, err
 	}
 	params.Status = strings.TrimSpace(params.Status)
+	params.CodePrefix = strings.TrimSpace(strings.ToLower(params.CodePrefix))
+	params.Search = strings.TrimSpace(params.Search)
 	params.Limit = boundedLimit(params.Limit, 100)
+	requestedLimit := params.Limit
+	params.Limit++
 	items, err := s.repo.ListSOPs(ctx, params)
 	if err != nil {
 		return nil, mapRepoErr(err)
+	}
+	var next *string
+	if len(items) > requestedLimit {
+		items = items[:requestedLimit]
+		last := items[len(items)-1]
+		updatedAt, parseErr := time.Parse(time.RFC3339Nano, last.UpdatedAt)
+		if parseErr != nil {
+			return nil, fmt.Errorf("sop: invalid pagination timestamp: %w", parseErr)
+		}
+		encoded, encodeErr := domain.EncodeSOPCursor(domain.SOPCursor{UpdatedAt: updatedAt, SOPID: last.SOPID})
+		if encodeErr != nil {
+			return nil, fmt.Errorf("sop: invalid pagination cursor: %w", encodeErr)
+		}
+		next = &encoded
 	}
 	// Batch-load each listed SOP's latest version in ONE query (not one GetSOP per row) so list
 	// consumers derive version facets without an N+1 detail fanout (C35-015).
@@ -97,7 +115,7 @@ func (s *Service) ListSOPs(ctx context.Context, params ports.ListSOPsParams, tra
 	if len(latest) == 0 {
 		latest = nil
 	}
-	return &domain.SOPListResponse{Items: items, LatestVersions: latest, TraceID: traceID}, nil
+	return &domain.SOPListResponse{Items: items, NextCursor: next, LatestVersions: latest, TraceID: traceID}, nil
 }
 
 func (s *Service) CreateSOP(ctx context.Context, cmd ports.CreateSOPCommand, traceID string) (*domain.SOPResponse, error) {
