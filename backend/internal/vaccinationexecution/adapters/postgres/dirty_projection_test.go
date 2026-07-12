@@ -36,13 +36,6 @@ func TestDirtyProjectionWorkerCoalescesAndPublishesShedShard(t *testing.T) {
  (SELECT serving_projection_version FROM vaccination_operations_projection_state WHERE tenant_id=$1::uuid)`, testTenant).Scan(&shedInitial, &executionInitial, &operationsInitial); err != nil {
 		t.Fatalf("read bootstrap versions: %v", err)
 	}
-	var untouchedRowID int64
-	if err := pool.QueryRow(ctx, `SELECT vaccination_shed_projection_row_id
-FROM vaccination_shed_projection_rows
-WHERE tenant_id=$1::uuid AND projection_version=$2 AND shed_id=$3`,
-		testTenant, shedInitial, testShedB).Scan(&untouchedRowID); err != nil {
-		t.Fatalf("read untouched shed row identity: %v", err)
-	}
 	execProjectionSQL(t, ctx, pool, "enqueue another projection family", `SELECT projection_enqueue_dirty_scope(
   'calendar',$1::uuid,'tenant',$1::uuid,NULL,NULL,'calendar_source_change',$2::timestamptz)`, testTenant, asOf)
 
@@ -92,25 +85,21 @@ FROM projection_dirty_scopes WHERE family='vaccination' AND tenant_id=$1::uuid A
  (SELECT serving_projection_version FROM vaccination_operations_projection_state WHERE tenant_id=$1::uuid)`, testTenant).Scan(&shedVersion, &executionVersion, &operationsVersion); err != nil {
 		t.Fatalf("read serving versions: %v", err)
 	}
-	if shedVersion != checkpointVersion {
-		t.Fatalf("checkpoint version=%d, want serving shed version=%d", checkpointVersion, shedVersion)
+	if shedVersion != checkpointVersion || executionVersion != checkpointVersion || operationsVersion != checkpointVersion {
+		t.Fatalf("atomic versions shed=%d execution=%d operations=%d checkpoint=%d", shedVersion, executionVersion, operationsVersion, checkpointVersion)
 	}
-	if shedVersion != shedInitial || executionVersion != executionInitial || operationsVersion != operationsInitial {
-		t.Fatalf("bounded shard refresh changed global serving versions: before=%d/%d/%d after=%d/%d/%d",
-			shedInitial, executionInitial, operationsInitial, shedVersion, executionVersion, operationsVersion)
+	if shedVersion == shedInitial || executionVersion == executionInitial || operationsVersion == operationsInitial {
+		t.Fatalf("worker did not publish new versions: shed=%d execution=%d operations=%d", shedVersion, executionVersion, operationsVersion)
 	}
 
-	// The untouched second shed remains in place; a one-shed change must not copy or rewrite it.
+	// The untouched second shed is copied from the old projection while the dirty shed is rebuilt.
 	var untouched int
-	var untouchedRowIDAfter int64
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int,min(vaccination_shed_projection_row_id)::bigint
-FROM vaccination_shed_projection_rows
-WHERE tenant_id=$1::uuid AND projection_version=$2 AND shed_id=$3`, testTenant, shedVersion, testShedB).Scan(&untouched, &untouchedRowIDAfter); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM vaccination_shed_projection_rows
+WHERE tenant_id=$1::uuid AND projection_version=$2 AND shed_id=$3`, testTenant, shedVersion, testShedB).Scan(&untouched); err != nil {
 		t.Fatalf("read untouched shard: %v", err)
 	}
-	if untouched != 1 || untouchedRowIDAfter != untouchedRowID {
-		t.Fatalf("untouched shed rows=%d identity before=%d after=%d; dirty worker rewrote an unrelated shard",
-			untouched, untouchedRowID, untouchedRowIDAfter)
+	if untouched != 1 {
+		t.Fatalf("untouched shed rows=%d, want 1", untouched)
 	}
 	var accepted int
 	if err := pool.QueryRow(ctx, `SELECT COALESCE(sum(completion_accepted),0)::int

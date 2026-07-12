@@ -126,20 +126,6 @@ BEGIN
     PERFORM vaccination_projection_enqueue_shed(p_tenant_id, p_scope_id, p_reason, p_changed_at);
     RETURN;
   END IF;
-  IF p_target_type = 'cohort' AND p_target_id IS NOT NULL THEN
-    SELECT parent_location_id INTO v_shed_id
-    FROM locations
-    WHERE tenant_id = p_tenant_id AND location_id = p_target_id AND location_type = 'cohort';
-    PERFORM vaccination_projection_enqueue_shed(p_tenant_id, v_shed_id, p_reason, p_changed_at);
-    RETURN;
-  END IF;
-  IF p_scope_type = 'cohort' AND p_scope_id IS NOT NULL THEN
-    SELECT parent_location_id INTO v_shed_id
-    FROM locations
-    WHERE tenant_id = p_tenant_id AND location_id = p_scope_id AND location_type = 'cohort';
-    PERFORM vaccination_projection_enqueue_shed(p_tenant_id, v_shed_id, p_reason, p_changed_at);
-    RETURN;
-  END IF;
   v_park_id := CASE
     WHEN p_target_type = 'park' THEN p_target_id
     WHEN p_scope_type = 'park' THEN p_scope_id

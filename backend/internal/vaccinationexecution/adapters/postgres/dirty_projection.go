@@ -206,93 +206,65 @@ func (r *Repository) refreshDirtyProjectionTenant(ctx context.Context, tenantID 
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,86172))`, tenantID); err != nil {
 		return fmt.Errorf("vaccination projection worker: lock: %w", err)
 	}
-	var shedVersion, executionVersion, operationsVersion int64
-	var shedTotal, executionTotal, operationsTotal int64
+	var shedOld, executionOld, operationsOld int64
 	if err := tx.QueryRow(ctx, `
-SELECT s.serving_projection_version,e.serving_projection_version,o.serving_projection_version,
-       s.row_count,e.row_count,o.row_count
+SELECT s.serving_projection_version,e.serving_projection_version,o.serving_projection_version
 FROM vaccination_shed_projection_state s
 JOIN vaccination_execution_projection_state e USING(tenant_id)
 JOIN vaccination_operations_projection_state o USING(tenant_id)
 WHERE s.tenant_id=$1::uuid
   AND s.serving_projection_version IS NOT NULL
   AND e.serving_projection_version IS NOT NULL
-  AND o.serving_projection_version IS NOT NULL`, tenantID).Scan(
-		&shedVersion, &executionVersion, &operationsVersion,
-		&shedTotal, &executionTotal, &operationsTotal,
-	); err != nil {
+  AND o.serving_projection_version IS NOT NULL`, tenantID).Scan(&shedOld, &executionOld, &operationsOld); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("vaccination projection worker: bootstrap repair required: %w", domain.ErrProjectionUnavailable)
 		}
 		return fmt.Errorf("vaccination projection worker: load serving versions: %w", err)
 	}
+	var version int64
 	var projectedAt time.Time
-	if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&projectedAt); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT (extract(epoch FROM clock_timestamp())*1000000)::bigint,clock_timestamp()`).Scan(&version, &projectedAt); err != nil {
 		return fmt.Errorf("vaccination projection worker: stamp: %w", err)
 	}
-	var oldShedRows, oldExecutionRows, oldOperationsRows int64
-	if err := tx.QueryRow(ctx, `SELECT
-  (SELECT count(*) FROM vaccination_shed_projection_rows WHERE tenant_id=$1::uuid AND projection_version=$2 AND shed_id=ANY($5::text[])),
-  (SELECT count(*) FROM vaccination_execution_projection_rows WHERE tenant_id=$1::uuid AND projection_version=$3 AND shed_id=ANY($5::text[])),
-  (SELECT count(*) FROM vaccination_operations_projection_rows WHERE tenant_id=$1::uuid AND projection_version=$4 AND shed_id=ANY($5::text[]))`,
-		tenantID, shedVersion, executionVersion, operationsVersion, shedIDs).Scan(
-		&oldShedRows, &oldExecutionRows, &oldOperationsRows,
-	); err != nil {
-		return fmt.Errorf("vaccination projection worker: count dirty shards: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM vaccination_shed_projection_rows
-WHERE tenant_id=$1::uuid AND projection_version=$2 AND shed_id=ANY($3::text[])`, tenantID, shedVersion, shedIDs); err != nil {
-		return fmt.Errorf("vaccination projection worker: delete shed shards: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM vaccination_execution_projection_rows
-WHERE tenant_id=$1::uuid AND projection_version=$2 AND shed_id=ANY($3::text[])`, tenantID, executionVersion, shedIDs); err != nil {
-		return fmt.Errorf("vaccination projection worker: delete execution shards: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM vaccination_operations_projection_rows
-WHERE tenant_id=$1::uuid AND projection_version=$2 AND shed_id=ANY($3::text[])`, tenantID, operationsVersion, shedIDs); err != nil {
-		return fmt.Errorf("vaccination projection worker: delete operations shards: %w", err)
-	}
-	if _, err := tx.Exec(ctx, vaccinationShedProjectionInsertSQL, tenantID, asOf, dueBefore,
-		cfg.MaxPerDay, cfg.MaxBufferDays, shedVersion, projectedAt, shedIDs); err != nil {
-		return fmt.Errorf("vaccination projection worker: rebuild shed shards: %w", err)
-	}
-	if err := rebuildExecutionProjectionShards(ctx, tx, tenantID, shedIDs, executionVersion, projectedAt, asOf, dueBefore); err != nil {
+
+	if err := copyUnchangedVaccinationProjectionRows(ctx, tx, tenantID, shedIDs, shedOld, executionOld, operationsOld, version); err != nil {
 		return err
 	}
-	if err := rebuildOperationsProjectionShards(ctx, tx, tenantID, shedIDs, operationsVersion, projectedAt, asOf, dueBefore); err != nil {
+	if _, err := tx.Exec(ctx, vaccinationShedProjectionInsertSQL, tenantID, asOf, dueBefore,
+		cfg.MaxPerDay, cfg.MaxBufferDays, version, projectedAt, shedIDs); err != nil {
+		return fmt.Errorf("vaccination projection worker: rebuild shed shards: %w", err)
+	}
+	if err := rebuildExecutionProjectionShards(ctx, tx, tenantID, shedIDs, version, projectedAt, asOf, dueBefore); err != nil {
+		return err
+	}
+	if err := rebuildOperationsProjectionShards(ctx, tx, tenantID, shedIDs, version, projectedAt, asOf, dueBefore); err != nil {
 		return err
 	}
 
-	var newShedRows, newExecutionRows, newOperationsRows int64
+	var shedCount, executionCount, operationsCount int64
 	if err := tx.QueryRow(ctx, `SELECT
-  (SELECT count(*) FROM vaccination_shed_projection_rows WHERE tenant_id=$1::uuid AND projection_version=$2 AND shed_id=ANY($5::text[])),
-  (SELECT count(*) FROM vaccination_execution_projection_rows WHERE tenant_id=$1::uuid AND projection_version=$3 AND shed_id=ANY($5::text[])),
-  (SELECT count(*) FROM vaccination_operations_projection_rows WHERE tenant_id=$1::uuid AND projection_version=$4 AND shed_id=ANY($5::text[]))`,
-		tenantID, shedVersion, executionVersion, operationsVersion, shedIDs).Scan(
-		&newShedRows, &newExecutionRows, &newOperationsRows,
-	); err != nil {
-		return fmt.Errorf("vaccination projection worker: count rebuilt shards: %w", err)
+  (SELECT count(*) FROM vaccination_shed_projection_rows WHERE tenant_id=$1::uuid AND projection_version=$2),
+  (SELECT count(*) FROM vaccination_execution_projection_rows WHERE tenant_id=$1::uuid AND projection_version=$2),
+  (SELECT count(*) FROM vaccination_operations_projection_rows WHERE tenant_id=$1::uuid AND projection_version=$2)`, tenantID, version).Scan(&shedCount, &executionCount, &operationsCount); err != nil {
+		return fmt.Errorf("vaccination projection worker: count version: %w", err)
 	}
-	shedTotal = shedTotal - oldShedRows + newShedRows
-	executionTotal = executionTotal - oldExecutionRows + newExecutionRows
-	operationsTotal = operationsTotal - oldOperationsRows + newOperationsRows
 	closedAfter := asOf.Add(-defaultClosedHistoryAge)
 	if _, err := tx.Exec(ctx, `
-UPDATE vaccination_shed_projection_state SET projected_at=$2,as_of=$3,due_before=$4,row_count=$5,
-  freshness_status='green',serving_state='fresh',last_error=NULL,updated_at=now()
-WHERE tenant_id=$1::uuid`, tenantID, projectedAt, asOf, dueBefore, shedTotal); err != nil {
+UPDATE vaccination_shed_projection_state SET projection_version=$2,serving_projection_version=$2,
+  projected_at=$3,as_of=$4,due_before=$5,row_count=$6,freshness_status='green',serving_state='fresh',last_error=NULL,updated_at=now()
+WHERE tenant_id=$1::uuid`, tenantID, version, projectedAt, asOf, dueBefore, shedCount); err != nil {
 		return fmt.Errorf("vaccination projection worker: publish shed version: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-UPDATE vaccination_execution_projection_state SET projected_at=$2,as_of=$3,due_before=$4,closed_after=$5,row_count=$6,
-  freshness_status='green',serving_state='fresh',last_error=NULL,updated_at=now()
-WHERE tenant_id=$1::uuid`, tenantID, projectedAt, asOf, dueBefore, closedAfter, executionTotal); err != nil {
+UPDATE vaccination_execution_projection_state SET projection_version=$2,serving_projection_version=$2,
+  projected_at=$3,as_of=$4,due_before=$5,closed_after=$6,row_count=$7,freshness_status='green',serving_state='fresh',last_error=NULL,updated_at=now()
+WHERE tenant_id=$1::uuid`, tenantID, version, projectedAt, asOf, dueBefore, closedAfter, executionCount); err != nil {
 		return fmt.Errorf("vaccination projection worker: publish execution version: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
-UPDATE vaccination_operations_projection_state SET projected_at=$2,as_of=$3,due_before=$4,row_count=$5,
-  freshness_status='green',serving_state='fresh',last_error=NULL,updated_at=now()
-WHERE tenant_id=$1::uuid`, tenantID, projectedAt, asOf, dueBefore, operationsTotal); err != nil {
+UPDATE vaccination_operations_projection_state SET projection_version=$2,serving_projection_version=$2,
+  projected_at=$3,as_of=$4,due_before=$5,row_count=$6,freshness_status='green',serving_state='fresh',last_error=NULL,updated_at=now()
+WHERE tenant_id=$1::uuid`, tenantID, version, projectedAt, asOf, dueBefore, operationsCount); err != nil {
 		return fmt.Errorf("vaccination projection worker: publish operations version: %w", err)
 	}
 	for _, scope := range scopes {
@@ -300,7 +272,7 @@ WHERE tenant_id=$1::uuid`, tenantID, projectedAt, asOf, dueBefore, operationsTot
 UPDATE projection_dirty_scopes
 SET status='completed',lease_owner=NULL,lease_token=NULL,lease_until=NULL,last_error=NULL,
     checkpoint=jsonb_build_object('projection_version',$3::bigint,'projected_at',$4::timestamptz),updated_at=now()
-WHERE dirty_scope_id=$1 AND lease_token=$2::uuid`, scope.ID, scope.LeaseToken, shedVersion, projectedAt); err != nil {
+WHERE dirty_scope_id=$1 AND lease_token=$2::uuid`, scope.ID, scope.LeaseToken, version, projectedAt); err != nil {
 			return fmt.Errorf("vaccination projection worker: checkpoint scope %d: %w", scope.ID, err)
 		}
 	}
@@ -309,6 +281,48 @@ WHERE dirty_scope_id=$1 AND lease_token=$2::uuid`, scope.ID, scope.LeaseToken, s
 	}
 	committed = true
 
+	// Old-version cleanup is bounded maintenance and never changes the already-committed checkpoint.
+	_ = r.pruneOldShedProjectionRows(ctx, tenantID)
+	_ = r.pruneOldExecutionProjectionRows(ctx, tenantID, version)
+	_ = r.pruneOldOperationsProjectionRows(ctx, tenantID, version)
+	return nil
+}
+
+func copyUnchangedVaccinationProjectionRows(ctx context.Context, tx pgx.Tx, tenantID string, shedIDs []string, shedOld, executionOld, operationsOld, version int64) error {
+	if _, err := tx.Exec(ctx, `
+INSERT INTO vaccination_shed_projection_rows
+ (tenant_id,park_id,park_name,shed_id,shed_name,animals,due_animals,open_cells,sessions,capacity_status,shed_status,last_done,next_due,projection_version,projected_at,updated_at)
+SELECT tenant_id,park_id,park_name,shed_id,shed_name,animals,due_animals,open_cells,sessions,capacity_status,shed_status,last_done,next_due,$4,projected_at,updated_at
+FROM vaccination_shed_projection_rows
+WHERE tenant_id=$1::uuid AND projection_version=$2 AND NOT (shed_id=ANY($3::text[]))`, tenantID, shedOld, shedIDs, version); err != nil {
+		return fmt.Errorf("vaccination projection worker: copy unchanged shed rows: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO vaccination_execution_projection_rows
+ (tenant_id,projection_version,park_id,park_name,shed_id,shed_name,animal_stage,batch_id,protocol_name,dose_code,due_at,
+  obligation_count,scheduled_count,due_count,in_progress_count,completed_count,missed_count,deferred_count,canceled_count,
+  completion_recorded,completion_accepted,completion_rejected,completion_reversed,batch_status,task_state,operator_name,
+  park_head_name,verifier_name,usable_for_vaccination,is_quarantine,is_icu,health_deferred_count,obligation_id,sop_task_id,
+  sop_version_id,sop_task_row_version,completion_id,work_state,severity,sort_rank,sort_due_micros,sort_row_key,projected_at)
+SELECT tenant_id,$4,park_id,park_name,shed_id,shed_name,animal_stage,batch_id,protocol_name,dose_code,due_at,
+  obligation_count,scheduled_count,due_count,in_progress_count,completed_count,missed_count,deferred_count,canceled_count,
+  completion_recorded,completion_accepted,completion_rejected,completion_reversed,batch_status,task_state,operator_name,
+  park_head_name,verifier_name,usable_for_vaccination,is_quarantine,is_icu,health_deferred_count,obligation_id,sop_task_id,
+  sop_version_id,sop_task_row_version,completion_id,work_state,severity,sort_rank,sort_due_micros,sort_row_key,projected_at
+FROM vaccination_execution_projection_rows
+WHERE tenant_id=$1::uuid AND projection_version=$2 AND NOT (shed_id=ANY($3::text[]))`, tenantID, executionOld, shedIDs, version); err != nil {
+		return fmt.Errorf("vaccination projection worker: copy unchanged execution rows: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO vaccination_operations_projection_rows
+ (tenant_id,projection_version,park_id,park_name,shed_id,shed_name,stage,age_band,protocol_id,protocol_name,animals,next_due,last_dose,
+  overdue_count,due_count,in_progress_count,scheduled_count,missed_count,deferred_count,accepted_count,proof_pending_count,rejected_count,total_count,projected_at)
+SELECT tenant_id,$4,park_id,park_name,shed_id,shed_name,stage,age_band,protocol_id,protocol_name,animals,next_due,last_dose,
+  overdue_count,due_count,in_progress_count,scheduled_count,missed_count,deferred_count,accepted_count,proof_pending_count,rejected_count,total_count,projected_at
+FROM vaccination_operations_projection_rows
+WHERE tenant_id=$1::uuid AND projection_version=$2 AND NOT (shed_id=ANY($3::text[]))`, tenantID, operationsOld, shedIDs, version); err != nil {
+		return fmt.Errorf("vaccination projection worker: copy unchanged operations rows: %w", err)
+	}
 	return nil
 }
 
