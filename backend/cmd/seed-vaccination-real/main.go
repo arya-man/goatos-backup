@@ -44,6 +44,8 @@ import (
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
+	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
+	vaccexecdomain "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 const defaultTenantID = "00000000-0000-4000-8000-000000000001"
@@ -202,6 +204,20 @@ func run(args []string) error {
 
 	fmt.Printf("process_integrity_projection rows=%d version=%d as_of=%s\n",
 		processProjection.Rows, processProjection.ProjectionVersion, processProjection.AsOf.Format(time.RFC3339))
+
+	// Deploy-seed population (C35-002, vaccinationexecution half): keep the shed-wise read model
+	// (vaccination_shed_projection_rows, migration 000167) warm right after a real-data seed, the same
+	// way the process-integrity projection above is refreshed. ShedSummary itself still serves the live
+	// CTE; this only keeps the projection from starting cold in a freshly seeded environment.
+	shedProjection, err := vaccexecpg.NewRepository(pool, pgCfg.QueryTimeout).RecomputeShedProjection(ctx, vaccexecdomain.ShedProjectionRecomputeRequest{
+		TenantID: *tenantID,
+	})
+	if err != nil {
+		return fmt.Errorf("recompute vaccination shed projection after vaccination seed: %w", err)
+	}
+
+	fmt.Printf("vaccination_shed_projection rows=%d version=%d as_of=%s\n",
+		shedProjection.Rows, shedProjection.ProjectionVersion, shedProjection.AsOf.Format(time.RFC3339))
 	return nil
 }
 

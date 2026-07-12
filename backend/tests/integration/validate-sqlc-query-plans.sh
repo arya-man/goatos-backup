@@ -1169,6 +1169,26 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY park_id, farm_id, current_location_id, breed, sex, lifecycle_status;"
 }
 
+validate_vaccination_shed_projection_plan() {
+  # C35-002 (vaccinationexecution half): RecomputeShedProjection is off the request path today, but
+  # the serving-lookup shape it is landed for (tenant + projection_version, default park/shed order,
+  # and the status filter) must already be indexed before that read is ever wired up.
+  explain_must_use_index "VaccinationShedProjectionServingHot" 'Seq Scan on vaccination_shed_projection_rows' "EXPLAIN (COSTS OFF)
+SELECT shed_id, shed_status, capacity_status
+FROM vaccination_shed_projection_rows
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version = 1
+ORDER BY park_name ASC, shed_name ASC;"
+
+  explain_must_use_index "VaccinationShedProjectionStatusFilter" 'Seq Scan on vaccination_shed_projection_rows' "EXPLAIN (COSTS OFF)
+SELECT shed_id
+FROM vaccination_shed_projection_rows
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version = 1
+  AND shed_status = 'overdue'
+ORDER BY park_name ASC, shed_name ASC;"
+}
+
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -1205,5 +1225,6 @@ validate_procurement_source_entry_plans
 validate_operations_audit_plans
 validate_calendar_vaccination_plans
 validate_herd_register_summary_plan
+validate_vaccination_shed_projection_plan
 
 echo "Validated current hot-path query plans"

@@ -81,6 +81,23 @@ locals {
         GOATOS_PG_QUERY_TIMEOUT             = "30s"
       }
     }
+    vaccination_shed_projector = {
+      name                = "goatos-stg-vaccination-shed-projector"
+      service_account_key = "vaccination_generator"
+      command             = ["/app/bin/vaccination-shed-projection-recompute"]
+      args                = ["-timeout=9m"]
+      timeout             = "600s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/5 * * * *"
+      env = {
+        GOATOS_ENV                          = "stg"
+        GOATOS_ALLOW_STG_CLOUDSQL_TARGET    = "true"
+        GOATOS_STG_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
+        GOATOS_TENANT_ID                    = var.stg_tenant_id
+        GOATOS_PG_QUERY_TIMEOUT             = "30s"
+      }
+    }
     obligation_sweeper = {
       name                = "goatos-stg-obligation-sweeper"
       service_account_key = "obligation_sweeper"
