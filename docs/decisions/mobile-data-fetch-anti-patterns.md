@@ -89,3 +89,44 @@ The guard's `--all` audit flags the current calendar + scan screens: `CalendarVi
 `CalendarDayViewModel` fetch 50-200 events and the overview parses them; `ScanViewModel` fetches
 **1000** rows (the L3 vaccine-capture screen renders blank because it tries to pull the whole cohort).
 These are fixed in the follow-up mobile rewire, not in the guard-introduction change.
+
+## Unbounded in-memory growth (the retention twin)
+
+Fetch size is only half the story. Even a correctly-paged screen leaks memory if the data layer
+**retains** without bound: an in-heap cache/accumulator that only ever grows, or a DAO that
+observes an entire table into memory. Fast on a fresh install, an OOM after a week of use. Commit
+`7058fff2` added TTL + row/byte caps + LRU eviction (`JsonBlobCacheSupport`: `readCachedJson`,
+`enforceCacheBounds`, `CacheGovernance`); commit `d58acac2` bounded the outbox by observing only
+ACTIVE rows and pruning SUCCEEDED instead of holding the whole table forever.
+
+```kotlin
+// BANNED — grows for the life of the process
+private val cache = mutableMapOf<String, Dto>()      // no cap, no TTL, no eviction
+
+@Query("SELECT * FROM outbox ORDER BY createdAt ASC") // whole table, incl. terminal rows
+fun observeAll(): Flow<List<OutboxEntity>>
+```
+
+```kotlin
+// CORRECT — bounded
+private val cache = LruCache<String, Dto>(200)        // or a Room JsonBlobCacheDao with
+                                                      // readCachedJson (TTL) + enforceCacheBounds
+@Query("SELECT * FROM outbox WHERE status IN ('QUEUED','IN_FLIGHT')")  // active rows only
+fun observeActive(): Flow<List<OutboxEntity>>
+```
+
+`make android-bounded-memory-guard`
+(`tools/agent-hooks/check-android-bounded-memory.mjs`) blocks two shapes, deliberately distinct
+from the fetch-SIZE rules above:
+
+- `unbounded-inmemory-collection` — a class-field `mutableMapOf` / `mutableListOf` / `ArrayList`
+  (etc.) that the file never evicts from (no `.clear` / `.remove` / `poll` / `trimToSize`, and not
+  an `LruCache`). A `MutableStateFlow` of a single object is fine (constant size).
+- `whole-table-read` — a DAO `@Query("SELECT * FROM t")` with **no WHERE and no LIMIT** (the
+  `observeAll` shape). The `ORDER BY`-with-no-`LIMIT` variant is owned by `mobile-guard`'s
+  `unbounded-db-read`; this rule catches the no-clause whole-table read it misses.
+
+It is **diff-scoped** (a commit with no android Kotlin passes instantly), skips
+`*Test`/`Fake`/`Preview`/`Entity`/`Dto` files, and honors an inline `// mobile-guard:ignore: <reason>`
+for a genuinely-bounded case. `make android-bounded-memory-guard-audit` runs the whole-tree audit;
+the legacy deprecated `OutboxDao.observeAll` surfaces there until it is deleted.

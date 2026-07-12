@@ -272,6 +272,59 @@ diff base is available. `make mobile-guard-audit` scans the whole tree to show t
 current backlog. A genuinely-bounded case may carry an inline
 `// mobile-guard:ignore: <reason>`.
 
+### Step 4b: Admin-web full-table request-read guard
+
+Command:
+
+```text
+make admin-web-request-reads-guard          # what CI runs (diff-scoped)
+make admin-web-request-reads-guard-audit    # whole-tree backlog
+```
+
+Purpose:
+
+```text
+Block the Next.js SSR full-table request-read anti-pattern in apps/admin-web
+catalogued in docs/decisions/scale-anti-patterns.md — a server data helper that
+drains a paginated backend endpoint cursor-by-cursor into one big array to
+compute a KPI on the request path (the searchAllGoats full-herd walk removed in
+810bc1b3). Runs tools/agent-hooks/check-admin-web-request-reads.mjs.
+```
+
+It blocks the `cursor-drain-loop` shape: a `for`/`while` whose body both
+accumulates (`.push(...)` / `.concat`) and advances a cursor from `next_cursor`.
+The fix is a projection/summary endpoint that returns pre-aggregated counts. It is
+**diff-scoped** (a commit with no admin-web TS passes instantly), skips
+`'use client'` modules and test/mock/seed files, and honors an inline
+`// scale-guard:ignore: <reason>`. The `Omit<Params, "limit" | "cursor">`
+signature alone is NOT flagged — that is also the shape of a legitimate summary
+reader.
+
+### Step 4b: Android bounded-memory guard
+
+Command:
+
+```text
+make android-bounded-memory-guard           # what CI runs (diff-scoped)
+make android-bounded-memory-guard-audit     # whole-tree backlog
+```
+
+Purpose:
+
+```text
+Block unbounded in-memory growth in the Android data layer catalogued in
+docs/decisions/mobile-data-fetch-anti-patterns.md — an in-heap cache/accumulator
+with no cap/TTL/eviction, or a DAO reading a whole table into memory (commits
+7058fff2 + d58acac2). Runs tools/agent-hooks/check-android-bounded-memory.mjs.
+```
+
+It blocks `unbounded-inmemory-collection` (a class-field mutable map/list/set never
+evicted from — use `LruCache` or a Room `JsonBlobCacheDao` with TTL + cap) and
+`whole-table-read` (`SELECT * FROM t` with no WHERE and no LIMIT — filter to active
+rows or bound with LIMIT). It is distinct from `mobile-guard`, which owns fetch/page
+SIZE. It is **diff-scoped** (a commit with no android Kotlin passes instantly),
+skips test/entity/dto files, and honors an inline `// mobile-guard:ignore: <reason>`.
+
 If this fails, it usually means:
 
 ```text

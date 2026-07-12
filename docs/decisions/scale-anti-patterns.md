@@ -59,3 +59,50 @@ When an E2E run, scale audit, or feature proof is generated while fixing one of
 these issues, commit the report and publish it through the GitHub Pages report
 site. Local-only proof must say that it is local-only and must not be described
 as staging or production certification.
+
+## Admin-web SSR full-table request reads
+
+`make scale-guard` scans Go (`backend/internal/**`) only. The same compute-on-read
+disease crosses into `apps/admin-web/**`: a Next.js server component or
+`lib/api/server.ts` helper that **drains a paginated backend endpoint cursor-by-
+cursor into one big array** to compute a KPI on the request path. That is exactly
+the `searchAllGoats` full-herd walk removed in commit `810bc1b3` — it looks fine
+against a 1k-goat fixture and melts at 1M:
+
+```ts
+// BANNED — full-herd SSR walk
+export async function searchAllGoats(params: Omit<HerdSearchParams, "limit" | "cursor">) {
+  const items = [];
+  let cursor;
+  for (;;) {
+    const page = await searchGoats({ ...params, limit: 100, cursor });
+    items.push(...page.data.items);           // accumulate every page into memory
+    if (!page.data.next_cursor) break;
+    cursor = page.data.next_cursor;           // drain the whole cursor
+  }
+  return { ok: true, data: items };           // then filter/count in the component
+}
+```
+
+The fix is a **projection/summary endpoint** that returns pre-aggregated counts;
+the request does one indexed lookup, never a row walk:
+
+```ts
+// CORRECT — read the read model
+export async function getHerdRegisterSummary(params: HerdRegisterSummaryParams) {
+  return request(() => client.request("/herd-register/summary", { query: params }));
+}
+```
+
+`make admin-web-request-reads-guard`
+(`tools/agent-hooks/check-admin-web-request-reads.mjs`) blocks the `cursor-drain-
+loop` shape: a `for`/`while` whose body both accumulates (`.push(...)` / `.concat`)
+and advances a cursor from `next_cursor`. It is **diff-scoped** (a commit with no
+admin-web TS passes instantly), skips `'use client'` modules and test/mock/seed
+files, and offers an inline `// scale-guard:ignore: <reason>` escape hatch for a
+genuinely-bounded, small-cardinality read. The `Omit<Params, "limit" | "cursor">`
+signature alone is **not** flagged — a projection/summary reader legitimately takes
+no page bound (e.g. `getOperationsAuditSummary`); only the actual drain loop is.
+`make admin-web-request-reads-guard-audit` runs the whole-tree audit; the legacy
+`OutboxDao.observeAll` and any other pre-existing whole-set reader surface there
+and should migrate to a projection/keyset read.

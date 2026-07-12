@@ -362,6 +362,12 @@ Do:
   If a case is genuinely bounded, annotate it `// scale-guard:ignore: <reason>`;
   do not disable the guard. A green latency gate today means "correct shape", not
   "1M-proven" (gates run at ~1k rows — see the ADR's runtime-gap section).
+  The admin-web twin lives in `apps/admin-web/**`: a Next.js SSR helper that drains
+  a paginated endpoint cursor-by-cursor into one array to compute a KPI (the
+  `searchAllGoats` full-herd walk, removed in `810bc1b3`) is machine-blocked by
+  `make admin-web-request-reads-guard`
+  (`tools/agent-hooks/check-admin-web-request-reads.mjs`); read a projection/summary
+  endpoint instead. Rule + rationale in `docs/decisions/scale-anti-patterns.md`.
 - E2E publishing rule for Codex, Claude, and every feature agent: any generated
   E2E result for a feature, fix, audit, or scale gate must be committed inside
   this repo and surfaced on the GitHub Pages CI report site before handoff. The
@@ -431,6 +437,14 @@ Do:
     Otherwise the over-fetch just moves from network to DB.
   If a case is genuinely bounded (e.g. a fixed 7-cell week loop) annotate the line
   `// mobile-guard:ignore: <reason>`; do not disable the guard.
+  The retention twin is memory, not fetch size: an in-heap cache/accumulator that
+  grows with no cap/TTL/eviction, or a DAO reading a whole table into memory
+  (`observeAll` `SELECT *`), OOMs the phone at scale (fixed in `7058fff2` +
+  `d58acac2`). Machine-blocked by `make android-bounded-memory-guard`
+  (`tools/agent-hooks/check-android-bounded-memory.mjs`, diff-scoped) — use an
+  `LruCache` or a Room `JsonBlobCacheDao` with `readCachedJson` (TTL) +
+  `enforceCacheBounds` (row/byte cap), or filter the DAO read to active rows
+  (`WHERE status IN (...)`) / a `LIMIT` window.
 - Treat idempotency as a mandatory write-path contract for every mutating API,
   worker, importer, webhook, state transition, outbox producer/consumer, server
   action, and UI-triggered write. Each write path must accept or derive a stable

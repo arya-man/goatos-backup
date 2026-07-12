@@ -5,7 +5,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: check guardrails e2e-integrity-guard scale-guard clinical-defer-guard sweeper-deployment-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard india-date-guard offline-first-guard ci-local mobile-guard mobile-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
+.PHONY: check guardrails e2e-integrity-guard scale-guard clinical-defer-guard sweeper-deployment-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard india-date-guard offline-first-guard ci-local mobile-guard mobile-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 
 setup-crg: ai-setup
@@ -186,6 +186,30 @@ mobile-guard:
 
 mobile-guard-audit:
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --all
+
+# admin-web-request-reads-guard: block the Next.js SSR full-table request-read anti-pattern in
+# apps/admin-web (the searchAllGoats full-herd walk, commit 810bc1b3) — a server data helper that
+# drains a paginated endpoint cursor-by-cursor into one array to compute a KPI. Read a
+# projection/summary endpoint instead. Diff-scoped: a commit with no admin-web TS passes instantly.
+# `admin-web-request-reads-guard-audit` scans the whole tree. See docs/decisions/scale-anti-patterns.md.
+admin-web-request-reads-guard:
+	node tools/agent-hooks/check-admin-web-request-reads.mjs --self-test
+	node tools/agent-hooks/check-admin-web-request-reads.mjs
+
+admin-web-request-reads-guard-audit:
+	node tools/agent-hooks/check-admin-web-request-reads.mjs --all
+
+# android-bounded-memory-guard: block unbounded in-memory growth in the Android data layer
+# (an in-heap cache/accumulator with no cap/TTL/eviction, or a DAO reading a whole table into
+# memory — commits 7058fff2 + d58acac2). Distinct from mobile-guard (which owns fetch/page SIZE).
+# Diff-scoped: a commit with no android Kotlin passes instantly.
+# `android-bounded-memory-guard-audit` scans the whole tree. See docs/decisions/mobile-data-fetch-anti-patterns.md.
+android-bounded-memory-guard:
+	node tools/agent-hooks/check-android-bounded-memory.mjs --self-test
+	node tools/agent-hooks/check-android-bounded-memory.mjs
+
+android-bounded-memory-guard-audit:
+	node tools/agent-hooks/check-android-bounded-memory.mjs --all
 
 test:
 	@if [ -f backend/go.mod ]; then cd backend && go test ./...; fi
