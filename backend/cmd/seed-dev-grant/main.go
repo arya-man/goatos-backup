@@ -27,12 +27,14 @@ func main() {
 	var authIssuer string
 	var role string
 	var department string
+	var parkID string
 	flag.StringVar(&tenantID, "tenant-id", "", "tenant UUID for the tenant-scope grant")
 	flag.StringVar(&userID, "user-id", "", "user UUID for the grant")
 	flag.StringVar(&externalSubject, "external-subject", "", "non-UUID IdP subject to map into the grant user UUID")
 	flag.StringVar(&authIssuer, "auth-issuer", os.Getenv("GOATOS_AUTH_ISSUER"), "issuer used when mapping an external IdP subject")
-	flag.StringVar(&role, "role", "", "required role: admin, verifier, park_head, pc_director, operator, or ceo_internal")
+	flag.StringVar(&role, "role", "", "required role: a flat legacy role (admin, verifier, park_head, pc_director, operator, ceo_internal) or a composite tier x vertical org role key such as manager_feed, director_health, am_preventive_care (see context/architecture/org-role-model.md and permissions.RoleKey)")
 	flag.StringVar(&department, "department", "", "optional HR department code; provisions/attaches a workforce_member so department-driven nav works for this dev identity")
+	flag.StringVar(&parkID, "park-id", "", "optional park location UUID; when set, ALSO seeds a scope_type='park' grant row for role, so a park-scoped role's cross-park denial can be exercised locally (see permissions.ScopeIDsForPermission)")
 	flag.Parse()
 
 	department = strings.TrimSpace(department)
@@ -54,6 +56,10 @@ func main() {
 	}
 	if !validRole(role) {
 		fail("invalid or missing role: %q", role)
+	}
+	parkID = strings.TrimSpace(parkID)
+	if parkID != "" && !isUUID(parkID) {
+		fail("invalid -park-id: %q", parkID)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -96,6 +102,12 @@ RETURNING grant_id::text
 			fail("insert local dev grant: %v", err)
 		}
 		fmt.Printf("seeded tenant grant %s for user %s role %s tenant %s\n", grantID, userID, role, tenantID)
+	}
+
+	if parkID != "" {
+		if err := seedParkScopedGrant(ctx, pool, tenantID, userID, role, parkID); err != nil {
+			fail("seed park-scoped grant: %v", err)
+		}
 	}
 
 	if department != "" {
@@ -162,6 +174,19 @@ func devMemberRoleHint(role string) string {
 	case permissions.RoleAdmin, permissions.RoleCEOInternal, permissions.RolePCDirector:
 		return "admin"
 	default:
+		// Composite tier x vertical org role keys (e.g. "manager_feed",
+		// "director_health") are not individually listed in
+		// workforce_members_role_hint_check -- that CHECK stays a small,
+		// display-only HR enum (see migrations/postgres/000178_org_role_catalog.sql's
+		// comment on why it is intentionally out of scope for the FK swap).
+		// Map by tier instead: ground tiers (Assistant Manager) hint
+		// "operator", everything above ground hints "supervisor".
+		if tier, _, ok := permissions.ParseRoleKey(role); ok {
+			if tier == permissions.TierAssistantManager {
+				return "operator"
+			}
+			return "supervisor"
+		}
 		return "other"
 	}
 }
@@ -216,13 +241,52 @@ func isUUID(value string) bool {
 	return true
 }
 
+// validRole accepts the flat legacy roles AND any composite tier x vertical
+// org role key (e.g. "manager_feed") -- permissions.IsKnownRole is the single
+// source of truth so a new vertical/tier does not require touching this CLI.
 func validRole(role string) bool {
-	switch role {
-	case permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead, permissions.RolePCDirector, permissions.RoleOperator, permissions.RoleCEOInternal:
-		return true
-	default:
-		return false
+	return permissions.IsKnownRole(role)
+}
+
+// seedParkScopedGrant adds (idempotently) a scope_type='park' grant row for
+// role, in addition to the tenant-scope grant seeded above. Most permission
+// gating (RolesAuthorize via httpmiddleware.routeRoles) only reads
+// tenant-scope grants; this park-scoped row exists for handlers/modules that
+// hard-filter by park (see internal/calendar/adapters/http/handler.go
+// calendarScope and permissions.ScopeIDsForPermission) -- it lets a developer
+// locally exercise "this role can act in park A but not park B".
+func seedParkScopedGrant(ctx context.Context, pool *pgxpool.Pool, tenantID, userID, role, parkID string) error {
+	var grantID string
+	err := pool.QueryRow(ctx, `
+SELECT grant_id::text
+FROM user_scope_grants
+WHERE tenant_id = $1
+  AND user_id = $2
+  AND role = $3
+  AND scope_type = 'park'
+  AND scope_id = $4
+  AND status = 'active'
+  AND valid_from <= now()
+  AND (valid_to IS NULL OR valid_to > now())
+ORDER BY valid_from DESC, grant_id DESC
+LIMIT 1
+`, tenantID, userID, role, parkID).Scan(&grantID)
+	if err == nil {
+		fmt.Printf("dev park-scoped grant already active %s for user %s role %s park %s\n", grantID, userID, role, parkID)
+		return nil
 	}
+	if !isNoRows(err) {
+		return err
+	}
+	if err := pool.QueryRow(ctx, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1, $2, $3, 'park', $4, 'active', now())
+RETURNING grant_id::text
+`, tenantID, userID, role, parkID).Scan(&grantID); err != nil {
+		return err
+	}
+	fmt.Printf("seeded park-scoped grant %s for user %s role %s park %s\n", grantID, userID, role, parkID)
+	return nil
 }
 
 func isNoRows(err error) bool {
