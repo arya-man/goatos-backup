@@ -16,6 +16,20 @@ interface OutboxStore {
     suspend fun findById(id: String): OutboxEntity?
     suspend fun findByIdempotencyKey(key: String): OutboxEntity?
     suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
+
+    /** Observes ACTIVE rows only (QUEUED, IN_FLIGHT, non-conflict FAILED) — never includes
+     *  SUCCEEDED or dead-letter rows. Bounded for memory/query performance. */
+    fun observeActive(): Flow<List<OutboxEntity>>
+
+    /** Observes a bounded window of recent terminal rows (SUCCEEDED and conflict FAILED).
+     *  Used to show recent-sync context to the UI without holding entire history. */
+    suspend fun observeRecentTerminals(recentLimit: Int): List<OutboxEntity>
+
+    /** Prunes SUCCEEDED rows older than [retentionMs]. Never prunes in-flight work.
+     *  Returns count of deleted rows. */
+    suspend fun pruneSucceeded(retentionMs: Long, now: Long): Int
+
+    /** Legacy full-table query — use [observeActive] instead. */
     fun observeAll(): Flow<List<OutboxEntity>>
 
     /** All transitions are ATOMIC + status-guarded and return whether they were applied
@@ -42,7 +56,10 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
     override suspend fun findById(id: String): OutboxEntity? = dao.findById(id)
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? = dao.findByIdempotencyKey(key)
     override suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity> = dao.eligibleForDrain(now, limit)
-    override fun observeAll(): Flow<List<OutboxEntity>> = dao.observeAll()
+    override fun observeActive(): Flow<List<OutboxEntity>> = dao.observeActive()
+    override suspend fun observeRecentTerminals(recentLimit: Int): List<OutboxEntity> = dao.observeRecentTerminals(recentLimit)
+    override suspend fun pruneSucceeded(retentionMs: Long, now: Long): Int = dao.pruneSucceeded(cutoffTime = now - retentionMs)
+    override fun observeAll(): Flow<List<OutboxEntity>> = dao.observeActive() // Delegate to active for bounded query
 
     override suspend fun markInFlight(id: String, now: Long): Boolean = dao.markInFlight(id, now) > 0
 
@@ -77,16 +94,22 @@ fun OutboxEntity.toSyncQueueItem(): SyncQueueItem = SyncQueueItem(
     lastError = lastError,
 )
 
-/** The full outbox table -> the [SyncStatus] snapshot the UI renders. */
-fun List<OutboxEntity>.toSyncStatus(online: Boolean): SyncStatus {
-    val items = map { it.toSyncQueueItem() }
+/** Active rows + bounded recent terminals -> the [SyncStatus] snapshot the UI renders.
+ *  [activeRows] is QUEUED/IN_FLIGHT/non-conflict-FAILED (never SUCCEEDED).
+ *  [recentTerminals] is a bounded window of SUCCEEDED and conflict-FAILED for UI context.
+ *  [recentTerminals] MUST be pre-sorted by recency (descending updatedAt) from the DAO. */
+fun toSyncStatus(activeRows: List<OutboxEntity>, recentTerminals: List<OutboxEntity>, online: Boolean): SyncStatus {
+    val activeItems = activeRows.map { it.toSyncQueueItem() }
+    val recentItems = recentTerminals.map { it.toSyncQueueItem() }
+    val allItems = activeItems + recentItems
+
     return SyncStatus(
         online = online,
-        pendingCount = items.count { it.status == SyncItemStatus.QUEUED },
-        inFlightCount = items.count { it.status == SyncItemStatus.IN_FLIGHT },
-        failedCount = items.count { it.status == SyncItemStatus.FAILED },
-        deadLetterCount = items.count { it.isDeadLetter },
-        lastSyncAt = items.filter { it.status == SyncItemStatus.SUCCEEDED }.maxOfOrNull { it.updatedAt },
-        items = items,
+        pendingCount = activeItems.count { it.status == SyncItemStatus.QUEUED },
+        inFlightCount = activeItems.count { it.status == SyncItemStatus.IN_FLIGHT },
+        failedCount = activeItems.count { it.status == SyncItemStatus.FAILED },
+        deadLetterCount = recentItems.count { it.isDeadLetter }, // Dead-letter is terminal, so only in recent
+        lastSyncAt = recentItems.filter { it.status == SyncItemStatus.SUCCEEDED }.maxOfOrNull { it.updatedAt },
+        items = allItems,
     )
 }

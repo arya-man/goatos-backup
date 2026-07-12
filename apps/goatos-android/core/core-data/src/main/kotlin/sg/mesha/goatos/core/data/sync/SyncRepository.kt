@@ -5,7 +5,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.core.common.AppResult
@@ -117,6 +116,10 @@ class DefaultSyncRepository(
     private val appScope: CoroutineScope,
     private val dispatchers: DispatcherProvider = DefaultDispatchers,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Maximum number of recent terminal rows (SUCCEEDED + dead-letter FAILED) to keep in the UI. */
+    private val recentTerminalLimit: Int = 20,
+    /** Retention time for SUCCEEDED rows before pruning (default: 24 hours). */
+    private val succeededRetentionMs: Long = 24 * 60 * 60 * 1000L,
 ) : SyncRepository {
 
     private val onlineFlow = MutableStateFlow(connectivityGate.isOnline())
@@ -124,8 +127,38 @@ class DefaultSyncRepository(
 
     init {
         appScope.launch {
-            combine(store.observeAll(), onlineFlow) { entities, online -> entities.toSyncStatus(online) }
-                .collect { _status.value = it }
+            // Observe active rows + fetch recent terminals on changes to update UI.
+            // Combines online status with outbox state to produce SyncStatus.
+            var activeRows = emptyList<OutboxEntity>()
+            var recentTerminals = emptyList<OutboxEntity>()
+
+            appScope.launch {
+                store.observeActive().collect { rows ->
+                    activeRows = rows
+                    recentTerminals = store.observeRecentTerminals(recentTerminalLimit)
+                    _status.value = toSyncStatus(activeRows, recentTerminals, onlineFlow.value)
+                }
+            }
+
+            appScope.launch {
+                onlineFlow.collect { online ->
+                    // Emit status with updated online flag, using current row state.
+                    _status.value = toSyncStatus(activeRows, recentTerminals, online)
+                }
+            }
+        }
+
+        // Background periodic prune of old SUCCEEDED rows (every 10 minutes).
+        appScope.launch {
+            while (true) {
+                try {
+                    kotlinx.coroutines.delay(10 * 60 * 1000L) // 10 minutes
+                    store.pruneSucceeded(succeededRetentionMs, clock())
+                } catch (e: Exception) {
+                    // Log and continue — a prune failure should not crash the app
+                    // (logging is deferred; in production, log via observability layer)
+                }
+            }
         }
     }
 

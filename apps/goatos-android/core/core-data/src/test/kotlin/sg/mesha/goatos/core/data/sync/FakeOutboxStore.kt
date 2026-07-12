@@ -1,7 +1,9 @@
 package sg.mesha.goatos.core.data.sync
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
@@ -44,7 +46,39 @@ class FakeOutboxStore : OutboxStore {
             .take(limit)
     }
 
-    override fun observeAll() = rows.asStateFlow()
+    override fun observeActive(): Flow<List<OutboxEntity>> =
+        rows.asStateFlow().map { all ->
+            all.filter {
+                it.status == OutboxStatus.QUEUED.name ||
+                    it.status == OutboxStatus.IN_FLIGHT.name ||
+                    (it.status == OutboxStatus.FAILED.name && !it.conflict)
+            }
+        }
+
+    override suspend fun observeRecentTerminals(recentLimit: Int): List<OutboxEntity> {
+        return rows.value
+            .filter {
+                it.status == OutboxStatus.SUCCEEDED.name ||
+                    (it.status == OutboxStatus.FAILED.name && it.conflict)
+            }
+            .sortedByDescending { it.updatedAt }
+            .take(recentLimit)
+    }
+
+    override suspend fun pruneSucceeded(retentionMs: Long, now: Long): Int {
+        val cutoff = now - retentionMs
+        val beforeCount = rows.value.count { it.status == OutboxStatus.SUCCEEDED.name }
+        rows.update { list ->
+            list.filter { row ->
+                !(row.status == OutboxStatus.SUCCEEDED.name && row.updatedAt < cutoff)
+            }
+        }
+        val afterCount = rows.value.count { it.status == OutboxStatus.SUCCEEDED.name }
+        return beforeCount - afterCount
+    }
+
+    override fun observeAll(): Flow<List<OutboxEntity>> =
+        observeActive() // Delegate to observeActive for bounded query (legacy compatibility)
 
     // Status-guarded conditional transitions mirroring OutboxDao's atomic UPDATE ... WHERE
     // status=<expected> queries exactly, so the fake enforces the SAME race semantics.

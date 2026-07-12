@@ -537,6 +537,9 @@ private class RecordingOutboxStore(private val inner: FakeOutboxStore = FakeOutb
         return inner.eligibleForDrain(now, limit)
     }
 
+    override fun observeActive() = inner.observeActive()
+    override suspend fun observeRecentTerminals(recentLimit: Int) = inner.observeRecentTerminals(recentLimit)
+    override suspend fun pruneSucceeded(retentionMs: Long, now: Long) = inner.pruneSucceeded(retentionMs, now)
     override fun observeAll() = inner.observeAll()
     override suspend fun markInFlight(id: String, now: Long) = inner.markInFlight(id, now)
     override suspend fun markSucceeded(id: String, resultJson: String, now: Long) = inner.markSucceeded(id, resultJson, now)

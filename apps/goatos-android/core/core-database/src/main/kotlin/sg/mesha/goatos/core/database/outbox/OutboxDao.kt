@@ -54,7 +54,32 @@ interface OutboxDao {
     )
     suspend fun eligibleForDrain(now: Long, limit: Int): List<OutboxEntity>
 
-    /** Backs the sync-status overlay (see `SyncRepository.observeStatus`). */
+    /** Observes ACTIVE rows only (QUEUED, IN_FLIGHT, and non-conflict FAILED) — never includes
+     *  SUCCEEDED or dead-letter (conflict) rows. This bounds memory and query time.
+     *  Backs the sync-status overlay (see `SyncRepository.observeStatus`). */
+    @Query(
+        "SELECT * FROM outbox WHERE status IN ('QUEUED', 'IN_FLIGHT') " +
+            "OR (status = 'FAILED' AND conflict = 0) " +
+            "ORDER BY createdAt ASC",
+    )
+    fun observeActive(): Flow<List<OutboxEntity>>
+
+    /** Observes a bounded window of recent terminal rows (SUCCEEDED and conflict FAILED),
+     *  for the UI to show recent-sync context without holding the entire history in memory.
+     *  [recentLimit] bounds the number of rows. */
+    @Query(
+        "SELECT * FROM outbox WHERE status = 'SUCCEEDED' OR (status = 'FAILED' AND conflict = 1) " +
+            "ORDER BY updatedAt DESC LIMIT :recentLimit",
+    )
+    suspend fun observeRecentTerminals(recentLimit: Int): List<OutboxEntity>
+
+    /** Prunes SUCCEEDED rows older than [retentionMs], keeping only recent successes for UI context.
+     *  Never prunes FAILED, QUEUED, or IN_FLIGHT rows. Returns count of deleted rows. */
+    @Query("DELETE FROM outbox WHERE status = 'SUCCEEDED' AND updatedAt < :cutoffTime")
+    suspend fun pruneSucceeded(cutoffTime: Long): Int
+
+    /** Legacy full-table query — DEPRECATED. Use [observeActive] instead.
+     *  Kept for backward compatibility only. */
     @Query("SELECT * FROM outbox ORDER BY createdAt ASC")
     fun observeAll(): Flow<List<OutboxEntity>>
 
