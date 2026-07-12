@@ -1,6 +1,8 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Closure progress (running): **FIXED + PUSHED: C35-010 (P0), C35-003, C35-004, C35-007 (P1), C35-014, C35-016 (P2), plus C35-002 processintegrity half + C35-023, C35-025.** PARTIAL/honest: C35-013 (dual-tab fetch removed, board OFFSET→keyset pending), C35-002 (processintegrity god-CTE fallback removed + typed `ErrProjectionUnavailable`; vaccinationexecution half still pending), C35-020 (worker-scanning + self-test wired into CI, but ~15 backend/cmd one-time-seed offenders mass-baselined — audit pending). Still OPEN (agent drafts rejected or punted): C35-005 (herd-register punted twice), C35-015 (band-aid), C35-024 (comments-only), C35-001/011/017 (Android incomplete/unwired). Codex owns FIXCHK-001/002/003. Prior baseline note (superseded counts below):
+> Closure progress (running, `origin/main` @ `10183f15`): **C35-015 (P2) NOW FIXED + PUSHED** (`40672185`) — SOP Library list-then-N-details N+1 replaced by a single batched `LatestVersionsFor` DISTINCT-ON query embedded in the list response; O(1)-in-repo-calls proven at N=1/50/200 + real-Postgres latest-per-SOP correctness. While gating this on `make ci-local`, two PRE-EXISTING ci-local failures on the tip (`4bc951d6`) were found — both independent of C35-015 (my diff touches only SOP + sqlc snapshots): (1) **sqlc-check RED** — the committed sqlc schema snapshots were stale, missing two already-migrated indexes (`herd_register_goat_projection_scope_idx` mig 000164, `planned_batch_finalization_keyset_idx` C35-007); **FIXED + PUSHED** (`10183f15`, deterministic dump regen, no query/model change) → sqlc-check now green. (2) **NEW-E2E-001** (below) — `TestKernelStoryC_BatchDriveVerifyControlTower` fails deterministically on clean `4bc951d6` (control-tower alert row = 0); untouched subsystem, OPEN, needs its own investigation. contract-drift/api-client-check also RED only as a dirty-tree artifact (my generated client was uncommitted) — green once committed.
+>
+> Closure progress (running): **FIXED + PUSHED: C35-010 (P0), C35-003, C35-004, C35-007 (P1), C35-014, C35-015, C35-016 (P2), plus C35-002 processintegrity half + C35-023, C35-025.** PARTIAL/honest: C35-013 (dual-tab fetch removed, board OFFSET→keyset pending), C35-002 (processintegrity god-CTE fallback removed + typed `ErrProjectionUnavailable`; vaccinationexecution half still pending), C35-020 (worker-scanning + self-test wired into CI, but ~15 backend/cmd one-time-seed offenders mass-baselined — audit pending). Still OPEN (agent drafts rejected or punted): C35-005 (herd-register punted twice), C35-015 (band-aid), C35-024 (comments-only), C35-001/011/017 (Android incomplete/unwired). Codex owns FIXCHK-001/002/003. Prior baseline note (superseded counts below):
 >
 > Closure progress (superseded, `origin/main` @ `2926c7de`): **FIXED + PUSHED this program: C35-010 (P0), C35-003, C35-004, C35-007 (P1) → 36 open.** C35-003 = sweeper fails fast without a configured task-creator actor; C35-004 = bulk SOP task creation is now one set-based `INSERT…SELECT UNNEST` (2N+1→2 queries); C35-007 = partial keyset index + `validate-sqlc-plans` gate (`PlannedBatchFinalizationKeyset` index scan). **C35-012 is no longer a blocker:** per the new AGENTS.md rule, a GitHub Actions billing/platform failure never blocks closure — `make ci-local` (tools/ci/run-local-ci.sh) runs the exact ci.yml gates locally and a green ci-local on the pushed SHA is the authoritative current-SHA proof; restoring org Actions billing is a separate maintainer task. Rejected several agent band-aids/non-fixes in counter-review (C35-015 blanked the SOP version; C35-024 was comments-only; C35-001/011 Android were incomplete/unwired) — those stay OPEN. Remaining backend/admin-web/Android rows are under active rework; FIXCHK-001/002/003 owned by Codex.
 >
@@ -611,7 +613,7 @@ Guardrail needed: Closed/open picker request-count test and >page-size month-mar
 ID: C35-015  
 Priority: P2  
 Title: SOP Library fans out up to 200 detail calls  
-Status: open  
+Status: FIXED + PUSHED (`origin/main` @ `10183f15`)  
 Origin: pre-existing / prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-022; scale anti-pattern docs  
@@ -625,7 +627,8 @@ Counterargument: Promise.all reduces wall time and SOP count may be small today.
 Why it survives / why downgraded: Concurrency hides latency while increasing fanout; P2 because maximum is currently 200.  
 E2E / guardrail status: false-green; serial-await check exempts Promise.all and no fanout-count guard covers SSR.  
 Fix sketch: Return required summary fields in list endpoint or add one batch-detail endpoint with bounded pagination.  
-Guardrail needed: SSR integration test asserting O(1) backend calls as SOP count grows.
+Guardrail needed: SSR integration test asserting O(1) backend calls as SOP count grows.  
+Fix (pushed `40672185`): the list endpoint now embeds each SOP's latest version. `Repository.LatestVersionsFor` batch-loads every requested SOP's latest version in ONE `DISTINCT ON (sop_id) … ORDER BY sop_id, version DESC` query; `Service.ListSOPs` attaches them as an additive `SOPListResponse.latest_versions` map (keyed by sop_id; `items` contract unchanged; map omitted when no SOP has a version); OpenAPI spec + generated admin client updated; the `/sops` SSR page drops `Promise.all(defs.map(getSop))` and reads the embedded map — one backend call regardless of SOP count. Proof: `TestListSOPsLoadsLatestVersionsInOneBatchCall` asserts exactly one `LatestVersionsFor` call at N=1/50/200 (the missing O(1) SSR guardrail), `TestListSOPsWithoutVersionsOmitsLatestVersions` (nil/omitted map), and real-Postgres `TestLatestVersionsForReturnsHighestVersionPerSOPInOneQuery` (DISTINCT-ON picks the highest version per SOP with out-of-order inserts + retired/published mix, versionless SOP absent, empty input = DB no-op). Local gates green: SOP unit + integration, `go build ./...`, `go vet`, admin-web typecheck/lint/mock-fidelity, scale-guard, validate-sqlc-plans.
 
 ### C35-016
 
@@ -1089,6 +1092,25 @@ Why it survives / why downgraded: Scan feed/roster are dynamic hot lists and exp
 E2E / guardrail status: missing; no Compose metrics/recomposition or state-retention test for insert/reorder.  
 Fix sketch: Supply backend/device stable IDs and content types for every dynamic Lazy item; avoid index identity.  
 Guardrail needed: Static lint for unkeyed dynamic items plus Compose test that inserts/reorders rows and verifies identity/state retention and recomposition budget.
+
+### NEW-E2E-001
+
+ID: NEW-E2E-001  
+Priority: P1  
+Title: Control-tower batch-drive kernel E2E fails deterministically (alert row = 0) on the current tip  
+Status: open  
+Origin: found while gating C35-015 on `make ci-local` (surfaced by the go-test-./… gate)  
+Verdict: CONFIRMED (deterministic, pre-existing)  
+Prior mapping: none — new  
+Layman explanation: A production-path kernel test that proves a batch vaccination drive raises exactly one control-tower alert now finds zero.  
+Evidence: `backend/tests/e2e/story_c_batch_drive_verify_test.go:236` — "Control tower alert clears / still exactly one control-tower row for this shed/rule/batch: FAILED (rows=0)". Reproduces in isolation on clean `4bc951d6` (`go test ./tests/e2e/ -run TestKernelStoryC_BatchDriveVerifyControlTower`, 5.27s). Proven independent of C35-015: `git diff 4bc951d6 HEAD --name-only` touches only SOP + sqlc-snapshot + admin-client files — zero processintegrity/control-tower/e2e/migration paths, so the E2E and its migration-built test DB are byte-identical to `4bc951d6`.  
+Prod reachability: Control-tower alert projection for batch drives — a leadership exception surface.  
+Failure scenario: Either the control-tower alert row is no longer produced/persisted for a batch drive, or the assertion is time/date-sensitive (test ran 21:11 IST; India-business-calendar due/overdue windows are `now`-derived). Needs triage to tell a real projection regression from a flaky time-boundary assertion.  
+Business impact: If real, batch-drive exceptions may not surface in Control Tower; if flaky, it red-locks the whole `ci-local` `go test ./...` gate for every change.  
+Root-cause-or-band-aid verdict: Unfixed — untouched by this pass, recorded honestly rather than silently absorbed.  
+E2E / guardrail status: RED on the current tip; blocks the ci-local go-test gate until triaged.  
+Fix sketch: Reproduce with a pinned clock; if time-sensitive, stabilize the assertion window; if the alert row is genuinely missing, trace the control-tower projector for batch-drive alerts.  
+Guardrail needed: Deterministic-clock harness for the kernel E2E so `now`-derived assertions are reproducible.
 
 ### FIXCHK-001
 
