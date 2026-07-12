@@ -1122,63 +1122,158 @@ RETURNING review_id::text, tenant_id::text, load_id::text, park_location_id::tex
 	if err != nil {
 		return domain.ArrivalReview{}, fmt.Errorf("procurement: record arrival review: %w", err)
 	}
-	items := []domain.ArrivalGoat{}
+	// Batch insert arrival_intake_review_goats via UNNEST
+	type arrivalGoatInput struct {
+		goatID          *string
+		animalID2       *string
+		animalID1       *string
+		itemKey         string
+		arrivalState    string
+		healthFlag      *string
+		weightFlag      *string
+		proofRefID      *string
+		notes           string
+	}
+	goatInputs := make([]arrivalGoatInput, 0, len(in.Goats))
+	goatIDsForUpdate := make([]string, 0, len(in.Goats))
 	for _, item := range in.Goats {
-		itemKey := arrivalItemKey(item)
-		arrivalItem, itemErr := scanArrivalGoat(tx.QueryRow(ctx, `
-	INSERT INTO arrival_intake_review_goats (
-	  tenant_id, review_id, load_id, goat_id, animal_identifier_2, animal_identifier_1,
-	  item_key, arrival_state, health_flag, weight_flag, proof_ref_id, notes
-) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, '')::uuid, nullif($5::text, ''),
-  nullif($6::text, ''), $7, $8, nullif($9::text, ''), nullif($10::text, ''),
-  nullif($11::text, '')::uuid, $12
+		goatInputs = append(goatInputs, arrivalGoatInput{
+			goatID:       item.GoatID,
+			animalID2:    item.AnimalIdentifier2,
+			animalID1:    item.AnimalIdentifier1,
+			itemKey:      arrivalItemKey(item),
+			arrivalState: item.ArrivalState,
+			healthFlag:   item.HealthFlag,
+			weightFlag:   item.WeightFlag,
+			proofRefID:   item.ProofRefID,
+			notes:        item.Notes,
+		})
+		if item.GoatID != nil {
+			goatIDsForUpdate = append(goatIDsForUpdate, *item.GoatID)
+		}
+	}
+
+	// Build UNNEST arrays for batch insert
+	goatIDs := make([]string, len(goatInputs))
+	animalID2s := make([]string, len(goatInputs))
+	animalID1s := make([]string, len(goatInputs))
+	itemKeys := make([]string, len(goatInputs))
+	arrivalStates := make([]string, len(goatInputs))
+	healthFlags := make([]string, len(goatInputs))
+	weightFlags := make([]string, len(goatInputs))
+	proofRefIDs := make([]string, len(goatInputs))
+	notesList := make([]string, len(goatInputs))
+
+	for i, input := range goatInputs {
+		goatIDs[i] = stringPtrValue(input.goatID)
+		animalID2s[i] = stringPtrValue(input.animalID2)
+		animalID1s[i] = stringPtrValue(input.animalID1)
+		itemKeys[i] = input.itemKey
+		arrivalStates[i] = input.arrivalState
+		healthFlags[i] = stringPtrValue(input.healthFlag)
+		weightFlags[i] = stringPtrValue(input.weightFlag)
+		proofRefIDs[i] = stringPtrValue(input.proofRefID)
+		notesList[i] = input.notes
+	}
+
+	// Batch insert all arrival_intake_review_goats
+	arrivalGoatRows, err := tx.Query(ctx, `
+INSERT INTO arrival_intake_review_goats (
+  tenant_id, review_id, load_id, goat_id, animal_identifier_2, animal_identifier_1,
+  item_key, arrival_state, health_flag, weight_flag, proof_ref_id, notes
 )
+SELECT $1::uuid, $2::uuid, $3::uuid,
+       nullif(v.goat_id::text, '')::uuid,
+       nullif(v.animal_id_2, ''),
+       nullif(v.animal_id_1, ''),
+       v.item_key, v.arrival_state,
+       nullif(v.health_flag, ''),
+       nullif(v.weight_flag, ''),
+       nullif(v.proof_ref_id::text, '')::uuid,
+       v.notes
+FROM UNNEST($4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[], $11::text[], $12::text[])
+  AS v(goat_id, animal_id_2, animal_id_1, item_key, arrival_state, health_flag, weight_flag, proof_ref_id, notes)
 ON CONFLICT (tenant_id, review_id, item_key) DO UPDATE
 SET arrival_state = EXCLUDED.arrival_state,
     health_flag = EXCLUDED.health_flag,
     weight_flag = EXCLUDED.weight_flag,
     proof_ref_id = EXCLUDED.proof_ref_id,
     notes = EXCLUDED.notes
-	RETURNING review_goat_id::text, tenant_id::text, review_id::text, load_id::text,
-	          goat_id::text, animal_identifier_2, animal_identifier_1, arrival_state, health_flag,
+RETURNING review_goat_id::text, tenant_id::text, review_id::text, load_id::text,
+          goat_id::text, animal_identifier_2, animal_identifier_1, arrival_state, health_flag,
           weight_flag, proof_ref_id::text, notes, created_at`,
-			in.TenantID, review.ReviewID, in.LoadID, stringPtrValue(item.GoatID),
-			stringPtrValue(item.AnimalIdentifier2), stringPtrValue(item.AnimalIdentifier1), itemKey, item.ArrivalState,
-			stringPtrValue(item.HealthFlag), stringPtrValue(item.WeightFlag), stringPtrValue(item.ProofRefID), item.Notes))
+		in.TenantID, review.ReviewID, in.LoadID, goatIDs, animalID2s, animalID1s, itemKeys, arrivalStates,
+		healthFlags, weightFlags, proofRefIDs, notesList)
+	if err != nil {
+		return domain.ArrivalReview{}, fmt.Errorf("procurement: batch insert arrival review goats: %w", err)
+	}
+	defer arrivalGoatRows.Close()
+
+	items := []domain.ArrivalGoat{}
+	for arrivalGoatRows.Next() {
+		item, itemErr := scanArrivalGoat(arrivalGoatRows)
 		if itemErr != nil {
-			return domain.ArrivalReview{}, fmt.Errorf("procurement: record arrival review goat: %w", itemErr)
+			return domain.ArrivalReview{}, fmt.Errorf("procurement: scan arrival review goat: %w", itemErr)
 		}
-		items = append(items, arrivalItem)
-		if item.GoatID != nil {
-			nextState := mapArrivalState(item.ArrivalState)
-			tag, itemErr := tx.Exec(ctx, `
-UPDATE procurement_load_goats
-SET current_state = $4,
-    selection_state = CASE WHEN $4 = 'arrival_rejected' THEN 'arrival_rejected' ELSE selection_state END,
-    arrived_at = $5::timestamptz,
+		items = append(items, item)
+	}
+	if err := arrivalGoatRows.Err(); err != nil {
+		return domain.ArrivalReview{}, err
+	}
+
+	// Batch update procurement_load_goats for eligible goats (those with goat_id)
+	if len(goatIDsForUpdate) > 0 {
+		// Build arrays for CASE updates
+		nextStates := make([]string, len(goatIDsForUpdate))
+		for i, goatID := range goatIDsForUpdate {
+			// Find the corresponding ArrivalState from goatInputs
+			for _, input := range goatInputs {
+				if input.goatID != nil && *input.goatID == goatID {
+					nextStates[i] = mapArrivalState(input.arrivalState)
+					break
+				}
+			}
+		}
+
+		tag, err := tx.Exec(ctx, `
+UPDATE procurement_load_goats plg
+SET current_state = CASE
+      WHEN plg.goat_id = ANY($4::uuid[]) THEN
+        (ARRAY[$5::text])[array_position($4::uuid[], plg.goat_id)]
+      ELSE plg.current_state
+    END,
+    selection_state = CASE
+      WHEN plg.goat_id = ANY($4::uuid[]) AND
+           (ARRAY[$5::text])[array_position($4::uuid[], plg.goat_id)] = 'arrival_rejected'
+      THEN 'arrival_rejected'
+      ELSE plg.selection_state
+    END,
+    arrived_at = CASE
+      WHEN plg.goat_id = ANY($4::uuid[]) THEN $3::timestamptz
+      ELSE plg.arrived_at
+    END,
     updated_at = now(),
-    row_version = row_version + 1
-WHERE tenant_id = $1::uuid
-  AND load_id = $2::uuid
-  AND goat_id = $3::uuid
+    row_version = plg.row_version + 1
+WHERE plg.tenant_id = $1::uuid
+  AND plg.load_id = $2::uuid
+  AND plg.goat_id = ANY($4::uuid[])
   AND (
-    $4::text <> 'arrival_accepted'
+    (ARRAY[$5::text])[array_position($4::uuid[], plg.goat_id)] <> 'arrival_accepted'
     OR (
-      current_state IN ('loaded', 'in_transit', 'arrival_review_pending')
-      AND loaded_at IS NOT NULL
-      AND health_state = 'passed'
-      AND source_entry_state = 'accepted'
-      AND ownership_state IN ('mesha_owned', 'settled')
+      plg.current_state IN ('loaded', 'in_transit', 'arrival_review_pending')
+      AND plg.loaded_at IS NOT NULL
+      AND plg.health_state = 'passed'
+      AND plg.source_entry_state = 'accepted'
+      AND plg.ownership_state IN ('mesha_owned', 'settled')
     )
   )`,
-				in.TenantID, in.LoadID, *item.GoatID, nextState, in.ReviewedAt)
-			if itemErr != nil {
-				return domain.ArrivalReview{}, fmt.Errorf("procurement: update arrival goat state: %w", itemErr)
-			}
-			if tag.RowsAffected() == 0 {
-				return domain.ArrivalReview{}, fmt.Errorf("%w: goat %s is not eligible for arrival state %s", ports.ErrInvalidTransition, *item.GoatID, item.ArrivalState)
-			}
+			in.TenantID, in.LoadID, in.ReviewedAt,
+			goatIDsForUpdate, nextStates)
+		if err != nil {
+			return domain.ArrivalReview{}, fmt.Errorf("procurement: batch update arrival goat states: %w", err)
+		}
+		if tag.RowsAffected() != int64(len(goatIDsForUpdate)) {
+			return domain.ArrivalReview{}, fmt.Errorf("%w: not all goats were eligible for arrival state update", ports.ErrInvalidTransition)
 		}
 	}
 	if in.Status == domain.DecisionRejected && len(in.Goats) == 0 {
@@ -1300,10 +1395,9 @@ ORDER BY goat_id`, in.TenantID, in.LoadID)
 	if len(goatIDs) == 0 {
 		return nil, fmt.Errorf("%w: accepted intake requires at least one arrival-accepted goat", ports.ErrInvalidTransition)
 	}
-	out := make([]domain.PCHandoff, 0, len(goatIDs))
-	for _, goatID := range goatIDs {
-		var acceptedGoatID string
-		if err = tx.QueryRow(ctx, `
+
+	// Batch update procurement_load_goats for all eligible goats
+	updateGoatTag, err := tx.Exec(ctx, `
 UPDATE procurement_load_goats
 SET current_state = 'accepted_herd_intake',
     selection_state = 'accepted_herd_intake',
@@ -1312,7 +1406,7 @@ SET current_state = 'accepted_herd_intake',
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND load_id = $2::uuid
-  AND goat_id = $3::uuid
+  AND goat_id = ANY($3::uuid[])
   AND current_state = 'arrival_accepted'
   AND loaded_at IS NOT NULL
   AND arrived_at IS NOT NULL
@@ -1326,73 +1420,82 @@ WHERE tenant_id = $1::uuid
       AND th.load_id = procurement_load_goats.load_id
       AND th.proof_ref_id IS NOT NULL
       AND th.status IN ('in_transit', 'arrived')
-  )
-RETURNING goat_id::text`,
-			in.TenantID, in.LoadID, goatID, in.AcceptedAt).Scan(&acceptedGoatID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, fmt.Errorf("%w: goat %s is not eligible for accepted intake", ports.ErrInvalidTransition, goatID)
-			}
-			return nil, fmt.Errorf("procurement: mark accepted intake goat: %w", err)
-		}
-		if _, err = tx.Exec(ctx, `
-		UPDATE goats
-		SET lifecycle_status = 'alive',
-		    origin_type = 'procured',
-	    entry_date = $5::date,
-	    current_location_id = $4::uuid,
-	    park_id = $3::uuid,
-	    shed_id = $4::uuid,
-	    sex = COALESCE(NULLIF(plg.metadata ->> 'sex', ''), goats.sex),
-	    dob = COALESCE(
-	      CASE
-	        WHEN COALESCE(plg.metadata ->> 'dob', '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-	        THEN (plg.metadata ->> 'dob')::date
-	        ELSE NULL
-	      END,
-	      goats.dob
-	    ),
-	    dob_estimated = COALESCE(
-	      CASE
-	        WHEN lower(COALESCE(plg.metadata ->> 'dob_estimated', '')) IN ('true', 'false')
-	        THEN (plg.metadata ->> 'dob_estimated')::boolean
-	        ELSE NULL
-	      END,
-	      goats.dob_estimated
-	    ),
-	    management_stage = COALESCE(NULLIF(plg.metadata ->> 'management_stage', ''), goats.management_stage),
-	    health_status = CASE
-	      WHEN plg.health_state = 'passed' THEN 'healthy'
-	      ELSE COALESCE(NULLIF($6, ''), goats.health_status)
-	    END,
-	    updated_at = now(),
-	    row_version = goats.row_version + 1
-	FROM procurement_load_goats plg
-	WHERE goats.tenant_id = $1::uuid
-	  AND goats.goat_id = $2::uuid
-	  AND plg.tenant_id = goats.tenant_id
-	  AND plg.load_id = $7::uuid
-	  AND plg.goat_id = goats.goat_id`,
-			in.TenantID, acceptedGoatID, in.ParkLocationID, in.ShedLocationID, in.EntryDate, stringPtrValue(in.IntakeHealthSignal), in.LoadID); err != nil {
-			return nil, fmt.Errorf("procurement: activate accepted goat: %w", err)
-		}
-		if _, err = tx.Exec(ctx, `
+  )`,
+		in.TenantID, in.LoadID, goatIDs, in.AcceptedAt)
+	if err != nil {
+		return nil, fmt.Errorf("procurement: batch update procurement_load_goats for accepted intake: %w", err)
+	}
+	if updateGoatTag.RowsAffected() != int64(len(goatIDs)) {
+		return nil, fmt.Errorf("%w: not all goats were eligible for accepted intake", ports.ErrInvalidTransition)
+	}
+
+	// Batch update goats table for all accepted goats
+	_, err = tx.Exec(ctx, `
+UPDATE goats
+SET lifecycle_status = 'alive',
+    origin_type = 'procured',
+    entry_date = $5::date,
+    current_location_id = $4::uuid,
+    park_id = $3::uuid,
+    shed_id = $4::uuid,
+    sex = COALESCE(NULLIF(plg.metadata ->> 'sex', ''), goats.sex),
+    dob = COALESCE(
+      CASE
+        WHEN COALESCE(plg.metadata ->> 'dob', '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+        THEN (plg.metadata ->> 'dob')::date
+        ELSE NULL
+      END,
+      goats.dob
+    ),
+    dob_estimated = COALESCE(
+      CASE
+        WHEN lower(COALESCE(plg.metadata ->> 'dob_estimated', '')) IN ('true', 'false')
+        THEN (plg.metadata ->> 'dob_estimated')::boolean
+        ELSE NULL
+      END,
+      goats.dob_estimated
+    ),
+    management_stage = COALESCE(NULLIF(plg.metadata ->> 'management_stage', ''), goats.management_stage),
+    health_status = CASE
+      WHEN plg.health_state = 'passed' THEN 'healthy'
+      ELSE COALESCE(NULLIF($6, ''), goats.health_status)
+    END,
+    updated_at = now(),
+    row_version = goats.row_version + 1
+FROM procurement_load_goats plg
+WHERE goats.tenant_id = $1::uuid
+  AND goats.goat_id = ANY($2::uuid[])
+  AND plg.tenant_id = goats.tenant_id
+  AND plg.load_id = $7::uuid
+  AND plg.goat_id = goats.goat_id`,
+		in.TenantID, goatIDs, in.ParkLocationID, in.ShedLocationID, in.EntryDate, stringPtrValue(in.IntakeHealthSignal), in.LoadID)
+	if err != nil {
+		return nil, fmt.Errorf("procurement: batch update goats for accepted intake: %w", err)
+	}
+
+	// Batch insert into goat_location_history for all accepted goats
+	_, err = tx.Exec(ctx, `
 INSERT INTO goat_location_history (
   tenant_id, goat_id, to_location_id, reason, occurred_at, actor_id, source_record_id
-) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, 'procurement_accepted_intake', $4::timestamptz,
-  nullif($5::text, '')::uuid, $6
-)`,
-			in.TenantID, acceptedGoatID, in.ShedLocationID, in.AcceptedAt, stringPtrValue(in.ActorID), "procurement_load:"+in.LoadID); err != nil {
-			return nil, fmt.Errorf("procurement: record accepted intake location: %w", err)
-		}
-		handoff, handoffErr := scanPCHandoff(tx.QueryRow(ctx, `
+)
+SELECT $1::uuid, v.goat_id::uuid, $2::uuid, 'procurement_accepted_intake', $3::timestamptz,
+       nullif($4::text, '')::uuid, concat('procurement_load:', $5)
+FROM UNNEST($6::text[]) v(goat_id)`,
+		in.TenantID, in.ShedLocationID, in.AcceptedAt, stringPtrValue(in.ActorID), in.LoadID, goatIDs)
+	if err != nil {
+		return nil, fmt.Errorf("procurement: batch insert goat_location_history: %w", err)
+	}
+
+	// Batch insert procurement_pc_handoffs for all accepted goats
+	out := make([]domain.PCHandoff, 0, len(goatIDs))
+	handoffRows, err := tx.Query(ctx, `
 INSERT INTO procurement_pc_handoffs (
   tenant_id, load_id, goat_id, accepted_at, park_location_id, shed_location_id,
   entry_date, trusted_vaccination_history, intake_health_signal, idempotency_key
-) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, $4::timestamptz, $5::uuid, $6::uuid,
-  $7::date, $8::jsonb, nullif($9::text, ''), $10
 )
+SELECT $1::uuid, $2::uuid, v.goat_id::uuid, $3::timestamptz, $4::uuid, $5::uuid,
+       $6::date, $7::jsonb, nullif($8::text, ''), concat($9, ':', v.goat_id)
+FROM UNNEST($10::text[]) v(goat_id)
 ON CONFLICT (tenant_id, load_id, goat_id) DO UPDATE
 SET accepted_at = EXCLUDED.accepted_at,
     park_location_id = EXCLUDED.park_location_id,
@@ -1408,17 +1511,27 @@ RETURNING handoff_id::text, tenant_id::text, load_id::text, goat_id::text,
           COALESCE((SELECT COALESCE(NULLIF(location_code, ''), name) FROM locations WHERE tenant_id = procurement_pc_handoffs.tenant_id AND location_id = procurement_pc_handoffs.shed_location_id), shed_location_id::text),
           entry_date,
           trusted_vaccination_history, intake_health_signal, event_status, created_at, updated_at`,
-			in.TenantID, in.LoadID, acceptedGoatID, in.AcceptedAt, in.ParkLocationID, in.ShedLocationID,
-			in.EntryDate, jsonArrayArg(in.TrustedVaccinationHistory), stringPtrValue(in.IntakeHealthSignal),
-			in.IdempotencyKey+":"+acceptedGoatID))
+		in.TenantID, in.LoadID, in.AcceptedAt, in.ParkLocationID, in.ShedLocationID,
+		in.EntryDate, jsonArrayArg(in.TrustedVaccinationHistory), stringPtrValue(in.IntakeHealthSignal),
+		in.IdempotencyKey, goatIDs)
+	if err != nil {
+		return nil, fmt.Errorf("procurement: batch insert procurement_pc_handoffs: %w", err)
+	}
+	defer handoffRows.Close()
+
+	for handoffRows.Next() {
+		handoff, handoffErr := scanPCHandoff(handoffRows)
 		if handoffErr != nil {
-			return nil, fmt.Errorf("procurement: create PC handoff: %w", handoffErr)
+			return nil, fmt.Errorf("procurement: scan PC handoff: %w", handoffErr)
 		}
 		if err := r.emitAcceptedIntakeGoatCreated(ctx, tx, in, handoff); err != nil {
 			return nil, err
 		}
 		handoff.EventStatus = "emitted"
 		out = append(out, handoff)
+	}
+	if err := handoffRows.Err(); err != nil {
+		return nil, err
 	}
 	if _, err = tx.Exec(ctx, `
 UPDATE procurement_loads
