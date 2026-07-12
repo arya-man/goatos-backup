@@ -1,0 +1,30 @@
+{
+  "_comment": "NON-SECRET PLACEHOLDER. No goatos-dev Firebase project is confirmed to exist yet. This file only lets :app:assembleDevDebug (make android-dev-run, TELEMETRY_ENABLED=false by default) resolve the google-services Gradle plugin on a fresh clone. See app/src/google-services-README.md. Replace with a real download once a goatos-dev Firebase Android app (sg.mesha.goatos.dev) is registered.",
+  "project_info": {
+    "project_number": "000000000000",
+    "project_id": "goatos-placeholder",
+    "storage_bucket": "goatos-placeholder.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "android_client_info": {
+          "package_name": "sg.mesha.goatos.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyPLACEHOLDER00000000000000000000000"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

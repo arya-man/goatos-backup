@@ -1,0 +1,30 @@
+{
+  "_comment": "NON-SECRET PLACEHOLDER. Not the real goatos-stg Firebase config. Exists only so :app:compileStgReleaseKotlin / :app:testStgReleaseUnitTest (make ci-local JOB=android) can resolve the google-services Gradle plugin on a fresh clone without the real per-machine google-services.json secret. See app/src/google-services-README.md. Replace with the real download from the Firebase console (goatos-stg project, sg.mesha.goatos.stg Android app) for any build that needs working Firebase/Crashlytics/Perf/Auth telemetry.",
+  "project_info": {
+    "project_number": "000000000000",
+    "project_id": "goatos-placeholder",
+    "storage_bucket": "goatos-placeholder.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "android_client_info": {
+          "package_name": "sg.mesha.goatos.stg"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyPLACEHOLDER00000000000000000000000"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

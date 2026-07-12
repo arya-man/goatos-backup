@@ -20,6 +20,22 @@ tools/dev/android-dev-run.sh --no-clear    # keep app data (skip pm clear)
    not a blocker: `android-dev-run` starts and waits for the AVD automatically.
 3. JDK 21 available. Repository scripts resolve Homebrew `openjdk@21` themselves;
    they do not depend on the current shell having `JAVA_HOME` set.
+4. **No `google-services.json` setup needed for compile/CI.** `google-services.json`
+   is a per-machine secret path (gitignored, `apps/goatos-android/.gitignore`), but
+   `app/src/stg/google-services.json` and `app/src/dev/google-services.json` are
+   force-committed, obviously-fake **placeholders** — see
+   `apps/goatos-android/app/src/google-services-README.md`. They exist only so the
+   `google-services`/Crashlytics/Perf Gradle plugins have a file to process, so a
+   fresh clone can run `make ci-local JOB=android`
+   (`:app:compileStgReleaseKotlin` + `:app:testStgReleaseUnitTest`) and
+   `make android-dev-run` (`:app:assembleDevDebug`) without the real secret.
+   `TELEMETRY_ENABLED` is `false` for `dev`/`prod` by default and the placeholder
+   values never need to work at runtime. To get REAL Crashlytics/Perf/Auth
+   telemetry for a flavor, download that flavor's real `google-services.json` from
+   the Firebase console and drop it in at the same path with
+   `git add -f apps/goatos-android/app/src/<flavor>/google-services.json`
+   (the gitignore rule blocks a plain `git add`) — never hand-edit the placeholder's
+   fake values in place.
 
 ## One-time permanent macOS shell setup
 
