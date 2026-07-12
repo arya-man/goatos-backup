@@ -519,7 +519,9 @@ SELECT
   -1, now(), now()
 FROM generate_series(1, 7) AS g`, piTenant, asOf)
 
-	repo.pruneOldProjectionRowsWithBatchSize(ctx, piTenant, 2)
+	if err := repo.pruneOldProjectionRowsWithBatchSize(ctx, piTenant, 2); err != nil {
+		t.Fatalf("pruneOldProjectionRowsWithBatchSize: %v", err)
+	}
 
 	var staleRows int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*)::int FROM process_integrity_projection_rows WHERE tenant_id = $1::uuid AND projection_version = -1`, piTenant).Scan(&staleRows); err != nil {
@@ -540,6 +542,23 @@ WHERE rows.tenant_id = $1::uuid`, piTenant).Scan(&servingRows); err != nil {
 	}
 	if servingRows == 0 {
 		t.Fatal("serving projection rows were pruned")
+	}
+}
+
+func TestProcessIntegrityProjectionPruneReturnsDatabaseAndCancellationErrors(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	if err := repo.pruneOldProjectionRowsWithBatchSize(ctx, "not-a-uuid", 10); err == nil {
+		t.Fatal("invalid tenant prune returned nil, want database error")
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := repo.pruneOldProjectionRowsWithBatchSize(canceled, piTenant, 10); err == nil {
+		t.Fatal("canceled prune returned nil, want observable cancellation error")
 	}
 }
 

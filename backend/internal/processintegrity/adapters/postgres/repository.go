@@ -213,8 +213,12 @@ func (r *Repository) RecomputeProjection(ctx context.Context, req domain.Project
 	if err := r.markProjectionRebuilding(ctx, req.TenantID, projectionVersion, projectedAt, asOf); err != nil {
 		return domain.ProjectionRecomputeResult{}, err
 	}
+	committed := false
 	defer func() {
-		if retErr != nil {
+		// A post-commit maintenance failure must be visible, but must not mark the
+		// newly committed serving projection as failed. Readers can continue from
+		// last-known-good while the scheduled projector retries cleanup.
+		if retErr != nil && !committed {
 			r.markProjectionFailed(req.TenantID, retErr)
 		}
 	}()
@@ -223,7 +227,6 @@ func (r *Repository) RecomputeProjection(ctx context.Context, req domain.Project
 	if err != nil {
 		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: begin projection recompute: %w", err)
 	}
-	committed := false
 	defer func() {
 		if !committed {
 			_ = tx.Rollback(ctx)
@@ -269,8 +272,7 @@ ON CONFLICT (tenant_id) DO UPDATE SET
 		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: commit projection recompute: %w", err)
 	}
 	committed = true
-	r.pruneOldProjectionRows(ctx, req.TenantID)
-	return domain.ProjectionRecomputeResult{
+	result = domain.ProjectionRecomputeResult{
 		TenantID:           req.TenantID,
 		ProjectionVersion:  projectionVersion,
 		ProjectedAt:        projectedAt,
@@ -278,7 +280,12 @@ ON CONFLICT (tenant_id) DO UPDATE SET
 		Rows:               rowCount,
 		CountsByWorkState:  counts,
 		ProjectionFreshFor: defaultProjectionFresh,
-	}, nil
+	}
+	if err := r.pruneOldProjectionRows(ctx, req.TenantID); err != nil {
+		r.markProjectionMaintenanceError(req.TenantID, err)
+		return result, fmt.Errorf("processintegrity: serving projection committed but stale-row prune failed: %w", err)
+	}
+	return result, nil
 }
 
 func (r *Repository) markProjectionRebuilding(ctx context.Context, tenantID string, projectionVersion int64, projectedAt, asOf time.Time) error {
@@ -322,29 +329,48 @@ SET freshness_status = 'red',
 WHERE tenant_id = $1::uuid`, tenantID, message)
 }
 
-func (r *Repository) pruneOldProjectionRows(ctx context.Context, tenantID string) {
-	r.pruneOldProjectionRowsWithBatchSize(ctx, tenantID, projectionPruneBatchSize)
-}
-
-func (r *Repository) pruneOldProjectionRowsWithBatchSize(ctx context.Context, tenantID string, batchSize int32) {
-	if strings.TrimSpace(tenantID) == "" || batchSize <= 0 {
+func (r *Repository) markProjectionMaintenanceError(tenantID string, cause error) {
+	if strings.TrimSpace(tenantID) == "" || cause == nil {
 		return
 	}
+	stateCtx, cancel := context.WithTimeout(context.Background(), r.timeout)
+	defer cancel()
+	message := "projection_maintenance: " + cause.Error()
+	if len(message) > 2000 {
+		message = message[:2000]
+	}
+	_, _ = r.pool.Exec(stateCtx, `
+UPDATE process_integrity_projection_state
+SET freshness_status = 'yellow',
+    last_error = $2::text,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND serving_projection_version IS NOT NULL`, tenantID, message)
+}
+
+func (r *Repository) pruneOldProjectionRows(ctx context.Context, tenantID string) error {
+	return r.pruneOldProjectionRowsWithBatchSize(ctx, tenantID, projectionPruneBatchSize)
+}
+
+func (r *Repository) pruneOldProjectionRowsWithBatchSize(ctx context.Context, tenantID string, batchSize int32) error {
+	if strings.TrimSpace(tenantID) == "" || batchSize <= 0 {
+		return fmt.Errorf("invalid prune request: tenant_id and positive batch_size are required")
+	}
 	const (
-		maxBatchesPerCall = 1000  // prevent runaway prune loop
-		maxRowsPerCall    = 1_000_000  // maximum rows to prune in one call
+		maxBatchesPerCall = 1000      // prevent runaway prune loop
+		maxRowsPerCall    = 1_000_000 // maximum rows to prune in one call
 	)
 	var totalRowsDeleted int64
 
 	for i := 0; i < maxBatchesPerCall; i++ {
 		// Check context deadline before each iteration
 		if ctx.Err() != nil {
-			return
+			return fmt.Errorf("prune canceled after %d rows: %w", totalRowsDeleted, ctx.Err())
 		}
 
 		// Check if we've hit the row budget
 		if totalRowsDeleted >= maxRowsPerCall {
-			return
+			return fmt.Errorf("prune row budget exhausted after %d rows; retry required", totalRowsDeleted)
 		}
 
 		tag, err := r.pool.Exec(ctx, `
@@ -368,17 +394,17 @@ USING doomed
 WHERE rows.process_integrity_projection_row_id = doomed.process_integrity_projection_row_id`,
 			tenantID, batchSize)
 		if err != nil {
-			// Return error instead of silently failing
-			return
+			return fmt.Errorf("delete stale projection batch after %d rows: %w", totalRowsDeleted, err)
 		}
 		rowsAffected := tag.RowsAffected()
 		totalRowsDeleted += rowsAffected
 
 		// If the last batch was smaller than requested, all old rows are deleted
 		if rowsAffected < int64(batchSize) {
-			return
+			return nil
 		}
 	}
+	return fmt.Errorf("prune batch budget exhausted after %d rows; retry required", totalRowsDeleted)
 }
 
 func projectionBuildArgs(tenantID string, asOf time.Time, projectionVersion int64, projectedAt time.Time) []any {
