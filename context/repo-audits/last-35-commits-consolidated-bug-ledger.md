@@ -1,6 +1,6 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Current closure state after the counter-fix batch: **41 tracked, 16 fixed with proof, 25 open — 1 P0, 14 P1, 8 P2, 2 P3.** Fixed rows are C35-003/004/007/008/009/010/013/014/015/016/020/023/024/025, FIXCHK-003, and NEW-E2E-001. C35-013 fully closed (all 3 process-integrity read surfaces keyset). C35-024 closed the domain-consumer replay (durable at-most-once-publish marker). C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). NEW-E2E-001 (the +1 that took the tracked total 40→41) is now FIXED with proof — a real projector defect, see its row. C35-002 and C35-005 remain explicitly partial/open; no partial is counted closed.
+> Current closure state after the counter-fix batch: **41 tracked, 18 fixed with proof, 23 open — 1 P0, 13 P1, 7 P2, 2 P3.** Fixed rows are C35-003/004/007/008/009/010/013/014/015/016/020/023/024/025, FIXCHK-001/002/003, and NEW-E2E-001. C35-013 fully closed all three process-integrity read surfaces with keyset pagination. C35-024 closed the domain-consumer replay. FIXCHK-001 now authorizes intended app-vaccination park grants and clamps reschedule mutation/replay to those parks. FIXCHK-002 now uses one India business date for both SQL FEFO ordering and response disabled state. C35-002 and C35-005 remain explicitly partial/open; no partial is counted closed.
 >
 > Closure detail (Claude, NEW-E2E-001 + the C35-015 gating pass): **NEW-E2E-001** — `TestKernelStoryC_BatchDriveVerifyControlTower` failed deterministically (control-tower alert row = 0); **ROOT-CAUSED + FIXED** — the projector's closed-history inclusion keyed recency off due-date not completion-time, so a near-now completion with an old due_at vanished from the projection; now green (`totalProjRows` 0→1, full `backend/tests/e2e/...` suite green). While gating **C35-015** on `make ci-local`, two PRE-EXISTING failures independent of C35-015 were also cleared: the stale sqlc schema snapshots (missing `herd_register_goat_projection_scope_idx`/`planned_batch_finalization_keyset_idx`) were regenerated + pushed → sqlc-check green; contract-drift was only a dirty-tree artifact (uncommitted generated client), green on commit.
 >
@@ -133,15 +133,15 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 | C35-021 | P3 | Architecture graph is structurally stale | open, confirmed |
 | C35-022 | P2 | Corrupt cache blobs become false loading/empty state forever | open, confirmed |
 | C35-023 | P2 | Projection prune is unbudgeted and hides DB failure | **FIXED WITH PROOF** |
-| C35-024 | P2 | Generic consumer side effects can replay after finalization failure | open, plausible |
+| C35-024 | P2 | Generic consumer side effects can replay after finalization failure | **FIXED WITH PROOF** |
 | C35-025 | P3 | Operations keyset is stable but human-random | **FIXED WITH PROOF** |
 
 ### Post-Fix Verification Additions
 
 | ID | Priority | Short title | Draft disposition |
 | --- | --- | --- | --- |
-| FIXCHK-001 | P1 | App vaccination routes still do not accept park-scoped grants | open, confirmed by both agents |
-| FIXCHK-002 | P2 | FEFO option disabled-state still compares expiry against UTC day | open, confirmed by both agents |
+| FIXCHK-001 | P1 | App vaccination routes still do not accept park-scoped grants | **FIXED WITH PROOF** |
+| FIXCHK-002 | P2 | FEFO option disabled-state still compares expiry against UTC day | **FIXED WITH PROOF** |
 | FIXCHK-003 | P3 | Scan roster cursor test asserts the wrong response key | **FIXED WITH PROOF** |
 | FIXCHK-004 | P1 | Android scan roster still ignores server cursor pagination | confirmed behavior; merged into C35-006/C35-018, not separately counted |
 
@@ -270,7 +270,7 @@ Claude counter-reviewed every original Codex C35 finding against HEAD. Codex the
 | C35-021 | **PARTIAL DISAGREE (priority).** Agree graph is stale + open; Claude rates **P3** (auto-rebuilds locally, gitignored, not used as proof by either agent). | CONVERGED — P3 open; Codex accepts downgrade |
 | C35-022 | **AGREE / CONFIRMED.** `CalendarRepository:116` `getOrNull` swallow; `edcb668b` flowOn sweep explicitly skipped Calendar/Execution repos. | CONVERGED — P2 open |
 | C35-023 | **AGREE / CONFIRMED.** Prune terminates (progress break) but `:428-429` discards the DB error. | CONVERGED — P2 open (residual) |
-| C35-024 | **AGREE / PLAUSIBLE.** Claude's kernel auditor called BUG-012 "fully fixed" — that is the ACK/NACK bug narrowly; Codex's broader "side effects not co-transactional with MarkProcessed" residual stands. | CONVERGED — PLAUSIBLE |
+| C35-024 | **AGREE / FIXED.** The durable `effects_committed` state prevents normal redelivery from re-publishing after terminal finalization fails; the ledger retains the disclosed double-marker-write residual rather than claiming distributed exactly-once. | CONVERGED — FIXED WITH PROOF |
 | C35-025 | **AGREE / CONFIRMED.** Operations keyset `ORDER BY park_uuid,shed_uuid,stage`; cosmetic. Claude also verified the operations + scan-roster keysets are correct. | CONVERGED — P3 open |
 | **CL-001** (Claude) | **CODEX COUNTER / FALSE POSITIVE.** `protocol_rules.rule_id` is a PK and `(tenant_id, rule_id)` is unique (`000073_protocol_engine.sql:82-109`). The execution query joins one rule by tenant+rule (`repository.go:470-472`), so `dose_code` and the rule's protocol/name are functional dependencies of `rule_id`. `GROUP BY` listing them does not create finer row grain. `(park,shed,rule,batch)` is therefore unique for the grouped output; NULL batch rows for the same rule collapse into one row, not multiple equal-key rows. | CONVERGED — COUNTERED; remove from open ledger |
 | **CL-002** (Claude) | **CODEX COUNTER / FALSE POSITIVE.** `todayIso()` first produces the IST business-date string (`format.ts:73-77`). `calendar-window.ts:16-29` deliberately uses UTC only as timezone-neutral Gregorian arithmetic on that date-only key. Backend parses the returned keys in `Asia/Kolkata` (`calendar/http/handler.go:305-308`). No UTC instant defines a business day. | CONVERGED — COUNTERED; tests already cover month/year/leap boundaries |
@@ -1130,7 +1130,7 @@ Fix (pushed): add a branch that pulls completed rows recent by COMPLETION time w
 ID: FIXCHK-001  
 Priority: P1  
 Title: App vaccination routes still do not accept park-scoped grants  
-Status: open  
+Status: FIXED WITH PROOF
 Origin: post-fix fixed/not-fixed verification pass  
 Verdict: CONFIRMED BY CLAUDE AND CODEX  
 Prior mapping: reopens the app-route authorization half of the claimed park-scope fix  
@@ -1146,12 +1146,14 @@ E2E / guardrail status: false-green; affected tests pass without proving a real 
 Fix sketch: Extend scoped-grant eligibility to the intended `/app/vaccination/...` routes, or split app bootstrap from park-scoped vaccination execution permissions explicitly.  
 Guardrail needed: Full router/auth tests for park-scoped app users: allowed same-park roster/options/reschedule, denied cross-park, denied no-scope, and no tenant-wide fallback.
 
+Closure proof: `routeAllowsScopedGrants` now includes only `/calendar/` and `/app/vaccination/`; admin vaccination routes remain excluded. The reschedule path carries authorized park IDs into the obligation repository, which locks and validates the goat's current park before either idempotency replay or mutation. Middleware/handler unit tests and the real-Postgres same-park, wrong-park, and wrong-park replay test pass.
+
 ### FIXCHK-002
 
 ID: FIXCHK-002  
 Priority: P2  
 Title: FEFO option disabled-state still compares expiry against UTC day  
-Status: open  
+Status: FIXED WITH PROOF
 Origin: post-fix fixed/not-fixed verification pass  
 Verdict: CONFIRMED BY CLAUDE AND CODEX  
 Prior mapping: reopens the remaining FEFO business-day consistency gap  
@@ -1166,6 +1168,8 @@ Why it survives / why downgraded: The same endpoint now contains two date semant
 E2E / guardrail status: missing; no frozen-clock IST boundary test asserts SQL rank and option disabled-state agree.  
 Fix sketch: Compare expiry against the same `bizToday` date value used by SQL and keep all FEFO option state date-only in `Asia/Kolkata`.  
 Guardrail needed: Table-driven test across UTC 18:29/18:30 and IST midnight for active, today-expiring, yesterday-expired, and tomorrow-expiring lots.
+
+Closure proof: `vaccineLotOptions` captures `biztime.BusinessDate(time.Now())` once and passes that exact date to SQL ranking and `vaccineLotDisabledReason`; the response comparison stays date-only and no longer calls a second UTC clock. The boundary regression proves 18:29 UTC maps to July 11 IST, 18:30 UTC maps to July 12 IST, a July 11 lot is usable before the boundary and expired at it, and status/quantity precedence remains intact.
 
 ### FIXCHK-003
 
@@ -1305,18 +1309,18 @@ Agents must use isolated branches/worktrees and must not edit the shared ledger,
 
 ## 9. Final Summary Table
 
-The common ledger contains the original 40 counted findings plus NEW-E2E-001, discovered during closure gating: **41 tracked, 13 fixed with proof, 28 open**. FIXCHK-004 remains merged into C35-006/C35-018 and is not double-counted. Claude additions CL-001…003 remain countered; CL-004 survives open. Every retained row is peer-reconciled.
+The common ledger contains the original 40 counted findings plus NEW-E2E-001, discovered during closure gating: **41 tracked, 18 fixed with proof, 23 open**. FIXCHK-004 remains merged into C35-006/C35-018 and is not double-counted. Claude additions CL-001…003 remain countered; CL-004 survives open. Every retained row is peer-reconciled.
 
 | Priority | Fixed with proof | Confirmed open | Plausible open | Open total |
 | --- | ---: | ---: | ---: | ---: |
 | P0 | 1 | 1 | 0 | 1 |
-| P1 | 5 | 15 | 0 | 15 |
-| P2 | 5 | 9 | 1 (C35-024) | 10 |
+| P1 | 7 | 13 | 0 | 13 |
+| P2 | 8 | 7 | 0 | 7 |
 | P3 | 2 | 2 | 0 | 2 |
-| **Total** | **13** | **27** | **1** | **28** |
+| **Total** | **18** | **23** | **0** | **23** |
 
-**Fixed counted rows:** C35-003, C35-004, C35-007, C35-008, C35-010, C35-014, C35-015, C35-016, C35-020, C35-023, C35-025, FIXCHK-003, and NEW-E2E-001. **Still partial/open:** C35-002, C35-005, C35-013. C35-012 remains an open remote-release-availability finding; it does not invalidate green local execution of the same checked-in job runner.
+**Fixed counted rows:** C35-003, C35-004, C35-007, C35-008, C35-009, C35-010, C35-013, C35-014, C35-015, C35-016, C35-020, C35-023, C35-024, C35-025, FIXCHK-001, FIXCHK-002, FIXCHK-003, and NEW-E2E-001. **Still partial/open:** C35-002 and C35-005. C35-012 remains an open remote-release-availability finding; it does not invalidate green local execution of the same checked-in job runner.
 
 **Three guardrails carry the most leverage:** destructive logout certification (C35-001); current-SHA Room/paging/workflow/performance Android certification (C35-006/008/011/017/018/019 plus MOB-001…011); and current-SHA scale/latency + cross-boundary fanout gates (C35-002/004/005/007/009/013/014/015/016/020). FIXCHK-001 also needs a dedicated app scoped-grant route matrix.
 
-Final state: **ONE COMMON LEDGER. 41 tracked; 13 fixed; 28 open (1 P0, 15 P1, 10 P2, 2 P3).** The original 26 C35/CL rows, 11 MOB rows, 3 counted FIXCHK rows, and NEW-E2E-001 are reconciled here; FIXCHK-004 is merged and not counted twice. The audit STOP RULE applied only to the original audit; the closure program now authorizes these evidence-bound fixes.
+Final state: **ONE COMMON LEDGER. 41 tracked; 18 fixed; 23 open (1 P0, 13 P1, 7 P2, 2 P3).** The original 26 C35/CL rows, 11 MOB rows, 3 counted FIXCHK rows, and NEW-E2E-001 are reconciled here; FIXCHK-004 is merged and not counted twice. The audit STOP RULE applied only to the original audit; the closure program now authorizes these evidence-bound fixes.

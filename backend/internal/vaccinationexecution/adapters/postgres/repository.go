@@ -1270,7 +1270,10 @@ func (r *Repository) vaccineLotOptions(ctx context.Context, tenantID, batchID, s
 	// FEFO "not expired" is an India-business-day comparison, not the DB server's UTC CURRENT_DATE
 	// (a lot expiring today in Asia/Kolkata must not rank as usable past IST midnight). See
 	// GoatOS time semantics: derive the business day and pass it as a bound parameter.
-	bizToday := time.Now().In(biztime.DefaultLocation()).Format("2006-01-02")
+	// Capture one business date for both SQL ordering and response availability. Using a
+	// second UTC clock below made the same lot simultaneously rank usable and render expired
+	// around India midnight.
+	bizToday := biztime.BusinessDate(time.Now())
 	rows, err := r.pool.Query(ctx, `
 WITH RECURSIVE chain AS (
   SELECT location_id, parent_location_id, 0 AS depth FROM locations
@@ -1313,14 +1316,7 @@ ORDER BY CASE WHEN s.status='active' AND s.quantity_in_stock>s.quantity_reserved
 			d := expiry.Time.UTC()
 			option.ExpiryDate = &d
 		}
-		reason := ""
-		if status != "active" {
-			reason = "lot_" + status
-		} else if expiry.Valid && expiry.Time.Before(time.Now().UTC().Truncate(24*time.Hour)) {
-			reason = "lot_expired"
-		} else if available == "0" {
-			reason = "no_available_quantity"
-		}
+		reason := vaccineLotDisabledReason(status, available, expiry, bizToday)
 		if reason != "" {
 			option.Disabled = true
 			option.DisabledReason = &reason
@@ -1336,6 +1332,21 @@ ORDER BY CASE WHEN s.status='active' AND s.quantity_in_stock>s.quantity_reserved
 		source.DisabledReason = &reason
 	}
 	return source, rows.Err()
+}
+
+func vaccineLotDisabledReason(status, available string, expiry pgtype.Date, businessDate string) string {
+	if status != "active" {
+		return "lot_" + status
+	}
+	// expiry_date is a PostgreSQL DATE. Keep the comparison date-only instead of turning it
+	// into an instant whose timezone can silently change the operational day.
+	if expiry.Valid && expiry.Time.Format("2006-01-02") < businessDate {
+		return "lot_expired"
+	}
+	if available == "0" {
+		return "no_available_quantity"
+	}
+	return ""
 }
 
 func (r *Repository) routeSiteOptions(ctx context.Context, tenantID, batchID string) (domain.TaskOptionSource, error) {
