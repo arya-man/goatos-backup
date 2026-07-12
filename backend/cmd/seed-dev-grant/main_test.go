@@ -3,8 +3,40 @@ package main
 import (
 	"testing"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 )
+
+func TestValidRoleAcceptsLegacyAndCompositeOrgRoles(t *testing.T) {
+	for _, role := range []string{
+		permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead,
+		permissions.RolePCDirector, permissions.RoleOperator, permissions.RoleCEOInternal,
+		permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed),
+		permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalHealth),
+	} {
+		if !validRole(role) {
+			t.Fatalf("validRole(%q)=false, want true", role)
+		}
+	}
+	for _, role := range []string{"", "not_a_role", "manager_atlantis"} {
+		if validRole(role) {
+			t.Fatalf("validRole(%q)=true, want false", role)
+		}
+	}
+}
+
+func TestDevMemberRoleHintForCompositeOrgRoles(t *testing.T) {
+	am := permissions.RoleKey(permissions.TierAssistantManager, permissions.VerticalFeed)
+	if got := devMemberRoleHint(am); got != "operator" {
+		t.Fatalf("devMemberRoleHint(%q)=%q, want operator", am, got)
+	}
+	for _, tier := range []permissions.Tier{permissions.TierManager, permissions.TierHead, permissions.TierDirector} {
+		role := permissions.RoleKey(tier, permissions.VerticalHealth)
+		if got := devMemberRoleHint(role); got != "supervisor" {
+			t.Fatalf("devMemberRoleHint(%q)=%q, want supervisor", role, got)
+		}
+	}
+}
 
 func TestValidateLocalTargetAllowsLocalDatabase(t *testing.T) {
 	if err := validateLocalTarget("local", "postgres://postgres:goatos@localhost:5432/goatos?sslmode=disable"); err != nil {

@@ -139,13 +139,11 @@ func validateTarget(env, databaseURL string) error {
 	return localtarget.ValidateLocalDatabaseTarget("seed-dev-email-grants", env, databaseURL, "local", "dev", "test")
 }
 
+// validRole accepts the flat legacy roles AND any composite tier x vertical
+// org role key (e.g. "manager_feed") -- permissions.IsKnownRole is the single
+// source of truth so a new vertical/tier does not require touching this CLI.
 func validRole(role string) bool {
-	switch role {
-	case permissions.RoleAdmin, permissions.RoleVerifier, permissions.RoleParkHead, permissions.RolePCDirector, permissions.RoleOperator, permissions.RoleCEOInternal:
-		return true
-	default:
-		return false
-	}
+	return permissions.IsKnownRole(role)
 }
 
 func fail(format string, args ...any) {
