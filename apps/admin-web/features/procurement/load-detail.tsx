@@ -79,22 +79,20 @@ function shedUsable(location: LocationSummary): boolean {
 }
 
 async function getProcurementLocations(): Promise<ProcurementLocations> {
-  const [parksResult, farmsResult] = await Promise.all([
+  // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-09-30 reason=fixed three-call location taxonomy request; cardinality does not depend on returned rows
+  const [parksResult, farmsResult, shedsResult] = await Promise.all([
     listLocations({ type: "park", status: "active" }),
     listLocations({ type: "farm", status: "active" }),
+    listLocations({ type: "shed", status: "active" }),
   ]);
   const parks = parksResult.ok ? parksResult.data.items.map(toLocationOption) : [];
-  const shedResults = await Promise.all(
-    parks.map((park) => listLocations({ type: "shed", status: "active", parentLocationId: park.id })),
-  );
-  const shedsAvailable = shedResults.every((result) => result.ok);
-  const sheds = shedResults.flatMap((result) => (result.ok ? result.data.items.filter(shedUsable).map(toLocationOption) : []));
+  const sheds = shedsResult.ok ? shedsResult.data.items.filter(shedUsable).map(toLocationOption) : [];
   const farms = farmsResult.ok ? farmsResult.data.items.map(toLocationOption) : [];
   return {
     parks,
     origins: [...farms, ...parks],
     sheds,
-    available: parksResult.ok && shedsAvailable,
+    available: parksResult.ok && shedsResult.ok,
   };
 }
 

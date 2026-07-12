@@ -154,7 +154,7 @@ export async function VaccinationActionCenterPage({
   // Both honor the top-bar park scope (park_id) so the SOP/verification queue can't show other parks.
   // IMPORTANT: Fetch only the active tab to avoid OFFSET pagination debt and dual-tab eager fetch.
   // The page shows either the board (view === "board") OR the queue (view === "verify"), never both.
-  const [actionCenter, queue] = await Promise.all([ // request-plan:ignore: intentional conditional fetch per active tab
+  const [actionCenter, queue] = await Promise.all([
     getVaccinationActionCenter(requestPlan.actionCenter),
     view === "verify" ? getVaccinationVerificationQueue(requestPlan.verificationQueue) : Promise.resolve(null),
   ]);

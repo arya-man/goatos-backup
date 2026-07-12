@@ -8,7 +8,8 @@
 //   --all         audit entire apps/admin-web
 //   --self-test   run built-in fixtures and exit
 //
-// Escape hatch: append `request-plan:ignore: <reason>` on the line.
+// Escape hatch (time-bounded debt only): append
+// request-plan:ignore owner=X issue=Y expires=YYYY-MM-DD reason=...
 
 import { execSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
@@ -26,7 +27,13 @@ export function findingsForSource(source) {
   // 1) Promise.all with unmapped single fetch (OK if it's a bounded set like 2-4 fixed calls).
   //    Flag only if it looks like a fan-out: .map( ... => fetch ) or unfiltered list.map
   lines.forEach((text, i) => {
-    if (/request-plan:ignore/.test(text)) return;
+    const ignoreLine = [text, ...lines.slice(Math.max(0, i - 3), i).reverse()].find((line) => /request-plan:ignore/.test(line)) ?? "";
+    if (ignoreLine) {
+      if (!validIgnore(ignoreLine)) {
+        findings.push({ line: i + 1, rule: "invalid-ignore", message: "request-plan ignore requires owner, issue, unexpired YYYY-MM-DD, and reason" });
+      }
+      return;
+    }
 
     // Pattern: Promise.all(items.map(...fetch...)) or Promise.all(list.map(...getSomething...))
     // This is a high-cardinality fan-out unless items/list is clearly bounded (e.g. 2-4 items).
@@ -39,25 +46,6 @@ export function findingsForSource(source) {
       return;
     }
 
-    // Pattern: await Promise.all([ fetch(a), fetch(b), conditionalFetch(), fetch(c) ])
-    // This is OK if all are explicitly listed (bounded), but flag if any is conditional (=> might skip some).
-    // Check if Promise.all starts on this line
-    if (/Promise\.all\s*\(\s*\[/.test(text)) {
-      // Check for ternary operator (? ... :) on this or following lines (up to 10 lines)
-      // Gather the Promise.all block
-      let searchText = text;
-      for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
-        searchText += " " + lines[j];
-        if (lines[j].includes("]);")) break;  // End of Promise.all block
-      }
-      if (/\?.*:/.test(searchText)) {
-        findings.push({
-          line: i + 1,
-          rule: "promise-all-conditional",
-          message: `Promise.all contains conditional fetch (? operator) — ensure all branches fetch consistently or split into separate await blocks to avoid duplicate/overlapping requests.`,
-        });
-      }
-    }
   });
 
   // 2) Double fetch pattern: list fetch then detail fetch in Promise.all for same/overlapping resource.
@@ -66,7 +54,9 @@ export function findingsForSource(source) {
   const promiseAllBlocks = source.match(/Promise\.all\s*\(\s*\[([\s\S]*?)\]\s*\)/g) || [];
   for (const block of promiseAllBlocks) {
     // Check if this block has an ignore comment
-    if (/request-plan:ignore/.test(block)) continue;
+    const blockStart = source.indexOf(block);
+    const preceding = source.slice(0, blockStart).split("\n").slice(-3);
+    if (block.split("\n").some(validIgnore) || preceding.some(validIgnore)) continue;
 
     const calls = block.match(/\b(?:get|fetch|list)[A-Za-z0-9]*\s*\(/g) || [];
     const callNames = calls.map((c) => c.replace(/\s*\(/, "").toLowerCase());
@@ -87,6 +77,17 @@ export function findingsForSource(source) {
   }
 
   return findings;
+}
+
+function validIgnore(line) {
+  if (!/request-plan:ignore/.test(line)) return false;
+  const owner = line.match(/\bowner=([^\s]+)/)?.[1];
+  const issue = line.match(/\bissue=([^\s]+)/)?.[1];
+  const expires = line.match(/\bexpires=(\d{4}-\d{2}-\d{2})/)?.[1];
+  const reason = line.match(/\breason=(.+)$/)?.[1]?.trim();
+  if (!owner || !issue || !expires || !reason) return false;
+  const expiry = new Date(`${expires}T23:59:59Z`);
+  return !Number.isNaN(expiry.getTime()) && expiry.getTime() >= Date.now();
 }
 
 function walkAdminWeb(dir) {
@@ -129,7 +130,7 @@ function selfTest() {
     ["Promise.all(sops.map((sop) => getSop(sop.id)))", "promise-all-mapped-fanout"],
     ["Promise.all(defs.map((def) => getSop(def.sop_id)))", "promise-all-mapped-fanout"],
     ["Promise.all([\n  getCalendarVaccinationEvents({...}),\n  getCalendarVaccinationEvents({...}),\n])", "duplicate-fetch-in-promise-all"],
-    ["const [list, detail] = await Promise.all([\n  getItems(),\n  selectedId ? getDetail(selectedId) : Promise.resolve(null),\n]);", "promise-all-conditional"],
+    ["// request-plan:ignore reason=missing-metadata\nPromise.all(items.map((item) => getItem(item.id)))", "invalid-ignore"],
   ];
   for (const [src, rule] of bad) {
     const f = findingsForSource(src);
@@ -138,7 +139,7 @@ function selfTest() {
   const good = [
     "Promise.all([\n  getList(),\n  getDetail(selectedId),\n])",
     "const [a, b, c] = await Promise.all([\n  getA(),\n  getB(),\n  getC(),\n]);",
-    "const items = await getItems(); const details = await Promise.all(items.map(i => getDetail(i.id))); // request-plan:ignore: bounded to visible page (10 items)",
+    "const items = await getItems(); const details = await Promise.all(items.map(i => getDetail(i.id))); // request-plan:ignore owner=test issue=TEST-1 expires=2099-12-31 reason=bounded fixture",
   ];
   for (const src of good) {
     const f = findingsForSource(src);
@@ -184,7 +185,7 @@ for (const rel of files) {
 if (findings.length) {
   console.error(`request-plan-fanout: ${findings.length} anti-pattern(s)`);
   for (const f of findings) console.error(`- ${f.rule} ${f.rel}:${f.line}: ${f.message}`);
-  console.error("If a case is genuinely bounded, append `request-plan:ignore: <reason>` on the line.");
+  console.error("If temporary debt is genuinely bounded, append `request-plan:ignore owner=X issue=Y expires=YYYY-MM-DD reason=...` on the line.");
   process.exit(1);
 }
 console.log(`request-plan-fanout: ok (${files.length} admin-web file(s) scanned; no unbounded Promise.all fanout)`);

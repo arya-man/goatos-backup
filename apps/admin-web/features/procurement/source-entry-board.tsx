@@ -163,6 +163,7 @@ export async function SourceEntryBoardPage({
   const loads: ProcurementLoad[] = result.ok
     ? [...result.data.items].sort((a, b) => sourceLoadStatusOrder.indexOf(a.status) - sourceLoadStatusOrder.indexOf(b.status))
     : [];
+  // request-plan:ignore owner=procurement-platform issue=C35-016 expires=2026-09-30 reason=list contract lacks card facets; replace with enriched paged list or batch detail API
   const detailResults = result.ok
     ? await Promise.all(loads.map(async (load) => [load.load_id, await getProcurementLoad(load.load_id)] as const))
     : [];
