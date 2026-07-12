@@ -151,8 +151,9 @@ fun RfidScreen(
         item { RfidHeader() }
         item { RfidDeviceHero(state) }
         if (state.discovered.isNotEmpty()) {
-            items(state.discovered.size) { index ->
-                DiscoveredReaderRow(row = state.discovered[index], onEvent = onEvent)
+            // MOB-011: Use stable keys instead of index to avoid recomposition on reorder
+            items(state.discovered, key = { row -> row.id }, contentType = { "reader_row" }) { row ->
+                DiscoveredReaderRow(row = row, onEvent = onEvent)
             }
         }
         item { RfidPrimaryAction(state = state, onEvent = onEvent) }

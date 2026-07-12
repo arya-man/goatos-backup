@@ -203,7 +203,8 @@ fun SubmitScreen(
                     modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                 )
             }
-            items(state.groups) { group ->
+            // MOB-011: Use stable keys for vaccine groups to avoid recomposition on insert/reorder
+            items(state.groups, key = { group -> "${group.name}|${group.dose}" }, contentType = { "vaccine_group" }) { group ->
                 VaccineGroupCard(group)
             }
         }

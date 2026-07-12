@@ -183,8 +183,9 @@ fun AlertsScreen(
                 )
             }
         } else {
-            items(state.rows.size) { index ->
-                AlertCard(row = state.rows[index], onEvent = onEvent)
+            // MOB-011: Use stable keys instead of index to avoid recomposition on reorder
+            items(state.rows, key = { row -> row.id }, contentType = { "alert_row" }) { row ->
+                AlertCard(row = row, onEvent = onEvent)
             }
         }
     }

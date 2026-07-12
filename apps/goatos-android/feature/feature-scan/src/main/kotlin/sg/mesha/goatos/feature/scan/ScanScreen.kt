@@ -267,7 +267,8 @@ fun ScanScreen(
                 if (state.feed.isEmpty()) {
                     item { FeedEmpty() }
                 } else {
-                    items(state.feed) { entry -> FeedRow(entry) }
+                    // MOB-011: Use stable keys for dynamic feed items to avoid recomposition on insert
+                    items(state.feed, key = { entry -> "${entry.primaryTag}|${entry.vaccineLabel}|${entry.status}" }, contentType = { "feed_row" }) { entry -> FeedRow(entry) }
                 }
                 item { Spacer(Modifier.height(8.dp)) }
             }
@@ -762,7 +763,8 @@ fun ScanListSheet(
                 )
             } else {
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                    itemsIndexed(filtered) { _, row -> ScanListRow(row) }
+                    // MOB-011: Use stable keys instead of index to avoid recomposition on insert/reorder
+                    items(filtered, key = { row -> row.goatId.takeIf { it.isNotBlank() } ?: row.obligationId.takeIf { it.isNotBlank() } ?: row.primaryTag }, contentType = { "scan_row" }) { row -> ScanListRow(row) }
                     if (hasMore && query.isBlank()) {
                         item {
                             Button(

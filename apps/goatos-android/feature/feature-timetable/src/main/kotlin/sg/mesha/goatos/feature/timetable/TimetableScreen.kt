@@ -143,7 +143,10 @@ fun TimetableScreen(
         if (state.rows.isEmpty()) {
             item { TimetableEmpty(errorText(state.errorCode) ?: emptyText()) }
         } else {
-            items(state.rows.size) { index -> TimetableRowCard(state.rows[index]) }
+            // MOB-011: Use stable keys instead of index to avoid recomposition on reorder
+            items(state.rows, key = { row -> row.id }, contentType = { "timetable_row" }) { row ->
+                TimetableRowCard(row)
+            }
         }
     }
 }
