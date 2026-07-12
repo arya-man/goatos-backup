@@ -7,7 +7,7 @@ AI_BACKEND ?= auto
 
 .PHONY: check guardrails e2e-integrity-guard scale-guard clinical-defer-guard sweeper-deployment-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard india-date-guard offline-first-guard local-gcp-kernel-parity-guard ci-local mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
-.PHONY: vaccination-execution-projection-recompute vaccination-projection-worker
+.PHONY: vaccination-execution-projection-recompute
 
 setup-crg: ai-setup
 
@@ -351,9 +351,6 @@ vaccination-shed-projection-recompute:
 
 vaccination-execution-projection-recompute:
 	cd backend && go run ./cmd/vaccination-execution-projection-recompute
-
-vaccination-projection-worker:
-	cd backend && go run ./cmd/vaccination-projection-worker
 
 process-integrity-latency-gate:
 	cd backend && go run ./cmd/process-integrity-latency-check

@@ -1245,14 +1245,6 @@ WHERE tenant_id='00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY stage,protocol_id LIMIT 501;"
 }
 
-validate_vaccination_dirty_scope_claim_plan() {
-  explain_must_use_index "VaccinationDirtyScopeClaim" 'Seq Scan on projection_dirty_scopes' "EXPLAIN (COSTS OFF)
-SELECT dirty_scope_id FROM projection_dirty_scopes
-WHERE family='vaccination' AND status IN ('pending','retry') AND available_at<=now()
-ORDER BY available_at,dirty_scope_id
-LIMIT 100 FOR UPDATE SKIP LOCKED;"
-}
-
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -1292,6 +1284,5 @@ validate_herd_register_summary_plan
 validate_vaccination_shed_projection_plan
 validate_vaccination_execution_projection_read_plan
 validate_vaccination_operations_projection_read_plan
-validate_vaccination_dirty_scope_claim_plan
 
 echo "Validated current hot-path query plans"
