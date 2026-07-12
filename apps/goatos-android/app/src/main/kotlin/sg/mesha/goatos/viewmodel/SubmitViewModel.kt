@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -105,15 +107,12 @@ class SubmitViewModel @Inject constructor(
     private var currentTask: TaskSummaryDto? = null
     private var currentForm: FormSpec = FormSpec.Empty
     private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")
-    private var observeTaskJob: Job? = null
     private var statusJob: Job? = null
-    private var scanObserveJob: Job? = null
-    private var proofObserveJob: Job? = null
     private var scanTagJob: Job? = null
 
-    // Room-first capture state (MOB-002) — populated by scanObserveJob/proofObserveJob
-    // collecting the SAME repositories a Room-first read would, never held only in memory
-    // before being written: by the time these vars change, Room already has the row.
+    // Lifecycle-safe StateFlow observers (MOB-010): these expose the Room observers via
+    // stateIn(...WhileSubscribed...) so they stop collecting when unsubscribed for 5s,
+    // releasing hardware/DB streams when the screen is backgrounded.
     private var currentScans: List<ScannedGoatRow> = emptyList()
     private var currentProofs: List<ProofCaptureRow> = emptyList()
     private var scanningFieldKey: String? = null
@@ -188,11 +187,14 @@ class SubmitViewModel @Inject constructor(
         // or a task never opened before) immediately, then re-renders after every successful
         // refresh below — never blank on re-entry once a row exists for this task id.
         refreshFailedForTaskId = null
-        observeTaskJob?.cancel()
-        observeTaskJob = viewModelScope.launch {
-            repo.observeTaskDetail(taskId).collectLatest { resource -> applyTaskResource(resource) }
-        }
         observeCaptureState(taskId)
+        // Lifecycle-safe observer (MOB-010): stateIn(...WhileSubscribed...) stops collecting
+        // when unsubscribed for 5s, releasing Room streams when backgrounded.
+        viewModelScope.launch {
+            repo.observeTaskDetail(taskId)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
+                .collect { resource -> applyTaskResource(resource) }
+        }
         val refreshResult = repo.refreshTaskDetail(taskId)
         if (refreshResult.isFailure && currentTask == null) {
             // Never synced, ever: no cache to fall back to. A stale cache (if any) stays on
@@ -205,23 +207,26 @@ class SubmitViewModel @Inject constructor(
         }
     }
 
-    /** Wires the Room-first scan/proof observers for [taskId] — every emission re-renders the
-     *  draft so the scan count / proof-item list the operator sees is always exactly what Room
-     *  holds, never a stale in-memory echo. */
+    /** Wires lifecycle-safe Room-first scan/proof observers for [taskId] (MOB-010) — every
+     *  emission re-renders the draft so the scan count / proof-item list the operator sees is
+     *  always exactly what Room holds, never a stale in-memory echo. Uses stateIn(...WhileSubscribed...)
+     *  so collection stops when unsubscribed for 5s, releasing DB streams when backgrounded. */
     private fun observeCaptureState(taskId: String) {
-        scanObserveJob?.cancel()
-        scanObserveJob = viewModelScope.launch {
-            scanCaptureRepository.observeAllForTask(taskId).collectLatest { rows ->
-                currentScans = rows
-                renderDraft()
-            }
+        viewModelScope.launch {
+            scanCaptureRepository.observeAllForTask(taskId)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+                .collect { rows ->
+                    currentScans = rows
+                    renderDraft()
+                }
         }
-        proofObserveJob?.cancel()
-        proofObserveJob = viewModelScope.launch {
-            proofCaptureRepository.observeProofs(taskId).collectLatest { rows ->
-                currentProofs = rows
-                renderDraft()
-            }
+        viewModelScope.launch {
+            proofCaptureRepository.observeProofs(taskId)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+                .collect { rows ->
+                    currentProofs = rows
+                    renderDraft()
+                }
         }
     }
 
@@ -481,7 +486,8 @@ class SubmitViewModel @Inject constructor(
                 .map { status -> status.items.firstOrNull { it.id == itemId } }
                 .filterNotNull()
                 .distinctUntilChanged()
-                .collect { item -> applyItemStatus(item) }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+                .collect { item -> item?.let { applyItemStatus(it) } }
         }
     }
 

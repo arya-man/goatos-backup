@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.data.RosterRepository
 import sg.mesha.goatos.core.ui.CoverageBannerUiState
@@ -58,27 +60,31 @@ class CoverageBannerViewModel @Inject constructor(
 
     /** Re-fetches the current coverage status. Safe to call again on refresh/retry. */
     fun load() = viewModelScope.launch {
+        // Lifecycle-safe observer (MOB-010): stateIn(...WhileSubscribed...) stops collecting
+        // when unsubscribed for 5s, releasing Room streams when backgrounded.
         // Start observing Room cache immediately (stale-while-revalidate)
-        repo.observeCoverage().collect { dto ->
-            val newState = if (dto?.coverage?.hasCoverage == true) {
-                dto.coverage.bannerText?.ifBlank { null }?.let { CoverageState.HasCoverage(it) }
-                    ?: CoverageState.NoCoverage
-            } else if (dto != null) {
-                // Cached or fresh response with has_coverage=false
-                CoverageState.NoCoverage
-            } else {
-                // No cache yet; will refresh to get real state
-                CoverageState.Unknown
-            }
+        repo.observeCoverage()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .collect { dto ->
+                val newState = if (dto?.coverage?.hasCoverage == true) {
+                    dto.coverage.bannerText?.ifBlank { null }?.let { CoverageState.HasCoverage(it) }
+                        ?: CoverageState.NoCoverage
+                } else if (dto != null) {
+                    // Cached or fresh response with has_coverage=false
+                    CoverageState.NoCoverage
+                } else {
+                    // No cache yet; will refresh to get real state
+                    CoverageState.Unknown
+                }
 
-            _coverageState.value = newState
-            updateBannerState(newState)
+                _coverageState.value = newState
+                updateBannerState(newState)
 
-            // Trigger background refresh on first load if no cache
-            if (_isRefreshing.value.not()) {
-                refreshInBackground()
+                // Trigger background refresh on first load if no cache
+                if (_isRefreshing.value.not()) {
+                    refreshInBackground()
+                }
             }
-        }
     }
 
     private fun refreshInBackground() = viewModelScope.launch {

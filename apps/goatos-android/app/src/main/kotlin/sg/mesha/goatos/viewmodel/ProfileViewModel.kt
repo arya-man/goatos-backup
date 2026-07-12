@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.auth.AuthRepository
@@ -39,8 +41,13 @@ class ProfileViewModel @Inject constructor(
 
     init {
         load()
+        // Lifecycle-safe observer (MOB-010): stateIn(...WhileSubscribed...) stops collecting
+        // the RFID hardware status stream when unsubscribed for 5s, releasing hardware
+        // resources when the screen is backgrounded.
         viewModelScope.launch {
-            reader.status.collect { status -> _state.update { it.copy(rows = it.rows.withRfid(status)) } }
+            reader.status
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), reader.status.value)
+                .collect { status -> _state.update { it.copy(rows = it.rows.withRfid(status)) } }
         }
     }
 

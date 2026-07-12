@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.data.BootstrapRepository
@@ -68,26 +70,30 @@ class TimetableViewModel @Inject constructor(
             return@launch
         }
 
+        // Lifecycle-safe observer (MOB-010): stateIn(...WhileSubscribed...) stops collecting
+        // when unsubscribed for 5s, releasing Room streams when backgrounded.
         // Start observing Room cache immediately (stale-while-revalidate)
-        repo.observeTimetable(centerId).collect { dto ->
-            _state.update { current ->
-                if (dto != null) {
-                    // Cache hit: render cached data (refresh flag is separate)
-                    dto.toTimetableUiState()
-                } else if (current.rows.isEmpty() && _isRefreshing.value.not()) {
-                    // Cache miss on first load and not currently refreshing: show empty
-                    TimetableUiState(errorCode = null)
-                } else {
-                    // Keep prior state while refreshing
-                    current
+        repo.observeTimetable(centerId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .collect { dto ->
+                _state.update { current ->
+                    if (dto != null) {
+                        // Cache hit: render cached data (refresh flag is separate)
+                        dto.toTimetableUiState()
+                    } else if (current.rows.isEmpty() && _isRefreshing.value.not()) {
+                        // Cache miss on first load and not currently refreshing: show empty
+                        TimetableUiState(errorCode = null)
+                    } else {
+                        // Keep prior state while refreshing
+                        current
+                    }
+                }
+
+                // Trigger background refresh (stale-while-revalidate pattern)
+                if (_isRefreshing.value.not()) {
+                    refreshInBackground(centerId)
                 }
             }
-
-            // Trigger background refresh (stale-while-revalidate pattern)
-            if (_isRefreshing.value.not()) {
-                refreshInBackground(centerId)
-            }
-        }
     }
 
     private fun refreshInBackground(centerId: String) = viewModelScope.launch {
