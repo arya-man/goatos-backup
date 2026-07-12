@@ -88,9 +88,9 @@ func run() error {
 	recomputeProjection := fs.Bool("recompute-projection", boolEnv("GOATOS_PROCESS_INTEGRITY_RECOMPUTE_PROJECTION", true), "rebuild process-integrity projection before measuring")
 	requireProjection := fs.Bool("require-projection", boolEnv("GOATOS_PROCESS_INTEGRITY_REQUIRE_PROJECTION", true), "fail unless a fresh projection serves this as-of")
 	measureStaleProjection := fs.Bool("measure-stale-projection", boolEnv("GOATOS_PROCESS_INTEGRITY_MEASURE_STALE_PROJECTION", true), "temporarily mark the projection stale and require the hot path to stay projected/fast")
-	maxActionCenterP95 := fs.Duration("max-action-center-p95", durationEnv("GOATOS_PROCESS_INTEGRITY_MAX_ACTION_CENTER_P95", 1000*time.Millisecond), "Action Center repository p95 threshold")
-	maxControlTowerP95 := fs.Duration("max-control-tower-p95", durationEnv("GOATOS_PROCESS_INTEGRITY_MAX_CONTROL_TOWER_P95", 1000*time.Millisecond), "Control Tower service p95 threshold")
-	maxProtocolAdherenceP95 := fs.Duration("max-protocol-adherence-p95", durationEnv("GOATOS_PROCESS_INTEGRITY_MAX_PROTOCOL_ADHERENCE_P95", 1000*time.Millisecond), "Protocol Adherence service p95 threshold")
+	maxActionCenterP95 := fs.Duration("max-action-center-p95", durationEnv("GOATOS_PROCESS_INTEGRITY_MAX_ACTION_CENTER_P95", 500*time.Millisecond), "Action Center repository p95 threshold")
+	maxControlTowerP95 := fs.Duration("max-control-tower-p95", durationEnv("GOATOS_PROCESS_INTEGRITY_MAX_CONTROL_TOWER_P95", 500*time.Millisecond), "Control Tower service p95 threshold")
+	maxProtocolAdherenceP95 := fs.Duration("max-protocol-adherence-p95", durationEnv("GOATOS_PROCESS_INTEGRITY_MAX_PROTOCOL_ADHERENCE_P95", 500*time.Millisecond), "Protocol Adherence service p95 threshold")
 	maxCountP95 := fs.Duration("max-count-p95", durationEnv("GOATOS_PROCESS_INTEGRITY_MAX_COUNT_P95", 250*time.Millisecond), "counts-only repository p95 threshold")
 	failOnThreshold := fs.Bool("fail-on-threshold", boolEnv("GOATOS_PROCESS_INTEGRITY_FAIL_ON_THRESHOLD", true), "exit nonzero on threshold failure")
 	if err := fs.Parse(os.Args[1:]); err != nil {

@@ -29,6 +29,7 @@ jobs:
           bash tools/agent-hooks/check-boundaries.sh
           bash tools/agent-hooks/check-contract-drift.sh
           bash tools/agent-hooks/check-e2e-kernel-integrity.sh
+          make api-latency-policy-test
       - name: Scale anti-pattern guard
         run: make scale-guard
       - name: Mobile list-fetch anti-pattern guard
