@@ -20,9 +20,12 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     var rescheduleObligationFn: (suspend (String, String, RescheduleObligationRequestDto) -> RescheduleObligationResponseDto)? = null
     var registerProofFn: (suspend (String, ProofUploadRequestDto) -> ProofUploadResponseDto)? = null
 
-    /** (taskId, header Idempotency-Key) for every [submitAppTask] call, in call order — asserts
-     *  the outbox sends the SAME key on every retry (and actually sends one at all). */
-    val submitCalls = mutableListOf<Pair<String, String>>()
+    /** (taskId, header Idempotency-Key) for every [submitAppTask] call — asserts the outbox sends
+     *  the SAME key on every retry (and actually sends one at all). Thread-safe: the drain fans out
+     *  group coroutines across real IO threads, so concurrent submits append here in parallel; a
+     *  plain ArrayList raced and intermittently dropped a call (250-row drain read 249). */
+    val submitCalls: MutableList<Pair<String, String>> =
+        java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
 
     override suspend fun submitAppTask(
         taskId: String,
