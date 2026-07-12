@@ -146,3 +146,8 @@ After implementing any phase:
 - CI is the hard gate; hooks are fast feedback.
 - Do not create many skills up front. Add a new skill only when the trigger is
   truly independent from `goatos-build`.
+
+## Lens / anti-pattern skills (invokable by Claude + Codex)
+- `scale-anti-patterns` — backend 1M-scale: the 7 banned patterns + fixes + latency bar + scale-guard/validate-sqlc-plans.
+- `mobile-anti-patterns` — Android: Room-SSOT offline-first, ~20-row keyset paging, bounded memory, off-main, lifecycle, stable keys + mobile-guard.
+- `kernel-scale-lens` — operational-kernel golden chain + 1M kernel-scale bar (bounded/resumable/idempotent/leased, atomic transition+read-model, e2e-integrity).

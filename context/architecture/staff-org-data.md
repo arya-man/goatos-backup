@@ -87,3 +87,13 @@ matches the Goat OS park→shed model already in the product.
   instance of a general execution+proof pattern the platform should generalize.
 - The **video verification team** is a real daily-standing role across every
   vertical's Director — a first-class role to model, not vaccination-only.
+
+## 8. Future: HRMS module source data
+The `Staff-Timetable` sheet + `Attendance DB` (Employee Master + ~60 monthly
+presence tabs + Summary/By-Category/Warehouses/PAN) are the **source data for the
+future HRMS module** (People / HR vertical). When HRMS is built it should ingest:
+person→designation→park→DOJ→salary (Employee Master), daily attendance/presence
+(monthly tabs), role/duty definitions (per-role tabs), and the roster/shift +
+week-off + backup structure (Goats-Team-v1). Keep this as the migration source;
+do not hand-invent an HR schema — port from these sheets. Not built yet; noted
+so the HRMS build starts from real data.
