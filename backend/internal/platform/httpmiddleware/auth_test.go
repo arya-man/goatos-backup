@@ -432,7 +432,7 @@ func TestAuthFailsClosedForUnregisteredProtectedRoute(t *testing.T) {
 	assertAuthErrorCode(t, rec, "route_not_registered")
 }
 
-func TestCalendarAndAppVaccinationRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T) {
+func TestFieldRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T) {
 	scopedGrant := permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: "86000000-0000-4000-8000-000000000701"}
 	mw := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {scopedGrant}}})
 	calendarHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
