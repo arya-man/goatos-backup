@@ -1,6 +1,6 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Current closure state after the counter-fix batch: **41 tracked, 14 fixed with proof, 27 open — 1 P0, 14 P1, 10 P2, 2 P3.** Fixed rows are C35-003/004/007/008/009/010/014/015/016/020/023/025, FIXCHK-003, and NEW-E2E-001. C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). NEW-E2E-001 (the +1 that took the tracked total 40→41) is now FIXED with proof — a real projector defect, see its row. C35-002, C35-005 and C35-013 remain explicitly partial/open; no partial is counted closed.
+> Current closure state after the counter-fix batch: **41 tracked, 15 fixed with proof, 26 open — 1 P0, 14 P1, 9 P2, 2 P3.** Fixed rows are C35-003/004/007/008/009/010/014/015/016/020/023/024/025, FIXCHK-003, and NEW-E2E-001. C35-024 closed the domain-consumer replay (durable at-most-once-publish marker). C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). NEW-E2E-001 (the +1 that took the tracked total 40→41) is now FIXED with proof — a real projector defect, see its row. C35-002, C35-005 and C35-013 remain explicitly partial/open; no partial is counted closed.
 >
 > Closure detail (Claude, NEW-E2E-001 + the C35-015 gating pass): **NEW-E2E-001** — `TestKernelStoryC_BatchDriveVerifyControlTower` failed deterministically (control-tower alert row = 0); **ROOT-CAUSED + FIXED** — the projector's closed-history inclusion keyed recency off due-date not completion-time, so a near-now completion with an old due_at vanished from the projection; now green (`totalProjRows` 0→1, full `backend/tests/e2e/...` suite green). While gating **C35-015** on `make ci-local`, two PRE-EXISTING failures independent of C35-015 were also cleared: the stale sqlc schema snapshots (missing `herd_register_goat_projection_scope_idx`/`planned_batch_finalization_keyset_idx`) were regenerated + pushed → sqlc-check green; contract-drift was only a dirty-tree artifact (uncommitted generated client), green on commit.
 >
@@ -812,7 +812,7 @@ Fix/proof: Pruning has explicit work/time bounds and returns cancellation/DB/bud
 ID: C35-024  
 Priority: P2  
 Title: Generic domain-consumer side effects can replay after processed-state finalization failure  
-Status: open  
+Status: FIXED + PUSHED (durable at-most-once-publish marker)  
 Origin: prior OCK recheck  
 Verdict: PLAUSIBLE  
 Prior mapping: OCK-053; M5 addendum; remainder of BUG-012 root concern  
@@ -826,7 +826,8 @@ Counterargument: Handlers are expected to be idempotent; current E2E finalizatio
 Why it survives / why downgraded: No specific non-idempotent current handler was proven in this audit, so this is PLAUSIBLE P2 rather than P0/P1.  
 E2E / guardrail status: partial; Story AI covers one path and finalization failure/NACK, not replay of every handler after committed side effects.  
 Fix sketch: Give each handler a transactional inbox/outbox boundary or prove/store semantic idempotency at every side effect before marking OCK-053 globally fixed.  
-Guardrail needed: Registry-driven replay tests for every handler, including “side effect committed, MarkProcessed failed” fault injection.
+Guardrail needed: Registry-driven replay tests for every handler, including “side effect committed, MarkProcessed failed” fault injection.  
+Fix (pushed): the consumer now writes a durable intermediate status `effects_committed` (migration 000166, lock-safe NOT VALID+VALIDATE, reviewed hot-table debt) right after `bus.Publish` succeeds and BEFORE the terminal `MarkProcessed`. On redelivery a row observed as `effects_committed` is reclaimed with a new `ProcessDecisionEffectsCommitted` that SKIPS `bus.Publish` and only retries the finalize; the failure-path defer never downgrades an effects-committed row to `failed` (which would be reclaimed and re-published). Publish now runs at-most-once per event. No handler code changed (fix is entirely in `domainconsumer` ports/adapters). Proof: unit replay test + real-Postgres integration test (handler `calls==1` across delivery+redelivery, row transitions `effects_committed→processed`) both fail-before/pass-after; the existing E2E story `TestKernelStoryAI_DomainConsumer...` — which previously CERTIFIED the buggy `failed` status — is corrected to assert `effects_committed` and passes. Honest residual: a narrow window remains if `bus.Publish` succeeds and BOTH the marker write and its best-effort retry fail (then redelivery re-publishes) — much smaller than before; full exactly-once would need a cross-module transactional inbox (architecturally disallowed here). Gates: go build/vet, `go test ./internal/domainconsumer/...`, `make validate-migrations`, e2e story — all green.
 
 ### C35-025
 
