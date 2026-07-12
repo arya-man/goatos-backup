@@ -110,6 +110,7 @@ Job:
 ```text
 guardrails
 admin-web
+android
 ```
 
 Runs on:
@@ -490,6 +491,59 @@ If this fails, inspect whether the frontend no longer builds or whether a
 server-only bearer token leaked into browser code/static assets. This job is not
 visual QA; frontend code changes still need the local screenshot/layout/a11y
 smoke plus human screenshot review before push.
+
+## Job: `android`
+
+Runs on:
+
+```text
+ubuntu-latest
+```
+
+This job makes sure the Goat OS Android app (`apps/goatos-android`) still
+compiles and passes its JVM unit tests on every PR and every push to `main` —
+not only when an Android file changes. It closes ledger finding **C35-008**
+(Android changes could previously merge without a required compile/unit gate in
+`ci.yml`; the compile+unit gate only lived in the path-triggered
+`android-quality.yml`). This job is required on all PRs so a backend or contract
+change that breaks the Android client is caught here too.
+
+### Step 1: Checkout
+
+GitHub downloads the repository into the temporary runner.
+
+### Step 2: Setup Java
+
+GitHub installs Temurin JDK 21 (which runs Gradle/AGP; app bytecode
+compatibility stays Java/Kotlin 17):
+
+```text
+actions/setup-java@v4  (distribution: temurin, java-version: 21)
+```
+
+The `ubuntu-latest` runner image ships the Android SDK and presets
+`ANDROID_HOME`/`ANDROID_SDK_ROOT`, which `tools/ci/run-local-ci.sh`'s `android`
+job consumes. No USB device or emulator is required for compile + unit.
+
+### Step 3: Required Android Gates
+
+Command:
+
+```text
+make ci-local JOB=android
+```
+
+Purpose:
+
+```text
+Run the exact same android job used locally: :app compile
+(compileStgReleaseKotlin) + :app unit tests (testStgReleaseUnitTest).
+```
+
+If this fails, inspect the Gradle output for a Kotlin compile break or a failing
+unit test. Because the same `make ci-local JOB=android` runs locally, reproduce
+and fix it with `make android-doctor` (resolves the pinned JDK/SDK) then
+`make ci-local JOB=android` before re-pushing.
 
 ## Temporary Postgres Startup Hardening
 

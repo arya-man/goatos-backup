@@ -44,3 +44,17 @@ jobs:
           cache-dependency-path: apps/admin-web/package-lock.json
       - name: Required admin-web gates — same runner used locally
         run: make ci-local JOB=admin-web
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      # ubuntu-latest ships the Android SDK and presets ANDROID_HOME/ANDROID_SDK_ROOT,
+      # which run-local-ci's android job consumes (JDK 21 runs Gradle/AGP; app
+      # bytecode stays Java/Kotlin 17). No USB device is required for compile+unit.
+      - name: Required android gates — same runner used locally
+        run: make ci-local JOB=android
