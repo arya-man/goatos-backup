@@ -68,12 +68,16 @@ LEFT JOIN LATERAL (
     END AS shed_id
 ) loc ON true
 WHERE oi.tenant_id = $1::uuid
-  AND oi.status NOT IN ('waived', 'canceled', 'superseded')
   AND (
-    ($2::uuid IS NOT NULL AND oi.batch_id = $2::uuid)
+    (
+      $2::uuid IS NOT NULL
+      AND oi.batch_id = $2::uuid
+      AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+    )
     OR (
       $2::uuid IS NULL
       AND oi.batch_id IS NULL
+      AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
       AND to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
       AND (
         ($4::uuid IS NOT NULL AND loc.park_id = $4::uuid)

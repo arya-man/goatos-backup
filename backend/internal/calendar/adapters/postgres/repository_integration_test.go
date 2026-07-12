@@ -463,6 +463,9 @@ func TestCalendarVaccinationProjectionCollapsesBatchedGoatDosesToDrive(t *testin
 	dueAt := time.Now().UTC().Add(4 * time.Hour)
 	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationIDs[0], dueAt)
 	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, obligationIDs[1], dueAt)
+	for _, obligationID := range obligationIDs {
+		attachObligationToGoatScope(t, ctx, pool, obligationID, obligationID, "shed", testShedA)
+	}
 
 	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
 		TenantID: testTenantID,
@@ -509,6 +512,11 @@ WHERE tenant_id=$1::uuid
 	if eventID != batchEventID(batchID) || eventType != domain.EventVaccinationDrive || targetCount != len(obligationIDs) {
 		t.Fatalf("drive projection id=%s type=%s targets=%d, want one batch drive with %d goats", eventID, eventType, targetCount, len(obligationIDs))
 	}
+	assertDriveTargets(t, ctx, repo, batchEventID(batchID), obligationIDs)
+
+	legacyBatchID := fmt.Sprintf("batch:%s:rule:%s:shed:%s", batchID, ruleID, testShedA)
+	seedScopedCalendarProjection(t, ctx, pool, legacyBatchID, batchID, testParkA, testShedA, false)
+	assertDriveTargets(t, ctx, repo, legacyBatchID, obligationIDs)
 }
 
 func TestCalendarVaccinationProjectionCollapsesMultipleRulesIntoSingleCatchupDrive(t *testing.T) {
@@ -1533,16 +1541,18 @@ func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t
 		t.Fatalf("projection count = %d, want 3 obligations plus 1 aggregated catch-up drive", count)
 	}
 	catchupID := catchupEventID(testTenantID, dueAt)
+	legacyCatchupID := fmt.Sprintf("catchup:shed:%s:rule:%s:due:%s", testShedA, sharedRuleID, calendarBusinessDate(dueAt))
 	assertCount(t, ctx, pool, "projected catch-up drive", `
 SELECT count(*)
 FROM calendar_event_projections
 WHERE tenant_id=$1::uuid
-  AND event_id = $2
-  AND status <> 'canceled'
-  AND target_count = 3`, 1, testTenantID, catchupID)
+	  AND event_id = $2
+	  AND status <> 'canceled'
+	  AND target_count = 3`, 1, testTenantID, catchupID)
+	seedLegacyCatchupProjection(t, ctx, pool, legacyCatchupID, testShedA, dueAt)
 	if _, err := pool.Exec(ctx, `
-UPDATE obligation_instances
-SET status = 'completed', updated_at = now()
+	UPDATE obligation_instances
+	SET status = 'completed', updated_at = now()
 WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligationIDs[1]); err != nil {
 		t.Fatalf("complete obligation: %v", err)
 	}
@@ -1564,6 +1574,30 @@ WHERE tenant_id = $1::uuid AND event_id = $2`,
 	}
 	if targetCount != 2 {
 		t.Fatalf("catch-up target_count=%d, want 2 after one completed obligation", targetCount)
+	}
+	assertCount(t, ctx, pool, "old-format catch-up projection tombstoned", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid
+  AND event_id=$2
+  AND status='canceled'
+  AND detail ? 'tombstone'`, 1, testTenantID, legacyCatchupID)
+	targets, err := repo.ListDriveTargets(ctx, domain.DriveTargetQuery{
+		TenantID: testTenantID,
+		EventID:  catchupID,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListDriveTargets after completion: %v", err)
+	}
+	if len(targets.Items) != 2 {
+		t.Fatalf("targets after completion=%#v, want two open catch-up targets", targets.Items)
+	}
+	for _, item := range targets.Items {
+		if item.AnimalID == obligationIDs[1] || item.ObligationID == obligationIDs[1] || item.Status == domain.StatusCompleted {
+			t.Fatalf("targets after completion=%#v, included completed obligation %s", targets.Items, obligationIDs[1])
+		}
 	}
 }
 
@@ -1860,6 +1894,31 @@ func stableSameLocalDayDueAt(now time.Time) time.Time {
 	return localDue.UTC()
 }
 
+func assertDriveTargets(t *testing.T, ctx context.Context, repo *Repository, eventID string, wantAnimalIDs []string) {
+	t.Helper()
+	targets, err := repo.ListDriveTargets(ctx, domain.DriveTargetQuery{
+		TenantID: testTenantID,
+		EventID:  eventID,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListDriveTargets(%s): %v", eventID, err)
+	}
+	if len(targets.Items) != len(wantAnimalIDs) {
+		t.Fatalf("ListDriveTargets(%s)=%#v, want %d targets", eventID, targets.Items, len(wantAnimalIDs))
+	}
+	got := make(map[string]bool, len(targets.Items))
+	for _, item := range targets.Items {
+		got[item.AnimalID] = true
+	}
+	for _, animalID := range wantAnimalIDs {
+		if !got[animalID] {
+			t.Fatalf("ListDriveTargets(%s)=%#v, missing animal %s", eventID, targets.Items, animalID)
+		}
+	}
+}
+
 func seedCalendarProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string, dueAt time.Time, reminderState string) {
 	t.Helper()
 	_, err := pool.Exec(ctx, `
@@ -1913,6 +1972,29 @@ SET park_id = EXCLUDED.park_id,
     updated_at = now()`, parkID, shedID, eventID, sourceID, testTenantID, system)
 	if err != nil {
 		t.Fatalf("seed scoped calendar projection: %v", err)
+	}
+}
+
+func seedLegacyCatchupProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID, sourceTargetID string, dueAt time.Time) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `
+INSERT INTO calendar_event_projections (
+  tenant_id, event_id, slice_key, event_type, owner_key, title, subtitle, status, severity,
+  due_at, window_start, window_end, timezone, timezone_source, target_type, target_count,
+  source_backed, source_label, source_target_type, source_target_id, assignee_label,
+  executor_role, reminder_state, primary_notification_channel, escalation_state,
+  system, cross_cutting, links, detail
+) VALUES (
+  $1::uuid, $2, 'vaccination', 'vaccination_drive', 'pc', 'Legacy catch-up drive',
+  'Legacy catch-up projection', 'due', 'warning', $3::timestamptz, $3::timestamptz,
+  $3::timestamptz + interval '1 day', 'Asia/Kolkata', 'india_only', 'shed', 1,
+  true, 'legacy catch-up source', 'catchup', $4::uuid,
+  'PC test owner', 'pc_vaccinator', 'not_scheduled', 'local-stub', 'none',
+  false, false, '{}'::jsonb,
+  '{"summary":{"owner":"PC"},"source_and_rule":{"legacy_format":true},"execution":{"work_state":"due"},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{"nudge_allowed":false},"links":{}}'::jsonb
+)`, testTenantID, eventID, dueAt, sourceTargetID)
+	if err != nil {
+		t.Fatalf("seed legacy catch-up projection: %v", err)
 	}
 }
 
