@@ -197,19 +197,33 @@ class SessionViewModel @Inject constructor(
  * Maps a sign-in failure to a [LoginError] the UI can localize. Pure, so it stays
  * unit-testable without a real FirebaseAuth or CredentialManager.
  */
-internal fun classifyAuthError(error: Throwable): Pair<LoginError, String?> = when (error) {
-    is FirebaseAuthInvalidUserException,
-    is FirebaseAuthInvalidCredentialsException,
-    -> LoginError.INVALID_CREDENTIALS to null
-    is GetCredentialCancellationException -> LoginError.GOOGLE_CANCELLED to null
-    is NoCredentialException -> LoginError.NO_GOOGLE_ACCOUNT to null
-    is IOException -> LoginError.NETWORK to null
-    else -> {
-        val message = error.message.orEmpty()
-        when {
-            message.contains("too-many-requests", ignoreCase = true) -> LoginError.TOO_MANY_REQUESTS to null
-            message.contains("network", ignoreCase = true) -> LoginError.NETWORK to null
-            else -> LoginError.UNKNOWN to error.message
-        }
+internal fun classifyAuthError(error: Throwable): Pair<LoginError, String?> {
+    // Tasks.await, Credential Manager, and coroutine bridges can wrap the real
+    // Firebase error. Inspect the full cause chain and never expose raw provider
+    // exception text to an operator.
+    val chain = generateSequence(error) { it.cause }.toList()
+    val signature = chain.joinToString(" | ") { "${it::class.java.name}: ${it.message.orEmpty()}" }
+
+    return when {
+        chain.any { it is FirebaseAuthInvalidUserException || it is FirebaseAuthInvalidCredentialsException } ->
+            LoginError.INVALID_CREDENTIALS to null
+        chain.any { it is GetCredentialCancellationException } -> LoginError.GOOGLE_CANCELLED to null
+        chain.any { it is NoCredentialException } -> LoginError.NO_GOOGLE_ACCOUNT to null
+        chain.any { it is IOException } -> LoginError.NETWORK to null
+        signature.contains("too-many-requests", ignoreCase = true) ||
+            signature.contains("too many", ignoreCase = true) ->
+            LoginError.TOO_MANY_REQUESTS to null
+        signature.contains("network", ignoreCase = true) ||
+            signature.contains("timeout", ignoreCase = true) ->
+            LoginError.NETWORK to null
+        signature.contains("INVALID_LOGIN_CREDENTIALS", ignoreCase = true) ||
+            signature.contains("auth credential is incorrect", ignoreCase = true) ||
+            signature.contains("malformed or has expired", ignoreCase = true) ||
+            signature.contains("password is invalid", ignoreCase = true) ||
+            signature.contains("no user record", ignoreCase = true) ||
+            signature.contains("badly formatted", ignoreCase = true) ||
+            signature.contains("INVALID_EMAIL", ignoreCase = true) ->
+            LoginError.INVALID_CREDENTIALS to null
+        else -> LoginError.UNKNOWN to null
     }
 }
