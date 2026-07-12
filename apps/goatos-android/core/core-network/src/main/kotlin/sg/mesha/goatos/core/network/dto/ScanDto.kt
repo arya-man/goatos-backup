@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ScanRosterRowDto(
+    @SerialName("goatId") val goatId: String = "",
     @SerialName("primaryTag") val primaryTag: String = "",
     @SerialName("secondaryTag") val secondaryTag: String? = null,
     @SerialName("vaccineLabel") val vaccineLabel: String = "",
@@ -16,6 +17,7 @@ data class ScanRosterRowDto(
 data class ScanRosterResponseDto(
     @SerialName("source") val source: String = "",
     @SerialName("rows") val rows: List<ScanRosterRowDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
 )
 
 @Serializable
