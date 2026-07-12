@@ -5,9 +5,12 @@ import {
   FIREBASE_ID_TOKEN_COOKIE,
   FIREBASE_REFRESH_TOKEN_COOKIE,
   FIREBASE_REFRESH_TOKEN_MAX_AGE_SECONDS,
+  firebaseUidFromToken,
   isLikelyJwt,
   maxAgeForFirebaseIdToken,
 } from "@/lib/auth/session-cookie";
+import { exchangeRefreshTokenForIdToken } from "@/lib/auth/firebase-refresh";
+import { resolveBoundRefreshToken } from "@/lib/auth/refresh-binding";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +38,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: audit.error }, { status: audit.status });
   }
 
+  // Bind the refresh token to the user the (backend-verified) id token
+  // authenticated before persisting it. An unbound refresh token — the durable
+  // 14-day credential SSR mints fresh id tokens from — could pair account A's id
+  // token with account B's refresh token, silently turning the session into B
+  // once the id token expires. A verified uid mismatch is a tampered pair and
+  // fails the whole request with no cookies set.
+  const binding = await resolveBoundRefreshToken(
+    firebaseUidFromToken(idToken),
+    refreshToken,
+    exchangeRefreshTokenForIdToken,
+    firebaseUidFromToken,
+  );
+  if (binding.decision === "reject") {
+    return NextResponse.json({ error: "refresh_token_user_mismatch" }, { status: 401 });
+  }
+
   const response = NextResponse.json({ ok: true, maxAge, audit_recorded: audit.ok });
   response.cookies.set({
     name: FIREBASE_ID_TOKEN_COOKIE,
@@ -47,10 +66,11 @@ export async function POST(request: NextRequest) {
   });
   // Persist the long-lived refresh token so SSR can mint fresh ID tokens after
   // the id-token cookie above expires (removes the ~1h forced-relogin cliff).
-  if (refreshToken) {
+  // Only the verified, rotated refresh token bound to this user is stored.
+  if (binding.decision === "store") {
     response.cookies.set({
       name: FIREBASE_REFRESH_TOKEN_COOKIE,
-      value: refreshToken,
+      value: binding.refreshToken,
       httpOnly: true,
       secure: true,
       sameSite: "lax",

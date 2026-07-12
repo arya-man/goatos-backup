@@ -51,6 +51,36 @@ EOF
     echo "Boundary self-test failed: synthetic admin-web direct data access was not detected."
     exit 1
   fi
+
+  # Adversarial test for the Firebase-auth exclusion (regression guard for the
+  # false green where a per-line host filter dropped a line that mentioned an
+  # auth host EVEN IF the same line also carried a real Sheets/BigQuery URL).
+  # The exclusion is now by PATH: only the auth file is skipped; a mixed line in
+  # any other file must still be detected.
+  mkdir -p "$tmpdir/apps/admin-web/lib/auth"
+  cat >"$tmpdir/apps/admin-web/lib/auth/firebase-refresh.ts" <<'EOF'
+const SECURE_TOKEN_URL = "https://securetoken.googleapis.com/v1/token";
+void SECURE_TOKEN_URL;
+EOF
+  cat >"$tmpdir/apps/admin-web/lib/mixed-evil.ts" <<'EOF'
+const leak = "https://securetoken.googleapis.com" + "https://docs.google.com/spreadsheets/d/leak/export?format=csv";
+void leak;
+EOF
+  if rg -n "$admin_web_data_pattern" "$tmpdir/apps/admin-web/lib" \
+      --glob '!**/auth/firebase-refresh.ts' 2>/dev/null | rg -q 'mixed-evil\.ts'; then
+    echo "Firebase-auth exclusion self-test passed: mixed securetoken+Sheets line still detected."
+  else
+    echo "Firebase-auth exclusion self-test failed: mixed securetoken+Sheets line NOT detected (false green)."
+    exit 1
+  fi
+  if rg -n "$admin_web_data_pattern" "$tmpdir/apps/admin-web/lib" \
+      --glob '!**/auth/firebase-refresh.ts' 2>/dev/null | rg -q 'firebase-refresh\.ts'; then
+    echo "Firebase-auth exclusion self-test failed: allowlisted auth file was scanned."
+    exit 1
+  else
+    echo "Firebase-auth exclusion self-test passed: allowlisted auth file excluded by path."
+  fi
+  rm -f "$tmpdir/apps/admin-web/lib/mixed-evil.ts" "$tmpdir/apps/admin-web/lib/auth/firebase-refresh.ts"
   mkdir -p "$tmpdir/apps/admin-web/app/bad-brand"
   cat >"$tmpdir/apps/admin-web/app/bad-brand/page.tsx" <<'EOF'
 export default function BadBrandPage() {
@@ -199,15 +229,20 @@ if command -v rg >/dev/null 2>&1; then
     "apps/admin-web/lib"
   )
   if [ -d "apps/admin-web" ]; then
+    # The Firebase Auth token-refresh endpoint (securetoken.googleapis.com) is
+    # AUTH, not Sheets/BigQuery/App-Script DATA access. Allowlist ONLY the single
+    # focused auth file that legitimately calls it, by PATH. Do NOT filter by line
+    # content (the old `grep -v <host>` dropped ANY matching line that merely
+    # mentioned the host — so a line that ALSO contained a real Sheets/BigQuery
+    # URL slipped through as a false green). With a path allowlist every other
+    # file is scanned raw, and a mixed line is still caught. See --self-test.
     if rg -n "$admin_web_data_pattern" "${admin_web_code[@]}" \
-      --glob '!node_modules/**' >/tmp/goatos-admin-web-data-boundary-warnings 2>/dev/null; then
-      # Firebase Auth endpoints (token refresh / identity) are AUTH, not Sheets/BigQuery/App-Script DATA access; exclude them.
-      if grep -viE 'securetoken\.googleapis\.com|identitytoolkit\.googleapis\.com|firebaseinstallations\.googleapis\.com' /tmp/goatos-admin-web-data-boundary-warnings \
-        >/tmp/goatos-admin-web-data-boundary-filtered; then
-        cat /tmp/goatos-admin-web-data-boundary-filtered
-        echo "Admin web must use Goat OS backend APIs only; direct Sheets/App Script/BigQuery/XLSX data access is forbidden."
-        fail=1
-      fi
+      --glob '!node_modules/**' \
+      --glob '!apps/admin-web/lib/auth/firebase-refresh.ts' \
+      >/tmp/goatos-admin-web-data-boundary-warnings 2>/dev/null; then
+      cat /tmp/goatos-admin-web-data-boundary-warnings
+      echo "Admin web must use Goat OS backend APIs only; direct Sheets/App Script/BigQuery/XLSX data access is forbidden."
+      fail=1
     fi
     if rg -ni "$admin_web_visible_branding_pattern" \
       apps/admin-web/app apps/admin-web/components apps/admin-web/features apps/admin-web/lib/api/server.ts \

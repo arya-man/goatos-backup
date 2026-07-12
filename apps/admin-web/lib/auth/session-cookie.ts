@@ -43,6 +43,15 @@ export function isLikelyJwt(value: string): boolean {
   return value.split(".").length === 3;
 }
 
+// Firebase user id (uid) carried in the `sub` claim of an ID token. Used to bind
+// the long-lived refresh token to the same user the ID token authenticated, so a
+// caller cannot pair account A's ID token with account B's refresh token.
+export function firebaseUidFromToken(token: string): string | null {
+  const payload = decodeJwtPayload(token);
+  const sub = typeof payload?.sub === "string" ? payload.sub.trim() : "";
+  return sub || null;
+}
+
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   if (!isLikelyJwt(token)) return null;
   const [, payload] = token.split(".");

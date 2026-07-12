@@ -91,7 +91,9 @@ ai-telemetry-ui:
 	else echo "Open: $(REPO_ROOT)/ai-telemetry.html"; fi
 
 guardrails:
+	bash tools/agent-hooks/check-boundaries.sh --self-test
 	bash tools/agent-hooks/check-boundaries.sh
+	node tools/agent-hooks/check-refresh-binding.mjs
 	bash tools/agent-hooks/check-contract-drift.sh
 	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
 	$(MAKE) api-latency-policy-test

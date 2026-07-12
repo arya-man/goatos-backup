@@ -5,6 +5,7 @@ import {
   FIREBASE_ID_TOKEN_COOKIE,
   FIREBASE_REFRESH_TOKEN_COOKIE,
   isFirebaseIdTokenFresh,
+  secondsUntilFirebaseIdTokenExpiry,
 } from "@/lib/auth/session-cookie";
 import { exchangeRefreshTokenForIdToken } from "@/lib/auth/firebase-refresh";
 
@@ -35,8 +36,14 @@ export async function resolveFirebaseIdToken(): Promise<string | null> {
     if (refreshed) return refreshed.idToken;
   }
 
-  // No fresh id token and no working refresh path — fall back to whatever id
-  // token cookie exists (may be near expiry) so a valid-but-stale session still
-  // works; otherwise signal "no session".
-  return idToken || null;
+  // No fresh id token and no working refresh path. Return the existing id token
+  // only while it is still actually valid (within the refresh skew but not yet
+  // expired — it still authenticates this request); once it has truly expired,
+  // return null so the caller ends/re-establishes the session instead of
+  // forwarding a dead Bearer that the backend would reject with 401.
+  const secondsLeft = idToken ? secondsUntilFirebaseIdTokenExpiry(idToken) : null;
+  if (idToken && secondsLeft !== null && secondsLeft > 0) {
+    return idToken;
+  }
+  return null;
 }
