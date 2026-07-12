@@ -6,6 +6,7 @@ import type { AdminApiComponents, AdminApiPaths, AppApiComponents, AppApiPaths }
 import { cache } from "react";
 import { getFirebaseIdTokenCookie } from "@/lib/auth/server-session";
 import { mintLocalDevBearerToken } from "./local-dev-token";
+import { AdminBootstrapCache } from "./admin-bootstrap-cache";
 
 type ErrorEnvelope = AppApiComponents["schemas"]["ErrorEnvelope"];
 
@@ -286,11 +287,23 @@ export function firstAuthRequiredError(
   return null;
 }
 
+const adminBootstrapCache = new AdminBootstrapCache<AdminWebBootstrapResponse>();
+
 export const getAdminWebBootstrap = cache(async (): Promise<ApiResult<AdminWebBootstrapResponse>> => {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() => client.request<AdminWebBootstrapResponse>("/admin-web/bootstrap", { cache: "no-store" }));
+  return request(() => adminBootstrapCache.get(config.data, async (etag) => {
+    const result = await client.requestWithResponse<AdminWebBootstrapResponse>("/admin-web/bootstrap", {
+      cache: "no-store",
+      headers: etag ? { "If-None-Match": etag } : undefined,
+    });
+    return {
+      data: result.data,
+      status: result.response.status,
+      etag: result.response.headers.get("ETag"),
+    };
+  }));
 });
 
 export async function getAdminWebPageContract(routeId: string): Promise<AdminWebPageContract | null> {

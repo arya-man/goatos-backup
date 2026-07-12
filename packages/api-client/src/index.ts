@@ -45,6 +45,10 @@ export class GoatOSApiError extends Error {
 
 export type GoatOSClient<Paths> = {
   request<Response = unknown>(path: keyof Paths & string, options?: RequestOptions): Promise<Response>;
+  requestWithResponse<Response = unknown>(path: keyof Paths & string, options?: RequestOptions): Promise<{
+    data: Response | null;
+    response: globalThis.Response;
+  }>;
 };
 
 export function createGoatOSClient<Paths>(options: GoatOSClientOptions): GoatOSClient<Paths> {
@@ -53,6 +57,10 @@ export function createGoatOSClient<Paths>(options: GoatOSClientOptions): GoatOSC
 
   return {
     async request<Response = unknown>(path: keyof Paths & string, requestOptions: RequestOptions = {}) {
+      const result = await this.requestWithResponse<Response>(path, requestOptions);
+      return result.data as Response;
+    },
+    async requestWithResponse<Response = unknown>(path: keyof Paths & string, requestOptions: RequestOptions = {}) {
       const url = new URL(path, `${baseUrl}/`);
       for (const [key, value] of Object.entries(requestOptions.query ?? {})) {
         if (value !== null && value !== undefined) {
@@ -85,10 +93,10 @@ export function createGoatOSClient<Paths>(options: GoatOSClientOptions): GoatOSC
       const response = await fetchImpl(url, init);
 
       const responseBody = await parseResponse(response);
-      if (!response.ok) {
+      if (!response.ok && response.status !== 304) {
         throw new GoatOSApiError(response.status, responseBody);
       }
-      return responseBody as Response;
+      return { data: responseBody as Response | null, response };
     },
   };
 }
