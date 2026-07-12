@@ -5,7 +5,7 @@
 // Guarded to be a safe no-op when NEXT_PUBLIC_FARO_COLLECTOR_URL is unset (e.g. local dev
 // without a Grafana Alloy collector running) and during SSR (Faro is browser-only).
 //
-// Trace linkage: TracingInstrumentation instruments window.fetch/XHR and injects a W3C
+// trace linkage: TracingInstrumentation instruments window.fetch/XHR and injects a W3C
 // `traceparent` header on same-origin requests (and on any origin listed in
 // propagateTraceHeaderCorsUrls) automatically — no manual fetch wrapping is needed here.
 // admin-web's browser code only ever calls same-origin Next.js routes (server components and
@@ -13,14 +13,14 @@
 // header is what carries the trace from the browser onto the Next.js server. The Next.js side
 // then forwards that incoming `traceparent` onto the backend call — see
 // apps/admin-web/lib/api/server.ts (`apiClientOptions` / `ServerConfig.traceparent`) and
-// packages/api-client/src/index.ts (`GoatOSClientOptions.getTraceHeaders`) — so the RUM trace and
+// packages/api-client/src/index.ts (the @goatos/api-client getTraceHeaders hook) — so the RUM trace and
 // the backend's otelhttp span chain onto one trace end to end.
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { faro, getWebInstrumentations, initializeFaro } from "@grafana/faro-web-sdk";
 import { TracingInstrumentation } from "@grafana/faro-web-tracing";
 
-const FARO_APP_NAME = "goatos-admin-web";
+const FARO_APP_NAME = "mesha-admin-web";
 
 function traceHeaderCorsUrls(): RegExp[] {
   // Public, non-secret config: the origin browser fetches should attach traceparent to besides
