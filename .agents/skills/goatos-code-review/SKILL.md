@@ -1,6 +1,6 @@
 ---
 name: goatos-code-review
-description: Review or audit a Goat OS change (diff, branch, PR, or path) for kernel correctness, 1-5M-animal scale safety, hexagonal boundaries, backend + frontend architecture, and vaccination/obligation business-rule fidelity. Orchestrates CRG, Graphify, RTK, and repowise. Use when reviewing code, auditing a diff, or gating a change before push.
+description: Review or audit a Goat OS change (diff, branch, PR, or path) for kernel correctness, 1-5M-animal scale safety, hexagonal boundaries, backend + frontend + Android-mobile architecture (Room SSOT / offline / pagination / memory), DB-schema/migration lock-safety, and vaccination/obligation business-rule fidelity — applying root-cause-vs-band-aid, anti-pattern, and blast-radius lenses and returning a bug list (or approval). Orchestrates CRG, Graphify, RTK, and repowise. Use when reviewing code, auditing a diff, or gating a change before push.
 version: 0.1.0
 user-invocable: true
 argument-hint: "[target: diff | branch | PR | path — what to review]"
@@ -42,7 +42,8 @@ the source the check points to and read the live value there.
 ## Golden context (read first, always)
 
 Goat OS is a Go modular monolith (hexagonal ports & adapters) + an SSR-first
-Next.js admin-web, built on one **operational kernel**:
+Next.js admin-web + a native Kotlin/Compose Android app (`apps/goatos-android/`,
+Room-backed offline-first), built on one **operational kernel**:
 
 > business event → canonical transaction → audit + outbox (same txn) → trigger →
 > obligation → sweeper/scheduler → reminder/escalation → notification → proof →
@@ -63,8 +64,9 @@ regardless of which layer changed.
 | Changed path pattern | Load reference(s) |
 |---|---|
 | `apps/admin-web/**`, `packages/ui`, `packages/rbac`, `packages/forms-dsl`, `packages/api-client` | `references/frontend.md` |
+| `apps/goatos-android/**` (Kotlin/Compose app) | `references/mobile.md` |
 | `backend/internal/**`, `backend/cmd/**`, `backend/migrations/**` | `references/backend.md` **+** `references/kernel-and-scale.md` |
-| `contracts/openapi`, event-payload / JSON-schema contracts | `references/backend.md` **+** `references/business-rules.md` |
+| `contracts/openapi`, event-payload / JSON-schema contracts | `references/backend.md` **+** `references/business-rules.md` **+ every consumer lens the contract reaches** (see consumer auto-pull below) |
 | `docs/**`, `rule_dsl` / protocol config, vaccination/feed rules | `references/business-rules.md` |
 | Any change (toolchain / tool-driving) | `references/toolchain.md` (always) |
 
@@ -73,6 +75,67 @@ a new obligation type wired from migration → engine → contract → admin-web
 load `references/kernel-and-scale.md` + `references/backend.md` +
 `references/frontend.md` **together** and apply all their checklists. Under-scoping
 the load is how a scale or contract regression slips through.
+
+### Proportionality & blast radius (depth = size × reach, NOT size alone)
+
+Review depth scales to **change size AND blast radius AND layers crossed** — never
+line count alone. Use the CRG impact-radius / callers query to get reach before
+deciding depth. A 3-line diff with wide reach is NOT a small review.
+
+- **Small + isolated** (no cross-layer reach, no consumer, no kernel/scale/security
+  surface): related lens(es) only + one fast tool pass. Don't run the kernel/scale
+  certification gate for a change that touches nothing kernel.
+- **Small diff, wide reach** (e.g. a contract/DTO change consumed by mobile or
+  admin-web): pull the **consumer lens** even though no consumer file is in the
+  diff. This is where back-compat and mobile over-fetch anti-patterns hide.
+
+**Consumer auto-pull (contract/DTO/list-endpoint changes).** Any change to
+`contracts/openapi`, an event/JSON-schema payload, a shared DTO, or a
+list/paginated endpoint: run CRG `callers_of` / impact-radius to find who consumes
+it, then load the consumer lens for each reached surface —
+`references/mobile.md` if an Android client consumes it, `references/frontend.md`
+if admin-web does. Two reasons the consumer lens is mandatory, not optional:
+(1) an anti-pattern can originate at the **contract shape** — a list endpoint
+shipped without a keyset `next_cursor` + `total` *forces* the mobile client to
+over-fetch, so it is a contract-level bug flagged at the source PR before the
+consumer is even written; (2) `make mobile-guard` is **diff-scoped** in CI, so a
+backend-only diff shows zero mobile files and the guard passes green — it is blind
+to a backend-induced mobile anti-pattern, and the skill review is the only catch.
+The same holds for backend/kernel/DB reach: a small migration or shared-query
+change with wide impact still runs the kernel/scale checks of the tables it reaches.
+
+## Fix-quality / regression audit — the primary question for any "fix"
+
+When the change is a **fix** (a commit/PR/diff that claims to resolve a bug,
+regression, or audit-ledger row), root-cause quality is the first lens, applied to
+**every** layer below — a band-aid that passes tests and compiles is still a
+finding. For each fix, answer:
+
+- [ ] **Root cause or symptom?** Does it remove the cause, or only mask the
+      observable symptom (a raised timeout on unchanged serial N+1 code, a UI
+      state cleared without fixing the data flow, a default that hides an
+      out-of-range value)? A symptom patch that will regress is a finding.
+- [ ] **Regression test that fails BEFORE the fix.** Is there a test that
+      reproduces the bug and would fail on the pre-fix code? "Tests pass" on a fix
+      with no failing-before test is unproven — the test may assert the buggy
+      behavior or never exercise the path.
+- [ ] **One call site fixed while siblings remain.** Was the same root pattern
+      fixed everywhere it occurs, or only at the reported call site? Grep/CRG
+      `callers_of` the pattern — a fix at one adapter while a sibling adapter keeps
+      the bug is a partial fix (illustrative: a "bulk" API that still loops singular
+      writes in one path).
+- [ ] **Bug moved to another layer.** Did the fix push the defect elsewhere —
+      backend permissiveness masking a missing client contract, a frontend guard
+      hiding a backend gap, a read-time compute replacing a write-time projection?
+- [ ] **False-green confidence.** Does the change create or rely on a guardrail /
+      report / gate that reads green without proving the fix — a baseline-
+      grandfathered scale guard, a diff-scoped mobile guard on a backend change, a
+      prose scale report not tied to the current SHA, a test asserting the wrong
+      response key, a skipped/never-started CI job?
+- [ ] **Closure-ledger fixes** additionally run the
+      `consolidated-ledger-defect-closure-program.md` proof-packet gate (see
+      "Consolidated-ledger closure gate" below) and require independent
+      counter-review before the row is marked fixed.
 
 ## Review priority order
 
@@ -186,8 +249,9 @@ only what the graphs point at. Full operator manual: `references/toolchain.md`.
    migrations, uncommitted code — and the volatile anchors above (status
    constraints, rule DSL, `cmd/` set).
 
-Then apply the reference checklist(s) for the changed layer and report findings
-by severity (CRITICAL blocks; HIGH should fix; MEDIUM/LOW note).
+Then apply the reference checklist(s) for the changed layer and the fix-quality
+audit above, and produce the result in the **Output contract** shape below —
+default is a bug list only, or an approval when clean.
 
 ### CRG tool namespace (harness-dependent)
 
@@ -207,6 +271,59 @@ in the active harness, derive the same review context from `detect_changes_tool`
 `get_impact_radius_tool`, targeted `query_graph_tool`, and Grep for graph blind
 spots rather than assuming the optional tool exists.
 
+## Output contract (what `/code-review` returns)
+
+The review output is a **bug list, or an approval — nothing else.** No praise, no
+narration of what you read, no restating the diff, no per-lens walkthrough when it
+found nothing. The reader wants the bugs or the green light.
+
+### Default (first review of a target)
+
+If any bugs are found, output **only the ranked bug list**, most severe first.
+Nothing before it except one line: `Reviewed <target> · <N> findings (Px…Py)`.
+Each finding is compact but actionable — never a bare title:
+
+```
+<ID> · <P0|P1|P2|P3> · <one-line title>
+  where:   <file:line> (+ sibling sites if the pattern repeats)
+  bug:     <failure scenario — concrete input/state → wrong output/crash/leak>
+  fix:     <one-line fix direction>
+  guard:   <missing test/guardrail that would have caught it>   # omit if none
+```
+
+Severity = the priority rule (P0 data loss / wrong medical action / tenant-security
+break / outage; P1 scale / broken core rule / offline leak / false-green gate;
+P2 bounded correctness / weak guard / missing test; P3 maintainability). Use the
+full FINDING FORMAT (Origin, Verdict CONFIRMED/PLAUSIBLE, Root-cause-or-band-aid,
+E2E/guardrail status, etc.) only when the caller asks for the audit-grade ledger
+or the target is a full audit — otherwise keep the compact 4-line shape above.
+
+If **zero bugs**: output the approval, nothing else —
+`APPROVED · <target> · <lenses applied> · <gates run/NA>`. Approval requires the
+scope-selected lenses actually applied and any mandatory gate for the layer run or
+explicitly marked N/A (mock-fidelity for frontend, sqlc-plan/hot-index for
+hot-path DB, mobile-guard for mobile, `make ai-doctor` before push). Never approve
+on "build is green" alone.
+
+### Re-review (a prior review exists for this target)
+
+When re-reviewing after fixes (iterative rounds on the same PR/branch), do NOT
+re-emit the whole list. Reconcile against the prior findings and output:
+
+1. **Fixed** — a short summary of which prior findings are now resolved, each with
+   its current-SHA proof (the file:line that changed + the failing-before test now
+   passing). A finding is "fixed" only with proof; "marked done" is not fixed.
+2. **Still open / regressed / newly found** — the remaining bug list in the same
+   compact shape.
+3. **Verdict** — `APPROVED` **only when every raised bug is fixed-with-proof** (and
+   for closure-ledger rows, independent counter-review passed). Until then the
+   output stays a bug list; state `NOT APPROVED · <n> open` at the top.
+
+Track findings by stable ID across rounds so "all raised bugs fixed" is mechanical,
+not vibes. For consolidated-ledger work, the canonical list lives in
+`context/repo-audits/last-35-commits-consolidated-bug-ledger.md`; reconcile counts
+there rather than inventing a competing list.
+
 ## Reference routing
 
 Load only the reference(s) the scope-detection step selected — progressive
@@ -217,6 +334,8 @@ disclosure. (Multi-layer changes load multiple; see Scope detection above.)
 | Kernel chain, sweepers, scale, idempotency, generic engine | `references/kernel-and-scale.md` |
 | Go backend: modules, layering, pgx/sqlc, migrations, observability, tests | `references/backend.md` |
 | admin-web / Next.js: contracts, mock fidelity, IA, data access | `references/frontend.md` |
+| Goat OS Android (Kotlin/Compose): Room SSOT, pagination, offline, memory, lifecycle | `references/mobile.md` |
+| A contract/DTO/list-endpoint consumed by a mobile or admin-web client | consumer lens (`references/mobile.md` / `references/frontend.md`) — see Proportionality & blast radius |
 | Vaccination / obligation / feed / calendar / SOP / org / species rules | `references/business-rules.md` |
 | Which tool to run, how to run it, in what order | `references/toolchain.md` |
 
