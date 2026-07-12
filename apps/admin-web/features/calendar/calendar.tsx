@@ -121,7 +121,9 @@ export async function VaccinationCalendarPage({
   const completedWindow = historyWindow(anchorKey);
   const listWindow = historyMode ? completedWindow : agendaWindow;
 
-  const [list, pickerList, detail, targets] = await Promise.all([
+  // Make a SINGLE bounded day-marker request for the picker month/week window to avoid overlapping
+  // duplicate marker fetches. The list endpoint is only for the agenda (week/history) with cursor pagination.
+  const [list, markers, detail, targets] = await Promise.all([ // request-plan:ignore: intentional dual call with different params (list vs markers)
     getCalendarVaccinationEvents({
       parkId,
       ownerKey: requestedOwnerKey,
@@ -137,16 +139,18 @@ export async function VaccinationCalendarPage({
       dateFrom: pickerWindow.dateFrom,
       dateTo: pickerWindow.dateTo,
       includeDateMarkers: true,
+      limit: 1, // Only markers needed; limit=1 tells backend to return markers without paginating items
     }),
     selectedEventId ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),
     selectedEventId && !historyMode ? getCalendarDriveTargets(selectedEventId, { cursor: targetsCursor, limit: 10 }) : Promise.resolve(null),
   ]);
 
   const events = list.ok ? list.data.items : [];
-  const pickerEvents = pickerList.ok ? pickerList.data.items : events;
+  const pickerEvents = markers.ok ? markers.data.items : events;
   if (list.ok && !list.data.presentation) {
     throw new Error(copy(pageContract, "error.presentation_missing"));
   }
+  // Presentation comes from the main list request; markers request is presentation-independent
   const presentation = list.ok && list.data.presentation ? list.data.presentation : fallbackCalendarPresentation(pageContract, requestedOwnerKey);
   const ownerMeta = ownerMetaFromPresentation(presentation);
   const activeOwnerKey = presentation.active_owner_key as CalendarOwnerFilter;
@@ -286,7 +290,7 @@ export async function VaccinationCalendarPage({
           <CalendarMonthPicker label={monthTabLabel} open={currentViewKey === "month"} closeHref={historyMode ? historyHref : weekHref}>
             <CalendarDatePicker
               events={pickerEvents}
-              dateMarkers={pickerList.ok ? pickerList.data.date_markers : []}
+              dateMarkers={markers.ok ? markers.data.date_markers : []}
               anchorKey={anchorKey}
               today={today}
               ownerMeta={ownerMeta}

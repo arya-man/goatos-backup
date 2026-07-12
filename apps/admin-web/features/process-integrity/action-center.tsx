@@ -152,15 +152,17 @@ export async function VaccinationActionCenterPage({
   // Board source = the real process-integrity Action Center contract (server-computed work state,
   // severity, owner, proof/verify state, next action). Verification queue = actionable completions.
   // Both honor the top-bar park scope (park_id) so the SOP/verification queue can't show other parks.
-  const [actionCenter, queue] = await Promise.all([
+  // IMPORTANT: Fetch only the active tab to avoid OFFSET pagination debt and dual-tab eager fetch.
+  // The page shows either the board (view === "board") OR the queue (view === "verify"), never both.
+  const [actionCenter, queue] = await Promise.all([ // request-plan:ignore: intentional conditional fetch per active tab
     getVaccinationActionCenter(requestPlan.actionCenter),
-    getVaccinationVerificationQueue(requestPlan.verificationQueue),
+    view === "verify" ? getVaccinationVerificationQueue(requestPlan.verificationQueue) : Promise.resolve(null),
   ]);
 
   const items: ActionCenterObligation[] = actionCenter.ok ? actionCenter.data.items : [];
   const boardRows = items;
-  const queueItems: VaccinationQueueItem[] = queue.ok ? queue.data.items : [];
-  const queueTotalCount = queue.ok ? queue.data.total_count : 0;
+  const queueItems: VaccinationQueueItem[] = queue?.ok ? queue.data.items : [];
+  const queueTotalCount = queue?.ok ? queue.data.total_count : 0;
   const verificationHeaders = tableLabels(pageContract, "verification-queue");
   const workStateOptions = optionGroup(pageContract, "work_state_filter_chips");
   const severityOptions = optionGroup(pageContract, "severity_chips");
@@ -191,11 +193,11 @@ export async function VaccinationActionCenterPage({
   };
   const nextCursor = actionCenter.ok ? actionCenter.data.next_cursor : undefined;
   const queueNextHref =
-    queue.ok && queue.data.next_cursor
+    queue?.ok && queue.data.next_cursor
       ? hrefWithPagedCursor(PATH, sp, "verify_cursor", queue.data.next_cursor, "verify_page", "verify_cursor_stack")
       : null;
   const queuePrevHref = hrefPreviousPagedCursor(PATH, sp, "verify_cursor", "verify_page", "verify_cursor_stack");
-  if (queue.ok && normalizedQueuePage > 1 && !queueCursor && !queueCursorStack) {
+  if (queue?.ok && normalizedQueuePage > 1 && !queueCursor && !queueCursorStack) {
     redirect(hrefWith({ bucket: "verify", verify_page: "1", verify_limit: String(requestedQueuePageSize), verify_cursor: undefined, verify_cursor_stack: undefined }));
   }
   const selectedActionRowId = one(sp, "ac_row");
@@ -295,7 +297,7 @@ export async function VaccinationActionCenterPage({
           <b>{actionCenter.error.code ?? actionCenter.error.kind}</b>&nbsp;{actionCenter.error.message}
         </div>
       ) : null}
-      {actionCenter.ok && !queue.ok ? (
+      {actionCenter.ok && queue && !queue.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
           <b>{queue.error.code ?? queue.error.kind}</b>&nbsp;{queue.error.message}
         </div>

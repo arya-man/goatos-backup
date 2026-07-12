@@ -45,6 +45,15 @@ assertNotIncludes(actionCenterSource, "stateCounts={stateCounts}", "WorkBoard la
 
 console.log("action-center request plan: ok");
 
+// Now also run the general request-plan fanout guard
+import { findingsForSource } from "./check-request-plan-fanout.mjs";
+const acSource = readFileSync(path.join(adminWebRoot, "features/process-integrity/action-center.tsx"), "utf8");
+const acFindings = findingsForSource(acSource, "action-center.tsx");
+if (acFindings.length) {
+  throw new Error(`action-center has request-plan anti-patterns: ${acFindings.map((f) => f.message).join("; ")}`);
+}
+console.log("action-center request-plan-fanout: ok");
+
 function assertEqual(got, want, message) {
   if (got !== want) {
     throw new Error(`${message}: got ${String(got)}, want ${String(want)}`);
