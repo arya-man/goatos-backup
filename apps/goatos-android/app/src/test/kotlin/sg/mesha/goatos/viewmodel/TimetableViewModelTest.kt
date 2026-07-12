@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.core.data.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.RosterRepository
 import sg.mesha.goatos.core.network.dto.EnrichedPositionDto
@@ -235,12 +236,11 @@ private class FakeTimetableRepository : RosterRepository {
 private class FakeBootstrapRepository : BootstrapRepository {
     var centerId: String? = null
 
-    override suspend fun operatorProfile() = sg.mesha.goatos.core.data.BootstrapProfile(
-        userId = "u1",
-        primaryLocationId = centerId,
-        roles = emptyList(),
-        department = null,
-    )
+    override suspend fun operatorProfile(): BootstrapOperatorProfileDto? =
+        BootstrapOperatorProfileDto(
+            displayName = "Test User",
+            primaryLocationId = centerId,
+        )
 
     override suspend fun cache() = null
 }
