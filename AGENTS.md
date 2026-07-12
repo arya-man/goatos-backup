@@ -350,8 +350,35 @@ Do:
   - **full (stop-the-world) MV refresh** — `DELETE FROM <projection> WHERE
     tenant_id` + full reinsert. Use incremental (outbox-delta) maintenance, or a
     version-swap; never whole-tenant delete+reinsert.
+  - **projection rebuild that degrades availability / re-scans the whole tenant
+    on a timer / rebuilds twice / stamps false freshness** — four rebuild-trigger
+    failures banned by `docs/decisions/scale-anti-patterns.md` (from the Calendar/
+    CT/AC/PA/Vaccination rebuild fix, 2026-07-13). Rebuild must be **read-through**
+    (keep serving the last-known-good version until the new one is swapped in;
+    never flip a warm read model to `unavailable`/503 to rebuild it — only a true
+    cold start may be unavailable), **dirty-scoped** (event/dirty-set incremental
+    per shed/park off outbox deltas, NOT an unconditional whole-tenant
+    `RecomputeProjection` every N minutes — whole-tenant recompute is a manual/
+    seed/backfill path only), **single-owner** (one projection = one trigger; no
+    projector + sweeper both rebuilding the same rows, no duplicate schedule), and
+    **freshness-honest** (the `as_of`/`last_success_at`/`freshness_status`/
+    watermark envelope reflects only what was actually recomputed; an "incremental"
+    worker that copies the whole tenant and marks un-recomputed scopes `fresh` is
+    banned). Calendar history + date-marker reads are materialized projections,
+    not live canonical joins — "measured" is not "1M-safe". These are
+    review-caught (scale-guard sees the delete+reinsert mechanism, not cadence/
+    serving-state/false-fresh).
   - **N+1 query** — a `.Query/.QueryRow/.Exec/.SendBatch` inside a `for`/`range`.
     Use one set-based statement (`UNNEST`, `INSERT ... SELECT`, `CASE` bulk update).
+  - **N+1 fan-out (the nested "N+2" case)** — a ctx-taking call to an injected I/O
+    dependency (repo/reader/port/client/roster/ownership) inside a `for`/`range`,
+    where the real `.Query/.Exec` sits one adapter layer down — invisible to the
+    raw-driver **N+1 query** check above. "Small data, still slow": one round trip
+    per row, so a 25-row page becomes 51 serial reads. Machine-blocked as the
+    `n-plus-one-fanout` rule (`make scale-guard`, distinct from `n-plus-one`;
+    baselined debt in `tools/scale-guard/baseline.txt`). Fix by batching to a
+    single `*ByIDs` / `= ANY($1)` read (as `ShedSummary` now does with
+    `ShedOwnerships`), not by looping a per-item service/port call.
   - **OFFSET pagination** — `LIMIT/OFFSET` with a growable offset. Use keyset/cursor.
   - **non-SARGable predicate** — `lower(col) LIKE '%x%'` / function on an indexed
     column. Use a normalized column, expression index, or `pg_trgm` GIN.

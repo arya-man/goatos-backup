@@ -194,7 +194,44 @@ CRITICAL scale violations:
    round-trips. Require: history/proof/compatibility reads are **bulk per page,
    not N+1 per animal**, and per-run lookups (e.g. active protocol version) are
    cached per park/run, not re-queried per animal
-   (`docs/protocol-engine/high-scale-kernel-validation-plan.md`).
+   (`docs/protocol-engine/high-scale-kernel-validation-plan.md`). The most-missed
+   shape here is the **nested / cross-boundary fan-out** ("N+2"): the in-loop call
+   is not a raw `.Query/.Exec` but a ctx-taking call to an injected I/O dependency
+   (repo/reader/port/client/roster/ownership) whose driver call is one adapter
+   layer down. The raw-driver `n-plus-one` guard cannot see it — `make scale-guard`
+   catches it as the separate `n-plus-one-fanout` rule (baselined offenders in
+   `tools/scale-guard/baseline.txt`; full definition in
+   `docs/decisions/scale-anti-patterns.md`). When reviewing a loop, follow the
+   in-loop call INTO its adapter: a per-item service/port call that reads the DB
+   one row at a time is the same defect as an inline N+1 and must batch to a single
+   `*ByIDs` / `= ANY($1)` read.
+9. **Projection rebuild that degrades availability, re-scans the whole tenant on
+   a timer, rebuilds twice, or stamps false freshness.** Four rebuild-trigger
+   failures from the Calendar/CT/AC/PA/Vaccination rebuild fix (2026-07-13), full
+   text in `docs/decisions/scale-anti-patterns.md` → "Projection rebuild
+   anti-patterns". These are compute-on-write done wrong; `make scale-guard`
+   catches the delete+reinsert mechanism but NOT cadence / serving-state / false
+   freshness, so name them here:
+   - **Rebuild-by-unavailability** — a rebuild that flips a warm read model to
+     `unavailable`/`ErrProjectionUnavailable`/503/blank *before* recomputing, so
+     the surface fails to load while the last-known-good projection is still
+     valid. Require read-through / version-swap: previous version keeps serving
+     until the new version is atomically swapped in; only a true cold start (no
+     prior successful version for that scope) may serve unavailable.
+   - **Scheduled whole-tenant rebuild on a timer** — an unconditional
+     `RecomputeProjection(tenantID)` on every N-minute cycle. Require
+     event/dirty-set incremental maintenance scoped per shed/park off outbox
+     deltas; whole-tenant recompute is a manual/seed/backfill path only.
+   - **Double / duplicate rebuild per cycle** — the same rows rebuilt twice
+     (two schedules, or a projector AND a sweeper). One projection = one owner =
+     one trigger.
+   - **False-freshness "incremental" worker** — a worker labeled incremental that
+     copies the whole tenant and stamps `fresh`/watermark on scopes it did not
+     recompute (e.g. mixed-age sheds). The freshness envelope must reflect only
+     what was actually recomputed; a whole-tenant copy masquerading as incremental
+     is a band-aid — reject it, don't build on it.
+   - **Corollary** — Calendar completion-history and month/date-marker reads are
+     materialized projections, not live canonical joins. "Measured" ≠ "1M-safe".
 
 ## Business audit vs technical logs
 
@@ -485,6 +522,13 @@ start.
       plan/index lint
 - [ ] Projection-backed APIs expose freshness/serving-state/source-watermark
       envelopes and label stale or approximate data
+- [ ] Projection **rebuild** is read-through (warm read model never flipped to
+      unavailable/503 to rebuild; only cold start is unavailable), dirty-scoped
+      (per-shed/park incremental off outbox deltas, not an unconditional
+      whole-tenant recompute on a timer), single-owner (no double/duplicate
+      rebuild per cycle), and freshness-honest (watermark reflects only what was
+      recomputed; no whole-tenant copy stamped `fresh`). Calendar history +
+      date-marker reads are materialized, not live canonical joins
 - [ ] Long-running generation/backfill/import/projection jobs have durable
       run/progress rows with heartbeat, cursor/page/shard resume, stale reclaim,
       and completion/failure state

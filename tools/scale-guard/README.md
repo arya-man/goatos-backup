@@ -18,6 +18,7 @@ Exit 1 on any NEW violation. Green when every offender is baselined or ignored.
 | rule | trigger |
 |---|---|
 | `n-plus-one` | `.Query/.QueryRow/.Exec/.SendBatch` inside a `for`/`range` |
+| `n-plus-one-fanout` | a ctx-taking call to an injected I/O dependency (repo/reader/port/client/roster/ownership) inside a `for`/`range` — the raw driver call sits one adapter layer down, invisible to `n-plus-one`. One round trip per row (a 25-row page → 51 serial reads). Batch to one `*ByIDs` / `= ANY($1)` read |
 | `loop-no-cursor` | infinite `for {}` paging loop with no cursor/progress guard |
 | `offset-pagination` | `OFFSET <bind>` in a SQL literal |
 | `full-mv-refresh` | whole-tenant projection delete with no `projection_version` guard |
@@ -49,3 +50,13 @@ fetch a larger raw page, group it in memory, wipe pagination, and present the
 collapsed card as truth. That shape is banned for Calendar, Action Center, and
 other operator projections; the grouped row must come from a projector/read
 model or an explicitly partial/debug-only path.
+
+`full-mv-refresh` catches the delete+reinsert **mechanism**. It does NOT catch
+the four projection-**rebuild-trigger** failures (rebuild-by-unavailability,
+scheduled whole-tenant rebuild on a timer, double rebuild per cycle,
+false-freshness "incremental" worker) from
+[`../../docs/decisions/scale-anti-patterns.md`](../../docs/decisions/scale-anti-patterns.md)
+→ "Projection rebuild anti-patterns". Rebuild cadence, a serving-state flip, and
+a false freshness stamp are not statically visible — they are **review-caught**
+(`.agents/skills/goatos-code-review/references/kernel-and-scale.md`). Do not
+assume a green scale-guard proves a rebuild is 1M-safe.
