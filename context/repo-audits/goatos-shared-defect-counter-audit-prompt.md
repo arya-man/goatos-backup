@@ -58,6 +58,11 @@ Required named local targets to check when relevant:
 - `make scale-guard`
 - `make mobile-guard`
 - `make android-doctor`
+- `make high-scale-kernel-e2e-all` / `-certification` / `-data`
+- `make scale-kernel-gate` / `make scale-kernel-gate-smoke`
+- `make bulk-status-kernel-it`
+- `make e2e-integrity-guard`
+- `make dev-local-service-start` / `-status` / `-logs`
 
 For every claimed guardrail, record:
 - local command that runs it
@@ -770,6 +775,58 @@ Specifically verify this closure gap:
   bounded payloads, and local/live p90/p95/p99 gates all pass together against
   the 100/300/500/1000 ms bar.
 
+LOCAL KERNEL STACK E2E LENS (DOCKER COMPOSE)
+The kernel is proven locally against a REAL Docker Compose stack that BOOTS and
+flows events — not documentation, not `docker compose config` parsing. A passing
+`compose config` proves valid YAML, NOT that events move. This lens exists
+because "kernel reviewed" must never be tickable off a parse or a doc.
+
+Required local kernel stack (a dedicated branch such as
+`agent/local-gcp-kernel-parity-*` may carry the compose stack before it lands on
+main; the compose file is not guaranteed to be on the audited branch, so state
+where you ran it):
+- Postgres 16 with all migrations applied
+- Google Pub/Sub emulator with topics/subscriptions/DLQ bootstrapped
+- API service
+- Pub/Sub outbox relay
+- real domain-event consumer (inbox/idempotency)
+- generator, obligation sweeper, Calendar, Protocol-Integrity, Vaccination, and
+  notification worker binaries
+
+E2E acceptance:
+- Boot the stack and drive one event end to end through the real transport:
+  mutation -> transactional outbox -> relay -> Pub/Sub emulator -> domain
+  consumer -> projection/read model -> Calendar/PI/notification effect.
+- No seeded readback. Obligations, projections, notifications, and DLQ entries
+  must be produced by the same services production uses. The repo enforces this
+  with `tools/agent-hooks/check-e2e-kernel-integrity.sh` / `make
+  e2e-integrity-guard`; a finding that leans on seeded derived state is not
+  kernel-proven.
+- Exercise retry/DLQ/replay, do not assume: poison message -> DLQ visibility ->
+  replay/repair with no double side effects.
+
+Cloud Tasks parity honesty:
+- Local exercises durable notification/task rows + the real dispatcher loop;
+  staging exercises Google Cloud Tasks. State which transport actually ran.
+- Never claim staging/production Cloud Tasks proof from a local dispatcher-loop
+  run.
+
+Named local kernel-E2E targets to check when relevant:
+- `make high-scale-kernel-e2e-all` / `-certification` / `-data`
+  (`tools/dev/high-scale-kernel-e2e-all.sh`)
+- `make scale-kernel-gate` (+ `-smoke`) — 1M-row bulk kernel, crash/resume,
+  zero double-apply
+- `make bulk-status-kernel-it`
+- `make e2e-integrity-guard`
+- `make dev-local-service-start` / `-status` / `-logs`
+  (`tools/dev/local-stack-service.sh`) for the persistent stack
+
+Per-finding kernel-E2E verdict:
+- full-local-stack-proven
+- compose-parse-only (not proven)
+- seeded-readback (not proven)
+- not run / not proven
+
 LOCAL CI/CD IMPROVEMENT LENS
 Audit the local developer validation path itself. Findings should include
 missing or weak local CI/CD coverage.
@@ -787,6 +844,11 @@ Backend:
 - clinical defer guard for C35-010 medical-safety regressions
 - API latency gate where local stack supports it
 - kernel/outbox/sweeper/domain-consumer replay tests
+- real Docker Compose kernel stack boot + end-to-end event flow (Postgres 16,
+  Pub/Sub emulator, outbox relay, domain consumer, DLQ, workers) via
+  `make high-scale-kernel-e2e-*`, `make scale-kernel-gate`,
+  `make bulk-status-kernel-it`, and `make e2e-integrity-guard` — not
+  `docker compose config` parsing alone
 
 Frontend/admin-web:
 - typecheck
@@ -1101,6 +1163,13 @@ For each finding, check:
   partitioning, backpressure, workflow orchestration, concurrency, API discipline,
   cache-above-truth, observability, disaster/replay, and mobile sync
 - outbox/inbox/retry/DLQ/replay/repair tests
+- real local Docker Compose kernel stack boot + end-to-end event flow: make
+  high-scale-kernel-e2e-all/-certification/-data, make scale-kernel-gate,
+  make bulk-status-kernel-it, make e2e-integrity-guard, make
+  dev-local-service-start/-status/-logs; record whether the stack booted and an
+  event actually flowed, or only `docker compose config` parsed
+- Cloud Tasks transport proof: local durable rows + dispatcher loop vs staging
+  Google Cloud Tasks; record which one actually ran
 - timezone/date-boundary tests for Asia/Kolkata business dates and notifications
 - API-contract tests proving backend-computed fields are present for dumb clients
 - query-plan validation
@@ -1133,6 +1202,8 @@ over-complex/not proven
 Kernel/platform verdict: reusable/extensible/feature-coupled/retry-unsafe/
 not proven
 Latency verdict: ideal-100ms/met-300-500-bar/over-1000ms/not measured/not proven
+Kernel-E2E verdict: full-local-stack-proven/compose-parse-only/seeded-readback/
+not run/not proven
 Timezone/computation verdict: Asia-Kolkata-safe/backend-owned/client-owned/
 ambiguous/not proven
 Local CI verdict: covered locally/missing/failing/not run/remote-only paused
