@@ -1,0 +1,96 @@
+# india-business-date-baseline.txt
+# 
+# Grandfathered UTC-based business-date derivation violations from check-india-business-date.mjs
+# 
+# These 76 offenders must be fixed to comply with AGENTS.md:
+#   "Goat OS time semantics = India-business-calendar. UTC must never define a Goat OS business
+#    day — scheduling, due/missed buckets, reminder keys, reporting groups, audit display, UI
+#    labels must convert to Asia/Kolkata first."
+#
+# Burndown plan:
+# - Most are in _test.go files (test setup code using time.Now().UTC() for timestamps)
+#   → convert to time.Now().In(biztime.DefaultLocation()) when the timestamp feeds a
+#     business-day derivation, or use biztime.BusinessDayStart/BusinessDate
+# - calendar/repository.go reminder keys (line 193) → must use IST for the date portion
+# - identity/goat_lifecycle.go breeding/delivery dates (lines 546, 549) → .In(biztime.DefaultLocation()).Format()
+# - obligation sweeper/consolidation business logic → wrap in biztime helpers
+# 
+# No new UTC-based business-date patterns are allowed by the guard (baseline-ratchet).
+# To add a temporary exception, use: india-date-guard:ignore: owner=<name> issue=<url> scope=<why> expiry=YYYY-MM-DD
+#
+backend/internal/bulkstatus/app/token.go:59
+backend/internal/calendar/adapters/postgres/repository.go:605
+backend/internal/calendar/adapters/postgres/repository.go:616
+backend/internal/calendar/adapters/postgres/repository.go:637
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1031
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1090
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1134
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1246
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1386
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1407
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1462
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1506
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1530
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1585
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1633
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:193
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:529
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:612
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:665
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:697
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:854
+backend/internal/counts/adapters/postgres/repository.go:1080
+backend/internal/identity/adapters/http/handler_test.go:531
+backend/internal/identity/adapters/postgres/goat_lifecycle.go:546
+backend/internal/identity/adapters/postgres/goat_lifecycle.go:549
+backend/internal/identity/app/admin_goat.go:879
+backend/internal/identity/app/admin_goat.go:887
+backend/internal/identity/app/service_test.go:1185
+backend/internal/identity/app/service_test.go:1193
+backend/internal/identity/app/service_test.go:1226
+backend/internal/identity/app/service_test.go:1243
+backend/internal/identity/app/service_test.go:1262
+backend/internal/identity/app/service_test.go:1281
+backend/internal/identity/app/service_test.go:1300
+backend/internal/identity/app/service_test.go:1318
+backend/internal/identity/app/service_test.go:1342
+backend/internal/identity/app/service_test.go:1349
+backend/internal/identity/app/service_test.go:224
+backend/internal/identity/app/service_test.go:231
+backend/internal/identity/app/service_test.go:287
+backend/internal/identity/app/service_test.go:294
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:134
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:143
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:162
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:181
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:201
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:211
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:23
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:53
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:57
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:71
+backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:90
+backend/internal/obligation/adapters/postgres/repository.go:2532
+backend/internal/obligation/adapters/postgres/repository.go:2707
+backend/internal/obligation/adapters/postgres/repository_integration_test.go:381
+backend/internal/obligation/adapters/postgres/repository_integration_test.go:504
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:121
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:154
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:162
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:191
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:196
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:230
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:238
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:271
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:31
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:320
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:363
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:373
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:72
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:79
+backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:84
+backend/internal/obligation/app/sweeper.go:252
+backend/internal/proof/app/service_test.go:190
+backend/internal/proof/app/service_test.go:191
+backend/internal/vaccination/app/generation.go:716
+backend/internal/vaccinationexecution/adapters/http/handler.go:488

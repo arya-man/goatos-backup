@@ -5,7 +5,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: check guardrails e2e-integrity-guard scale-guard clinical-defer-guard sweeper-deployment-guard ci-local mobile-guard mobile-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
+.PHONY: check guardrails e2e-integrity-guard scale-guard clinical-defer-guard sweeper-deployment-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard india-date-guard offline-first-guard ci-local mobile-guard mobile-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 
 setup-crg: ai-setup
@@ -97,6 +97,11 @@ guardrails:
 	$(MAKE) scale-guard
 	$(MAKE) clinical-defer-guard
 	$(MAKE) sweeper-deployment-guard
+	$(MAKE) idempotency-writes-guard
+	$(MAKE) atomic-readmodel-sync-guard
+	$(MAKE) config-validate-guard
+	$(MAKE) india-date-guard
+	$(MAKE) offline-first-guard
 
 # clinical-defer-guard: block the C35-010 medical-safety anti-pattern — a PARTIAL
 # clinical defer_states list in production code/seeds. sick/under_treatment/
@@ -111,6 +116,47 @@ clinical-defer-guard:
 sweeper-deployment-guard:
 	node tools/agent-hooks/check-sweeper-deployment.mjs --self-test
 	node tools/agent-hooks/check-sweeper-deployment.mjs
+
+# idempotency-writes-guard: block the insufficient idempotency pattern where
+# `ON CONFLICT DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key` is the
+# only conflict action. AGENTS.md mandates key + request fingerprint persisted in
+# the same txn as side effects, exact-replay returning the original result, and
+# same-key/different-payload rejection. Baseline-ratcheted; new offenders fail.
+idempotency-writes-guard:
+	node tools/agent-hooks/check-idempotency-writes.mjs --self-test
+	node tools/agent-hooks/check-idempotency-writes.mjs
+
+# atomic-readmodel-sync-guard: a state transition and the sync of a derived read
+# model it OWNS must be ONE atomic txn; a record must never publish/commit while
+# its owned read-model upsert failed. Flags Publish*/Finalize* methods that upsert
+# a derived read model but lack a rollback regression test. Baseline-ratcheted.
+atomic-readmodel-sync-guard:
+	node tools/agent-hooks/check-atomic-readmodel-sync.mjs --self-test
+	node tools/agent-hooks/check-atomic-readmodel-sync.mjs
+
+# config-validate-guard: authored config/business values are validate-or-reject,
+# never silently-default. A field PRESENT but out of range must FAIL the save with
+# a clear error, not be clamped/rewritten to a default the author never entered.
+# Defaults apply ONLY to genuinely-absent fields. Baseline-ratcheted.
+config-validate-guard:
+	node tools/agent-hooks/check-config-validate-or-reject.mjs --self-test
+	node tools/agent-hooks/check-config-validate-or-reject.mjs
+
+# india-date-guard: Goat OS time semantics are India-business-calendar. UTC must
+# never define a business day — day/date buckets, due/missed, reminder keys,
+# reporting groups, and labels must convert to Asia/Kolkata first (biztime helper).
+# Flags UTC day-truncation/formatting on business paths. Baseline-ratcheted.
+india-date-guard:
+	node tools/agent-hooks/check-india-business-date.mjs --self-test
+	node tools/agent-hooks/check-india-business-date.mjs
+
+# offline-first-guard: every Android READ screen is offline-first with Room as SSOT.
+# A network-only read repository (thin api.xxx() pass-through with no Room persist +
+# Flow observe) is BANNED for screen-facing reads. Flags such repos in
+# apps/goatos-android. See docs/decisions/android-offline-first.md. Baseline-ratcheted.
+offline-first-guard:
+	node tools/agent-hooks/check-offline-first-reads.mjs --self-test
+	node tools/agent-hooks/check-offline-first-reads.mjs
 
 # ci-local: run the SAME required CI gates as .github/workflows/ci.yml locally.
 # Per AGENTS.md a GitHub Actions billing/platform failure is NEVER a closure

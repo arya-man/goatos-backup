@@ -1,0 +1,20 @@
+# config-validate-or-reject-baseline.txt
+# Baseline for check-config-validate-or-reject.mjs guardrail.
+# This file lists CURRENT offenders of the "authored config/business values are
+# validate-or-reject, never silently-default" rule (per AGENTS.md).
+#
+# Silent-coercion anti-patterns grandfathered at 2026-07-12:
+#
+# backend/internal/vaccinationexecution/app/capacity.go (2 offenders):
+#   Lines 21, 29: capPerDay and allowedDays get silently clamped to 1 if they
+#   fall below threshold, instead of being validated-or-rejected at the API
+#   boundary (vaccinationexecution adapters). The capacity config should be
+#   validated at publish time (protocol/app/publish.go shows the correct
+#   pattern); the execution layer should only receive validated configs and
+#   must not re-coerce them. Deferred to a future capacity-refactor when the
+#   API boundary validation is wired.
+#
+# Any NEW offenders added after this baseline was created will cause the guard to fail.
+#
+backend/internal/vaccinationexecution/app/capacity.go:21:local_var_silent_reassign
+backend/internal/vaccinationexecution/app/capacity.go:29:local_var_silent_reassign

@@ -280,6 +280,36 @@ overview parses events to draw its dots instead of consuming day-markers; or a
 list transform re-parses every event inside .find/.any (O(n^2)).
 ```
 
+### Step 4c: Contract-integrity guardrails
+
+Five machine guards enforce previously prose-only AGENTS.md "Do:" rules whose
+violations shipped as real ledger bugs. Each is a zero-dependency Node guard with
+an embedded `--self-test` and a `*-baseline.txt` ratchet — it fails only on NEW
+offenders beyond the grandfathered baseline, which is burned down over time.
+
+```text
+idempotency-writes-guard     -> mutating write paths must not rely on the
+                                insufficient `ON CONFLICT DO UPDATE SET
+                                idempotency_key = EXCLUDED.idempotency_key`
+                                alone (idempotency write-path contract).
+atomic-readmodel-sync-guard  -> Publish*/Finalize* that upsert an owned derived
+                                read model must have a rollback regression test
+                                (atomic state-transition + read-model sync).
+config-validate-guard        -> authored config out-of-range must reject, not be
+                                silently clamped/defaulted (validate-or-reject).
+india-date-guard             -> UTC must never define a Goat OS business day;
+                                day/date buckets convert to Asia/Kolkata first
+                                (FIXCHK-002 class).
+offline-first-guard          -> Android screen-facing read repositories must be
+                                Room-backed offline-first, not network-only
+                                api.xxx() pass-throughs (C35-001/019, MOB-007).
+```
+
+Each runs in `make guardrails` (so `make ci-local JOB=guardrails` and the `ci`
+guardrails job run them). A genuinely-bounded case carries an inline
+`<guard>:ignore: <reason>`; otherwise fix the code or, for pre-existing debt,
+add it to that guard's baseline with a burn-down note.
+
 ### Step 5: Large File Guard
 
 Purpose:

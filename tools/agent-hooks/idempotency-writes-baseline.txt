@@ -1,0 +1,12 @@
+# Idempotency guard baseline — grandfathered offenders
+# Generated: 2026-07-12T18:13:07.657Z
+# Rule: backend/internal/** writes MUST NOT use ON CONFLICT DO UPDATE with only
+#       idempotency_key = EXCLUDED.idempotency_key as the action. Per AGENTS.md
+#       this pattern is insufficient for the full idempotency contract.
+#
+# To add an exception, annotate the line:
+#   // idempotency-guard:ignore: owner=<name> reason=<brief> expiry=<YYYY-MM-DD>
+#
+# NEW offenders (not in this baseline) will cause exit code 1.
+# Format: path:line: statement snippet
+

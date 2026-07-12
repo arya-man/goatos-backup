@@ -1,0 +1,20 @@
+# atomic-readmodel-sync baseline — grandfathered offenders
+# These items are tracked but not enforced; the guard will report NEW violations only.
+#
+# Rule: A state transition and the sync of any derived read model it OWNS must
+# be ONE atomic transaction. A record must never reach published/committed state
+# while its owned read-model upsert failed. Every such flow needs a rollback
+# regression test.
+#
+# Canonical tests: TestPublishVersionWithCapacityRollsBackOnSyncFailure,
+# TestPublishVersionWithDerivedRulesRollsBackOnCapacityFailure.
+#
+# This baseline captures items that predate the guard or are legitimately
+# exempt (e.g., idempotency-key-only tracking with no business read-model sync).
+# New additions to this list require owner sign-off, an issue, and an expiry.
+
+# Item: PublishPublishedMatrixReplay (idempotency replay, no derived sync)
+# Status: grandfathered — records idempotency_keys only, not a business read model
+# Reason: published replay is idempotency infrastructure, not state-transition sync
+# Scope: protocol/idempotency-tracking
+backend/internal/protocol/adapters/postgres/repository.go:PublishPublishedMatrixReplay

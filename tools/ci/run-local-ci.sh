@@ -47,6 +47,11 @@ run_guardrails() {
   step "scale-guard self-test"    bash -c 'cd tools/scale-guard && go test ./...'
   step "clinical-defer-guard"     make clinical-defer-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
+  step "idempotency-writes-guard" make idempotency-writes-guard
+  step "atomic-readmodel-sync-guard" make atomic-readmodel-sync-guard
+  step "config-validate-guard"    make config-validate-guard
+  step "india-date-guard"         make india-date-guard
+  step "offline-first-guard"      make offline-first-guard
   step "mobile-guard"             make mobile-guard
   step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
   step "large-file guard"         node tools/ci/check-large-files.mjs
