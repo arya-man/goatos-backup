@@ -44,6 +44,8 @@ import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheDao
 import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.InsightsGapsCacheDao
+import sg.mesha.goatos.core.data.cache.RosterCoverageCacheDao
+import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
@@ -121,6 +123,12 @@ object AppModule {
 
     @Provides
     fun provideInsightsCoverageCacheDao(db: GoatDatabase): InsightsCoverageCacheDao = db.insightsCoverageCacheDao()
+
+    @Provides
+    fun provideRosterTimetableCacheDao(db: GoatDatabase): RosterTimetableCacheDao = db.rosterTimetableCacheDao()
+
+    @Provides
+    fun provideRosterCoverageCacheDao(db: GoatDatabase): RosterCoverageCacheDao = db.rosterCoverageCacheDao()
 
     @Provides
     @Singleton
@@ -212,7 +220,11 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideRosterRepository(api: AppApi): RosterRepository = DefaultRosterRepository(api)
+    fun provideRosterRepository(
+        api: AppApi,
+        timetableDao: RosterTimetableCacheDao,
+        coverageDao: RosterCoverageCacheDao,
+    ): RosterRepository = DefaultRosterRepository(api, timetableDao, coverageDao)
 
     // --- Offline sync engine (outbox) --------------------------------------------------
     // The engine runs on this Hilt-provided, app-lifetime CoroutineScope (a Singleton, never

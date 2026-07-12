@@ -16,9 +16,26 @@ import javax.inject.Inject
  * (today: Calendar). Shows the server-composed banner text ONLY when
  * `GET /app/roster/my-coverage` reports `has_coverage = true` for the authenticated
  * principal — no scope/identity bridge to guess client-side (TRD §14 dumb-renderer):
- * the backend resolves who is covering, until when, and the exact wording. A null
- * [state] (or a response with `has_coverage = false`) hides the banner entirely.
+ * the backend resolves who is covering, until when, and the exact wording.
+ *
+ * Offline-first (docs/decisions/android-offline-first.md): observes Room cache via
+ * [RosterRepository.observeCoverage]; refresh via [RosterRepository.refreshCoverage]
+ * runs in the background. Explicitly distinguishes:
+ * - [CoverageState.HasCoverage]: cached or fresh response with has_coverage=true
+ * - [CoverageState.NoCoverage]: cached or fresh response with has_coverage=false
+ * - [CoverageState.Unknown]: no cache and no successful refresh (offline/error)
+ *
+ * A null [state] or [CoverageState.Unknown] hides the banner entirely. The ViewModel
+ * shows stale cached coverage (NoCoverage or HasCoverage) on re-entry and refreshes
+ * in the background; a failed refresh keeps the last cached state, never blanking to
+ * "unknown" if data exists.
  */
+sealed interface CoverageState {
+    data class HasCoverage(val text: String) : CoverageState
+    data object NoCoverage : CoverageState
+    data object Unknown : CoverageState
+}
+
 @HiltViewModel
 class CoverageBannerViewModel @Inject constructor(
     private val repo: RosterRepository,
@@ -27,17 +44,63 @@ class CoverageBannerViewModel @Inject constructor(
     private val _state = MutableStateFlow<CoverageBannerUiState?>(null)
     val state: StateFlow<CoverageBannerUiState?> = _state.asStateFlow()
 
+    // Internal state tracking for offline/error handling
+    private val _coverageState = MutableStateFlow<CoverageState>(CoverageState.Unknown)
+    val coverageState: StateFlow<CoverageState> = _coverageState.asStateFlow()
+
+    // Track refresh state so we can distinguish "I've never refreshed" from "I tried and failed"
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     init {
         load()
     }
 
     /** Re-fetches the current coverage status. Safe to call again on refresh/retry. */
     fun load() = viewModelScope.launch {
-        val coverage = runCatching { repo.myCoverage().coverage }.getOrNull()
-        _state.value = if (coverage?.hasCoverage == true) {
-            coverage.bannerText?.ifBlank { null }?.let { CoverageBannerUiState(text = it) }
-        } else {
-            null
+        // Start observing Room cache immediately (stale-while-revalidate)
+        repo.observeCoverage().collect { dto ->
+            val newState = if (dto?.coverage?.hasCoverage == true) {
+                dto.coverage.bannerText?.ifBlank { null }?.let { CoverageState.HasCoverage(it) }
+                    ?: CoverageState.NoCoverage
+            } else if (dto != null) {
+                // Cached or fresh response with has_coverage=false
+                CoverageState.NoCoverage
+            } else {
+                // No cache yet; will refresh to get real state
+                CoverageState.Unknown
+            }
+
+            _coverageState.value = newState
+            updateBannerState(newState)
+
+            // Trigger background refresh on first load if no cache
+            if (_isRefreshing.value.not()) {
+                refreshInBackground()
+            }
+        }
+    }
+
+    private fun refreshInBackground() = viewModelScope.launch {
+        _isRefreshing.value = true
+        runCatching {
+            repo.refreshCoverage()
+        }.onFailure {
+            // Refresh failed: keep prior state, never blank to Unknown if cache exists
+            val current = _coverageState.value
+            if (current == CoverageState.Unknown) {
+                // First refresh failed and no prior cache: stay Unknown, hide banner
+                updateBannerState(CoverageState.Unknown)
+            }
+            // else: cache exists; keep showing it (stale but honest)
+        }
+        _isRefreshing.value = false
+    }
+
+    private fun updateBannerState(state: CoverageState) {
+        _state.value = when (state) {
+            is CoverageState.HasCoverage -> CoverageBannerUiState(text = state.text)
+            else -> null  // NoCoverage and Unknown both hide the banner
         }
     }
 }

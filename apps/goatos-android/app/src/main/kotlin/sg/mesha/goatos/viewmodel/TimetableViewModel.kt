@@ -21,12 +21,17 @@ import javax.inject.Inject
 /**
  * Timetable (HRMS shift roster) screen state holder. READ-ONLY mirror of the operator's
  * center Position & Coverage roster (docs/hr/roster-rbac-design.md) — the app never writes
- * positions/leave/backups; all CRUD stays web-only (TRD §14). Loads via
- * [RosterRepository.timetable] (`GET /app/roster/timetable`, operator-scoped — never the
- * admin `/admin/roster` surface, which is RosterRead-gated and 403s for operators) and
- * maps each `EnrichedPosition` 1:1 into a [TimetableRow] — the only "logic" here is
- * glue-mapping backend enums (tier/status) to short labels, the same allowance
- * AlertsScreen's tone -> pill mapping gets.
+ * positions/leave/backups; all CRUD stays web-only (TRD §14).
+ *
+ * Offline-first (docs/decisions/android-offline-first.md): observes Room cache via
+ * [RosterRepository.observeTimetable]; refresh via [RosterRepository.refreshTimetable]
+ * runs in the background. A failed refresh keeps cached data on screen and sets
+ * `isOffline=true` to show a sync indicator. An empty cache on cold start is honest.
+ *
+ * Loads via `GET /app/roster/timetable` (operator-scoped — never the admin `/admin/roster`
+ * surface, which is RosterRead-gated and 403s for operators) and maps each `EnrichedPosition`
+ * 1:1 into a [TimetableRow] — the only "logic" here is glue-mapping backend enums
+ * (tier/status) to short labels, the same allowance AlertsScreen's tone -> pill mapping gets.
  *
  * The `center_id` query param comes from the bootstrap operator profile's
  * `primary_location_id` (the principal's HR center scope). A principal with no center
@@ -41,6 +46,10 @@ class TimetableViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(TimetableUiState())
     val state: StateFlow<TimetableUiState> = _state.asStateFlow()
+
+    // Track refresh state separately so we can show "syncing" while cached data persists
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
     init {
         load()
@@ -58,21 +67,53 @@ class TimetableViewModel @Inject constructor(
             _state.value = TimetableUiState(errorCode = "no_center")
             return@launch
         }
-        runCatching { repo.timetable(centerId) }
-            .onSuccess { dto -> _state.value = dto.toTimetableUiState() }
-            .onFailure {
-                // Refresh must never wipe: keep any rows already on screen and just flag
-                // offline; only a cold failure (nothing loaded yet) shows the honest error.
-                _state.update { current ->
-                    if (current.rows.isNotEmpty()) current.copy(isOffline = true, errorCode = null)
-                    else TimetableUiState(errorCode = "load_failed")
+
+        // Start observing Room cache immediately (stale-while-revalidate)
+        repo.observeTimetable(centerId).collect { dto ->
+            _state.update { current ->
+                if (dto != null) {
+                    // Cache hit: render cached data (refresh flag is separate)
+                    dto.toTimetableUiState()
+                } else if (current.rows.isEmpty() && _isRefreshing.value.not()) {
+                    // Cache miss on first load and not currently refreshing: show empty
+                    TimetableUiState(errorCode = null)
+                } else {
+                    // Keep prior state while refreshing
+                    current
                 }
             }
+
+            // Trigger background refresh (stale-while-revalidate pattern)
+            if (_isRefreshing.value.not()) {
+                refreshInBackground(centerId)
+            }
+        }
+    }
+
+    private fun refreshInBackground(centerId: String) = viewModelScope.launch {
+        _isRefreshing.value = true
+        runCatching {
+            repo.refreshTimetable(centerId)
+        }.onFailure {
+            // Keep cached data on screen, set offline flag for sync indicator
+            _state.update { current ->
+                if (current.rows.isNotEmpty()) {
+                    // Refresh failed but we have cached rows: show as stale/offline
+                    current.copy(isOffline = true, errorCode = null)
+                } else {
+                    // No cached data and refresh failed: show honest error
+                    TimetableUiState(errorCode = "load_failed")
+                }
+            }
+        }
+        _isRefreshing.value = false
     }
 }
 
 private fun EnrichedPositionListResponseDto.toTimetableUiState(): TimetableUiState = TimetableUiState(
     rows = items.map { it.toTimetableRow() },
+    errorCode = null,
+    isOffline = false,  // Refresh succeeded or this is cached, so not offline
 )
 
 private fun EnrichedPositionDto.toTimetableRow(): TimetableRow = TimetableRow(
