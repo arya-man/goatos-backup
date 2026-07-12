@@ -197,6 +197,7 @@ type OperationsResponse struct {
 	Protocols  []OperationsProtocol `json:"protocols"`
 	Cohorts    []OperationsCohort   `json:"cohorts"`
 	NextCursor *string              `json:"next_cursor,omitempty"`
+	Freshness  *ProjectionFreshness `json:"freshness,omitempty"`
 }
 
 // OperationsRow is one cohort × protocol group straight from SQL; the service rolls these up into cohorts.
@@ -222,6 +223,7 @@ type OperationsRow struct {
 	ProofPendingCount int
 	RejectedCount     int
 	TotalCount        int
+	Freshness         *ProjectionFreshness
 }
 
 type OperationsQuery struct {

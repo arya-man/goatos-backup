@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -754,7 +755,7 @@ func TestVaccinationOperationsAggregatesCohortsAndDedupesRework(t *testing.T) {
 	// as_of = inclusive end of 2026-06-24, so doses administered during that day (K1's 09:00 recorded
 	// completion, K2's accepted rework) are seen "as of June 24".
 	asOf := time.Date(2026, 6, 24, 23, 59, 59, 0, time.UTC)
-	rows, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{
+	rows, err := projectedOperations(t, ctx, repo, domain.OperationsQuery{
 		TenantID:  testTenant,
 		AsOf:      asOf,
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
@@ -809,7 +810,7 @@ func TestVaccinationOperationsAggregatesCohortsAndDedupesRework(t *testing.T) {
 
 	// Park scope: matching park returns rows, a different park returns none.
 	other := "70000000-0000-4000-8000-0000000000ff"
-	scoped, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{TenantID: testTenant, ParkID: &other, AsOf: asOf, DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 50})
+	scoped, err := projectedOperations(t, ctx, repo, domain.OperationsQuery{TenantID: testTenant, ParkID: &other, AsOf: asOf, DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 50})
 	if err != nil {
 		t.Fatalf("scoped VaccinationOperations: %v", err)
 	}
@@ -848,10 +849,14 @@ INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id,
 VALUES ($1,$2,$3,$4,$5,'goat',$6,'shed',$7,TIMESTAMPTZ '2026-06-24 00:00:00+00','due','ops-human-order-zulu',1)`,
 		zuluObl, testTenant, testVersion, testRule, zuluBatch, zuluGoat, zuluShed)
 
-	svc := vaccexecapp.NewService(NewRepository(pool, 5*time.Second))
+	repo := NewRepository(pool, 5*time.Second)
+	svc := vaccexecapp.NewService(repo)
 	query := domain.OperationsQuery{
 		TenantID: testTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 1,
+	}
+	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: query.TenantID, AsOf: query.AsOf, DueBefore: query.DueBefore}); err != nil {
+		t.Fatal(err)
 	}
 	page1, err := svc.VaccinationOperations(ctx, query)
 	if err != nil {
@@ -922,7 +927,7 @@ func TestVaccinationOperationsAsOfExcludesFutureCompletions(t *testing.T) {
 	// after as_of, the obligation must NOT read as completed/scheduled — it must re-bucket to overdue
 	// (due_at 2026-06-24 already passed as_of). This is the bucket/workState correctness the dose-only
 	// assertion missed.
-	before, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{
+	before, err := projectedOperations(t, ctx, repo, domain.OperationsQuery{
 		TenantID: testTenant, AsOf: asOfBefore, DueBefore: dueBefore, Limit: 50,
 	})
 	if err != nil {
@@ -945,13 +950,13 @@ func TestVaccinationOperationsAsOfExcludesFutureCompletions(t *testing.T) {
 		t.Errorf("as_of before dose: K9 want scheduled=0 due=0 (due_at already passed as_of), got scheduled=%d due=%d", k9.ScheduledCount, k9.DueCount)
 	}
 	// Service-derived workState (what /vaccination renders): overdue, not the buggy scheduled/completed.
-	if cohort := opsCohortByStage(t, svc, ctx, domain.OperationsQuery{TenantID: testTenant, AsOf: asOfBefore, DueBefore: dueBefore, Limit: 50}, "K9"); cohort.WorkState != domain.WorkStateOverdue {
+	if cohort := opsCohortByStage(t, repo, svc, ctx, domain.OperationsQuery{TenantID: testTenant, AsOf: asOfBefore, DueBefore: dueBefore, Limit: 50}, "K9"); cohort.WorkState != domain.WorkStateOverdue {
 		t.Errorf("as_of before dose: K9 cohort workState want overdue, got %q (cells=%#v)", cohort.WorkState, cohort.Cells)
 	}
 
 	// as_of = 2026-07-01 (AFTER the dose): same data, the accepted dose now counts and the obligation reads
 	// completed. Proves as_of changes both the dose state AND the bucket/workState.
-	after, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{
+	after, err := projectedOperations(t, ctx, repo, domain.OperationsQuery{
 		TenantID: testTenant, AsOf: asOfAfter, DueBefore: dueBefore, Limit: 50,
 	})
 	if err != nil {
@@ -970,7 +975,7 @@ func TestVaccinationOperationsAsOfExcludesFutureCompletions(t *testing.T) {
 	if k9after.LastDose == nil || !k9after.LastDose.Equal(time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC)) {
 		t.Errorf("as_of after dose: K9 lastDose want 2026-06-30T09:00Z, got %v", k9after.LastDose)
 	}
-	if cohort := opsCohortByStage(t, svc, ctx, domain.OperationsQuery{TenantID: testTenant, AsOf: asOfAfter, DueBefore: dueBefore, Limit: 50}, "K9"); cohort.WorkState != domain.WorkStateCompleted {
+	if cohort := opsCohortByStage(t, repo, svc, ctx, domain.OperationsQuery{TenantID: testTenant, AsOf: asOfAfter, DueBefore: dueBefore, Limit: 50}, "K9"); cohort.WorkState != domain.WorkStateCompleted {
 		t.Errorf("as_of after dose: K9 cohort workState want completed, got %q (cells=%#v)", cohort.WorkState, cohort.Cells)
 	}
 }
@@ -1095,7 +1100,7 @@ func TestVaccinationExecutionAndOperationsSurfaceDeferredObligations(t *testing.
 	}
 
 	opsQuery := domain.OperationsQuery{TenantID: query.TenantID, AsOf: query.AsOf, DueBefore: query.DueBefore, Limit: query.Limit}
-	opsRows, err := repo.VaccinationOperations(ctx, opsQuery)
+	opsRows, err := projectedOperations(t, ctx, repo, opsQuery)
 	if err != nil {
 		t.Fatalf("VaccinationOperations: %v", err)
 	}
@@ -1103,7 +1108,7 @@ func TestVaccinationExecutionAndOperationsSurfaceDeferredObligations(t *testing.
 	if df == nil || df.DeferredCount != 1 {
 		t.Fatalf("deferred ops row = %#v", df)
 	}
-	if cohort := opsCohortByStage(t, svc, ctx, opsQuery, "DF"); cohort.WorkState != domain.WorkStateDeferred {
+	if cohort := opsCohortByStage(t, repo, svc, ctx, opsQuery, "DF"); cohort.WorkState != domain.WorkStateDeferred {
 		t.Fatalf("deferred cohort workState want deferred, got %q", cohort.WorkState)
 	}
 }
@@ -1157,7 +1162,7 @@ func TestVaccinationOperationsBoundsVerificationByVerifiedAt(t *testing.T) {
 	dueBefore := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
 
 	// as_of BEFORE verified_at (dose already administered): proof recorded, NOT accepted, no last_dose.
-	before, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{
+	before, err := projectedOperations(t, ctx, repo, domain.OperationsQuery{
 		TenantID: testTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
 	})
 	if err != nil {
@@ -1175,7 +1180,7 @@ func TestVaccinationOperationsBoundsVerificationByVerifiedAt(t *testing.T) {
 	}
 
 	// as_of AFTER verified_at: the accept now counts; last_dose is the administered time.
-	after, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{
+	after, err := projectedOperations(t, ctx, repo, domain.OperationsQuery{
 		TenantID: testTenant, AsOf: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), DueBefore: dueBefore, Limit: 50,
 	})
 	if err != nil {
@@ -1201,8 +1206,11 @@ func opsRowByStage(rows []domain.OperationsRow, stage string) *domain.Operations
 
 // opsCohortByStage runs the read model through the app service (the same path /vaccination renders) and
 // returns the cohort for a stage, so tests can assert the derived WorkState, not only raw SQL counts.
-func opsCohortByStage(t *testing.T, svc *vaccexecapp.Service, ctx context.Context, q domain.OperationsQuery, stage string) domain.OperationsCohort {
+func opsCohortByStage(t *testing.T, repo *Repository, svc *vaccexecapp.Service, ctx context.Context, q domain.OperationsQuery, stage string) domain.OperationsCohort {
 	t.Helper()
+	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: q.TenantID, AsOf: q.AsOf, DueBefore: q.DueBefore}); err != nil {
+		t.Fatal(err)
+	}
 	resp, err := svc.VaccinationOperations(ctx, q)
 	if err != nil {
 		t.Fatalf("svc.VaccinationOperations(stage %s): %v", stage, err)
@@ -1290,7 +1298,7 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 		Limit:     50,
 	}
 
-	rows, err := repo.VaccinationOperations(ctx, q)
+	rows, err := projectedOperations(t, ctx, repo, q)
 	if err != nil {
 		t.Fatalf("VaccinationOperations: %v", err)
 	}
@@ -1307,7 +1315,7 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 	if ma.OverdueCount != 1 || ma.DeferredCount != 0 {
 		t.Errorf("MA (missed after as_of): want overdue=1 deferred=0, got overdue=%d deferred=%d", ma.OverdueCount, ma.DeferredCount)
 	}
-	if c := opsCohortByStage(t, svc, ctx, q, "MA"); c.WorkState != domain.WorkStateOverdue {
+	if c := opsCohortByStage(t, repo, svc, ctx, q, "MA"); c.WorkState != domain.WorkStateOverdue {
 		t.Errorf("MA cohort workState want overdue, got %q", c.WorkState)
 	}
 
@@ -1315,7 +1323,7 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 	if mb.MissedCount != 1 || mb.DeferredCount != 0 || mb.OverdueCount != 0 {
 		t.Errorf("MB (missed before as_of): want missed=1 deferred=0 overdue=0, got missed=%d deferred=%d overdue=%d", mb.MissedCount, mb.DeferredCount, mb.OverdueCount)
 	}
-	if c := opsCohortByStage(t, svc, ctx, q, "MB"); c.WorkState != domain.WorkStateMissed {
+	if c := opsCohortByStage(t, repo, svc, ctx, q, "MB"); c.WorkState != domain.WorkStateMissed {
 		t.Errorf("MB cohort workState want missed, got %q", c.WorkState)
 	}
 
@@ -1323,7 +1331,7 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 	if mn.MissedCount != 1 || mn.DeferredCount != 0 || mn.OverdueCount != 0 {
 		t.Errorf("MN (missed no event): want missed=1 deferred=0 overdue=0 (trusted), got missed=%d deferred=%d overdue=%d", mn.MissedCount, mn.DeferredCount, mn.OverdueCount)
 	}
-	if c := opsCohortByStage(t, svc, ctx, q, "MN"); c.WorkState != domain.WorkStateMissed {
+	if c := opsCohortByStage(t, repo, svc, ctx, q, "MN"); c.WorkState != domain.WorkStateMissed {
 		t.Errorf("MN cohort workState want missed, got %q", c.WorkState)
 	}
 
@@ -1332,7 +1340,7 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 	if mc.MissedCount != 1 || mc.DeferredCount != 0 || mc.OverdueCount != 0 {
 		t.Errorf("MC (missed churn): want missed=1 deferred=0 overdue=0, got missed=%d deferred=%d overdue=%d", mc.MissedCount, mc.DeferredCount, mc.OverdueCount)
 	}
-	if c := opsCohortByStage(t, svc, ctx, q, "MC"); c.WorkState != domain.WorkStateMissed {
+	if c := opsCohortByStage(t, repo, svc, ctx, q, "MC"); c.WorkState != domain.WorkStateMissed {
 		t.Errorf("MC cohort workState want missed, got %q", c.WorkState)
 	}
 }
@@ -1618,4 +1626,40 @@ func projectedExecutionPage(t *testing.T, ctx context.Context, repo *Repository,
 		recomputeExecutionProjection(t, ctx, repo, q)
 	}
 	return repo.ListVaccinationExecutionPage(ctx, q)
+}
+
+func projectedOperations(t *testing.T, ctx context.Context, repo *Repository, q domain.OperationsQuery) ([]domain.OperationsRow, error) {
+	t.Helper()
+	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: q.TenantID, AsOf: q.AsOf, DueBefore: q.DueBefore}); err != nil {
+		t.Fatalf("RecomputeOperationsProjection: %v", err)
+	}
+	return repo.VaccinationOperations(ctx, q)
+}
+
+func TestVaccinationOperationsProjectionReadLatency(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	q := domain.OperationsQuery{TenantID: testTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 500}
+	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: q.TenantID, AsOf: q.AsOf, DueBefore: q.DueBefore}); err != nil {
+		t.Fatal(err)
+	}
+	durations := make([]time.Duration, 40)
+	for i := range durations {
+		started := time.Now()
+		rows, err := repo.VaccinationOperations(ctx, q)
+		if err != nil || len(rows) == 0 {
+			t.Fatalf("read %d rows=%d err=%v", i, len(rows), err)
+		}
+		durations[i] = time.Since(started)
+	}
+	sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
+	p50, p95, p99 := durations[19], durations[37], durations[39]
+	t.Logf("vaccination operations projection non_empty=true samples=40 p50=%s p95=%s p99=%s", p50, p95, p99)
+	if p95 > 250*time.Millisecond {
+		t.Fatalf("projection p95=%s exceeds 250ms local gate", p95)
+	}
 }

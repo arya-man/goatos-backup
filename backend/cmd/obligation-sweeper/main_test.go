@@ -11,8 +11,14 @@ import (
 )
 
 type fakeVaccinationProjectionRefresher struct {
-	shedReq      vaccexecdomain.ShedProjectionRecomputeRequest
-	executionReq vaccexecdomain.ExecutionProjectionRecomputeRequest
+	shedReq       vaccexecdomain.ShedProjectionRecomputeRequest
+	executionReq  vaccexecdomain.ExecutionProjectionRecomputeRequest
+	operationsReq vaccexecdomain.OperationsProjectionRecomputeRequest
+}
+
+func (f *fakeVaccinationProjectionRefresher) RecomputeOperationsProjection(_ context.Context, req vaccexecdomain.OperationsProjectionRecomputeRequest) (vaccexecdomain.OperationsProjectionRecomputeResult, error) {
+	f.operationsReq = req
+	return vaccexecdomain.OperationsProjectionRecomputeResult{Rows: 4}, nil
 }
 
 func (f *fakeVaccinationProjectionRefresher) RecomputeShedProjection(_ context.Context, req vaccexecdomain.ShedProjectionRecomputeRequest) (vaccexecdomain.ShedProjectionRecomputeResult, error) {
@@ -36,6 +42,9 @@ func TestScheduledSweeperRefreshesVaccinationReadModelsWithOneAsOf(t *testing.T)
 	}
 	if !fake.executionReq.AsOf.Equal(fake.shedReq.AsOf) || !fake.executionReq.DueBefore.Equal(fake.shedReq.DueBefore) {
 		t.Fatalf("execution refresh request=%#v shed=%#v", fake.executionReq, fake.shedReq)
+	}
+	if !fake.operationsReq.AsOf.Equal(fake.shedReq.AsOf) || !fake.operationsReq.DueBefore.Equal(fake.shedReq.DueBefore) {
+		t.Fatalf("operations refresh request=%#v shed=%#v", fake.operationsReq, fake.shedReq)
 	}
 }
 
