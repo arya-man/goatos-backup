@@ -398,6 +398,10 @@ vaccination Action Center/PA/CT/Workflow show vaccination gaps only
 SOP/proof/verification/completion loop is exercised
 all UI controls are real API/navigation/actions or honestly disabled
 screenshots prove mock structure/density on desktop and narrow
+calendar park-drive cards come from the real projector/read model grain, not a
+capped request-path or frontend rollup over raw goat/protocol rows
+calendar pagination/cursor truth remains intact; the UI must not hide
+truncation behind collapsed drive counts
 ```
 
 After this passes, build the missing CRUD/buttons from the placement table. Do

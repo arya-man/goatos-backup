@@ -23,6 +23,9 @@
 //   - non-sargable-like   : lower(col) LIKE '%..%' (unindexable leading wildcard).
 //   - god-cte             : a single SQL literal with too many "x AS (" CTEs on a
 //     request path (compute-on-read; move to a read model).
+//   - read-rollup-truth   : request-path/service-layer rollup that bumps a raw
+//     list limit or clears pagination after in-memory aggregation, presenting a
+//     partial summary as business truth.
 //
 // Two escape hatches keep it usable:
 //
@@ -74,6 +77,9 @@ var (
 	sqlishRe   = regexp.MustCompile(`(?i)\b(SELECT|LIMIT|INSERT|UPDATE)\b`)
 	sargableRe = regexp.MustCompile(`(?is)lower\s*\([^)]*\)\s+LIKE\s+'%`)
 	delProjRe  = regexp.MustCompile(`(?is)DELETE\s+FROM\s+[a-z_]*projection[a-z_]*\b[^;]*\btenant_id`)
+	readRollupFnRe = regexp.MustCompile(`(?i)\b(aggregate|group|rollup)\w*(List|Events)\b`)
+	rawLimitBumpRe = regexp.MustCompile(`(?i)\.Limit\s*=\s*\w*(aggregate|raw|rollup)\w*Limit`)
+	nextCursorNilRe = regexp.MustCompile(`(?i)\bNextCursor\s*=\s*nil`)
 	// A version-scoped prune (build-new / flip / drop-old generations) is the
 	// APPROVED pattern, not a whole-tenant wipe. Do not treat range predicates
 	// like projection_version > 0 as safe; those can still delete the serving set.
@@ -209,6 +215,16 @@ func scanFile(repo, path string) []finding {
 		}
 		out = append(out, finding{rule: rule, rel: rel, line: ln, msg: msg})
 	}
+	addLine := func(rule string, line int, msg string) {
+		if ignored[line] || ignored[line-1] {
+			return
+		}
+		out = append(out, finding{rule: rule, rel: rel, line: line, msg: msg})
+	}
+
+	if line, msg := detectReadRollupTruth(src); line > 0 {
+		addLine("read-rollup-truth", line, msg)
+	}
 
 	// AST pass: loop-scoped rules.
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -328,6 +344,30 @@ func scanFile(repo, path string) []finding {
 		return true
 	})
 	return out
+}
+
+func detectReadRollupTruth(src []byte) (int, string) {
+	lines := strings.Split(string(src), "\n")
+	aggregateLine := firstMatchingLine(lines, readRollupFnRe)
+	if aggregateLine == 0 {
+		return 0, ""
+	}
+	if limitLine := firstMatchingLine(lines, rawLimitBumpRe); limitLine > 0 {
+		return limitLine, "request-path rollup bumps a raw list limit before in-memory aggregation; move drive grouping into a projector/read model and keep page truth bounded"
+	}
+	if cursorLine := firstMatchingLine(lines, nextCursorNilRe); cursorLine > 0 {
+		return cursorLine, "request-path rollup clears NextCursor after in-memory aggregation; do not hide truncation or pagination when summarizing business truth"
+	}
+	return 0, ""
+}
+
+func firstMatchingLine(lines []string, re *regexp.Regexp) int {
+	for i, line := range lines {
+		if re.MatchString(line) {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 // isFanoutCall reports whether an in-loop method call is a cross-boundary round

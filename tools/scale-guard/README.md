@@ -23,6 +23,7 @@ Exit 1 on any NEW violation. Green when every offender is baselined or ignored.
 | `full-mv-refresh` | whole-tenant projection delete with no `projection_version` guard |
 | `non-sargable-like` | `lower(col) LIKE '%..%'` |
 | `god-cte` | > 8 `x AS (` CTEs in one request-path SQL literal |
+| `read-rollup-truth` | request-path/service rollup that bumps a raw list limit or clears `NextCursor` after in-memory aggregation |
 
 One-time tooling (`backend/cmd/seed-*`, `migrate`) is out of scope.
 
@@ -41,3 +42,10 @@ Checks query **shape**, not runtime cost. It does not replace the EXPLAIN plan /
 latency gates (which today run at ~1k rows). The `loop-no-cursor` rule is a
 static heuristic for the park-consolidation hang class; it may need an inline
 boundedness reason for intentionally finite loops.
+
+`read-rollup-truth` exists because the broad "compute-on-write, never
+compute-on-read" rule was still too easy to bypass with an app/service helper:
+fetch a larger raw page, group it in memory, wipe pagination, and present the
+collapsed card as truth. That shape is banned for Calendar, Action Center, and
+other operator projections; the grouped row must come from a projector/read
+model or an explicitly partial/debug-only path.

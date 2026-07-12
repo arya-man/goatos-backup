@@ -15,7 +15,7 @@ Scope: backend/contracts for the Preventive Care (PC) Vaccination Calendar slice
 7. Proof/evidence: detail blocks include source/rule, SOP proof, verification, stock, and history links; proof/rework rows are represented as dated human actions.
 8. Verification/acceptance: verification pending/rejected/rework events carry verifier labels and proof/verification detail, preserving the SOP verification boundary.
 9. Read models: Calendar list/detail/history are source-backed projection reads with action/audit/notification/snooze/escalation history and tenant/park/shed authorization scope; they do not reconstruct truth in frontend state.
-10. Scale: list API enforces 45-day max, keyset cursor pagination, max 200 rows, tenant/owner/status/park/shed filters plus actor-scope predicates, and `CalendarVaccinationWidestList` query-plan validation.
+10. Scale: list API enforces 45-day max, keyset cursor pagination, max 200 rows, tenant/owner/status/park/shed filters plus actor-scope predicates, and `CalendarVaccinationWidestList` query-plan validation. Service or frontend code must not bump the raw limit, aggregate those rows in memory, clear `next_cursor`, and present the collapsed result as authoritative park-drive truth.
 11. Operations: projector and sweepers have bounded `-limit`; reminder/escalation sweepers require an explicit tenant and persist each event in its own transaction; outbox rows feed the relay/domain event path; audit/history rows carry tenant, event id, action, channel, trace, status, and idempotency metadata.
 12. Local Docker parity: fresh Docker Postgres applies migrations, runs the same seed/projector/sweeper command binaries, and queries durable rows.
 13. Seed/E2E data: seed covers CBE/CPT, Preventive Care (PC) / Inventory/Admin Data Ops, due/overdue/future/in-progress/proof/verification/rework/deferred/blocked/snoozed/escalated statuses, negative system exclusion, scope-negative cases, reminder history, and escalation acknowledgement/resolution regressions.
@@ -37,6 +37,8 @@ Scope: backend/contracts for the Preventive Care (PC) Vaccination Calendar slice
   - `npm --prefix packages/api-client run generate`
 - Docker-backed regression coverage:
   - production projection refresh from a source-backed vaccination obligation.
+  - calendar park-drive grain comes from `calendar-vaccination-projector` / projection rows, not request-path or frontend read-time aggregation.
+  - list pagination remains honest (`next_cursor` preserved when more rows exist); the read path does not hide truncation behind collapsed counts.
   - tenant/park/shed scoped list/detail/nudge enforcement.
   - escalation acknowledgement/replay/conflict, escalation resolution, and
     multi-level active ladder closure.

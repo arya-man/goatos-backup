@@ -1,16 +1,13 @@
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info, Plus } from "lucide-react";
-import { actionFeedbackCopy, copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { CalendarDays, ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { actionFeedbackCopy, copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, hrefWithPagedCursor, hrefPreviousPagedCursor, boundedInt, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { fmtDate as fmtIstDate, todayIso } from "@/lib/format";
 import { Tag } from "@/components/ui-primitives";
 import {
-  activeEscalationState,
-  activeReminderState,
   eventTypeMeta,
   fallbackCalendarPresentation,
-  hasReminderOrEscalation,
   ownerColor,
   ownerLabel,
   ownerMetaFromPresentation,
@@ -26,6 +23,8 @@ import {
 } from "./calendar-contract";
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { CalendarEventDrawer } from "./calendar-event-drawer";
+import { CalendarDriveSummaryDrawer, type CalendarDriveSummaryEvent } from "./calendar-drive-summary-drawer";
+import { CalendarMonthPicker } from "./calendar-month-picker";
 import { monthWindow, weekWindow } from "./calendar-window";
 
 const PATH = "/calendar";
@@ -64,23 +63,150 @@ function dateHeading(key: string, today: string, pageContract: AdminUiPageContra
   return `${wd} · ${optionLabel(pageContract, "calendar_months", String(d.getMonth())).slice(0, 3).toUpperCase()} ${d.getDate()}`;
 }
 
+function asDriveSummaryEvent(event: CalendarEvent): CalendarDriveSummaryEvent {
+  return event as CalendarDriveSummaryEvent;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+}
+
+function genericScopeLabel(value: string | null | undefined): boolean {
+  const normalized = (value || "").trim().toLowerCase();
+  return normalized === "" || normalized === "catch-up drive" || normalized === "vaccination drive" || normalized === "review queue";
+}
+
+function driveStage(event: CalendarEvent): "drive" | "review" | "skip" {
+  switch (event.event_type) {
+    case "vaccination_defer_review":
+    case "vaccination_evidence_review":
+    case "vaccination_proof_verification":
+    case "vaccination_rework_due":
+    case "vaccination_config_activation_review":
+      return "review";
+    case "vaccine_stock_readiness":
+    case "vaccine_cold_chain_check":
+    case "vaccine_reorder_expiry_grn":
+    case "pc_stock_anti_misuse":
+      return "skip";
+    default:
+      return "drive";
+  }
+}
+
+function vaccineLabel(event: CalendarEvent): string {
+  const named = event.vaccine_name?.trim();
+  if (named) return named;
+  return event.title
+    .replace(/^Preventive Care Vaccination Matrix\s+/i, "")
+    .replace(/\s+catch-up drive$/i, "")
+    .replace(/\s+due$/i, "")
+    .trim();
+}
+
+function parkLabel(event: CalendarEvent): string {
+  if (!genericScopeLabel(event.park_code)) return event.park_code!.trim();
+  if (!genericScopeLabel(event.shed_name)) return event.shed_name!.trim();
+  return "Park";
+}
+
+function summarizeLabels(labels: string[], fallback: string): string {
+  if (labels.length === 0) return fallback;
+  if (labels.length <= 3) return labels.join(" · ");
+  return `${labels.slice(0, 3).join(" · ")} +${labels.length - 3} more`;
+}
+
+function aggregateCalendarEvents(events: CalendarEvent[]): CalendarDriveSummaryEvent[] {
+  if (events.some((event) => Boolean((event as { aggregated?: boolean }).aggregated))) {
+    return events as CalendarDriveSummaryEvent[];
+  }
+  const grouped = new Map<string, CalendarEvent[]>();
+  for (const event of events) {
+    const stage = driveStage(event);
+    if (stage === "skip") continue;
+    const bucket = [dateKey(event.due_at), event.owner_key || "pc", parkLabel(event), stage].join("|");
+    const rows = grouped.get(bucket) ?? [];
+    rows.push(event);
+    grouped.set(bucket, rows);
+  }
+  return Array.from(grouped.entries())
+    .map(([bucket, rows]) => {
+      const first = rows[0];
+      const stage = driveStage(first);
+      const date = dateKey(first.due_at);
+      const park = parkLabel(first);
+      const sheds = uniqueStrings(rows.map((row) => row.shed_name));
+      const vaccines = uniqueStrings(rows.map((row) => vaccineLabel(row)));
+      const collapsedCount = rows.length;
+      const scheduledCount = rows.filter((row) => ["scheduled", "due", "overdue", "missed", "in_progress", "proof_pending", "verification_pending", "rework_due"].includes(row.status)).length;
+      const deferredCount = rows.filter((row) => row.status === "deferred").length;
+      const reviewCount = stage === "review" ? collapsedCount : 0;
+      const targetCount = rows.reduce((sum, row) => sum + row.target_count, 0);
+      const summaryPrimary =
+        stage === "review"
+          ? `${collapsedCount} follow-up ${collapsedCount === 1 ? "item" : "items"} queued`
+          : `${vaccines.length || collapsedCount} vaccine ${vaccines.length === 1 ? "queue" : "queues"}${sheds.length ? ` across ${sheds.length} shed${sheds.length === 1 ? "" : "s"}` : ""}`;
+      const summarySecondary =
+        stage === "review"
+          ? summarizeLabels(vaccines, "Open to inspect review exceptions")
+          : summarizeLabels(vaccines, "Open to inspect vaccine mix");
+      const summaryTertiary =
+        collapsedCount > 1 ? `${collapsedCount} loaded drive rows grouped into one card` : stage === "review" ? "Review items grouped by drive day" : "Grouped by drive day";
+      return {
+        ...first,
+        event_id: `parkdrive:${bucket.replace(/\|/g, ":").replace(/\s+/g, "-").toLowerCase()}`,
+        title: stage === "review" ? `${park} review queue` : `${park} vaccination drive`,
+        subtitle: stage === "review" ? "Review queue" : "Park drive",
+        target_count: targetCount,
+        aggregated: true,
+        all_day: true,
+        summary_primary: summaryPrimary,
+        summary_secondary: summarySecondary,
+        summary_tertiary: summaryTertiary,
+        shed_count: sheds.length,
+        vaccine_count: vaccines.length,
+        drive_count: collapsedCount,
+        catch_up_count: rows.filter((row) => row.title.toLowerCase().includes("catch-up")).length,
+        scheduled_count: scheduledCount,
+        deferred_count: deferredCount,
+        review_count: reviewCount,
+        shed_labels: sheds,
+        vaccine_labels: vaccines,
+        due_at: `${date}T00:00:00+05:30`,
+      } as CalendarDriveSummaryEvent;
+    })
+    .sort((a, b) => a.due_at.localeCompare(b.due_at) || a.title.localeCompare(b.title));
+}
+
 function EventRow({ event, href, ownerMeta, pageContract }: { event: CalendarEvent; href: string; ownerMeta: OwnerPresentationMap; pageContract: AdminUiPageContract }) {
-  const meta = [optionLabel(pageContract, "calendar_status", event.status), event.subtitle, event.park_code, event.shed_name, ownerLabel(event.owner_key, ownerMeta)]
+  const summary = asDriveSummaryEvent(event);
+  const meta = summary.aggregated
+    ? [summary.subtitle, ownerLabel(event.owner_key, ownerMeta)]
+        .filter(Boolean)
+        .join(" · ")
+    : [optionLabel(pageContract, "calendar_status", event.status), event.subtitle, event.park_code, event.shed_name, ownerLabel(event.owner_key, ownerMeta)]
     .filter(Boolean)
     .join(" · ");
-  const escalationState = activeEscalationState(event);
-  const reminderState = activeReminderState(event);
-  const badgeGroup = escalationState ? "calendar_escalation_state" : "calendar_reminder_state";
-  const badgeState = escalationState || reminderState;
-  const badge = badgeState ? optionLabel(pageContract, badgeGroup, badgeState) : "";
   return (
     <Link href={href} replace scroll={false} className="ev celllink" style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
-      <div className="et">{timeOf(event.due_at)}</div>
+      <div className="et">{summary.all_day ? "ALL DAY" : timeOf(event.due_at)}</div>
       <div className="eb">
         <b>{event.title}</b>
         <div className="em">{meta}</div>
+        {summary.summary_primary ? (
+          <div className="em" style={{ color: "var(--text)", fontWeight: 650 }}>
+            {summary.summary_primary}
+          </div>
+        ) : null}
+        {summary.summary_secondary ? <div className="em">{summary.summary_secondary}</div> : null}
       </div>
-      {badge ? <span className="erem">{badge}</span> : null}
+      {summary.aggregated ? <span className="erem">DRIVE</span> : null}
     </Link>
   );
 }
@@ -98,6 +224,7 @@ export async function VaccinationCalendarPage({
   const datePickerOpen = one(sp, "view") === "month";
   const requestedOwnerKey = (one(sp, "owner_key") || "all") as CalendarOwnerFilter;
   const selectedEventId = one(sp, "event");
+  const groupedSelection = selectedEventId?.startsWith("parkdrive:") ?? false;
   const targetsCursor = one(sp, "targets_cursor");
   const targetsPage = boundedInt(one(sp, "targets_page"), 1, 1, 1000);
   const today = istToday();
@@ -111,18 +238,17 @@ export async function VaccinationCalendarPage({
   const pickerWindow = monthWindow(anchorKey);
   const agendaWindow = weekWindow(anchorKey);
 
-  const [list, pickerList, historyList, detail, targets] = await Promise.all([
+  const [list, pickerList, detail, targets] = await Promise.all([
     getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom: agendaWindow.dateFrom, dateTo: agendaWindow.dateTo }),
     getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, dateFrom: pickerWindow.dateFrom, dateTo: pickerWindow.dateTo, includeDateMarkers: true }),
-    getCalendarVaccinationEvents({ parkId, ownerKey: requestedOwnerKey, status: "completed", dateFrom: agendaWindow.dateFrom, dateTo: agendaWindow.dateTo, limit: 200 }),
-    selectedEventId ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),
-    selectedEventId ? getCalendarDriveTargets(selectedEventId, { cursor: targetsCursor, limit: 10 }) : Promise.resolve(null),
+    selectedEventId && !groupedSelection ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),
+    selectedEventId && !groupedSelection ? getCalendarDriveTargets(selectedEventId, { cursor: targetsCursor, limit: 10 }) : Promise.resolve(null),
   ]);
 
-  const openEvents = list.ok ? list.data.items : [];
-  const historyEvents = historyList.ok ? historyList.data.items : [];
-  const events = Array.from(new Map([...historyEvents, ...openEvents].map((event) => [event.event_id, event])).values());
-  const pickerEvents = pickerList.ok ? pickerList.data.items : events;
+  const rawEvents = list.ok ? list.data.items : [];
+  const events = aggregateCalendarEvents(rawEvents);
+  const rawPickerEvents = pickerList.ok ? pickerList.data.items : rawEvents;
+  const pickerEvents = aggregateCalendarEvents(rawPickerEvents);
   if (list.ok && !list.data.presentation) {
     throw new Error(copy(pageContract, "error.presentation_missing"));
   }
@@ -141,6 +267,9 @@ export async function VaccinationCalendarPage({
   const pickerDateHref = (date: string) => hrefWith({ as_of: date, view: undefined, day: undefined, event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
 
   const sel = detail && detail.ok ? detail.data : null;
+  const groupedSel = groupedSelection
+    ? (events.find((event) => event.event_id === selectedEventId) as CalendarDriveSummaryEvent | undefined) ?? null
+    : null;
   const spForTargets: RouteSearchParams = { ...sp, event: selectedEventId };
   function scopedTargetsHref(href: string | null): string | null {
     if (!href) return null;
@@ -159,16 +288,19 @@ export async function VaccinationCalendarPage({
     <div className="screen on">
       <div className="phead">
         <div>
-          <h1>{pageContract.title || presentation.page_title}</h1>
-          <div className="sub">{pageContract.subtitle || presentation.page_subtitle}</div>
+          <h1>{presentation.page_title || pageContract.title}</h1>
+          <div className="sub">{presentation.page_subtitle || pageContract.subtitle}</div>
         </div>
         <div className="sp" />
         <div className="subtabs calview-tabs" style={{ margin: 0 }}>
           <Link href={weekHref} replace scroll={false} className={datePickerOpen ? "" : "on"}>
             {optionLabel(pageContract, "calendar_view_tabs", "week")}
           </Link>
-          <details className="calpicker" open={datePickerOpen}>
-            <summary>{optionLabel(pageContract, "calendar_view_tabs", "month")}</summary>
+          <CalendarMonthPicker
+            label={optionLabel(pageContract, "calendar_view_tabs", "month")}
+            open={datePickerOpen}
+            closeHref={weekHref}
+          >
             <CalendarDatePicker
               events={pickerEvents}
               dateMarkers={pickerList.ok ? pickerList.data.date_markers : []}
@@ -180,15 +312,11 @@ export async function VaccinationCalendarPage({
               monthHref={pickerMonthHref}
               dateHref={pickerDateHref}
             />
-          </details>
+          </CalendarMonthPicker>
         </div>
-        <button type="button" className="btn p" aria-disabled={presentation.new_event.enabled ? undefined : "true"} title={presentation.new_event.disabled_reason}>
-          <Plus className="ic" aria-hidden="true" />
-          {presentation.new_event.label}
-        </button>
       </div>
 
-      <div className="subtabs" style={{ margin: "0 0 6px" }} aria-label={copy(pageContract, "filter.owner.aria")}>
+      <div className="subtabs" style={{ margin: "0 0 10px" }} aria-label={copy(pageContract, "filter.owner.aria")}>
         {presentation.owner_tabs.map((tab) => (
           <Link
             key={tab.key}
@@ -204,49 +332,28 @@ export async function VaccinationCalendarPage({
         ))}
       </div>
 
-      <div className="subtabs" style={{ margin: "0 0 14px" }} aria-label={copy(pageContract, "filter.workstream.aria")}>
-        {presentation.workstream_tabs.map((tab) =>
-          tab.enabled && !tab.active ? (
-            <Link key={tab.key} href={hrefForTab(tab)} replace scroll={false} title={tab.disabled_reason || undefined}>
-              {tab.label}
-            </Link>
-          ) : (
-            <button key={tab.key} type="button" className={tab.active ? "on" : "disabled"} aria-current={tab.active ? "true" : undefined} aria-disabled={tab.enabled ? undefined : "true"} title={tab.disabled_reason || undefined}>
-              {tab.label}
-            </button>
-          ),
-        )}
-      </div>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="bd">
-          <div className="b700" style={{ marginBottom: 9 }}>
-            {presentation.rhythm.title} <span className="muted small">— {presentation.rhythm.note}</span>
-          </div>
-          <div className="rhythm">
-            {presentation.rhythm.days.map((day) => {
-              const dayQuery = presentationQueryToSearch(day.query);
-              const targetDay = dayQuery.day ?? day.day;
-              const selected = dayFilter === targetDay;
-              const included = !dayFilter;
-              return (
-                <Link
-                  key={day.day}
-                  href={hrefWith({ ...dayQuery, day: selected ? undefined : targetDay, event: undefined })}
-                  replace
-                  scroll={false}
-                  className={`rday ${selected ? "today" : included ? "included" : ""}`}
-                  aria-label={included ? `${day.day} is included in whole-week vaccination work` : `Show ${day.day} vaccination work: ${day.label.toLowerCase()}`}
-                  aria-disabled={day.enabled ? undefined : "true"}
-                >
-                  <div className="d">{day.day}</div>
-                  <div className={`mode ${day.tone}`}>{day.label}</div>
-                </Link>
-              );
-            })}
-          </div>
+      {presentation.workstream_tabs.length ? (
+        <div className="subtabs" style={{ margin: "0 0 14px" }} aria-label={copy(pageContract, "filter.workstream.aria")}>
+          {presentation.workstream_tabs.map((tab) =>
+            tab.enabled && !tab.active ? (
+              <Link key={tab.key} href={hrefForTab(tab)} replace scroll={false} title={tab.disabled_reason || undefined}>
+                {tab.label}
+              </Link>
+            ) : (
+              <button
+                key={tab.key}
+                type="button"
+                className={tab.active ? "on" : "disabled"}
+                aria-current={tab.active ? "true" : undefined}
+                aria-disabled={tab.enabled ? undefined : "true"}
+                title={tab.disabled_reason || undefined}
+              >
+                {tab.label}
+              </button>
+            ),
+          )}
         </div>
-      </div>
+      ) : null}
 
       {actionStatus ? (
         actionStatus === "success" ? (
@@ -265,7 +372,7 @@ export async function VaccinationCalendarPage({
           <b>{list.error.code ?? list.error.kind}</b>&nbsp;{list.error.message}
         </div>
       ) : null}
-      {selectedEventId && detail && !detail.ok ? (
+      {selectedEventId && !groupedSelection && detail && !detail.ok ? (
         <div className="alert" style={{ marginBottom: 14 }}>
           <b>{detail.error.code ?? detail.error.kind}</b>&nbsp;{detail.error.message}
         </div>
@@ -285,7 +392,14 @@ export async function VaccinationCalendarPage({
       />
       {events.length === 0 ? <EmptyState ok={list.ok} presentation={presentation} /> : null}
 
-      {sel ? (
+      {groupedSel ? (
+        <CalendarDriveSummaryDrawer
+          event={groupedSel}
+          closeHref={closeHref}
+          scope={scope}
+          pageContract={pageContract}
+        />
+      ) : sel ? (
         <CalendarEventDrawer
           detail={sel}
           targets={targets && targets.ok ? targets.data.items : null}
@@ -330,7 +444,6 @@ function WeekView({
   clearDayHref: string;
   pageContract: AdminUiPageContract;
 }) {
-  // Rhythm day filter: when a weekday is selected, show only that weekday's due work.
   const scoped = dayFilter ? events.filter((e) => weekdayOf(e.due_at) === dayFilter) : events;
   const sorted = [...scoped].sort((a, b) => a.due_at.localeCompare(b.due_at));
   const byDate = new Map<string, CalendarEvent[]>();
@@ -340,128 +453,63 @@ function WeekView({
     bucket.push(e);
     byDate.set(key, bucket);
   }
-  const remindable = sorted.filter(hasReminderOrEscalation);
   const selectedOwnerLabel = ownerScopeLabel(ownerKey, ownerMeta);
-  const legendOwners = ownerKey === "all" ? presentation.owner_tabs.filter((tab) => tab.key !== "all") : presentation.owner_tabs.filter((tab) => tab.key === ownerKey);
   const showFilteredEmpty = byDate.size === 0 && events.length > 0;
 
   return (
-    <div className="grid calendar-week-grid">
-      <div className="card">
-        <div className="hd">
-          <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-          <h3>{presentation.week.title}</h3>
-          <Tag tone={ownerKey === "all" ? "mut" : "info"}>{selectedOwnerLabel}</Tag>
-          {dayFilter ? <Tag tone="info">{dayFilter}</Tag> : null}
-          <div className="sp" style={{ flex: 1 }} />
-          <span className="legend" aria-label={ownerKey === "all" ? copy(pageContract, "week.legend.all_owner_lanes") : `${selectedOwnerLabel} ${copy(pageContract, "week.legend.lane_suffix")}`}>
-            {legendOwners.map((owner) => (
-              <span key={owner.key}>
-                <span className="sw" style={{ background: owner.color }} /> {owner.label}
-              </span>
-            ))}
-          </span>
-        </div>
-        <div className="bd">
-          {ownerKey !== "all" ? (
-            <div className="fchipsbar calband">
-              {presentation.week.scope_only_message || (
-                <>
-                  {copy(pageContract, "week.showing_prefix")} <b>{selectedOwnerLabel}</b> {copy(pageContract, "week.work_only_suffix")}
-                </>
-              )}
-              <Link href={clearOwnerHref} replace scroll={false} className="lenslink">
-                ↺ {presentation.week.clear_scope_label}
-              </Link>
-            </div>
-          ) : null}
+    <div className="card">
+      <div className="hd">
+        <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+        <h3>{presentation.week.title}</h3>
+        <Tag tone={ownerKey === "all" ? "mut" : "info"}>{selectedOwnerLabel}</Tag>
+        {dayFilter ? <Tag tone="info">{dayFilter}</Tag> : null}
+      </div>
+      <div className="bd">
+        {ownerKey !== "all" ? (
           <div className="fchipsbar calband">
-            {dayFilter ? (
+            {presentation.week.scope_only_message || (
               <>
-                {copy(pageContract, "week.showing_prefix")} <b>{dayFilter}</b> {copy(pageContract, "week.only_suffix")}
-                <Link href={clearDayHref} replace scroll={false} className="lenslink">
-                  ↺ {presentation.week.clear_day_label}
-                </Link>
-              </>
-            ) : (
-              <>
-                {presentation.week.whole_period_message || (
-                  <>
-                    {copy(pageContract, "week.showing_prefix")} <b>{copy(pageContract, "week.whole_week")}</b>.
-                  </>
-                )}
-                <span className="lenslink mutedlink" aria-disabled="true">
-                  {presentation.week.all_days_selected_label}
-                </span>
+                {copy(pageContract, "week.showing_prefix")} <b>{selectedOwnerLabel}</b> {copy(pageContract, "week.work_only_suffix")}
               </>
             )}
+            <Link href={clearOwnerHref} replace scroll={false} className="lenslink">
+              ↺ {presentation.week.clear_scope_label}
+            </Link>
           </div>
-          <div className="agenda">
-            {byDate.size === 0 && showFilteredEmpty ? (
-              <p className="muted small" style={{ margin: "4px 2px" }}>
-                {presentation.week.empty_message}
-                {dayFilter ? ` ${copy(pageContract, "week.empty_day_prefix")} ${dayFilter}` : ""} {copy(pageContract, "week.empty_scope_suffix")}
-              </p>
-            ) : byDate.size > 0 ? (
-              Array.from(byDate.entries()).map(([key, rows]) => (
-                <div key={key}>
-                  <div className="dh">{dateHeading(key, today, pageContract)}</div>
-                  {rows.map((e) => (
-                    <EventRow key={e.event_id} event={e} href={eventHref(e.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
-                  ))}
-                </div>
-              ))
-            ) : null}
-          </div>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="hd">
-          <Clock className="ic" style={{ color: "var(--amber)" }} aria-hidden="true" />
-          <h3>{presentation.week.reminder_title}</h3>
-        </div>
-        <div className="bd feed">
-          {remindable.length === 0 ? (
-            <p className="muted small" style={{ margin: 0 }}>
-              {presentation.week.reminder_empty_message}
-            </p>
+        ) : null}
+        <div className="fchipsbar calband">
+          {dayFilter ? (
+            <>
+              {copy(pageContract, "week.showing_prefix")} <b>{dayFilter}</b> {copy(pageContract, "week.only_suffix")}
+              <Link href={clearDayHref} replace scroll={false} className="lenslink">
+                ↺ {presentation.week.clear_day_label}
+              </Link>
+            </>
           ) : (
-            remindable.map((e) => {
-              const escalationState = activeEscalationState(e);
-              const reminderState = activeReminderState(e);
-              const visibleReminderState = reminderState === "escalated" && escalationState ? "" : reminderState;
-              return (
-                <Link key={e.event_id} href={eventHref(e.event_id)} replace scroll={false} className="fitem">
-                  <span className="fic" style={{ background: `color-mix(in srgb, ${ownerColor(e.owner_key, ownerMeta)} 20%, var(--panel))`, color: ownerColor(e.owner_key, ownerMeta) }}>
-                    <Clock className="ic" aria-hidden="true" />
-                  </span>
-                  <div className="tx">
-                    <b>{e.title}</b>
-                    <div className="mt">{[ownerLabel(e.owner_key, ownerMeta), e.park_code, e.shed_name].filter(Boolean).join(" · ")}</div>
-                    <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                      <span className="tag t-info" style={{ fontSize: 10 }}>
-                        {e.primary_notification_channel || copy(pageContract, "label.not_configured")}
-                      </span>
-                      {escalationState ? (
-                        <span className={`tag t-${optionTone(pageContract, "calendar_escalation_state", escalationState)}`} style={{ fontSize: 10 }}>
-                          {optionLabel(pageContract, "calendar_escalation_state", escalationState)}
-                        </span>
-                      ) : null}
-                      {visibleReminderState ? (
-                        <span className={`tag t-${optionTone(pageContract, "calendar_reminder_state", visibleReminderState)}`} style={{ fontSize: 10 }}>
-                          {optionLabel(pageContract, "calendar_reminder_state", visibleReminderState)}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                </Link>
-              );
-            })
+            <>
+              {presentation.week.whole_period_message}
+              <span className="lenslink mutedlink" aria-disabled="true">
+                {presentation.week.all_days_selected_label}
+              </span>
+            </>
           )}
-          <div className="note" style={{ marginTop: 10 }}>
-            {presentation.week.reminder_note}
-          </div>
+        </div>
+        <div className="agenda">
+          {byDate.size === 0 && showFilteredEmpty ? (
+            <p className="muted small" style={{ margin: "4px 2px" }}>
+              {presentation.week.empty_message}
+              {dayFilter ? ` ${copy(pageContract, "week.empty_day_prefix")} ${dayFilter}` : ""} {copy(pageContract, "week.empty_scope_suffix")}
+            </p>
+          ) : byDate.size > 0 ? (
+            Array.from(byDate.entries()).map(([key, rows]) => (
+              <div key={key}>
+                <div className="dh">{dateHeading(key, today, pageContract)}</div>
+                {rows.map((e) => (
+                  <EventRow key={e.event_id} event={e} href={eventHref(e.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
+                ))}
+              </div>
+            ))
+          ) : null}
         </div>
       </div>
     </div>
@@ -502,8 +550,10 @@ function CalendarDatePicker({
     bucket.push(e);
     byDate.set(key, bucket);
   }
-  const markersByDate = new Map(dateMarkers.map((marker) => [marker.date, marker]));
-
+  const markerByDate = new Map<string, CalendarDateMarker>();
+  for (const marker of dateMarkers) {
+    markerByDate.set(marker.date, marker);
+  }
   const firstDow = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells: ({ day: number; key: string } | null)[] = [];
@@ -536,13 +586,12 @@ function CalendarDatePicker({
         {cells.map((cell, i) => {
           if (cell === null) return <span key={`out-${i}`} className="calpicker-day out" />;
           const dayEvents = byDate.get(cell.key) ?? [];
-          const marker = markersByDate.get(cell.key);
-          const hasDrive = marker ? marker.drive_count > 0 : dayEvents.some((e) => e.event_type === "vaccination_drive");
-          const hasHistory = marker ? marker.completed_count > 0 : dayEvents.some((e) => e.status === "completed");
-          const hasOpenWork = marker ? marker.open_count > 0 : dayEvents.some((e) => e.status !== "completed" && e.status !== "canceled");
+          const marker = markerByDate.get(cell.key);
+          const hasDrive = dayEvents.length > 0;
+          const hasHistory = (marker?.completed_count ?? 0) > 0;
+          const hasOpenWork = (marker?.open_count ?? 0) > 0;
           const owners = Array.from(new Set(dayEvents.map((e) => e.owner_key))).slice(0, 3);
           const eventCount = marker?.event_count ?? dayEvents.length;
-          const eventCountLabel = eventCount > 99 ? "99+" : String(eventCount);
           return (
             <Link
               key={cell.key}
@@ -551,18 +600,15 @@ function CalendarDatePicker({
               scroll={false}
               className={`calpicker-day${cell.key === today ? " today" : ""}${cell.key === anchorKey ? " selected" : ""}${eventCount ? " has-events" : ""}${hasDrive ? " has-drive" : ""}${hasHistory ? " has-history" : ""}${hasOpenWork ? " has-open-work" : ""}`}
               title={
-                marker
-                  ? `${marker.completed_count} completed · ${marker.open_count} open`
-                  : dayEvents.length
+                dayEvents.length
                   ? dayEvents
                       .slice(0, 4)
-                      .map((e) => `${timeOf(e.due_at)} ${eventTypeMeta(e.event_type, presentation).label} - ${e.title}`)
+                      .map((e) => `${asDriveSummaryEvent(e).all_day ? "All day" : timeOf(e.due_at)} ${eventTypeMeta(e.event_type, presentation).label} - ${e.title}`)
                       .join("\n")
                   : undefined
               }
             >
               <span>{cell.day}</span>
-              {eventCount ? <b>{eventCountLabel}</b> : null}
               {owners.length ? (
                 <i>
                   {owners.map((owner) => (
@@ -575,9 +621,7 @@ function CalendarDatePicker({
         })}
       </div>
       <div className="calpicker-note">
-        <span className="calpicker-dot drive" /> {copy(pageContract, "calendar.picker.drive_hint")}
-        <span className="calpicker-dot other" /> {copy(pageContract, "calendar.picker.other_hint")}
-        <span className="calpicker-dot history" /> {copy(pageContract, "calendar.picker.history_hint")}
+        <span className="calpicker-dot drive" /> Drive day
         <span className="sp" />
         <span>{presentation.month.as_of_hint}</span>
       </div>

@@ -319,6 +319,11 @@ Do:
   - **compute-on-read / god-CTE** — reconstructing derived state from raw
     event/instance tables per request via a big multi-CTE query. Use a
     materialized read model updated on write; the request does an indexed lookup.
+  - **capped read-time rollup presented as truth** — fetching a larger raw page,
+    grouping in app/service/frontend state, then clearing pagination/cursor and
+    showing the collapsed card/count as business truth. This is banned for
+    Calendar, Action Center, and other operator projections. Put the grouped row
+    in the projector/read model and prove it with seed/projector E2E.
   - **full (stop-the-world) MV refresh** — `DELETE FROM <projection> WHERE
     tenant_id` + full reinsert. Use incremental (outbox-delta) maintenance, or a
     version-swap; never whole-tenant delete+reinsert.

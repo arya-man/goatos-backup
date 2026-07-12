@@ -340,6 +340,10 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusPill(item.statusLabel, item.statusTone)
             Spacer(Modifier.weight(1f))
+            if (item.timeLabel.isNotEmpty()) {
+                StatusPill(item.timeLabel, CalendarTone.Neutral)
+                Spacer(Modifier.size(6.dp))
+            }
             item.categoryLabel?.let { StatusPill(it, CalendarTone.Muted) }
         }
         Row(
@@ -368,6 +372,24 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 fontSize = 12.sp,
                 fontWeight = FontWeight.W500,
                 modifier = Modifier.padding(top = 7.dp),
+            )
+        }
+        if (item.summaryPrimary.isNotEmpty()) {
+            Text(
+                text = item.summaryPrimary,
+                color = MeshaColors.Ink,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.W700,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+        if (item.summarySecondary.isNotEmpty()) {
+            Text(
+                text = item.summarySecondary,
+                color = MeshaColors.Muted,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.W600,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
         item.ctaLabel?.let {

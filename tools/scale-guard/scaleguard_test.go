@@ -45,10 +45,22 @@ const delProj = "DELETE FROM t_projection_rows WHERE tenant_id = $1"
 const likeSQL = "SELECT id FROM t WHERE lower(name) LIKE '%' || $1 || '%'"
 
 const godCTE = "WITH a AS (SELECT 1), b AS (SELECT 1), c AS (SELECT 1), d AS (SELECT 1), e AS (SELECT 1), f AS (SELECT 1), g AS (SELECT 1), h AS (SELECT 1), i AS (SELECT 1), j AS (SELECT 1) SELECT * FROM a"
+
+const aggregateRawFetchLimit = 5000
+
+func aggregateCalendarList() {}
+
+func (r *T) badRollup() {
+	q := struct{ Limit int }{}
+	resp := struct{ NextCursor *string }{}
+	q.Limit = aggregateRawFetchLimit
+	aggregateCalendarList()
+	resp.NextCursor = nil
+}
 `
 	repo, path := writeGo(t, src)
 	got := rules(scanFile(repo, path))
-	for _, want := range []string{"n-plus-one", "offset-pagination", "full-mv-refresh", "non-sargable-like", "god-cte"} {
+	for _, want := range []string{"n-plus-one", "offset-pagination", "full-mv-refresh", "non-sargable-like", "god-cte", "read-rollup-truth"} {
 		if got[want] == 0 {
 			t.Errorf("expected rule %q to fire, got %+v", want, got)
 		}

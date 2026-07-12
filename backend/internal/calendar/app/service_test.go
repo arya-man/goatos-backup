@@ -11,7 +11,7 @@ import (
 )
 
 func TestServiceRejectsCalendarRangeOver45Days(t *testing.T) {
-	svc := NewService(fakeRepo{})
+	svc := NewService(&fakeRepo{})
 	_, err := svc.ListEvents(context.Background(), domain.Query{
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		DateFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
@@ -24,35 +24,41 @@ func TestServiceRejectsCalendarRangeOver45Days(t *testing.T) {
 }
 
 func TestServiceAddsBackendControlledPresentation(t *testing.T) {
-	svc := NewService(fakeRepo{})
+	svc := NewService(&fakeRepo{})
 	resp, err := svc.ListEvents(context.Background(), domain.Query{
 		TenantID: "00000000-0000-4000-8000-000000000001",
-		OwnerKey: domain.OwnerInventory,
+		OwnerKey: domain.OwnerPC,
 		DateFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
 		DateTo:   time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if resp.Presentation.ActiveOwnerKey != domain.OwnerInventory {
-		t.Fatalf("active owner = %q, want %q", resp.Presentation.ActiveOwnerKey, domain.OwnerInventory)
+	if resp.Presentation.ActiveOwnerKey != domain.OwnerPC {
+		t.Fatalf("active owner = %q, want %q", resp.Presentation.ActiveOwnerKey, domain.OwnerPC)
 	}
-	if len(resp.Presentation.OwnerTabs) != 4 || resp.Presentation.OwnerTabs[2].Label != "Inventory / Stock" || !resp.Presentation.OwnerTabs[2].Active {
-		t.Fatalf("owner tabs = %#v, want backend-owned inventory tab active in configured order", resp.Presentation.OwnerTabs)
+	if len(resp.Presentation.OwnerTabs) != 4 || resp.Presentation.OwnerTabs[1].Label != "Preventive Care (PC)" || !resp.Presentation.OwnerTabs[1].Active {
+		t.Fatalf("owner tabs = %#v, want backend-owned PC tab active in configured order", resp.Presentation.OwnerTabs)
 	}
-	if len(resp.Presentation.WorkstreamTabs) == 0 || resp.Presentation.WorkstreamTabs[0].Label != "All Inventory / Stock" || !resp.Presentation.WorkstreamTabs[0].Active {
-		t.Fatalf("workstream tabs = %#v, want inventory workstream copy", resp.Presentation.WorkstreamTabs)
+	if len(resp.Presentation.WorkstreamTabs) == 0 || resp.Presentation.WorkstreamTabs[0].Label != "Vaccination" || !resp.Presentation.WorkstreamTabs[0].Active {
+		t.Fatalf("workstream tabs = %#v, want vaccination workstream copy", resp.Presentation.WorkstreamTabs)
 	}
-	if len(resp.Presentation.Rhythm.Days) < 2 || resp.Presentation.Rhythm.Days[1].Label != "FEFO" {
-		t.Fatalf("rhythm days = %#v, want inventory rhythm labels", resp.Presentation.Rhythm.Days)
+	if len(resp.Presentation.Rhythm.Days) < 2 || resp.Presentation.Rhythm.Days[1].Label != "PREP" {
+		t.Fatalf("rhythm days = %#v, want vaccination rhythm labels", resp.Presentation.Rhythm.Days)
 	}
-	if len(resp.Presentation.ViewTabs) != 3 || resp.Presentation.ViewTabs[2].Key != "history" || resp.Presentation.ViewTabs[2].Query["status"] != domain.StatusCompleted {
-		t.Fatalf("view tabs = %#v, want backend-owned week/month/completed-history tabs", resp.Presentation.ViewTabs)
+	if len(resp.Presentation.ViewTabs) != 3 {
+		t.Fatalf("view tabs = %#v, want week/month/history tabs", resp.Presentation.ViewTabs)
+	}
+	if resp.Presentation.ViewTabs[0].Key != "week" || resp.Presentation.ViewTabs[1].Key != "month" || resp.Presentation.ViewTabs[2].Key != "history" {
+		t.Fatalf("view tabs = %#v, want week/month/history tabs", resp.Presentation.ViewTabs)
+	}
+	if resp.Presentation.ViewTabs[2].Query["status"] != domain.StatusCompleted {
+		t.Fatalf("completed view tab query = %#v, want status=completed", resp.Presentation.ViewTabs[2].Query)
 	}
 }
 
 func TestServiceAllowsMissedStatusFilter(t *testing.T) {
-	svc := NewService(fakeRepo{})
+	svc := NewService(&fakeRepo{})
 	status := domain.StatusMissed
 	_, err := svc.ListEvents(context.Background(), domain.Query{
 		TenantID: "00000000-0000-4000-8000-000000000001",
@@ -65,8 +71,22 @@ func TestServiceAllowsMissedStatusFilter(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsUnsupportedOwnerKey(t *testing.T) {
+	svc := NewService(&fakeRepo{})
+	_, err := svc.ListEvents(context.Background(), domain.Query{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		OwnerKey: "not_a_real_owner",
+		DateFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DateTo:   time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC),
+	})
+	var appErr Error
+	if err == nil || !errors.As(err, &appErr) || appErr.Code != "invalid_owner_key" {
+		t.Fatalf("err = %v, want invalid_owner_key", err)
+	}
+}
+
 func TestServiceMapsIdempotencyConflictToConflict(t *testing.T) {
-	svc := NewService(fakeRepo{nudgeErr: ports.ErrIdempotencyConflict})
+	svc := NewService(&fakeRepo{nudgeErr: ports.ErrIdempotencyConflict})
 	_, err := svc.SendNudge(context.Background(), ports.SendNudge{
 		TenantID:       "00000000-0000-4000-8000-000000000001",
 		EventID:        "obligation:86000000-0000-4000-8000-000000001001",
@@ -80,7 +100,7 @@ func TestServiceMapsIdempotencyConflictToConflict(t *testing.T) {
 }
 
 func TestServiceMapsIdempotencyInProgressToConflict(t *testing.T) {
-	svc := NewService(fakeRepo{nudgeErr: ports.ErrIdempotencyInProgress})
+	svc := NewService(&fakeRepo{nudgeErr: ports.ErrIdempotencyInProgress})
 	_, err := svc.SendNudge(context.Background(), ports.SendNudge{
 		TenantID:       "00000000-0000-4000-8000-000000000001",
 		EventID:        "obligation:86000000-0000-4000-8000-000000001001",
@@ -94,7 +114,7 @@ func TestServiceMapsIdempotencyInProgressToConflict(t *testing.T) {
 }
 
 func TestServiceRejectsInvalidNudgeActionBody(t *testing.T) {
-	svc := NewService(fakeRepo{})
+	svc := NewService(&fakeRepo{})
 	_, err := svc.SendNudge(context.Background(), ports.SendNudge{
 		TenantID:       "00000000-0000-4000-8000-000000000001",
 		EventID:        "obligation:86000000-0000-4000-8000-000000001001",
@@ -120,7 +140,7 @@ func TestServiceRejectsInvalidNudgeActionBody(t *testing.T) {
 }
 
 func TestServiceRejectsInvalidEscalationActions(t *testing.T) {
-	svc := NewService(fakeRepo{})
+	svc := NewService(&fakeRepo{})
 	_, err := svc.AcknowledgeEscalation(context.Background(), ports.AcknowledgeEscalation{
 		TenantID:       "00000000-0000-4000-8000-000000000001",
 		EventID:        "obligation:86000000-0000-4000-8000-000000001001",
@@ -144,54 +164,87 @@ func TestServiceRejectsInvalidEscalationActions(t *testing.T) {
 	}
 }
 
-type fakeRepo struct {
-	nudgeErr error
+func TestServiceKeepsBoundedLimitAndCursorTruth(t *testing.T) {
+	next := "cursor-2"
+	repo := &fakeRepo{
+		listResp: domain.CalendarEventListResponse{
+			Source:     domain.SourceAPI,
+			NextCursor: &next,
+		},
+	}
+	svc := NewService(repo)
+	resp, err := svc.ListEvents(context.Background(), domain.Query{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		OwnerKey: domain.OwnerPC,
+		Limit:    999,
+		DateFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		DateTo:   time.Date(2026, 6, 7, 0, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if repo.lastListQuery.Limit != maxListLimit {
+		t.Fatalf("repo query limit = %d, want bounded max %d with no raw-rollup bump", repo.lastListQuery.Limit, maxListLimit)
+	}
+	if resp.NextCursor == nil || *resp.NextCursor != next {
+		t.Fatalf("next cursor = %#v, want preserved pagination cursor %q", resp.NextCursor, next)
+	}
 }
 
-func (f fakeRepo) ListEvents(context.Context, domain.Query) (domain.CalendarEventListResponse, error) {
+type fakeRepo struct {
+	nudgeErr      error
+	listResp      domain.CalendarEventListResponse
+	lastListQuery domain.Query
+}
+
+func (f *fakeRepo) ListEvents(_ context.Context, q domain.Query) (domain.CalendarEventListResponse, error) {
+	f.lastListQuery = q
+	if f.listResp.Source != "" || f.listResp.NextCursor != nil || len(f.listResp.Items) > 0 {
+		return f.listResp, nil
+	}
 	return domain.CalendarEventListResponse{Source: domain.SourceAPI}, nil
 }
 
-func (f fakeRepo) GetEventDetail(context.Context, domain.EventQuery) (domain.CalendarEventDetail, error) {
+func (f *fakeRepo) GetEventDetail(context.Context, domain.EventQuery) (domain.CalendarEventDetail, error) {
 	return domain.CalendarEventDetail{}, nil
 }
 
-func (f fakeRepo) ListDriveTargets(context.Context, domain.DriveTargetQuery) (domain.CalendarDriveTargetListResponse, error) {
+func (f *fakeRepo) ListDriveTargets(context.Context, domain.DriveTargetQuery) (domain.CalendarDriveTargetListResponse, error) {
 	return domain.CalendarDriveTargetListResponse{Source: domain.SourceAPI}, nil
 }
 
-func (f fakeRepo) History(context.Context, domain.HistoryQuery) (domain.CalendarHistoryResponse, error) {
+func (f *fakeRepo) History(context.Context, domain.HistoryQuery) (domain.CalendarHistoryResponse, error) {
 	return domain.CalendarHistoryResponse{}, nil
 }
 
-func (f fakeRepo) SendNudge(context.Context, ports.SendNudge) (domain.CalendarActionResponse, error) {
+func (f *fakeRepo) SendNudge(context.Context, ports.SendNudge) (domain.CalendarActionResponse, error) {
 	return domain.CalendarActionResponse{}, f.nudgeErr
 }
 
-func (f fakeRepo) Snooze(context.Context, ports.Snooze) (domain.CalendarActionResponse, error) {
+func (f *fakeRepo) Snooze(context.Context, ports.Snooze) (domain.CalendarActionResponse, error) {
 	return domain.CalendarActionResponse{}, nil
 }
 
-func (f fakeRepo) AcknowledgeEscalation(context.Context, ports.AcknowledgeEscalation) (domain.CalendarActionResponse, error) {
+func (f *fakeRepo) AcknowledgeEscalation(context.Context, ports.AcknowledgeEscalation) (domain.CalendarActionResponse, error) {
 	return domain.CalendarActionResponse{}, nil
 }
 
-func (f fakeRepo) ResolveEscalation(context.Context, ports.ResolveEscalation) (domain.CalendarActionResponse, error) {
+func (f *fakeRepo) ResolveEscalation(context.Context, ports.ResolveEscalation) (domain.CalendarActionResponse, error) {
 	return domain.CalendarActionResponse{}, nil
 }
 
-func (f fakeRepo) SweepDueReminders(context.Context, string, int) (int, error) {
+func (f *fakeRepo) SweepDueReminders(context.Context, string, int) (int, error) {
 	return 0, nil
 }
 
-func (f fakeRepo) SweepEscalations(context.Context, ports.SweepEscalations) (int, error) {
+func (f *fakeRepo) SweepEscalations(context.Context, ports.SweepEscalations) (int, error) {
 	return 0, nil
 }
 
-func (f fakeRepo) RefreshVaccinationProjection(context.Context, ports.RefreshVaccinationProjection) (int, error) {
+func (f *fakeRepo) RefreshVaccinationProjection(context.Context, ports.RefreshVaccinationProjection) (int, error) {
 	return 0, nil
 }
 
-func (f fakeRepo) PruneClosedVaccinationProjection(context.Context, string, time.Time, int) (int, error) {
+func (f *fakeRepo) PruneClosedVaccinationProjection(context.Context, string, time.Time, int) (int, error) {
 	return 0, nil
 }

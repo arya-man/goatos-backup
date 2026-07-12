@@ -4,8 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -96,8 +94,9 @@ class CalendarViewModel @Inject constructor(
                     dateTo = historyRange.dateTo,
                     limit = CALENDAR_PAGE_LIMIT,
                 ),
-                ::mergeCalendarResources,
-            ).collectLatest { resource -> applyResource(resource) }
+            ) { open, history -> open to history }.collectLatest { (openResource, historyResource) ->
+                applyResources(openResource, historyResource)
+            }
         }
         refresh()
     }
@@ -107,49 +106,46 @@ class CalendarViewModel @Inject constructor(
      *  [CalendarUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _state.update { it.copy(isRefreshing = true) }
-        val results = listOf(
-            async {
-                repo.refreshEvents(
-                    dateFrom = monthRange.dateFrom,
-                    dateTo = monthRange.dateTo,
-                    limit = CALENDAR_PAGE_LIMIT,
-                )
-            },
-            async {
-                repo.refreshEvents(
-                    status = COMPLETED_STATUS,
-                    dateFrom = historyRange.dateFrom,
-                    dateTo = historyRange.dateTo,
-                    limit = CALENDAR_PAGE_LIMIT,
-                )
-            },
-        ).awaitAll()
+        val open = repo.refreshEvents(
+            dateFrom = monthRange.dateFrom,
+            dateTo = monthRange.dateTo,
+            limit = CALENDAR_PAGE_LIMIT,
+        )
+        val history = repo.refreshEvents(
+            status = COMPLETED_STATUS,
+            dateFrom = historyRange.dateFrom,
+            dateTo = historyRange.dateTo,
+            limit = CALENDAR_PAGE_LIMIT,
+        )
         // SWR: a refresh NEVER replaces what's on screen. On success the observeEvents
         // collector re-emits the fresh cache; on failure the current content stays put and
         // only the offline flag flips — the segments, the week strip, and any cached list keep
         // rendering (never a blank wall). A cold start with no cache yet keeps its calendar
         // skeleton + honest empty state, now flagged offline via [CalendarUiState.isOffline].
-        _state.update { it.copy(isRefreshing = false, isOffline = results.any { result -> result.isFailure }) }
+        _state.update { it.copy(isRefreshing = false, isOffline = open.isFailure || history.isFailure) }
     }
 
     // The heavy transform — parsing every event's due date and building the month/week grids —
     // runs on Dispatchers.Default so a large event set never blocks the UI frame (the month grid
     // was previously an O(events^2) parse storm on the main thread, which froze the calendar and
     // day taps). Only the tiny state.copy() touches Main.
-    private suspend fun applyResource(resource: Resource<CalendarEventListResponseDto>) {
-        val dto = resource.data
+    private suspend fun applyResources(
+        openResource: Resource<CalendarEventListResponseDto>,
+        historyResource: Resource<CalendarEventListResponseDto>,
+    ) {
+        val dto = openResource.data
         // dto non-null (even empty) -> a full calendar shell with an honest empty content area;
         // dto null only on a cold cache -> the loading skeleton. Never a blank collapse.
         val (base, dated) = withContext(Dispatchers.Default) {
             val parsed = dto?.items.orEmpty().map { it to parseLocalDate(it.dueAt) }
-            val ui = dto?.toCalendarUiState(parsed) ?: calendarPlaceholder("Loading…")
+            val ui = dto?.toCalendarUiState(parsed, historyResource.data?.items.orEmpty()) ?: calendarPlaceholder("Loading…")
             ui to parsed
         }
         loadedEvents = dated
         _state.update { current ->
             base.copy(
                 isRefreshing = current.isRefreshing,
-                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
+                lastSyncedAt = listOfNotNull(openResource.lastSyncedAt, historyResource.lastSyncedAt).maxOrNull() ?: current.lastSyncedAt,
                 isOffline = current.isOffline,
             )
         }
@@ -192,6 +188,7 @@ class CalendarViewModel @Inject constructor(
 
     private fun CalendarEventListResponseDto.toCalendarUiState(
         dated: List<Pair<CalendarEventDto, LocalDate?>>,
+        historyItems: List<CalendarEventDto>,
     ): CalendarUiState {
         // Always returns a valid calendar shell — even for an empty response the segments and
         // the real current-week strip render, and the content area shows an honest empty state
@@ -220,7 +217,7 @@ class CalendarViewModel @Inject constructor(
         val monthLabel = YearMonth.now(KOLKATA).let {
             "${it.month.getDisplayName(TextStyle.FULL, Locale.ENGLISH)} ${it.year}"
         }
-        val historyRows = items
+        val historyRows = historyItems
             .asSequence()
             .filter { it.status == COMPLETED_STATUS }
             .sortedByDescending { it.dueAt }
@@ -253,11 +250,11 @@ class CalendarViewModel @Inject constructor(
             windowLabel = null,
             weekDays = weekDays,
             weekItems = weekItems,
-            weekEmptyLabel = presentation.emptyState.okMessage.ifBlank { "No drives scheduled" },
+            weekEmptyLabel = presentation.emptyState.okMessage.ifBlank { "No park drives scheduled" },
             monthLabel = monthLabel,
             monthWeekdayLabels = monthWeekdayLabels,
             monthDays = monthDays,
-            monthHint = "Tap a day for its drives · dots = drive days",
+            monthHint = "Tap a day for park drives · dots = drive days",
             historyRows = historyRows,
             historyEmptyLabel = presentation.emptyState.okMessage.ifBlank { "No past drives" },
         )
@@ -422,6 +419,9 @@ internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
         id = eventId,
         title = title,
         subtitle = subtitle,
+        timeLabel = if (allDay) "All day" else calendarTimeLabel(dueAt),
+        summaryPrimary = summaryPrimary,
+        summarySecondary = summarySecondary,
         statusLabel = status,
         statusTone = calendarTone(),
         categoryLabel = vaccineName,
@@ -429,6 +429,14 @@ internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
         target = target,
     )
 }
+
+internal fun calendarTimeLabel(dueAt: String): String =
+    runCatching {
+        OffsetDateTime.parse(dueAt)
+            .atZoneSameInstant(KOLKATA)
+            .toLocalTime()
+            .let { "%02d:%02d".format(it.hour, it.minute) }
+    }.getOrDefault("")
 
 /** "8 July" — the L1 day-detail title (mirrors the mock's `d+' '+M.nm`). */
 internal fun calendarDayTitle(date: LocalDate): String =

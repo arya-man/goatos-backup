@@ -5,19 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.CalendarRepository
-import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.feature.calendar.CalendarDayUiState
 import java.time.LocalDate
 import javax.inject.Inject
@@ -54,15 +49,12 @@ class CalendarDayViewModel @Inject constructor(
 
     init {
         // The backend keeps open work and accepted completion history as separate bounded
-        // reads. Observe both exact-day Room scopes so tapping a completed month marker opens
-        // the canonical read-only record instead of an empty day.
+        // reads. For the drive-first calendar we keep the day screen aligned with the live
+        // park-drive list only; completed history is not merged into the day agenda.
         if (dateKey != null) {
             viewModelScope.launch {
-                combine(
-                    repo.observeEvents(dateFrom = dateKey, dateTo = dateKey, limit = 200),
-                    repo.observeEvents(status = COMPLETED_STATUS, dateFrom = dateKey, dateTo = dateKey, limit = 200),
-                    ::mergeCalendarResources,
-                ).collectLatest { resource -> applyResource(resource) }
+                repo.observeEvents(dateFrom = dateKey, dateTo = dateKey, limit = 200)
+                    .collectLatest { resource -> applyResource(resource) }
             }
         }
         refresh()
@@ -76,19 +68,16 @@ class CalendarDayViewModel @Inject constructor(
             _state.update { it.copy(isRefreshing = false) }
             return@launch
         }
-        val results = listOf(
-            async { repo.refreshEvents(dateFrom = key, dateTo = key, limit = 200) },
-            async { repo.refreshEvents(status = COMPLETED_STATUS, dateFrom = key, dateTo = key, limit = 200) },
-        ).awaitAll()
+        val result = repo.refreshEvents(dateFrom = key, dateTo = key, limit = 200)
         _state.update { current ->
             current.copy(
                 isRefreshing = false,
-                isOffline = results.any { result -> result.isFailure },
+                isOffline = result.isFailure,
             )
         }
     }
 
-    private suspend fun applyResource(resource: Resource<CalendarEventListResponseDto>) {
+    private suspend fun applyResource(resource: sg.mesha.goatos.core.common.Resource<sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto>) {
         val day = date
         // Filter+map off the Main thread — the day window can carry a few hundred events.
         val items = withContext(Dispatchers.Default) {

@@ -20,11 +20,29 @@ scoped, indexed, bounded, resumable, and measurable.
 - deep `OFFSET` pagination where keyset pagination is required
 - tenant-wide projection delete/reinsert rebuilds
 - non-sargable `lower(col) LIKE '%...'` search predicates
+- capped read-time rollups that fetch a larger raw slice, aggregate it in
+  app/service/frontend state, then hide pagination/truncation and present the
+  collapsed result as business truth
 
 Existing debt is tracked in `tools/scale-guard/baseline.txt`. Do not add a new
 baseline count for new work. Fix the query, batch the writes, add a real
 projection/read model, use keyset cursors, prove loop progress, or add a narrow
 inline `scale-guard:ignore` with a concrete boundedness reason.
+
+Calendar/Action Center/operator worklists need an extra explicit warning here:
+if the product wants one park-drive row instead of hundreds of goat/protocol
+rows, that grouped row must come from a projector/read model. It is not
+acceptable to:
+
+- bump the raw request-path limit (for example to 5000),
+- aggregate those raw rows in a service/helper or frontend component,
+- clear `NextCursor` or otherwise hide truncation,
+- and then show shed/vaccine/goat counts as if they were complete business truth.
+
+That pattern is still compute-on-read, still partial when the raw slice is
+truncated, and still unsafe at 1M animals even if it looks fine on a local
+fixture. If a temporary UI collapse is needed for a mock/demo, it must be
+clearly partial/debug-only and must not invent authoritative totals.
 
 When an E2E run, scale audit, or feature proof is generated while fixing one of
 these issues, commit the report and publish it through the GitHub Pages report
