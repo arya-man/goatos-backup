@@ -137,51 +137,16 @@ export type AssignTaskRequest = AdminApiComponents["schemas"]["AssignTaskRequest
 // rework|assign contract below — it never writes a verdict itself (that is the standalone Verifier
 // mobile app's job, gated on verification.review, built separately).
 //
-// TODO(verification-contract): `/verification/queue` is NOT YET in this worktree's generated
-// `@goatos/api-client` (packages/api-client/src/generated/app-api.ts) or
-// `contracts/openapi/app-api.yaml` — the backend Verification module (1a) ships it on a parallel
-// branch (feat/verification-backend, commit c239490a). These local types mirror that branch's
-// OpenAPI schema EXACTLY (VerificationItemStatus/VerificationSourceRef/VerificationMediaItem/
-// VerificationQueueItem/VerificationQueueResponse). Once that branch merges and the client
-// regenerates, delete this block and replace with
-// `AppApiComponents["schemas"]["VerificationQueueItem"]` etc., and swap `listVerificationQueue`
-// below to the plain generated-client call (drop the `as keyof AppApiPaths & string` cast).
-export type VerificationItemStatus = "pending" | "approved" | "rejected";
-export type VerificationSourceRef = {
-  module: string;
-  task_id?: string;
-  submission_id?: string;
-  ref_type: string;
-  ref_id: string;
-};
-export type VerificationMediaItem = {
-  proof_id: string;
-  download_url: string;
-  mime_type?: string;
-  duration_ms?: number;
-};
-export type VerificationQueueItem = {
-  item_id: string;
-  vertical: string;
-  module: string;
-  category: string;
-  status: VerificationItemStatus;
-  verdict_reason?: string;
-  operator_id?: string;
-  shed_id?: string;
-  park_id?: string;
-  captured_at: string;
-  verified_by?: string;
-  verified_at?: string;
-  row_version: number;
-  media: VerificationMediaItem[];
-  source: VerificationSourceRef;
-};
-export type VerificationQueueResponse = {
-  items: VerificationQueueItem[];
-  next_cursor?: string;
-  trace_id: string;
-};
+// Real generated app-api types — the backend Verification module (1a) landed on main and the
+// client regenerated (`packages/api-client/src/generated/app-api.ts`,
+// `contracts/openapi/app-api.yaml`). `/verification/queue` is now a properly typed AppApiPaths
+// entry too, so `listVerificationQueue` below no longer needs the `as keyof AppApiPaths & string`
+// cast.
+export type VerificationItemStatus = AppApiComponents["schemas"]["VerificationItemStatus"];
+export type VerificationSourceRef = AppApiComponents["schemas"]["VerificationSourceRef"];
+export type VerificationMediaItem = AppApiComponents["schemas"]["VerificationMediaItem"];
+export type VerificationQueueItem = AppApiComponents["schemas"]["VerificationQueueItem"];
+export type VerificationQueueResponse = AppApiComponents["schemas"]["VerificationQueueResponse"];
 
 export type ApiErrorKind =
   | "missing_config"
@@ -917,20 +882,18 @@ export async function assignSopTask(taskId: string, body: AssignTaskRequest): Pr
   return request(() => client.request<TaskResponse>(path, { method: "POST", cache: "no-store", body }));
 }
 
-// TODO(verification-contract): the Verifier's read-only media queue. Category/vertical/module/
-// status/cursor/limit query params match the parallel backend branch's OpenAPI exactly (see the
-// type block above). NOTE the contract has NO park_id query filter yet — the drawer/list below
-// narrow the already-fetched bounded page by the top-bar park scope client-side (small page, ~20
-// rows, never a full-table read) until a park_id query param is added server-side.
+// The Verifier's read-only media queue (GET /verification/queue, real generated app-api contract).
+// NOTE the contract has NO park_id query filter yet — the drawer/list below narrow the
+// already-fetched bounded page by the top-bar park scope client-side (small page, ~20 rows, never
+// a full-table read) until a park_id query param is added server-side.
 export async function listVerificationQueue(
   params: { category?: string; vertical?: string; module?: string; status?: VerificationItemStatus; cursor?: string; limit?: number } = {},
 ): Promise<ApiResult<VerificationQueueResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  const path: string = "/verification/queue";
   return request(() =>
-    client.request<VerificationQueueResponse>(path as keyof AppApiPaths & string, {
+    client.request<VerificationQueueResponse>("/verification/queue", {
       cache: "no-store",
       query: compactQuery({
         category: params.category,

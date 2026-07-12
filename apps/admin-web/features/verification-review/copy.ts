@@ -5,9 +5,11 @@
 // `/verification` is a NEW Admin / Data Ops authority screen (same tier as /config and /sops per
 // context/architecture/verification-module-design.md section 2.1) built ahead of the backend admin-ui
 // contract registering a `verification-review` page (backend/internal/adminui/app/service.go has no
-// entry for it yet — the Verification module itself lands on a parallel branch,
-// feat/verification-backend). `requireAdminWebPageContract("verification-review")` would throw for
-// every request until that lands, so this page renders from local literal copy instead of
+// entry for it yet). The Verification module's DATA contract (`/verification/queue`,
+// `/verification/items/{item_id}/verdict`) has landed on `main` and is real/generated — only the
+// admin-ui PAGE contract (title/subtitle/table columns/option groups/disabled reasons) is still
+// missing. `requireAdminWebPageContract("verification-review")` would throw for every request until
+// that lands, so this page renders from local literal copy instead of
 // `AdminUiPageContract.copy`/`option_groups`.
 //
 // TODO(verification-contract): once backend/internal/adminui/app/service.go registers route_id

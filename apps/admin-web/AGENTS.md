@@ -517,10 +517,10 @@ Only these routes are current implemented product routes:
 (`context/architecture/verification-module-design.md` + `verifier-app-and-flow.md`):
 Head/Director/CEO review the standalone Verifier's approve/reject media queue and
 act on the linked SOP task (rework / re-assign; penalty note is honestly
-disabled — no backend contract exists for it yet). It reads the parallel
-`feat/verification-backend` branch's `/verification/queue` contract (hand-typed
-in `lib/api/server.ts` until that branch merges and the client regenerates) and
-acts through the EXISTING `/admin/tasks/{task_id}` `/rework` `/assign` routes.
+disabled — no backend contract exists for it yet). It reads the real, merged
+`/verification/queue` contract (generated `AppApiComponents["schemas"]["Verification*"]`
+types in `lib/api/server.ts`, no hand-typed shapes) and acts through the EXISTING
+`/admin/tasks/{task_id}` `/rework` `/assign` routes.
 It has no backend page contract yet (`requireAdminWebPageContract` would throw),
 so it renders from local literal copy — documented exception in
 `context/frontend/admin-web-backend-ui-contract.md`. It is not in the sidebar

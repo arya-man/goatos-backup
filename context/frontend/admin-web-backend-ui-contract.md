@@ -197,7 +197,7 @@ These are the active admin-web routes covered by the first backend contract:
 | `/config` | `config` | Protocol Rules | `/protocols`, `/protocols/animal-stages` | Authority screen; category-driven. |
 | `/sops` | `sops` | SOP Library | `/admin/sops` | Vaccination SOP slice only. |
 | `/goats/{goat_id}` | `goat-passport` | Goat Passport | `/goats/{goat_id}`, `/goats/{goat_id}/passport` | Contextual drilldown. |
-| `/verification` | `verification-review` (not yet registered) | Verification — authority review | `/verification/queue` (parallel branch), `/admin/tasks/{task_id}` \| `/rework` \| `/assign` | New Admin/Data Ops authority screen (see verification-module-design.md §2.1); local literal copy until backend registers the page contract — see Explicit exceptions below. |
+| `/verification` | `verification-review` (not yet registered) | Verification — authority review | `/verification/queue` (real generated contract), `/admin/tasks/{task_id}` \| `/rework` \| `/assign` | New Admin/Data Ops authority screen (see verification-module-design.md §2.1); local literal copy until backend registers the page contract — see Explicit exceptions below. |
 
 ## Current Migration State
 
@@ -289,21 +289,21 @@ Explicit exceptions:
   its backend page contract. `backend/internal/adminui/app/service.go` has no `verification-review`
   route_id yet, so `requireAdminWebPageContract` would throw on every request; the page/drawer render
   from local literal copy in `features/verification-review/copy.ts` instead. The underlying DATA is
-  real and backend-wired where a contract already exists: `GET /verification/queue` (types hand-typed
-  in `apps/admin-web/lib/api/server.ts` to match the parallel `feat/verification-backend` branch's
-  OpenAPI exactly — that branch has not merged into this worktree's `contracts/openapi/app-api.yaml`/
-  generated client yet) for the read side, and the EXISTING, already-generated
-  `GET /admin/tasks/{task_id}`, `POST /admin/tasks/{task_id}/rework`, and
-  `POST /admin/tasks/{task_id}/assign` for the authority's rework/re-assign actions. Penalty note has
-  no backend contract at all anywhere in the codebase and ships permanently disabled with a reason
-  until one exists. TODO: once `feat/verification-backend` merges and
+  now fully real and backend-wired: `feat/verification-backend` merged to `main`, and
+  `GET /verification/queue` is a real generated `AppApiPaths` entry
+  (`packages/api-client/src/generated/app-api.ts`, `contracts/openapi/app-api.yaml`) —
+  `lib/api/server.ts` re-exports the generated `AppApiComponents["schemas"]["Verification*"]` types
+  (no more hand-typed shapes, no more `as keyof AppApiPaths & string` cast on the queue call) — plus
+  the EXISTING, already-generated `GET /admin/tasks/{task_id}`, `POST /admin/tasks/{task_id}/rework`,
+  and `POST /admin/tasks/{task_id}/assign` for the authority's rework/re-assign actions. Penalty note
+  has no backend contract at all anywhere in the codebase and ships permanently disabled with a
+  reason until one exists. Remaining TODO (page-contract only, not data): once
   `backend/internal/adminui/app/service.go` registers `verification-review` (title/subtitle/table
   columns/option groups/disabled reasons/a `park_id` query filter on `/verification/queue`), delete
   `features/verification-review/copy.ts`, remove the `features/verification-review/` entry from
-  `apps/admin-web/scripts/check-ui-contract-literals.mjs` `SKIP_PATH_PARTS`, delete the hand-typed
-  `Verification*` types in `lib/api/server.ts` in favor of the generated
-  `AppApiComponents["schemas"]["Verification*"]`, and switch the page/drawer to
-  `requireAdminWebPageContract("verification-review")` + `copy`/`tableLabels`/`optionGroup`.
+  `apps/admin-web/scripts/check-ui-contract-literals.mjs` `SKIP_PATH_PARTS`, and switch the
+  page/drawer to `requireAdminWebPageContract("verification-review")` + `copy`/`tableLabels`/
+  `optionGroup`.
 
 ## Page-Body Contract Snapshot for E2E
 
