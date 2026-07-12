@@ -1,7 +1,7 @@
 {
   "uid": "goatos-stg-kernel-pipeline",
   "title": "Goat OS stg — Kernel pipeline",
-  "description": "One row per operational-kernel stage: event -> txn -> audit/outbox -> trigger -> obligation -> sweeper -> notify -> proof. Metric names per OBSERVABILITY_DESIGN.md section 2.1.",
+  "description": "One row per operational-kernel stage, mirroring the golden chain event -> txn -> audit/outbox -> trigger -> obligation -> sweeper -> notify -> proof (context/architecture/operational-kernel.md). Metric names verified against backend/internal/platform/kmetrics/*.go and cross-checked against the exact GMP metric.type strings already used by infra/envs/stg/monitoring.tf alert policies. Queried through the 'Google Cloud Monitoring' (stackdriver) datasource — this environment has no Prometheus datasource. Pub/Sub backlog comes free from native pubsub.googleapis.com metrics (no OTel instrumentation needed). An operator should be able to look at the top summary row alone and know WHERE the pipeline is backed up.",
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
@@ -9,196 +9,722 @@
   "timezone": "Asia/Kolkata",
   "time": { "from": "now-6h", "to": "now" },
   "refresh": "30s",
-  "tags": ["goatos", "stg", "kernel", "outbox", "obligations"],
+  "tags": ["goatos", "stg", "kernel", "outbox", "obligations", "pipeline"],
   "panels": [
     {
+      "id": 200,
+      "title": "Pipeline health — at a glance",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "id": 1,
-      "title": "Outbox: publish duration p99 / queue depth / dead letters / reclaimed",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "title": "Outbox queue depth",
+      "description": "kernel.outbox.queue_depth (gauge) — rows claimed in the most recent relay batch, a proxy for queue depth (a true COUNT(*) is intentionally avoided on the hot path). Green under 50, amber to 200, red above — tune once a real baseline is observed.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 50 }, { "color": "red", "value": 200 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_outbox_publish_duration_seconds_bucket[5m])))",
-          "legendFormat": "publish p99 (s)"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "kernel_outbox_queue_depth",
-          "legendFormat": "queue depth"
-        },
-        {
-          "refId": "C",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "increase(kernel_outbox_dead_letters_total[5m])",
-          "legendFormat": "dead letters (5m)"
-        },
-        {
-          "refId": "D",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "increase(kernel_outbox_reclaimed_total[5m])",
-          "legendFormat": "reclaimed (5m)"
-        },
-        {
-          "refId": "E",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "increase(kernel_outbox_retry_scheduled_total[5m])",
-          "legendFormat": "retry scheduled (5m)"
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_queue_depth/gauge", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_MAX",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "60s"
+          }
         }
       ]
     },
     {
       "id": 2,
-      "title": "Domain consumer: handle duration p99 + lag",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "title": "DLQ backlog (dead-lettered, undelivered)",
+      "description": "pubsub.googleapis.com/subscription/num_undelivered_messages on goatos-stg-outbox-events-dlq-inspect — the true dead-letter inspection subscription (native GCP metric, free). Any value > 0 for 5m pages ops via the pubsub_dlq_backlog alert policy in monitoring.tf, so red starts at 1, not a softer threshold.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_consumer_handle_duration_seconds_bucket[5m])))",
-          "legendFormat": "handle p99"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "kernel_consumer_lag_seconds",
-          "legendFormat": "consumer lag (SLO < 60s)"
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "pubsub.googleapis.com/subscription/num_undelivered_messages", "AND", "resource.label.subscription_id", "=", "goatos-stg-outbox-events-dlq-inspect"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_MAX",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "60s"
+          }
         }
       ]
     },
     {
       "id": 3,
-      "title": "Domain consumer: validation errors",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "title": "Consumer lag",
+      "description": "kernel.consumer.lag (gauge, seconds) — age of a domain event at handle time. SLO 60s (consumer_lag_slo_seconds in variables.tf); the kernel_consumer_lag alert policy pages above this.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 30 }, { "color": "red", "value": 60 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "increase(kernel_consumer_validation_errors_total[5m])",
-          "legendFormat": "validation errors (5m)"
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_MAX",
+            "crossSeriesReducer": "REDUCE_MAX",
+            "alignmentPeriod": "60s"
+          }
         }
       ]
     },
     {
       "id": 4,
-      "title": "Sweeper: batch duration + obligations swept + tasks created",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "title": "Notification failure rate",
+      "description": "MQL ratio: 100 * rate(kernel.notify.failures) / rate(kernel.notify.send.duration count). SLO success > 99% (notification_success_slo_ratio); red at the 1% alert threshold used by kernel_notification_failure_rate in monitoring.tf.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 10,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_sweeper_batch_duration_seconds_bucket[5m])))",
-          "legendFormat": "batch duration p99 (s)"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "increase(kernel_sweeper_obligations_swept_total[5m])",
-          "legendFormat": "obligations swept (5m)"
-        },
-        {
-          "refId": "C",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "increase(kernel_sweeper_tasks_created_total[5m])",
-          "legendFormat": "tasks created (5m)"
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesQuery",
+          "timeSeriesQuery": {
+            "projectName": "goatos-stg",
+            "query": "{ fail: fetch generic_task :: 'prometheus.googleapis.com/kernel_notify_failures_total/counter' | align rate(15m) | every 5m | group_by [], [value: sum(val())] ; sent: fetch generic_task :: 'prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram' | align rate(15m) | every 5m | group_by [], [value: sum(val())] } | join | value 100 * val(0) / val(1)"
+          }
         }
       ]
     },
     {
+      "id": 201,
+      "title": "Stage 1 — Outbox relay (audit -> publish)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "id": 5,
-      "title": "Notify: send duration + failures by channel (SLO success > 99%)",
+      "title": "Publish duration p50 / p99 by outcome",
+      "description": "kernel.outbox.publish.duration, labels outcome (published/retry_scheduled/failed/dead_letter), event_type. One instrument covers success and failure so a single histogram tells you both latency and where messages are going.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 6 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (le, channel) (rate(kernel_notify_send_duration_seconds_bucket[5m])))",
-          "legendFormat": "send p99 {{channel}}"
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p50 {{metric.label.outcome}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.outcome"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_50",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
         },
         {
           "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "increase(kernel_notify_failures_total[5m])",
-          "legendFormat": "failures {{channel}} (5m)"
-        },
-        {
-          "refId": "C",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "increase(kernel_notify_exhausted_total[5m])",
-          "legendFormat": "exhausted retries (5m)"
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p99 {{metric.label.outcome}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.outcome"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
         }
       ]
     },
     {
       "id": 6,
-      "title": "Cloud Tasks: enqueue duration + idempotent collisions",
+      "title": "Outbox throughput: reclaimed / retry-scheduled / dead-lettered",
+      "description": "kernel.outbox.reclaimed (stale lease recovery), kernel.outbox.retry_scheduled, kernel.outbox.dead_letters — all counters, rate/5m. A rising dead-letter line with flat reclaimed/retry means messages are failing outright, not just slow to land.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 6 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 0, "stacking": { "mode": "normal" } } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "dead-lettered" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "retry-scheduled" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+          { "matcher": { "id": "byName", "options": "reclaimed" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_cloudtasks_enqueue_duration_seconds_bucket[5m])))",
-          "legendFormat": "enqueue p99 (s)"
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "reclaimed",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_reclaimed_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
         },
         {
           "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "increase(kernel_cloudtasks_idempotent_collisions_total[5m])",
-          "legendFormat": "idempotent collisions (5m)"
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "retry-scheduled",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_retry_scheduled_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "C",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "dead-lettered",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_dead_letters_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
         }
       ]
     },
     {
+      "id": 202,
+      "title": "Stage 2 — Pub/Sub transport",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "id": 7,
-      "title": "Pub/Sub subscription backlog (native GCP metric, free)",
+      "title": "Domain-events subscription backlog",
+      "description": "pubsub.googleapis.com/subscription/num_undelivered_messages on goatos-stg-domain-events — the live consumer's own backlog (distinct from the DLQ-inspect subscription in the summary row above). A sustained climb here means the domain consumer is falling behind ingestion, before it ever shows up as consumer lag.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
-      "datasource": { "type": "stackdriver", "uid": "cloud-monitoring" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 14 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 1 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "stackdriver", "uid": "cloud-monitoring" },
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "undelivered (domain-events)",
           "queryType": "timeSeriesList",
           "timeSeriesList": {
-            "filter": "metric.type=\"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id=\"goatos-stg-domain-events\""
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "pubsub.googleapis.com/subscription/num_undelivered_messages", "AND", "resource.label.subscription_id", "=", "goatos-stg-domain-events"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_MAX",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "60s"
           }
         }
       ]
     },
     {
       "id": 8,
-      "title": "End-to-end event age (outbox publish -> obligation swept), p99",
+      "title": "DLQ subscription backlog (dead-letter, trend)",
+      "description": "pubsub.googleapis.com/subscription/num_undelivered_messages on goatos-stg-outbox-events-dlq-inspect, plotted over time (the summary stat above shows only the latest value).",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "description": "Derived by summing per-stage p99s as an upper-bound proxy until a dedicated end-to-end span metric is exported from the propagated outbox traceparent (design section 2.2).",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 14 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 0 },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_outbox_publish_duration_seconds_bucket[5m]))) + histogram_quantile(0.99, sum by (le) (rate(kernel_consumer_handle_duration_seconds_bucket[5m]))) + histogram_quantile(0.99, sum by (le) (rate(kernel_sweeper_batch_duration_seconds_bucket[5m])))",
-          "legendFormat": "approx. end-to-end p99 (s)"
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "undelivered (dlq-inspect)",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "pubsub.googleapis.com/subscription/num_undelivered_messages", "AND", "resource.label.subscription_id", "=", "goatos-stg-outbox-events-dlq-inspect"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_MAX",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "60s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 203,
+      "title": "Stage 3 — Domain-event consumer",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 9,
+      "title": "Handle duration p50 / p99 + lag",
+      "description": "kernel.consumer.handle.duration (labels outcome, event_type) alongside kernel.consumer.lag (publish-to-handle age). Lag climbing while handle duration stays flat points at Pub/Sub delivery delay, not slow processing.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 22 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "consumer lag" }, "properties": [{ "id": "custom.lineWidth", "value": 2 }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p50 handle {{metric.label.outcome}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.outcome"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_50",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p99 handle {{metric.label.outcome}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.outcome"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "C",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "consumer lag",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_MAX",
+            "crossSeriesReducer": "REDUCE_MAX",
+            "alignmentPeriod": "60s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Validation errors + processed/duplicate/failed outcomes",
+      "description": "kernel.consumer.validation_errors (schema-invalid envelopes, rejected before dispatch) plus the outcome breakdown of kernel.consumer.handle.duration's _count series (processed / duplicate_skipped / failed).",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 22 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 0, "stacking": { "mode": "normal" } } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "validation errors" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "validation errors",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_validation_errors_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.outcome}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.outcome"],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 204,
+      "title": "Stage 4 — Obligation sweeper",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 11,
+      "title": "Sweeper batch duration p50 / p99 by stage",
+      "description": "kernel.sweeper.batch.duration, label stage (version / park_consolidation / mark_missed, etc.) — one histogram covers the sweeper's internal phases.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 30 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p50 {{metric.label.stage}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.stage"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_50",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p99 {{metric.label.stage}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.stage"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Obligations swept + tasks created (throughput)",
+      "description": "kernel.sweeper.obligations_swept + kernel.sweeper.tasks_created, both by stage. This is the sweeper's actual output — obligations advanced and SOP batch tasks created per run.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 30 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 50, "lineWidth": 0 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "obligations swept ({{metric.label.stage}})",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_obligations_swept_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.stage"],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "tasks created ({{metric.label.stage}})",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_tasks_created_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.stage"],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 205,
+      "title": "Stage 5 — Notification dispatch",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 13,
+      "title": "Send duration p50 / p99 by channel",
+      "description": "kernel.notify.send.duration, label channel (sms/email/push/webhook/...).",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 38 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p50 {{metric.label.channel}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.channel"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_50",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p99 {{metric.label.channel}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.channel"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Failures + exhausted retries by channel",
+      "description": "kernel.notify.failures (will retry) vs kernel.notify.exhausted (used its last attempt — a genuinely undelivered notification). A channel showing exhausted-without-failures growth means the retry budget itself may be misconfigured.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 38 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 0 } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/exhausted.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/failures.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "failures {{metric.label.channel}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_notify_failures_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.channel"],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "exhausted {{metric.label.channel}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_notify_exhausted_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.channel"],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 206,
+      "title": "Stage 6 — Cloud Tasks enqueue",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 15,
+      "title": "Enqueue duration p50 / p99",
+      "description": "kernel.cloudtasks.enqueue.duration — one CreateTask call's latency.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 46 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p50",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_cloudtasks_enqueue_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_PERCENTILE_50",
+            "crossSeriesReducer": "REDUCE_MAX",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p99",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_cloudtasks_enqueue_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Idempotent collisions (expected no-ops)",
+      "description": "kernel.cloudtasks.idempotent_collisions — CreateTask calls that hit an existing task name (codes.AlreadyExists), the intended idempotent-replay path. Tracked here so the volume stays visible instead of vanishing silently into a treated-as-success branch.",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 46 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 50, "lineWidth": 0 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "idempotent collisions",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_cloudtasks_idempotent_collisions_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 207,
+      "title": "End-to-end",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 53 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 17,
+      "title": "End-to-end event age (outbox publish -> sweep), approx. p99",
+      "description": "Upper-bound proxy: sum of per-stage p99s (outbox publish + consumer handle + sweeper batch), until a dedicated end-to-end span metric is exported from the propagated outbox traceparent (OBSERVABILITY_DESIGN.md section 2.2). Read this as 'worst case, not typical case' — a true single-trace measurement will read lower once wired.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 54 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesQuery",
+          "timeSeriesQuery": {
+            "projectName": "goatos-stg",
+            "query": "{ outbox: fetch generic_task :: 'prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram' | align delta(5m) | every 5m | group_by [], [value: percentile(val(), 99)] ; consume: fetch generic_task :: 'prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram' | align delta(5m) | every 5m | group_by [], [value: percentile(val(), 99)] ; sweep: fetch generic_task :: 'prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram' | align delta(5m) | every 5m | group_by [], [value: percentile(val(), 99)] } | join | value val(0) + val(1) + val(2)"
+          }
         }
       ]
     }

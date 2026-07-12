@@ -1,7 +1,7 @@
 {
   "uid": "goatos-stg-mobile",
   "title": "Goat OS stg — Mobile (goatos-android)",
-  "description": "App-start, screen render, network latency, crash-free rate, and funnel conversion for the goatos-android app per OBSERVABILITY_DESIGN.md section 2.5. Firebase Performance/Crashlytics/Analytics live in Firebase console; this dashboard covers the OTel-Android OkHttp network spans/latency that land beside backend spans, plus a funnel view rolled up from GA4 into Postgres per section 2.6.",
+  "description": "Network latency, funnel conversion, and crash-free rate for goatos-android per OBSERVABILITY_DESIGN.md section 2.5/2.6. LIVE-INSTANCE CAVEAT (checked via /api/datasources on this exact Grafana): only 'Google Cloud Monitoring' (stackdriver) and 'BigQuery' datasources are provisioned — there is no Postgres datasource (analytics.* rollup tables), so funnel/journey/crash-free panels are placeholders naming the missing datasource rather than broken queries against it. App-start, screen render, crash reporting, and GA4 event capture live in Firebase Performance/Crashlytics/Analytics consoles directly (native SDKs, not OTel) and are out of Grafana's scope by design. Network round-trip (OTel-Android OkHttp interceptor) has NOT been added to apps/goatos-android yet (grepped, no OTel/OkHttp interceptor code exists) — its panel below is a correctly-shaped query for the documented http.client.request.duration OTel semantic-convention metric, which will 404 until that interceptor ships, same treatment as every other pending-telemetry panel in this dashboard set.",
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
@@ -12,106 +12,164 @@
   "tags": ["goatos", "stg", "mobile", "android"],
   "panels": [
     {
+      "id": 100,
+      "title": "Network (OTel-Android, pending interceptor)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "id": 1,
-      "title": "Login -> submit journey duration p50 / p90 / p99 (app-start/screen render live in Firebase Perf)",
+      "title": "Network round-trip p50 / p95 / p99",
+      "description": "http.client.request.duration -> prometheus.googleapis.com/http_client_request_duration_seconds/histogram, filtered to service.name=\"goatos-android\". NOT YET emitted — apps/goatos-android has no OTel/OkHttp interceptor wired (OBSERVABILITY_DESIGN.md section 2.5 describes it as a planned addition). Query is correct-shape and will populate once the interceptor ships. p95 stands in for the requested p90 (Cloud Monitoring has no p90 aligner, verified live).",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "postgres", "uid": "postgres-analytics" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "description": "Sourced from Firebase Performance app-start traces exported to BigQuery, then rolled into analytics.journey_daily by the analytics-rollup Cloud Run Job (infra/envs/stg/analytics_rollup.tf) — not a native OTel metric.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres-analytics" },
-          "format": "time_series",
-          "rawSql": "SELECT event_date AS time, p50_ms/1000.0 AS p50_seconds, p90_ms/1000.0 AS p90_seconds, p99_ms/1000.0 AS p99_seconds FROM analytics.journey_daily WHERE tenant_id = '00000000-0000-4000-8000-000000000001' AND journey_key = 'login_to_submit' AND $__timeFilter(event_date) ORDER BY event_date"
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p50",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_client_request_duration_seconds/histogram", "AND", "resource.label.service_name", "=", "goatos-android"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_PERCENTILE_50",
+            "crossSeriesReducer": "REDUCE_MAX",
+            "alignmentPeriod": "900s"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p95",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_client_request_duration_seconds/histogram", "AND", "resource.label.service_name", "=", "goatos-android"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_MAX",
+            "alignmentPeriod": "900s"
+          }
+        },
+        {
+          "refId": "C",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p99",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_client_request_duration_seconds/histogram", "AND", "resource.label.service_name", "=", "goatos-android"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX",
+            "alignmentPeriod": "900s"
+          }
         }
       ]
     },
     {
+      "id": 101,
+      "title": "Analytics rollup pipeline health (live today)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "id": 2,
-      "title": "Network round-trip p50 / p90 / p99 (OTel-Android OkHttp interceptor)",
+      "title": "Analytics-rollup job run duration by outcome",
+      "description": "kernel.analytics_rollup.run.duration (Cloud Run Job, GA4/Crashlytics BigQuery aggregation + Postgres upsert), label outcome (succeeded/failed/skipped). 'skipped' is the expected exit-0 path today, since GOATOS_GA4_EXPORT_DATASET is unset in stg until the Firebase GA4 BigQuery export is manually linked (infra/envs/stg/analytics_rollup.tf).",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 10 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "bars", "fillOpacity": 40, "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_client_request_duration_seconds_bucket{service_name=\"goatos-android\"}[15m])))",
-          "legendFormat": "p50"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.90, sum by (le) (rate(http_client_request_duration_seconds_bucket{service_name=\"goatos-android\"}[15m])))",
-          "legendFormat": "p90"
-        },
-        {
-          "refId": "C",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_client_request_duration_seconds_bucket{service_name=\"goatos-android\"}[15m])))",
-          "legendFormat": "p99"
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.outcome}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_analytics_rollup_run_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "groupBys": ["metric.label.outcome"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "3600s"
+          }
         }
       ]
     },
     {
       "id": 3,
-      "title": "Screen render (pending per-screen rollup)",
-      "type": "text",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "options": {
-        "text": "Screen render performance tracking requires a per-screen breakdown table in analytics.* (analytics.screen_render_daily or similar) rolled up from Firebase Performance app-start traces. As of migration 000168, only journey_daily (app-level) is available. A screen-keyed rollup table or dedicated journey_daily per-screen extension is a backend follow-up. TODO: sync with analytics-rollup job owners."
-      },
-      "pluginVersion": "8.0.0"
+      "title": "Analytics rows written (24h)",
+      "description": "kernel.analytics_rollup.rows_written — rows upserted into analytics.* Postgres tables per run. A flat zero for an extended period, once the job is enabled, means the rollup is running but finding nothing new to write (check GA4 export linkage).",
+      "type": "stat",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 10 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["sum"] }, "graphMode": "area", "textMode": "value_and_name" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_analytics_rollup_rows_written_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "86400s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "title": "Journey, funnel, crash-free (pending Postgres analytics datasource)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+      "collapsed": false,
+      "panels": []
     },
     {
       "id": 4,
-      "title": "Crash-free session rate (rollup from Crashlytics BQ export, 24h)",
-      "type": "stat",
-      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
-      "datasource": { "type": "postgres", "uid": "postgres-analytics" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "max": 100,
-          "min": 95,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 98 },
-              { "color": "green", "value": 99.5 }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres-analytics" },
-          "format": "table",
-          "rawSql": "SELECT crash_free_sessions_pct FROM analytics.crash_daily WHERE tenant_id='00000000-0000-4000-8000-000000000001' AND event_date = (SELECT max(event_date) FROM analytics.crash_daily WHERE tenant_id='00000000-0000-4000-8000-000000000001') ORDER BY app_version DESC LIMIT 1"
-        }
-      ]
+      "title": "Login -> submit journey duration p50/p90/p99 — needs Postgres analytics datasource",
+      "type": "text",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 18 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Needs a Postgres analytics datasource** (`analytics.journey_daily`, sourced from Firebase Performance app-start traces rolled up by the analytics-rollup Cloud Run Job). Not a GMP/OTel metric — app-start/journey timing lives in Firebase Performance, exported via GA4->BigQuery, then rolled into Cloud SQL `analytics.*` per OBSERVABILITY_DESIGN.md section 2.6. This Grafana instance has no Postgres datasource provisioned today (only Cloud Monitoring + BigQuery — verified via `/api/datasources`). Once added (`infra/grafana/provisioning/datasources/datasources.yaml` already declares the shape under uid `postgres-analytics`), query: `SELECT event_date AS time, p50_ms/1000.0, p90_ms/1000.0, p99_ms/1000.0 FROM analytics.journey_daily WHERE tenant_id = $tenant AND journey_key = 'login_to_submit' AND $__timeFilter(event_date)`."
+      }
     },
     {
       "id": 5,
-      "title": "Funnel conversion: login -> bootstrap -> drive-open -> scan -> vaccination-capture -> submit",
-      "type": "table",
-      "gridPos": { "h": 8, "w": 18, "x": 0, "y": 16 },
-      "datasource": { "type": "postgres", "uid": "postgres-analytics" },
-      "description": "Rolled up from Firebase Analytics (GA4) daily BigQuery export by the analytics-rollup Cloud Run Job into analytics.funnel_daily, keyed on the AnalyticsEvents funnel steps in OBSERVABILITY_DESIGN.md section 2.5.",
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "postgres", "uid": "postgres-analytics" },
-          "format": "table",
-          "rawSql": "SELECT step_key AS funnel_step, step_index AS step_order, users, ROUND(100.0 * conversions / NULLIF(users,0), 1) AS conversion_pct FROM analytics.funnel_daily WHERE tenant_id='00000000-0000-4000-8000-000000000001' AND funnel_key = 'goatos_mobile_core' AND event_date = CURRENT_DATE - INTERVAL '1 day' ORDER BY step_index"
-        }
-      ]
+      "title": "Crash-free session rate (24h) — needs Postgres analytics datasource",
+      "type": "text",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 18 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Needs a Postgres analytics datasource.** Sourced from `analytics.crash_daily`, a rollup of the Crashlytics BigQuery export. SLO target 99.5% (green), 98% (amber), else red. Query once live: `SELECT crash_free_sessions_pct FROM analytics.crash_daily WHERE tenant_id = $tenant AND event_date = (SELECT max(event_date) FROM analytics.crash_daily WHERE tenant_id = $tenant) ORDER BY app_version DESC LIMIT 1`."
+      }
+    },
+    {
+      "id": 6,
+      "title": "Funnel conversion: login -> bootstrap -> drive-open -> scan -> vaccination-capture -> submit — needs Postgres analytics datasource",
+      "type": "text",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 25 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Needs a Postgres analytics datasource.** Rolled up from Firebase Analytics (GA4) daily BigQuery export into `analytics.funnel_daily`, keyed on the `AnalyticsEvents` funnel steps (docs/observability/TELEMETRY_GUARDRAILS.md + OBSERVABILITY_DESIGN.md section 2.5): login -> bootstrap -> drive-open -> scan -> vaccination-capture -> submit. Query once live: `SELECT step_key, step_index, users, ROUND(100.0 * conversions / NULLIF(users,0), 1) AS conversion_pct FROM analytics.funnel_daily WHERE tenant_id = $tenant AND funnel_key = 'goatos_mobile_core' AND event_date = CURRENT_DATE - INTERVAL '1 day' ORDER BY step_index`. An alternative BigQuery-datasource-only path exists (querying `goatos_stg_analytics_rollup`'s working tables directly, or the GA4 export dataset once `var.ga4_export_dataset_id` is linked in `infra/envs/stg/analytics_rollup.tf`) but is a per-load BigQuery scan and intentionally NOT the default per section 2.6's cost-aware design — Postgres stays the primary path even once available."
+      }
     }
   ]
 }

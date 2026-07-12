@@ -89,16 +89,26 @@ distinct operator question:
 | `GRAFANA_ACCESS.md` | How humans and Claude/Codex reach Grafana (headless token flow, MCP wiring, browser fallback) |
 | `RUNBOOK.md` | Deploy commands, verify-telemetry-is-flowing checklist, day-2 ops |
 | `TELEMETRY_GUARDRAILS.md` | The CI rule requiring every new feature to wire analytics/crash/funnel telemetry |
+| **`PROD_PROMOTION.md`** | **PROMOTING TO PROD? Read this first.** Stg→prod as a var-flip, not rebuild. Env matrix, two promotion paths (Terraform/imperative), handling empty state, canary rollout, verification checklist. |
+| **`LESSONS_AND_GUARDS.md`** | **ANTI-RECURRENCE LEDGER.** Every bug fixed in stg build: symptom · root cause · fix · prevention guard · next-env check. Pre-deploy checklist for dev/stg/prod. |
 | `../../apps/goatos-android/docs/TELEMETRY.md` | Android-specific telemetry wiring (Firebase Analytics/Perf/Crashlytics, funnel call sites, OTLP TODO) |
 | `../decisions/observability.md` | Backend logging ADR (`slog`, `GOATOS_OBS_SINK`, panic-recovery logging) |
 
-## Rollout status (see `INFRA.md` and `RUNBOOK.md` for detail)
+## Rollout status (see `INFRA.md`, `PROD_PROMOTION.md`, and `RUNBOOK.md` for detail)
 
-- **Env**: stg only. Terraform is written but not applied (live stg resources
-  need import into `gs://goatos-stg-tf-state` first).
-- **Not yet done**: prod rollout (needs its own Layer-1 terraform foundation
-  first), GA4→BigQuery Firebase-console link (manual step), Android OTLP
-  export wiring, per-route admin-web Faro events (tracked in
-  `TELEMETRY_GUARDRAILS.md` §3.2), and the 4 mobile funnel feature call sites
-  (`AnalyticsFunnels` helpers exist, call sites are owned by a parallel
-  mobile-feature session).
+- **Env: stg (live, partially flowing)**
+  - Grafana live at https://goatos-stg-grafana-awtrpmn4za-el.a.run.app (Cloud Run, imperatively deployed)
+  - All 6 dashboards + datasources provisioned via HTTP API (dashboards empty until backend telemetry flows)
+  - **Backend telemetry is NOT flowing yet** — needs api + 13 kernel Jobs redeployed with
+    `GOATOS_OBS_SINK=otlp` + collector sidecar (canary-gated rollout pending)
+  - Terraform code written and ready (must be imported once, since stg was built imperatively)
+
+- **Env: prod (not started)**
+  - Use `PROD_PROMOTION.md` for Terraform-first approach (recommended over imperative)
+  - Canonical path: copy infra/envs/stg/ → infra/envs/prod/, change env names, `terraform apply`
+
+- **Not yet done (applies to any env)**
+  - GA4→BigQuery Firebase-console link (manual Firebase console step per env)
+  - Android OTLP export wiring (reserved in `BuildConfig`, not yet enabled)
+  - Per-route admin-web Faro events (tracked in `TELEMETRY_GUARDRAILS.md` §3.2 as `warn` mode)
+  - 4 mobile funnel feature call sites (owned by parallel mobile-feature session)

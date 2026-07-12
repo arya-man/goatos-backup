@@ -1,7 +1,7 @@
 {
   "uid": "goatos-stg-frontend-rum",
   "title": "Goat OS stg — Frontend RUM (admin-web)",
-  "description": "Browser Real User Monitoring from @grafana/faro-web-sdk, forwarded by Grafana Alloy (faro.receiver) as OTel logs+traces through the shared collector. See docs/observability/INFRA.md for the caveat that Faro measurements arrive as structured logs, not native Prometheus metrics.",
+  "description": "Browser Real User Monitoring from @grafana/faro-web-sdk (admin-web, Next.js 16), forwarded by Grafana Alloy's faro.receiver to Cloud Trace (traces), Cloud Logging (Web Vitals/errors/sessions as structured logs), and GMP (RUM metrics), per OBSERVABILITY_DESIGN.md section 2.4. LIVE-INSTANCE CAVEAT (checked via /api/datasources on this exact Grafana): only 'Google Cloud Monitoring' (stackdriver) and 'BigQuery' datasources are provisioned today — there is no Cloud Trace or Cloud Logging datasource yet, and Faro itself is not wired into admin-web's app/layout.tsx yet. Every Web-Vitals/trace/log panel below is therefore a clearly-labeled placeholder rather than a query against a nonexistent datasource (which would hard-error, not show 'No data'). The one live panel is the Grafana Alloy Cloud Run service's own request/latency metrics — a genuine APM signal for whether the RUM ingestion pipeline itself is up, using metric types already confirmed queryable on this instance (run.googleapis.com/*).",
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
@@ -12,91 +12,147 @@
   "tags": ["goatos", "stg", "rum", "admin-web", "faro"],
   "panels": [
     {
+      "id": 100,
+      "title": "RUM ingestion pipeline health (live today)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "id": 1,
-      "title": "Web Vitals (LCP / CLS / INP / TTFB) — last 24h",
-      "type": "table",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
-      "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
-      "description": "Faro web-vitals measurements land as structured Cloud Logging entries via Alloy. Filter refines to the measurement log kind; adjust the field-extraction expression to match the actual faro-web-sdk log shape once verified live.",
+      "title": "Grafana Alloy (faro.receiver) request rate by status class",
+      "description": "run.googleapis.com/request_count on the goatos-stg-grafana-alloy Cloud Run service, grouped by response_code_class — confirms the RUM receiver endpoint itself is reachable and healthy before trusting any Faro-derived panel. Metric type + grouping verified live against this Grafana instance (using the sibling goatos-stg-grafana service as a known-good reference, since Alloy has not received any Faro traffic yet).",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 1, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
-          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"measurement\" jsonPayload.type=\"web-vitals\""
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.response_code_class}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "run.googleapis.com/request_count", "AND", "resource.label.service_name", "=", "goatos-stg-grafana-alloy"],
+            "view": "FULL",
+            "groupBys": ["metric.label.response_code_class"],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
         }
       ]
     },
     {
       "id": 2,
-      "title": "JS error rate (events / 5m)",
+      "title": "Grafana Alloy request latency p50 / p99",
+      "description": "run.googleapis.com/request_latencies (a DELTA/DISTRIBUTION metric) on goatos-stg-grafana-alloy. GCP Cloud Monitoring's percentile aligner supports only p50/p95/p99 (ALIGN_PERCENTILE_90 is rejected by the API, verified live) — p99 shown here, p95 would stand in for p90 if needed.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
-      "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": { "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1 } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
-          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"exception\""
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p50",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "run.googleapis.com/request_latencies", "AND", "resource.label.service_name", "=", "goatos-stg-grafana-alloy"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_PERCENTILE_50",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p99",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "run.googleapis.com/request_latencies", "AND", "resource.label.service_name", "=", "goatos-stg-grafana-alloy"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
         }
       ]
+    },
+    {
+      "id": 101,
+      "title": "Web Vitals + JS errors + traces (pending Faro wiring + Cloud Trace/Logging datasources)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "collapsed": false,
+      "panels": []
     },
     {
       "id": 3,
-      "title": "Slow browser->API traces (p99 span duration, admin-web)",
-      "type": "table",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
-      "datasource": { "type": "googlecloud-trace-datasource", "uid": "cloud-trace" },
-      "description": "Admin-web fetch spans carry a W3C traceparent linking browser -> backend api spans (design section 2.4). Filter to the admin-web service name once real traces are confirmed.",
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "googlecloud-trace-datasource", "uid": "cloud-trace" },
-          "queryText": "service.name=\"goatos-admin-web-stg\""
-        }
-      ]
+      "title": "Web Vitals (LCP / CLS / INP / TTFB) — pending RUM metrics pipeline",
+      "type": "text",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 10 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Pending RUM metrics pipeline.** Two things are not live yet: (1) `@grafana/faro-web-sdk` + `@grafana/faro-web-tracing` are not yet initialised in admin-web's `app/layout.tsx`, so no Faro payloads are being sent at all; (2) even once they are, Faro Web Vitals arrive at Alloy as **structured logs** (`jsonPayload.kind=\"measurement\", jsonPayload.type=\"web-vitals\"`), which need the **Google Cloud Logging** datasource — not provisioned on this Grafana instance today (only Cloud Monitoring + BigQuery are). Correct query shape for when both land: filter Cloud Logging on `resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"measurement\" jsonPayload.type=\"web-vitals\"`, table by `jsonPayload.type` / `jsonPayload.value`."
+      }
     },
     {
       "id": 4,
-      "title": "RUM session count (24h)",
-      "type": "stat",
-      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 17 },
-      "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
-          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"session\""
-        }
-      ]
+      "title": "JS error rate — pending RUM metrics pipeline",
+      "type": "text",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 10 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Pending RUM metrics pipeline** (same two gaps as Web Vitals: Faro not initialised in admin-web, Cloud Logging datasource not provisioned). Once live: Cloud Logging filter `resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"exception\"`, rate/5m."
+      }
     },
     {
       "id": 5,
-      "title": "Route changes (SPA navigation events, 24h)",
-      "type": "timeseries",
-      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 17 },
-      "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
-          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"event\" jsonPayload.name=\"routeChange\""
-        }
-      ]
+      "title": "Slow browser -> API traces (p99 span duration) — pending Cloud Trace datasource",
+      "type": "text",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 16 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Pending Cloud Trace datasource.** admin-web's API client (`packages/api-client`, fetch wrapper) already injects/propagates a W3C `traceparent` per OBSERVABILITY_DESIGN.md section 2.4, so once Faro tracing + a `googlecloud-trace-datasource` are both provisioned, this panel should filter `service.name=\"goatos-admin-web-stg\"` and surface the browser span linked to its backend span on one trace — letting an operator jump from a slow page load straight to the backend API/DB spans that caused it."
+      }
     },
     {
       "id": 6,
-      "title": "Sessions by geo (best-effort, 24h)",
-      "type": "table",
-      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 17 },
-      "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
-      "description": "Faro does not resolve client geo natively; this depends on a resourcedetection/geoip enrichment step being added to the collector pipeline later. Placeholder panel until that enrichment exists.",
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
-          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"session\""
-        }
-      ]
+      "title": "RUM session count (24h) — pending RUM metrics pipeline",
+      "type": "text",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 16 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Pending RUM metrics pipeline.** Once live: Cloud Logging filter `jsonPayload.kind=\"session\"`, count distinct session id over 24h."
+      }
+    },
+    {
+      "id": 7,
+      "title": "Route changes (SPA navigation, 24h) — pending RUM metrics pipeline",
+      "type": "text",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 22 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Pending RUM metrics pipeline.** Once live: Cloud Logging filter `jsonPayload.kind=\"event\" jsonPayload.name=\"routeChange\"`, rate/5m by `jsonPayload.attributes.toUrl` (bounded to route templates, not raw query strings)."
+      }
+    },
+    {
+      "id": 8,
+      "title": "Sessions by geo (best-effort, 24h) — pending enrichment",
+      "type": "text",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 22 },
+      "options": {
+        "mode": "markdown",
+        "content": "**Pending both the RUM metrics pipeline AND a geoip enrichment step.** Faro does not resolve client geo natively — this needs a `resourcedetection`/geoip processor added to the Alloy/Collector pipeline (not yet in `infra/envs/stg/observability.tf`) in addition to Faro + Cloud Logging being live."
+      }
     }
   ]
 }

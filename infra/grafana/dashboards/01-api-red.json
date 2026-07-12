@@ -1,7 +1,7 @@
 {
   "uid": "goatos-stg-api-red",
   "title": "Goat OS stg — API / RED",
-  "description": "Request rate, error rate, duration (RED) for goatos-api-stg. Metric names are OTel http.server.* mapped through the Google Managed Prometheus naming convention (dots -> underscores, Prometheus _bucket/_sum/_count/_total suffixes). Verify exact names in Metrics Explorer once real telemetry is flowing.",
+  "description": "Request rate, error rate, and duration (RED) for the goatos-stg API, sourced from OTel http.server.* metrics exported to Google Managed Prometheus (GMP) and queried through the 'Google Cloud Monitoring' (stackdriver) datasource — this environment has no Prometheus/PromQL datasource. Metric names verified against backend/internal/platform/httpmiddleware/metrics.go and infra/envs/stg/monitoring.tf (which already queries these exact GMP metric.type strings in alert policies): prometheus.googleapis.com/http_server_requests_total/counter, prometheus.googleapis.com/http_server_request_duration_seconds/histogram, prometheus.googleapis.com/http_server_active_requests/gauge. Cloud Monitoring's percentile aligner only supports p50/p95/p99 (ALIGN_PERCENTILE_90 is rejected by the API) — p95 stands in for the requested p90 throughout. Panels show 'No data' / a 404 metric-not-found tile until GOATOS_OBS_SINK=otlp is enabled in stg and the first request lands; queries are correct now and will light up automatically.",
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
@@ -14,139 +14,385 @@
     "list": [
       {
         "name": "route",
+        "label": "Route",
         "type": "query",
-        "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-        "query": "label_values(http_server_request_duration_seconds_count, route)",
+        "datasource": "Google Cloud Monitoring",
+        "query": {
+          "queryType": "labelValues",
+          "labelValues": {
+            "labelKey": "metric.label.route",
+            "metricType": "prometheus.googleapis.com/http_server_requests_total/counter"
+          }
+        },
+        "description": "Route template (e.g. \"GET /goats/{id}\"), never raw paths/ids — bounded cardinality per OBSERVABILITY_DESIGN.md section 3. Resolves live once the metric exists; defaults safely to All (regex .*) before then.",
         "refresh": 2,
         "includeAll": true,
+        "allValue": ".*",
         "multi": true,
-        "current": { "text": "All", "value": "$__all" }
+        "current": { "text": "All", "value": "$__all" },
+        "sort": 1
+      },
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": "Google Cloud Monitoring",
+        "query": {
+          "queryType": "labelValues",
+          "labelValues": {
+            "labelKey": "metric.label.tenant",
+            "metricType": "prometheus.googleapis.com/http_server_requests_total/counter"
+          }
+        },
+        "description": "Only requests that resolved a tenant context (httpmiddleware.TenantIDFromContext) carry this label; requests without tenant context are excluded once a non-All tenant filter is applied. Defaults to All.",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "sort": 1
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Cloud Run errors",
+        "enable": true,
+        "iconColor": "red",
+        "datasource": "Google Cloud Monitoring",
+        "target": { "type": "annotation" }
       }
     ]
   },
   "panels": [
     {
+      "id": 100,
+      "title": "Summary",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "id": 1,
-      "title": "Request rate by route",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "title": "Request rate (all routes)",
+      "description": "sum(rate(prometheus.googleapis.com/http_server_requests_total/counter)) over the selected window. Route/tenant template vars apply.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "decimals": 2, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "sum by (route, method) (rate(http_server_requests_total{route=~\"$route\"}[5m]))",
-          "legendFormat": "{{method}} {{route}}"
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"generic_task\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "300s"
+          }
         }
       ]
     },
     {
       "id": 2,
-      "title": "Error rate % (5xx / total)",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 }, "overrides": [] },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "100 * sum(rate(http_server_requests_total{route=~\"$route\", status_class=\"5xx\"}[5m])) / sum(rate(http_server_requests_total{route=~\"$route\"}[5m]))",
-          "legendFormat": "5xx error rate"
-        }
-      ]
-    },
-    {
-      "id": 3,
-      "title": "Latency p50 / p90 / p99 by route",
-      "type": "timeseries",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.50, sum by (le, route) (rate(http_server_request_duration_seconds_bucket{route=~\"$route\"}[5m])))",
-          "legendFormat": "p50 {{route}}"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.90, sum by (le, route) (rate(http_server_request_duration_seconds_bucket{route=~\"$route\"}[5m])))",
-          "legendFormat": "p90 {{route}}"
-        },
-        {
-          "refId": "C",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "histogram_quantile(0.99, sum by (le, route) (rate(http_server_request_duration_seconds_bucket{route=~\"$route\"}[5m])))",
-          "legendFormat": "p99 {{route}}"
-        }
-      ]
-    },
-    {
-      "id": 4,
-      "title": "Top 10 slowest routes (p99, last 1h)",
-      "type": "table",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "format": "table",
-          "instant": true,
-          "expr": "topk(10, histogram_quantile(0.99, sum by (le, route) (rate(http_server_request_duration_seconds_bucket[1h]))))",
-          "legendFormat": "{{route}}"
-        }
-      ]
-    },
-    {
-      "id": 5,
-      "title": "In-flight requests",
+      "title": "5xx error rate %",
+      "description": "Server-side ratio computed in one Cloud Monitoring MQL query: 100 * rate(5xx) / rate(total) over the selected window. Thresholds mirror the error-budget alert in monitoring.tf (api_error_rate_alert_threshold_ratio = 1%, SLO api_availability_slo = 99.5%).",
       "type": "stat",
-      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 17 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "sum(http_server_active_requests)",
-          "legendFormat": "in-flight"
-        }
-      ]
-    },
-    {
-      "id": 6,
-      "title": "Availability (non-5xx, last 30d, SLO 99.5%)",
-      "type": "stat",
-      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 17 },
-      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "max": 100,
-          "min": 99,
+          "decimals": 2,
+          "min": 0,
+          "max": 5,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 99.3 },
-              { "color": "green", "value": 99.5 }
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 1 }
             ]
           }
         },
         "overrides": []
       },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
-          "expr": "100 * (1 - (sum(increase(http_server_requests_total{status_class=\"5xx\"}[30d])) / sum(increase(http_server_requests_total[30d]))))",
-          "legendFormat": "availability"
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesQuery",
+          "timeSeriesQuery": {
+            "projectName": "goatos-stg",
+            "query": "{ err: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(5m) | every 5m | group_by [], [value: sum(val())] ; total: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(5m) | every 5m | group_by [], [value: sum(val())] } | join | value 100 * val(0) / val(1)"
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "In-flight requests",
+      "description": "prometheus.googleapis.com/http_server_active_requests/gauge (OTel UpDownCounter) — requests currently being handled.",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "none", "textMode": "value_and_name" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_active_requests/gauge", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_MEAN",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "alignmentPeriod": "60s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "p99 latency (all routes)",
+      "description": "ALIGN_PERCENTILE_99 over prometheus.googleapis.com/http_server_request_duration_seconds/histogram. Thresholds mirror the write-path SLO in monitoring.tf (api_latency_p99_write_slo_seconds = 1.5s); read paths target 0.8s (see the p99-by-route panel below for the split).",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.8 },
+              { "color": "red", "value": 1.5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filters": ["metric.type", "=", "prometheus.googleapis.com/http_server_request_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "view": "FULL",
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_MAX",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Request rate by route + method",
+      "description": "rate(http_server_requests_total) grouped by route,method. Legend uses aliasBy templating on the returned metric labels.",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.method}} {{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"generic_task\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "view": "FULL",
+            "groupBys": ["metric.label.route", "metric.label.method"],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Error rate % over time (5xx / total)",
+      "description": "Same MQL join ratio as the summary stat, plotted as a trend. Threshold line at 1% (api_error_rate_alert_threshold_ratio).",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2 },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] },
+          "custom.thresholdsStyle": { "mode": "line" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "queryType": "timeSeriesQuery",
+          "timeSeriesQuery": {
+            "projectName": "goatos-stg",
+            "query": "{ err: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | filter metric.status_class == '5xx' | align rate(5m) | every 5m | group_by [], [value: sum(val())] ; total: fetch generic_task :: 'prometheus.googleapis.com/http_server_requests_total/counter' | align rate(5m) | every 5m | group_by [], [value: sum(val())] } | join | value 100 * val(0) / val(1)"
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Latency p50 / p95 / p99 by route",
+      "description": "GMP/Cloud Monitoring supports ALIGN_PERCENTILE_50/95/99 only — there is no p90 aligner (ALIGN_PERCENTILE_90 is rejected by the Monitoring API, verified live). p95 is shown in place of the requested p90.",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 14 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1 } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/p99.*/" }, "properties": [{ "id": "custom.lineWidth", "value": 2 }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p50 {{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"generic_task\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "view": "FULL",
+            "groupBys": ["metric.label.route"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_50",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p95 {{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"generic_task\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "view": "FULL",
+            "groupBys": ["metric.label.route"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_95",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        },
+        {
+          "refId": "C",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "p99 {{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"generic_task\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "view": "FULL",
+            "groupBys": ["metric.label.route"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Top 10 slowest routes (p99, current window)",
+      "description": "p99 latency per route, reduced to its latest value and sorted descending. Widen the time range at top-right to change the lookback window (e.g. last 1h).",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "align": "auto" } },
+        "overrides": [{ "matcher": { "id": "byName", "options": "Trend" }, "properties": [{ "id": "custom.hidden", "value": true }] }]
+      },
+      "transformations": [
+        { "id": "reduce", "options": { "reducers": ["lastNotNull"], "includeTimeField": false } },
+        { "id": "sortBy", "options": { "fields": {}, "sort": [{ "field": "Last *", "desc": true }] } },
+        { "id": "limit", "options": { "limitField": 10 } }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.route}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_request_duration_seconds/histogram\" AND resource.type=\"generic_task\" AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "view": "FULL",
+            "groupBys": ["metric.label.route"],
+            "perSeriesAligner": "ALIGN_PERCENTILE_99",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Status-class breakdown (2xx/3xx/4xx/5xx)",
+      "description": "rate(http_server_requests_total) grouped by status_class — stacked area, so a growing red band is visually obvious.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "datasource": "Google Cloud Monitoring",
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 40, "lineWidth": 0, "stacking": { "mode": "normal" } } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/.*5xx.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*4xx.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*2xx.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": "Google Cloud Monitoring",
+          "aliasBy": "{{metric.label.status_class}}",
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "projectName": "goatos-stg",
+            "filter": "metric.type=\"prometheus.googleapis.com/http_server_requests_total/counter\" AND resource.type=\"generic_task\" AND metric.label.route=monitoring.regex.full_match(\"${route:regex}\") AND metric.label.tenant=monitoring.regex.full_match(\"${tenant:regex}\")",
+            "view": "FULL",
+            "groupBys": ["metric.label.status_class"],
+            "perSeriesAligner": "ALIGN_RATE",
+            "crossSeriesReducer": "REDUCE_NONE",
+            "alignmentPeriod": "300s"
+          }
         }
       ]
     }
