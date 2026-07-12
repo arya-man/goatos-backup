@@ -5,22 +5,53 @@
 > Grafana until it is supplied). Read that section first for the *why*; this
 > doc is the *how*, for both humans and agents (Claude/Codex).
 
-## 1. Where Grafana lives
+## 1. Where Grafana lives — DEPLOYED (stg)
 
 Grafana is the Cloud Run service `goatos-stg-grafana`, project `goatos-stg`,
-region `asia-south1`, `ingress = INGRESS_TRAFFIC_INTERNAL_ONLY`, protected by
-**Cloud Run IAM** (`roles/run.invoker`), not IAP. There is no plain public
-URL you can open in a browser without either an authenticated Cloud Run proxy
-or a Cloud Run IAM identity token.
+region `asia-south1`, running `grafana/grafana:11.3.0`.
 
 ```text
-GRAFANA_STG_URL — filled at deploy (terraform output observability_cloud_run_services.grafana, a *.run.app hostname)
+GRAFANA_STG_URL = https://goatos-stg-grafana-awtrpmn4za-el.a.run.app
 ```
 
-A cleaner subdomain (e.g. `grafana-stg.mesha.sg`) behind a shared Load
-Balancer is a possible future improvement, mirroring how the admin-web LB was
-provisioned manually outside Terraform — not done in this pass. Until then,
-the `*.run.app` URL is authoritative.
+**How it was deployed (NOT terraform):** the committed `infra/envs/stg`
+Terraform state is empty — stg was built imperatively — so applying the
+observability Terraform would collide with live resources (see the memory note
+`goatos-stg-tf-state-empty`). Grafana was therefore stood up **imperatively via
+`gcloud run deploy`** to match how the rest of stg was built. The Terraform in
+`observability.tf` remains the source-of-truth definition for when stg is
+brought under IaC (import-then-apply).
+
+**Access model:** the Cloud Run service is invokable by `allUsers` at the
+network layer, but **gated by Grafana's own auth** — anonymous is disabled
+(`GF_AUTH_ANONYMOUS_ENABLED=false`), sign-up off, a strong admin password lives
+in Secret Manager (`goatos-stg-grafana-admin-password`), and API access needs a
+Grafana service-account token. Verified: unauthenticated API → 401, anon
+dashboard search → 401, login page → 200, SA-token API → 200. This is the
+standard "internal Grafana on Cloud Run" pattern and makes the URL usable in a
+browser and by the MCP.
+
+- **Browser login:** open the URL, sign in as `admin`. Get the password with
+  `gcloud secrets versions access latest --secret=goatos-stg-grafana-admin-password --project=goatos-stg`.
+- **Runtime identity:** the service runs as SA `goatos-grafana-stg@goatos-stg.iam.gserviceaccount.com`
+  with read-only roles (`monitoring.viewer`, `cloudtrace.user`, `logging.viewer`,
+  `bigquery.dataViewer`/`jobUser`, `cloudsql.client`) — datasources authenticate
+  via that workload identity, no embedded secrets.
+
+**Hardening follow-up (recommended before prod / wider use):** put Grafana
+behind **IAP + a Load Balancer** on a clean subdomain (e.g.
+`grafana-stg.mesha.sg`, mirroring the admin-web LB) so browser access is Google
+SSO instead of network-open + Grafana-login. Until then the `*.run.app` URL is
+authoritative and login-gated.
+
+**What is wired today:** datasources = Google Cloud Monitoring (default; also
+serves Google Managed Prometheus metrics via `prometheus.googleapis.com/*`) and
+BigQuery. All 6 dashboards imported (API/RED, Database, Kernel pipeline,
+Frontend RUM, Mobile, SLO/burn). Panels are **empty until the backend telemetry
+rollout** (api + kernel jobs must run with `GOATOS_OBS_SINK=otlp` + the
+collector sidecar) and the `analytics.*` rollup runs. Follow-ups: Cloud Trace /
+Cloud Logging / Postgres datasources, the GMP query-frontend sidecar, and
+GCS-volume-based provisioning (so datasources+dashboards self-restore on redeploy).
 
 ## 2. Headless service-account token flow (recommended)
 
