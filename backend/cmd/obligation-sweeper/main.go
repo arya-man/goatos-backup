@@ -20,14 +20,16 @@ import (
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	obligationdomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/taskqueue"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
-	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
 	sopports "github.com/vgoats/goatos/backend/internal/sop/ports"
+	"github.com/vgoats/goatos/backend/internal/sopbridge"
 )
 
 // sopServiceAdapter wraps the SOP service to match sopbridge.SOPTaskCreator interface
@@ -90,6 +92,12 @@ func run(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
 
+	shutdown, err := observability.SetupTelemetry(ctx, observability.Config{Service: "obligation-sweeper"})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = observability.FlushWithTimeout(shutdown, observability.DefaultShutdownTimeout) }()
+
 	pgCfg := platformpg.ConfigFromEnv()
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {
@@ -125,7 +133,17 @@ func run(args []string) error {
 			if err != nil {
 				return fmt.Errorf("sweep config version %s: %w", versionID, err)
 			}
+			sweepStart := time.Now()
 			result, err := sweeper.SweepVersion(ctx, cfg.TenantID, versionID, sweepCfg, cfg.DueBefore)
+			// tasksCreated approximates 1 SOP batch task per obligation batch -
+			// obligationapp.SweepResult does not return a distinct
+			// tasks-created count, and batches are only task-bearing when a
+			// TaskCreator (creator, gated on --actor-id) is configured.
+			tasksCreated := 0
+			if creator != nil {
+				tasksCreated = result.Batches + result.ParkBatches
+			}
+			kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, tasksCreated)
 			if err != nil {
 				return fmt.Errorf("sweep version %s: %w", versionID, err)
 			}

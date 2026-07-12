@@ -228,3 +228,244 @@ variable "monitoring_alert_email_addresses" {
     error_message = "monitoring_alert_email_addresses must contain at least one approved, trimmed email address."
   }
 }
+
+# ---------------------------------------------------------------------------
+# Observability stack (infra/envs/stg/observability.tf, monitoring.tf,
+# secrets.tf, analytics_rollup.tf, cloud_sql.tf). See
+# docs/observability/OBSERVABILITY_DESIGN.md and docs/observability/INFRA.md.
+# ---------------------------------------------------------------------------
+
+variable "otel_collector_image" {
+  description = "Container image for the OTel Collector sidecar mounted inside the api Cloud Run service, every kernel Cloud Run Job, and the grafana_alloy Cloud Run service (see docs/observability/INFRA.md 'Sidecar collector decision' — there is no standalone otel-collector Cloud Run service). otel/opentelemetry-collector-contrib is the reference upstream image; pin to a digest for a real deploy."
+  type        = string
+  default     = "otel/opentelemetry-collector-contrib:0.114.0"
+
+  validation {
+    condition     = length(trimspace(var.otel_collector_image)) > 0
+    error_message = "otel_collector_image is required."
+  }
+}
+
+variable "gmp_frontend_image" {
+  description = "Container image for the goatos-stg-gmp-frontend Cloud Run service — the small Prometheus-compatible query proxy in front of Google Managed Service for Prometheus (see docs/observability/INFRA.md for why this exists)."
+  type        = string
+  default     = "gke.gcr.io/prometheus-engine/frontend:v0.15.1"
+
+  validation {
+    condition     = length(trimspace(var.gmp_frontend_image)) > 0
+    error_message = "gmp_frontend_image is required."
+  }
+}
+
+variable "grafana_image" {
+  description = "Container image for the goatos-stg-grafana Cloud Run service."
+  type        = string
+  default     = "grafana/grafana:11.4.0"
+
+  validation {
+    condition     = length(trimspace(var.grafana_image)) > 0
+    error_message = "grafana_image is required."
+  }
+}
+
+variable "grafana_min_instance_count" {
+  description = "Minimum Cloud Run instance count for Grafana. 0 is acceptable in stg (cold start is a UI-only cost, not a telemetry-loss risk)."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.grafana_min_instance_count >= 0
+    error_message = "grafana_min_instance_count must be >= 0."
+  }
+}
+
+variable "grafana_postgres_datasource_user" {
+  description = "Read-only Postgres role Grafana's analytics-rollup datasource connects as. Must exist as a least-privilege (SELECT-only on analytics.*) role created by a backend/migration change, not by Terraform."
+  type        = string
+  default     = "goatos_grafana_ro"
+
+  validation {
+    condition     = length(trimspace(var.grafana_postgres_datasource_user)) > 0
+    error_message = "grafana_postgres_datasource_user is required."
+  }
+}
+
+variable "grafana_alloy_image" {
+  description = "Container image for the goatos-stg-grafana-alloy Cloud Run service."
+  type        = string
+  default     = "grafana/alloy:v1.5.1"
+
+  validation {
+    condition     = length(trimspace(var.grafana_alloy_image)) > 0
+    error_message = "grafana_alloy_image is required."
+  }
+}
+
+variable "grafana_alloy_min_instance_count" {
+  description = "Minimum Cloud Run instance count for Grafana Alloy. Keep at >= 1 in stg since it is the public-facing browser RUM ingest endpoint and cold starts would drop admin-web page-load telemetry."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.grafana_alloy_min_instance_count >= 0
+    error_message = "grafana_alloy_min_instance_count must be >= 0."
+  }
+}
+
+variable "observability_operator_members" {
+  description = "IAM principals (e.g. \"user:name@mesha.sg\", \"group:goatos-observability@vgoats.com\") granted roles/run.invoker on the goatos-stg-grafana Cloud Run service. Deliberately no default — supply the reviewed operator list via private tfvars, same discipline as stg_sweeper_actor_id. Access flow: `gcloud run services proxy goatos-stg-grafana --region=asia-south1` for an authenticated local tunnel; see docs/observability/INFRA.md."
+  type        = set(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for member in var.observability_operator_members :
+      can(regex("^(user|group|serviceAccount|domain):", member))
+    ])
+    error_message = "Each observability_operator_members entry must be an IAM principal prefixed with user:, group:, serviceAccount:, or domain:."
+  }
+}
+
+variable "cloud_sql_query_insights_enabled" {
+  description = "Enables Cloud SQL Query Insights on goatos-stg-core-db (docs/observability/OBSERVABILITY_DESIGN.md section 4)."
+  type        = bool
+  default     = true
+}
+
+variable "cloud_sql_query_insights_query_string_length" {
+  description = "Max stored query string length for Cloud SQL Query Insights (bytes)."
+  type        = number
+  default     = 4500
+
+  validation {
+    condition     = var.cloud_sql_query_insights_query_string_length >= 256 && var.cloud_sql_query_insights_query_string_length <= 4500
+    error_message = "cloud_sql_query_insights_query_string_length must be between 256 and 4500 (Cloud SQL's own accepted range)."
+  }
+}
+
+variable "cloud_sql_query_insights_query_plans_per_minute" {
+  description = "Number of query execution plans per minute captured by Cloud SQL Query Insights."
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.cloud_sql_query_insights_query_plans_per_minute >= 0 && var.cloud_sql_query_insights_query_plans_per_minute <= 20
+    error_message = "cloud_sql_query_insights_query_plans_per_minute must be between 0 and 20 (Cloud SQL's own accepted range)."
+  }
+}
+
+variable "api_availability_slo" {
+  description = "API availability SLO (non-5xx ratio). docs/observability/OBSERVABILITY_DESIGN.md section 7 target: 99.5%."
+  type        = number
+  default     = 0.995
+
+  validation {
+    condition     = var.api_availability_slo > 0 && var.api_availability_slo < 1
+    error_message = "api_availability_slo must be a ratio strictly between 0 and 1."
+  }
+}
+
+variable "api_error_rate_alert_threshold_ratio" {
+  description = "5xx-error-rate ratio (0-1) that pages ops for the API error-rate SLO burn alert."
+  type        = number
+  default     = 0.01
+
+  validation {
+    condition     = var.api_error_rate_alert_threshold_ratio > 0 && var.api_error_rate_alert_threshold_ratio < 1
+    error_message = "api_error_rate_alert_threshold_ratio must be a ratio strictly between 0 and 1."
+  }
+}
+
+variable "api_latency_p99_read_slo_seconds" {
+  description = "API read-path p99 latency SLO in seconds. docs/observability/OBSERVABILITY_DESIGN.md section 7 target: < 800ms."
+  type        = number
+  default     = 0.8
+
+  validation {
+    condition     = var.api_latency_p99_read_slo_seconds > 0
+    error_message = "api_latency_p99_read_slo_seconds must be > 0."
+  }
+}
+
+variable "api_latency_p99_write_slo_seconds" {
+  description = "API write-path p99 latency SLO in seconds. docs/observability/OBSERVABILITY_DESIGN.md section 7 target: < 1500ms."
+  type        = number
+  default     = 1.5
+
+  validation {
+    condition     = var.api_latency_p99_write_slo_seconds > 0
+    error_message = "api_latency_p99_write_slo_seconds must be > 0."
+  }
+}
+
+variable "consumer_lag_slo_seconds" {
+  description = "Domain event consumer lag SLO in seconds. docs/observability/OBSERVABILITY_DESIGN.md section 7 target: < 60s."
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.consumer_lag_slo_seconds > 0
+    error_message = "consumer_lag_slo_seconds must be > 0."
+  }
+}
+
+variable "notification_success_slo_ratio" {
+  description = "Notification dispatch success-rate SLO (ratio 0-1). docs/observability/OBSERVABILITY_DESIGN.md section 7 target: > 99%."
+  type        = number
+  default     = 0.99
+
+  validation {
+    condition     = var.notification_success_slo_ratio > 0 && var.notification_success_slo_ratio < 1
+    error_message = "notification_success_slo_ratio must be a ratio strictly between 0 and 1."
+  }
+}
+
+variable "notification_failure_rate_alert_threshold_ratio" {
+  description = "Notification failure-rate ratio (0-1) that pages ops (should be 1 - notification_success_slo_ratio or tighter)."
+  type        = number
+  default     = 0.01
+
+  validation {
+    condition     = var.notification_failure_rate_alert_threshold_ratio > 0 && var.notification_failure_rate_alert_threshold_ratio < 1
+    error_message = "notification_failure_rate_alert_threshold_ratio must be a ratio strictly between 0 and 1."
+  }
+}
+
+variable "analytics_rollup_image_tag" {
+  description = "Image tag for the goatos-stg-analytics-rollup Cloud Run Job (backend-lane-owned image, published to the shared goatos Artifact Registry repository)."
+  type        = string
+  default     = "stg"
+
+  validation {
+    condition     = length(trimspace(var.analytics_rollup_image_tag)) > 0
+    error_message = "analytics_rollup_image_tag is required."
+  }
+}
+
+variable "analytics_rollup_schedule" {
+  description = "Cloud Scheduler cron expression (Asia/Kolkata) for the daily GA4->BigQuery->Postgres analytics rollup."
+  type        = string
+  default     = "15 3 * * *"
+
+  validation {
+    condition     = length(trimspace(var.analytics_rollup_schedule)) > 0
+    error_message = "analytics_rollup_schedule is required."
+  }
+}
+
+variable "ga4_export_dataset_id" {
+  description = "BigQuery dataset id of the Firebase GA4 BigQuery export for goatos-stg, once linked in the Firebase console (Firebase names it automatically, typically analytics_<GA4_property_id>). Left empty (default) until that manual linking step is done — see docs/observability/INFRA.md. Must be a dataset located in asia-south1 (Mumbai); relink GA4 export location if Firebase chose a different default."
+  type        = string
+  default     = ""
+}
+
+variable "trace_sample_ratio" {
+  description = "OpenTelemetry parent-based trace sampling ratio applied by the backend api service and kernel worker Jobs (GOATOS_TRACE_SAMPLE_RATIO). Metrics are always unsampled (full-fidelity p50/p90/p99); this only bounds trace volume. 0.1 = sample 10% of root traces in staging."
+  type        = string
+  default     = "0.1"
+
+  validation {
+    condition     = can(tonumber(var.trace_sample_ratio)) && tonumber(var.trace_sample_ratio) >= 0 && tonumber(var.trace_sample_ratio) <= 1
+    error_message = "trace_sample_ratio must be a number between 0 and 1."
+  }
+}

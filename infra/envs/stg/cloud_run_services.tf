@@ -14,6 +14,13 @@ resource "google_cloud_run_v2_service" "api" {
     }
 
     containers {
+      name = "api"
+
+      # Wait for the OTel Collector sidecar's startup_probe before serving
+      # traffic — see the sidecar decision documented at the top of
+      # observability.tf and in docs/observability/INFRA.md.
+      depends_on = ["otel-collector"]
+
       image = local.backend_image
 
       ports {
@@ -54,7 +61,26 @@ resource "google_cloud_run_v2_service" "api" {
 
       env {
         name  = "GOATOS_OBS_SINK"
-        value = "gcm"
+        value = "otlp"
+      }
+
+      # OTLP/HTTP export to the OTel Collector sidecar container in this same
+      # revision, over loopback — no VPC connector, no auth, no TLS needed
+      # (see the sidecar decision documented at the top of observability.tf
+      # and in docs/observability/INFRA.md "Sidecar collector decision").
+      # telemetry.go's normalizeOTLPEndpoint treats "http://" as insecure, so
+      # this Just Works with SetupTelemetry unchanged. SetupTelemetry no-ops
+      # safely if the sidecar is unreachable, so the api never fails to boot
+      # on a collector hiccup. Base URL only — the exporter appends
+      # /v1/traces and /v1/metrics.
+      env {
+        name  = "GOATOS_OTLP_ENDPOINT"
+        value = "http://localhost:4318"
+      }
+
+      env {
+        name  = "GOATOS_TRACE_SAMPLE_RATIO"
+        value = var.trace_sample_ratio
       }
 
       env {
@@ -148,10 +174,57 @@ resource "google_cloud_run_v2_service" "api" {
       }
     }
 
+    # OTel Collector sidecar (see the header comment in observability.tf and
+    # docs/observability/INFRA.md "Sidecar collector decision"). Not the
+    # ingress container, so it declares no `ports` and is unreachable except
+    # via loopback from the api container above.
+    containers {
+      name = "otel-collector"
+
+      image = var.otel_collector_image
+      args  = ["--config=/etc/otelcol-contrib/config.yaml"]
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
+
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
+      }
+
+      startup_probe {
+        initial_delay_seconds = 0
+        timeout_seconds       = 1
+        period_seconds        = 3
+        failure_threshold     = 10
+
+        tcp_socket {
+          port = 4318
+        }
+      }
+
+      volume_mounts {
+        name       = "collector-config"
+        mount_path = "/etc/otelcol-contrib"
+      }
+    }
+
     volumes {
       name = "cloudsql"
       cloud_sql_instance {
         instances = [google_sql_database_instance.core.connection_name]
+      }
+    }
+
+    volumes {
+      name = "collector-config"
+      gcs {
+        bucket    = google_storage_bucket.observability_config.name
+        read_only = true
       }
     }
   }

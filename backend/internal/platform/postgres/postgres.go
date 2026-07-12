@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -47,6 +48,14 @@ func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("parse postgres config: %w", err)
 	}
 	poolCfg.MaxConns = cfg.MaxConns
+	// otelpgx attaches a span per query/batch/copy/prepare/acquire (using the
+	// OTel global TracerProvider/MeterProvider, which observability.SetupTelemetry
+	// installs) plus its own duration/error metrics. It defaults to
+	// otel.GetTracerProvider()/otel.GetMeterProvider(), which are always safe
+	// to call even before SetupTelemetry runs (delegating no-ops until a real
+	// provider is installed). Query SQL is summarized, not bound-arg-included,
+	// keeping span attributes low-cardinality per the design's cardinality guard.
+	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
 
 	connectCtx, cancel := context.WithTimeout(ctx, cfg.ConnectTimeout)
 	defer cancel()

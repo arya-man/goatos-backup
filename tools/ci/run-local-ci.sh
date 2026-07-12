@@ -7,7 +7,8 @@
 #
 # Mirrors ci.yml:
 #   job `guardrails`  -> agent guardrails, scale-guard(+self-test), clinical-defer
-#                        guard, mobile-guard, admin-web-request-reads-guard,
+#                        guard, mobile-guard, telemetry-guard,
+#                        admin-web-request-reads-guard,
 #                        android-bounded-memory-guard, large-file guard,
 #                        go test ./..., sqlc/migration validation
 #   job `admin-web`   -> lint, typecheck, mock-fidelity, request-plan, build
@@ -54,6 +55,7 @@ run_guardrails() {
   step "india-date-guard"         make india-date-guard
   step "offline-first-guard"      make offline-first-guard
   step "mobile-guard"             make mobile-guard
+  step "telemetry-guard"          make telemetry-guard
   step "admin-web-request-reads-guard" make admin-web-request-reads-guard
   step "android-bounded-memory-guard"  make android-bounded-memory-guard
   step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test

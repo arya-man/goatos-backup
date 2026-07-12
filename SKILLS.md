@@ -146,6 +146,10 @@ After implementing any phase:
 - CI is the hard gate; hooks are fast feedback.
 - Do not create many skills up front. Add a new skill only when the trigger is
   truly independent from `goatos-build`.
+- TELEMETRY GUARDRAIL: a new/changed Android screen/viewmodel or admin-web
+  route must wire Analytics + Crashlytics + funnel step, checked by `make
+  telemetry-guard` (`tools/telemetry-guard/`). See `AGENTS.md` and
+  `docs/observability/TELEMETRY_GUARDRAILS.md`.
 
 ## Lens / anti-pattern skills (invokable by Claude + Codex)
 - `scale-anti-patterns` — backend 1M-scale: the 7 banned patterns + fixes + latency bar + scale-guard/validate-sqlc-plans.

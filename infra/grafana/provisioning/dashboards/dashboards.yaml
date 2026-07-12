@@ -1,0 +1,21 @@
+# Goat OS staging Grafana dashboard provider.
+#
+# Mounted alongside datasources.yaml at
+# GF_PATHS_PROVISIONING=/mnt/grafana-provisioning/provisioning. Points at the
+# dashboard JSON files uploaded from infra/grafana/dashboards/ to the same GCS
+# bucket, mounted at /mnt/grafana-provisioning/dashboards (see
+# infra/envs/stg/observability.tf).
+
+apiVersion: 1
+
+providers:
+  - name: goatos-stg
+    orgId: 1
+    folder: "Goat OS"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 300
+    allowUiUpdates: true
+    options:
+      path: /mnt/grafana-provisioning/dashboards
+      foldersFromFilesStructure: false

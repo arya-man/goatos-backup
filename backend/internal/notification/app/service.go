@@ -13,6 +13,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
 	"github.com/vgoats/goatos/backend/internal/notification/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
@@ -79,7 +80,9 @@ func (s *Service) RunOnce(ctx context.Context, tenantID string) (domain.Dispatch
 
 func (s *Service) dispatchOne(ctx context.Context, request domain.Request, result *domain.DispatchResult) error {
 	now := s.now()
+	sendStart := time.Now()
 	err := s.sendSafely(ctx, request)
+	kmetrics.RecordNotifySend(ctx, request.Channel, time.Since(sendStart).Seconds())
 	if err == nil {
 		if markErr := s.repo.MarkSent(ctx, request.TenantID, request.NotificationRequestID, request.LeaseToken, s.gateway.Name(), now); markErr != nil {
 			return fmt.Errorf("mark notification sent: %w", markErr)
@@ -98,8 +101,10 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 	}
 	if nextAttempt == nil {
 		result.ExhaustedCount++
+		kmetrics.RecordNotifyExhausted(ctx, request.Channel)
 	} else {
 		result.FailedCount++
+		kmetrics.RecordNotifyFailure(ctx, request.Channel)
 	}
 	return nil
 }

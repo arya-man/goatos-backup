@@ -12,6 +12,7 @@ import (
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	outboxdomain "github.com/vgoats/goatos/backend/internal/outbox/domain"
 	outboxports "github.com/vgoats/goatos/backend/internal/outbox/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
@@ -59,6 +60,13 @@ func run(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
+
+	shutdown, err := observability.SetupTelemetry(ctx, observability.Config{Service: "outbox-dlq"})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = observability.FlushWithTimeout(shutdown, observability.DefaultShutdownTimeout) }()
+
 	pgCfg := platformpg.ConfigFromEnv()
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {

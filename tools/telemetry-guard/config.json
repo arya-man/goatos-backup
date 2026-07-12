@@ -1,0 +1,62 @@
+{
+  "exempt_marker": "telemetry:exempt",
+  "surfaces": {
+    "android": {
+      "description": "Android screens/viewmodels and new feature-package files must wire AnalyticsPort + funnel step + Crashlytics on failure paths.",
+      "mode": "block",
+      "path_globs": [
+        "apps/goatos-android/**/*Screen.kt",
+        "apps/goatos-android/**/*ViewModel.kt"
+      ],
+      "new_file_dir_markers": [
+        "feature-",
+        "features/"
+      ],
+      "new_file_scope_root": "apps/goatos-android/",
+      "check_added": true,
+      "check_modified": true,
+      "check_new_feature_files": true,
+      "comment_style": "//",
+      "markers": [
+        "AnalyticsPort",
+        "analytics.track",
+        "AnalyticsFunnels",
+        "AnalyticsEvents",
+        "CrashReporter",
+        "Crashlytics",
+        "recordException",
+        "logNonFatal"
+      ],
+      "sibling_lookup": true,
+      "sibling_extensions": [
+        ".kt"
+      ]
+    },
+    "admin_web": {
+      "description": "admin-web routes/screens must wire a Faro/analytics event and/or error boundary coverage.",
+      "mode": "warn",
+      "path_globs": [
+        "apps/admin-web/app/**/page.tsx",
+        "apps/admin-web/**/*Screen.tsx"
+      ],
+      "new_file_dir_markers": [],
+      "new_file_scope_root": "apps/admin-web/",
+      "check_added": true,
+      "check_modified": false,
+      "check_new_feature_files": false,
+      "comment_style": "//",
+      "markers": [
+        "faro",
+        "trackEvent",
+        "pushEvent",
+        "pushError",
+        "ErrorBoundary"
+      ],
+      "sibling_lookup": true,
+      "sibling_extensions": [
+        ".tsx",
+        ".ts"
+      ]
+    }
+  }
+}

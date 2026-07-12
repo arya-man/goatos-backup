@@ -14,6 +14,10 @@ const SCAN_PATHS = ["app", "components", "features", "lib/scope.ts"];
 const SKIP_PATH_PARTS = [
   "components/auth/",
   "components/admin-shell.tsx",
+  // Emergency fallback for uncaught React render errors (OBSERVABILITY_DESIGN.md §2.4). Same
+  // rationale as components/admin-shell.tsx above: if rendering itself failed, the page cannot
+  // assume the backend contract fetch that would supply this copy is safe or reachable.
+  "components/observability/error-boundary.tsx",
   "app/layout.tsx",
   "app/loading.tsx",
   "app/auth/",

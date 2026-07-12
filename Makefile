@@ -5,7 +5,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: check guardrails e2e-integrity-guard scale-guard clinical-defer-guard sweeper-deployment-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard india-date-guard offline-first-guard ci-local mobile-guard mobile-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
+.PHONY: check guardrails e2e-integrity-guard scale-guard clinical-defer-guard sweeper-deployment-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard india-date-guard offline-first-guard ci-local mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test dev-local dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 
 setup-crg: ai-setup
@@ -104,6 +104,20 @@ guardrails:
 	$(MAKE) config-validate-guard
 	$(MAKE) india-date-guard
 	$(MAKE) offline-first-guard
+	$(MAKE) telemetry-guard
+
+# telemetry-guard: block the TELEMETRY GUARDRAIL anti-pattern — a new/changed
+# Android screen/viewmodel (or admin-web route) shipped with no Firebase
+# Analytics event, no Crashlytics fatal/non-fatal wiring on failure paths, and
+# no funnel/journey step. Diff-scoped vs origin/main; `telemetry-guard-audit`
+# scans the whole tree. Escape hatch: `// telemetry:exempt <reason>`. See
+# docs/observability/TELEMETRY_GUARDRAILS.md.
+telemetry-guard:
+	python3 -m unittest tools/telemetry-guard/test_telemetry_guard.py
+	python3 tools/telemetry-guard/telemetry-guard.py
+
+telemetry-guard-audit:
+	python3 tools/telemetry-guard/telemetry-guard.py --all
 
 # clinical-defer-guard: block the C35-010 medical-safety anti-pattern — a PARTIAL
 # clinical defer_states list in production code/seeds. sick/under_treatment/

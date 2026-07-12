@@ -115,6 +115,13 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         rfidReader.refreshStatus()
+        // Stop the cold-start custom trace (docs/TELEMETRY.md item 3) exactly once — the
+        // Application-held handle is nulled after stopping so a later onResume (e.g. returning
+        // from the background) never re-stops it.
+        (application as? GoatOsApplication)?.let { app ->
+            app.coldStartTrace?.stop()
+            app.coldStartTrace = null
+        }
     }
 
     /**

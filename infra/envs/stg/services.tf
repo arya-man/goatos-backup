@@ -1,8 +1,10 @@
 locals {
   enabled_services = toset([
     "artifactregistry.googleapis.com",
+    "bigquery.googleapis.com",
     "cloudscheduler.googleapis.com",
     "cloudtasks.googleapis.com",
+    "cloudtrace.googleapis.com",
     "fcm.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",

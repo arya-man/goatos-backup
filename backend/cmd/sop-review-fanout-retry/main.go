@@ -13,7 +13,9 @@ import (
 
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
+	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
@@ -21,7 +23,6 @@ import (
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
-	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 )
 
 type config struct {
@@ -44,6 +45,12 @@ func run(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
+
+	shutdown, err := observability.SetupTelemetry(ctx, observability.Config{Service: "sop-review-fanout-retry"})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = observability.FlushWithTimeout(shutdown, observability.DefaultShutdownTimeout) }()
 
 	pgCfg := platformpg.ConfigFromEnv()
 	pool, err := platformpg.Connect(ctx, pgCfg)

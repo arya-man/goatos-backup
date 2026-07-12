@@ -333,6 +333,56 @@ overview parses events to draw its dots instead of consuming day-markers; or a
 list transform re-parses every event inside .find/.any (O(n^2)).
 ```
 
+### Step 4b-2: Telemetry guardrail
+
+Command:
+
+```text
+make telemetry-guard          # what CI runs (diff-scoped)
+make telemetry-guard-audit    # whole-tree backlog
+```
+
+Purpose:
+
+```text
+Enforce docs/observability/TELEMETRY_GUARDRAILS.md: every new or changed
+user-facing surface (Android screen/viewmodel, admin-web route) must wire
+Firebase Analytics event(s), Crashlytics fatal+non-fatal logging on error
+paths, and the relevant funnel/journey step. Runs the stdlib-only Python
+analyzer tools/telemetry-guard/telemetry-guard.py.
+```
+
+Two surfaces, both configurable (markers, globs, block-vs-warn) in
+`tools/telemetry-guard/config.json`:
+
+```text
+android (mode: block)    -> ADDED/MODIFIED apps/goatos-android/**/*Screen.kt or
+                             **/*ViewModel.kt, plus ADDED files under a
+                             feature-*/features/ package, must reference an
+                             AnalyticsPort/AnalyticsEvents/Crashlytics-family
+                             marker (file or sibling .kt in the same dir).
+admin_web (mode: warn)   -> ADDED apps/admin-web/app/**/page.tsx or
+                             **/*Screen.tsx must reference a faro/trackEvent/
+                             pushEvent/ErrorBoundary marker. Non-blocking today
+                             — most existing routes predate Faro rollout; see
+                             TELEMETRY_GUARDRAILS.md §3.2/§7 for the backlog.
+```
+
+It is **diff-scoped in CI** (`TELEMETRY_GUARD_BASE`, default `origin/main`,
+set alongside `MOBILE_GUARD_BASE`): it only scans files changed vs the base,
+so **a commit touching neither Android nor admin-web passes instantly** — the
+guardrails job checks out with `fetch-depth: 0` so the diff base is available.
+`make telemetry-guard-audit` scans the whole tree to show the current
+backlog. Escape hatch: `// telemetry:exempt <reason>` anywhere in the file.
+
+If this fails, it usually means:
+
+```text
+a new/changed Android screen or viewmodel has no AnalyticsPort/AnalyticsEvents
+call and no telemetry:exempt comment, in that file or a sibling in the same
+feature directory.
+```
+
 ### Step 4c: Contract-integrity guardrails
 
 Five machine guards enforce previously prose-only AGENTS.md "Do:" rules whose

@@ -1,0 +1,73 @@
+// Goat OS staging Grafana Alloy configuration.
+//
+// Deployed as the container config for the `goatos-stg-grafana-alloy` Cloud
+// Run service (infra/envs/stg/observability.tf, asia-south1). Alloy's job
+// here is narrow: terminate browser Real User Monitoring (RUM) telemetry from
+// admin-web's `@grafana/faro-web-sdk` and forward it as OTLP to the OTel
+// Collector, which then fans out to Cloud Trace / Cloud Logging / Google
+// Managed Prometheus (GMP) exactly like every other signal in the stack. See
+// docs/observability/OBSERVABILITY_DESIGN.md section 2.4.
+//
+// SIDECAR NOTE (see docs/observability/INFRA.md "Sidecar collector
+// decision"): the collector used to be a standalone
+// `goatos-stg-otel-collector` Cloud Run service that Alloy called over its
+// public Cloud Run URL. That hop is public Alloy -> INGRESS_TRAFFIC_INTERNAL_ONLY
+// collector, which cannot work without a Serverless VPC Access connector
+// (none exists in this env) — so the collector now runs as a sidecar
+// container in this SAME Cloud Run revision instead. GOATOS_OTEL_COLLECTOR_ENDPOINT
+// is `http://localhost:4318` (loopback, same revision, no TLS, no auth), set
+// in infra/envs/stg/observability.tf.
+//
+// ASSUMPTION (flagged in docs/observability/INFRA.md): Alloy's faro.receiver
+// forwards Faro payloads as OTel traces + logs only (Faro Web Vitals /
+// "measurements" arrive as structured log records with numeric attributes,
+// not as native OTel metrics). If true RUM *metrics* in GMP are required
+// later, add an OTel Collector `transform`/`connector` stage that promotes
+// selected measurement attributes to metrics — out of scope for this infra
+// pass. Context7/live docs lookup was unavailable in this build session
+// (auth error), so re-verify faro.receiver's exact argument/block names
+// against the current Grafana Alloy reference before first deploy.
+
+// Faro receiver: HTTP endpoint the browser SDK POSTs RUM payloads to.
+// admin-web's faro-web-sdk `url` config point at this Cloud Run service's
+// public HTTPS endpoint (Alloy runs INGRESS_TRAFFIC_ALL — see
+// observability.tf — because browsers, not just internal GCP callers, must
+// reach it).
+//
+// SECURITY: cors_allowed_origins is restricted to the real admin-web origin
+// to prevent malicious websites from flooding the RUM sink with fake telemetry
+// (which would consume quota and inflate billing). If the stg domain changes,
+// update both this list and the admin-web SDK configuration. Rate limiting
+// should be enforced at the Cloud Run service level (Cloud Armor policy) as a
+// residual defense; this config-level CORS restriction is a first-line filter.
+// See docs/observability/INFRA.md "Security" section.
+faro.receiver "admin_web_rum" {
+  server {
+    listen_address       = "0.0.0.0"
+    listen_port          = 12347
+    cors_allowed_origins = ["https://stg.dashboard.mesha.sg"]
+  }
+
+  output {
+    logs   = [otelcol.exporter.otlphttp.collector.input]
+    traces = [otelcol.exporter.otlphttp.collector.input]
+  }
+}
+
+// Forward everything Alloy receives to the sidecar OTel Collector in this
+// same Cloud Run revision, over OTLP/HTTP on the loopback address (see the
+// Cloud Run single-ingress-port note in otel-collector-config.yaml — the
+// collector only exposes its OTLP/HTTP receiver on 4318, not OTLP/gRPC, so
+// this MUST be `otelcol.exporter.otlphttp`, not `otelcol.exporter.otlp`
+// (gRPC)). `insecure = true` because GOATOS_OTEL_COLLECTOR_ENDPOINT is
+// `http://localhost:4318` — plain loopback HTTP inside the same revision,
+// never a network hop, so there is nothing to encrypt or authenticate.
+otelcol.exporter.otlphttp "collector" {
+  client {
+    endpoint = sys.env("GOATOS_OTEL_COLLECTOR_ENDPOINT")
+
+    tls {
+      insecure = true
+    }
+  }
+}

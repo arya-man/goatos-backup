@@ -1,0 +1,101 @@
+# Goat OS staging OTel Collector configuration.
+#
+# Deployed as an OTel Collector **sidecar container** — NOT a standalone
+# Cloud Run service — inside each producer's own Cloud Run revision:
+# `google_cloud_run_v2_service.api`, every `google_cloud_run_v2_job.kernel`
+# task, and `google_cloud_run_v2_service.grafana_alloy` (all in
+# infra/envs/stg/observability.tf / cloud_run_services.tf / cloud_run_jobs.tf,
+# asia-south1 region). Mounted via a GCS volume at
+# /etc/otelcol-contrib/config.yaml in every one of those sidecars — the
+# container passes `--config=/etc/otelcol-contrib/config.yaml` as its arg.
+# See docs/observability/INFRA.md "Sidecar collector decision" for why: no
+# Serverless VPC Access connector exists in this env, so a Cloud Run service
+# cannot reach another Cloud Run service's INTERNAL_ONLY ingress, and the
+# OTLP/HTTP Go exporters used here cannot attach a Google ID token anyway.
+#
+# Fan-out: every signal arrives over OTLP (grpc+http) from its own sidecar's
+# app container over loopback (http://localhost:4318) — the backend api, the
+# 13 kernel worker Jobs, Grafana Alloy (browser RUM via faro.receiver), and
+# (later) the Android app's OTel-Android OkHttp interceptor via whatever
+# ingress path that needs. See docs/observability/OBSERVABILITY_DESIGN.md
+# section 1 for the full diagram.
+#
+# NOTE (historical Cloud Run single-ingress-port constraint): this used to
+# matter when the collector was ONE standalone Cloud Run service receiving
+# external traffic — Cloud Run only forwards one container port per revision
+# to a service's hostname, so only the OTLP/HTTP receiver (4318) was ever
+# reachable, never OTLP/gRPC (4317). As a sidecar, the collector declares NO
+# `ports` block at all (only the producer's own app container does), so
+# neither receiver is externally reachable — both stay enabled here for
+# architectural completeness and because every producer's own OTel SDK is
+# HTTP-only anyway (see backend/internal/platform/observability/telemetry.go).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  resourcedetection:
+    detectors: [env, gcp]
+    timeout: 5s
+    override: false
+
+  batch:
+    send_batch_size: 512
+    send_batch_max_size: 1024
+    timeout: 5s
+
+exporters:
+  # Metrics -> Google Managed Service for Prometheus. Resulting Cloud
+  # Monitoring metric type is prometheus.googleapis.com/<name>/<counter|gauge|histogram>
+  # with OTel metric name dots replaced by underscores.
+  googlemanagedprometheus:
+    project: "${env:GOOGLE_CLOUD_PROJECT}"
+
+  # Traces -> Cloud Trace. Metric export on this exporter is intentionally
+  # left disabled (googlemanagedprometheus above is the single metrics path)
+  # to avoid double-writing/duplicate billing.
+  googlecloud/traces:
+    project: "${env:GOOGLE_CLOUD_PROJECT}"
+    metric:
+      skip_create_descriptor: true
+    trace:
+      endpoint: "cloudtrace.googleapis.com:443"
+
+  # Logs -> Cloud Logging.
+  googlecloud/logs:
+    project: "${env:GOOGLE_CLOUD_PROJECT}"
+    log:
+      default_log_name: "goatos-stg-otel-collector"
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [googlemanagedprometheus]
+
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [googlecloud/traces]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [googlecloud/logs]
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: basic

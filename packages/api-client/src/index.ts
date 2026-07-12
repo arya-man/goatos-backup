@@ -29,6 +29,15 @@ export type GoatOSClientOptions = {
   tenantId?: string;
   fetchImpl?: typeof fetch;
   defaultHeaders?: HeadersInit;
+  /**
+   * Optional pluggable hook returning W3C trace-context headers (e.g. `traceparent`) to attach
+   * to every request. This keeps the generated client decoupled from any specific tracing SDK
+   * (Faro, OTel, etc.) — the caller supplies whatever active trace context it has (for example,
+   * admin-web forwards the incoming request's `traceparent` header, which Faro's browser fetch
+   * instrumentation attached on the browser -> Next.js hop) so the backend span chains onto the
+   * same trace. Return `undefined` when no trace context is active.
+   */
+  getTraceHeaders?: () => HeadersInit | undefined;
 };
 
 export class GoatOSApiError extends Error {
@@ -69,6 +78,14 @@ export function createGoatOSClient<Paths>(options: GoatOSClientOptions): GoatOSC
       }
 
       const headers = new Headers(options.defaultHeaders);
+      if (options.getTraceHeaders) {
+        const traceHeaders = options.getTraceHeaders();
+        if (traceHeaders) {
+          for (const [key, value] of new Headers(traceHeaders)) {
+            headers.set(key, value);
+          }
+        }
+      }
       for (const [key, value] of new Headers(requestOptions.headers)) {
         headers.set(key, value);
       }

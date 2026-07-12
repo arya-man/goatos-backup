@@ -107,6 +107,39 @@ export GOATOS_TENANT_ID=<tenant-uuid>
 Do not put tokens in browser code, `NEXT_PUBLIC_*` variables, localStorage,
 rendered HTML, query params, or static assets.
 
+### Web RUM (Grafana Faro)
+
+Frontend Real User Monitoring (`components/observability/faro-provider.tsx`,
+OBSERVABILITY_DESIGN.md §2.4) is public browser config, so — unlike the backend
+vars above — it is intentionally `NEXT_PUBLIC_*`:
+
+```bash
+# Grafana Alloy faro.receiver endpoint (infra lane; see
+# docs/observability/OBSERVABILITY_DESIGN.md §1/§4). Leave unset to disable RUM
+# entirely — local dev without a collector is a no-op, not an error.
+export NEXT_PUBLIC_FARO_COLLECTOR_URL=https://alloy.example/collect
+
+# Environment label attached to every RUM signal (e.g. local, stg, prod).
+export NEXT_PUBLIC_GOATOS_ENV=local
+
+# App version label attached to every RUM signal (release tag / build SHA).
+export NEXT_PUBLIC_APP_VERSION=dev
+```
+
+Optional, only needed if the browser ever fetches the backend origin directly
+(it does not today — all backend calls are proxied through Next server
+components/route handlers per this doc's "Backend calls" note above). Faro's
+fetch instrumentation always attaches `traceparent` to same-origin requests
+without this:
+
+```bash
+export NEXT_PUBLIC_GOATOS_API_BASE_ORIGIN=https://api.example.com
+```
+
+When `NEXT_PUBLIC_FARO_COLLECTOR_URL` is unset, `FaroProvider` no-ops (no SDK
+initialization, no network calls) — safe for local dev and any environment
+without a deployed collector.
+
 ## Generated Client
 
 The app imports `@goatos/api-client` from the repo package:

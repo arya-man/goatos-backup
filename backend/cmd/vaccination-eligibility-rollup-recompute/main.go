@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 )
@@ -46,6 +47,12 @@ func run(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
+
+	shutdown, err := observability.SetupTelemetry(ctx, observability.Config{Service: "vaccination-eligibility-rollup-recompute"})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = observability.FlushWithTimeout(shutdown, observability.DefaultShutdownTimeout) }()
 
 	pgCfg := platformpg.ConfigFromEnv()
 	if err := validateDatabaseTarget(pgCfg.DatabaseURL); err != nil {

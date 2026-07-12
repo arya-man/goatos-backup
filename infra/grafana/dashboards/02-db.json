@@ -1,0 +1,159 @@
+{
+  "uid": "goatos-stg-db",
+  "title": "Goat OS stg — Database",
+  "description": "pgx query duration + pool stats (OTel via GMP) alongside native Cloud SQL infra metrics (Google Cloud Monitoring datasource) for goatos-stg-core-db.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "Asia/Kolkata",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["goatos", "stg", "db", "cloud-sql"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Query duration p50 / p90 / p99 by operation",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.50, sum by (le, operation) (rate(db_client_operation_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{operation}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.90, sum by (le, operation) (rate(db_client_operation_duration_seconds_bucket[5m])))",
+          "legendFormat": "p90 {{operation}}"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(db_client_operation_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99 {{operation}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Query duration p99 by table (top 10)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "format": "table",
+          "instant": true,
+          "expr": "topk(10, histogram_quantile(0.99, sum by (le, table) (rate(db_client_operation_duration_seconds_bucket[1h]))))",
+          "legendFormat": "{{table}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Connection pool saturation (pgxpool)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "db_client_connections_usage",
+          "legendFormat": "in use"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "db_client_connections_idle",
+          "legendFormat": "idle"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "db_client_connections_max",
+          "legendFormat": "max"
+        },
+        {
+          "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "db_client_connections_pending",
+          "legendFormat": "pending (waiting for a connection)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Cloud SQL CPU utilization (goatos-stg-core-db)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "datasource": { "type": "stackdriver", "uid": "cloud-monitoring" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "stackdriver", "uid": "cloud-monitoring" },
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "filter": "metric.type=\"cloudsql.googleapis.com/database/cpu/utilization\" AND resource.label.database_id=\"goatos-stg:goatos-stg-core-db\""
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Cloud SQL memory utilization",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "datasource": { "type": "stackdriver", "uid": "cloud-monitoring" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "stackdriver", "uid": "cloud-monitoring" },
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "filter": "metric.type=\"cloudsql.googleapis.com/database/memory/utilization\" AND resource.label.database_id=\"goatos-stg:goatos-stg-core-db\""
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Cloud SQL active connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "datasource": { "type": "stackdriver", "uid": "cloud-monitoring" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "stackdriver", "uid": "cloud-monitoring" },
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "filter": "metric.type=\"cloudsql.googleapis.com/database/postgresql/num_backends\" AND resource.label.database_id=\"goatos-stg:goatos-stg-core-db\""
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Query Insights (console deep link)",
+      "type": "text",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 24 },
+      "options": {
+        "mode": "markdown",
+        "content": "Cloud SQL Query Insights (top queries, plans, locks) is a console-only surface — no Prometheus/Cloud Monitoring metric export for per-query plan detail. Open it directly: https://console.cloud.google.com/sql/instances/goatos-stg-core-db/insights?project=goatos-stg. `insights_config` is enabled by this Terraform pass (infra/envs/stg/cloud_sql.tf)."
+      }
+    }
+  ]
+}

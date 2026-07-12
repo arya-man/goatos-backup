@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
 	vaccexecdomain "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -50,6 +51,12 @@ func run(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
+
+	shutdown, err := observability.SetupTelemetry(ctx, observability.Config{Service: "vaccination-shed-projection-recompute"})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = observability.FlushWithTimeout(shutdown, observability.DefaultShutdownTimeout) }()
 
 	pgCfg := platformpg.ConfigFromEnv()
 	if err := validateDatabaseTarget(pgCfg.DatabaseURL); err != nil {

@@ -96,3 +96,49 @@ output "secret_container_ids" {
     for key, secret in google_secret_manager_secret.container : key => secret.secret_id
   }
 }
+
+output "observability_cloud_run_services" {
+  description = "Cloud Run service URLs for the goatos-stg observability stack. Note: the OTel Collector and GMP query-frontend are sidecar containers inside api/kernel-jobs/grafana and grafana (respectively), not standalone Cloud Run services — see docs/observability/INFRA.md 'Sidecar collector decision' and section 13."
+  value = {
+    grafana       = google_cloud_run_v2_service.grafana.uri
+    grafana_alloy = google_cloud_run_v2_service.grafana_alloy.uri
+  }
+}
+
+output "observability_service_accounts" {
+  description = "Runtime service account emails for the observability stack. There is no dedicated otel_collector or gmp_frontend SA: both run as sidecars under their host revision's SA (grafana and grafana for the respective services, or the kernel/api producer SAs for the collector) — see docs/observability/INFRA.md 'Sidecar collector decision'."
+  value = {
+    grafana          = google_service_account.grafana.email
+    grafana_alloy    = google_service_account.grafana_alloy.email
+    analytics_rollup = google_service_account.analytics_rollup.email
+  }
+}
+
+output "observability_secret_container_ids" {
+  description = "Observability Secret Manager container ids; values are populated out-of-band later."
+  value = {
+    grafana_admin_password           = google_secret_manager_secret.grafana_admin_password.secret_id
+    grafana_postgres_datasource_pass = google_secret_manager_secret.grafana_postgres_datasource_password.secret_id
+  }
+}
+
+output "analytics_rollup_bigquery_dataset" {
+  description = "BigQuery dataset id for the analytics rollup job's own working tables (asia-south1)."
+  value       = google_bigquery_dataset.analytics_rollup.dataset_id
+}
+
+output "analytics_rollup_cloud_run_job" {
+  description = "Cloud Run Job name for the daily GA4->BigQuery->Postgres analytics rollup."
+  value       = google_cloud_run_v2_job.analytics_rollup.name
+}
+
+output "observability_monitoring_alert_policies" {
+  description = "SLO/burn-rate Cloud Monitoring alert policies added by the observability stack."
+  value = {
+    api_error_rate_slo_burn          = google_monitoring_alert_policy.api_error_rate_slo_burn.name
+    api_latency_p99_burn             = google_monitoring_alert_policy.api_latency_p99_burn.name
+    api_latency_p99_write_burn       = google_monitoring_alert_policy.api_latency_p99_write_burn.name
+    kernel_consumer_lag              = google_monitoring_alert_policy.kernel_consumer_lag.name
+    kernel_notification_failure_rate = google_monitoring_alert_policy.kernel_notification_failure_rate.name
+  }
+}

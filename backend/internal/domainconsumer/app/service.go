@@ -10,9 +10,23 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
+	"github.com/vgoats/goatos/backend/internal/platform/tracecontext"
 )
+
+// tracer emits the "domainconsumer.handle" span per consumed message,
+// continuing the outbox relay's "outbox.publish" span when the received
+// message attributes carry a W3C traceparent (see
+// internal/outbox/adapters/publisher/pubsub, which always injects the
+// publish span's own trace context on top of any producer-set traceparent).
+var tracer = otel.Tracer("github.com/vgoats/goatos/backend/domainconsumer")
 
 type Message struct {
 	ID              string
@@ -114,6 +128,34 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 	if s == nil || s.bus == nil {
 		return fmt.Errorf("domain consumer bus is not configured")
 	}
+
+	// Continue the outbox relay's "outbox.publish" span (see
+	// internal/outbox/adapters/publisher/pubsub, which always injects its own
+	// span's trace context onto the outbound message attributes) so the
+	// write -> publish -> consume chain lands on one trace per
+	// docs/observability/OBSERVABILITY_DESIGN.md section 2.2. This span
+	// intentionally wraps only the handle call's duration/outcome - it does
+	// not thread a span-carrying context into the bus/processedStore calls
+	// below, to avoid touching the surrounding retry-safety logic.
+	handleStart := time.Now()
+	eventType := message.Attributes["event_type"]
+	outcome := kmetrics.ConsumerOutcomeProcessed
+	parentCtx := tracecontext.Extract(ctx, message.Attributes)
+	_, span := tracer.Start(parentCtx, "domainconsumer.handle", trace.WithAttributes(
+		attribute.String("event_type", eventType),
+		attribute.String("tenant_id", message.Attributes["tenant_id"]),
+		attribute.String("message_id", message.ID),
+	))
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			outcome = kmetrics.ConsumerOutcomeFailed
+		}
+		span.End()
+		kmetrics.RecordConsumerHandle(ctx, outcome, eventType, time.Since(handleStart).Seconds())
+	}()
+
 	var processed ProcessedEvent
 	claimed := false
 	// effectsCommitted is true once bus.Publish has succeeded for this event - this attempt or a
@@ -164,6 +206,7 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 		return fmt.Errorf("domain consumer envelope validator is not configured")
 	}
 	if err := s.validator.Validate(message.Data); err != nil {
+		kmetrics.RecordConsumerValidationError(ctx, eventType)
 		return fmt.Errorf("invalid domain event envelope: %w", err)
 	}
 	event, err := eventbus.EventFromEnvelope(message.Data, eventbus.Event{
@@ -205,6 +248,7 @@ func (s *Service) handleMessage(ctx context.Context, subscriptionID string, mess
 					slog.String("tenant_id", event.TenantID),
 				)
 			}
+			outcome = kmetrics.ConsumerOutcomeDuplicateSkipped
 			return nil
 		case ProcessDecisionInProgress:
 			return fmt.Errorf("%w: event_id=%s subscription_id=%s", ErrEventProcessingInProgress, processed.EventID, processed.SubscriptionID)

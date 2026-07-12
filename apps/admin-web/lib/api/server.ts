@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "crypto";
 import { createAdminApiClient, createAppApiClient, GoatOSApiError } from "@goatos/api-client";
 import type { AdminApiComponents, AdminApiPaths, AppApiComponents, AppApiPaths } from "@goatos/api-client";
+import { headers } from "next/headers";
 import { cache } from "react";
 import { getFirebaseIdTokenCookie } from "@/lib/auth/server-session";
 import { mintLocalDevBearerToken } from "./local-dev-token";
@@ -156,6 +157,12 @@ type ServerConfig = {
   baseUrl: string;
   bearerToken: string;
   tenantId: string;
+  // W3C traceparent forwarded from the incoming request, when present. On a browser-initiated
+  // fetch (client-side navigation or an explicit client fetch), Faro's fetch instrumentation
+  // (apps/admin-web/components/observability/faro-provider.tsx) attaches this header on the
+  // browser -> Next.js hop; forwarding it onto the backend call below chains the RUM trace onto
+  // the backend's otelhttp span for the same request.
+  traceparent?: string;
 };
 
 export type HerdSearchParams = {
@@ -221,6 +228,7 @@ export const getServerConfig = cache(async function getServerConfig(requireTenan
       : undefined;
   const bearerToken = localBearerToken ?? firebaseIdToken;
   const tenantId = process.env.GOATOS_TENANT_ID;
+  const traceparent = (await headers()).get("traceparent") ?? undefined;
 
   if (!bearerToken) {
     return {
@@ -249,6 +257,7 @@ export const getServerConfig = cache(async function getServerConfig(requireTenan
       baseUrl,
       bearerToken: bearerToken ?? "",
       tenantId: tenantId ?? "",
+      traceparent,
     },
   };
 });
@@ -265,10 +274,14 @@ export function getAdminRuntimeStatus() {
 }
 
 export function apiClientOptions(config: ServerConfig) {
+  const traceparent = config.traceparent;
   return {
     baseUrl: config.baseUrl,
     bearerToken: config.bearerToken,
     tenantId: config.tenantId || undefined,
+    // See the ServerConfig.traceparent comment: forwards the browser's Faro-instrumented trace
+    // context (if any) onto the backend call so RUM and backend spans join one trace.
+    getTraceHeaders: traceparent ? () => ({ traceparent }) : undefined,
   };
 }
 

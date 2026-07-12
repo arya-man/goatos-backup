@@ -25,6 +25,20 @@ resource "google_sql_database_instance" "core" {
       ssl_mode     = "ENCRYPTED_ONLY"
     }
 
+    # Cloud SQL Query Insights (docs/observability/OBSERVABILITY_DESIGN.md
+    # section 4 / "DB" dashboard #2). No raw query text with bound
+    # parameters is retained in Cloud SQL's own query string; goat/tenant
+    # identifiers are not PII per AGENTS.md, but query args are left
+    # untagged here anyway since Insights' "record_client_address" only
+    # affects app_name/client host, not row-level goat data.
+    insights_config {
+      query_insights_enabled  = var.cloud_sql_query_insights_enabled
+      query_string_length     = var.cloud_sql_query_insights_query_string_length
+      record_application_tags = true
+      record_client_address   = true
+      query_plans_per_minute  = var.cloud_sql_query_insights_query_plans_per_minute
+    }
+
     user_labels = local.labels
   }
 

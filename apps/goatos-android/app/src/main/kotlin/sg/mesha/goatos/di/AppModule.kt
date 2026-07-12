@@ -79,6 +79,8 @@ import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.NetworkFactory
 import sg.mesha.goatos.capture.DelegatingProofCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.network.NetworkTelemetryReporter
+import sg.mesha.goatos.core.network.TelemetryInterceptor
 import sg.mesha.goatos.rfid.BtHidScanSource
 import sg.mesha.goatos.rfid.KeyboardWedgeRfidReader
 import sg.mesha.goatos.rfid.RfidReaderPort
@@ -173,7 +175,7 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAppApi(sessionStore: SessionStore): AppApi =
+    fun provideAppApi(sessionStore: SessionStore, networkTelemetryReporter: NetworkTelemetryReporter): AppApi =
         NetworkFactory.appApi(
             baseUrl = BuildConfig.API_BASE_URL,
             tokenProvider = {
@@ -186,6 +188,12 @@ object AppModule {
             },
             tenantIdProvider = { BuildConfig.TENANT_ID },
             localeProvider = { runBlocking { sessionStore.currentLanguage() } },
+            // traceparent stamping + method/route/status/duration reporting (docs/TELEMETRY.md).
+            // `enabled` mirrors TELEMETRY_ENABLED so a flavor without a confirmed Firebase
+            // project still gets traceparent propagation for backend correlation — only the
+            // Firebase Perf reporting half is gated (networkTelemetryReporter is already a Noop
+            // there; see TelemetryModule).
+            telemetryInterceptor = TelemetryInterceptor(enabled = BuildConfig.TELEMETRY_ENABLED, reporter = networkTelemetryReporter),
         )
 
     @Provides

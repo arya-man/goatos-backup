@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	adminuihttp "github.com/vgoats/goatos/backend/internal/adminui/adapters/http"
 	adminuipg "github.com/vgoats/goatos/backend/internal/adminui/adapters/postgres"
 	adminuiapp "github.com/vgoats/goatos/backend/internal/adminui/app"
@@ -246,6 +248,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := platformpg.RegisterPoolMetrics(pool); err != nil && log != nil {
+		// Pool-stat metrics are an observability nice-to-have, never a
+		// reason to fail API startup.
+		log.Warn("postgres_pool_metrics_registration_failed", slog.String("error", err.Error()))
+	}
 
 	identityRepo := identitypg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	identityService := identityapp.NewService(identityRepo).WithBulkPreviewSigningKey(bulkPreviewSigningKey)
@@ -370,11 +377,42 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	feedhttp.Register(protectedMux, feedHandler)
 	passporthttp.Register(protectedMux, passportHandler)
 
+	// otelhttp owns real span creation for every protected request (server
+	// spans, W3C trace-context propagation); httpmiddleware.Metrics records
+	// the RED metrics (http.server.request.duration/requests/active_requests)
+	// using the SAME matched route template via protectedMux.Handler, so
+	// route/method/status_class/tenant stay bounded-cardinality per
+	// docs/observability/OBSERVABILITY_DESIGN.md sections 2.1-2.2. Metrics is
+	// innermost (closest to protectedMux) so it always observes the final
+	// response status regardless of what otelhttp's own wrapping does to the
+	// ResponseWriter.
+	routeOf := httpmiddleware.MuxRoutePattern(protectedMux)
+	instrumentedProtectedMux := otelhttp.NewHandler(
+		httpmiddleware.Metrics(routeOf)(protectedMux),
+		"goatos.api",
+		otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+			if pattern := routeOf(r); pattern != "" {
+				return pattern
+			}
+			return operation
+		}),
+	)
+
 	mux := http.NewServeMux()
 	authaudit.Register(mux, authAuditHandler)
-	mux.Handle("/", authz.Wrap(protectedMux))
+	mux.Handle("/", authz.Wrap(instrumentedProtectedMux))
 
 	// PanicRecovery is outermost so it catches panics in auth and RequestContext.
+	// RequestContext's own request_id/trace_id log fields are independent of
+	// the otelhttp span created below it: when the caller sends a W3C
+	// traceparent header, both derive the same trace id (RequestContext
+	// passes it through verbatim; otelhttp's TraceContext propagator parses
+	// the same header to continue the trace), so logs and traces correlate
+	// for propagated requests. For a request with no incoming traceparent,
+	// RequestContext still logs its own generated request id (matching
+	// existing behavior/tests) while otelhttp mints an independent root span -
+	// see docs/observability/OBSERVABILITY_DESIGN.md section 2.2 and the
+	// SetupTelemetry doc comment for why this ordering was chosen.
 	handler := httpmiddleware.PanicRecovery(log)(httpmiddleware.RequestContext(log)(mux))
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,

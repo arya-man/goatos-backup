@@ -1,0 +1,206 @@
+{
+  "uid": "goatos-stg-kernel-pipeline",
+  "title": "Goat OS stg — Kernel pipeline",
+  "description": "One row per operational-kernel stage: event -> txn -> audit/outbox -> trigger -> obligation -> sweeper -> notify -> proof. Metric names per OBSERVABILITY_DESIGN.md section 2.1.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "Asia/Kolkata",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["goatos", "stg", "kernel", "outbox", "obligations"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Outbox: publish duration p99 / queue depth / dead letters / reclaimed",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_outbox_publish_duration_seconds_bucket[5m])))",
+          "legendFormat": "publish p99 (s)"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "kernel_outbox_queue_depth",
+          "legendFormat": "queue depth"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "increase(kernel_outbox_dead_letters_total[5m])",
+          "legendFormat": "dead letters (5m)"
+        },
+        {
+          "refId": "D",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "increase(kernel_outbox_reclaimed_total[5m])",
+          "legendFormat": "reclaimed (5m)"
+        },
+        {
+          "refId": "E",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "increase(kernel_outbox_retry_scheduled_total[5m])",
+          "legendFormat": "retry scheduled (5m)"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Domain consumer: handle duration p99 + lag",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_consumer_handle_duration_seconds_bucket[5m])))",
+          "legendFormat": "handle p99"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "kernel_consumer_lag_seconds",
+          "legendFormat": "consumer lag (SLO < 60s)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Domain consumer: validation errors",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "increase(kernel_consumer_validation_errors_total[5m])",
+          "legendFormat": "validation errors (5m)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Sweeper: batch duration + obligations swept + tasks created",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_sweeper_batch_duration_seconds_bucket[5m])))",
+          "legendFormat": "batch duration p99 (s)"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "increase(kernel_sweeper_obligations_swept_total[5m])",
+          "legendFormat": "obligations swept (5m)"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "increase(kernel_sweeper_tasks_created_total[5m])",
+          "legendFormat": "tasks created (5m)"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Notify: send duration + failures by channel (SLO success > 99%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le, channel) (rate(kernel_notify_send_duration_seconds_bucket[5m])))",
+          "legendFormat": "send p99 {{channel}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "increase(kernel_notify_failures_total[5m])",
+          "legendFormat": "failures {{channel}} (5m)"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "increase(kernel_notify_exhausted_total[5m])",
+          "legendFormat": "exhausted retries (5m)"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Cloud Tasks: enqueue duration + idempotent collisions",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_cloudtasks_enqueue_duration_seconds_bucket[5m])))",
+          "legendFormat": "enqueue p99 (s)"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "increase(kernel_cloudtasks_idempotent_collisions_total[5m])",
+          "legendFormat": "idempotent collisions (5m)"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Pub/Sub subscription backlog (native GCP metric, free)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "stackdriver", "uid": "cloud-monitoring" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "stackdriver", "uid": "cloud-monitoring" },
+          "queryType": "timeSeriesList",
+          "timeSeriesList": {
+            "filter": "metric.type=\"pubsub.googleapis.com/subscription/num_undelivered_messages\" AND resource.label.subscription_id=\"goatos-stg-domain-events\""
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "End-to-end event age (outbox publish -> obligation swept), p99",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "description": "Derived by summing per-stage p99s as an upper-bound proxy until a dedicated end-to-end span metric is exported from the propagated outbox traceparent (design section 2.2).",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_outbox_publish_duration_seconds_bucket[5m]))) + histogram_quantile(0.99, sum by (le) (rate(kernel_consumer_handle_duration_seconds_bucket[5m]))) + histogram_quantile(0.99, sum by (le) (rate(kernel_sweeper_batch_duration_seconds_bucket[5m])))",
+          "legendFormat": "approx. end-to-end p99 (s)"
+        }
+      ]
+    }
+  ]
+}

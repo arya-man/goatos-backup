@@ -390,6 +390,18 @@ resource "google_cloud_run_v2_job" "kernel" {
       max_retries     = 1
 
       containers {
+        # Declared FIRST: Cloud Run Jobs consider a multi-container task
+        # execution complete when this first-listed container exits — the
+        # otel-collector sidecar below is then sent SIGTERM regardless of its
+        # own state. Keeping the app container first preserves existing job
+        # success/failure semantics untouched by adding the sidecar.
+        name = "app"
+
+        # Wait for the collector sidecar's startup_probe before running, so
+        # the job's own OTLP exports (best-effort; SetupTelemetry never fails
+        # the process) have somewhere to land from the first line of work.
+        depends_on = ["otel-collector"]
+
         image   = local.backend_image
         command = each.value.command
         args    = each.value.args
@@ -408,7 +420,24 @@ resource "google_cloud_run_v2_job" "kernel" {
 
         env {
           name  = "GOATOS_OBS_SINK"
-          value = "gcm"
+          value = "otlp"
+        }
+
+        # OTLP/HTTP export to the OTel Collector sidecar container in this
+        # same task, over loopback — see the sidecar decision documented at
+        # the top of observability.tf and in docs/observability/INFRA.md.
+        # Short-lived Jobs force-flush on exit via SetupTelemetry's deferred
+        # shutdown, which synchronously posts to this loopback endpoint
+        # before the app container exits — see the residual-risk note in
+        # INFRA.md about the sidecar's own flush-on-SIGTERM window.
+        env {
+          name  = "GOATOS_OTLP_ENDPOINT"
+          value = "http://localhost:4318"
+        }
+
+        env {
+          name  = "GOATOS_TRACE_SAMPLE_RATIO"
+          value = var.trace_sample_ratio
         }
 
         dynamic "env" {
@@ -448,10 +477,59 @@ resource "google_cloud_run_v2_job" "kernel" {
         }
       }
 
+      # OTel Collector sidecar (see the header comment in observability.tf
+      # and docs/observability/INFRA.md "Sidecar collector decision").
+      # Declared SECOND so it never determines this task's success/failure —
+      # only the "app" container's exit code does (see the comment on that
+      # container above). Cloud Run terminates this sidecar automatically
+      # once "app" exits.
+      containers {
+        name = "otel-collector"
+
+        image = var.otel_collector_image
+        args  = ["--config=/etc/otelcol-contrib/config.yaml"]
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+
+        env {
+          name  = "GOOGLE_CLOUD_PROJECT"
+          value = var.project_id
+        }
+
+        startup_probe {
+          initial_delay_seconds = 0
+          timeout_seconds       = 1
+          period_seconds        = 3
+          failure_threshold     = 10
+
+          tcp_socket {
+            port = 4318
+          }
+        }
+
+        volume_mounts {
+          name       = "collector-config"
+          mount_path = "/etc/otelcol-contrib"
+        }
+      }
+
       volumes {
         name = "cloudsql"
         cloud_sql_instance {
           instances = [google_sql_database_instance.core.connection_name]
+        }
+      }
+
+      volumes {
+        name = "collector-config"
+        gcs {
+          bucket    = google_storage_bucket.observability_config.name
+          read_only = true
         }
       }
     }

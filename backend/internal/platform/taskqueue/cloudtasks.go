@@ -15,6 +15,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/vgoats/goatos/backend/internal/platform/kmetrics"
 )
 
 type Config struct {
@@ -95,8 +97,11 @@ func (e *Enqueuer) EnqueueJSONPost(ctx context.Context, taskID string, payload a
 	if !scheduleAt.IsZero() {
 		task.ScheduleTime = timestamppb.New(scheduleAt.UTC())
 	}
+	enqueueStart := time.Now()
 	_, err = e.client.CreateTask(ctx, &taskspb.CreateTaskRequest{Parent: parent, Task: task})
+	kmetrics.RecordCloudTasksEnqueue(ctx, time.Since(enqueueStart).Seconds())
 	if status.Code(err) == codes.AlreadyExists {
+		kmetrics.RecordCloudTasksIdempotentCollision(ctx)
 		return nil
 	}
 	if err != nil {

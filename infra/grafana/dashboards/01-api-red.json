@@ -1,0 +1,154 @@
+{
+  "uid": "goatos-stg-api-red",
+  "title": "Goat OS stg — API / RED",
+  "description": "Request rate, error rate, duration (RED) for goatos-api-stg. Metric names are OTel http.server.* mapped through the Google Managed Prometheus naming convention (dots -> underscores, Prometheus _bucket/_sum/_count/_total suffixes). Verify exact names in Metrics Explorer once real telemetry is flowing.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "Asia/Kolkata",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["goatos", "stg", "api", "red"],
+  "templating": {
+    "list": [
+      {
+        "name": "route",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+        "query": "label_values(http_server_request_duration_seconds_count, route)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request rate by route",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "sum by (route, method) (rate(http_server_requests_total{route=~\"$route\"}[5m]))",
+          "legendFormat": "{{method}} {{route}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Error rate % (5xx / total)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "100 * sum(rate(http_server_requests_total{route=~\"$route\", status_class=\"5xx\"}[5m])) / sum(rate(http_server_requests_total{route=~\"$route\"}[5m]))",
+          "legendFormat": "5xx error rate"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latency p50 / p90 / p99 by route",
+      "type": "timeseries",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.50, sum by (le, route) (rate(http_server_request_duration_seconds_bucket{route=~\"$route\"}[5m])))",
+          "legendFormat": "p50 {{route}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.90, sum by (le, route) (rate(http_server_request_duration_seconds_bucket{route=~\"$route\"}[5m])))",
+          "legendFormat": "p90 {{route}}"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le, route) (rate(http_server_request_duration_seconds_bucket{route=~\"$route\"}[5m])))",
+          "legendFormat": "p99 {{route}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Top 10 slowest routes (p99, last 1h)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "format": "table",
+          "instant": true,
+          "expr": "topk(10, histogram_quantile(0.99, sum by (le, route) (rate(http_server_request_duration_seconds_bucket[1h]))))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "In-flight requests",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "sum(http_server_active_requests)",
+          "legendFormat": "in-flight"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Availability (non-5xx, last 30d, SLO 99.5%)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "max": 100,
+          "min": 99,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 99.3 },
+              { "color": "green", "value": 99.5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "100 * (1 - (sum(increase(http_server_requests_total{status_class=\"5xx\"}[30d])) / sum(increase(http_server_requests_total[30d]))))",
+          "legendFormat": "availability"
+        }
+      ]
+    }
+  ]
+}

@@ -442,9 +442,14 @@ object NetworkFactory {
         tokenProvider: () -> String?,
         tenantIdProvider: () -> String? = { null },
         localeProvider: () -> String? = { null },
+        // Optional: traceparent stamping + method/route/status/duration reporting
+        // (docs/observability/OBSERVABILITY_DESIGN.md §2.5). Null keeps the client identical to
+        // before this was wired — every existing caller is unaffected until it opts in.
+        telemetryInterceptor: okhttp3.Interceptor? = null,
     ): OkHttpClient =
         OkHttpClient.Builder()
             .addInterceptor(BearerAuthInterceptor(tokenProvider, tenantIdProvider, localeProvider))
+            .apply { telemetryInterceptor?.let { addInterceptor(it) } }
             // Explicit bounds — never rely on the platform/OkHttp defaults (a stuck socket on a
             // field 2G link must fail and let the outbox back off, not hang the drain coroutine).
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -486,9 +491,10 @@ object NetworkFactory {
         tokenProvider: () -> String?,
         tenantIdProvider: () -> String? = { null },
         localeProvider: () -> String? = { null },
+        telemetryInterceptor: okhttp3.Interceptor? = null,
     ): AppApi =
         RetrofitAppApi(
-            retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider)).create(),
+            retrofit(baseUrl, okHttp(tokenProvider, tenantIdProvider, localeProvider, telemetryInterceptor)).create(),
             proofBlobUploader(baseUrl, tokenProvider),
         )
 }

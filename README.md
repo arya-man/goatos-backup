@@ -146,6 +146,18 @@ The local foundation is built and tested against Postgres:
   being brought up in a running dev posture for raw Cloud Run dashboard
   verification. No Cloud Run services/jobs, images, migrations, or legacy
   imports are live yet.
+- **Observability**: a GCP-native OTel stack is designed and its Terraform
+  written for `goatos-stg` (`asia-south1`) — backend metrics/traces/logs to
+  Google Managed Prometheus / Cloud Trace / Cloud Logging, a self-hosted
+  Grafana pane of glass, Faro browser RUM for admin-web, Firebase
+  Analytics/Performance/Crashlytics + a reserved OTLP hook for the Android app,
+  a GA4→BigQuery→Postgres funnel-rollup path, and a telemetry CI guardrail
+  requiring every new screen/route to wire analytics+crash+funnel signal. **Not
+  yet applied**: live stg resources still need Terraform-state import before
+  `terraform apply`, prod has no observability rollout at all, most Android
+  funnel call sites and admin-web per-route RUM events are still TODO, and the
+  GA4→BigQuery link is a manual Firebase-console step nobody has run yet. See
+  `docs/observability/README.md`.
 
 In short:
 

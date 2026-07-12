@@ -56,6 +56,12 @@ func run(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
 
+	shutdown, err := observability.SetupTelemetry(ctx, observability.Config{Service: "outbox-relay"})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = observability.FlushWithTimeout(shutdown, observability.DefaultShutdownTimeout) }()
+
 	pgCfg := platformpg.ConfigFromEnv()
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {

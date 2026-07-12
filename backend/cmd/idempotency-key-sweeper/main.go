@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
@@ -37,6 +38,12 @@ func run(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Timeout)
 	defer cancel()
+
+	shutdown, err := observability.SetupTelemetry(ctx, observability.Config{Service: "idempotency-key-sweeper"})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = observability.FlushWithTimeout(shutdown, observability.DefaultShutdownTimeout) }()
 
 	pgCfg := platformpg.ConfigFromEnv()
 	pool, err := platformpg.Connect(ctx, pgCfg)

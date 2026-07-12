@@ -9,6 +9,13 @@ plugins {
     alias(libs.plugins.paparazzi)
     alias(libs.plugins.firebase.appdistribution)
     alias(libs.plugins.androidx.baselineprofile)
+    // Observability (docs/TELEMETRY.md). google-services processes each flavor's
+    // src/<flavor>/google-services.json into FirebaseOptions resources; Crashlytics +
+    // Performance Monitoring instrument the assembled APK's bytecode (their automatic
+    // screen/network traces need no code — see docs/TELEMETRY.md).
+    alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
+    alias(libs.plugins.firebase.perf)
 }
 
 android {
@@ -51,6 +58,19 @@ android {
             versionNameSuffix = "-dev"
             buildConfigField("String", "API_BASE_URL", "\"${devApiBaseUrl.replace("\"", "\\\"")}\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"http://localhost:3311/login\"")
+            // Telemetry (docs/TELEMETRY.md): off by default for local dev — no registered
+            // Firebase project is confirmed for `dev` yet (app/src/dev/google-services.json is a
+            // structurally-valid PLACEHOLDER, not a real project; see app/src/google-services-README.md).
+            // Override per-invoke with -PgoatosTelemetryEnabled=true once a real dev Firebase app exists.
+            buildConfigField(
+                "boolean",
+                "TELEMETRY_ENABLED",
+                (project.findProperty("goatosTelemetryEnabled") as String?) ?: "false",
+            )
+            // OTLP Collector endpoint — NOT deployed yet (OBSERVABILITY_DESIGN.md §6 rollout is
+            // stg-first). TelemetryInterceptor only stamps traceparent + reports to Firebase Perf
+            // today; this field is reserved for the OTel-Android OTLP exporter TODO.
+            buildConfigField("String", "OTLP_ENDPOINT", "\"\"")
         }
         create("stg") {
             dimension = "env"
@@ -58,11 +78,14 @@ android {
             versionNameSuffix = "-stg"
             buildConfigField("String", "API_BASE_URL", "\"https://goatos-api-stg-514832198871.asia-south1.run.app/\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://stg.dashboard.mesha.sg/login\"")
-
-            // Firebase App Distribution — ships stg builds to testers. appId is the
-            // registered goatos-stg Android client. Testers live in the Firebase
-            // "goatos-testers" group (emails stay in the console, never the repo);
-            // override per-invoke with -PfadGroups / -PfadTesters / -PfadReleaseNotes.
+            // Telemetry (docs/TELEMETRY.md): stg has a CONFIRMED real Firebase project
+            // (goatos-stg — see app/src/stg/res/values/firebase.xml + app/src/stg/google-services.json,
+            // both reconstructed from the same committed real values). Rollout target (§6).
+            buildConfigField("boolean", "TELEMETRY_ENABLED", "true")
+            // OTel Collector Cloud Run service MUST be provisioned in asia-south1 (same region as
+            // API_BASE_URL above and OBSERVABILITY_DESIGN.md's chosen stg region). Not deployed yet —
+            // empty until infra lands; see docs/TELEMETRY.md "India region / asia-south1" section.
+            buildConfigField("String", "OTLP_ENDPOINT", "\"\"")
             firebaseAppDistribution {
                 appId = "1:514832198871:android:0cb898377ba4f7f7f19492"
                 artifactType = "APK"
@@ -76,6 +99,15 @@ android {
             dimension = "env"
             buildConfigField("String", "API_BASE_URL", "\"https://api.goatos.mesha.sg/\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://dashboard.mesha.sg/login\"")
+            // Telemetry (docs/TELEMETRY.md): OFF until prod's real Firebase project is confirmed
+            // and its google-services.json replaces the PLACEHOLDER at app/src/prod/google-services.json
+            // (OBSERVABILITY_DESIGN.md §6: "prod needs its Layer-1 terraform foundation before enabling").
+            buildConfigField(
+                "boolean",
+                "TELEMETRY_ENABLED",
+                (project.findProperty("goatosTelemetryEnabled") as String?) ?: "false",
+            )
+            buildConfigField("String", "OTLP_ENDPOINT", "\"\"")
         }
     }
 
@@ -109,6 +141,10 @@ dependencies {
     implementation(project(":core:core-model"))
     implementation(project(":core:core-common"))
     implementation(project(":core:core-network"))
+    // core-network's own OkHttp dependency is `implementation`-scoped (not exposed
+    // transitively); :app needs the `okhttp3.Interceptor` type directly to construct
+    // TelemetryInterceptor when wiring NetworkFactory.appApi (docs/TELEMETRY.md).
+    implementation(libs.okhttp)
     implementation(project(":core:core-data"))
     // CoverageBannerUiState (shared across feature-calendar + :app's CoverageBannerViewModel).
     implementation(project(":core:core-ui"))

@@ -8,6 +8,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.PerformanceTracer
+import sg.mesha.goatos.core.analytics.PerformanceTraceNames
+import sg.mesha.goatos.core.analytics.TraceHandle
 import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.core.data.sync.ForegroundSyncController
 import sg.mesha.goatos.sync.SyncWorkScheduler
@@ -37,16 +41,29 @@ class GoatOsApplication : Application(), Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var appScope: CoroutineScope
     @Inject lateinit var analytics: AnalyticsPort
+    @Inject lateinit var crashReporter: CrashReporter
+    @Inject lateinit var performanceTracer: PerformanceTracer
+
+    /** Started here, stopped on the first post-auth `MainActivity.onResume` (see
+     *  `docs/TELEMETRY.md`). Public var (not Hilt-scoped) so `MainActivity` can stop the SAME
+     *  handle without a second DI graph lookup; `null` after the first stop so it reports once. */
+    var coldStartTrace: TraceHandle? = null
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
 
     override fun onCreate() {
         super.onCreate()
-        // Launch/session markers. Cheap (the port is a no-op today) and Hilt has already field-
-        // injected [analytics] by the time super.onCreate() returns, so it is safe to call here.
+        // Cold-start custom trace (docs/TELEMETRY.md item 3) — started as early as possible;
+        // stopped in MainActivity.onResume once the first frame after auth is showing.
+        coldStartTrace = performanceTracer.startTrace(PerformanceTraceNames.APP_COLD_START)
+        // Launch/session markers. Hilt has already field-injected [analytics] by the time
+        // super.onCreate() returns, so it is safe to call here.
         analytics.track(AnalyticsEvents.APP_OPEN)
         analytics.track(AnalyticsEvents.SESSION_START)
+        // Crash reporting: log a breadcrumb so every session boundary shows up alongside any
+        // crash/non-fatal that follows it. Never logs PII — flavor is a build constant.
+        crashReporter.log("app_open flavor=${BuildConfig.FLAVOR}")
         // Off the main thread: enqueueUniquePeriodicWork does disk I/O on the calling thread, and
         // starting the connectivity trigger touches ConnectivityManager — neither is on the
         // critical path to first frame, so defer both to the app scope to keep cold start snappy.

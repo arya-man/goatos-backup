@@ -1,0 +1,111 @@
+# Goat OS staging Grafana datasource provisioning.
+#
+# Uploaded as GCS objects and mounted read-only into the
+# `goatos-stg-grafana` Cloud Run service via a `gcs` volume
+# (infra/envs/stg/observability.tf) at
+# GF_PATHS_PROVISIONING=/mnt/grafana-provisioning/provisioning.
+#
+# This file is committed static YAML. Values that are only known after
+# `terraform apply` (Cloud Run URLs with random hash suffixes, Cloud SQL
+# connection names) are injected at container start via Grafana's supported
+# `$__env{VARNAME}` provisioning-file expansion (Grafana >= 9), reading the
+# container's own env vars — which Terraform sets explicitly on the Grafana
+# Cloud Run container. Do not hardcode a Cloud Run URL here; it changes on
+# every fresh deploy.
+#
+# All backing services are goatos-stg / asia-south1. GMP and Cloud Trace are
+# Google-managed, project-scoped (not single-region-pinned by Google's own
+# product design) — see docs/observability/INFRA.md "Regionality" section for
+# the explicit call-out.
+
+apiVersion: 1
+
+datasources:
+  # Google Managed Service for Prometheus (GMP), reached through the small
+  # `gmp-frontend` sidecar container running alongside Grafana in the same Cloud
+  # Run service revision (see observability.tf), so a plain "Prometheus" datasource
+  # type can query GMP without needing to sign each request with a GCP OAuth token
+  # itself. The frontend sidecar holds roles/monitoring.viewer and injects the
+  # bearer token server-side. Grafana queries via loopback (no TLS, no auth required).
+  - name: Google Managed Prometheus
+    uid: gmp-prometheus
+    type: prometheus
+    access: proxy
+    url: http://localhost:9090
+    isDefault: true
+    jsonData:
+      httpMethod: GET
+      timeInterval: 30s
+      # PromQL metric names below (dashboards/*.json) are best-effort
+      # mappings from OBSERVABILITY_DESIGN.md 2.1/2.2 through GMP naming
+      # (dots -> underscores, Prometheus _total/_bucket/_sum/_count suffixes).
+      # Verify against Metrics Explorer once real telemetry flows.
+
+  # Cloud Trace. Plugin id/version must be verified against the current
+  # Grafana plugin catalog before first apply (grafana.com/grafana/plugins) —
+  # Context7/live docs lookup was unavailable in this build session (auth
+  # error). Installed via GF_INSTALL_PLUGINS on the Grafana container.
+  - name: Google Cloud Trace
+    uid: cloud-trace
+    type: googlecloud-trace-datasource
+    access: proxy
+    jsonData:
+      authenticationType: gce
+      defaultProject: goatos-stg
+
+  # Cloud Logging. Same plugin-id verification caveat as Cloud Trace above.
+  - name: Google Cloud Logging
+    uid: cloud-logging
+    type: googlecloud-logging-datasource
+    access: proxy
+    jsonData:
+      authenticationType: gce
+      defaultProject: goatos-stg
+
+  # Cloud SQL analytics.* rollup tables (see infra/envs/stg/analytics_rollup.tf).
+  # Connects over the Cloud Run Cloud SQL Unix socket volume mount, same
+  # pattern used by the backend api/kernel jobs.
+  - name: Postgres (analytics rollups)
+    uid: postgres-analytics
+    type: postgres
+    access: proxy
+    url: $__env{GOATOS_GRAFANA_POSTGRES_SOCKET}
+    database: goatos
+    user: $__env{GOATOS_GRAFANA_POSTGRES_USER}
+    secureJsonData:
+      password: $__env{GOATOS_GRAFANA_POSTGRES_PASSWORD}
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1600
+      # value is a Unix socket directory (/cloudsql/<connection_name>); the
+      # Postgres datasource treats a url starting with "/" as a socket dir.
+
+  # BigQuery, kept only for ad-hoc GA4 export deep dives per
+  # OBSERVABILITY_DESIGN.md 2.6 — Grafana dashboards read the cheap Postgres
+  # rollup above for regular panels.
+  - name: BigQuery (GA4 export, ad-hoc)
+    uid: bigquery-analytics
+    type: grafana-bigquery-datasource
+    access: proxy
+    jsonData:
+      authenticationType: gce
+      defaultProject: goatos-stg
+      processingLocation: asia-south1
+
+  # Added beyond the 5 datasources explicitly listed in the design doc: the
+  # DB dashboard (design section 5, #2) needs native Cloud SQL infra metrics
+  # (cloudsql.googleapis.com/database/cpu|memory|network/connections) plus
+  # Query Insights, which live in Cloud Monitoring's own metric namespace —
+  # NOT the GMP/Prometheus namespace the "Google Managed Prometheus"
+  # datasource above queries. Grafana's native "Google Cloud Monitoring"
+  # (stackdriver) datasource type ships in OSS Grafana with no extra plugin
+  # install and is the only way to chart these. Same `gce` ADC auth as the
+  # other Google datasources; grafana SA needs no extra IAM role beyond the
+  # roles/monitoring.viewer already granted.
+  - name: Google Cloud Monitoring
+    uid: cloud-monitoring
+    type: stackdriver
+    access: proxy
+    jsonData:
+      authenticationType: gce
+      defaultProject: goatos-stg

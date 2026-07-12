@@ -11,4 +11,9 @@ plugins {
     alias(libs.plugins.hilt) apply false
     alias(libs.plugins.paparazzi) apply false
     alias(libs.plugins.firebase.appdistribution) apply false
+    // Observability (docs/TELEMETRY.md): converts google-services.json -> FirebaseOptions
+    // resources, then Crashlytics + Performance Monitoring bytecode instrumentation.
+    alias(libs.plugins.google.services) apply false
+    alias(libs.plugins.firebase.crashlytics) apply false
+    alias(libs.plugins.firebase.perf) apply false
 }

@@ -9,10 +9,12 @@ package pubsub
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/vgoats/goatos/backend/internal/outbox/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/tracecontext"
 )
 
 // MessagePublisher is the broker seam the adapter needs. Implementations:
@@ -65,6 +67,23 @@ func (p *Publisher) Publish(ctx context.Context, m ports.PublishMessage) error {
 	if m.TraceID != nil && *m.TraceID != "" {
 		attrs["trace_id"] = *m.TraceID
 	}
+	// Forward any headers the producer attached (e.g. a future producer's
+	// "traceparent" entry - see internal/platform/tracecontext's doc comment
+	// for the current scope of that wiring), then stamp the CURRENT span's
+	// own W3C trace context on top so the consumer can always continue a
+	// trace from this publish span, even for producers that have not yet
+	// been wired to set traceparent at write time.
+	if len(m.Headers) > 0 {
+		var headers map[string]string
+		if err := json.Unmarshal(m.Headers, &headers); err == nil {
+			for k, v := range headers {
+				if _, exists := attrs[k]; !exists {
+					attrs[k] = v
+				}
+			}
+		}
+	}
+	tracecontext.Inject(ctx, attrs)
 
 	topicID := p.topicID
 	if topicID == "" {

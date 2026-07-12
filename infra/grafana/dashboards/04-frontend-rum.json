@@ -1,0 +1,102 @@
+{
+  "uid": "goatos-stg-frontend-rum",
+  "title": "Goat OS stg — Frontend RUM (admin-web)",
+  "description": "Browser Real User Monitoring from @grafana/faro-web-sdk, forwarded by Grafana Alloy (faro.receiver) as OTel logs+traces through the shared collector. See docs/observability/INFRA.md for the caveat that Faro measurements arrive as structured logs, not native Prometheus metrics.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "Asia/Kolkata",
+  "time": { "from": "now-24h", "to": "now" },
+  "refresh": "1m",
+  "tags": ["goatos", "stg", "rum", "admin-web", "faro"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Web Vitals (LCP / CLS / INP / TTFB) — last 24h",
+      "type": "table",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+      "description": "Faro web-vitals measurements land as structured Cloud Logging entries via Alloy. Filter refines to the measurement log kind; adjust the field-extraction expression to match the actual faro-web-sdk log shape once verified live.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"measurement\" jsonPayload.type=\"web-vitals\""
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "JS error rate (events / 5m)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"exception\""
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Slow browser->API traces (p99 span duration, admin-web)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "googlecloud-trace-datasource", "uid": "cloud-trace" },
+      "description": "Admin-web fetch spans carry a W3C traceparent linking browser -> backend api spans (design section 2.4). Filter to the admin-web service name once real traces are confirmed.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "googlecloud-trace-datasource", "uid": "cloud-trace" },
+          "queryText": "service.name=\"goatos-admin-web-stg\""
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "RUM session count (24h)",
+      "type": "stat",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 17 },
+      "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"session\""
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Route changes (SPA navigation events, 24h)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 17 },
+      "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"event\" jsonPayload.name=\"routeChange\""
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Sessions by geo (best-effort, 24h)",
+      "type": "table",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 17 },
+      "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+      "description": "Faro does not resolve client geo natively; this depends on a resourcedetection/geoip enrichment step being added to the collector pipeline later. Placeholder panel until that enrichment exists.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "googlecloud-logging-datasource", "uid": "cloud-logging" },
+          "queryText": "resource.type=\"cloud_run_revision\" resource.labels.service_name=\"goatos-stg-grafana-alloy\" jsonPayload.kind=\"session\""
+        }
+      ]
+    }
+  ]
+}

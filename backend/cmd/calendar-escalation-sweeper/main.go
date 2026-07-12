@@ -13,6 +13,7 @@ import (
 	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/observability"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/taskqueue"
 )
@@ -47,6 +48,12 @@ func run(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
+
+	shutdown, err := observability.SetupTelemetry(ctx, observability.Config{Service: "calendar-escalation-sweeper"})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = observability.FlushWithTimeout(shutdown, observability.DefaultShutdownTimeout) }()
 	pgCfg := platformpg.ConfigFromEnv()
 	pool, err := platformpg.Connect(ctx, pgCfg)
 	if err != nil {

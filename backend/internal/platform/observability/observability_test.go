@@ -58,11 +58,11 @@ func TestNewSinkOTLPFallsBackToJSON(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("log lines=%d, want startup warning plus message:\n%s", len(lines), buf.String())
 	}
-	if lines[0]["msg"] != "observability_sink_not_implemented" {
-		t.Fatalf("first log msg=%v, want startup warning", lines[0]["msg"])
+	if lines[0]["msg"] != "observability_logs_stdout_metrics_traces_otlp" {
+		t.Fatalf("first log msg=%v, want startup notice", lines[0]["msg"])
 	}
-	if lines[0]["requested_sink"] != "otlp" || lines[0]["fallback_sink"] != "stdout_json" {
-		t.Fatalf("bad otlp warning fields: %#v", lines[0])
+	if lines[0]["requested_sink"] != "otlp" || lines[0]["log_destination"] != "stdout_json" {
+		t.Fatalf("bad otlp notice fields: %#v", lines[0])
 	}
 	if lines[0]["otlp_endpoint_configured"] != true || lines[0]["otlp_endpoint_target"] != "https://collector.example.test" {
 		t.Fatalf("bad sanitized endpoint fields: %#v", lines[0])
@@ -102,11 +102,32 @@ func TestNewSinkGCMFallsBackToJSON(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("log lines=%d, want startup warning plus message:\n%s", len(lines), buf.String())
 	}
-	if lines[0]["msg"] != "observability_sink_not_implemented" || lines[0]["requested_sink"] != "gcm" {
-		t.Fatalf("bad gcm warning fields: %#v", lines[0])
+	if lines[0]["msg"] != "observability_logs_stdout_metrics_traces_otlp" || lines[0]["requested_sink"] != "gcm" {
+		t.Fatalf("bad gcm notice fields: %#v", lines[0])
 	}
 	if lines[1]["msg"] != "gcm_sink" {
 		t.Errorf("expected structured JSON output, got: %#v", lines[1])
+	}
+}
+
+func TestNewSkipSinkNoticeLogSuppressesNotice(t *testing.T) {
+	// Regression guard for the SetupTelemetry-vs-New duplicate boot log: the
+	// throwaway logger SetupTelemetry builds internally (telemetry.go) must
+	// not re-emit the sink notice that a caller's own observability.New(cfg)
+	// call already logs. skipSinkNoticeLog is unexported and set only from
+	// within this package (telemetry.go), so this test lives here to reach it.
+	var buf bytes.Buffer
+	cfg := Config{Service: "svc", Sink: "otlp", W: &buf}
+	cfg.skipSinkNoticeLog = true
+	log := New(cfg)
+	log.Info("suppressed_notice_check")
+
+	lines := logLines(t, buf.String())
+	if len(lines) != 1 {
+		t.Fatalf("log lines=%d, want exactly the caller's message (sink notice suppressed):\n%s", len(lines), buf.String())
+	}
+	if lines[0]["msg"] != "suppressed_notice_check" {
+		t.Fatalf("unexpected first line: %#v", lines[0])
 	}
 }
 

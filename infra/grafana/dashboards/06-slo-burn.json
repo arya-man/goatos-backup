@@ -1,0 +1,139 @@
+{
+  "uid": "goatos-stg-slo-burn",
+  "title": "Goat OS stg — SLO / burn rate",
+  "description": "Availability + latency SLOs with multi-window burn-rate alerts per OBSERVABILITY_DESIGN.md section 7: API availability 99.5% (non-5xx); p99 < 800ms read, < 1500ms write; outbox publish lag p99 < 30s; consumer lag < 60s; notification success > 99%. Alert policies mirroring these burn rates live in infra/envs/stg/monitoring.tf.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "timezone": "Asia/Kolkata",
+  "time": { "from": "now-7d", "to": "now" },
+  "refresh": "1m",
+  "tags": ["goatos", "stg", "slo", "burn-rate"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "API availability — 30d rolling (SLO 99.5%)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "max": 100,
+          "min": 99,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 99.3 },
+              { "color": "green", "value": 99.5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "100 * (1 - (sum(increase(http_server_requests_total{status_class=\"5xx\"}[30d])) / sum(increase(http_server_requests_total[30d]))))",
+          "legendFormat": "availability"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Error budget burn rate (1h / 6h windows, multi-window)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 16, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "description": "Burn rate = (observed error rate) / (1 - SLO). A burn rate of 1.0 exhausts the full 30d error budget in exactly 30d; the alert policies in monitoring.tf page on fast (1h, >14.4x) and slow (6h, >6x) burn per the standard Google SRE multi-window approach.",
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "(sum(rate(http_server_requests_total{status_class=\"5xx\"}[1h])) / sum(rate(http_server_requests_total[1h]))) / (1 - 0.995)",
+          "legendFormat": "1h burn rate"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "(sum(rate(http_server_requests_total{status_class=\"5xx\"}[6h])) / sum(rate(http_server_requests_total[6h]))) / (1 - 0.995)",
+          "legendFormat": "6h burn rate"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latency SLO compliance — reads (p99 < 800ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{method=\"GET\"}[5m])))",
+          "legendFormat": "read p99"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Latency SLO compliance — writes (p99 < 1500ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{method=~\"POST|PUT|PATCH|DELETE\"}[5m])))",
+          "legendFormat": "write p99"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Outbox publish lag p99 (SLO < 30s) & consumer lag (SLO < 60s)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(kernel_outbox_publish_duration_seconds_bucket[5m])))",
+          "legendFormat": "outbox publish p99"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "kernel_consumer_lag_seconds",
+          "legendFormat": "consumer lag"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Notification success rate (SLO > 99%)",
+      "type": "timeseries",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "min": 95 }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "gmp-prometheus" },
+          "expr": "100 * (1 - (sum(rate(kernel_notify_failures_total[15m])) / sum(rate(kernel_notify_send_duration_seconds_count[15m]))))",
+          "legendFormat": "notify success rate"
+        }
+      ]
+    }
+  ]
+}
