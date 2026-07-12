@@ -60,8 +60,13 @@ type SOPVersion struct {
 }
 
 type SOPListResponse struct {
-	Items   []SOPDefinition `json:"items"`
-	TraceID string          `json:"trace_id"`
+	Items []SOPDefinition `json:"items"`
+	// LatestVersions embeds each listed SOP's latest version keyed by sop_id, so a list consumer that
+	// needs version-derived facets (domain/trigger/steps/gates from form_dsl + proof_policy) does not
+	// fan out one GetSOP detail call per row (C35-002/C35-015: list-then-N-details N+1). Populated by
+	// ListSOPs in a single batched query; omitted when no listed SOP has a version.
+	LatestVersions map[string]*SOPVersion `json:"latest_versions,omitempty"`
+	TraceID        string                 `json:"trace_id"`
 }
 
 type SOPResponse struct {

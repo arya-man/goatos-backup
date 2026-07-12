@@ -141,6 +141,10 @@ type Repository interface {
 	ListSOPs(ctx context.Context, params ListSOPsParams) ([]domain.SOPDefinition, error)
 	CreateSOP(ctx context.Context, cmd CreateSOPCommand) (domain.SOPDefinition, error)
 	GetSOP(ctx context.Context, tenantID, sopID string) (domain.SOPDefinition, *domain.SOPVersion, error)
+	// LatestVersionsFor batch-loads the latest version of each requested SOP in a single query,
+	// keyed by sop_id. SOPs with no version are absent from the map. This is the O(1) replacement for
+	// calling GetSOP once per listed SOP.
+	LatestVersionsFor(ctx context.Context, tenantID string, sopIDs []string) (map[string]domain.SOPVersion, error)
 	CreateVersion(ctx context.Context, cmd CreateVersionCommand) (domain.SOPVersion, error)
 	GetVersion(ctx context.Context, tenantID, sopID, versionID string) (domain.SOPVersion, error)
 	GetVersionByID(ctx context.Context, tenantID, versionID string) (domain.SOPVersion, error)

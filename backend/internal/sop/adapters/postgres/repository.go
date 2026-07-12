@@ -1076,6 +1076,56 @@ LIMIT 1`), tenantID, sopID)
 	return items[0], nil
 }
 
+// latestVersionsForSQL selects the single highest-version row per sop_id in one pass via DISTINCT ON.
+// Column order is identical to versionSelectSQL so scanVersions decodes it unchanged. It cannot reuse
+// versionSelectSQL because DISTINCT ON must lead the SELECT list.
+const latestVersionsForSQL = `
+SELECT DISTINCT ON (sv.sop_id)
+  sv.sop_version_id::text,
+  sv.tenant_id::text,
+  sv.sop_id::text,
+  sd.code,
+  sv.version,
+  sv.version_label,
+  sv.status,
+  sv.form_dsl,
+  sv.proof_policy,
+  sv.compatibility,
+  sv.validation_report,
+  sv.published_at,
+  sv.retired_at,
+  sv.row_version,
+  sv.created_at,
+  sv.updated_at
+FROM sop_versions sv
+JOIN sop_definitions sd
+  ON sd.tenant_id = sv.tenant_id
+ AND sd.sop_id = sv.sop_id
+WHERE sv.tenant_id = $1::uuid
+  AND sv.sop_id = ANY($2::uuid[])
+ORDER BY sv.sop_id, sv.version DESC`
+
+func (r *Repository) LatestVersionsFor(ctx context.Context, tenantID string, sopIDs []string) (map[string]domain.SOPVersion, error) {
+	if len(sopIDs) == 0 {
+		return map[string]domain.SOPVersion{}, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, latestVersionsForSQL, tenantID, sopIDs)
+	if err != nil {
+		return nil, err
+	}
+	items, err := scanVersions(rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]domain.SOPVersion, len(items))
+	for _, v := range items {
+		out[v.SOPID] = v
+	}
+	return out, nil
+}
+
 func (r *Repository) resolveTaskVersion(ctx context.Context, tx pgx.Tx, cmd ports.CreateTaskCommand) (domain.SOPVersion, error) {
 	if cmd.Body.SOPVersionID != nil && *cmd.Body.SOPVersionID != "" {
 		rows, err := tx.Query(ctx, versionSelectSQL(`

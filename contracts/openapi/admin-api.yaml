@@ -3440,6 +3440,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SOPDefinition"
+        latest_versions:
+          type: object
+          description: >-
+            Each listed SOP's latest version keyed by sop_id, so a list consumer that needs
+            version-derived facets (form_dsl + proof_policy) does not fan out one detail call per row.
+            Omitted when no listed SOP has a version.
+          additionalProperties:
+            $ref: "#/components/schemas/SOPVersion"
         trace_id:
           type: string
     SOPResponse:

@@ -1462,6 +1462,10 @@ export interface components {
         };
         SOPListResponse: {
             items: components["schemas"]["SOPDefinition"][];
+            /** @description Each listed SOP's latest version keyed by sop_id, so a list consumer that needs version-derived facets (form_dsl + proof_policy) does not fan out one detail call per row. Omitted when no listed SOP has a version. */
+            latest_versions?: {
+                [key: string]: components["schemas"]["SOPVersion"];
+            };
             trace_id: string;
         };
         SOPResponse: {

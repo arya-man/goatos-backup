@@ -43,15 +43,12 @@ export default async function Page({ searchParams }: { searchParams: Promise<Rou
   // SOPs BEFORE fetching detail — shifting and every non-vaccination SOP are hidden from this surface,
   // and we do not waste detail fetches on hidden rows. No backend/data change; pure frontend scoping.
   const defs = listed.data.items.filter((def) => isVaccinationSop(def.code, def.name));
-  // Per-SOP detail fetch (bounded by the list limit — an admin authoring set, not a herd scan). Each
-  // returns the latest version; a failed detail still renders the definition card with null version.
-  const details = await Promise.all(defs.map((def) => getSop(def.sop_id)));
+  // Latest versions arrive EMBEDDED in the list response, populated by one batched backend query
+  // (SOPListResponse.latest_versions, keyed by sop_id). We no longer fan out one getSop detail call
+  // per SOP — that list-then-N-details N+1 was O(SOP count) service calls per render (C35-015).
+  const latestVersions = listed.data.latest_versions ?? {};
 
-  const sops: SopCardView[] = defs.map((def, i) => {
-    const detail = details[i];
-    const version = detail.ok ? (detail.data.latest_version ?? null) : null;
-    return toSopView(def, version);
-  });
+  const sops: SopCardView[] = defs.map((def) => toSopView(def, latestVersions[def.sop_id] ?? null));
 
   return <SopLibrary sops={sops} pageContract={pageContract} />;
 }

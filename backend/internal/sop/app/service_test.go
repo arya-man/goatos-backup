@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -753,6 +754,61 @@ func TestListAgedFailedSubmissionFanoutsRejectsInvalidAge(t *testing.T) {
 	}
 }
 
+// TestListSOPsLoadsLatestVersionsInOneBatchCall proves the SOP Library list is O(1) in repo calls:
+// growing the SOP count does not add per-SOP detail calls (C35-015 — no list-then-N-details N+1). The
+// service must batch every listed SOP's latest version into a single LatestVersionsFor call.
+func TestListSOPsLoadsLatestVersionsInOneBatchCall(t *testing.T) {
+	for _, n := range []int{1, 50, 200} {
+		repo := newFakeRepo()
+		defs := make([]domain.SOPDefinition, n)
+		versions := make(map[string]domain.SOPVersion, n)
+		for i := range defs {
+			id := fmt.Sprintf("70000000-0000-4000-8000-%012d", i)
+			defs[i] = domain.SOPDefinition{SOPID: id, TenantID: testTenantID, Code: "vaccination.drive", Name: "Vaccination"}
+			versions[id] = domain.SOPVersion{SOPVersionID: "v-" + id, SOPID: id, Version: 1, Status: "published"}
+		}
+		repo.listSOPsResult = defs
+		repo.latestVersionsForResult = versions
+		service := NewService(repo)
+
+		resp, err := service.ListSOPs(context.Background(), ports.ListSOPsParams{TenantID: testTenantID, Limit: 200}, "trace")
+		if err != nil {
+			t.Fatalf("n=%d: ListSOPs error: %v", n, err)
+		}
+		if repo.latestVersionsForCalls != 1 {
+			t.Fatalf("n=%d: LatestVersionsFor called %d times, want exactly 1 (O(1) batch, not per-SOP)", n, repo.latestVersionsForCalls)
+		}
+		if len(repo.lastLatestVersionsForIDs) != n {
+			t.Fatalf("n=%d: batched %d sop ids, want %d", n, len(repo.lastLatestVersionsForIDs), n)
+		}
+		if len(resp.LatestVersions) != n {
+			t.Fatalf("n=%d: response carried %d latest versions, want %d", n, len(resp.LatestVersions), n)
+		}
+		for _, def := range defs {
+			if v := resp.LatestVersions[def.SOPID]; v == nil || v.SOPID != def.SOPID {
+				t.Fatalf("n=%d: latest version for %s missing/mismatched", n, def.SOPID)
+			}
+		}
+	}
+}
+
+// TestListSOPsWithoutVersionsOmitsLatestVersions confirms the map is nil (JSON-omitted) when no listed
+// SOP has a version, so the additive contract field never appears empty.
+func TestListSOPsWithoutVersionsOmitsLatestVersions(t *testing.T) {
+	repo := newFakeRepo()
+	repo.listSOPsResult = []domain.SOPDefinition{{SOPID: "70000000-0000-4000-8000-000000000001", TenantID: testTenantID, Code: "vaccination.drive"}}
+	repo.latestVersionsForResult = map[string]domain.SOPVersion{}
+	service := NewService(repo)
+
+	resp, err := service.ListSOPs(context.Background(), ports.ListSOPsParams{TenantID: testTenantID, Limit: 200}, "trace")
+	if err != nil {
+		t.Fatalf("ListSOPs error: %v", err)
+	}
+	if resp.LatestVersions != nil {
+		t.Fatalf("LatestVersions = %#v, want nil when no SOP has a version", resp.LatestVersions)
+	}
+}
+
 type fakeRepo struct {
 	task                        domain.TaskSummary
 	version                     domain.SOPVersion
@@ -766,6 +822,10 @@ type fakeRepo struct {
 	lastFailedSubmissionFanouts ports.ListAgedFailedSubmissionFanoutsParams
 	submitReplay                bool
 	reviewCalls                 int
+	listSOPsResult              []domain.SOPDefinition
+	latestVersionsForResult     map[string]domain.SOPVersion
+	latestVersionsForCalls      int
+	lastLatestVersionsForIDs    []string
 }
 
 func newFakeRepo() *fakeRepo {
@@ -802,7 +862,15 @@ func newFakeRepo() *fakeRepo {
 }
 
 func (f *fakeRepo) ListSOPs(context.Context, ports.ListSOPsParams) ([]domain.SOPDefinition, error) {
-	return nil, nil
+	return f.listSOPsResult, nil
+}
+func (f *fakeRepo) LatestVersionsFor(_ context.Context, _ string, sopIDs []string) (map[string]domain.SOPVersion, error) {
+	f.latestVersionsForCalls++
+	f.lastLatestVersionsForIDs = sopIDs
+	if f.latestVersionsForResult == nil {
+		return map[string]domain.SOPVersion{}, nil
+	}
+	return f.latestVersionsForResult, nil
 }
 func (f *fakeRepo) CreateSOP(context.Context, ports.CreateSOPCommand) (domain.SOPDefinition, error) {
 	return domain.SOPDefinition{}, nil

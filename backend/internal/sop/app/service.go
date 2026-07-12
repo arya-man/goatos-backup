@@ -77,7 +77,27 @@ func (s *Service) ListSOPs(ctx context.Context, params ports.ListSOPsParams, tra
 	if err != nil {
 		return nil, mapRepoErr(err)
 	}
-	return &domain.SOPListResponse{Items: items, TraceID: traceID}, nil
+	// Batch-load each listed SOP's latest version in ONE query (not one GetSOP per row) so list
+	// consumers derive version facets without an N+1 detail fanout (C35-015).
+	latest := map[string]*domain.SOPVersion{}
+	if len(items) > 0 {
+		sopIDs := make([]string, len(items))
+		for i, it := range items {
+			sopIDs[i] = it.SOPID
+		}
+		versions, err := s.repo.LatestVersionsFor(ctx, params.TenantID, sopIDs)
+		if err != nil {
+			return nil, mapRepoErr(err)
+		}
+		for id := range versions {
+			v := versions[id]
+			latest[id] = &v
+		}
+	}
+	if len(latest) == 0 {
+		latest = nil
+	}
+	return &domain.SOPListResponse{Items: items, LatestVersions: latest, TraceID: traceID}, nil
 }
 
 func (s *Service) CreateSOP(ctx context.Context, cmd ports.CreateSOPCommand, traceID string) (*domain.SOPResponse, error) {
