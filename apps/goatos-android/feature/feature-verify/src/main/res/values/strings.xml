@@ -3,6 +3,8 @@
   Standalone Verifier section (context/architecture/verifier-app-and-flow.md). Row DATA
   (titles/subtitles/status/category labels) is backend-composed; only static UI chrome is
   extracted here for localization.
+  telemetry:exempt: static string resources only, no product code — AnalyticsPort/
+  AnalyticsFunnels wiring lives in VerifyQueueViewModel/VerifyDetailViewModel (:app).
 -->
 <resources>
     <string name="verify_queue_title">Video verification</string>

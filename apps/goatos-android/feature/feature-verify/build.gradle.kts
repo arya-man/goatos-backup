@@ -1,3 +1,6 @@
+// telemetry:exempt: build config only, no product code — AnalyticsPort/AnalyticsFunnels wiring
+// lives in VerifyQueueViewModel/VerifyDetailViewModel (:app), see VerifyQueueScreen.kt /
+// VerifyDetailScreen.kt in this module for their own telemetry:exempt (pure renderers).
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.compose)

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- telemetry:exempt: static string resources only, no product code. -->
 <resources>
     <string name="verify_queue_title">ವೀಡಿಯೊ ಪರಿಶೀಲನೆ</string>
     <string name="verify_queue_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
