@@ -18,10 +18,47 @@ import "strings"
 // never diverge.
 var MandatoryClinicalDeferStates = []string{"sick", "under_treatment", "quarantine", "icu"}
 
+// ExitLifecycleStates are terminal lifecycle states. An animal in any of these
+// has permanently left the herd (or been merged) and is never eligible for, nor
+// deferrable to, vaccination work — even if a stale clinical health signal is
+// still present on the row. Distinct from the clinical hold states, which are
+// "alive but temporarily blocked".
+var ExitLifecycleStates = []string{"dead", "sold", "culled", "transferred", "lost", "merged", "inactive"}
+
 // NormalizeDeferState lowercases and trims a single defer-state token. An empty
 // or whitespace-only token normalizes to "".
 func NormalizeDeferState(state string) string {
 	return strings.ToLower(strings.TrimSpace(state))
+}
+
+// IsExitLifecycleState reports whether a lifecycle_status is a terminal exit
+// state (dead/sold/culled/transferred/lost/merged/inactive). Case-insensitive.
+func IsExitLifecycleState(status string) bool {
+	n := NormalizeDeferState(status)
+	if n == "" {
+		return false
+	}
+	for _, s := range ExitLifecycleStates {
+		if s == n {
+			return true
+		}
+	}
+	return false
+}
+
+// IsClinicalDeferState reports whether a health_status or lifecycle_status token
+// is one of the mandatory clinical safety-hold states. Case-insensitive.
+func IsClinicalDeferState(status string) bool {
+	n := NormalizeDeferState(status)
+	if n == "" {
+		return false
+	}
+	for _, s := range MandatoryClinicalDeferStates {
+		if s == n {
+			return true
+		}
+	}
+	return false
 }
 
 // MissingMandatoryClinicalDeferStates returns the mandatory clinical safety

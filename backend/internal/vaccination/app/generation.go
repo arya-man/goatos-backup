@@ -1578,11 +1578,27 @@ func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, preg genPre
 	if !selectorMatches(g.Breed, e.Breed) {
 		return false
 	}
-	if !lifecycleMatches(g.LifecycleStatus, e.Lifecycle) {
+	// A terminal exit state (dead/sold/culled/transferred/lost/merged/inactive) is
+	// never eligible and never deferrable, even if a stale clinical health signal
+	// is present on the row.
+	if protodomain.IsExitLifecycleState(g.LifecycleStatus) {
 		return false
 	}
-	if !selectorMatches(g.HealthStatus, e.Health) && deferredReason(g, e.DeferStates) == "" {
-		return false
+	// Clinical defer is a SAFETY HOLD, not an exclusion. A goat in a clinical
+	// state — represented via health_status OR lifecycle_status (sick/
+	// under_treatment/quarantine/icu) or via an ICU/quarantine location — is
+	// INCLUDED as deferred, bypassing the normal lifecycle=alive and
+	// health=healthy selectors so its open work is held for recovery rather than
+	// cancelled/excluded. Without this, a canonical `lifecycle=alive` rule rejects
+	// an in-care goat carried as `lifecycle_status=sick` before the defer logic
+	// ever runs — the wrong medical action (C35-010).
+	if deferredReason(g, e.DeferStates) == "" {
+		if !lifecycleMatches(g.LifecycleStatus, e.Lifecycle) {
+			return false
+		}
+		if !selectorMatches(g.HealthStatus, e.Health) {
+			return false
+		}
 	}
 	if !selectorMatches(g.ReproductiveStatus, e.Reproductive) {
 		return false

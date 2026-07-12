@@ -447,8 +447,27 @@ func TestGenerateForVersionHonorsLifecycleAgeAndAgeBandEligibility(t *testing.T)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if result.Generated != 1 || len(obl.inserted) != 1 || obl.inserted[0].TargetID != "goat-eligible" {
-		t.Fatalf("result=%#v inserted=%#v, want only lifecycle/age/age-band eligible goat", result, obl.inserted)
+	// Age/age-band exclusions still hold (too-young/too-old/wrong-band dropped),
+	// but a clinical lifecycle hold is NOT an exclusion: the in-care sick goat is
+	// structurally eligible (kid age band, in age window) and must receive a
+	// DEFERRED obligation held for recovery, not be silently dropped (C35-010).
+	statusByGoat := map[string]string{}
+	for _, ob := range obl.inserted {
+		statusByGoat[ob.TargetID] = ob.Status
+	}
+	if result.Generated != 2 || result.Deferred != 1 {
+		t.Fatalf("result=%#v, want Generated=2 (eligible scheduled + sick deferred), Deferred=1", result)
+	}
+	if statusByGoat["goat-eligible"] != "scheduled" {
+		t.Fatalf("goat-eligible status=%q, want scheduled; inserted=%#v", statusByGoat["goat-eligible"], obl.inserted)
+	}
+	if statusByGoat["goat-held-lifecycle"] != "deferred" {
+		t.Fatalf("goat-held-lifecycle status=%q, want deferred (clinical hold, not excluded); inserted=%#v", statusByGoat["goat-held-lifecycle"], obl.inserted)
+	}
+	for _, dropped := range []string{"goat-too-young", "goat-too-old", "goat-wrong-band"} {
+		if _, ok := statusByGoat[dropped]; ok {
+			t.Fatalf("%s should be excluded by age/age-band, got status %q", dropped, statusByGoat[dropped])
+		}
 	}
 }
 

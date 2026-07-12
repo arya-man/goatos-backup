@@ -41,6 +41,49 @@ func TestDeferredReasonHoldsSickGoatUnderPartialAuthoring(t *testing.T) {
 	}
 }
 
+// C35-010 counter-review repair: under a CANONICAL rule (lifecycle=alive,
+// health=healthy), a goat whose clinical state is carried on lifecycle_status
+// (not health_status) must still be DEFERRED, not excluded by the lifecycle
+// selector before the defer logic runs. True exit states stay excluded.
+func TestGoatMatchesEligibilityDefersClinicalLifecycleUnderCanonicalRule(t *testing.T) {
+	// Canonical health/lifecycle targeting; other structural selectors left empty
+	// (match-all) so this isolates the lifecycle-vs-clinical-defer interaction.
+	canonical := genEligibility{
+		Lifecycle:   genStringList{"alive"},
+		Health:      genStringList{"healthy"},
+		DeferStates: []string{"icu", "quarantine"}, // partial authored; union enforces the rest
+	}
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+
+	// Every clinical state carried on lifecycle_status must be deferred (match).
+	for _, clinical := range []string{"sick", "under_treatment", "quarantine", "icu"} {
+		g := domain.EligibleGoat{GoatID: "g-" + clinical, LifecycleStatus: clinical, HealthStatus: "healthy"}
+		if !goatMatchesEligibility(g, canonical, genPregnancyPolicy{}, asOf) {
+			t.Fatalf("lifecycle_status=%q under canonical lifecycle=alive rule was excluded; must be deferred", clinical)
+		}
+		if reason := deferredReason(g, canonical.DeferStates); reason == "" {
+			t.Fatalf("lifecycle_status=%q produced no defer reason", clinical)
+		}
+	}
+
+	// A healthy alive goat matches normally (will be scheduled, not deferred).
+	alive := domain.EligibleGoat{GoatID: "g-alive", LifecycleStatus: "alive", HealthStatus: "healthy"}
+	if !goatMatchesEligibility(alive, canonical, genPregnancyPolicy{}, asOf) {
+		t.Fatalf("healthy alive goat was excluded under canonical rule")
+	}
+	if deferredReason(alive, canonical.DeferStates) != "" {
+		t.Fatalf("healthy alive goat should not be deferred")
+	}
+
+	// True exit states remain EXCLUDED even with a stale clinical health signal.
+	for _, exit := range []string{"dead", "sold", "culled", "transferred", "lost", "merged", "inactive"} {
+		g := domain.EligibleGoat{GoatID: "g-" + exit, LifecycleStatus: exit, HealthStatus: "sick"}
+		if goatMatchesEligibility(g, canonical, genPregnancyPolicy{}, asOf) {
+			t.Fatalf("exit state lifecycle_status=%q with stale health=sick was INCLUDED; must be excluded", exit)
+		}
+	}
+}
+
 // The clinical safety hold must survive the full eligibility gate: a healthy-only
 // rule with a partial defer list must MATCH a sick goat (so it is scheduled as
 // deferred), not drop it out of eligibility (which cancels its open work).
