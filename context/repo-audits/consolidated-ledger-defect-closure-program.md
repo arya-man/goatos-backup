@@ -9,7 +9,7 @@ counts as fixed**.
 ## Small Prompt for a New Session
 
 ```text
-Execute the consolidated Goat OS ledger-closure program. Act as coordinator: parallelize only independent, non-overlapping findings; integrate proof-backed fixes; require independent counter-review; and keep the one canonical ledger current. Stop with one clean PR-ready branch; do not merge or deploy.
+Execute the consolidated Goat OS ledger-closure program as coordinator. Parallelize only independent findings, integrate proof-backed fixes, enforce independent counter-review and the one ledger, then push the fully gated result to main with git mesha-push main. Do not merge main -> stg or deploy.
 ```
 
 `AGENTS.md` routes that prompt to this file and the live ledger. Never copy the
@@ -40,9 +40,15 @@ competing truth or overlapping edits:
 6. Duplicate-root discoveries merge into one row. Cross-layer fixes that cannot
    be split safely stay with one owner even if they touch backend, contract,
    web, Android, SQL, or CI together.
-7. End with one clean, pushed, PR-ready branch plus exact current-SHA proof.
-   Opening, merging, deploying, or changing the existing `main -> stg` PR
-   requires a separate explicit instruction.
+7. End with one clean integration branch plus exact current-SHA proof. After
+   every ledger row is fixed with proof and the integrated HEAD passes the full
+   applicable gate, re-verify the Mesha/VGoats authority tuple, integrate onto
+   latest `main`, and publish only with `git mesha-push main`. That alias must
+   fail when `MESHA_GITHUB_PAT` is absent; never substitute a configured `gh`
+   identity or plain `git push` from this multi-company workspace.
+8. Pushing `main` advances the head of the existing `main -> stg` PR. Do not
+   merge that PR or deploy to staging/production without a separate explicit
+   instruction.
 
 ## 1. Start From Ground Truth
 
@@ -87,6 +93,32 @@ following exist for the same HEAD SHA:
 
 Compilation, typecheck, screenshots, mocked repositories, seeded derived rows,
 or one happy-path unit test alone never close a product defect.
+
+## 2A. Guardrail Deliverable Required Per Fix
+
+When a fix exposes a recurring failure pattern, closure includes preventing the
+same class of defect from returning:
+
+1. Add or strengthen the rule in the shared committed agent source:
+   `.agents/skills/goatos-code-review/` for review lenses, or `AGENTS.md` for an
+   always-on working agreement. `CLAUDE.md` and `CODEX.md` are thin shims to
+   `AGENTS.md`; never create divergent Claude-only and Codex-only rule copies.
+2. Add or extend a mechanical guard over the actual affected tree. Prefer a
+   zero-tolerance check; when existing debt makes that impossible, use a
+   current no-new-debt ratchet with an owner, exact scope, reason, and expiry.
+3. Add adversarial guard self-tests proving representative bad code fails and
+   good code passes. A grep script with no self-test is not a guardrail.
+4. Wire the guard and the applicable regression/E2E test into required ordinary-
+   PR CI. Manual, nightly, staging-only, skipped, cancelled, startup-failure,
+   zero-job, or `continue-on-error` execution does not protect `main`.
+5. E2E must traverse the real production-shaped flow: public API or app route,
+   real service/worker, production repository and Postgres/Room persistence,
+   generated contract/client, and the real web/Android consumer where affected.
+   Fixtures may seed only external inputs; mocked owners or pre-seeded derived
+   results cannot certify closure.
+6. Record the agent-rule change, guard, self-test, CI job, real-flow E2E command,
+   artifact, and current SHA in the finding's proof packet. If a new guard is
+   genuinely inapplicable, state the concrete reason instead of omitting it.
 
 ## 3. Proof Packet Required Per Fix
 
