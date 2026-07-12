@@ -603,6 +603,43 @@ SELECT count(*) FROM calendar_event_projections
 WHERE tenant_id=$1::uuid AND event_id=$2 AND status='canceled'`, 1, testTenantID, batchEventID(batchA))
 }
 
+func TestCalendarVaccinationProjectionDoesNotReclassifyDeferredCatchupAsOverdue(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	dueAt := stableSameLocalDayDueAt(time.Now().UTC()).Add(-2 * time.Hour)
+	const (
+		protocolID   = "86000000-0000-4000-8000-00000000c301"
+		versionID    = "86000000-0000-4000-8000-00000000c302"
+		ruleID       = "86000000-0000-4000-8000-00000000c303"
+		obligationID = "86000000-0000-4000-8000-00000000c304"
+	)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status='deferred', updated_at=now()
+WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`, testTenantID, obligationID); err != nil {
+		t.Fatalf("defer obligation: %v", err)
+	}
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	assertCount(t, ctx, pool, "deferred park drive stays deferred", `
+SELECT count(*) FROM calendar_event_projections
+WHERE tenant_id=$1::uuid
+  AND event_type='vaccination_drive'
+  AND status='deferred'`, 1, testTenantID)
+	assertCount(t, ctx, pool, "deferred park drive never becomes overdue", `
+SELECT count(*) FROM calendar_event_projections
+WHERE tenant_id=$1::uuid
+  AND event_type='vaccination_drive'
+  AND status='overdue'`, 0, testTenantID)
+}
+
 func TestCalendarVaccinationProjectionCollapsesMultipleRulesIntoSingleCatchupDrive(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

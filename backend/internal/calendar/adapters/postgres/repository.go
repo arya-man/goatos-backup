@@ -2763,6 +2763,8 @@ park_drive_groups AS (
     count(*)::int AS drive_count,
     sum(target_count) FILTER (WHERE source_target_type = 'catchup')::int AS catch_up_count,
     sum(target_count) FILTER (WHERE source_target_type = 'batch')::int AS scheduled_count,
+    sum(COALESCE((detail->'summary'->>'queue_count')::int, 0))::int AS queue_count,
+    bool_or(source_target_type = 'catchup') AS has_catch_up,
     sum(target_count) FILTER (WHERE status = 'deferred')::int AS deferred_count,
     min(event_id) AS single_event_id,
     min(source_target_type) AS single_source_target_type,
@@ -2772,7 +2774,7 @@ park_drive_groups AS (
     bool_or(status = 'in_progress') AS has_in_progress,
     bool_or(status = 'deferred') AS has_deferred,
     bool_or(status IN ('proof_pending', 'verification_pending', 'rejected', 'rework_due')) AS has_review,
-    bool_or(status NOT IN ('completed', 'canceled') AND due_at < now()) AS has_overdue,
+    bool_or(status IN ('scheduled', 'due', 'overdue') AND due_at < now()) AS has_overdue,
     jsonb_agg(event_id ORDER BY event_id) AS source_event_ids
   FROM drive_sources
   GROUP BY park_id, to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
@@ -2787,7 +2789,10 @@ park_drive_events AS (
     'vaccination_drive'::text AS event_type,
     'pc'::text AS owner_key,
     CASE WHEN grouped.park_id IS NOT NULL THEN 'Park vaccination drive' ELSE 'Vaccination drive' END AS title,
-    cardinality(shed_meta.labels)::text || ' sheds · ' || cardinality(vaccine_meta.labels)::text || ' vaccines' AS subtitle,
+    cardinality(shed_meta.labels)::text ||
+      CASE WHEN cardinality(shed_meta.labels) = 1 THEN ' shed · ' ELSE ' sheds · ' END ||
+      cardinality(vaccine_meta.labels)::text ||
+      CASE WHEN cardinality(vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END AS subtitle,
     CASE
       WHEN grouped.has_missed THEN 'missed'
       WHEN grouped.has_review THEN 'verification_pending'
@@ -2802,7 +2807,7 @@ park_drive_events AS (
       WHEN grouped.first_due_at <= now() + interval '24 hours' THEN 'warning'
       ELSE 'info'
     END AS severity,
-    grouped.due_day::date::timestamp AT TIME ZONE 'Asia/Kolkata' AS due_at,
+    grouped.first_due_at AS due_at,
     grouped.window_start,
     grouped.window_end,
     'Asia/Kolkata'::text AS timezone,
@@ -2845,8 +2850,11 @@ park_drive_events AS (
       'summary', jsonb_build_object(
         'owner', 'PC',
         'target_count', grouped.target_count,
-        'summary_primary', grouped.target_count::text || ' scheduled doses',
-        'summary_secondary', cardinality(shed_meta.labels)::text || ' sheds · ' || cardinality(vaccine_meta.labels)::text || ' vaccines',
+        'summary_primary', grouped.target_count::text || CASE WHEN grouped.target_count = 1 THEN ' scheduled dose' ELSE ' scheduled doses' END,
+        'summary_secondary', cardinality(shed_meta.labels)::text ||
+          CASE WHEN cardinality(shed_meta.labels) = 1 THEN ' shed · ' ELSE ' sheds · ' END ||
+          cardinality(vaccine_meta.labels)::text ||
+          CASE WHEN cardinality(vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END,
         'summary_tertiary', CASE
           WHEN cardinality(vaccine_meta.labels) = 0 THEN ''
           WHEN cardinality(vaccine_meta.labels) = 1 THEN vaccine_meta.labels[1]
@@ -2858,6 +2866,7 @@ park_drive_events AS (
         'drive_count', grouped.drive_count,
         'catch_up_count', COALESCE(grouped.catch_up_count, 0),
         'scheduled_count', COALESCE(grouped.scheduled_count, 0),
+        'queue_count', grouped.queue_count,
         'deferred_count', COALESCE(grouped.deferred_count, 0),
         'review_count', CASE WHEN grouped.has_review THEN 1 ELSE 0 END,
         'shed_labels', to_jsonb(shed_meta.labels),
@@ -2869,7 +2878,10 @@ park_drive_events AS (
       'proof', jsonb_build_object(),
       'verification', jsonb_build_object('verifier', 'PC verifier'),
       'notification_channels', jsonb_build_array('local-stub'),
-      'notification_policy', jsonb_build_object('nudge_allowed', true),
+      'notification_policy', jsonb_build_object(
+        'nudge_allowed', NOT grouped.has_catch_up,
+        'read_only', grouped.has_catch_up
+      ),
       'links', jsonb_build_object('vaccination', '/vaccination')
     ) AS detail
   FROM park_drive_groups grouped
