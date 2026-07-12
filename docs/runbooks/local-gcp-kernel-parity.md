@@ -35,7 +35,7 @@ The Compose services are:
 - `domain-event-consumer`: the production Google Pub/Sub subscriber and durable
   processed-event store.
 - `kernel-workers`: the same vaccination generator, obligation sweeper,
-  Calendar projector, process-integrity projector, vaccination shed projector,
+  Calendar projector, process-integrity projector, bounded Vaccination dirty-scope projector,
   and notification dispatcher binaries used by Cloud Run Jobs.
 
 The parity stack rejects non-durable `eventbus` or `logging` outbox publishers.

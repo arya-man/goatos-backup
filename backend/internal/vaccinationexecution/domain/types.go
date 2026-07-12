@@ -2,20 +2,10 @@
 package domain
 
 import (
-	"errors"
 	"time"
 )
 
 const SourceAPI = "api"
-
-// ErrProjectionUnavailable is returned by ShedSummary (adapters/postgres) when the tenant's
-// vaccination-shed read model (vaccination_shed_projection_rows, migration 000167) has no serving
-// version yet (never built, or rebuilding without a prior serving version). The request path MUST NOT
-// fall back to a canonical compute-on-read replay of raw obligation/goat/capacity-config history -- at
-// 1-5M animals that god-CTE is the slowest possible path exactly when the system is already degraded
-// (C35-002). Callers surface this as an honest "temporarily unavailable" state (HTTP 503) instead of an
-// unbounded fallback. Mirrors processintegrity.ErrProjectionUnavailable, the sibling half of C35-002.
-var ErrProjectionUnavailable = errors.New("vaccinationexecution: shed read model projection unavailable")
 
 type WorkState string
 

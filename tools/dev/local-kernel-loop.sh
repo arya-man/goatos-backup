@@ -30,7 +30,7 @@ case "$mode" in
       run_worker obligation-sweeper /app/bin/obligation-sweeper -timeout=45s
       run_worker calendar-projector /app/bin/calendar-vaccination-projector -timeout=45s
       run_worker process-integrity-projector /app/bin/process-integrity-projection-recompute -timeout=45s
-      run_worker vaccination-shed-projector /app/bin/vaccination-shed-projection-recompute -timeout=45s
+      run_worker vaccination-projection-worker /app/bin/vaccination-projection-worker -timeout=45s -limit=100
       run_worker notification-dispatcher /app/bin/notification-dispatcher -timeout=30s -limit=100 -dry-run
       sleep "$interval"
     done
