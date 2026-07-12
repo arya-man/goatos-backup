@@ -89,6 +89,7 @@ data class CalendarHistoryRow(
 data class CalendarDayUiState(
     val title: String = "",
     val items: List<CalendarItem> = emptyList(),
+    val showCompletedHistory: Boolean = false,
     val emptyLabel: String = "",
     val isRefreshing: Boolean = false,
     val lastSyncedAt: Long? = null,
@@ -133,6 +134,7 @@ data class CalendarUiState(
     val monthHint: String = "",
     // HISTORY
     val historyLabel: String = "",
+    val historyCount: Int = 0,
     val historyRows: List<CalendarHistoryRow> = emptyList(),
     val historyEmptyLabel: String = "",
     val historyHasMore: Boolean = false,

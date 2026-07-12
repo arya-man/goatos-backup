@@ -35,7 +35,7 @@ class CalendarDayViewModel @Inject constructor(
     private val _state = MutableStateFlow(
         CalendarDayUiState(
             title = date?.let { calendarDayTitle(it) }.orEmpty(),
-            emptyLabel = if (completedHistoryOnly) "No accepted completion history this day" else "No drives scheduled this day",
+            showCompletedHistory = completedHistoryOnly,
         ),
     )
     val state: StateFlow<CalendarDayUiState> = _state.asStateFlow()

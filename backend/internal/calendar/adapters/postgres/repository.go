@@ -1423,16 +1423,37 @@ SELECT EXISTS (
   FROM obligation_instances oi
   JOIN vaccination_completions c
     ON c.tenant_id = oi.tenant_id AND c.obligation_id = oi.obligation_id AND c.status = 'accepted'
-  JOIN goats g
-    ON g.tenant_id = oi.tenant_id AND oi.target_type = 'goat' AND g.goat_id = oi.target_id
+  LEFT JOIN locations scope_loc
+    ON scope_loc.tenant_id = oi.tenant_id
+   AND scope_loc.location_id = oi.scope_id
+   AND oi.scope_type IN ('park', 'shed', 'cohort')
+  LEFT JOIN locations scope_parent
+    ON scope_parent.tenant_id = oi.tenant_id
+   AND scope_parent.location_id = scope_loc.parent_location_id
+  LEFT JOIN locations scope_grand
+    ON scope_grand.tenant_id = oi.tenant_id
+   AND scope_grand.location_id = scope_parent.parent_location_id
+  LEFT JOIN LATERAL (
+    SELECT
+      CASE
+        WHEN oi.scope_type = 'park' THEN scope_loc.location_id
+        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
+        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
+      END AS park_id,
+      CASE
+        WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
+        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
+      END AS shed_id
+  ) history_scope ON true
   WHERE $6::bool
     AND oi.tenant_id = $1::uuid
     AND oi.rule_id = $7::uuid
     AND oi.status = 'completed'
+    AND oi.target_type = 'goat'
     AND (c.administered_at AT TIME ZONE 'Asia/Kolkata')::date = $8::date
-    AND g.park_id::text IS NOT DISTINCT FROM nullif($9::text, 'none')
-    AND g.shed_id::text IS NOT DISTINCT FROM nullif($10::text, 'none')
-    AND ($3::bool OR g.park_id::text = ANY($4::text[]) OR g.shed_id::text = ANY($5::text[]))
+    AND history_scope.park_id::text IS NOT DISTINCT FROM nullif($9::text, 'none')
+    AND history_scope.shed_id::text IS NOT DISTINCT FROM nullif($10::text, 'none')
+    AND ($3::bool OR history_scope.park_id::text = ANY($4::text[]) OR history_scope.shed_id::text = ANY($5::text[]))
 )`, tenantID, eventID, tenantWide, parkIDs, shedIDs, historyID, historyRuleID, historyDay, historyParkID, historyShedID).Scan(&exists); err != nil {
 		return err
 	}
@@ -1670,13 +1691,13 @@ const calendarListSQL = `
 WITH completed_history AS (
   SELECT
     'history:' || ((vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date)::text || ':' ||
-      COALESCE(g.park_id::text, 'none') || ':' ||
-      COALESCE(g.shed_id::text, 'none') || ':' ||
+      COALESCE(loc.park_id::text, 'none') || ':' ||
+      COALESCE(loc.shed_id::text, 'none') || ':' ||
       pr.rule_id::text AS event_id,
     'vaccination_history'::text AS event_type,
     'pc'::text AS owner_key,
     pd.name || ' ' || pr.dose_code || ' completed' AS title,
-    COALESCE(shed.name, park.location_code, 'Accepted vaccination history') AS subtitle,
+    COALESCE(loc.shed_name, loc.park_code, 'Accepted vaccination history') AS subtitle,
     'completed'::text AS status,
     'info'::text AS severity,
     min(vc.administered_at) AS due_at,
@@ -1684,10 +1705,10 @@ WITH completed_history AS (
     max(vc.administered_at) AS window_end,
     'Asia/Kolkata'::text AS timezone,
     'india_only'::text AS timezone_source,
-    g.park_id::text AS park_id,
-    park.location_code AS park_code,
-    g.shed_id::text AS shed_id,
-    shed.name AS shed_name,
+    loc.park_id::text AS park_id,
+    loc.park_code AS park_code,
+    loc.shed_id::text AS shed_id,
+    loc.shed_name AS shed_name,
     NULL::text AS cohort_id,
     NULL::text AS cohort_name,
     'goat'::text AS target_type,
@@ -1717,20 +1738,46 @@ WITH completed_history AS (
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
   JOIN protocol_rules pr
     ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
-  JOIN goats g
-    ON g.tenant_id = oi.tenant_id AND oi.target_type = 'goat' AND g.goat_id = oi.target_id
-  LEFT JOIN locations park
-    ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
-  LEFT JOIN locations shed
-    ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
+  LEFT JOIN locations scope_loc
+    ON scope_loc.tenant_id = oi.tenant_id
+   AND scope_loc.location_id = oi.scope_id
+   AND oi.scope_type IN ('park', 'shed', 'cohort')
+  LEFT JOIN locations scope_parent
+    ON scope_parent.tenant_id = oi.tenant_id
+   AND scope_parent.location_id = scope_loc.parent_location_id
+  LEFT JOIN locations scope_grand
+    ON scope_grand.tenant_id = oi.tenant_id
+   AND scope_grand.location_id = scope_parent.parent_location_id
+  LEFT JOIN LATERAL (
+    SELECT
+      CASE
+        WHEN oi.scope_type = 'park' THEN scope_loc.location_id
+        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
+        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
+      END AS park_id,
+      CASE
+        WHEN oi.scope_type = 'park' THEN scope_loc.location_code
+        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code
+        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_code
+      END AS park_code,
+      CASE
+        WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
+        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
+      END AS shed_id,
+      CASE
+        WHEN oi.scope_type = 'shed' THEN scope_loc.name
+        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.name
+      END AS shed_name
+  ) loc ON true
   WHERE vc.tenant_id = $1::uuid
     AND vc.status = 'accepted'
     AND oi.status = 'completed'
+    AND oi.target_type = 'goat'
     AND pd.category = 'vaccination'
     AND vc.administered_at >= $6::timestamptz
     AND vc.administered_at < $7::timestamptz
   GROUP BY
-    g.park_id, park.location_code, g.shed_id, shed.name,
+    loc.park_id, loc.park_code, loc.shed_id, loc.shed_name,
     pd.protocol_id, pv.protocol_version_id, pr.rule_id, pd.name, pr.dose_code,
     (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date
 ),
@@ -1855,19 +1902,40 @@ WITH marker_rows AS (
     ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
   JOIN protocol_definitions pd
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-  JOIN goats g
-    ON g.tenant_id = oi.tenant_id AND oi.target_type = 'goat' AND g.goat_id = oi.target_id
+  LEFT JOIN locations scope_loc
+    ON scope_loc.tenant_id = oi.tenant_id
+   AND scope_loc.location_id = oi.scope_id
+   AND oi.scope_type IN ('park', 'shed', 'cohort')
+  LEFT JOIN locations scope_parent
+    ON scope_parent.tenant_id = oi.tenant_id
+   AND scope_parent.location_id = scope_loc.parent_location_id
+  LEFT JOIN locations scope_grand
+    ON scope_grand.tenant_id = oi.tenant_id
+   AND scope_grand.location_id = scope_parent.parent_location_id
+  LEFT JOIN LATERAL (
+    SELECT
+      CASE
+        WHEN oi.scope_type = 'park' THEN scope_loc.location_id
+        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
+        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
+      END AS park_id,
+      CASE
+        WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
+        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
+      END AS shed_id
+  ) loc ON true
   WHERE vc.tenant_id = $1::uuid
     AND vc.status = 'accepted'
     AND oi.status = 'completed'
+    AND oi.target_type = 'goat'
     AND pd.category = 'vaccination'
     AND ($2::text = '' OR $2::text = 'pc')
     AND ($3::text = '' OR $3::text = 'completed')
-    AND ($4::text = '' OR g.park_id = nullif($4::text, '')::uuid)
-    AND ($5::text = '' OR g.shed_id = nullif($5::text, '')::uuid)
+    AND ($4::text = '' OR loc.park_id = nullif($4::text, '')::uuid)
+    AND ($5::text = '' OR loc.shed_id = nullif($5::text, '')::uuid)
     AND vc.administered_at >= $6::timestamptz
     AND vc.administered_at < $7::timestamptz
-    AND ($8::bool OR g.park_id::text = ANY($9::text[]) OR g.shed_id::text = ANY($10::text[]))
+    AND ($8::bool OR loc.park_id::text = ANY($9::text[]) OR loc.shed_id::text = ANY($10::text[]))
   GROUP BY (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date
 )
 SELECT marker_date,
@@ -1893,7 +1961,13 @@ WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
 
 const calendarCompletedHistoryDetailSQL = `
 WITH members AS (
-  SELECT oi.*, vc.administered_at, g.park_id, g.shed_id
+  SELECT
+    oi.*,
+    vc.administered_at,
+    loc.park_id,
+    loc.park_code,
+    loc.shed_id,
+    loc.shed_name
   FROM vaccination_completions vc
   JOIN obligation_instances oi
     ON oi.tenant_id = vc.tenant_id
@@ -1901,14 +1975,42 @@ WITH members AS (
    AND oi.rule_id = $5::uuid
    AND oi.status = 'completed'
    AND oi.target_type = 'goat'
-  JOIN goats g
-    ON g.tenant_id = oi.tenant_id
-   AND g.goat_id = oi.target_id
+  LEFT JOIN locations scope_loc
+    ON scope_loc.tenant_id = oi.tenant_id
+   AND scope_loc.location_id = oi.scope_id
+   AND oi.scope_type IN ('park', 'shed', 'cohort')
+  LEFT JOIN locations scope_parent
+    ON scope_parent.tenant_id = oi.tenant_id
+   AND scope_parent.location_id = scope_loc.parent_location_id
+  LEFT JOIN locations scope_grand
+    ON scope_grand.tenant_id = oi.tenant_id
+   AND scope_grand.location_id = scope_parent.parent_location_id
+  LEFT JOIN LATERAL (
+    SELECT
+      CASE
+        WHEN oi.scope_type = 'park' THEN scope_loc.location_id
+        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
+        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
+      END AS park_id,
+      CASE
+        WHEN oi.scope_type = 'park' THEN scope_loc.location_code
+        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code
+        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_code
+      END AS park_code,
+      CASE
+        WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
+        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
+      END AS shed_id,
+      CASE
+        WHEN oi.scope_type = 'shed' THEN scope_loc.name
+        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.name
+      END AS shed_name
+  ) loc ON true
   WHERE vc.tenant_id = $1::uuid
     AND vc.status = 'accepted'
     AND (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date = $2::date
-    AND g.park_id::text IS NOT DISTINCT FROM nullif($3::text, 'none')
-    AND g.shed_id::text IS NOT DISTINCT FROM nullif($4::text, 'none')
+    AND loc.park_id::text IS NOT DISTINCT FROM nullif($3::text, 'none')
+    AND loc.shed_id::text IS NOT DISTINCT FROM nullif($4::text, 'none')
 ),
 grouped AS (
   SELECT
@@ -1916,7 +2018,7 @@ grouped AS (
     'vaccination_history'::text AS event_type,
     'pc'::text AS owner_key,
     pd.name || ' ' || pr.dose_code || ' completed' AS title,
-    COALESCE(shed.name, park.location_code, 'Accepted vaccination history') AS subtitle,
+    COALESCE(m.shed_name, m.park_code, 'Accepted vaccination history') AS subtitle,
     'completed'::text AS status,
     'info'::text AS severity,
     min(m.administered_at) AS due_at,
@@ -1925,9 +2027,9 @@ grouped AS (
     'Asia/Kolkata'::text AS timezone,
     'india_only'::text AS timezone_source,
     m.park_id::text AS park_id,
-    park.location_code AS park_code,
+    m.park_code AS park_code,
     m.shed_id::text AS shed_id,
-    shed.name AS shed_name,
+    m.shed_name AS shed_name,
     NULL::text AS cohort_id,
     NULL::text AS cohort_name,
     'goat'::text AS target_type,
@@ -1966,11 +2068,7 @@ grouped AS (
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
   JOIN protocol_rules pr
     ON pr.tenant_id = m.tenant_id AND pr.rule_id = m.rule_id
-  LEFT JOIN locations park
-    ON park.tenant_id = m.tenant_id AND park.location_id = m.park_id
-  LEFT JOIN locations shed
-    ON shed.tenant_id = m.tenant_id AND shed.location_id = m.shed_id
-  GROUP BY m.park_id, park.location_code, m.shed_id, shed.name,
+  GROUP BY m.park_id, m.park_code, m.shed_id, m.shed_name,
     pd.protocol_id, pv.protocol_version_id, pr.rule_id, pd.name, pr.dose_code
 )
 SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,

@@ -583,7 +583,11 @@ fun CalendarDayScreen(
             if (state.items.isEmpty()) {
                 item {
                     EmptyState(
-                        title = state.emptyLabel.ifEmpty { stringResource(R.string.calendar_day_sheet_empty) },
+                        title = when {
+                            state.emptyLabel.isNotEmpty() -> state.emptyLabel
+                            state.showCompletedHistory -> stringResource(R.string.calendar_history_empty)
+                            else -> stringResource(R.string.calendar_day_sheet_empty)
+                        },
                         icon = MeshaIcons.Calendar,
                     )
                 }
@@ -614,11 +618,17 @@ private fun androidx.compose.foundation.lazy.LazyListScope.historyContent(
     state: CalendarUiState,
     onEvent: (CalendarEvent) -> Unit,
 ) {
-    item { SectionLabel(state.historyLabel) }
+    item {
+        SectionLabel(
+            state.historyLabel.ifEmpty {
+                stringResource(R.string.calendar_history_label) + " · " + state.historyCount
+            },
+        )
+    }
     if (state.historyRows.isEmpty()) {
         item {
             EmptyState(
-                title = stringResource(R.string.calendar_history_empty),
+                title = state.historyEmptyLabel.ifEmpty { stringResource(R.string.calendar_history_empty) },
                 icon = MeshaIcons.Clock,
             )
         }

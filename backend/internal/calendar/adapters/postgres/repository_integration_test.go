@@ -1476,6 +1476,41 @@ WHERE tenant_id=$1::uuid AND event_id=$2`, 0, testTenantID, history.EventID)
 	if detail.Event.TargetCount != 2 || detail.Event.Status != domain.StatusCompleted || !strings.Contains(string(detail.Execution), `"completed_count": 2`) {
 		t.Fatalf("history detail=%#v execution=%s", detail.Event, detail.Execution)
 	}
+	seedCalendarLocations(t, ctx, pool, testParkB, testShedB)
+	if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET park_id=$2::uuid, shed_id=$3::uuid, current_location_id=$3::uuid, updated_at=now()
+	WHERE tenant_id=$1::uuid AND goat_id IN ($4::uuid, $5::uuid)`,
+		testTenantID, testParkB, testShedB, obligationA, obligationB); err != nil {
+		t.Fatalf("relocate completed-history goats: %v", err)
+	}
+	stableList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID:           testTenantID,
+		OwnerKey:           domain.OwnerAll,
+		Status:             &completedStatus,
+		DateFrom:           administeredAt.Add(-time.Hour),
+		DateTo:             administeredAt.Add(24 * time.Hour),
+		Limit:              20,
+		IncludeDateMarkers: true,
+		Scope:              domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents history after relocation: %v", err)
+	}
+	if len(stableList.Items) != 1 || stableList.Items[0].EventID != expectedHistoryEventID {
+		t.Fatalf("history after relocation=%#v, want stable event id %q", stableList.Items, expectedHistoryEventID)
+	}
+	stableDetail, err := repo.GetEventDetail(ctx, domain.EventQuery{
+		TenantID: testTenantID,
+		EventID:  expectedHistoryEventID,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("GetEventDetail history after relocation: %v", err)
+	}
+	if stableDetail.Event.EventID != expectedHistoryEventID || stableDetail.Event.TargetCount != 2 {
+		t.Fatalf("stable history detail=%#v, want stable id %q with two targets", stableDetail.Event, expectedHistoryEventID)
+	}
 
 	openEventID := "calendar:86000000-0000-4000-8000-000000000938"
 	openDueAt := administeredAt.Add(8 * 24 * time.Hour)

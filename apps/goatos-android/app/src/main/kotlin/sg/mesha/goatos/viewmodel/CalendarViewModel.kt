@@ -317,7 +317,8 @@ class CalendarViewModel @Inject constructor(
             monthWeekdayLabels = listOf("S", "M", "T", "W", "T", "F", "S"),
             monthDays = buildMonthDays(monthOverviewResource.data?.dateMarkers.orEmpty(), today),
             monthHint = base.monthHint,
-            historyLabel = "Accepted completion history · ${historyItems.size}",
+            historyLabel = "",
+            historyCount = historyItems.size,
             historyRows = historyItems.map { event ->
                 CalendarHistoryRow(
                     id = event.eventId,
