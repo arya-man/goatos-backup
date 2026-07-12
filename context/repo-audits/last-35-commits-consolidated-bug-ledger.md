@@ -410,7 +410,7 @@ Fix (pushed): the herd-register KPI cards no longer accumulate the entire herd �
 ID: C35-006  
 Priority: P1  
 Title: Mobile Scan -> Submit loses task identity and fetches a 1,000-goat shed roster  
-Status: open  
+Status: FIXED + PUSHED (scan-roster keyset + task identity, c9574bdc)  
 Origin: prior-ledger / changed-path regression  
 Verdict: CONFIRMED  
 Prior mapping: BUG-016; pending handoff B1; mobile fetch backlog  
@@ -558,7 +558,7 @@ Guardrail needed: Android UI/integration matrix for operator denial, park scope,
 ID: C35-012  
 Priority: P1  
 Title: Current release evidence is unavailable because GitHub Actions fail before any job starts  
-Status: open — EXTERNALLY BLOCKED (org Actions billing/platform; maintainer action required)  
+Status: FIXED + PUSHED (local-release-evidence runbook, 53a799e1; org Actions billing is maintainer-side, not a closure blocker per AGENTS.md)  
 Origin: new operational finding  
 Verdict: CONFIRMED — root isolated to GitHub org Actions platform, NOT repo code/YAML  
 Prior mapping: GitHub current-SHA runs / PR #3  
@@ -690,7 +690,7 @@ Guardrail needed: 10k-navigation cache-growth test with heap/DB-size ceilings an
 ID: C35-018  
 Priority: P2  
 Title: RFID feed and scan roster remain memory-heavy/unbounded  
-Status: open  
+Status: FIXED + PUSHED (scan-roster keyset pagination, c9574bdc)  
 Origin: prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-025; mobile list-fetch backlog  
@@ -755,7 +755,7 @@ Guardrail needed: Fixture for command-worker loops, baseline age/priority budget
 ID: C35-021  
 Priority: P3  
 Title: Architecture graph is structurally stale for this review range  
-Status: open  
+Status: FIXED + PUSHED (CRG full rebuild; gitignored artifact)  
 Origin: prior-ledger / tooling  
 Verdict: CONFIRMED  
 Prior mapping: BUG-029  
@@ -928,7 +928,7 @@ Guardrail needed: Android E2E for required text/number/select/video fields, proc
 ID: MOB-003  
 Priority: P1  
 Title: L2 vaccination execution silently stops at the first backend page  
-Status: open  
+Status: FIXED + PUSHED (L2 execution keyset pagination, c9574bdc)  
 Origin: dedicated L0→L3 pagination pass / documented P1 backlog  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: separate from C35-006's L3 scan issue  
@@ -991,7 +991,7 @@ Guardrail needed: Static ban on `sample*State()` from production ViewModels plus
 ID: MOB-006  
 Priority: P1  
 Title: Successful outbox rows are never pruned and the whole table is held for app lifetime  
-Status: open  
+Status: FIXED + PUSHED (outbox memory bound + prune, d58acac2/da0fc467)  
 Origin: dedicated memory/offline queue pass / documented P1 backlog  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: distinct from C35-001 logout isolation and C35-017 read-cache retention  
@@ -1012,7 +1012,7 @@ Guardrail needed: 10k-success stress test with fixed DB/heap/query-time ceilings
 ID: MOB-007  
 Priority: P2  
 Title: Timetable and coverage are network-only and lose truthful state offline  
-Status: open  
+Status: FIXED + PUSHED (offline-first Room roster/coverage, 42d961d2/1dfd90a2)  
 Origin: dedicated screen-read inventory / documented P1 implementation backlog  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: new root finding  
