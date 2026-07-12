@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
@@ -42,47 +44,53 @@ class RecordViewModel @Inject constructor(
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")
 
-    private val _state = MutableStateFlow(recordPlaceholder("Loading record…"))
-    val state: StateFlow<RecordUiState> = _state.asStateFlow()
+    // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
+    private val observedResource: StateFlow<Resource<VaccinationExecutionShedDrilldownDto>> =
+        (if (shedId != null) repo.observeShed(shedId) else flowOf(Resource())).stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            Resource()
+        )
 
-    init {
-        // Cache-first OFFLINE-FIRST FIX (C35-019): observe directly from the shedId
-        // route parameter. Do NOT call repo.rows() to derive the ID — that duplicates
-        // the network read and breaks a cold offline launch when the cache is empty.
-        // Room is the single source of truth; refresh upserts Room in the background.
-        viewModelScope.launch {
-            shedId?.let {
-                repo.observeShed(it).collectLatest { resource -> applyResource(resource) }
-            }
-        }
-        refresh()
-    }
+    // Transient flags for manual updates
+    private val _isRefreshing = MutableStateFlow(false)
+    private val _isOffline = MutableStateFlow(false)
 
-    /** Network side of stale-while-revalidate: upserts Room on success (the [observeShed]
-     *  collector above re-emits and updates [state]); on failure it only flips
-     *  [RecordUiState.isOffline] — cached content, if any, stays on screen. */
-    fun refresh() = viewModelScope.launch {
-        _state.update { it.copy(isRefreshing = true) }
-        if (shedId != null) {
-            val result = repo.refreshShed(shedId)
-            _state.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
-        } else {
-            _state.update { current ->
-                recordPlaceholder("No record to show for this shed.").copy(isRefreshing = false)
-            }
-        }
-    }
-
-    private fun applyResource(resource: Resource<VaccinationExecutionShedDrilldownDto>) {
+    // Combines observed resource with transient flags; lifecycle-aware
+    val state: StateFlow<RecordUiState> = combine(
+        observedResource,
+        _isRefreshing,
+        _isOffline
+    ) { resource, isRefreshing, isOffline ->
         val dto = resource.data
         val base = dto?.toRecordUiState()
             ?: if (resource.hasData) recordPlaceholder("No record to show for this shed.") else recordPlaceholder("Loading…")
-        _state.update { current ->
-            base.copy(
-                isRefreshing = current.isRefreshing,
-                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
-                isOffline = current.isOffline,
-            )
+        base.copy(
+            isRefreshing = isRefreshing,
+            lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
+            isOffline = isOffline,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        recordPlaceholder("Loading record…")
+    )
+
+    init {
+        refresh()
+    }
+
+    /** Network side of stale-while-revalidate: upserts Room on success (the [observedResource]
+     *  StateFlow re-emits and updates [state]); on failure it only flips [_isOffline] —
+     *  cached content, if any, stays on screen. */
+    fun refresh() = viewModelScope.launch {
+        _isRefreshing.value = true
+        if (shedId != null) {
+            val result = repo.refreshShed(shedId)
+            _isRefreshing.value = false
+            _isOffline.value = result.isFailure
+        } else {
+            _isRefreshing.value = false
         }
     }
 

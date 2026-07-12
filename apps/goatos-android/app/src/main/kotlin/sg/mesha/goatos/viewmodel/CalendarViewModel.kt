@@ -7,9 +7,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
@@ -52,41 +56,83 @@ class CalendarViewModel @Inject constructor(
     private val repo: CalendarRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(calendarPlaceholder("Loading…"))
-    val state: StateFlow<CalendarUiState> = _state.asStateFlow()
-
     private val today = LocalDate.now(KOLKATA)
     private val weekRange = calendarWeekRange(today)
     private val monthRange = calendarMonthRange(today)
     private val historyRange = calendarHistoryRange(today)
 
-    private var selectedDay = today
-    private var selectedSegmentId: String? = null
-    private var weekOverviewResource = Resource<CalendarEventListResponseDto>(data = null)
-    private var monthOverviewResource = Resource<CalendarEventListResponseDto>(data = null)
-    private var selectedDayResource = Resource<CalendarEventListResponseDto>(data = null)
-    private var historyResource = Resource<CalendarEventListResponseDto>(data = null)
+    private val _selectedDay = MutableStateFlow(today)
+    private val _selectedSegmentId = MutableStateFlow<String?>(null)
 
-    private var selectedDayLoadingMore = false
-    private var historyLoadingMore = false
-    private var refreshInFlight = false
-    private var offline = false
+    // Upstream Room flows, lifecycle-aware via WhileSubscribed(5_000)
+    private val weekOverviewResource: StateFlow<Resource<CalendarEventListResponseDto>> =
+        repo.observeEvents(
+            dateFrom = weekRange.dateFrom,
+            dateTo = weekRange.dateTo,
+            includeDateMarkers = true,
+            limit = 1,
+        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource())
 
-    private var selectedDayJob: Job? = null
+    private val monthOverviewResource: StateFlow<Resource<CalendarEventListResponseDto>> =
+        repo.observeEvents(
+            dateFrom = monthRange.dateFrom,
+            dateTo = monthRange.dateTo,
+            includeDateMarkers = true,
+            limit = 1,
+        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource())
+
+    private val historyResource: StateFlow<Resource<CalendarEventListResponseDto>> =
+        repo.observeEvents(
+            status = COMPLETED_STATUS,
+            dateFrom = historyRange.dateFrom,
+            dateTo = historyRange.dateTo,
+            limit = CALENDAR_PAGE_SIZE,
+        ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource())
+
+    // Selected day resource is special because it changes based on user selection
+    // flatMapLatest automatically cancels old collection and starts new when selectedDay changes
+    private val selectedDayResource: StateFlow<Resource<CalendarEventListResponseDto>> =
+        _selectedDay.flatMapLatest { selectedDay ->
+            repo.observeEvents(
+                dateFrom = selectedDay.toString(),
+                dateTo = selectedDay.toString(),
+                limit = CALENDAR_PAGE_SIZE,
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource())
+
+    // Transient flags
+    private val _selectedDayLoadingMore = MutableStateFlow(false)
+    private val _historyLoadingMore = MutableStateFlow(false)
+    private val _refreshInFlight = MutableStateFlow(false)
+    private val _offline = MutableStateFlow(false)
+
+    val state: StateFlow<CalendarUiState> = combine(
+        weekOverviewResource,
+        monthOverviewResource,
+        selectedDayResource,
+        historyResource,
+        _selectedDay,
+        _selectedSegmentId,
+        _selectedDayLoadingMore,
+        _historyLoadingMore,
+        _refreshInFlight,
+        _offline,
+    ) { week, month, selectedDay, history, currentSelectedDay, selectedSegmentId, dayLoadingMore, historyLoadingMore, refreshInFlight, offline ->
+        buildCalendarState(
+            week, month, selectedDay, history,
+            currentSelectedDay, selectedSegmentId,
+            dayLoadingMore, historyLoadingMore, refreshInFlight, offline
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), calendarPlaceholder("Loading…"))
 
     init {
-        observeWeekOverview()
-        observeMonthOverview()
-        observeHistory()
-        observeSelectedDay()
         refresh()
     }
 
     fun refresh() = viewModelScope.launch {
-        refreshInFlight = true
-        selectedDayLoadingMore = false
-        historyLoadingMore = false
-        rebuildState()
+        _selectedDayLoadingMore.value = false
+        _historyLoadingMore.value = false
+        _refreshInFlight.value = true
 
         val results = listOf(
             async {
@@ -107,8 +153,8 @@ class CalendarViewModel @Inject constructor(
             },
             async {
                 repo.refreshEvents(
-                    dateFrom = selectedDay.toString(),
-                    dateTo = selectedDay.toString(),
+                    dateFrom = _selectedDay.value.toString(),
+                    dateTo = _selectedDay.value.toString(),
                     limit = CALENDAR_PAGE_SIZE,
                 )
             },
@@ -122,16 +168,14 @@ class CalendarViewModel @Inject constructor(
             },
         ).awaitAll()
 
-        refreshInFlight = false
-        offline = results.any { it.isFailure }
-        rebuildState()
+        _refreshInFlight.value = false
+        _offline.value = results.any { it.isFailure }
     }
 
     fun onEvent(event: CalendarEvent) {
         when (event) {
             is CalendarEvent.SelectSegment -> {
-                selectedSegmentId = event.segmentId
-                rebuildState()
+                _selectedSegmentId.value = event.segmentId
             }
 
             CalendarEvent.Refresh -> refresh()
@@ -143,102 +187,38 @@ class CalendarViewModel @Inject constructor(
         }
     }
 
-    private fun observeWeekOverview() {
-        viewModelScope.launch {
-            repo.observeEvents(
-                dateFrom = weekRange.dateFrom,
-                dateTo = weekRange.dateTo,
-                includeDateMarkers = true,
-                limit = 1,
-            ).collectLatest { resource ->
-                weekOverviewResource = resource
-                rebuildState()
-            }
-        }
-    }
-
-    private fun observeMonthOverview() {
-        viewModelScope.launch {
-            repo.observeEvents(
-                dateFrom = monthRange.dateFrom,
-                dateTo = monthRange.dateTo,
-                includeDateMarkers = true,
-                limit = 1,
-            ).collectLatest { resource ->
-                monthOverviewResource = resource
-                rebuildState()
-            }
-        }
-    }
-
-    private fun observeHistory() {
-        viewModelScope.launch {
-            repo.observeEvents(
-                status = COMPLETED_STATUS,
-                dateFrom = historyRange.dateFrom,
-                dateTo = historyRange.dateTo,
-                limit = CALENDAR_PAGE_SIZE,
-            ).collectLatest { resource ->
-                // MOB-004: the observed Room row already carries every appended page.
-                historyResource = resource
-                rebuildState()
-            }
-        }
-    }
-
-    private fun observeSelectedDay() {
-        selectedDayJob?.cancel()
-        selectedDayJob = viewModelScope.launch {
-            repo.observeEvents(
-                dateFrom = selectedDay.toString(),
-                dateTo = selectedDay.toString(),
-                limit = CALENDAR_PAGE_SIZE,
-            ).collectLatest { resource ->
-                // MOB-004: the observed Room row already carries every appended page.
-                selectedDayResource = resource
-                rebuildState()
-            }
-        }
-    }
-
     private fun selectDay(dateKey: String) {
         val date = runCatching { LocalDate.parse(dateKey) }.getOrNull() ?: return
-        if (date == selectedDay) return
-        selectedDay = date
-        selectedDayLoadingMore = false
-        observeSelectedDay()
-        rebuildState()
+        if (date == _selectedDay.value) return
+        _selectedDay.value = date
+        _selectedDayLoadingMore.value = false
         viewModelScope.launch {
             val result = repo.refreshEvents(
                 dateFrom = date.toString(),
                 dateTo = date.toString(),
                 limit = CALENDAR_PAGE_SIZE,
             )
-            offline = result.isFailure
-            rebuildState()
+            _offline.value = result.isFailure
         }
     }
 
     private fun loadMoreSelectedDay() = viewModelScope.launch {
-        val cursor = selectedDayResource.data?.nextCursor ?: return@launch
-        selectedDayLoadingMore = true
-        rebuildState()
+        val cursor = selectedDayResource.value.data?.nextCursor ?: return@launch
+        _selectedDayLoadingMore.value = true
         // MOB-004: append the next page INTO Room; the observed flow re-emits the merged window.
         val result = repo.appendEvents(
             cursor = cursor,
-            dateFrom = selectedDay.toString(),
-            dateTo = selectedDay.toString(),
+            dateFrom = _selectedDay.value.toString(),
+            dateTo = _selectedDay.value.toString(),
             limit = CALENDAR_PAGE_SIZE,
         )
-        offline = result.isFailure
-        selectedDayLoadingMore = false
-        rebuildState()
+        _offline.value = result.isFailure
+        _selectedDayLoadingMore.value = false
     }
 
     private fun loadMoreHistory() = viewModelScope.launch {
-        val cursor = historyResource.data?.nextCursor ?: return@launch
-        historyLoadingMore = true
-        rebuildState()
+        val cursor = historyResource.value.data?.nextCursor ?: return@launch
+        _historyLoadingMore.value = true
         // MOB-004: append the next page INTO Room; the observed flow re-emits the merged window.
         val result = repo.appendEvents(
             cursor = cursor,
@@ -247,51 +227,62 @@ class CalendarViewModel @Inject constructor(
             dateTo = historyRange.dateTo,
             limit = CALENDAR_PAGE_SIZE,
         )
-        offline = result.isFailure
-        historyLoadingMore = false
-        rebuildState()
+        _offline.value = result.isFailure
+        _historyLoadingMore.value = false
     }
 
-    private fun rebuildState() {
+    private fun buildCalendarState(
+        week: Resource<CalendarEventListResponseDto>,
+        month: Resource<CalendarEventListResponseDto>,
+        selectedDay: Resource<CalendarEventListResponseDto>,
+        history: Resource<CalendarEventListResponseDto>,
+        currentSelectedDay: LocalDate,
+        selectedSegmentId: String?,
+        dayLoadingMore: Boolean,
+        historyLoadingMore: Boolean,
+        refreshInFlight: Boolean,
+        offline: Boolean,
+    ): CalendarUiState {
         val base = sampleCalendarState()
-        val presentation = activePresentation()
+        val presentation = activePresentation(week, month, selectedDay, history)
         val segments = buildSegments(presentation, base)
-        val selectedSegment = resolveSelectedSegment(segments, presentation, base)
-        selectedSegmentId = selectedSegment
+        val resolvedSegmentId = resolveSelectedSegment(segments, presentation, base, selectedSegmentId)
+
         // MOB-004: items come straight from the observed Room row, which already holds every
         // appended page (bounded keyset window) — no ViewModel-side accumulation.
-        val dayItems = selectedDayResource.data?.items.orEmpty()
+        val dayItems = selectedDay.data?.items.orEmpty()
             .sortedBy { it.dueAt }
-        val historyItems = historyResource.data?.items.orEmpty()
+        val historyItems = history.data?.items.orEmpty()
             .filter { it.status == COMPLETED_STATUS }
             .sortedByDescending { it.dueAt }
-        val state = base.copy(
+
+        return base.copy(
             eyebrow = "Vaccination",
             title = presentation?.pageTitle?.ifBlank { base.title } ?: base.title,
-            selectedDateLabel = dateLabel(selectedDay),
-            windowLabel = when (selectedSegment) {
+            selectedDateLabel = dateLabel(currentSelectedDay),
+            windowLabel = when (resolvedSegmentId) {
                 "month" -> monthLabel(today)
                 "history" -> "${historyRange.dateFrom} → ${historyRange.dateTo}"
                 else -> null
             },
             isRefreshing = refreshInFlight,
             lastSyncedAt = listOfNotNull(
-                weekOverviewResource.lastSyncedAt,
-                monthOverviewResource.lastSyncedAt,
-                selectedDayResource.lastSyncedAt,
-                historyResource.lastSyncedAt,
+                week.lastSyncedAt,
+                month.lastSyncedAt,
+                selectedDay.lastSyncedAt,
+                history.lastSyncedAt,
             ).maxOrNull(),
             isOffline = offline,
             segments = segments,
-            selectedSegmentId = selectedSegment,
-            weekDays = buildWeekDays(weekOverviewResource.data?.dateMarkers.orEmpty(), selectedDay, today),
+            selectedSegmentId = resolvedSegmentId,
+            weekDays = buildWeekDays(week.data?.dateMarkers.orEmpty(), currentSelectedDay, today),
             weekItems = dayItems.map { it.toCalendarItem() },
             weekEmptyLabel = presentation?.emptyState?.okMessage?.ifBlank { base.weekEmptyLabel } ?: base.weekEmptyLabel,
-            weekHasMore = selectedDayResource.data?.nextCursor != null,
-            weekLoadingMore = selectedDayLoadingMore,
+            weekHasMore = selectedDay.data?.nextCursor != null,
+            weekLoadingMore = dayLoadingMore,
             monthLabel = monthLabel(today),
             monthWeekdayLabels = listOf("S", "M", "T", "W", "T", "F", "S"),
-            monthDays = buildMonthDays(monthOverviewResource.data?.dateMarkers.orEmpty(), today),
+            monthDays = buildMonthDays(month.data?.dateMarkers.orEmpty(), today),
             monthHint = base.monthHint,
             historyLabel = "",
             historyCount = historyItems.size,
@@ -306,10 +297,9 @@ class CalendarViewModel @Inject constructor(
                 )
             },
             historyEmptyLabel = presentation?.emptyState?.okMessage?.ifBlank { base.historyEmptyLabel } ?: base.historyEmptyLabel,
-            historyHasMore = historyResource.data?.nextCursor != null,
+            historyHasMore = history.data?.nextCursor != null,
             historyLoadingMore = historyLoadingMore,
         )
-        _state.value = state
     }
 
     private fun buildSegments(
@@ -332,18 +322,24 @@ class CalendarViewModel @Inject constructor(
         segments: List<CalendarSegment>,
         presentation: CalendarPresentationDto?,
         base: CalendarUiState,
+        selectedSegmentId: String?,
     ): String =
         selectedSegmentId?.takeIf { id -> segments.any { it.id == id } }
             ?: presentation?.viewTabs?.firstOrNull { it.active }?.key?.takeIf { key -> segments.any { it.id == key } }
             ?: segments.firstOrNull()?.id
             ?: base.selectedSegmentId
 
-    private fun activePresentation(): CalendarPresentationDto? =
+    private fun activePresentation(
+        week: Resource<CalendarEventListResponseDto>,
+        month: Resource<CalendarEventListResponseDto>,
+        selectedDay: Resource<CalendarEventListResponseDto>,
+        history: Resource<CalendarEventListResponseDto>,
+    ): CalendarPresentationDto? =
         listOfNotNull(
-            weekOverviewResource.data?.presentation?.takeIf(::hasPresentation),
-            monthOverviewResource.data?.presentation?.takeIf(::hasPresentation),
-            selectedDayResource.data?.presentation?.takeIf(::hasPresentation),
-            historyResource.data?.presentation?.takeIf(::hasPresentation),
+            week.data?.presentation?.takeIf(::hasPresentation),
+            month.data?.presentation?.takeIf(::hasPresentation),
+            selectedDay.data?.presentation?.takeIf(::hasPresentation),
+            history.data?.presentation?.takeIf(::hasPresentation),
         ).firstOrNull()
 
     private fun hasPresentation(presentation: CalendarPresentationDto): Boolean =

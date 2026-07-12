@@ -4,9 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
@@ -47,15 +48,44 @@ class ShedsViewModel @Inject constructor(
 
     private var nextCursor: String? = null
 
-    private val _state = MutableStateFlow(shedsPlaceholder("Loading today's sheds…"))
-    val state: StateFlow<ShedsUiState> = _state.asStateFlow()
+    // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
+    private val observedResource: StateFlow<Resource<VaccinationExecutionResponseDto>> =
+        repo.observeRows(limit = PAGE_LIMIT).stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            Resource()
+        )
+
+    // Transient flags for manual updates
+    private val _isRefreshing = MutableStateFlow(false)
+    private val _isOffline = MutableStateFlow(false)
+    private val _isLoadingMore = MutableStateFlow(false)
+
+    // Combines observed resource with transient flags; lifecycle-aware
+    val state: StateFlow<ShedsUiState> = combine(
+        observedResource,
+        _isRefreshing,
+        _isOffline,
+        _isLoadingMore
+    ) { resource, isRefreshing, isOffline, isLoadingMore ->
+        val dto = resource.data
+        nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
+        val base = dto?.toShedsUiState()
+            ?: if (resource.hasData) shedsPlaceholder("No sheds scheduled today") else shedsPlaceholder("Loading…")
+        base.copy(
+            isRefreshing = isRefreshing,
+            isLoadingMore = isLoadingMore,
+            hasMore = !dto?.nextCursor.isNullOrBlank(),
+            lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
+            isOffline = isOffline,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        shedsPlaceholder("Loading today's sheds…")
+    )
 
     init {
-        // Cache-first: renders whatever Room already has (possibly nothing, on a cold
-        // install) immediately, then re-renders after every successful refresh below.
-        viewModelScope.launch {
-            repo.observeRows(limit = PAGE_LIMIT).collectLatest { resource -> applyResource(resource) }
-        }
         refresh()
     }
 
@@ -63,33 +93,19 @@ class ShedsViewModel @Inject constructor(
      *  collector above re-emits and updates [state]); on failure it only flips
      *  [ShedsUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
-        _state.update { it.copy(isRefreshing = true) }
+        _isRefreshing.value = true
         val result = repo.refreshRows(limit = PAGE_LIMIT)
-        _state.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
+        _isRefreshing.value = false
+        _isOffline.value = result.isFailure
     }
 
     fun loadMore() = viewModelScope.launch {
         val cursor = nextCursor ?: return@launch
-        if (_state.value.isLoadingMore) return@launch
-        _state.update { it.copy(isLoadingMore = true) }
+        if (_isLoadingMore.value) return@launch
+        _isLoadingMore.value = true
         val result = repo.appendRows(cursor = cursor, limit = PAGE_LIMIT)
-        _state.update { it.copy(isLoadingMore = false, isOffline = result.isFailure) }
-    }
-
-    private fun applyResource(resource: Resource<VaccinationExecutionResponseDto>) {
-        val dto = resource.data
-        nextCursor = dto?.nextCursor
-        val base = dto?.toShedsUiState()
-            ?: if (resource.hasData) shedsPlaceholder("No sheds scheduled today") else shedsPlaceholder("Loading…")
-        _state.update { current ->
-            base.copy(
-                isRefreshing = current.isRefreshing,
-                isLoadingMore = current.isLoadingMore,
-                hasMore = !dto?.nextCursor.isNullOrBlank(),
-                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
-                isOffline = current.isOffline,
-            )
-        }
+        _isLoadingMore.value = false
+        _isOffline.value = result.isFailure
     }
 
     fun onEvent(event: ShedsEvent) {

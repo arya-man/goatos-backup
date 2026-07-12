@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.CalendarRepository
@@ -37,67 +39,75 @@ class CalendarDayViewModel @Inject constructor(
     private val dateKey: String? = date?.toString()
     private val completedHistoryOnly = savedStateHandle.get<String>("status") == COMPLETED_STATUS
 
-    private val _state = MutableStateFlow(
+    private val statusFilter: String? = if (completedHistoryOnly) COMPLETED_STATUS else null
+
+    // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
+    private val observedResource: StateFlow<Resource<CalendarEventListResponseDto>> =
+        if (dateKey != null) {
+            repo.observeEvents(status = statusFilter, dateFrom = dateKey, dateTo = dateKey, limit = CALENDAR_PAGE_SIZE)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource())
+        } else {
+            MutableStateFlow(Resource<CalendarEventListResponseDto>(data = null))
+        }
+
+    // Transient flags
+    private val _isRefreshing = MutableStateFlow(false)
+    private val _isOffline = MutableStateFlow(false)
+    private val _isLoadingMore = MutableStateFlow(false)
+
+    // Combined state, lifecycle-aware
+    val state: StateFlow<CalendarDayUiState> = combine(
+        observedResource,
+        _isRefreshing,
+        _isOffline,
+        _isLoadingMore
+    ) { resource, isRefreshing, isOffline, isLoadingMore ->
+        val items = resource.data?.items.orEmpty()
+            .sortedBy { it.dueAt }
+            .map { it.toCalendarItem() }
         CalendarDayUiState(
             title = date?.let { calendarDayTitle(it) }.orEmpty(),
             showCompletedHistory = completedHistoryOnly,
-        ),
+            items = items,
+            isRefreshing = isRefreshing,
+            lastSyncedAt = resource.lastSyncedAt,
+            isOffline = isOffline,
+            hasMore = resource.data?.nextCursor != null,
+            isLoadingMore = isLoadingMore,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        CalendarDayUiState(
+            title = date?.let { calendarDayTitle(it) }.orEmpty(),
+            showCompletedHistory = completedHistoryOnly,
+        )
     )
-    val state: StateFlow<CalendarDayUiState> = _state.asStateFlow()
-
-    private val statusFilter: String? = if (completedHistoryOnly) COMPLETED_STATUS else null
-    private var resource = Resource<CalendarEventListResponseDto>(data = null)
-    private var loadingMore = false
-    private var offline = false
 
     init {
-        if (dateKey != null) {
-            viewModelScope.launch {
-                repo.observeEvents(status = statusFilter, dateFrom = dateKey, dateTo = dateKey, limit = CALENDAR_PAGE_SIZE)
-                    .collectLatest { observed ->
-                        resource = observed
-                        rebuildState()
-                    }
-            }
-        }
         refresh()
     }
 
     fun refresh() = viewModelScope.launch {
-        loadingMore = false
-        rebuildState(isRefreshing = true)
+        _isLoadingMore.value = false
+        _isRefreshing.value = true
         val key = dateKey
         if (key == null) {
-            rebuildState(isRefreshing = false)
+            _isRefreshing.value = false
             return@launch
         }
         val result = repo.refreshEvents(status = statusFilter, dateFrom = key, dateTo = key, limit = CALENDAR_PAGE_SIZE)
-        offline = result.isFailure
-        rebuildState(isRefreshing = false)
+        _isOffline.value = result.isFailure
+        _isRefreshing.value = false
     }
 
     fun loadMore() = viewModelScope.launch {
         val key = dateKey ?: return@launch
-        val cursor = resource.data?.nextCursor ?: return@launch
-        loadingMore = true
-        rebuildState()
+        val cursor = observedResource.value.data?.nextCursor ?: return@launch
+        _isLoadingMore.value = true
         // MOB-004: append the next page INTO Room; the observed flow re-emits the merged window.
         val result = repo.appendEvents(cursor = cursor, status = statusFilter, dateFrom = key, dateTo = key, limit = CALENDAR_PAGE_SIZE)
-        offline = result.isFailure
-        loadingMore = false
-        rebuildState()
-    }
-
-    private fun rebuildState(isRefreshing: Boolean = _state.value.isRefreshing) {
-        _state.value = _state.value.copy(
-            items = resource.data?.items.orEmpty()
-                .sortedBy { it.dueAt }
-                .map { it.toCalendarItem() },
-            isRefreshing = isRefreshing,
-            lastSyncedAt = resource.lastSyncedAt ?: _state.value.lastSyncedAt,
-            isOffline = offline,
-            hasMore = resource.data?.nextCursor != null,
-            isLoadingMore = loadingMore,
-        )
+        _isOffline.value = result.isFailure
+        _isLoadingMore.value = false
     }
 }

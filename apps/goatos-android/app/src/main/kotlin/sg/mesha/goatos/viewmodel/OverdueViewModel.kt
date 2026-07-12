@@ -4,9 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
@@ -33,37 +34,47 @@ class OverdueViewModel @Inject constructor(
     private val repo: ControlTowerRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(overduePlaceholder("Loading…"))
-    val state: StateFlow<OverdueUiState> = _state.asStateFlow()
+    // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
+    private val observedResource: StateFlow<Resource<ControlTowerResponseDto>> =
+        repo.observeSummary().stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            Resource()
+        )
+
+    // Transient flags for manual updates
+    private val _isRefreshing = MutableStateFlow(false)
+    private val _isOffline = MutableStateFlow(false)
+
+    // Combines observed resource with transient flags; lifecycle-aware
+    val state: StateFlow<OverdueUiState> = combine(
+        observedResource,
+        _isRefreshing,
+        _isOffline
+    ) { resource, isRefreshing, isOffline ->
+        val dto = resource.data
+        val base = dto?.toOverdueUiState()
+            ?: if (resource.hasData) overduePlaceholder("No overdue animals") else overduePlaceholder("Loading…")
+        base.copy(
+            isRefreshing = isRefreshing,
+            lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
+            isOffline = isOffline,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        overduePlaceholder("Loading…")
+    )
 
     init {
-        // Cache-first: renders whatever Room already has immediately, then re-renders
-        // after every successful refresh below.
-        viewModelScope.launch {
-            repo.observeSummary().collectLatest { resource ->
-                applyResource(resource)
-            }
-        }
         refresh()
     }
 
     fun refresh() = viewModelScope.launch {
-        _state.update { it.copy(isRefreshing = true) }
+        _isRefreshing.value = true
         val result = repo.refreshSummary()
-        _state.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
-    }
-
-    private fun applyResource(resource: Resource<ControlTowerResponseDto>) {
-        val dto = resource.data
-        val base = dto?.toOverdueUiState()
-            ?: if (resource.hasData) overduePlaceholder("No overdue animals") else overduePlaceholder("Loading…")
-        _state.update { current ->
-            base.copy(
-                isRefreshing = current.isRefreshing,
-                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
-                isOffline = current.isOffline,
-            )
-        }
+        _isRefreshing.value = false
+        _isOffline.value = result.isFailure
     }
 
     fun onEvent(event: LeadershipEvent) {

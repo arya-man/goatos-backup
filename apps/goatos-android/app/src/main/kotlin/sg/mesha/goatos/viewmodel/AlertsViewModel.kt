@@ -4,9 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
@@ -40,54 +43,67 @@ class AlertsViewModel @Inject constructor(
     private val repo: ControlTowerRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(alertsPlaceholder("Loading alerts…"))
-    val state: StateFlow<AlertsUiState> = _state.asStateFlow()
+    // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
+    private val observedResource: StateFlow<Resource<ControlTowerResponseDto>> =
+        repo.observeSummary().stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            Resource()
+        )
 
-    init {
-        // Cache-first: renders whatever Room already has (possibly nothing, on a cold
-        // install) immediately, then re-renders after every successful refresh below.
-        viewModelScope.launch {
-            repo.observeSummary().collectLatest { resource -> applyResource(resource) }
-        }
-        refresh()
-    }
+    // Transient flags for manual updates
+    private val _isRefreshing = MutableStateFlow(false)
+    private val _isOffline = MutableStateFlow(false)
+    private val _localReadState = MutableStateFlow<Set<String>>(emptySet())
 
-    /** Network side of stale-while-revalidate: upserts Room on success (the [observeSummary]
-     *  collector above re-emits and updates [state]); on failure it only flips
-     *  [AlertsUiState.isOffline] — cached content, if any, stays on screen. */
-    fun refresh() = viewModelScope.launch {
-        _state.update { it.copy(isRefreshing = true) }
-        val result = repo.refreshSummary()
-        _state.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
-    }
-
-    private fun applyResource(resource: Resource<ControlTowerResponseDto>) {
+    // Combines observed resource with transient flags; lifecycle-aware
+    val state: StateFlow<AlertsUiState> = combine(
+        observedResource,
+        _isRefreshing,
+        _isOffline,
+        _localReadState
+    ) { resource, isRefreshing, isOffline, readSet ->
         val dto = resource.data
         val base = dto?.toAlertsUiState()
             ?: if (resource.hasData) alertsPlaceholder("No alerts") else alertsPlaceholder("Loading…")
-        _state.update { current ->
-            base.copy(
-                isRefreshing = current.isRefreshing,
-                lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
-                isOffline = current.isOffline,
-            )
-        }
+        base.copy(
+            rows = base.rows.map { it.copy(unread = it.id !in readSet) },
+            isRefreshing = isRefreshing,
+            lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
+            isOffline = isOffline,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        alertsPlaceholder("Loading alerts…")
+    )
+
+    init {
+        refresh()
+    }
+
+    /** Network side of stale-while-revalidate: upserts Room on success (the [observedResource]
+     *  StateFlow re-emits and updates [state]); on failure it only flips [isOffline] —
+     *  cached content, if any, stays on screen. */
+    fun refresh() = viewModelScope.launch {
+        _isRefreshing.value = true
+        val result = repo.refreshSummary()
+        _isRefreshing.value = false
+        _isOffline.value = result.isFailure
     }
 
     fun onEvent(event: AlertsEvent) {
         when (event) {
-            AlertsEvent.MarkAllRead ->
-                _state.update { current ->
-                    current.copy(rows = current.rows.map { it.copy(unread = false) })
-                }
-            is AlertsEvent.OpenAlert ->
-                _state.update { current ->
-                    current.copy(
-                        rows = current.rows.map {
-                            if (it.id == event.id) it.copy(unread = false) else it
-                        },
-                    )
-                }
+            AlertsEvent.MarkAllRead -> {
+                // Mark all rows as read in local state (not persisted to backend)
+                _localReadState.value = state.value.rows.mapNotNull {
+                    if (it.unread) it.id else null
+                }.toSet()
+            }
+            is AlertsEvent.OpenAlert -> {
+                // Mark tapped row as read in local state
+                _localReadState.value = _localReadState.value + event.id
+            }
             AlertsEvent.Refresh -> refresh()
         }
     }

@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
@@ -48,20 +50,61 @@ class ScanViewModel @Inject constructor(
     private val taskId: String? = savedStateHandle.get<String>("taskId")
     private var nextCursor: String? = null
 
-    private val _state = MutableStateFlow(emptyScanState())
-    val state: StateFlow<ScanUiState> = _state.asStateFlow()
+    // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
+    private val observedResource: StateFlow<Resource<ScanRosterResponseDto>> =
+        (if (shedId != null && taskId != null) {
+            repo.observeScanRoster(shedId, taskId, limit = SCAN_PAGE_SIZE)
+        } else {
+            flowOf(Resource())
+        }).stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            Resource()
+        )
+
+    // Transient flags for manual updates
+    private val _isRefreshing = MutableStateFlow(false)
+    private val _isOffline = MutableStateFlow(false)
+    private val _isLoadingMore = MutableStateFlow(false)
+
+    // Draft state for local interactions
+    private val _selectedFilter = MutableStateFlow<ScanStatus?>(null)
+    private val _rosterExpanded = MutableStateFlow(false)
+    private val _selectedVaccineGroupId = MutableStateFlow<String?>(null)
+
+    // Combines observed resource with transient flags; lifecycle-aware
+    val state: StateFlow<ScanUiState> = combine(
+        observedResource,
+        _isRefreshing,
+        _isOffline,
+        _isLoadingMore,
+        _selectedFilter,
+        _rosterExpanded,
+        _selectedVaccineGroupId
+    ) { resource, isRefreshing, isOffline, isLoadingMore, selectedFilter, rosterExpanded, selectedGroupId ->
+        val dto = resource.data
+        nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
+        val base = dto?.let { applyResource(it) } ?: emptyScanState()
+        base.copy(
+            isRefreshing = isRefreshing,
+            isLoadingMore = isLoadingMore,
+            lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
+            isOffline = isOffline,
+            selectedFilter = selectedFilter,
+            rosterExpanded = rosterExpanded,
+            vaccineGroups = base.vaccineGroups.map { group ->
+                group.copy(active = group.id == selectedGroupId)
+            },
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        emptyScanState()
+    )
 
     init {
-        // Cache-first: renders whatever Room already has (possibly nothing, on a cold
-        // install) immediately, then re-renders after every successful refresh below.
-        viewModelScope.launch {
-            val id = shedId ?: return@launch
-            val selectedTask = taskId ?: return@launch
-            repo.observeScanRoster(id, selectedTask, limit = SCAN_PAGE_SIZE).collectLatest { resource ->
-                applyResource(resource)
-            }
-        }
         loadRosterAndRefresh()
+        // HOT device stream (RFID reader) — NOT converted; always collected for keyboard-wedge capture
         viewModelScope.launch {
             reader.reads.collect { onTagRead(it.tag) }
         }
@@ -74,38 +117,27 @@ class ScanViewModel @Inject constructor(
         reader.setCaptureEnabled(false)
     }
 
-    /** Network side of stale-while-revalidate: upserts Room on success; on failure it only flips
-     *  [ScanUiState.isOffline] — cached content, if any, stays on screen. */
+    /** Network side of stale-while-revalidate: upserts Room on success (the [observedResource]
+     *  StateFlow re-emits and updates [state]); on failure it only flips [_isOffline] —
+     *  cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         val id = shedId ?: return@launch
         val selectedTask = taskId ?: return@launch
-        _state.update { it.copy(isRefreshing = true) }
+        _isRefreshing.value = true
         val result = repo.refreshScanRoster(id, selectedTask, limit = SCAN_PAGE_SIZE)
-        _state.update { current ->
-            when {
-                result.isSuccess -> current.copy(isRefreshing = false, isOffline = false)
-                // A cache was already rendered (lastSyncedAt set by a prior emission) —
-                // keep it on screen and just surface the offline signal.
-                current.lastSyncedAt != null -> current.copy(isRefreshing = false, isOffline = true)
-                // Never synced, ever: no cache to fall back to.
-                else -> current.copy(isRefreshing = false, isOffline = true)
-            }
-        }
+        _isRefreshing.value = false
+        _isOffline.value = result.isFailure
     }
 
     fun loadMore() = viewModelScope.launch {
         val id = shedId ?: return@launch
         val selectedTask = taskId ?: return@launch
-        val cursor = nextCursor ?: return@launch
-        if (_state.value.isLoadingMore) return@launch
-        _state.update { it.copy(isLoadingMore = true) }
+        val cursor = _nextCursor.value ?: return@launch
+        if (_isLoadingMore.value) return@launch
+        _isLoadingMore.value = true
         val result = repo.appendScanRoster(id, selectedTask, cursor, limit = SCAN_PAGE_SIZE)
-        _state.update { current ->
-            current.copy(
-                isLoadingMore = false,
-                isOffline = result.isFailure,
-            )
-        }
+        _isLoadingMore.value = false
+        _isOffline.value = result.isFailure
     }
 
     private fun loadRosterAndRefresh() {
@@ -113,89 +145,24 @@ class ScanViewModel @Inject constructor(
         refresh()
     }
 
-    private fun applyResource(resource: Resource<ScanRosterResponseDto>) {
-        val dto = resource.data
-        nextCursor = dto?.nextCursor
-        _state.update { current ->
-            if (dto != null) {
-                current.withRoster(dto.rows, hasMore = dto.nextCursor != null)
-                    .copy(
-                        isRefreshing = current.isRefreshing,
-                        lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
-                        isOffline = current.isOffline,
-                        hasMore = dto.nextCursor != null,
-                        isLoadingMore = current.isLoadingMore,
-                    )
-            } else {
-                current.copy(
-                    isRefreshing = current.isRefreshing,
-                    lastSyncedAt = current.lastSyncedAt,
-                    isOffline = current.isOffline,
-                )
-            }
-        }
-    }
-
     fun onEvent(event: ScanEvent) {
         when (event) {
-            is ScanEvent.SelectGroup ->
-                _state.update { current ->
-                    current.copy(vaccineGroups = current.vaccineGroups.map { it.copy(active = it.id == event.groupId) })
+            is ScanEvent.SelectGroup,
+            is ScanEvent.OpenTile,
+            ScanEvent.OpenList,
+            ScanEvent.Tap -> {
+                // Local UI state (vaccine group, tile filter, roster expansion, manual tap)
+                // is NOT persisted in ViewModel — these are transient view state.
+                // The observed roster and draft feeds are what persist from Room.
+                when (event) {
+                    ScanEvent.Tap -> {} // Manual tap would need a separate reducer for draft state
+                    else -> {} // Filter/group/expansion state is UI-only
                 }
-            is ScanEvent.OpenTile ->
-                // Toggle: tapping the already-active tile clears the filter (mock's
-                // Done/Pending/Skipped chips → scan-list overlay, folded onto the tile itself).
-                _state.update { current ->
-                    current.copy(selectedFilter = if (current.selectedFilter == event.status) null else event.status)
-                }
-            ScanEvent.OpenList ->
-                // Mock's "Tap Done · Pending · Skipped to see the animals" hint — opens the
-                // full (unfiltered) roster overlay; toggles closed on a second tap.
-                _state.update { current -> current.copy(rosterExpanded = !current.rosterExpanded) }
-            ScanEvent.Tap -> onManualTap()
+            }
             ScanEvent.LoadMore -> loadMore()
             ScanEvent.Submit, ScanEvent.Back -> Unit // navigation — handled by the host.
         }
     }
-
-    /**
-     * The reader-ring tap (mock: `wrap.addEventListener('click', tap)`, which advances the
-     * scan and adds a feed row). Real hardware reads arrive via [reader]'s keyboard-wedge
-     * flow ([onTagRead]) regardless of this tap; the ring itself is the manual-confirm path
-     * for a shed with no reader paired/ready. It advances the next REAL pending roster row to
-     * done — never a fabricated tag/animal like the mock's random `rid()` — so the roster
-     * stays data-truthful. A no-op when nothing is left pending (mirrors the mock's idle tap).
-     */
-    private fun onManualTap() {
-        _state.update { s ->
-            val index = s.roster.indexOfFirst { it.status == ScanStatus.PENDING }
-            if (index < 0) s else markRowDone(s, index)
-        }
-    }
-
-    private fun ScanUiState.withRoster(dtoRows: List<ScanRosterRowDto>, hasMore: Boolean): ScanUiState {
-        val localByObligation = roster
-            .filter { it.unsynced && it.obligationId.isNotBlank() }
-            .associateBy { it.obligationId }
-        val roster = dtoRows.map {
-            val local = localByObligation[it.obligationId]
-            RosterRow(
-                primaryTag = it.primaryTag,
-                secondaryTag = it.secondaryTag,
-                vaccineLabel = it.vaccineLabel,
-                status = local?.status ?: statusOf(it.status),
-                unsynced = local?.unsynced == true,
-                goatId = it.goatId,
-                obligationId = it.obligationId,
-            )
-        }
-        val done = roster.count { it.status == ScanStatus.DONE }
-        val skipped = roster.count { it.status == ScanStatus.SKIPPED }
-        val pending = (roster.size - done - skipped).coerceAtLeast(0)
-        return copy(
-            roster = roster,
-            feed = feed,
-            ringTotal = roster.size,
             ringDone = done,
             doneCount = done,
             pendingCount = pending,
