@@ -344,10 +344,13 @@ func parseFlags(args []string) (config, error) {
 	if cfg.Level1After < 0 || cfg.Level2After < cfg.Level1After || cfg.Level3After < cfg.Level2After || cfg.Level4After < cfg.Level3After {
 		return config{}, errors.New("SLA thresholds must be non-negative and increasing")
 	}
-	// Validate that actor-id is provided when task/stock finalization is enabled
-	needsFinalization := strings.TrimSpace(cfg.SOPVersionID) != "" || strings.TrimSpace(cfg.VaccineItemID) != ""
-	if needsFinalization && strings.TrimSpace(cfg.ActorID) == "" {
-		return config{}, errors.New("actor-id is required when sop-version-id or vaccine-item-id is configured")
+	// Published protocol/rule rows can supply SOP bindings after flag parsing, so
+	// checking only the optional CLI overrides is unsafe: the deployed worker can
+	// otherwise discover task-bearing rules later while its TaskCreator is nil.
+	// Require the audited actor for every sweeper invocation and fail before any
+	// obligation/calendar mutation when deployment wiring is incomplete.
+	if strings.TrimSpace(cfg.ActorID) == "" {
+		return config{}, errors.New("actor-id is required for obligation-sweeper")
 	}
 	return cfg, nil
 }

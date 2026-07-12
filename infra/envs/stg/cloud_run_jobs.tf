@@ -93,6 +93,7 @@ locals {
       env = {
         GOOGLE_CLOUD_PROJECT                     = var.project_id
         GOATOS_TENANT_ID                         = var.stg_tenant_id
+        GOATOS_SWEEPER_ACTOR_ID                  = var.stg_sweeper_actor_id
         GOATOS_CLOUD_TASKS_PROJECT_ID            = var.project_id
         GOATOS_CLOUD_TASKS_LOCATION              = var.region
         GOATOS_CLOUD_TASKS_QUEUE_ID              = google_cloud_tasks_queue.near_term_kernel.name

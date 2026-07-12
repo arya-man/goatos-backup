@@ -120,3 +120,14 @@ terraform -chdir=infra/envs/stg validate
 Before any real `terraform apply`, import the live resources into the staging
 state first. Applying without imports can fail on duplicate names or overwrite
 manual configuration.
+
+The obligation sweeper also requires an explicit, existing Goat OS workforce
+member UUID via private tfvars:
+
+```hcl
+stg_sweeper_actor_id = "<reviewed workforce_member_id>"
+```
+
+There is intentionally no repository default. Terraform validation and the
+worker entrypoint both fail closed when this audited identity is absent; never
+substitute a guessed UUID or a Google service-account identifier.

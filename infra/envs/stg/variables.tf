@@ -140,6 +140,16 @@ variable "stg_tenant_id" {
   }
 }
 
+variable "stg_sweeper_actor_id" {
+  description = "Existing Goat OS workforce-member UUID used as the audited obligation-sweeper task creator. Supply via private tfvars; there is deliberately no default."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$", var.stg_sweeper_actor_id))
+    error_message = "stg_sweeper_actor_id must be an explicit RFC 4122 version-4 UUID for an existing audited workforce member."
+  }
+}
+
 variable "backend_image_tag" {
   description = "Backend image tag consumed by Cloud Run Jobs in stg."
   type        = string

@@ -7,10 +7,11 @@ import (
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
 )
 
-// TestActorIDRequiredWhenTaskFinalizationEnabled verifies that the sweeper
-// fails at startup if no actor ID is configured when task creation is needed.
-// This is C35-003: staging sweeper running without a SOP task creator.
-func TestActorIDRequiredWhenTaskFinalizationEnabled(t *testing.T) {
+// TestActorIDAlwaysRequired verifies that the worker cannot start without its
+// audited task-creator identity. SOP bindings are normally discovered from the
+// published version/rules after flag parsing, so optional-override validation
+// cannot safely determine whether task creation will be needed.
+func TestActorIDAlwaysRequired(t *testing.T) {
 	tests := []struct {
 		name    string
 		args    []string
@@ -24,7 +25,7 @@ func TestActorIDRequiredWhenTaskFinalizationEnabled(t *testing.T) {
 				"-sop-version-id", "sop-1",
 			},
 			wantErr: true,
-			errMsg:  "actor-id is required when sop-version-id is configured",
+			errMsg:  "actor-id is required for obligation-sweeper",
 		},
 		{
 			name: "fails when no actor-id and vaccine-item-id is set",
@@ -33,7 +34,7 @@ func TestActorIDRequiredWhenTaskFinalizationEnabled(t *testing.T) {
 				"-vaccine-item-id", "vaccine-1",
 			},
 			wantErr: true,
-			errMsg:  "actor-id is required when vaccine-item-id is configured",
+			errMsg:  "actor-id is required for obligation-sweeper",
 		},
 		{
 			name: "succeeds when actor-id is provided",
@@ -45,11 +46,12 @@ func TestActorIDRequiredWhenTaskFinalizationEnabled(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "succeeds when no actor-id and no finalization config",
+			name: "fails without actor before published rules are loaded",
 			args: []string{
 				"-tenant-id", "tenant-1",
 			},
-			wantErr: false,
+			wantErr: true,
+			errMsg:  "actor-id is required for obligation-sweeper",
 		},
 	}
 
@@ -65,8 +67,8 @@ func TestActorIDRequiredWhenTaskFinalizationEnabled(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseFlags(%v) = %v, want nil", tt.args, err)
 			}
-			if cfg.ActorID == "" && (cfg.SOPVersionID != "" || cfg.VaccineItemID != "") {
-				t.Fatalf("config has no actor-id but has finalization config, want validation error")
+			if cfg.ActorID == "" {
+				t.Fatal("config has no actor-id, want validation error")
 			}
 		})
 	}
