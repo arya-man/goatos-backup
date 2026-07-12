@@ -56,6 +56,21 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 
 func (h *Handler) ListSOPs(w nethttp.ResponseWriter, r *nethttp.Request) {
 	q := r.URL.Query()
+	limit, ok := parsePositiveLimit(q.Get("limit"))
+	if !ok {
+		h.respond(w, r, nil, app.BadRequest("invalid_limit", "limit must be a positive integer"))
+		return
+	}
+	codePrefix := strings.TrimSpace(q.Get("code_prefix"))
+	search := strings.TrimSpace(q.Get("q"))
+	if len(codePrefix) > maxSOPListFilterLength {
+		h.respond(w, r, nil, app.BadRequest("invalid_code_prefix", "code_prefix is too long"))
+		return
+	}
+	if len(search) > maxSOPListFilterLength {
+		h.respond(w, r, nil, app.BadRequest("invalid_query", "q is too long"))
+		return
+	}
 	var cursor *domain.SOPCursor
 	if raw := strings.TrimSpace(q.Get("cursor")); raw != "" {
 		decoded, err := domain.DecodeSOPCursor(raw)
@@ -68,10 +83,10 @@ func (h *Handler) ListSOPs(w nethttp.ResponseWriter, r *nethttp.Request) {
 	result, err := h.service.ListSOPs(r.Context(), ports.ListSOPsParams{
 		TenantID:   tenantID(r),
 		Status:     q.Get("status"),
-		CodePrefix: q.Get("code_prefix"),
-		Search:     q.Get("q"),
+		CodePrefix: codePrefix,
+		Search:     search,
 		Cursor:     cursor,
-		Limit:      parseLimit(q.Get("limit")),
+		Limit:      limit,
 	}, traceID(r))
 	h.respond(w, r, result, err)
 }
@@ -157,13 +172,18 @@ func (h *Handler) versionStatus(w nethttp.ResponseWriter, r *nethttp.Request, ac
 
 func (h *Handler) ListAdminTasks(w nethttp.ResponseWriter, r *nethttp.Request) {
 	q := r.URL.Query()
+	limit, ok := parsePositiveLimit(q.Get("limit"))
+	if !ok {
+		h.respond(w, r, nil, app.BadRequest("invalid_limit", "limit must be a positive integer"))
+		return
+	}
 	result, err := h.service.ListTasks(r.Context(), ports.ListTasksParams{
 		TenantID:   tenantID(r),
 		State:      q.Get("state"),
 		AssignedTo: q.Get("assigned_to"),
 		ScopeType:  q.Get("scope_type"),
 		ScopeID:    q.Get("scope_id"),
-		Limit:      parseLimit(q.Get("limit")),
+		Limit:      limit,
 	}, traceID(r))
 	h.respond(w, r, result, err)
 }
@@ -256,12 +276,17 @@ func (h *Handler) reviewTask(w nethttp.ResponseWriter, r *nethttp.Request, actio
 
 func (h *Handler) ListAppTasks(w nethttp.ResponseWriter, r *nethttp.Request) {
 	q := r.URL.Query()
+	limit, ok := parsePositiveLimit(q.Get("limit"))
+	if !ok {
+		h.respond(w, r, nil, app.BadRequest("invalid_limit", "limit must be a positive integer"))
+		return
+	}
 	result, err := h.service.ListTasks(r.Context(), ports.ListTasksParams{
 		TenantID:   tenantID(r),
 		ActorID:    actorID(r),
 		State:      q.Get("state"),
 		AssignedTo: actorID(r),
-		Limit:      parseLimit(q.Get("limit")),
+		Limit:      limit,
 		AppView:    true,
 	}, traceID(r))
 	h.respond(w, r, result, err)
@@ -328,16 +353,18 @@ func writeBadJSON(w nethttp.ResponseWriter, r *nethttp.Request, message string) 
 	})
 }
 
-func parseLimit(raw string) int {
+const maxSOPListFilterLength = 120
+
+func parsePositiveLimit(raw string) (int, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return 0
+		return 0, true
 	}
 	limit, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0
+	if err != nil || limit <= 0 {
+		return 0, false
 	}
-	return limit
+	return limit, true
 }
 
 func parseOptionalInt(raw string) (int, bool) {
