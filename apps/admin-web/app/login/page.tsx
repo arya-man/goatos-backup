@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { GoogleLogin } from "@/components/auth/google-login";
+import { LoginSessionGuard } from "@/components/auth/login-session-guard";
 import { getAdminRuntimeStatus, searchGoats } from "@/lib/api/server";
 import { type RouteSearchParams } from "@/lib/search-params";
 
@@ -63,6 +64,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
               {loginInstruction}
             </p>
 
+            {showGoogleLogin ? <LoginSessionGuard nextPath={nextPath} /> : null}
             {showGoogleLogin ? <GoogleLogin nextPath={nextPath} /> : null}
 
             {showLocalDashboardShortcut ? (
