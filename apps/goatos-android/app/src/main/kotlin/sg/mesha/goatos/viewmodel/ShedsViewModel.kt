@@ -86,7 +86,7 @@ class ShedsViewModel @Inject constructor(
     private fun VaccinationExecutionResponseDto.toShedsUiState(): ShedsUiState? {
         if (rows.isEmpty()) return null
         val base = sampleShedsState()
-        val shedRows = rows.groupBy { it.executionIdentity() }.map { (identity, group) ->
+        val shedRows = rows.groupBy { it.shedId }.map { (_, group) ->
             val first = group.first()
             val status = shedStatusFor(group)
             val total = group.size
@@ -96,7 +96,7 @@ class ShedsViewModel @Inject constructor(
                 .distinct()
                 .map { VaccineGroup(label = humanizeDriveName(it), countLabel = "", full = false) }
             ShedRow(
-                id = identity.cardId,
+                id = first.shedId,
                 name = first.shedName,
                 cohort = first.animalStage.ifBlank { first.driveName.orEmpty() },
                 status = status,
@@ -107,12 +107,6 @@ class ShedsViewModel @Inject constructor(
                 done = doneCount.toString(),
                 progressLabel = percentLabel(doneCount, total),
                 progressFraction = fraction(doneCount, total),
-                shedId = identity.shedId,
-                driveId = identity.driveId,
-                batchId = identity.batchId,
-                taskId = identity.taskId,
-                sopVersionId = identity.sopVersionId,
-                taskRowVersion = identity.taskRowVersion,
             )
         }
         val totalDue = rows.size
@@ -128,7 +122,7 @@ class ShedsViewModel @Inject constructor(
             // Raw counts — the screen formats + localizes these via *_fmt resources
             // (counts are UI chrome, not backend-owned copy). The label strings below
             // are kept only as a fallback for non-VM sources (placeholder/sample).
-            shedCount = rows.map { it.shedId }.distinct().size,
+            shedCount = shedRows.size,
             dueCount = totalDue,
             doneCount = totalDone,
             shedCountLabel = "${shedRows.size} sheds",
@@ -168,26 +162,6 @@ class ShedsViewModel @Inject constructor(
     private fun fraction(done: Int, total: Int): Float =
         if (total > 0) done.toFloat() / total else 0f
 }
-
-private data class ExecutionIdentity(
-    val shedId: String,
-    val driveId: String?,
-    val batchId: String?,
-    val taskId: String?,
-    val sopVersionId: String?,
-    val taskRowVersion: Int?,
-) {
-    val cardId: String = taskId ?: batchId ?: driveId ?: "shed:$shedId"
-}
-
-private fun VaccinationExecutionRowDto.executionIdentity() = ExecutionIdentity(
-    shedId = shedId,
-    driveId = driveId,
-    batchId = batchId,
-    taskId = sopTaskId,
-    sopVersionId = sopVersionId,
-    taskRowVersion = sopTaskRowVersion,
-)
 
 private fun ShedStatus.readable(): String = name.lowercase().replaceFirstChar { it.uppercase() }
 

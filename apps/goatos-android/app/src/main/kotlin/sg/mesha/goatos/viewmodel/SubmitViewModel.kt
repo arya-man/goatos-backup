@@ -27,8 +27,8 @@ import sg.mesha.goatos.ui.sampleSubmitState
 import javax.inject.Inject
 
 /**
- * Shed-record submit state holder. Loads the exact task selected in the L2 shed drill from
- * [TasksRepository.taskDetail], then on [SubmitEvent.Submit] ENQUEUES the write to the offline
+ * Shed-record submit state holder. Loads the operator's assigned task from
+ * [TasksRepository.tasks], then on [SubmitEvent.Submit] ENQUEUES the write to the offline
  * sync engine (see [SyncRepository]) instead of calling the app-api inline: the outbox
  * durably persists it and returns immediately (optimistic UI), and [SyncEngine]
  * (`:core:core-data`) performs the actual `POST /app/tasks/{task_id}/submissions` in the
@@ -62,7 +62,6 @@ class SubmitViewModel @Inject constructor(
     val state: StateFlow<SubmitUiState> = _state.asStateFlow()
 
     private var task: TaskSummaryDto? = null
-    private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")
     private var statusJob: Job? = null
 
     // Durable across process death via SavedStateHandle — NOT a plain var. A backgrounded Android
@@ -89,16 +88,10 @@ class SubmitViewModel @Inject constructor(
     }
 
     fun load() = viewModelScope.launch {
-        val taskId = selectedTaskId
-        if (taskId.isNullOrBlank()) {
-            task = null
-            clearSavedSubmission()
-            _state.value = blockedState("No task selected to submit.")
-            return@launch
-        }
-        runCatching { repo.taskDetail(taskId).task }
-            .onSuccess { next ->
-                if (next.taskId.isBlank()) {
+        runCatching { repo.tasks(limit = 1) }
+            .onSuccess { response ->
+                val next = response.items.firstOrNull()
+                if (next == null) {
                     task = null
                     clearSavedSubmission()
                     _state.value = blockedState("No task assigned to you to submit.")

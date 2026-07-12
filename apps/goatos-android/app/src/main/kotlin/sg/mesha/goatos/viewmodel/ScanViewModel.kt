@@ -20,6 +20,7 @@ import sg.mesha.goatos.feature.scan.ScanFeedEntry
 import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.scan.ScanUiState
 import sg.mesha.goatos.rfid.RfidReaderPort
+import sg.mesha.goatos.ui.sampleScanState
 import javax.inject.Inject
 
 /**
@@ -45,10 +46,8 @@ class ScanViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")
-    private val taskId: String? = savedStateHandle.get<String>("taskId")
-    private var nextCursor: String? = null
 
-    private val _state = MutableStateFlow(emptyScanState())
+    private val _state = MutableStateFlow(sampleScanState())
     val state: StateFlow<ScanUiState> = _state.asStateFlow()
 
     init {
@@ -56,8 +55,7 @@ class ScanViewModel @Inject constructor(
         // install) immediately, then re-renders after every successful refresh below.
         viewModelScope.launch {
             val id = shedId ?: return@launch
-            val selectedTask = taskId ?: return@launch
-            repo.observeScanRoster(id, selectedTask, limit = SCAN_PAGE_SIZE).collectLatest { resource ->
+            repo.observeScanRoster(id, limit = 1000).collectLatest { resource ->
                 applyResource(resource)
             }
         }
@@ -77,10 +75,9 @@ class ScanViewModel @Inject constructor(
     /** Network side of stale-while-revalidate: upserts Room on success; on failure it only flips
      *  [ScanUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
-        val id = shedId ?: return@launch
-        val selectedTask = taskId ?: return@launch
         _state.update { it.copy(isRefreshing = true) }
-        val result = repo.refreshScanRoster(id, selectedTask, limit = SCAN_PAGE_SIZE)
+        val id = shedId ?: return@launch
+        val result = repo.refreshScanRoster(id, limit = 1000)
         _state.update { current ->
             when {
                 result.isSuccess -> current.copy(isRefreshing = false, isOffline = false)
@@ -93,38 +90,20 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    fun loadMore() = viewModelScope.launch {
-        val id = shedId ?: return@launch
-        val selectedTask = taskId ?: return@launch
-        val cursor = nextCursor ?: return@launch
-        if (_state.value.isLoadingMore) return@launch
-        _state.update { it.copy(isLoadingMore = true) }
-        val result = repo.appendScanRoster(id, selectedTask, cursor, limit = SCAN_PAGE_SIZE)
-        _state.update { current ->
-            current.copy(
-                isLoadingMore = false,
-                isOffline = result.isFailure,
-            )
-        }
-    }
-
     private fun loadRosterAndRefresh() {
-        if (shedId.isNullOrBlank() || taskId.isNullOrBlank()) return
+        val id = shedId ?: return // no shed threaded → keep the interim sample roster
         refresh()
     }
 
     private fun applyResource(resource: Resource<ScanRosterResponseDto>) {
         val dto = resource.data
-        nextCursor = dto?.nextCursor
         _state.update { current ->
             if (dto != null) {
-                current.withRoster(dto.rows, hasMore = dto.nextCursor != null)
+                current.withRoster(dto.rows)
                     .copy(
                         isRefreshing = current.isRefreshing,
                         lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
                         isOffline = current.isOffline,
-                        hasMore = dto.nextCursor != null,
-                        isLoadingMore = current.isLoadingMore,
                     )
             } else {
                 current.copy(
@@ -153,7 +132,6 @@ class ScanViewModel @Inject constructor(
                 // full (unfiltered) roster overlay; toggles closed on a second tap.
                 _state.update { current -> current.copy(rosterExpanded = !current.rosterExpanded) }
             ScanEvent.Tap -> onManualTap()
-            ScanEvent.LoadMore -> loadMore()
             ScanEvent.Submit, ScanEvent.Back -> Unit // navigation — handled by the host.
         }
     }
@@ -173,20 +151,13 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    private fun ScanUiState.withRoster(dtoRows: List<ScanRosterRowDto>, hasMore: Boolean): ScanUiState {
-        val localByObligation = roster
-            .filter { it.unsynced && it.obligationId.isNotBlank() }
-            .associateBy { it.obligationId }
+    private fun ScanUiState.withRoster(dtoRows: List<ScanRosterRowDto>): ScanUiState {
         val roster = dtoRows.map {
-            val local = localByObligation[it.obligationId]
             RosterRow(
                 primaryTag = it.primaryTag,
                 secondaryTag = it.secondaryTag,
                 vaccineLabel = it.vaccineLabel,
-                status = local?.status ?: statusOf(it.status),
-                unsynced = local?.unsynced == true,
-                goatId = it.goatId,
-                obligationId = it.obligationId,
+                status = statusOf(it.status),
             )
         }
         val done = roster.count { it.status == ScanStatus.DONE }
@@ -194,14 +165,13 @@ class ScanViewModel @Inject constructor(
         val pending = (roster.size - done - skipped).coerceAtLeast(0)
         return copy(
             roster = roster,
-            feed = feed,
+            feed = emptyList(),
             ringTotal = roster.size,
             ringDone = done,
             doneCount = done,
             pendingCount = pending,
             skippedCount = skipped,
-            canSubmit = pending == 0 && !hasMore,
-            scanEnabled = true,
+            canSubmit = pending == 0,
         )
     }
 
@@ -213,17 +183,14 @@ class ScanViewModel @Inject constructor(
                 normalize(it.primaryTag) == target || it.secondaryTag?.let { t -> normalize(t) == target } == true
             }
             if (index < 0) {
-                s.copy(feed = prependFeed(ScanFeedEntry(tag, null, "unknown tag · not in this shed", ScanStatus.SKIPPED), s.feed))
+                s.copy(feed = listOf(ScanFeedEntry(tag, null, "unknown tag · not in this shed", ScanStatus.SKIPPED)) + s.feed)
             } else {
                 val row = s.roster[index]
                 when (row.status) {
                     ScanStatus.PENDING -> markRowDone(s, index)
                     ScanStatus.DONE -> s
                     ScanStatus.SKIPPED -> s.copy(
-                        feed = prependFeed(
-                            ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED),
-                            s.feed,
-                        ),
+                        feed = listOf(ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED)) + s.feed,
                     )
                 }
             }
@@ -237,11 +204,11 @@ class ScanViewModel @Inject constructor(
         val roster = s.roster.toMutableList().also { it[index] = row.copy(status = ScanStatus.DONE, unsynced = true) }
         return s.copy(
             roster = roster,
-            feed = prependFeed(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE), s.feed),
+            feed = listOf(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE)) + s.feed,
             ringDone = (s.ringDone + 1).coerceAtMost(s.ringTotal),
             doneCount = s.doneCount + 1,
             pendingCount = (s.pendingCount - 1).coerceAtLeast(0),
-            canSubmit = s.pendingCount - 1 <= 0 && !s.hasMore,
+            canSubmit = s.pendingCount - 1 <= 0,
         )
     }
 
@@ -255,31 +222,4 @@ class ScanViewModel @Inject constructor(
     }
 
     private fun normalize(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
-
-    private fun prependFeed(entry: ScanFeedEntry, existing: List<ScanFeedEntry>): List<ScanFeedEntry> =
-        (listOf(entry) + existing).take(MAX_SCAN_FEED_ENTRIES)
 }
-
-private const val SCAN_PAGE_SIZE = 20
-private const val MAX_SCAN_FEED_ENTRIES = 100
-
-private fun emptyScanState(): ScanUiState = ScanUiState(
-    shedLabel = "",
-    cohortLabel = "",
-    ringDone = 0,
-    ringTotal = 0,
-    ringUnitLabel = "",
-    tapHint = "",
-    vaccineGroups = emptyList(),
-    doneCount = 0,
-    pendingCount = 0,
-    skippedCount = 0,
-    tileLabels = sg.mesha.goatos.feature.scan.ScanTileLabels("", "", ""),
-    feed = emptyList(),
-    roster = emptyList(),
-    listTitle = "",
-    submitLabel = "",
-    canSubmit = false,
-    scanEnabled = false,
-    isRefreshing = true,
-)

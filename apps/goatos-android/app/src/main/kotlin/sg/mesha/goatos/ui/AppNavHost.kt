@@ -85,51 +85,11 @@ object Routes {
         if (shedId.isNullOrBlank()) RECORD else "$RECORD?$RECORD_SHED_ARG=${Uri.encode(shedId)}"
 
     const val SCAN_SHED_ARG = "shedId"
-    const val EXECUTION_DRIVE_ARG = "driveId"
-    const val EXECUTION_BATCH_ARG = "batchId"
-    const val EXECUTION_TASK_ARG = "taskId"
-    const val EXECUTION_SOP_VERSION_ARG = "sopVersionId"
-    const val EXECUTION_TASK_ROW_VERSION_ARG = "taskRowVersion"
 
     /** Scan (execute) entry for a shed — threads the shed id so ScanViewModel loads that
      *  shed's per-animal roster from the backend. */
-    fun scanRoute(
-        shedId: String?,
-        driveId: String? = null,
-        batchId: String? = null,
-        taskId: String? = null,
-        sopVersionId: String? = null,
-        taskRowVersion: Int? = null,
-    ): String = executionRoute(SCAN, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion)
-
-    fun submitRoute(
-        shedId: String?,
-        driveId: String? = null,
-        batchId: String? = null,
-        taskId: String? = null,
-        sopVersionId: String? = null,
-        taskRowVersion: Int? = null,
-    ): String = executionRoute(SUBMIT, shedId, driveId, batchId, taskId, sopVersionId, taskRowVersion)
-
-    private fun executionRoute(
-        base: String,
-        shedId: String?,
-        driveId: String?,
-        batchId: String?,
-        taskId: String?,
-        sopVersionId: String?,
-        taskRowVersion: Int?,
-    ): String {
-        val args = listOfNotNull(
-            shedId?.takeIf { it.isNotBlank() }?.let { SCAN_SHED_ARG to it },
-            driveId?.takeIf { it.isNotBlank() }?.let { EXECUTION_DRIVE_ARG to it },
-            batchId?.takeIf { it.isNotBlank() }?.let { EXECUTION_BATCH_ARG to it },
-            taskId?.takeIf { it.isNotBlank() }?.let { EXECUTION_TASK_ARG to it },
-            sopVersionId?.takeIf { it.isNotBlank() }?.let { EXECUTION_SOP_VERSION_ARG to it },
-            taskRowVersion?.takeIf { it > 0 }?.let { EXECUTION_TASK_ROW_VERSION_ARG to it.toString() },
-        )
-        return if (args.isEmpty()) base else "$base?" + args.joinToString("&") { (key, value) -> "$key=${Uri.encode(value)}" }
-    }
+    fun scanRoute(shedId: String?): String =
+        if (shedId.isNullOrBlank()) SCAN else "$SCAN?$SCAN_SHED_ARG=${Uri.encode(shedId)}"
 
     const val CALENDAR_DAY = "/calendarDay"
     const val CALENDAR_DAY_ARG = "dateKey"
@@ -157,18 +117,7 @@ private fun calendarTargetRoute(target: String?): String {
     if (target.isNullOrBlank()) return Routes.VACCINATION
     if (target.contains("scan/")) {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
-        val uri = Uri.parse(target)
-        val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
-        if (taskId.isNullOrBlank()) return Routes.VACCINATION
-        return Routes.scanRoute(
-            shedId = id.ifBlank { null },
-            driveId = uri.getQueryParameter("drive_id") ?: uri.getQueryParameter("driveId"),
-            batchId = uri.getQueryParameter("batch_id") ?: uri.getQueryParameter("batchId"),
-            taskId = taskId,
-            sopVersionId = uri.getQueryParameter("sop_version_id") ?: uri.getQueryParameter("sopVersionId"),
-            taskRowVersion = (uri.getQueryParameter("task_row_version")
-                ?: uri.getQueryParameter("taskRowVersion"))?.toIntOrNull(),
-        )
+        return Routes.scanRoute(id.ifBlank { null })
     }
     // Past-drive/history rows point at a read-only record.
     if (target.contains("record/")) {
@@ -300,20 +249,8 @@ fun AppNavHost(
                             // Done sheds open the read-only record; anything still due opens
                             // the execute loop (Scan → Submit). Mirrors the mock's shed card
                             // ("View completed record ›" vs "Start / scan").
-                            val selected = state.rows.firstOrNull { it.id == event.shedId }
-                            val route = when {
-                                selected == null -> Routes.VACCINATION
-                                selected.status == ShedStatus.DONE -> Routes.recordRoute(selected.shedId)
-                                selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId)
-                                else -> Routes.scanRoute(
-                                    shedId = selected.shedId,
-                                    driveId = selected.driveId,
-                                    batchId = selected.batchId,
-                                    taskId = selected.taskId,
-                                    sopVersionId = selected.sopVersionId,
-                                    taskRowVersion = selected.taskRowVersion,
-                                )
-                            }
+                            val done = state.rows.firstOrNull { it.id == event.shedId }?.status == ShedStatus.DONE
+                            val route = if (done) Routes.recordRoute(event.shedId) else Routes.scanRoute(event.shedId)
                             navController.navigate(route) { launchSingleTop = true }
                         }
                         ShedsEvent.Back -> navController.popBackStack()
@@ -328,9 +265,15 @@ fun AppNavHost(
         // screen is composed (disabled on navigate-away) so keyboard-wedge reads never
         // land off-screen (e.g. while Submit is on top of the back stack).
         composable(
-            route = executionRoutePattern(Routes.SCAN),
-            arguments = executionNavArguments(),
-        ) { entry ->
+            route = "${Routes.SCAN}?${Routes.SCAN_SHED_ARG}={${Routes.SCAN_SHED_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.SCAN_SHED_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
             val vm: ScanViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             DisposableEffect(vm) {
@@ -341,16 +284,8 @@ fun AppNavHost(
                 state = state,
                 onEvent = { event ->
                     when (event) {
-                        ScanEvent.Submit -> navController.navigate(
-                            Routes.submitRoute(
-                                shedId = entry.arguments?.getString(Routes.SCAN_SHED_ARG),
-                                driveId = entry.arguments?.getString(Routes.EXECUTION_DRIVE_ARG),
-                                batchId = entry.arguments?.getString(Routes.EXECUTION_BATCH_ARG),
-                                taskId = entry.arguments?.getString(Routes.EXECUTION_TASK_ARG),
-                                sopVersionId = entry.arguments?.getString(Routes.EXECUTION_SOP_VERSION_ARG),
-                                taskRowVersion = entry.arguments?.getInt(Routes.EXECUTION_TASK_ROW_VERSION_ARG)?.takeIf { it > 0 },
-                            ),
-                        ) { launchSingleTop = true }
+                        ScanEvent.Submit ->
+                            navController.navigate(Routes.SUBMIT) { launchSingleTop = true }
                         ScanEvent.Back -> navController.popBackStack()
                         else -> vm.onEvent(event)
                     }
@@ -359,10 +294,7 @@ fun AppNavHost(
         }
 
         // Submit — stays put; the VM advances the sync lifecycle (draft → syncing → acked).
-        composable(
-            route = executionRoutePattern(Routes.SUBMIT),
-            arguments = executionNavArguments(),
-        ) {
+        composable(Routes.SUBMIT) {
             val vm: SubmitViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             SubmitScreen(state = state, onEvent = vm::onEvent)
@@ -560,23 +492,6 @@ fun AppNavHost(
         }
     }
 }
-
-private fun executionRoutePattern(base: String): String =
-    "$base?${Routes.SCAN_SHED_ARG}={${Routes.SCAN_SHED_ARG}}" +
-        "&${Routes.EXECUTION_DRIVE_ARG}={${Routes.EXECUTION_DRIVE_ARG}}" +
-        "&${Routes.EXECUTION_BATCH_ARG}={${Routes.EXECUTION_BATCH_ARG}}" +
-        "&${Routes.EXECUTION_TASK_ARG}={${Routes.EXECUTION_TASK_ARG}}" +
-        "&${Routes.EXECUTION_SOP_VERSION_ARG}={${Routes.EXECUTION_SOP_VERSION_ARG}}" +
-        "&${Routes.EXECUTION_TASK_ROW_VERSION_ARG}={${Routes.EXECUTION_TASK_ROW_VERSION_ARG}}"
-
-private fun executionNavArguments() = listOf(
-    navArgument(Routes.SCAN_SHED_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
-    navArgument(Routes.EXECUTION_DRIVE_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
-    navArgument(Routes.EXECUTION_BATCH_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
-    navArgument(Routes.EXECUTION_TASK_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
-    navArgument(Routes.EXECUTION_SOP_VERSION_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
-    navArgument(Routes.EXECUTION_TASK_ROW_VERSION_ARG) { type = NavType.IntType; defaultValue = 0 },
-)
 
 /**
  * Reverse-maps the Language settings row's native-label value to a language code so

@@ -93,8 +93,6 @@ data class RosterRow(
     val vaccineLabel: String,      // "FMD · 1st", "due · FMD", or a skip reason
     val status: ScanStatus,
     val unsynced: Boolean = false, // local, not-yet-synced draft scan overlay
-    val goatId: String = "",
-    val obligationId: String = "",
 )
 
 /** One entry in the live "last taps" feed (given or skipped only). */
@@ -159,8 +157,6 @@ data class ScanUiState(
     // overlay is open. Mirrors the mock's Done/Pending/Skipped chips → scan-list overlay.
     val selectedFilter: ScanStatus? = null,
     val rosterExpanded: Boolean = false,
-    val hasMore: Boolean = false,
-    val isLoadingMore: Boolean = false,
 )
 
 /** User intents the screen emits; the app/viewmodel layer handles them. */
@@ -169,7 +165,6 @@ sealed interface ScanEvent {
     data object Tap : ScanEvent                            // tap reader / ring to scan
     data object OpenList : ScanEvent                       // open the scan-list sheet
     data object Submit : ScanEvent                         // submit the shed record
-    data object LoadMore : ScanEvent                       // fetch one bounded continuation page
     data class SelectGroup(val groupId: String) : ScanEvent
     data class OpenTile(val status: ScanStatus) : ScanEvent
 }
@@ -681,13 +676,7 @@ private fun RosterListOverlay(state: ScanUiState, onEvent: (ScanEvent) -> Unit) 
         contentColor = ScanTokens.ink,
         dragHandle = null, // ScanListSheet draws its own grip below.
     ) {
-        ScanListSheet(
-            title = title,
-            rows = rows,
-            hasMore = state.hasMore,
-            isLoadingMore = state.isLoadingMore,
-            onEvent = onEvent,
-        )
+        ScanListSheet(title = title, rows = rows, onEvent = onEvent)
     }
 }
 
@@ -700,8 +689,6 @@ private fun RosterListOverlay(state: ScanUiState, onEvent: (ScanEvent) -> Unit) 
 fun ScanListSheet(
     title: String,
     rows: List<RosterRow>,
-    hasMore: Boolean = false,
-    isLoadingMore: Boolean = false,
     onEvent: (ScanEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -763,23 +750,6 @@ fun ScanListSheet(
             } else {
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     itemsIndexed(filtered) { _, row -> ScanListRow(row) }
-                    if (hasMore && query.isBlank()) {
-                        item {
-                            Button(
-                                onClick = { onEvent(ScanEvent.LoadMore) },
-                                enabled = !isLoadingMore,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                            ) {
-                                Text(
-                                    stringResource(
-                                        if (isLoadingMore) R.string.scan_loading_more else R.string.scan_load_more,
-                                    ),
-                                )
-                            }
-                        }
-                    }
                 }
             }
         }

@@ -2,8 +2,6 @@ package sg.mesha.goatos.core.data
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -85,30 +83,18 @@ interface ExecutionRepository {
     /** Per-animal scan roster (RFID tags + due vaccine) for a shed. */
     suspend fun scanRoster(
         shedId: String,
-        taskId: String,
-        cursor: String? = null,
         limit: Int? = null,
     ): ScanRosterResponseDto
 
     /** Cache-first stream for this shed's scan roster. */
     fun observeScanRoster(
         shedId: String,
-        taskId: String,
         limit: Int? = null,
     ): Flow<Resource<ScanRosterResponseDto>>
 
     /** Fetches and upserts Room on success; leaves the cache untouched on failure. */
     suspend fun refreshScanRoster(
         shedId: String,
-        taskId: String,
-        limit: Int? = null,
-    ): Result<Unit>
-
-    /** Appends exactly the current server continuation page to the Room-backed scope. */
-    suspend fun appendScanRoster(
-        shedId: String,
-        taskId: String,
-        cursor: String,
         limit: Int? = null,
     ): Result<Unit>
 }
@@ -121,7 +107,6 @@ class DefaultExecutionRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : ExecutionRepository {
-    private val scanAppendMutex = Mutex()
     override suspend fun rows(
         parkId: String?,
         workState: String?,
@@ -183,52 +168,23 @@ class DefaultExecutionRepository(
 
     override suspend fun scanRoster(
         shedId: String,
-        taskId: String,
-        cursor: String?,
         limit: Int?,
-    ): ScanRosterResponseDto = api.getScanRoster(shedId, taskId, cursor, limit)
+    ): ScanRosterResponseDto = api.getScanRoster(shedId, limit)
 
     override fun observeScanRoster(
         shedId: String,
-        taskId: String,
         limit: Int?,
     ): Flow<Resource<ScanRosterResponseDto>> =
-        scanRosterDao.observe(scanRosterScopeKey(shedId, taskId, limit))
+        scanRosterDao.observe(cacheKey(shedId, limit?.toString()))
             .map { it.toResource() }
 
     override suspend fun refreshScanRoster(
         shedId: String,
-        taskId: String,
         limit: Int?,
     ): Result<Unit> = runCatching {
-        val dto = scanRoster(shedId, taskId, cursor = null, limit = limit)
-        val key = scanRosterScopeKey(shedId, taskId, limit)
+        val dto = scanRoster(shedId, limit)
+        val key = cacheKey(shedId, limit?.toString())
         scanRosterDao.upsert(ScanRosterCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
-    }
-
-    override suspend fun appendScanRoster(
-        shedId: String,
-        taskId: String,
-        cursor: String,
-        limit: Int?,
-    ): Result<Unit> = runCatching {
-        scanAppendMutex.withLock {
-            val key = scanRosterScopeKey(shedId, taskId, limit)
-            val current = scanRosterDao.get(key)
-                ?.let { json.decodeFromString<ScanRosterResponseDto>(it.dtoJson) }
-                ?: throw ScanRosterCursorException("scan roster continuation has no cached first page")
-            if (current.nextCursor != cursor) {
-                throw ScanRosterCursorException("scan roster cursor is stale or belongs to another task")
-            }
-            val page = scanRoster(shedId, taskId, cursor = cursor, limit = limit)
-            if (page.nextCursor == cursor) {
-                throw ScanRosterCursorException("scan roster backend returned a non-advancing cursor")
-            }
-            val merged = mergeScanRosterPage(current, page)
-            scanRosterDao.upsert(
-                ScanRosterCacheEntity(cacheKey = key, dtoJson = json.encodeToString(merged), updatedAt = clock()),
-            )
-        }
     }
 
     private fun ExecutionRowsCacheEntity?.toResource(): Resource<VaccinationExecutionResponseDto> =
@@ -248,19 +204,4 @@ class DefaultExecutionRepository(
             data = this?.let { runCatching { json.decodeFromString<ScanRosterResponseDto>(it.dtoJson) }.getOrNull() },
             lastSyncedAt = this?.updatedAt,
         )
-
-    private fun scanRosterScopeKey(shedId: String, taskId: String, limit: Int?): String =
-        cacheKey(shedId, taskId, limit?.toString())
 }
-
-class ScanRosterCursorException(message: String) : IllegalStateException(message)
-
-internal fun mergeScanRosterPage(
-    current: ScanRosterResponseDto,
-    page: ScanRosterResponseDto,
-): ScanRosterResponseDto = page.copy(
-    rows = (current.rows + page.rows).distinctBy { row ->
-        row.obligationId.takeIf { it.isNotBlank() }
-            ?: listOf(row.goatId, row.primaryTag, row.vaccineLabel).joinToString("|")
-    },
-)

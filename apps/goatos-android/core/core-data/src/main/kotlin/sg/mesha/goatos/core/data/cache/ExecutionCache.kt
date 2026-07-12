@@ -56,9 +56,6 @@ interface ScanRosterCacheDao {
     @Query("SELECT * FROM scan_roster_cache WHERE cacheKey = :cacheKey")
     fun observe(cacheKey: String): Flow<ScanRosterCacheEntity?>
 
-    @Query("SELECT * FROM scan_roster_cache WHERE cacheKey = :cacheKey")
-    suspend fun get(cacheKey: String): ScanRosterCacheEntity?
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: ScanRosterCacheEntity)
 }

@@ -5,6 +5,4 @@
     <string name="scan_badge_two_tags">2 ಟ್ಯಾಗ್‌ಗಳು</string>
     <string name="scan_search_placeholder">ಯಾವುದೇ RFID ಟ್ಯಾಗ್ ಹುಡುಕಿ…</string>
     <string name="scan_search_empty">ಹೊಂದಿಕೆಯಾಗುವ ಪಶುವೆ ಇಲ್ಲ</string>
-    <string name="scan_load_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಮಾಡಿ</string>
-    <string name="scan_loading_more">ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
 </resources>
