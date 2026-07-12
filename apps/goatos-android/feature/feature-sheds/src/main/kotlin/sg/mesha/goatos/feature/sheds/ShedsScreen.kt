@@ -153,6 +153,8 @@ data class ShedsUiState(
     // describe the background network refresh over the ALREADY-RENDERED Room cache above —
     // they never gate whether the rest of this state renders.
     val isRefreshing: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val hasMore: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
 )
@@ -160,6 +162,7 @@ data class ShedsUiState(
 sealed interface ShedsEvent {
     data class OpenShedRecord(val shedId: String) : ShedsEvent
     data object Refresh : ShedsEvent
+    data object LoadMore : ShedsEvent
     data object Back : ShedsEvent
 }
 
@@ -239,6 +242,26 @@ fun ShedsScreen(
             }
             items(state.rows, key = { it.id }) { row ->
                 ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
+            }
+            if (state.hasMore) {
+                item(key = "load-more") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(1.dp, Hair, RoundedCornerShape(14.dp))
+                            .clickable(enabled = !state.isLoadingMore) { onEvent(ShedsEvent.LoadMore) }
+                            .padding(vertical = 13.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(if (state.isLoadingMore) R.string.sheds_loading_more else R.string.sheds_load_more),
+                            color = if (state.isLoadingMore) MeshaColors.Muted else MeshaColors.Brand,
+                            fontWeight = FontWeight.W700,
+                        )
+                    }
+                }
             }
             if (state.rosterChanges.isNotEmpty()) {
                 item { SectionCaption(stringResource(R.string.sheds_roster_changes_caption)) }

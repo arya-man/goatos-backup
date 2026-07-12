@@ -24,6 +24,9 @@ interface ExecutionRowsCacheDao {
     @Query("SELECT * FROM execution_rows_cache WHERE cacheKey = :cacheKey")
     fun observe(cacheKey: String): Flow<ExecutionRowsCacheEntity?>
 
+    @Query("SELECT * FROM execution_rows_cache WHERE cacheKey = :cacheKey")
+    suspend fun get(cacheKey: String): ExecutionRowsCacheEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: ExecutionRowsCacheEntity)
 }

@@ -25,4 +25,5 @@
     <!-- History section label (prefix before dynamic count) -->
     <string name="calendar_history_label">అంగీకరించిన పూర్తి చరిత్ర</string>
     <string name="calendar_cta_open">తెరవండి</string>
+    <string name="calendar_all_day">రోజంతా</string>
 </resources>

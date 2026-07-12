@@ -151,6 +151,7 @@ interface AppApi {
         asOf: String? = null,
         dueBefore: String? = null,
         limit: Int? = null,
+        cursor: String? = null,
     ): VaccinationExecutionResponseDto
 
     /** GET /vaccination/execution/sheds/{shed_id} — one shed's execution context. */
@@ -327,6 +328,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
+        cursor: String?,
     ): VaccinationExecutionResponseDto = VaccinationExecutionResponseDto()
 
     override suspend fun getVaccinationExecutionShed(

@@ -25,4 +25,5 @@
     <!-- History section label (prefix before dynamic count) -->
     <string name="calendar_history_label">स्वीकृत पूर्णता इतिहास</string>
     <string name="calendar_cta_open">खोलें</string>
+    <string name="calendar_all_day">पूरा दिन</string>
 </resources>

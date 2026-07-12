@@ -16,11 +16,33 @@ import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
+import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ExecutionRepositoryPaginationTest {
     private data class Request(val shedId: String, val taskId: String, val cursor: String?, val limit: Int?)
+
+    @Test
+    fun `execution continuation merges unique rows and advances cursor`() {
+        val first = VaccinationExecutionResponseDto(
+            rows = listOf(executionRow("shed-a", "task-a"), executionRow("shed-b", "task-b")),
+            totalCount = 3,
+            nextCursor = "execution-cursor-1",
+        )
+        val second = VaccinationExecutionResponseDto(
+            rows = listOf(executionRow("shed-b", "task-b"), executionRow("shed-c", "task-c")),
+            totalCount = 3,
+            nextCursor = null,
+        )
+
+        val merged = mergeExecutionRowsPage(first, second)
+
+        assertEquals(listOf("shed-a", "shed-b", "shed-c"), merged.rows.map { it.shedId })
+        assertEquals(3, merged.totalCount)
+        assertNull(merged.nextCursor)
+    }
 
     @Test
     fun `bounded cursor pages append through Room without duplicates`() = runTest {
@@ -145,6 +167,14 @@ class ExecutionRepositoryPaginationTest {
         val next = if (start + rows.size - 1 < TOTAL_ROWS) "cursor-${pageIndex + 1}" else null
         return ScanRosterResponseDto(source = "api", rows = rows, nextCursor = next)
     }
+
+    private fun executionRow(shedId: String, taskId: String) = VaccinationExecutionRowDto(
+        parkId = "park-a",
+        shedId = shedId,
+        shedName = shedId,
+        animalStage = "K1",
+        sopTaskId = taskId,
+    )
 
     private companion object {
         const val SHED_ID = "shed-a"

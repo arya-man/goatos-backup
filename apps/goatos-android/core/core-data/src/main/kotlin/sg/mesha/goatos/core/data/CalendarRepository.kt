@@ -1,6 +1,8 @@
 package sg.mesha.goatos.core.data
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -94,6 +96,7 @@ class DefaultCalendarRepository(
     ): Flow<Resource<CalendarEventListResponseDto>> =
         dao.observe(cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers.toString(), cursor, limit?.toString()))
             .map { it.toResource() }
+            .flowOn(Dispatchers.Default)
 
     override suspend fun refreshEvents(
         parkId: String?,

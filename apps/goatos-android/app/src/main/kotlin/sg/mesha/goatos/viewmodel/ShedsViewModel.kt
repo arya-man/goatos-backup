@@ -41,6 +41,12 @@ class ShedsViewModel @Inject constructor(
     private val repo: ExecutionRepository,
 ) : ViewModel() {
 
+    private companion object {
+        const val PAGE_LIMIT = 20
+    }
+
+    private var nextCursor: String? = null
+
     private val _state = MutableStateFlow(shedsPlaceholder("Loading today's sheds…"))
     val state: StateFlow<ShedsUiState> = _state.asStateFlow()
 
@@ -48,7 +54,7 @@ class ShedsViewModel @Inject constructor(
         // Cache-first: renders whatever Room already has (possibly nothing, on a cold
         // install) immediately, then re-renders after every successful refresh below.
         viewModelScope.launch {
-            repo.observeRows().collectLatest { resource -> applyResource(resource) }
+            repo.observeRows(limit = PAGE_LIMIT).collectLatest { resource -> applyResource(resource) }
         }
         refresh()
     }
@@ -58,17 +64,28 @@ class ShedsViewModel @Inject constructor(
      *  [ShedsUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _state.update { it.copy(isRefreshing = true) }
-        val result = repo.refreshRows()
+        val result = repo.refreshRows(limit = PAGE_LIMIT)
         _state.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
+    }
+
+    fun loadMore() = viewModelScope.launch {
+        val cursor = nextCursor ?: return@launch
+        if (_state.value.isLoadingMore) return@launch
+        _state.update { it.copy(isLoadingMore = true) }
+        val result = repo.appendRows(cursor = cursor, limit = PAGE_LIMIT)
+        _state.update { it.copy(isLoadingMore = false, isOffline = result.isFailure) }
     }
 
     private fun applyResource(resource: Resource<VaccinationExecutionResponseDto>) {
         val dto = resource.data
+        nextCursor = dto?.nextCursor
         val base = dto?.toShedsUiState()
             ?: if (resource.hasData) shedsPlaceholder("No sheds scheduled today") else shedsPlaceholder("Loading…")
         _state.update { current ->
             base.copy(
                 isRefreshing = current.isRefreshing,
+                isLoadingMore = current.isLoadingMore,
+                hasMore = !dto?.nextCursor.isNullOrBlank(),
                 lastSyncedAt = resource.lastSyncedAt ?: current.lastSyncedAt,
                 isOffline = current.isOffline,
             )
@@ -78,6 +95,7 @@ class ShedsViewModel @Inject constructor(
     fun onEvent(event: ShedsEvent) {
         when (event) {
             ShedsEvent.Refresh -> refresh()
+            ShedsEvent.LoadMore -> loadMore()
             is ShedsEvent.OpenShedRecord -> Unit // navigation — handled by the nav host.
             ShedsEvent.Back -> Unit // navigation — handled by the nav host.
         }

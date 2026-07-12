@@ -37,5 +37,6 @@
     <!-- Pagination -->
     <string name="calendar_load_more_day">Load more drives</string>
     <string name="calendar_load_more_history">Load more history</string>
+    <string name="calendar_all_day">All day</string>
     <string name="calendar_loading_more">Loading…</string>
 </resources>

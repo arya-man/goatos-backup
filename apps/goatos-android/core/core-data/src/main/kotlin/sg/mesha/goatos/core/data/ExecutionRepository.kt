@@ -1,6 +1,8 @@
 package sg.mesha.goatos.core.data
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -37,6 +39,7 @@ interface ExecutionRepository {
         asOf: String? = null,
         dueBefore: String? = null,
         limit: Int? = null,
+        cursor: String? = null,
     ): VaccinationExecutionResponseDto
 
     /** Cache-first stream for this filter scope: emits immediately with whatever Room has
@@ -52,6 +55,16 @@ interface ExecutionRepository {
     /** Fetches and upserts Room on success; on failure returns the failure and leaves the
      *  cache untouched — the caller surfaces stale/offline, never a blank screen. */
     suspend fun refreshRows(
+        parkId: String? = null,
+        workState: String? = null,
+        asOf: String? = null,
+        dueBefore: String? = null,
+        limit: Int? = null,
+    ): Result<Unit>
+
+    /** Appends the next execution page into the same Room-backed first-page scope. */
+    suspend fun appendRows(
+        cursor: String,
         parkId: String? = null,
         workState: String? = null,
         asOf: String? = null,
@@ -121,6 +134,7 @@ class DefaultExecutionRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : ExecutionRepository {
+    private val rowsAppendMutex = Mutex()
     private val scanAppendMutex = Mutex()
     override suspend fun rows(
         parkId: String?,
@@ -128,8 +142,9 @@ class DefaultExecutionRepository(
         asOf: String?,
         dueBefore: String?,
         limit: Int?,
+        cursor: String?,
     ): VaccinationExecutionResponseDto =
-        api.listVaccinationExecution(parkId, workState, asOf, dueBefore, limit)
+        api.listVaccinationExecution(parkId, workState, asOf, dueBefore, limit, cursor)
 
     override fun observeRows(
         parkId: String?,
@@ -140,6 +155,7 @@ class DefaultExecutionRepository(
     ): Flow<Resource<VaccinationExecutionResponseDto>> =
         rowsDao.observe(cacheKey(parkId, workState, asOf, dueBefore, limit?.toString()))
             .map { it.toResource() }
+            .flowOn(Dispatchers.Default)
 
     override suspend fun refreshRows(
         parkId: String?,
@@ -148,9 +164,39 @@ class DefaultExecutionRepository(
         dueBefore: String?,
         limit: Int?,
     ): Result<Unit> = runCatching {
-        val dto = rows(parkId, workState, asOf, dueBefore, limit)
+        val dto = rows(parkId, workState, asOf, dueBefore, limit, cursor = null)
         val key = cacheKey(parkId, workState, asOf, dueBefore, limit?.toString())
         rowsDao.upsert(ExecutionRowsCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
+    }
+
+    override suspend fun appendRows(
+        cursor: String,
+        parkId: String?,
+        workState: String?,
+        asOf: String?,
+        dueBefore: String?,
+        limit: Int?,
+    ): Result<Unit> = runCatching {
+        rowsAppendMutex.withLock {
+            val key = cacheKey(parkId, workState, asOf, dueBefore, limit?.toString())
+            val current = rowsDao.get(key)
+                ?.let { json.decodeFromString<VaccinationExecutionResponseDto>(it.dtoJson) }
+                ?: throw ExecutionRowsCursorException("execution continuation has no cached first page")
+            if (current.nextCursor != cursor) {
+                throw ExecutionRowsCursorException("execution cursor is stale or belongs to another filter")
+            }
+            val page = rows(parkId, workState, asOf, dueBefore, limit, cursor)
+            if (page.nextCursor == cursor) {
+                throw ExecutionRowsCursorException("execution backend returned a non-advancing cursor")
+            }
+            rowsDao.upsert(
+                ExecutionRowsCacheEntity(
+                    cacheKey = key,
+                    dtoJson = json.encodeToString(mergeExecutionRowsPage(current, page)),
+                    updatedAt = clock(),
+                ),
+            )
+        }
     }
 
     override suspend fun shed(
@@ -169,6 +215,7 @@ class DefaultExecutionRepository(
     ): Flow<Resource<VaccinationExecutionShedDrilldownDto>> =
         shedDao.observe(cacheKey(shedId, asOf, dueBefore, limit?.toString()))
             .map { it.toResource() }
+            .flowOn(Dispatchers.Default)
 
     override suspend fun refreshShed(
         shedId: String,
@@ -195,6 +242,7 @@ class DefaultExecutionRepository(
     ): Flow<Resource<ScanRosterResponseDto>> =
         scanRosterDao.observe(scanRosterScopeKey(shedId, taskId, limit))
             .map { it.toResource() }
+            .flowOn(Dispatchers.Default)
 
     override suspend fun refreshScanRoster(
         shedId: String,
@@ -254,6 +302,25 @@ class DefaultExecutionRepository(
 }
 
 class ScanRosterCursorException(message: String) : IllegalStateException(message)
+class ExecutionRowsCursorException(message: String) : IllegalStateException(message)
+
+internal fun mergeExecutionRowsPage(
+    current: VaccinationExecutionResponseDto,
+    page: VaccinationExecutionResponseDto,
+): VaccinationExecutionResponseDto = page.copy(
+    totalCount = maxOf(current.totalCount, page.totalCount),
+    rows = (current.rows + page.rows).distinctBy { row ->
+        listOf(
+            row.parkId,
+            row.shedId,
+            row.animalStage,
+            row.driveId.orEmpty(),
+            row.batchId.orEmpty(),
+            row.sopTaskId.orEmpty(),
+            row.obligationId.orEmpty(),
+        ).joinToString("|")
+    },
+)
 
 internal fun mergeScanRosterPage(
     current: ScanRosterResponseDto,

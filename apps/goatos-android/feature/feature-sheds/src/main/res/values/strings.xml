@@ -35,4 +35,6 @@
     <string name="sheds_loading_message">Loading today\'s sheds…</string>
     <string name="sheds_empty_message">No sheds scheduled today</string>
     <string name="sheds_error_message">Couldn\'t load today\'s sheds. Tap refresh to retry.</string>
+    <string name="sheds_load_more">Load more sheds</string>
+    <string name="sheds_loading_more">Loading more…</string>
 </resources>

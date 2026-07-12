@@ -49,6 +49,7 @@ data class CalendarItem(
     val id: String,
     val title: String,
     val subtitle: String,
+    val allDay: Boolean = false,
     val timeLabel: String = "",
     val summaryPrimary: String = "",
     val summarySecondary: String = "",

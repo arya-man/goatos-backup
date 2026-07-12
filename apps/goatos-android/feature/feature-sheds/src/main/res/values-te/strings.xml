@@ -23,4 +23,6 @@
     <string name="sheds_loading_message">ఈ రోజు షెడ్‌లను లోడ్ చేస్తోంది…</string>
     <string name="sheds_empty_message">ఈ రోజు షెడ్‌లు షెడ్యూల్ చేయబడలేదు</string>
     <string name="sheds_error_message">ఈ రోజు షెడ్‌లను లోడ్ చేయలేకపోయాము. మళ్లీ ప్రయత్నించడానికి రిఫ్రెష్ నొక్కండి.</string>
+    <string name="sheds_load_more">మరిన్ని షెడ్‌లను లోడ్ చేయండి</string>
+    <string name="sheds_loading_more">మరిన్ని లోడ్ అవుతున్నాయి…</string>
 </resources>

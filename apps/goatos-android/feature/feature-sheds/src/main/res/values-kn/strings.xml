@@ -23,4 +23,6 @@
     <string name="sheds_loading_message">ಇಂದಿನ ಶೆಡ್‌ಗಳನ್ನು ಲೋಡ್ ಮಾಡುತ್ತಿದೆ…</string>
     <string name="sheds_empty_message">ಇಂದು ಯಾವುದೇ ಶೆಡ್ ಅನುಸೂಚಿತವಾಗಿಲ್ಲ</string>
     <string name="sheds_error_message">ಇಂದಿನ ಶೆಡ್‌ಗಳನ್ನು ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ಪುನಃ ಪ್ರಯತ್ನಿಸಲು ರಿಫ್ರೆಶ್ ಟ್ಯಾಪ್ ಮಾಡಿ.</string>
+    <string name="sheds_load_more">ಇನ್ನಷ್ಟು ಶೆಡ್‌ಗಳನ್ನು ಲೋಡ್ ಮಾಡಿ</string>
+    <string name="sheds_loading_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
 </resources>

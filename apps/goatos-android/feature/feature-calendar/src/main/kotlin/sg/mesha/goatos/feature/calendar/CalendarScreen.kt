@@ -349,8 +349,8 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusPill(item.statusLabel, item.statusTone)
             Spacer(Modifier.weight(1f))
-            if (item.timeLabel.isNotEmpty()) {
-                StatusPill(item.timeLabel, CalendarTone.Neutral)
+            if (item.allDay || item.timeLabel.isNotEmpty()) {
+                StatusPill(if (item.allDay) stringResource(R.string.calendar_all_day) else item.timeLabel, CalendarTone.Neutral)
                 Spacer(Modifier.size(6.dp))
             }
             item.categoryLabel?.let { StatusPill(it, CalendarTone.Muted) }

@@ -53,6 +53,8 @@ data class VaccinationExecutionRowDto(
 data class VaccinationExecutionResponseDto(
     @SerialName("source") val source: String = "api",
     @SerialName("rows") val rows: List<VaccinationExecutionRowDto> = emptyList(),
+    @SerialName("totalCount") val totalCount: Int = 0,
+    @SerialName("nextCursor") val nextCursor: String? = null,
 )
 
 @Serializable

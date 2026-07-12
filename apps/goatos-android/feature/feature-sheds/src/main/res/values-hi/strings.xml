@@ -23,4 +23,6 @@
     <string name="sheds_loading_message">आज के शेड लोड हो रहे हैं…</string>
     <string name="sheds_empty_message">आज कोई शेड शेड्यूल नहीं है</string>
     <string name="sheds_error_message">आज के शेड लोड नहीं हो सके। फिर से प्रयास करने के लिए ताज़ा करें।</string>
+    <string name="sheds_load_more">और शेड लोड करें</string>
+    <string name="sheds_loading_more">और लोड हो रहे हैं…</string>
 </resources>
