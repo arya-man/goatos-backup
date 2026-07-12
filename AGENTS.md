@@ -492,7 +492,7 @@ Do:
   mirrors `.github/workflows/ci.yml` job-for-job: agent guardrails, scale-guard +
   self-test, clinical-defer-guard, mobile-guard, `go test ./...`, sqlc/migration
   validation, admin-web lint/typecheck/mock-fidelity, and the Android
-  compile/unit gate when a device/JDK is present) and treat a green `make
+  compile/unit gate with mandatory JDK/SDK; no USB device is required) and treat a green `make
   ci-local` on the exact pushed SHA as the authoritative gate. Record the
   `make ci-local` SHA + result as the current-SHA proof. Restoring org Actions
   billing stays a separate maintainer task, tracked but never blocking closure.

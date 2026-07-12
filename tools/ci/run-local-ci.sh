@@ -10,12 +10,11 @@
 #                        guard, mobile-guard, large-file guard, go test ./...,
 #                        sqlc/migration validation
 #   job `admin-web`   -> lint, typecheck, mock-fidelity, request-plan, build
-#   (extra) android   -> :app compile + unit gate, only when JDK + a device exist
+#   android           -> :app compile + unit gate; JDK/SDK are mandatory, no USB device required
 #
 # Usage:
 #   tools/ci/run-local-ci.sh            # all jobs
 #   tools/ci/run-local-ci.sh guardrails # one job: guardrails | admin-web | android
-#   SKIP_ANDROID=1 tools/ci/run-local-ci.sh
 set -uo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
