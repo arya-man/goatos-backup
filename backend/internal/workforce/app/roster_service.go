@@ -1058,6 +1058,28 @@ func (s *RosterService) requireMemberInTenant(ctx context.Context, tenantID, wor
 	return nil
 }
 
+// ---- Notification recipient resolution (vaccination-notification-rules.md §4c) ----------------
+// Thin passthroughs -- the resolution itself is one bounded, indexed, set-based query per call in
+// the repository (roster_repository.go); no service-layer business logic beyond the direct call.
+
+// ResolveModuleDutyRecipients returns active, reachable devices held by members whose position
+// carries (moduleCode, dutyType) in scope right now -- e.g. the vaccination verifier(s) for a park.
+func (s *RosterService) ResolveModuleDutyRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string) ([]domain.NotificationRecipient, error) {
+	return s.repo.ResolveModuleDutyRecipients(ctx, tenantID, scopeType, scopeID, moduleCode, dutyType, s.now())
+}
+
+// ResolveMemberRecipients returns active, reachable devices for one specific workforce member (e.g.
+// the operator who executed a completion).
+func (s *RosterService) ResolveMemberRecipients(ctx context.Context, tenantID, workforceMemberID string) ([]domain.NotificationRecipient, error) {
+	return s.repo.ResolveMemberRecipients(ctx, tenantID, workforceMemberID)
+}
+
+// ResolvePositionRecipients returns active, reachable devices for whoever actively holds
+// positionCode in scope right now (e.g. the park head).
+func (s *RosterService) ResolvePositionRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string) ([]domain.NotificationRecipient, error) {
+	return s.repo.ResolvePositionRecipients(ctx, tenantID, scopeType, scopeID, positionCode, s.now())
+}
+
 func validRosterScope(tenantID, scopeType, scopeID string) bool {
 	switch scopeType {
 	case "tenant":

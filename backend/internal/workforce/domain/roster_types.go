@@ -46,6 +46,16 @@ type PositionDuty struct {
 	CapabilityCode *string `json:"capability_code,omitempty"`
 }
 
+// NotificationRecipient is one active, reachable device for a resolved notification recipient
+// (module-duty holder, an explicit member, or a position holder). FCMToken is always non-empty here --
+// resolution queries filter to devices carrying a live token (migration 000171), so a member with no
+// registered FCM token simply produces no row (never a nil-token notification).
+type NotificationRecipient struct {
+	WorkforceMemberID string
+	DeviceID          string
+	FCMToken          string
+}
+
 // ShedOwnershipScope is the batch input for shed-wise vaccination owner cells. CenterID is the park/center
 // scope used for the center backup fallback.
 type ShedOwnershipScope struct {

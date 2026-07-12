@@ -439,6 +439,21 @@ func (f *fakeRosterRepo) ListDutiesForPositions(_ context.Context, _ string, pos
 	return out, nil
 }
 
+// The three notification-recipient resolution methods are exercised against real Postgres by the
+// kernel E2E story (tests/e2e); the fake here just satisfies the interface for the rest of this
+// file's DB-free unit tests.
+func (f *fakeRosterRepo) ResolveModuleDutyRecipients(_ context.Context, _, _, _, _, _ string, _ time.Time) ([]domain.NotificationRecipient, error) {
+	return nil, nil
+}
+
+func (f *fakeRosterRepo) ResolveMemberRecipients(_ context.Context, _, _ string) ([]domain.NotificationRecipient, error) {
+	return nil, nil
+}
+
+func (f *fakeRosterRepo) ResolvePositionRecipients(_ context.Context, _, _, _, _ string, _ time.Time) ([]domain.NotificationRecipient, error) {
+	return nil, nil
+}
+
 // fakeCapabilityGranter is an in-memory fake of ports.CapabilityGranter
 // (workforce_member_capabilities reuse, design doc S4.6).
 type fakeCapabilityGranter struct {

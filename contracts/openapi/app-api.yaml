@@ -3946,6 +3946,14 @@ components:
             - string
             - "null"
           maxLength: 200
+        fcm_token:
+          type:
+            - string
+            - "null"
+          maxLength: 4096
+          description: >-
+            Raw FCM registration token used as the push delivery address
+            (message.token). push_token_hash stays the identity/dedup hash.
         app_version:
           type: string
           minLength: 1
@@ -3971,6 +3979,14 @@ components:
             - string
             - "null"
           maxLength: 200
+        fcm_token:
+          type:
+            - string
+            - "null"
+          maxLength: 4096
+          description: >-
+            Raw FCM registration token used as the push delivery address
+            (message.token). push_token_hash stays the identity/dedup hash.
         metadata:
           type: object
           additionalProperties: true

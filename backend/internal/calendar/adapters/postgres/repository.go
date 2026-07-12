@@ -1536,6 +1536,84 @@ func (r *Repository) PruneClosedVaccinationProjection(ctx context.Context, tenan
 	return count, nil
 }
 
+// QueueRoleNotifications writes one notification_requests row per recipient device via a single
+// set-based INSERT ... SELECT FROM unnest(...) -- no per-recipient round trip, no N+1, regardless of
+// how many recipients are resolved (bounded by workforce headcount, never herd-scale). Idempotency
+// key/fingerprint are computed here (device-scoped, keyed by in.EventKey) so an exact replay of the
+// SAME triggering event is a guaranteed no-op per recipient (ON CONFLICT DO NOTHING), while a
+// different event for the same completion (e.g. a later resubmission's fresh verification_pending)
+// gets its own rows.
+func (r *Repository) QueueRoleNotifications(ctx context.Context, in ports.QueueRoleNotifications) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	deviceIDs := make([]string, len(in.Recipients))
+	fcmTokens := make([]string, len(in.Recipients))
+	idempotencyKeys := make([]string, len(in.Recipients))
+	fingerprints := make([]string, len(in.Recipients))
+	contexts := make([]string, len(in.Recipients))
+	for i, recipient := range in.Recipients {
+		idempotencyKeys[i] = in.TenantID + ":" + in.EventKey + ":device:" + recipient.DeviceID
+		fingerprints[i] = requestFingerprint(in.TenantID, in.EventKey, in.NotificationType, recipient.DeviceID)
+		deviceIDs[i] = recipient.DeviceID
+		fcmTokens[i] = recipient.FCMToken
+		contextData := map[string]any{
+			"priority":  in.Priority,
+			"role":      recipient.RoleLabel,
+			"member_id": recipient.MemberID,
+			"event_key": in.EventKey,
+			"channel":   in.Channel,
+			"source":    "notificationbridge.verification",
+		}
+		// Merge any optional context fields from the caller (e.g., type, obligation_id, park_id for FCM).
+		if in.Context != nil {
+			for key, value := range in.Context {
+				contextData[key] = value
+			}
+		}
+		contextJSON, err := json.Marshal(contextData)
+		if err != nil {
+			return 0, fmt.Errorf("calendar: encode queue-role-notification context: %w", err)
+		}
+		contexts[i] = string(contextJSON)
+	}
+	var targetID any
+	if strings.TrimSpace(in.TargetID) != "" {
+		targetID = in.TargetID
+	}
+	rows, err := r.pool.Query(ctx, `
+WITH input AS (
+  SELECT device_id, fcm_token, idempotency_key, request_fingerprint, context_text::jsonb AS context
+  FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[])
+    AS t(device_id, fcm_token, idempotency_key, request_fingerprint, context_text)
+)
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, target_id, notification_type, channel,
+  recipient_ref, title, body, status, idempotency_key, request_fingerprint, context, trace_id
+)
+SELECT
+  $1::uuid, $2, $8, $9::uuid, $10, $11,
+  input.fcm_token, $12, $13, 'queued',
+  input.idempotency_key, input.request_fingerprint, input.context, $14
+FROM input
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+RETURNING notification_request_id`,
+		in.TenantID, in.CalendarEventID, deviceIDs, fcmTokens, idempotencyKeys, fingerprints, contexts,
+		in.TargetType, targetID, in.NotificationType, in.Channel, in.Title, in.Body, in.TraceID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("calendar: queue role notifications: %w", err)
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("calendar: queue role notifications rows: %w", err)
+	}
+	return count, nil
+}
+
 func (r *Repository) eventExists(ctx context.Context, tenantID, eventID string, scope domain.ScopeFilter) error {
 	var exists bool
 	tenantWide, parkIDs, shedIDs := scopeArgs(scope)
@@ -3664,6 +3742,33 @@ func timePtr(v pgtype.Timestamptz) *time.Time {
 	}
 	t := v.Time
 	return &t
+}
+
+// ResolveVaccinationCompletionContext resolves a vaccination completion_id to its obligation context
+// (completion_id, obligation_id, park_id, sop_task_id, executor). Couples at the DB level only, never importing
+// internal/vaccination or internal/sopbridge packages.
+func (r *Repository) ResolveVaccinationCompletionContext(ctx context.Context, tenantID, completionID string) (ports.VaccinationCompletionContext, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	var result ports.VaccinationCompletionContext
+	err := r.pool.QueryRow(ctx, `
+SELECT vc.completion_id::text, vc.obligation_id::text, oi.scope_id::text, oi.scope_type,
+       COALESCE(oi.sop_task_id::text, ''), COALESCE(vc.recorded_by::text, '')
+FROM vaccination_completions vc
+JOIN obligation_instances oi ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid
+LIMIT 1`,
+		tenantID, completionID).Scan(&result.CompletionID, &result.ObligationID, &result.ParkID, &result.ScopeType, &result.SOPTaskID, &result.ExecutedBy)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ports.VaccinationCompletionContext{}, ports.ErrNotFound
+		}
+		return ports.VaccinationCompletionContext{}, fmt.Errorf("calendar: resolve vaccination completion: %w", err)
+	}
+
+	return result, nil
 }
 
 func marshalJSON(label string, value any) ([]byte, error) {

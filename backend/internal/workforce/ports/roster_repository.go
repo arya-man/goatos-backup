@@ -224,6 +224,24 @@ type RosterRepository interface {
 	// when enriching a page of positions. Position codes with no duties are
 	// simply absent from the map.
 	ListDutiesForPositions(ctx context.Context, tenantID string, positionCodes []string, at time.Time) (map[string][]domain.PositionDuty, error)
+
+	// ---- Notification recipient resolution (vaccination-notification-rules.md §4c) ----------------
+	// Bounded, indexed reads over small workforce config tables (positions/duties/devices are
+	// per-tenant handfuls of rows, never herd-scale) -- one set-based query each, no N+1.
+
+	// ResolveModuleDutyRecipients returns active, reachable devices held by members whose position
+	// carries (moduleCode, dutyType) at (scopeType, scopeID) `at` -- e.g. the verifier(s) for
+	// pc.vaccination at a park. Empty when no position currently holds that duty in scope (e.g. no
+	// duty_type='verify' seat seeded -- seed-position-duties derives only execute/manage today).
+	ResolveModuleDutyRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string, at time.Time) ([]domain.NotificationRecipient, error)
+
+	// ResolveMemberRecipients returns active, reachable devices for one specific workforce member
+	// (e.g. the operator who executed a completion, vaccination_completions.recorded_by).
+	ResolveMemberRecipients(ctx context.Context, tenantID, workforceMemberID string) ([]domain.NotificationRecipient, error)
+
+	// ResolvePositionRecipients returns active, reachable devices for whoever actively holds
+	// positionCode at (scopeType, scopeID) `at` -- e.g. the park head.
+	ResolvePositionRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string, at time.Time) ([]domain.NotificationRecipient, error)
 }
 
 // CapabilityGranter is the slice of the existing ports.Repository the roster

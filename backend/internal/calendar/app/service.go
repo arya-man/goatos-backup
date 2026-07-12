@@ -340,6 +340,42 @@ func (s *Service) PruneClosedVaccinationProjection(ctx context.Context, tenantID
 	return n, nil
 }
 
+// QueueRoleNotifications validates the envelope and passes an already-resolved recipient list
+// straight through to the repository's set-based insert. No recipients is a legitimate no-op (e.g. a
+// verification_pending event where no position currently holds the verify duty for that park) --
+// never an error, so the caller (the verification notification producer) doesn't have to special-case
+// it.
+func (s *Service) QueueRoleNotifications(ctx context.Context, in ports.QueueRoleNotifications) (int, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	if !uuidutil.IsUUIDString(in.TenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant id is required")
+	}
+	in.CalendarEventID = strings.TrimSpace(in.CalendarEventID)
+	if in.CalendarEventID == "" {
+		return 0, BadRequest("invalid_calendar_event", "calendar_event_id is required")
+	}
+	in.NotificationType = strings.TrimSpace(in.NotificationType)
+	if in.NotificationType == "" {
+		return 0, BadRequest("invalid_notification_type", "notification_type is required")
+	}
+	in.Channel = strings.TrimSpace(in.Channel)
+	if in.Channel == "" {
+		in.Channel = "push_fcm"
+	}
+	in.EventKey = strings.TrimSpace(in.EventKey)
+	if in.EventKey == "" {
+		return 0, BadRequest("invalid_event_key", "event_key is required for idempotency")
+	}
+	if len(in.Recipients) == 0 {
+		return 0, nil
+	}
+	n, err := s.repo.QueueRoleNotifications(ctx, in)
+	if err != nil {
+		return 0, mapRepoError(err)
+	}
+	return n, nil
+}
+
 func validateActionEnvelope(tenantID, actorID, eventID, idempotencyKey string) error {
 	if !uuidutil.IsUUIDString(tenantID) {
 		return BadRequest("invalid_tenant", "tenant id is required")
@@ -417,6 +453,12 @@ func mapRepoError(err error) error {
 	default:
 		return Internal("calendar request failed")
 	}
+}
+
+// ResolveVaccinationCompletionContext delegates to the repository to resolve a vaccination completion_id
+// to its obligation context. Used by the notification layer to decouple from importing internal/vaccination.
+func (s *Service) ResolveVaccinationCompletionContext(ctx context.Context, tenantID, completionID string) (ports.VaccinationCompletionContext, error) {
+	return s.repo.ResolveVaccinationCompletionContext(ctx, tenantID, completionID)
 }
 
 func mustCalendarLocation() *time.Location {

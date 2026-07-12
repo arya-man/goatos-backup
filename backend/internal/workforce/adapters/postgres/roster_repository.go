@@ -517,6 +517,117 @@ ORDER BY position_code, module_code, duty_type`, tenantID, positionCodes, at)
 	return out, rows.Err()
 }
 
+// ---- Notification recipient resolution (vaccination-notification-rules.md §4c) ----------------
+
+// ResolveModuleDutyRecipients returns active, reachable devices held by members whose position
+// carries (moduleCode, dutyType) at (scopeType, scopeID) `at`. One set-based query joining
+// workforce_positions -> position_module_duties -> workforce_members -> workforce_member_devices,
+// using position_module_duties_by_module (tenant_id, module_code, duty_type), the active-seat index,
+// and workforce_member_devices_member_status_idx -- bounded, indexed, no N+1. Caller must pass
+// park/position/module scope, never tenant-wide.
+// scale-guard: bounded recipient fan-out LIMIT 1000 prevents unbounded device multi-device notifications.
+func (r *Repository) ResolveModuleDutyRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string, at time.Time) ([]domain.NotificationRecipient, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT p.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM workforce_positions p
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = p.tenant_id
+ AND pmd.position_code = p.position_code
+ AND pmd.module_code = $5
+ AND pmd.duty_type = $6
+ AND pmd.status = 'active'
+ AND pmd.effective_from <= $7::timestamptz
+ AND (pmd.effective_to IS NULL OR pmd.effective_to > $7::timestamptz)
+JOIN workforce_members m
+  ON m.tenant_id = p.tenant_id
+ AND m.workforce_member_id = p.workforce_member_id
+ AND m.status = 'active'
+JOIN workforce_member_devices d
+  ON d.tenant_id = p.tenant_id
+ AND d.workforce_member_id = m.workforce_member_id
+ AND d.status = 'active'
+ AND d.fcm_token IS NOT NULL
+WHERE p.tenant_id = $1::uuid
+  AND p.scope_type = $2
+  AND p.scope_id = $3::uuid
+  AND p.status = 'active'
+  AND p.valid_from <= $4::timestamptz
+  AND (p.valid_to IS NULL OR p.valid_to > $4::timestamptz)
+ORDER BY 1, 2
+LIMIT 1000`, tenantID, scopeType, scopeID, at, moduleCode, dutyType, at)
+	if err != nil {
+		return nil, err
+	}
+	return scanNotificationRecipients(rows)
+}
+
+// ResolveMemberRecipients returns active, reachable devices for one specific workforce member (e.g.
+// the operator who executed a completion). Indexed on workforce_member_devices_member_status_idx.
+// scale-guard: bounded recipient fan-out LIMIT 1000 prevents unbounded multi-device notifications.
+func (r *Repository) ResolveMemberRecipients(ctx context.Context, tenantID, workforceMemberID string) ([]domain.NotificationRecipient, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT d.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM workforce_member_devices d
+WHERE d.tenant_id = $1::uuid
+  AND d.workforce_member_id = $2::uuid
+  AND d.status = 'active'
+  AND d.fcm_token IS NOT NULL
+ORDER BY 1, 2
+LIMIT 1000`, tenantID, workforceMemberID)
+	if err != nil {
+		return nil, err
+	}
+	return scanNotificationRecipients(rows)
+}
+
+// ResolvePositionRecipients returns active, reachable devices for whoever actively holds
+// positionCode at (scopeType, scopeID) `at` (e.g. the park head). Uses the same active-seat index as
+// GetActivePositionByCode plus workforce_member_devices_member_status_idx. Caller must pass
+// park/position scope, never tenant-wide.
+// scale-guard: bounded recipient fan-out LIMIT 1000 prevents unbounded multi-device notifications.
+func (r *Repository) ResolvePositionRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string, at time.Time) ([]domain.NotificationRecipient, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT p.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM workforce_positions p
+JOIN workforce_member_devices d
+  ON d.tenant_id = p.tenant_id
+ AND d.workforce_member_id = p.workforce_member_id
+ AND d.status = 'active'
+ AND d.fcm_token IS NOT NULL
+WHERE p.tenant_id = $1::uuid
+  AND p.scope_type = $2
+  AND p.scope_id = $3::uuid
+  AND p.position_code = $4
+  AND p.status = 'active'
+  AND p.valid_from <= $5::timestamptz
+  AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
+ORDER BY 1, 2
+LIMIT 1000`, tenantID, scopeType, scopeID, positionCode, at)
+	if err != nil {
+		return nil, err
+	}
+	return scanNotificationRecipients(rows)
+}
+
+func scanNotificationRecipients(rows pgx.Rows) ([]domain.NotificationRecipient, error) {
+	defer rows.Close()
+	items := []domain.NotificationRecipient{}
+	for rows.Next() {
+		var item domain.NotificationRecipient
+		if err := rows.Scan(&item.WorkforceMemberID, &item.DeviceID, &item.FCMToken); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
 // ---- Leave / absence (workforce_absences reuse) -----------------------------
 
 func leaveSelectSQL(where string) string {

@@ -528,6 +528,27 @@ func (r *Repository) DeregisterDevice(ctx context.Context, cmd ports.DeregisterD
 		return domain.DeviceSummary{}, err
 	}
 	defer rollback(ctx, tx)
+	// Capture the device's CURRENT fcm_token before it is cleared below, locking the row (FOR UPDATE)
+	// so no concurrent register/heartbeat can rotate the token between this read and the revoke. This
+	// is the match key for the suppress step further down. RowsAffected() on the UPDATE below (not
+	// this SELECT) remains the sole source of truth for the idempotent/not-found branch, so a miss here
+	// (ErrNoRows: already revoked or foreign device) is not treated as an error -- fcmToken just stays
+	// nil and the UPDATE's own 0-rows check short-circuits before the suppress step runs.
+	var fcmToken *string
+	if err := tx.QueryRow(ctx, `
+SELECT fcm_token
+FROM workforce_member_devices
+WHERE tenant_id = $1::uuid
+  AND device_id = $2::uuid
+  AND registered_by = $3::uuid
+  AND status <> 'revoked'
+FOR UPDATE`,
+		cmd.TenantID,
+		cmd.DeviceID,
+		cmd.ActorID,
+	).Scan(&fcmToken); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return domain.DeviceSummary{}, err
+	}
 	// Idempotent by design (logout is best-effort/replay-prone): only the FIRST deregister for the
 	// caller's own device flips state + audits. `status <> 'revoked'` makes a retry a no-op — no
 	// revoked_at rewrite, no row_version bump, no duplicate audit row.
@@ -535,6 +556,7 @@ func (r *Repository) DeregisterDevice(ctx context.Context, cmd ports.DeregisterD
 UPDATE workforce_member_devices
 SET status = 'revoked',
     push_token_hash = NULL,
+    fcm_token = NULL,
     revoked_by = $3::uuid,
     revoked_at = now(),
     metadata = metadata || jsonb_build_object('revocation_reason', 'app_logout_decouple'),
@@ -555,6 +577,29 @@ WHERE tenant_id = $1::uuid
 		// already-revoked device the actor owns (idempotent replay -> return it, no side effects).
 		// The untouched tx rolls back via the deferred rollback.
 		return r.GetDeviceForActor(contextWithoutCancel(ctx), cmd.TenantID, cmd.ActorID, cmd.DeviceID)
+	}
+	// Close the offline-logout / shared-phone delivery window: a notification_requests row snapshots
+	// the recipient's raw FCM token into recipient_ref at QUEUE time (calendar's QueueRoleNotifications
+	// -- see docs/decisions/vaccination-notification-rules.md §4c). If the client's deleteToken() never
+	// reached FCM (offline at logout), rows already queued against this token could still deliver to
+	// the phone after a different user logs in and the token is reused, before the OS rotates it. In
+	// the SAME transaction as the revoke, suppress this device's still-pending rows keyed by the exact
+	// token being cleared. Only 'queued'/'failed' rows are touched -- 'sent'/'read' rows are audit
+	// history and must never be rewritten. This complements, not replaces, the mobile deleteToken()
+	// best-effort call.
+	if fcmToken != nil {
+		if _, err := tx.Exec(ctx, `
+UPDATE notification_requests
+SET status = 'suppressed',
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND recipient_ref = $2
+  AND status IN ('queued', 'failed')`,
+			cmd.TenantID,
+			*fcmToken,
+		); err != nil {
+			return domain.DeviceSummary{}, err
+		}
 	}
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "app.device.deregister", "workforce_member_device", cmd.DeviceID, nil, map[string]any{"reason": "app_logout_decouple"}); err != nil {
 		return domain.DeviceSummary{}, err
@@ -585,14 +630,15 @@ func (r *Repository) RegisterDevice(ctx context.Context, cmd ports.RegisterDevic
 	err = tx.QueryRow(ctx, `
 INSERT INTO workforce_member_devices (
   tenant_id, workforce_member_id, platform, app_install_id, device_public_key_hash,
-  push_token_hash, app_version, os_version, status, last_seen_at, registered_by, metadata
+  push_token_hash, fcm_token, app_version, os_version, status, last_seen_at, registered_by, metadata
 ) VALUES (
-  $1::uuid, $2::uuid, 'android', $3, nullif($4, ''), nullif($5, ''), $6, $7, 'active', now(), $8::uuid, $9::jsonb
+  $1::uuid, $2::uuid, 'android', $3, nullif($4, ''), nullif($5, ''), nullif($6, ''), $7, $8, 'active', now(), $9::uuid, $10::jsonb
 )
 ON CONFLICT (tenant_id, app_install_id)
 DO UPDATE SET workforce_member_id = EXCLUDED.workforce_member_id,
               device_public_key_hash = EXCLUDED.device_public_key_hash,
               push_token_hash = EXCLUDED.push_token_hash,
+              fcm_token = EXCLUDED.fcm_token,
               app_version = EXCLUDED.app_version,
               os_version = EXCLUDED.os_version,
               status = 'active',
@@ -605,6 +651,7 @@ RETURNING device_id::text`,
 		cmd.Body.AppInstallID,
 		ptrValue(cmd.Body.DevicePublicKeyHash),
 		ptrValue(cmd.Body.PushTokenHash),
+		ptrValue(cmd.Body.FcmToken),
 		cmd.Body.AppVersion,
 		cmd.Body.OSVersion,
 		cmd.ActorID,
@@ -643,6 +690,7 @@ UPDATE workforce_member_devices
 SET app_version = CASE WHEN $4 <> '' THEN $4 ELSE app_version END,
     os_version = CASE WHEN $5 <> '' THEN $5 ELSE os_version END,
     push_token_hash = CASE WHEN $6 <> '' THEN $6 ELSE push_token_hash END,
+    fcm_token = CASE WHEN $9 <> '' THEN $9 ELSE fcm_token END,
     metadata = CASE WHEN $7::bool THEN $8::jsonb ELSE metadata END,
     last_seen_at = now(),
     row_version = row_version + 1
@@ -657,6 +705,7 @@ WHERE tenant_id = $1::uuid
 		ptrValue(cmd.Body.PushTokenHash),
 		cmd.Body.Metadata != nil,
 		metadata,
+		ptrValue(cmd.Body.FcmToken),
 	)
 	if err != nil {
 		return domain.DeviceSummary{}, err
@@ -921,6 +970,7 @@ SELECT
   d.app_install_id,
   d.device_public_key_hash,
   d.push_token_hash,
+  d.fcm_token,
   d.app_version,
   d.os_version,
   d.status,
@@ -938,15 +988,16 @@ func scanDevices(rows pgx.Rows) ([]domain.DeviceSummary, error) {
 	items := []domain.DeviceSummary{}
 	for rows.Next() {
 		var item domain.DeviceSummary
-		var publicKey, pushToken pgtype.Text
+		var publicKey, pushToken, fcmToken pgtype.Text
 		var lastSeen, registeredAt time.Time
 		var revokedAt pgtype.Timestamptz
 		var metadata []byte
-		if err := rows.Scan(&item.DeviceID, &item.OperatorID, &item.Platform, &item.AppInstallID, &publicKey, &pushToken, &item.AppVersion, &item.OSVersion, &item.Status, &lastSeen, &registeredAt, &revokedAt, &metadata, &item.RowVersion); err != nil {
+		if err := rows.Scan(&item.DeviceID, &item.OperatorID, &item.Platform, &item.AppInstallID, &publicKey, &pushToken, &fcmToken, &item.AppVersion, &item.OSVersion, &item.Status, &lastSeen, &registeredAt, &revokedAt, &metadata, &item.RowVersion); err != nil {
 			return nil, err
 		}
 		item.DevicePublicKeyHash = textPtr(publicKey)
 		item.PushTokenHash = textPtr(pushToken)
+		item.FCMToken = textPtr(fcmToken)
 		item.LastSeenAt = lastSeen.UTC().Format(time.RFC3339)
 		item.RegisteredAt = registeredAt.UTC().Format(time.RFC3339)
 		item.RevokedAt = timePtr(revokedAt)
