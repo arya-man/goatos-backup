@@ -21,6 +21,11 @@ their own checkout.
   `graphify-out/manifest.json`, `graphify-out/cost.json`,
   `graphify-out/cache/`, and temporary `.graphify_*` files.
 - Transcript telemetry from Claude/Codex sessions.
+- The multi-repo **workspace-root `/code-review` delegator** (needed only when a
+  maintainer opens Claude Code at a parent directory containing this `goatos`
+  checkout, not at the repo root). It lives outside this repo; recreate it from
+  the version-backed template in
+  [`workspace-code-review-delegator.md`](workspace-code-review-delegator.md).
 
 `make ai-doctor` fails if generated graph artifacts become tracked.
 
