@@ -115,7 +115,9 @@ export async function syncFirebaseSession(
     method: "POST",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken, eventType }),
+    // refreshToken lets SSR mint fresh ID tokens after the id-token cookie's ~1h
+    // TTL lapses, so the server session outlives a single ID token.
+    body: JSON.stringify({ idToken, refreshToken: user.refreshToken, eventType }),
   });
   if (!response.ok) {
     const code = await sessionRouteErrorCode(response);

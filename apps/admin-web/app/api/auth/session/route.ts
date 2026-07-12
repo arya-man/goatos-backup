@@ -3,6 +3,8 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
   COOKIE_PATH,
   FIREBASE_ID_TOKEN_COOKIE,
+  FIREBASE_REFRESH_TOKEN_COOKIE,
+  FIREBASE_REFRESH_TOKEN_MAX_AGE_SECONDS,
   isLikelyJwt,
   maxAgeForFirebaseIdToken,
 } from "@/lib/auth/session-cookie";
@@ -21,6 +23,7 @@ export async function POST(request: NextRequest) {
 
   const payload = isRecord(body) ? body : {};
   const idToken = typeof payload.idToken === "string" ? payload.idToken.trim() : "";
+  const refreshToken = typeof payload.refreshToken === "string" ? payload.refreshToken.trim() : "";
   const eventType = parseSessionEventType(payload.eventType, "auth.session_refresh");
   const maxAge = maxAgeForFirebaseIdToken(idToken);
   if (!idToken || maxAge === null) {
@@ -42,6 +45,19 @@ export async function POST(request: NextRequest) {
     path: COOKIE_PATH,
     maxAge,
   });
+  // Persist the long-lived refresh token so SSR can mint fresh ID tokens after
+  // the id-token cookie above expires (removes the ~1h forced-relogin cliff).
+  if (refreshToken) {
+    response.cookies.set({
+      name: FIREBASE_REFRESH_TOKEN_COOKIE,
+      value: refreshToken,
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: COOKIE_PATH,
+      maxAge: FIREBASE_REFRESH_TOKEN_MAX_AGE_SECONDS,
+    });
+  }
   return response;
 }
 
@@ -49,15 +65,17 @@ export async function DELETE(request: NextRequest) {
   const idToken = request.cookies.get(FIREBASE_ID_TOKEN_COOKIE)?.value.trim() || "";
   const audit = isLikelyJwt(idToken) ? await recordBackendAuthEvent(request, idToken, "auth.sign_out") : { ok: false };
   const response = NextResponse.json({ ok: true, audit_recorded: audit.ok });
-  response.cookies.set({
-    name: FIREBASE_ID_TOKEN_COOKIE,
-    value: "",
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: COOKIE_PATH,
-    maxAge: 0,
-  });
+  for (const name of [FIREBASE_ID_TOKEN_COOKIE, FIREBASE_REFRESH_TOKEN_COOKIE]) {
+    response.cookies.set({
+      name,
+      value: "",
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: COOKIE_PATH,
+      maxAge: 0,
+    });
+  }
   return response;
 }
 
