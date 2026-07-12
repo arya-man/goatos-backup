@@ -22,3 +22,22 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       - name: No hardcoded hex / TextStyle in UI
         run: bash tools/android/check-no-hardcoded-design.sh
+
+  compile-and-test:
+    # C35-008: Android changes must not merge without a compile + unit-test gate.
+    # A non-compiling change (e.g. a non-exhaustive `when` after a sealed event is
+    # added) fails here instead of reaching main. When remote Actions are
+    # unavailable (billing/platform), this exact gate runs locally as
+    # `make ci-local android` (JAVA_HOME=openjdk@21 + Android SDK) and a green run
+    # on the pushed SHA is the authoritative proof — see AGENTS.md.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+      - name: Compile + unit test (:app stg release)
+        working-directory: apps/goatos-android
+        run: ./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest --no-daemon --stacktrace

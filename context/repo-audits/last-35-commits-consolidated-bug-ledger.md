@@ -443,10 +443,11 @@ Guardrail needed: `validate-sqlc-plans` case populated at representative cardina
 ID: C35-008  
 Priority: P1  
 Title: Android changes can merge without an Android compile/test gate  
-Status: open  
+Status: fixed with proof  
 Origin: prior-ledger  
-Verdict: CONFIRMED  
+Verdict: CONFIRMED → FIXED  
 Prior mapping: BUG-018  
+Fix (pushed): added a required `compile-and-test` job to `.github/workflows/android-quality.yml` (setup-java temurin 21 + setup-android + `./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest`). Because remote GitHub Actions are billing/platform-blocked (C35-012), the identical gate is enforced locally via `make ci-local android` (JAVA_HOME=openjdk@21 + Android SDK) per the new AGENTS.md rule. Adversarial proof of the gate: RED on a broken Android tree (`AppNavHost.kt:433 'when' must be exhaustive — add 'is Rework','is Verify'`, from an unwired sealed-event change) and GREEN on the clean tree (`BUILD SUCCESSFUL`, :app compile + unit tests). The current-SHA proof is a green `make ci-local android`.  
 Layman explanation: The main pull-request gate checks mobile source patterns but does not prove the app builds.  
 Evidence: `.github/workflows/ci.yml:16-39` runs scale/mobile static guards but no Gradle compile/test. `.github/workflows/android-quality.yml:1-24` only runs the hardcoded-design check. Gradle build exists in `.github/workflows/stg-pr-gate.yml:108-150`, which applies to the later `main -> stg` gate, not ordinary Android changes into main.  
 Prod reachability: Any Android PR merged into main.  
