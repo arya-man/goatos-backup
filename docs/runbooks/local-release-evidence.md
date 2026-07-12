@@ -1,8 +1,10 @@
-# Local Release Evidence — C35-012 Workaround
+# Local Release Evidence — Hosted GitHub Actions Outage
 
 ## Context
 
 GitHub Actions for the Goat OS repository cannot execute any workflow runs due to an **organization-level billing/platform block** in the vgoats GitHub organization. The remote CI gate is externally blocked and cannot be restored by code changes — this requires a maintainer action in the GitHub org billing UI.
+
+This is an operations/runbook item, **not a software bug** and not a counted row in the consolidated bug ledger. Agents must keep fixing product defects and use the checked-in local CI runner for proof while hosted Actions is unavailable.
 
 - **Root cause**: vgoats org Actions spending limit / billing / platform state (GitHub REST `orgs/vgoats/actions/permissions` billing endpoint returns `410 moved`)
 - **Symptom**: All workflow runs fail before any job starts with synthetic `BuildFailed`, `(Unknown event)`, `conclusion=startup_failure`, and **0 jobs**

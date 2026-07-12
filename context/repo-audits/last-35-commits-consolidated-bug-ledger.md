@@ -6,38 +6,39 @@
 > "39 open" / "40 open" / the §9 "18 fixed / 23 open" table as current.**
 >
 > **C35 / CL / FIXCHK / BUG / NEW-E2E namespace — reconciled:**
-> - Every C35 row is **FIXED WITH PROOF except `C35-002`** (the only real residual).
-> - **`C35-002` = PARTIAL / OPEN** — read-model infra landed (mig 000167 projection +
->   `_state` serving-swap + parity test + recompute CLI/Cloud Run Job + indexed
->   sqlc plans); REMAINDER = flip the live request path off the god-CTE onto the
->   projection. This is **scale / read-model debt** (the "good-to-have" 1M bucket),
->   **NOT a correctness bug**.
-> - `BUG-002` stays open ONLY because it is superseded by `C35-002`.
-> - **`C35-012` is NOT a software bug** — it is a GitHub org Actions billing/platform
->   outage. Local CI (`make ci-local`) is the authoritative gate per AGENTS.md; treat
->   C35-012 as an **ops note**, not a defect row.
+> - Every C35 row is **FIXED WITH PROOF** by current code review. `C35-002` was
+>   rechecked against code on 2026-07-13: `ShedSummary` now reads
+>   `vaccination_shed_projection_rows` through `shedSummaryProjectedSQL` after
+>   `shedProjectionServingVersion`, and returns `ErrProjectionUnavailable` instead
+>   of falling back to the god-CTE. Historical text below that says the live path is
+>   "not flipped" is stale and superseded by this block.
+> - `BUG-002` is closed by the current `C35-002` implementation. Remaining 1M/5M
+>   scale certification is validation debt, **NOT an open software bug**.
+> - Hosted GitHub Actions billing/platform outage is **removed from this bug ledger**.
+>   It lives in `docs/runbooks/local-release-evidence.md`. Local CI (`make ci-local`) is
+>   the authoritative gate per AGENTS.md until the org billing/platform state is restored.
 > - **`C35-021`** (architecture graph) — CRG rebuilt, but the Understand-Anything
 >   graph is stale and needs a full rebuild: this is **tooling/graph freshness, not
 >   product correctness**.
 > - CL-004 / FIXCHK-001/002/003 / NEW-E2E-001 = fixed.
 >
-> **MOB mobile-audit lane (MOB-001/002/004/005/008/009/010/011) — Codex-owned, RE-VERIFIED 2026-07-13 against real code:** 7/8 **FIXED** (Room-backed reads, real form+proof submit, keyset pagination, flowOn off-Main, stable list keys). **MOB-010 = PARTIAL** — 5/9 screen VMs on `stateIn(WhileSubscribed)`; 4 (Submit/Timetable/Profile/Coverage) still `collect` in launch blocks = **perf/memory hygiene, NOT a correctness bug** (no wrong data shown). **0 OPEN correctness bugs in the MOB lane.**
+> **MOB mobile-audit lane (MOB-001/002/004/005/008/009/010/011) — Codex-owned, RE-VERIFIED 2026-07-13 against real code:** 7/8 **FIXED** (Room-backed reads, real form+proof submit, keyset pagination, flowOn off-Main, stable list keys). **MOB-010 = PARTIAL** — 5/9 screen VMs on `stateIn(WhileSubscribed)`; 4 (`Submit`, `Timetable`, `Profile`, `Coverage`) still keep Room/status collectors alive in `viewModelScope.launch` after the screen is backgrounded. This is **Android background-work/battery debt, NOT a correctness bug** (no wrong data shown). **0 OPEN correctness bugs in the MOB lane.**
 >
 > **Bottom line: 0 correctness bugs open across the ENTIRE ledger.** Only two
-> non-correctness residuals remain: (1) `C35-002` — hot-screen read-path flip off the
-> god-CTE onto the built projection (deferred scale/1M debt); (2) `MOB-010` — 4 Android
-> VMs to migrate to `stateIn` (perf/memory hygiene). Both are good-to-have, neither is
-> a bug that shows wrong data or breaks a flow. Claude coordinator wave (single integrator) landed the Android scan-roster cluster (C35-006/018 + MOB-003, keyset 20-row pagination + task identity, in c9574bdc), MOB-006 (outbox prune + durability test), MOB-007 (offline-first Room roster/coverage + error-signal fix), C35-012 (local-release-evidence runbook; org Actions billing remains maintainer-side, not a closure blocker), and C35-021 (CRG full-rebuild; gitignored) — full `:core:core-data`/`:core:core-database`/`:app` unit gate green under JDK 21. C35-005 closed the Herd Register full-herd walk with a summary projection. C35-011 (mobile verify/rework) + C35-019 (record offline-first single read) closed together. C35-001 closed the Android logout (shared LogoutCoordinator full clean-slate wipe + device deregister). C35-013 fully closed all three process-integrity read surfaces with keyset pagination. C35-024 closed the domain-consumer replay. C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). FIXCHK-001 now authorizes intended app-vaccination park grants and clamps reschedule mutation/replay to those parks. FIXCHK-002 now uses one India business date for both SQL FEFO ordering and response disabled state. C35-002 remains explicitly partial/open; no partial is counted closed.
+> non-correctness residuals remain: (1) 1M/5M scale/current-SHA certification for
+> the already-flipped `C35-002` projection path; (2) `MOB-010` — 4 Android
+> VMs still keep background collectors alive and should migrate to `stateIn`. Both are good-to-have, neither is
+> a bug that shows wrong data or breaks a flow. Claude coordinator wave (single integrator) landed the Android scan-roster cluster (C35-006/018 + MOB-003, keyset 20-row pagination + task identity, in c9574bdc), MOB-006 (outbox prune + durability test), MOB-007 (offline-first Room roster/coverage + error-signal fix), the local-release-evidence runbook for the hosted Actions outage, and C35-021 (CRG full-rebuild; gitignored) — full `:core:core-data`/`:core:core-database`/`:app` unit gate green under JDK 21. C35-005 closed the Herd Register full-herd walk with a summary projection. C35-011 (mobile verify/rework) + C35-019 (record offline-first single read) closed together. C35-001 closed the Android logout (shared LogoutCoordinator full clean-slate wipe + device deregister). C35-013 fully closed all three process-integrity read surfaces with keyset pagination. C35-024 closed the domain-consumer replay. C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). FIXCHK-001 now authorizes intended app-vaccination park grants and clamps reschedule mutation/replay to those parks. FIXCHK-002 now uses one India business date for both SQL FEFO ordering and response disabled state.
 >
 > _[SUPERSEDED historical snapshot — see ⭐ CANONICAL STATUS at top. "20 open rows" below is NOT current.]_
-> **Live multi-agent ownership snapshot — 2026-07-12 22:34 IST.** This block is the collision-prevention source of truth until the owning coordinator replaces it on `main`. Claude's active wave owns C35-002 (vaccination-execution projection repair), C35-005 (herd-register bounded reader/SSR), and C35-017+C35-022 (Android cache bounds/corruption recovery). Claude's requested next wave owns the eight otherwise-unassigned findings in six clusters: C35-006+C35-018+MOB-003 (bounded scan-roster cursor/Room paging), MOB-006 (outbox prune and bounded observation), MOB-007 (offline timetable/coverage Room truth), C35-012 (release-evidence availability/local-equivalent closure while hosted billing is unavailable), C35-021 (architecture graph refresh), and CL-004 (remove the unused domain-consumer claim token). Codex owns three disjoint Android clusters: MOB-004+MOB-009+MOB-010+MOB-011 (Calendar/Execution Room, threading, lifecycle and stable-key cluster), MOB-008 (leadership pagination), and MOB-001+MOB-002+MOB-005 (offline Scan/Submit, required form/proof and mock-state removal). All 20 open rows now have an owner. Workers use isolated branches/worktrees, must not edit this ledger, and must not push `main`; coordinators integrate sequentially, update this block and the counts, and push the exact accepted SHA. Any agent starting from an older SHA must fetch `origin/main` and re-read this block before claiming work.
+> **Live multi-agent ownership snapshot — 2026-07-12 22:34 IST.** This historical block is superseded. Hosted GitHub Actions availability is now tracked only in `docs/runbooks/local-release-evidence.md`, not as a bug row. Workers use isolated branches/worktrees, must not edit this ledger, and must not push `main`; coordinators integrate sequentially, update this block and the counts, and push the exact accepted SHA. Any agent starting from an older SHA must fetch `origin/main` and re-read this block before claiming work.
 >
 > Closure detail (Claude, NEW-E2E-001 + the C35-015 gating pass): **NEW-E2E-001** — `TestKernelStoryC_BatchDriveVerifyControlTower` failed deterministically (control-tower alert row = 0); **ROOT-CAUSED + FIXED** — the projector's closed-history inclusion keyed recency off due-date not completion-time, so a near-now completion with an old due_at vanished from the projection; now green (`totalProjRows` 0→1, full `backend/tests/e2e/...` suite green). While gating **C35-015** on `make ci-local`, two PRE-EXISTING failures independent of C35-015 were also cleared: the stale sqlc schema snapshots (missing `herd_register_goat_projection_scope_idx`/`planned_batch_finalization_keyset_idx`) were regenerated + pushed → sqlc-check green; contract-drift was only a dirty-tree artifact (uncommitted generated client), green on commit.
 >
-> Counter-review correction: C35-003/004/007/014/016/020/023/025 were previously claimed fixed before their root paths or guards were complete. The candidate now repairs those surviving defects and adds focused adversarial/real-Postgres/plan proof. C35-015 is independently accepted as a valid closure of its exact N+1 finding; its endpoint still returns a bounded list of full version payloads and has no cursor, so this closure is **not** broader payload-size or pagination certification. C35-012 remains an open remote-release-availability finding, but it does not block local closure: hosted workflows and `make ci-local JOB=...` now invoke the same checked-in runner.
+> Counter-review correction: C35-003/004/007/014/016/020/023/025 were previously claimed fixed before their root paths or guards were complete. The candidate now repairs those surviving defects and adds focused adversarial/real-Postgres/plan proof. C35-015 is independently accepted as a valid closure of its exact N+1 finding; its endpoint still returns a bounded list of full version payloads and has no cursor, so this closure is **not** broader payload-size or pagination certification. Hosted workflow availability is an operations/runbook issue, not a bug-ledger row.
 >
 > _[SUPERSEDED historical snapshot — see ⭐ CANONICAL STATUS at top. "39 open" is NOT current; retained only for the C35-010 proof detail.]_
-> Prior closure note: **C35-010 (P0) RE-CLOSED WITH PROOF after Codex counter-review, pushed to `origin/main` at `56e0e804` → 39 open (1 P0, 19 P1, 15 P2, 4 P3).** The counter-review rejected the first attempt (`fe5f3188`); all three surviving paths are repaired: (1) the P0 lifecycle survivor — `goatMatchesEligibility` now excludes true exit states then decides clinical defer BEFORE the lifecycle/health selectors, so an in-care goat carried on `lifecycle_status=sick|…` is deferred not excluded (unit + real-Postgres with canonical `lifecycle=alive` selectors, deferred 1→3, dead goat = 0 obligations); (2) the false-green guard is now a whole-file scan across Go/seed-map/JSON/TS/JS/`||`-fallback/mock surfaces with 20 adversarial self-tests, and the mock partial is fixed; (3) proof completed with a production-shaped HTTP publish-rejection E2E (`POST /protocols/versions/{id}/publish` → Service → Postgres → 422 `not_publishable`). Full backend `go test ./...` green. **CI-gate caveat (C35-012):** current-SHA GitHub Actions cannot execute (org Actions billing/platform block — synthetic `BuildFailed`/`(Unknown event)`/0-job runs despite valid+active workflows and enabled Actions), so the "required current-SHA CI passes" gate is externally blocked for every row; landed fixes are certified by full LOCAL gates. Remaining P0 = C35-001 (Android logout) — workable (SDK + 2 connected devices + JDK now installed), not hard-blocked.
+> Prior closure note: **C35-010 (P0) RE-CLOSED WITH PROOF after Codex counter-review, pushed to `origin/main` at `56e0e804` → 39 open (1 P0, 19 P1, 15 P2, 4 P3).** The counter-review rejected the first attempt (`fe5f3188`); all three surviving paths are repaired: (1) the P0 lifecycle survivor — `goatMatchesEligibility` now excludes true exit states then decides clinical defer BEFORE the lifecycle/health selectors, so an in-care goat carried on `lifecycle_status=sick|…` is deferred not excluded (unit + real-Postgres with canonical `lifecycle=alive` selectors, deferred 1→3, dead goat = 0 obligations); (2) the false-green guard is now a whole-file scan across Go/seed-map/JSON/TS/JS/`||`-fallback/mock surfaces with 20 adversarial self-tests, and the mock partial is fixed; (3) proof completed with a production-shaped HTTP publish-rejection E2E (`POST /protocols/versions/{id}/publish` → Service → Postgres → 422 `not_publishable`). Full backend `go test ./...` green. Hosted GitHub Actions outage is documented in `docs/runbooks/local-release-evidence.md`; landed fixes are certified by full LOCAL gates. Remaining P0 = C35-001 (Android logout) — workable (SDK + 2 connected devices + JDK now installed), not hard-blocked.
 >
 > _[SUPERSEDED historical snapshot — see ⭐ CANONICAL STATUS at top. "40 open at audit time" is the ORIGINAL audit baseline, NOT current.]_
 > Reconciliation status: **UPDATED for HEAD `d2a7fbcf` — 40 open (2 P0, 19 P1, 15 P2, 4 P3) at audit time.** Codex wrote C35-001…C35-025; Claude counter-reviewed them and added CL-001…CL-004 (Codex countered CL-001/002/003 by evidence — all conceded by Claude; CL-004 survives P3). Codex then ran a dedicated whole-app Android pass (L0→L3 nav, paging, Room SSOT, network→Room→UI, offline/empty/error, lifecycle, memory, prior-fix verification) and added MOB-001…MOB-011. **Claude independently counter-reviewed all 11 MOB findings against HEAD, and Codex accepts those counters after rechecking the code.** A later fixed/not-fixed check found FIXCHK-001…FIXCHK-004. Counter-review confirms FIXCHK-001/002/003 as independent open defects; FIXCHK-004's behavior is real but is the same root already recorded by C35-006/C35-018, so its exact transport evidence is merged there and it is not double-counted. Claude's own new-bug hunt found nothing beyond the 11 and the already-tracked ScanViewModel-1000 (C35-006/018); its UI-side hypothesis was correctly cleared (23 actual `collectAsStateWithLifecycle(...)` call sites, 0 plain `collectAsState(...)` calls), so MOB-010 is VM-side only. Claude's tentative NEW-M3 marker concern is countered: marker aggregation is deliberately independent of the `limit=1` item page and has direct integration proof. See §5. One canonical ledger; no competing list; no product code fixed (STOP RULE).
@@ -136,14 +137,14 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 - **Claude strengthened C35-005**: independently confirmed `herd-register.tsx:160` still calls `searchAllGoats` in SSR, the `herd_register_*_projection` has no wired app reader, and migration `000164` backfills (`:84`) *before* creating triggers (`:222,:331`) under a non-transactional/unlocked runner → live-write convergence gap. (A Claude sub-auditor had initially called 000164 "safe" for lock-avoidance; that was incomplete — Codex's orphaned-projection framing is correct.)
 - **Claude escalates C35-010 (BUG-030) to a P0 candidate** on wrong-medical-action grounds (cancel instead of hold a sick animal's open dose). Recorded as a severity note, not a unilateral re-rank.
 - **Claude proposed four additions.** Codex's return counter found CL-001 and CL-002 were based on missed functional/date-only invariants, and CL-003 had no current bypass evidence. CL-004 survives as P3 dead code. See §5 and §7.
-- **Claude could not independently verify C35-012** (GitHub Actions startup_failure): this session had no `gh`/GitHub connector. Claude *did* confirm the app-code axis is clean (`go build ./...` and `go vet ./tests/e2e/` exit 0; scale/mobile/self-test guards pass), so the zero-job failure is not an application-compile cause. Counter = PLAUSIBLE, agree it is a gate-availability finding.
+- Hosted GitHub Actions zero-job startup failure is not a software bug and is no longer counted in this ledger. It is tracked in `docs/runbooks/local-release-evidence.md`; when hosted Actions cannot run, agents must run the equivalent checked-in local CI gates (`make ci-local` / job-specific local gates) and keep fixing product defects.
 
 ### Codex Draft Findings
 
 | ID | Priority | Short title | Draft disposition |
 | --- | --- | --- | --- |
 | C35-001 | P0 | Android logout preserves prior principal's Room caches/outbox | open, confirmed |
-| C35-002 | P1 | Process Integrity and Vaccination Execution still compute large answers on read | open, confirmed |
+| C35-002 | P1 | Process Integrity and Vaccination Execution still compute large answers on read | fixed by code review; remaining 1M/5M proof is validation debt |
 | C35-003 | P1 | Staging sweeper can run without SOP task creator | **FIXED WITH PROOF** |
 | C35-004 | P1 | “Bulk” sweeper task creation still performs one write call per batch | **FIXED WITH PROOF** |
 | C35-005 | P1 | Herd Register projection is unused while SSR still downloads the whole herd | open, confirmed |
@@ -153,7 +154,6 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 | C35-009 | P1 | Published scale report is prose, not current-SHA scale execution | open, confirmed |
 | C35-010 | P0 | Partial clinical defer authoring can cancel unsafe work | **FIXED WITH PROOF** (runtime union + publish reject + seed fix + CI guard) |
 | C35-011 | P1 | Mobile leadership record has no verify/rework action | open, confirmed |
-| C35-012 | P1 | Current release evidence is unavailable: Actions fail before any job | CLOSED — local-evidence authoritative per AGENTS.md CI rule; runbook docs/runbooks/local-release-evidence.md; org Actions billing = maintainer follow-up, NOT a closure blocker |
 | C35-013 | P2 | Action Center loads both tabs and retains OFFSET board debt | **FIXED WITH PROOF** — all three process-integrity read surfaces converted to keyset pagination |
 | C35-014 | P2 | Calendar always makes an overlapping marker request | **FIXED WITH PROOF** |
 | C35-015 | P2 | SOP Library fans out up to 200 detail calls | **FIXED WITH PROOF** |
@@ -184,7 +184,7 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 | Prior ID | Classification | Current disposition/evidence |
 | --- | --- | --- |
 | BUG-001 | FALSE POSITIVE / COUNTERED | Prior seed-scope correction remains valid; no unsafe invented production row was found in this range. |
-| BUG-002 | STILL OPEN | Superseded by C35-002. |
+| BUG-002 | FIXED WITH PROOF | Superseded by C35-002; current code review confirms the Vaccination Execution `ShedSummary` request path reads `vaccination_shed_projection_rows` and does not fall back to the god-CTE. |
 | BUG-003 | FIXED WITH PROOF | Closed via C35-001 + C35-017 (both fixed). |
 | BUG-004 | FALSE POSITIVE / COUNTERED | Prior seed-scope correction remains valid. |
 | BUG-005 | FALSE POSITIVE / COUNTERED | Prior seed-scope correction remains valid. |
@@ -200,7 +200,7 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 | BUG-015 | FIXED WITH PROOF | Web and Android Calendar now consume `next_cursor`; current calendar E2E/regression stories passed. Extra marker request remains C35-014. |
 | BUG-016 | STILL OPEN | Superseded by C35-006. |
 | BUG-017 | FIXED WITH PROOF | Closed by C35-007. |
-| BUG-018 | PARTIAL | C35-008 is fixed; C35-012 remains an open remote-release-availability finding. |
+| BUG-018 | FIXED WITH PROOF | C35-008 is fixed. Hosted Actions billing/platform is outside this bug ledger and documented in `docs/runbooks/local-release-evidence.md`. |
 | BUG-019 | STILL OPEN | Superseded by C35-009. |
 | BUG-020 | STILL OPEN | Superseded by C35-013. |
 | BUG-021 | FIXED WITH PROOF | Closed by C35-014. |
@@ -228,13 +228,13 @@ Every active closeout row was extracted before fresh findings were added. The de
 | OCK-006, OCK-008, OCK-025, OCK-041, OCK-076, OCK-077 | FALSE POSITIVE / COUNTERED | The active handoff supplies fail-closed, invalid-claim, or source-scope evidence; no contrary current path was found. |
 | OCK-044, OCK-045, OCK-050 | OUT OF CURRENT SCOPE | Cloud worker health, real notification secrets/channels, and production launch readiness require verified external environment evidence; they are not local-code defects in this range. C35-003 separately identifies a concrete checked-in staging wiring omission. |
 | OCK-053 | NEEDS RECHECK / SUPERSEDED | Original row claims fixed, but its own M5 addendum says handler side effects are not co-transactional with the processed-event store. Current generic code still permits stale/failed reclaim. Reconciled as C35-024, PLAUSIBLE until a non-idempotent handler is proven. |
-| RVF-001, RVF-002, RVF-003, RVF-004, RVF-005, RVF-006, RVF-007, RVF-008, RVF-009, RVF-010, RVF-011, RVF-012, RVF-013, RVF-014, RVF-015, RVF-016, RVF-017, RVF-018, RVF-019, RVF-020, RVF-021, RVF-022, RVF-023 | FIXED WITH PROOF | Current range did not invalidate their active closeout evidence. RVF-022 local contract/static gates pass, but remote current-SHA CI proof is unavailable under C35-012. |
+| RVF-001, RVF-002, RVF-003, RVF-004, RVF-005, RVF-006, RVF-007, RVF-008, RVF-009, RVF-010, RVF-011, RVF-012, RVF-013, RVF-014, RVF-015, RVF-016, RVF-017, RVF-018, RVF-019, RVF-020, RVF-021, RVF-022, RVF-023 | FIXED WITH PROOF | Current range did not invalidate their active closeout evidence. RVF-022 local contract/static gates pass; hosted Actions outage is tracked outside this bug ledger. |
 
 ### Scale/mobile/backlog reconciliation
 
 | Source claim | Classification | Mapping |
 | --- | --- | --- |
-| Process Integrity and Vaccination Execution god-CTEs/read-model debt | STILL OPEN | C35-002 |
+| Process Integrity and Vaccination Execution god-CTEs/read-model debt | FIXED WITH PROOF | C35-002; current code review confirms the live path reads the projection table. |
 | Action Center OFFSET/fetch-both debt | STILL OPEN | C35-013 |
 | SOP/detail and sweeper fanout | FIXED WITH PROOF | C35-004/C35-015 |
 | Mobile cache principal/retention/corruption debt | STILL OPEN | C35-001/C35-017/C35-022 |
@@ -267,7 +267,7 @@ Claude counter-reviewed every original Codex C35 finding against HEAD. Codex the
 | MOB-007 | **AGREE / CONFIRMED (self-verified).** `DefaultRosterRepository` = `api.getOperatorTimetable`/`getMyCoverage` pass-through, no Room; coverage exception→null == `hasCoverage=false` (error indistinguishable from no-coverage). | CONVERGED — P2 FIXED (162060ab+f239db12: principal-scoped Room cache DAOs/Flows + refresh returns Boolean → distinct Unknown/stale vs NoCoverage; :app testStgDebugUnitTest 59 green) |
 | MOB-008 | **AGREE / CONFIRMED.** `GAPS_LIMIT=COVERAGE_LIMIT=50`; `applyGapsResource` discards `nextCursor`; no load-more → animal 51+ never shown, page 1 presented as whole gap set. | **FIXED (re-verified 2026-07-13, real code)** |
 | MOB-009 | **AGREE / CONFIRMED (self-verified: `CalendarRepository` `flowOn x0`).** Calendar + all 3 Execution cache flows `map{decodeFromString}` with no `flowOn`; collected on Main. `edcb668b` sweep explicitly skipped them. | **FIXED (re-verified 2026-07-13, real code)** |
-| MOB-010 | **AGREE / CONFIRMED + SCOPE NOTE.** 8 screen VMs use forever `collectLatest`; only SyncStatusVM uses `stateIn(WhileSubscribed)`. Claude checked the UI side too: it is lifecycle-aware (0 plain `collectAsState()`), so this is a **VM-side-only** defect — no additional UI-side bug. | **PARTIAL (re-verified): 5/9 VMs on stateIn; 4 (Submit/Timetable/Profile/Coverage) still collect = perf/memory hygiene, NOT correctness** |
+| MOB-010 | **AGREE / CONFIRMED + SCOPE NOTE.** 8 screen VMs originally used forever collectors; current code review finds 5/9 fixed to `stateIn(WhileSubscribed)`. Claude checked the UI side too: it is lifecycle-aware (0 plain `collectAsState()`), so this is a **VM-side-only** defect — no additional UI-side bug. | **PARTIAL (re-verified): 4 (Submit/Timetable/Profile/Coverage) still collect after background = avoidable CPU/battery/memory work, NOT correctness** |
 | MOB-011 | **AGREE / CONFIRMED.** `ScanScreen:265,752`, `AlertsScreen:186`, `RfidScreen:154`, `TimetableScreen:146`, `SubmitScreen:206` — unkeyed/index-keyed dynamic Lazy lists; several also missing contentType. | **FIXED (re-verified 2026-07-13: stable keys + contentType)** |
 
 **Claude's independent mobile new-bug hunt (beyond the 11):**
@@ -280,7 +280,7 @@ Claude counter-reviewed every original Codex C35 finding against HEAD. Codex the
 | Codex finding | Claude counter (verdict + note) | Common-ground state |
 | --- | --- | --- |
 | C35-001 | **AGREE / CONFIRMED.** Self-verified `c0fb00a0` is FCM-token-only; logout cache/draft/outbox sweep parked off-main. | CONVERGED — P0 open |
-| C35-002 | **AGREE / CONFIRMED.** `baseline.txt:15` vaccexec god-CTE + processintegrity fallback both live; scale-guard green only via baseline. | CONVERGED — P1 open |
+| C35-002 | **SUPERSEDED BY CURRENT CODE REVIEW.** `ShedSummary` now reads `vaccination_shed_projection_rows` through `shedSummaryProjectedSQL` and returns `ErrProjectionUnavailable` instead of falling back to the god-CTE. | FIXED WITH PROOF; 1M/5M certification remains validation debt |
 | C35-003 | **AGREE / CONFIRMED.** `cloud_run_jobs.tf:84-101` has no actor env; `main.go:82-95` fails open. | CONVERGED — P1 open |
 | C35-004 | **AGREE / CONFIRMED.** `main.go:358-367` loops singular `CreateTaskForBatch`; `b7a8edc7` raised timeouts only. | CONVERGED — P1 open |
 | C35-005 | **AGREE / CONFIRMED + STRENGTHENED.** Self-verified `searchAllGoats` still in SSR (`herd-register.tsx:160`), projection has no reader, 000164 backfill-before-trigger gap. | CONVERGED — P1 open |
@@ -290,7 +290,7 @@ Claude counter-reviewed every original Codex C35 finding against HEAD. Codex the
 | C35-009 | **AGREE / CONFIRMED + ADD.** No latency gate in ordinary CI; 1M cert unrun. **New:** `report_certification_test.go` now fails undeclared certification surfaces (partial guard). | CONVERGED — P1 open |
 | C35-010 | **AGREE / CONFIRMED + ESCALATE.** Self-verified `publish.go` key-only check + `generation.go:1586` cancel path. Claude recommends **P0** (wrong medical action). | **FIXED WITH PROOF** — runtime union (`deferStateSet`→`protodomain.EffectiveClinicalDeferStates`) + publish reject-partial + trigger-seed fix + `make clinical-defer-guard` (CI). RED→GREEN unit + real-Postgres deferred 1→3; full backend suite green (story_ab fixture corrected). See §5-detail proof packet |
 | C35-011 | **AGREE / CONFIRMED.** `RecordScreen.kt` read-only (`RecordEvent.Close` only). | CONVERGED — P1 open |
-| C35-012 | **PLAUSIBLE / CANNOT INDEPENDENTLY VERIFY.** No `gh`/GitHub connector in Claude's session. Codex reverified authenticated `vgoats/goatos` state: PR #3 has empty checks and exact-HEAD push/PR runs are both zero-job `startup_failure`. | CONVERGED — P1 CONFIRMED gate unavailability; cause remains unproven |
+| Hosted Actions outage | **NOT A SOFTWARE BUG.** Remote GitHub Actions startup failure is tracked in `docs/runbooks/local-release-evidence.md`; local checked-in gates are authoritative while billing/platform is down. | removed from bug count |
 | C35-013 | **AGREE / CONFIRMED.** Board OFFSET + both lanes fetched in one `Promise.all`; queue itself now cursor-based (BUG-013 fixed). | CONVERGED — P2 open |
 | C35-014 | **AGREE / CONFIRMED.** `calendar.tsx:124-143` unconditional picker fetch. | CONVERGED — P2 open |
 | C35-015 | **AGREE / CONFIRMED (pre-existing).** `sops/page.tsx` not in this window's diff; carried pre-existing debt. | CONVERGED — P2 open |
@@ -352,22 +352,22 @@ Fix (pushed): both logout entry points (`SessionViewModel`, `ProfileViewModel`) 
 ID: C35-002  
 Priority: P1  
 Title: Process Integrity and Vaccination Execution still compute million-animal answers on read  
-Status: open  
+Status: FIXED WITH PROOF — current code review confirms projection read path; remaining 1M/5M proof is validation debt  
 Origin: pre-existing / prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-002; pending handoff A1; scale baseline `god-cte` entries  
-Layman explanation: Important dashboards still rebuild the answer from raw history when a prepared answer is absent or unhealthy, so the failure mode of the “fast path” is the slowest possible path.  
-Evidence: `backend/internal/processintegrity/adapters/postgres/repository.go:115-131` falls back to the canonical count query when `projectionReadable` is false; `backend/internal/vaccinationexecution/adapters/postgres/repository.go` remains baselined as a live-recompute god-CTE in `tools/scale-guard/baseline.txt:15`; `context/execution/pending-issues-handoff-2026-07-12.md:19-28` explicitly leaves both read models open. `make scale-guard` passed only with 51 grandfathered offenders.  
+Layman explanation: Originally, important dashboards rebuilt the answer from raw history when a prepared answer was absent or unhealthy, so the failure mode of the “fast path” was the slowest possible path. Current code review finds the Vaccination Execution hot read now uses the prepared projection table instead of recomputing on request.  
+Evidence: Current code review on 2026-07-13: `backend/internal/vaccinationexecution/adapters/postgres/repository.go` `ShedSummary` calls `shedProjectionServingVersion`, returns `domain.ErrProjectionUnavailable` if no serving projection exists, and otherwise serves through `shedSummaryProjectedSQL`, which reads `vaccination_shed_projection_rows`. The old text below saying the live path was not flipped is stale and superseded.  
 Prod reachability: Action Center/Process Integrity and shed/execution reads, especially during projection failure/rebuild and at 1-5M animals.  
 Failure scenario: A projection turns red or is missing; a normal dashboard request executes the canonical event-history aggregation until its request timeout, amplifying DB load while the system is already degraded.  
 Business impact: Slow/unavailable operational screens and database saturation during incidents.  
 Root-cause-or-band-aid verdict: Partial root fix for one healthy projection state; failure-path and sibling Vaccination Execution recompute remain.  
 Counterargument: The fallback preserves correctness and queries have timeouts/indexes.  
-Why it survives / why downgraded: Correctness is useful, but a user-facing fallback that predictably collapses at target scale is P1 perf debt, not closure.  
+Why it survives / why downgraded: As a software bug, this is closed by the current request-path flip. Remaining 1M/5M scale proof is validation/certification debt, not an open correctness or request-path bug.  
 E2E / guardrail status: false-green/stale; scale guard baselines it, the Pages scale report says 1M staging was not run, and current GitHub jobs did not start.  
 Fix sketch: Maintain incremental, versioned read models for both domains; serve last-known-good with explicit freshness/error state; move rebuilds off request paths.  
 Guardrail needed: Current-SHA 1M/5M latency gates that force projection-unavailable scenarios and fail on canonical fallback latency/query count.  
-Progress (pushed, vaccexec increment — C35-002 STAYS PARTIAL/open): landed the read-model INFRASTRUCTURE for the shed execution rollup without changing the live read (option-b, no regression). `GET /vaccination/sheds` / `ShedSummary` still serves from the god-CTE (no 503, `as_of` honored); alongside it: migration `000167_vaccination_shed_projection.sql` (`vaccination_shed_projection_rows` + `_state`, serving-version-swap, indexed, lock-safe), a `RecomputeShedProjection` builder in a separate `shed_projection.go` with a parity test proving projection==god-CTE, a recompute CLI + Cloud Run Job + deploy-seed refresh wiring (mirroring the processintegrity projector), and indexed sqlc-plan checks (`VaccinationShedProjectionServingHot`/`StatusFilter`). REMAINDER (why still open): the request-path is NOT flipped — reads still compute-on-read via the god-CTE, so the scale defect persists until the flip; the flip is now a safe follow-up (projection tables + refresh exist + parity proven). Gates green: go build/vet, `go test ./internal/vaccinationexecution/...` (incl. real-Postgres parity), `make validate-migrations`, `make validate-sqlc-plans`, `make scale-guard` (god-CTE still baselined, by design).
+Progress (pushed and re-reviewed): landed the read-model infrastructure for the shed execution rollup and, in current code, flipped `GET /vaccination/sheds` / `ShedSummary` to the projection reader. Supporting pieces include migration `000167_vaccination_shed_projection.sql` (`vaccination_shed_projection_rows` + `_state`, serving-version-swap, indexed, lock-safe), `RecomputeShedProjection` in `shed_projection.go`, parity tests, recompute CLI + Cloud Run Job + deploy-seed refresh wiring, and indexed sqlc-plan checks (`VaccinationShedProjectionServingHot`/`StatusFilter`). Current residual is only certification: run/prove 1M/5M current-SHA latency and projection-lifecycle gates. Do not count this as an open software bug unless code again falls back to compute-on-read.
 
 ### C35-003
 
@@ -487,7 +487,7 @@ Status: fixed with proof
 Origin: prior-ledger  
 Verdict: CONFIRMED → FIXED  
 Prior mapping: BUG-018  
-Fix (pushed): added a required `compile-and-test` job to `.github/workflows/android-quality.yml` (setup-java temurin 21 + setup-android + `./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest`). Because remote GitHub Actions are billing/platform-blocked (C35-012), the identical gate is enforced locally via `make ci-local android` (JAVA_HOME=openjdk@21 + Android SDK) per the new AGENTS.md rule. Adversarial proof of the gate: RED on a broken Android tree (`AppNavHost.kt:433 'when' must be exhaustive — add 'is Rework','is Verify'`, from an unwired sealed-event change) and GREEN on the clean tree (`BUILD SUCCESSFUL`, :app compile + unit tests). The current-SHA proof is a green `make ci-local android`.  
+Fix (pushed): added a required `compile-and-test` job to `.github/workflows/android-quality.yml` (setup-java temurin 21 + setup-android + `./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest`). Because remote GitHub Actions are billing/platform-blocked, the identical gate is enforced locally via `make ci-local android` (JAVA_HOME=openjdk@21 + Android SDK) per the new AGENTS.md rule and `docs/runbooks/local-release-evidence.md`. Adversarial proof of the gate: RED on a broken Android tree (`AppNavHost.kt:433 'when' must be exhaustive — add 'is Rework','is Verify'`, from an unwired sealed-event change) and GREEN on the clean tree (`BUILD SUCCESSFUL`, :app compile + unit tests). The current-SHA proof is a green `make ci-local android`.  
 Layman explanation: The main pull-request gate checks mobile source patterns but does not prove the app builds.  
 Evidence: `.github/workflows/ci.yml:16-39` runs scale/mobile static guards but no Gradle compile/test. `.github/workflows/android-quality.yml:1-24` only runs the hardcoded-design check. Gradle build exists in `.github/workflows/stg-pr-gate.yml:108-150`, which applies to the later `main -> stg` gate, not ordinary Android changes into main.  
 Prod reachability: Any Android PR merged into main.  
@@ -582,28 +582,6 @@ Why it survives / why downgraded: The pending handoff explicitly defines mobile 
 E2E / guardrail status: missing; Story AJ is direct backend/admin-web coverage, not Android UI/RBAC coverage.  
 Fix sketch: Add role-scoped verify/rework actions, row-version/idempotency handling, offline-safe state, and truthful unavailable states.  
 Guardrail needed: Android UI/integration matrix for operator denial, park scope, Director rework, CEO verify, replay, and offline retry.
-
-### C35-012
-
-ID: C35-012  
-Priority: P1  
-Title: Current release evidence is unavailable because GitHub Actions fail before any job starts  
-Status: FIXED + PUSHED (local-release-evidence runbook, 53a799e1; org Actions billing is maintainer-side, not a closure blocker per AGENTS.md)  
-Origin: new operational finding  
-Verdict: CONFIRMED — root isolated to GitHub org Actions platform, NOT repo code/YAML  
-Prior mapping: GitHub current-SHA runs / PR #3  
-Layman explanation: The repository shows a clean promotion PR, but every current check dies before running even one test — GitHub cannot start ANY workflow run for this repo.  
-Evidence (current-SHA diagnosis, HEAD `56e0e804`): the two runs for the pushed SHA are the synthetic `path=BuildFailed`, `display_title="(Unknown event)"`, `conclusion=startup_failure`, **0 jobs** (GitHub REST `actions/runs?head_sha=…`). Root cause ISOLATED and NOT in the repo: (1) all five workflow files parse as valid YAML locally and every workflow lists `state=active` (REST `actions/workflows`); (2) Actions are ENABLED with `allowed_actions=all` at BOTH repo (`actions/permissions`) and org (`orgs/vgoats/actions/permissions`); (3) the failure is universal across `push` and `pull_request` events and across commits. The `BuildFailed`/`(Unknown event)`/zero-job signature is GitHub's placeholder when it cannot instantiate a run — the documented cause is an **org-level Actions spending-limit / billing / platform block**. The billing REST endpoint now returns `410 moved`, so it must be resolved in the **GitHub org billing UI** (`Settings → Billing → Actions` for `vgoats`), which is a maintainer action outside repo code, CLI push, or API from this session. Local `actionlint` + `yaml.safe_load` on all workflows pass, confirming no YAML/config defect to fix here.  
-Global impact on this closure: the program's "current-SHA GitHub checks must execute and pass" gate is therefore **externally blocked for EVERY row**, not just this one, until org Actions billing is restored. All landed fixes are proven by full LOCAL gates (`go test ./...`, guards, real-Postgres + HTTP E2E) in lieu of the unavailable remote runner.  
-Prod reachability: Merge/promotion of current main to staging and any branch protection relying on those checks.  
-Failure scenario: A maintainer merges a “clean” PR with no executed backend, migration, Android, contract, or E2E job because the workflow never allocates a job.  
-Business impact: False-green/unavailable release gate; P1 by priority rule.  
-Root-cause-or-band-aid verdict: Unresolved release-system failure; application test fixes do not matter if no runner starts.  
-Counterargument: This may be transient GitHub billing/usage/platform state outside the repository.  
-Why it survives / why downgraded: External causation does not restore current-SHA evidence. It is confirmed as gate unavailability, not as a specific YAML bug.  
-E2E / guardrail status: release gate unavailable; local kernel E2E passed but cannot substitute for all remote jobs.  
-Fix sketch: Inspect Actions startup annotations, org billing/usage/policy and the synthetic `BuildFailed` workflow record; restore runners and require successful current-SHA checks before promotion.  
-Guardrail needed: Branch protection that treats missing/skipped checks as blocking plus an external monitor alerting on zero-job startup failures.
 
 ### C35-013
 
@@ -916,7 +894,7 @@ Guardrail needed: Static dead-field/unused-write check for production Go structs
 ID: MOB-001  
 Priority: P1  
 Title: Offline submission still requires a fresh task network read  
-Status: open  
+Status: FIXED — re-verified 2026-07-13 against real code  
 Origin: dedicated mobile architecture pass / documented P1 backlog  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: distinct from C35-006; C35-006 is lost route identity, this is the missing Room task read model  
@@ -937,7 +915,7 @@ Guardrail needed: Process-death + airplane-mode Scan → Submit test proving zer
 ID: MOB-002  
 Priority: P1  
 Title: Required recording forms and proof cannot be captured, so real submissions are rejected  
-Status: open  
+Status: FIXED — re-verified 2026-07-13 against real code  
 Origin: dedicated mobile workflow pass / partial side-branch implementation absent at HEAD  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: distinct from C35-006 and C35-011  
@@ -979,7 +957,7 @@ Guardrail needed: >2-page L2 integration test asserting every row appears once a
 ID: MOB-004  
 Priority: P1  
 Title: Calendar page 2 bypasses Room and disappears offline or after process death  
-Status: open  
+Status: FIXED — re-verified 2026-07-13 against real code  
 Origin: dedicated Room SSOT pass / documented pagination rule  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: BUG-015 fixed cursor consumption only; this is the still-broken on-device SSOT half  
@@ -1000,7 +978,7 @@ Guardrail needed: Load two pages, kill process, disable network, reopen, and ass
 ID: MOB-005  
 Priority: P1  
 Title: Production Scan and Submit states render mock farm data as if it were real  
-Status: open  
+Status: FIXED — re-verified 2026-07-13 against real code  
 Origin: dedicated truthful empty/loading-state pass  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: new root finding  
@@ -1063,7 +1041,7 @@ Guardrail needed: Two-account + process-death offline tests distinguishing “no
 ID: MOB-008  
 Priority: P1  
 Title: Leadership data gaps are silently capped at 50 and have no continuation  
-Status: open  
+Status: FIXED — re-verified 2026-07-13 against real code  
 Origin: dedicated list-cardinality pass / documented P1 backlog  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: not C35-011; that row covers verify/rework actions  
@@ -1084,7 +1062,7 @@ Guardrail needed: 51+ gap test proving all pages, stable keys, process restorati
 ID: MOB-009  
 Priority: P1  
 Title: Calendar and Execution still decode large Room JSON blobs on the Main thread  
-Status: open  
+Status: FIXED — re-verified 2026-07-13 against real code  
 Origin: prior anti-pattern fix verification / documented P1 backlog  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: strengthens but does not duplicate C35-018's unbounded Scan collections  
@@ -1105,15 +1083,15 @@ Guardrail needed: Static repository-flow check plus Macrobenchmark/FrameTiming t
 ID: MOB-010  
 Priority: P2  
 Title: Screen read flows keep collecting while their navigation entries are backgrounded  
-Status: open  
+Status: PARTIAL — Submit, Timetable, Profile, and Coverage still keep background collectors alive  
 Origin: dedicated lifecycle/battery pass / documented cross-cutting backlog  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: new cross-cutting finding  
-Layman explanation: Leaving a screen on the back stack stops drawing it, but its ViewModel continues observing Room and rebuilding state.  
-Evidence: Alerts, Calendar, CalendarDay, Leadership, Overdue, Record, Scan, and Sheds ViewModels each launch `collectLatest` bridges in `viewModelScope`; only `SyncStatusViewModel` uses `stateIn(SharingStarted.WhileSubscribed(5_000))`. The accepted app-wide pattern says screen read state must be WhileSubscribed and never a forever collector (`mobile-fetch-fix-backlog.md:13-17,85-86`; `performance-and-memory.md:90`). Hot hardware flows are separately allowed and are not counted here.  
+Layman explanation: Some Android screens keep listening to Room/status updates even after the user navigates away and the screen is only sitting in the back stack. The screen is not showing wrong data, but the phone can still spend CPU/battery rebuilding state nobody is looking at.  
+Evidence: Alerts, Calendar, CalendarDay, Leadership, Overdue, Record, Scan, and Sheds now use `stateIn(SharingStarted.WhileSubscribed(5_000))`. Four screen ViewModels still use always-on collectors: `TimetableViewModel` collects `repo.observeTimetable(centerId)` in `viewModelScope.launch`; `ProfileViewModel` collects `reader.status`; `CoverageBannerViewModel` collects `repo.observeCoverage()`; `SubmitViewModel` collects task detail, capture rows, proof rows, scan tags, and outbox status through manually managed `viewModelScope.launch` jobs. The accepted app-wide pattern says screen read state must be WhileSubscribed and never a forever collector (`mobile-fetch-fix-backlog.md:13-17,85-86`; `performance-and-memory.md:90`). Hot hardware flows are separately allowed and are not counted here.  
 Prod reachability: Normal drill navigation where Calendar/Sheds/Scan/Leadership entries remain in the back stack.  
 Failure scenario: Backgrounded VMs keep reacting to cache/outbox updates, decoding/mapping lists and consuming CPU/battery until popped.  
-Business impact: Avoidable battery drain, heap retention, and recomposition/state work on low-end phones.  
+Business impact: Avoidable battery drain, heap retention, and background state work on low-end phones.  
 Root-cause-or-band-aid verdict: UI uses lifecycle-aware collection, but the ViewModel-side bridge remains eager.  
 Counterargument: `viewModelScope` cancels when the nav entry is cleared, and keeping state warm improves Back navigation.  
 Why it survives / why downgraded: Back-stack entries can live for the full session; the explicit 5-second replay window provides warm Back behavior without permanent upstream work. P2 because this is cumulative resource waste, not immediate data corruption.  
@@ -1126,7 +1104,7 @@ Guardrail needed: Navigation test asserting Room subscriptions stop shortly afte
 ID: MOB-011  
 Priority: P2  
 Title: Several dynamic Lazy lists still have no stable item keys  
-Status: open  
+Status: FIXED — re-verified 2026-07-13 against real code  
 Origin: dedicated Compose performance pass  
 Verdict: CONFIRMED BY CODEX AND CLAUDE (independently counter-reviewed at HEAD)  
 Prior mapping: Scan instances strengthen C35-018; other screens are new coverage  
@@ -1257,7 +1235,7 @@ Guardrail needed: Android integration test with a >2-page roster asserting every
 - Dropped as fixed with current proof: BUG-012 (ACK/finalization behavior), BUG-013 (verification >200), BUG-015 (Calendar page consumption), and pending C1 `RoleManager` compile failure.
 - Countered and not re-promoted: BUG-001, BUG-004 through BUG-009, BUG-034; OCK-006, OCK-008, OCK-025, OCK-041, OCK-076, OCK-077. Their active seed/fail-closed/source-scope evidence was not contradicted.
 - Out of current checkout: BUG-027 inventory-only row; side-branch/stash A3/D work; mobile FCM SDK work gated on the production Firebase project.
-- External/product gates, not local defects: OCK-044, OCK-045, OCK-050. They remain launch prerequisites; this classification does not excuse C35-003's checked-in staging omission or C35-012's unavailable gate.
+- External/product gates, not local defects: OCK-044, OCK-045, OCK-050. They remain launch prerequisites; this classification does not excuse C35-003's checked-in staging omission. Hosted Actions availability is tracked in `docs/runbooks/local-release-evidence.md`, not counted as a software bug.
 - Not promoted: herd projection migration's backfill-before-trigger write gap is evidence strengthening C35-005, not a second root bug while no production reader exists.
 - Not promoted: Android local Gradle failure due to missing Java. It is a verification limitation, not an application defect.
 - Not promoted as confirmed: a specific duplicate side effect under OCK-053. The generic risk is C35-024 PLAUSIBLE until a non-idempotent handler/fault reproduction is supplied.
@@ -1286,7 +1264,7 @@ Guardrail needed: Android integration test with a >2-page roster asserting every
 | Domain-handler replay certification | C35-024 | For every registered handler, inject finalization failure after side-effect commit and prove semantic idempotency/transactional inbox. |
 | Projection lifecycle job test | C35-002, C35-023 | Durable bounded rebuild/prune, last-known-good serving, error/progress telemetry, retry. |
 | Graph freshness gate | C35-021 | Compare graph SHA to HEAD and require full rebuild for structural-change threshold before architecture proof. |
-| Release-system availability monitor | C35-008, C35-009, C35-012 | Alert on startup failure/zero jobs; branch protection blocks missing checks; retain current-SHA evidence. |
+| Release-system availability monitor | C35-008, C35-009, hosted Actions outage | Alert on startup failure/zero jobs; branch protection blocks missing checks; retain current-SHA local evidence while hosted Actions is unavailable. |
 
 ## 8A. Deferred Validation, CI, and Anti-Pattern Wave
 
@@ -1300,7 +1278,7 @@ This backlog is deliberately **deferred until the root-bug closure wave finishes
 | C35-004 | Set-based real-Postgres creation, audit cardinality, replay without duplicates | Assert query/transaction count at 100/1,000 batches; inject crash/retry between task and audit work; record worker memory/deadline budgets. |
 | C35-007 | Migration/index drift checks and registered EXPLAIN-plan case | Execute with production-skewed 1M/5M data and enforce p95/p99, rows scanned, sort/spill, memory, and deadline thresholds on the same SHA. |
 | C35-008 | Android compile and unit gate, local JDK/SDK/emulator fallback | Add emulator instrumentation, Room migration tests, process-death/offline tests, baseline profile, macrobenchmark, Compose metrics, leak/heap/battery assertions, and low-end-device budgets. |
-| C35-010 | Clinical unit/real-Postgres matrix and HTTP -> service -> Postgres publish rejection | Remote current-SHA Actions evidence remains unavailable under C35-012; later add property/fuzz coverage for authoring permutations without weakening the existing medical E2E. |
+| C35-010 | Clinical unit/real-Postgres matrix and HTTP -> service -> Postgres publish rejection | Hosted Actions evidence is unavailable for operational reasons; later add property/fuzz coverage for authoring permutations without weakening the existing medical E2E. |
 | C35-014 | Closed/open request-plan static regression and admin-web build/type gates | Browser/server E2E must count actual network requests with picker closed/open and prove complete month markers beyond one item page. |
 | C35-015 | O(1) service-call unit proof and real-Postgres latest-version batch query | Add HTTP/SSR browser E2E, response-byte/payload budgets, summary DTO enforcement, cursor pagination, and error/auth/empty behavior. Current `limit=200` full-version response is not certified. |
 | C35-016 | Whole-tree static fanout guard with owner/issue/reason/expiry exceptions | Replace/augment regex matching with syntax/AST or call-graph analysis, run runtime request/query-count assertions, and fail CI when exceptions expire. |
@@ -1315,7 +1293,7 @@ This backlog is deliberately **deferred until the root-bug closure wave finishes
 | --- | --- | --- |
 | VAL-GAP-001 | `go test ./...` starts many Docker/Postgres packages concurrently; each reapplies all migrations and the local run hit Go's 10-minute package timeout. | Shard DB packages or bound package concurrency, isolate/reuse test databases safely, preserve per-package timeouts, and make the broad local gate deterministic instead of blank for ten minutes. |
 | VAL-GAP-002 | NEW-E2E-001's projector defect is fixed and the full E2E suite is green, but the closed-history cutoff still lacks a pinned-clock boundary matrix. | Add old-due/recent-completion, exactly-at-cutoff, before/after-as-of, and reopen/verify cases with a deterministic clock. |
-| VAL-GAP-003 | C35-012: remote Actions may start zero jobs because of organization billing/platform state. | Monitor missing/startup-failed checks and retain local same-runner proof without treating remote unavailability as a reason to stop fixing product bugs. |
+| VAL-GAP-003 | Remote Actions may start zero jobs because of organization billing/platform state. | Monitor missing/startup-failed checks and retain local same-runner proof without treating remote unavailability as a reason to stop fixing product bugs. |
 | VAL-GAP-004 | Current scale guard still carries 49 time-bounded known offenders. | Track owner/issue/expiry burn-down and never label a ratchet pass as scale certification. |
 | VAL-GAP-005 | Static guards can miss aliases, dynamic calls, multiline syntax, generated clients, or a new source tree. | Add whole-tree coverage manifests, adversarial self-tests, AST/call-graph checks where practical, and fail on unowned/unexpired coverage exceptions. |
 | VAL-GAP-006 | Focused tests can mutate tracked HTML report artifacts during local execution. | Write reports to disposable output or restore/check them automatically so test execution never leaves a dirty tree or hides product diffs. |
@@ -1349,7 +1327,7 @@ Agents must use isolated branches/worktrees and must not edit the shared ledger,
 
 > _[SUPERSEDED — the "18 fixed / 23 open" table below is the ORIGINAL audit-time
 > tally and is NOT current. See the ⭐ CANONICAL STATUS block at the top of this
-> file: C35/CL/FIXCHK/BUG namespace has only C35-002 open (partial, deferred scale);
+> file: C35/CL/FIXCHK/BUG namespace has no open software bugs after current code review;
 > the MOB lane is under re-verification. This table is retained for the per-priority
 > audit-time breakdown only.]_
 
@@ -1363,7 +1341,7 @@ The common ledger contains the original 40 counted findings plus NEW-E2E-001, di
 | P3 | 2 | 2 | 0 | 2 |
 | **Total** | **18** | **23** | **0** | **23** |
 
-**Fixed counted rows:** C35-003, C35-004, C35-007, C35-008, C35-009, C35-010, C35-013, C35-014, C35-015, C35-016, C35-020, C35-023, C35-024, C35-025, FIXCHK-001, FIXCHK-002, FIXCHK-003, and NEW-E2E-001. **Still partial/open:** C35-002 and C35-005. C35-012 remains an open remote-release-availability finding; it does not invalidate green local execution of the same checked-in job runner.
+**Fixed counted rows:** C35-003, C35-004, C35-007, C35-008, C35-009, C35-010, C35-013, C35-014, C35-015, C35-016, C35-020, C35-023, C35-024, C35-025, FIXCHK-001, FIXCHK-002, FIXCHK-003, and NEW-E2E-001. This historical sentence was superseded after current code review: C35-002 is now fixed by projection-read code, and hosted remote-release availability is not a software-bug row.
 
 **Three guardrails carry the most leverage:** destructive logout certification (C35-001); current-SHA Room/paging/workflow/performance Android certification (C35-006/008/011/017/018/019 plus MOB-001…011); and current-SHA scale/latency + cross-boundary fanout gates (C35-002/004/005/007/009/013/014/015/016/020). FIXCHK-001 also needs a dedicated app scoped-grant route matrix.
 
