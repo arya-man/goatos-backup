@@ -26,4 +26,7 @@
     <string name="calendar_history_label">అంగీకరించిన పూర్తి చరిత్ర</string>
     <string name="calendar_cta_open">తెరవండి</string>
     <string name="calendar_all_day">రోజంతా</string>
+    <string name="calendar_drive_sheds">షెడ్లు</string>
+    <string name="calendar_drive_vaccines">టీకాలు</string>
+    <string name="calendar_drive_doses">డోసులు</string>
 </resources>

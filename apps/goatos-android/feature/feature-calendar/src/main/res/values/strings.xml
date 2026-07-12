@@ -38,5 +38,8 @@
     <string name="calendar_load_more_day">Load more drives</string>
     <string name="calendar_load_more_history">Load more history</string>
     <string name="calendar_all_day">All day</string>
+    <string name="calendar_drive_sheds">Sheds</string>
+    <string name="calendar_drive_vaccines">Vaccines</string>
+    <string name="calendar_drive_doses">Doses</string>
     <string name="calendar_loading_more">Loading…</string>
 </resources>

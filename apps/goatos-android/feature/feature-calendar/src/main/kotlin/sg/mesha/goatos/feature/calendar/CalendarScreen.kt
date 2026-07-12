@@ -401,6 +401,41 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
+        if (item.aggregated) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                DriveMetric(
+                    label = stringResource(R.string.calendar_drive_sheds),
+                    value = item.shedCount,
+                    modifier = Modifier.weight(1f),
+                )
+                DriveMetric(
+                    label = stringResource(R.string.calendar_drive_vaccines),
+                    value = item.vaccineCount,
+                    modifier = Modifier.weight(1f),
+                )
+                DriveMetric(
+                    label = stringResource(R.string.calendar_drive_doses),
+                    value = item.targetCount,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (item.vaccineLabels.isNotEmpty()) {
+                Text(
+                    text = item.vaccineLabels.joinToString(" · "),
+                    color = MeshaColors.Brand2,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.W700,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
         item.ctaLabel?.let {
             // ctaLabel non-null = drillable; the verb itself is fixed chrome, localized here
             // (the VM's English "Open" is ignored so the label follows the app locale).
@@ -412,6 +447,33 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 modifier = Modifier.padding(top = 11.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun DriveMetric(label: String, value: Int, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(MeshaColors.PageBg)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
+            .padding(horizontal = 9.dp, vertical = 9.dp),
+    ) {
+        Text(
+            text = label.uppercase(),
+            color = MeshaColors.Muted,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.W700,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = value.toString(),
+            color = MeshaColors.Ink,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.W800,
+            modifier = Modifier.padding(top = 3.dp),
+        )
     }
 }
 

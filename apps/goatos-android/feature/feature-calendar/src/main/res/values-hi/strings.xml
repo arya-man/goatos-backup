@@ -26,4 +26,7 @@
     <string name="calendar_history_label">स्वीकृत पूर्णता इतिहास</string>
     <string name="calendar_cta_open">खोलें</string>
     <string name="calendar_all_day">पूरा दिन</string>
+    <string name="calendar_drive_sheds">शेड</string>
+    <string name="calendar_drive_vaccines">टीके</string>
+    <string name="calendar_drive_doses">खुराक</string>
 </resources>
