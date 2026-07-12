@@ -38,6 +38,7 @@ import (
 	locationshttp "github.com/vgoats/goatos/backend/internal/locations/adapters/http"
 	locationspg "github.com/vgoats/goatos/backend/internal/locations/adapters/postgres"
 	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
+	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	operationsaudithttp "github.com/vgoats/goatos/backend/internal/operationsaudit/adapters/http"
@@ -343,6 +344,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationapp.NewManualCampaignHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
+	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): a read-only
+	// consumer of notificationbridge.EventObligationVerificationStatus. It does not subscribe to, publish,
+	// or depend on any vaccination.verify.* event -- whatever owns the verification state machine is
+	// responsible for publishing that event (directly, or via a thin adapter) once a proof enters
+	// verification_pending or is rejected/reworked; this bridge only turns that status into recipients +
+	// notification_requests rows.
+	notificationbridge.NewVerificationNotifier(rosterService, calendarService).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
 			WithVerificationProducer(verificationService).

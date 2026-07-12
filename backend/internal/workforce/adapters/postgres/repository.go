@@ -535,6 +535,7 @@ func (r *Repository) DeregisterDevice(ctx context.Context, cmd ports.DeregisterD
 UPDATE workforce_member_devices
 SET status = 'revoked',
     push_token_hash = NULL,
+    fcm_token = NULL,
     revoked_by = $3::uuid,
     revoked_at = now(),
     metadata = metadata || jsonb_build_object('revocation_reason', 'app_logout_decouple'),
@@ -585,14 +586,15 @@ func (r *Repository) RegisterDevice(ctx context.Context, cmd ports.RegisterDevic
 	err = tx.QueryRow(ctx, `
 INSERT INTO workforce_member_devices (
   tenant_id, workforce_member_id, platform, app_install_id, device_public_key_hash,
-  push_token_hash, app_version, os_version, status, last_seen_at, registered_by, metadata
+  push_token_hash, fcm_token, app_version, os_version, status, last_seen_at, registered_by, metadata
 ) VALUES (
-  $1::uuid, $2::uuid, 'android', $3, nullif($4, ''), nullif($5, ''), $6, $7, 'active', now(), $8::uuid, $9::jsonb
+  $1::uuid, $2::uuid, 'android', $3, nullif($4, ''), nullif($5, ''), nullif($6, ''), $7, $8, 'active', now(), $9::uuid, $10::jsonb
 )
 ON CONFLICT (tenant_id, app_install_id)
 DO UPDATE SET workforce_member_id = EXCLUDED.workforce_member_id,
               device_public_key_hash = EXCLUDED.device_public_key_hash,
               push_token_hash = EXCLUDED.push_token_hash,
+              fcm_token = EXCLUDED.fcm_token,
               app_version = EXCLUDED.app_version,
               os_version = EXCLUDED.os_version,
               status = 'active',
@@ -605,6 +607,7 @@ RETURNING device_id::text`,
 		cmd.Body.AppInstallID,
 		ptrValue(cmd.Body.DevicePublicKeyHash),
 		ptrValue(cmd.Body.PushTokenHash),
+		ptrValue(cmd.Body.FcmToken),
 		cmd.Body.AppVersion,
 		cmd.Body.OSVersion,
 		cmd.ActorID,
@@ -643,6 +646,7 @@ UPDATE workforce_member_devices
 SET app_version = CASE WHEN $4 <> '' THEN $4 ELSE app_version END,
     os_version = CASE WHEN $5 <> '' THEN $5 ELSE os_version END,
     push_token_hash = CASE WHEN $6 <> '' THEN $6 ELSE push_token_hash END,
+    fcm_token = CASE WHEN $9 <> '' THEN $9 ELSE fcm_token END,
     metadata = CASE WHEN $7::bool THEN $8::jsonb ELSE metadata END,
     last_seen_at = now(),
     row_version = row_version + 1
@@ -657,6 +661,7 @@ WHERE tenant_id = $1::uuid
 		ptrValue(cmd.Body.PushTokenHash),
 		cmd.Body.Metadata != nil,
 		metadata,
+		ptrValue(cmd.Body.FcmToken),
 	)
 	if err != nil {
 		return domain.DeviceSummary{}, err
@@ -921,6 +926,7 @@ SELECT
   d.app_install_id,
   d.device_public_key_hash,
   d.push_token_hash,
+  d.fcm_token,
   d.app_version,
   d.os_version,
   d.status,
@@ -938,15 +944,16 @@ func scanDevices(rows pgx.Rows) ([]domain.DeviceSummary, error) {
 	items := []domain.DeviceSummary{}
 	for rows.Next() {
 		var item domain.DeviceSummary
-		var publicKey, pushToken pgtype.Text
+		var publicKey, pushToken, fcmToken pgtype.Text
 		var lastSeen, registeredAt time.Time
 		var revokedAt pgtype.Timestamptz
 		var metadata []byte
-		if err := rows.Scan(&item.DeviceID, &item.OperatorID, &item.Platform, &item.AppInstallID, &publicKey, &pushToken, &item.AppVersion, &item.OSVersion, &item.Status, &lastSeen, &registeredAt, &revokedAt, &metadata, &item.RowVersion); err != nil {
+		if err := rows.Scan(&item.DeviceID, &item.OperatorID, &item.Platform, &item.AppInstallID, &publicKey, &pushToken, &fcmToken, &item.AppVersion, &item.OSVersion, &item.Status, &lastSeen, &registeredAt, &revokedAt, &metadata, &item.RowVersion); err != nil {
 			return nil, err
 		}
 		item.DevicePublicKeyHash = textPtr(publicKey)
 		item.PushTokenHash = textPtr(pushToken)
+		item.FCMToken = textPtr(fcmToken)
 		item.LastSeenAt = lastSeen.UTC().Format(time.RFC3339)
 		item.RegisteredAt = registeredAt.UTC().Format(time.RFC3339)
 		item.RevokedAt = timePtr(revokedAt)

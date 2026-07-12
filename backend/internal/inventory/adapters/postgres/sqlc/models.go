@@ -2178,6 +2178,39 @@ type VaccinationGenerationRun struct {
 	FailedGoatCount               int32
 }
 
+type VaccinationShedProjectionRow struct {
+	VaccinationShedProjectionRowID int64
+	TenantID                       pgtype.UUID
+	ParkID                         string
+	ParkName                       string
+	ShedID                         string
+	ShedName                       string
+	Animals                        int32
+	DueAnimals                     int32
+	OpenCells                      int32
+	Sessions                       int32
+	CapacityStatus                 string
+	ShedStatus                     string
+	LastDone                       pgtype.Timestamptz
+	NextDue                        pgtype.Timestamptz
+	ProjectionVersion              int64
+	ProjectedAt                    pgtype.Timestamptz
+	UpdatedAt                      pgtype.Timestamptz
+}
+
+type VaccinationShedProjectionState struct {
+	TenantID                 pgtype.UUID
+	ProjectionVersion        int64
+	ServingProjectionVersion pgtype.Int8
+	ProjectedAt              pgtype.Timestamptz
+	AsOf                     pgtype.Timestamptz
+	RowCount                 int64
+	FreshnessStatus          string
+	ServingState             string
+	LastError                pgtype.Text
+	UpdatedAt                pgtype.Timestamptz
+}
+
 type Vaccine struct {
 	VaccineID      pgtype.UUID
 	TenantID       pgtype.UUID
@@ -2329,6 +2362,7 @@ type WorkforceMemberDevice struct {
 	RevokedAt           pgtype.Timestamptz
 	Metadata            []byte
 	RowVersion          int32
+	FcmToken            pgtype.Text
 }
 
 type WorkforcePosition struct {

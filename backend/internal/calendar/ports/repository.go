@@ -34,6 +34,12 @@ type Repository interface {
 	SweepEscalations(ctx context.Context, in SweepEscalations) (int, error)
 	RefreshVaccinationProjection(ctx context.Context, in RefreshVaccinationProjection) (int, error)
 	PruneClosedVaccinationProjection(ctx context.Context, tenantID string, cutoff time.Time, limit int) (int, error)
+	// QueueRoleNotifications writes one notification_requests row per recipient (set-based INSERT,
+	// no N+1) for a non-cadence, event-triggered notification such as vaccination verification_pending
+	// / rework (vaccination-notification-rules.md §4c). Each recipient row is idempotent on its own
+	// device-scoped key, so replaying the same event never duplicates a row. Returns the number of
+	// rows actually inserted (0 on an exact replay of every recipient, or when Recipients is empty).
+	QueueRoleNotifications(ctx context.Context, in QueueRoleNotifications) (int, error)
 }
 
 type SendNudge struct {
@@ -104,4 +110,39 @@ type SweepEscalations struct {
 	Level2After  time.Duration
 	Level3After  time.Duration
 	Level4After  time.Duration
+}
+
+// NotificationRecipient is one device to queue a QueueRoleNotifications row for. RoleLabel and
+// MemberID are descriptive only (carried into notification_requests.context for observability/
+// support triage) -- they never affect delivery, which is entirely driven by FCMToken via
+// recipient_ref.
+type NotificationRecipient struct {
+	MemberID  string
+	DeviceID  string
+	FCMToken  string
+	RoleLabel string
+}
+
+// QueueRoleNotifications is the generic, non-cadence event-triggered notification write: given an
+// already-resolved recipient list (from another module's own recipient-resolution query -- e.g.
+// workforce's ResolveModuleDutyRecipients/ResolveMemberRecipients/ResolvePositionRecipients), write
+// one queued notification_requests row per recipient device, linked to an EXISTING
+// calendar_event_projections row (the FK the table enforces). Idempotent per (tenant, event,
+// notification type, completion, device) — see idempotencyKeyForRecipient in the postgres adapter.
+type QueueRoleNotifications struct {
+	TenantID         string
+	CalendarEventID  string // must already exist in calendar_event_projections (FK)
+	TargetType       string
+	TargetID         string
+	NotificationType string // "verification_pending" | "rework"
+	Channel          string // "push_fcm"
+	Priority         string // "normal" | "high" -- no dedicated column; carried in context
+	Title            string
+	Body             string
+	TraceID          string
+	// EventKey scopes the idempotency key to the triggering event (e.g. "vaccination.verify.pending:"
+	// + completionID) so a replay of the SAME event never duplicates a recipient's row, while a
+	// DIFFERENT event (e.g. the rework that follows a later resubmission) gets its own rows.
+	EventKey   string
+	Recipients []NotificationRecipient
 }

@@ -127,14 +127,17 @@ type DeviceSummary struct {
 	AppInstallID        string         `json:"app_install_id"`
 	DevicePublicKeyHash *string        `json:"device_public_key_hash"`
 	PushTokenHash       *string        `json:"push_token_hash"`
-	AppVersion          string         `json:"app_version"`
-	OSVersion           string         `json:"os_version"`
-	Status              string         `json:"status"`
-	LastSeenAt          string         `json:"last_seen_at"`
-	RegisteredAt        string         `json:"registered_at"`
-	RevokedAt           *string        `json:"revoked_at"`
-	Metadata            map[string]any `json:"metadata"`
-	RowVersion          int            `json:"row_version"`
+	// FCMToken is the raw FCM registration token the push gateway needs (message.token).
+	// PushTokenHash stays the identity/dedup hash; FCMToken is the delivery address (migration 000171).
+	FCMToken     *string        `json:"fcm_token,omitempty"`
+	AppVersion   string         `json:"app_version"`
+	OSVersion    string         `json:"os_version"`
+	Status       string         `json:"status"`
+	LastSeenAt   string         `json:"last_seen_at"`
+	RegisteredAt string         `json:"registered_at"`
+	RevokedAt    *string        `json:"revoked_at"`
+	Metadata     map[string]any `json:"metadata"`
+	RowVersion   int            `json:"row_version"`
 }
 
 type DeviceListResponse struct {
@@ -151,15 +154,19 @@ type RegisterDeviceRequest struct {
 	AppInstallID        string         `json:"app_install_id"`
 	DevicePublicKeyHash *string        `json:"device_public_key_hash"`
 	PushTokenHash       *string        `json:"push_token_hash"`
-	AppVersion          string         `json:"app_version"`
-	OSVersion           string         `json:"os_version"`
-	Metadata            map[string]any `json:"metadata"`
+	// FcmToken is the raw FCM registration token (optional -- backward compatible with clients that
+	// have not yet upgraded to send it; push_token_hash keeps working as the identity/dedup hash).
+	FcmToken   *string        `json:"fcm_token"`
+	AppVersion string         `json:"app_version"`
+	OSVersion  string         `json:"os_version"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 type HeartbeatDeviceRequest struct {
 	AppVersion    string         `json:"app_version"`
 	OSVersion     string         `json:"os_version"`
 	PushTokenHash *string        `json:"push_token_hash"`
+	FcmToken      *string        `json:"fcm_token"`
 	Metadata      map[string]any `json:"metadata"`
 }
 
