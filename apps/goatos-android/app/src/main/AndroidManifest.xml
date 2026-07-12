@@ -13,9 +13,21 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <!-- Obligation/escalation alert notifications rendered from FCM
-         (docs/mobile/trd-operator-mobile.md §8). Runtime-requestable only on Android 13+
-         (TIRAMISU); declaring it on older OS versions is a documented no-op. -->
+         (docs/mobile/trd-operator-mobile.md §8), AND the MOB-002 background upload progress
+         notification (docs/mobile/proof-capture-sync-and-e2e.md §3, UploadForegroundService).
+         Runtime-requestable only on Android 13+ (TIRAMISU); declaring it on older OS versions is
+         a documented no-op. Already mandatory-gated at the capture surface entry
+         (CaptureAccessGate.kt). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- MOB-002 background upload foreground service (docs/mobile/proof-capture-sync-and-e2e.md
+         §3 "Background sync survives app close" — UploadForegroundService). FOREGROUND_SERVICE is
+         a normal permission required for any foreground service; FOREGROUND_SERVICE_DATA_SYNC is
+         the typed permission Android 14+ requires for a `dataSync`-typed foreground service
+         (harmless no-op declaration on older OS versions, same pattern as POST_NOTIFICATIONS
+         above). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- RFID keyboard-wedge reader (docs/mobile/rfid-keyboard-reader.md). Android owns the
          HID connection; these gate paired-device readiness + optional discovery. -->
@@ -61,6 +73,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- MOB-002 background upload foreground service (docs/mobile/proof-capture-sync-and-e2e.md
+             §3). `dataSync` type: it drains outbox writes (proof-video registrations + shed
+             submissions), not media playback/location/camera/etc. Never exported — only this app
+             (via ForegroundSyncController.ensureRunning -> AndroidForegroundSyncController) starts
+             it. -->
+        <service
+            android:name=".sync.UploadForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <!-- Disable WorkManager's default on-startup initializer: GoatOsApplication implements
              Configuration.Provider to supply a Hilt HiltWorkerFactory (on-demand init), so the
              default initializer must NOT run first with a factory that can't build @HiltWorker. -->

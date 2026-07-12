@@ -64,6 +64,17 @@
     <string name="sync_optype_proof">Video proof</string>
     <string name="sync_optype_reschedule">Reschedule</string>
 
+    <!-- MOB-002 background upload foreground service notification (UploadForegroundService,
+         docs/mobile/proof-capture-sync-and-e2e.md §3 "Background sync survives app close"). -->
+    <string name="sync_notification_channel_name">Background sync</string>
+    <string name="sync_notification_channel_description">Shows progress while vaccination proof videos and drive submissions upload in the background, even if the app is closed.</string>
+    <string name="sync_notification_uploading_title">Uploading drive data…</string>
+    <string name="sync_notification_uploading_text">%1$d of %2$d item(s) uploaded</string>
+    <string name="sync_notification_success_title">Upload complete</string>
+    <string name="sync_notification_success_text">All proof videos and drive submissions are synced.</string>
+    <string name="sync_notification_waiting_title">Upload paused</string>
+    <string name="sync_notification_waiting_text">%1$d item(s) waiting — will resume automatically when back online.</string>
+
     <!-- Scope / Data-gaps / Doses sheet footers + empty/note copy. -->
     <string name="scope_footer">Scope also filters the drives and backlog below</string>
     <string name="gaps_footer">Fix on the web dashboard · Data Ops → Herd Register</string>

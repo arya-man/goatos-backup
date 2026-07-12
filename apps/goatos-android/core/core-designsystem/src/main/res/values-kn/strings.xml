@@ -49,6 +49,16 @@
     <string name="sync_optype_shed">ಶೆಡ್ ದಾಖಲೆ</string>
     <string name="sync_optype_proof">ವೀಡಿಯೊ ಪ್ರೂಫ್</string>
     <string name="sync_optype_reschedule">ಮರುನಿಗದಿ</string>
+
+    <string name="sync_notification_channel_name">ಬ್ಯಾಕ್‌ಗ್ರೌಂಡ್ ಸಿಂಕ್</string>
+    <string name="sync_notification_channel_description">ಆ್ಯಪ್ ಮುಚ್ಚಿದ್ದರೂ, ವ್ಯಾಕ್ಸಿನೇಷನ್ ಪ್ರೂಫ್ ವೀಡಿಯೊಗಳು ಮತ್ತು ಡ್ರೈವ್ ಸಲ್ಲಿಕೆಗಳು ಬ್ಯಾಕ್‌ಗ್ರೌಂಡ್‌ನಲ್ಲಿ ಅಪ್‌ಲೋಡ್ ಆಗುವ ಪ್ರಗತಿಯನ್ನು ತೋರಿಸುತ್ತದೆ.</string>
+    <string name="sync_notification_uploading_title">ಡ್ರೈವ್ ಡೇಟಾ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="sync_notification_uploading_text">%2$d ರಲ್ಲಿ %1$d ಐಟಂ ಅಪ್‌ಲೋಡ್ ಆಗಿವೆ</string>
+    <string name="sync_notification_success_title">ಅಪ್‌ಲೋಡ್ ಪೂರ್ಣಗೊಂಡಿದೆ</string>
+    <string name="sync_notification_success_text">ಎಲ್ಲಾ ಪ್ರೂಫ್ ವೀಡಿಯೊಗಳು ಮತ್ತು ಡ್ರೈವ್ ಸಲ್ಲಿಕೆಗಳು ಸಿಂಕ್ ಆಗಿವೆ.</string>
+    <string name="sync_notification_waiting_title">ಅಪ್‌ಲೋಡ್ ವಿರಾಮಗೊಂಡಿದೆ</string>
+    <string name="sync_notification_waiting_text">%1$d ಐಟಂ ಕಾಯುತ್ತಿವೆ — ಆನ್‌ಲೈನ್ ಆದ ತಕ್ಷಣ ತಾನಾಗಿಯೇ ಮುಂದುವರಿಯುತ್ತದೆ.</string>
+
     <string name="scope_footer">ಸ್ಕೋಪ್ ಕೆಳಗಿನ ಡ್ರೈವ್‌ಗಳು ಮತ್ತು ಬ್ಯಾಕ್‌ಲಾಗ್ ಅನ್ನೂ ಫಿಲ್ಟರ್ ಮಾಡುತ್ತದೆ</string>
     <string name="gaps_footer">ವೆಬ್ ಡ್ಯಾಶ್‌ಬೋರ್ಡ್‌ನಲ್ಲಿ ಸರಿಪಡಿಸಿ · Data Ops → Herd Register</string>
     <string name="gaps_empty">ಯಾವುದೇ ಡೇಟಾ ಅಂತರವಿಲ್ಲ — ಎಲ್ಲಾ ಪ್ರಾಣಿಗಳ ಅಗತ್ಯ ಮಾಹಿತಿ ಇದೆ.</string>

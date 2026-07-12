@@ -49,6 +49,16 @@
     <string name="sync_optype_shed">షెడ్ రికార్డు</string>
     <string name="sync_optype_proof">వీడియో ప్రూఫ్</string>
     <string name="sync_optype_reschedule">పునఃషెడ్యూల్</string>
+
+    <string name="sync_notification_channel_name">బ్యాక్‌గ్రౌండ్ సింక్</string>
+    <string name="sync_notification_channel_description">యాప్ మూసివేసినా, వ్యాక్సినేషన్ ప్రూఫ్ వీడియోలు మరియు డ్రైవ్ సమర్పణలు బ్యాక్‌గ్రౌండ్‌లో అప్‌లోడ్ అవుతున్న పురోగతిని చూపుతుంది.</string>
+    <string name="sync_notification_uploading_title">డ్రైవ్ డేటా అప్‌లోడ్ అవుతోంది…</string>
+    <string name="sync_notification_uploading_text">%2$dలో %1$d అంశాలు అప్‌లోడ్ అయ్యాయి</string>
+    <string name="sync_notification_success_title">అప్‌లోడ్ పూర్తయింది</string>
+    <string name="sync_notification_success_text">అన్ని ప్రూఫ్ వీడియోలు మరియు డ్రైవ్ సమర్పణలు సింక్ అయ్యాయి.</string>
+    <string name="sync_notification_waiting_title">అప్‌లోడ్ ఆగింది</string>
+    <string name="sync_notification_waiting_text">%1$d అంశాలు వేచి ఉన్నాయి — ఆన్‌లైన్ అయిన వెంటనే స్వయంచాలకంగా కొనసాగుతుంది.</string>
+
     <string name="scope_footer">స్కోప్ కింది డ్రైవ్‌లు మరియు బ్యాక్‌లాగ్‌ను కూడా ఫిల్టర్ చేస్తుంది</string>
     <string name="gaps_footer">వెబ్ డాష్‌బోర్డ్‌లో సరిచేయండి · Data Ops → Herd Register</string>
     <string name="gaps_empty">డేటా ఖాళీలు లేవు — అన్ని జంతువుల అవసర సమాచారం ఉంది.</string>

@@ -120,6 +120,12 @@ class DefaultSyncRepository(
     private val recentTerminalLimit: Int = 20,
     /** Retention time for SUCCEEDED rows before pruning (default: 24 hours). */
     private val succeededRetentionMs: Long = 24 * 60 * 60 * 1000L,
+    /** Drive/Photos-style background upload (MOB-002 §3): asked to ensure the foreground
+     *  upload service is running whenever an [UploadSyncCoordinator.RELEVANT_OP_TYPES] write is
+     *  enqueued, so the visible progress notification survives the app being backgrounded or
+     *  closed mid-upload. [ForegroundSyncController.Noop] by default so every existing/test
+     *  construction of this class keeps compiling unchanged. */
+    private val foregroundSyncController: ForegroundSyncController = ForegroundSyncController.Noop,
 ) : SyncRepository {
 
     private val onlineFlow = MutableStateFlow(connectivityGate.isOnline())
@@ -243,6 +249,13 @@ class DefaultSyncRepository(
             val fingerprint = requestFingerprint(opType, groupKey, payloadJson)
             val id = insertOrExistingRow(opType, groupKey, idempotencyKey, payloadJson, fingerprint)
             triggerDrainAsync()
+            // Background upload foreground service (MOB-002 §3): only for the op types that
+            // carry proof/video-sized payloads worth a visible "uploading" notification — see
+            // UploadSyncCoordinator.RELEVANT_OP_TYPES. A verify/rework/reschedule write still
+            // drains via triggerDrainAsync() above; it just never shows the upload notification.
+            if (opType in UploadSyncCoordinator.RELEVANT_OP_TYPES) {
+                foregroundSyncController.ensureRunning()
+            }
             AppResult.Ok(id)
         } catch (cancellation: CancellationException) {
             // Never swallow cancellation into an Err — that breaks structured concurrency

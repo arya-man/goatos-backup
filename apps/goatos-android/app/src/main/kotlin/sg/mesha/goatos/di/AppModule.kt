@@ -59,6 +59,7 @@ import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
 import sg.mesha.goatos.core.data.sync.ConnectivitySyncTrigger
 import sg.mesha.goatos.core.data.sync.DefaultSyncRepository
+import sg.mesha.goatos.core.data.sync.ForegroundSyncController
 import sg.mesha.goatos.core.data.sync.OutboxStore
 import sg.mesha.goatos.core.data.sync.OutboxWiper
 import sg.mesha.goatos.core.data.sync.RoomOutboxStore
@@ -82,6 +83,7 @@ import sg.mesha.goatos.rfid.BtHidScanSource
 import sg.mesha.goatos.rfid.KeyboardWedgeRfidReader
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.ScanSource
+import sg.mesha.goatos.sync.AndroidForegroundSyncController
 import sg.mesha.goatos.sync.SyncWorkScheduler
 import javax.inject.Singleton
 
@@ -354,6 +356,16 @@ object AppModule {
         retryScheduler = retryScheduler,
     )
 
+    // Drive/Photos-style background upload foreground service (MOB-002 §3,
+    // sg.mesha.goatos.sync.UploadForegroundService). The port lives in :core:core-data
+    // (framework-free); this is its ONLY Android-touching implementation, mirroring how
+    // SyncWorkScheduler is the sole implementation of the SyncRetryScheduler/SyncJobs* ports.
+
+    @Provides
+    @Singleton
+    fun provideForegroundSyncController(@ApplicationContext context: Context): ForegroundSyncController =
+        AndroidForegroundSyncController(context)
+
     @Provides
     @Singleton
     fun provideSyncRepository(
@@ -361,11 +373,13 @@ object AppModule {
         engine: SyncEngine,
         connectivityGate: ConnectivityGate,
         appScope: CoroutineScope,
+        foregroundSyncController: ForegroundSyncController,
     ): SyncRepository = DefaultSyncRepository(
         store = store,
         engine = engine,
         connectivityGate = connectivityGate,
         appScope = appScope,
+        foregroundSyncController = foregroundSyncController,
     )
 
     // Reads back the concrete DefaultSyncRepository (same @Singleton instance returned

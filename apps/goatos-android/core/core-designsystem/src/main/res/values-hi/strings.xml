@@ -49,6 +49,16 @@
     <string name="sync_optype_shed">शेड रिकॉर्ड</string>
     <string name="sync_optype_proof">वीडियो प्रूफ़</string>
     <string name="sync_optype_reschedule">पुनर्निर्धारण</string>
+
+    <string name="sync_notification_channel_name">बैकग्राउंड सिंक</string>
+    <string name="sync_notification_channel_description">वैक्सीनेशन प्रूफ़ वीडियो और ड्राइव सबमिशन बैकग्राउंड में अपलोड होने की प्रगति दिखाता है, भले ही ऐप बंद हो।</string>
+    <string name="sync_notification_uploading_title">ड्राइव डेटा अपलोड हो रहा है…</string>
+    <string name="sync_notification_uploading_text">%2$d में से %1$d आइटम अपलोड हुए</string>
+    <string name="sync_notification_success_title">अपलोड पूरा हुआ</string>
+    <string name="sync_notification_success_text">सभी प्रूफ़ वीडियो और ड्राइव सबमिशन सिंक हो गए हैं।</string>
+    <string name="sync_notification_waiting_title">अपलोड रुका हुआ है</string>
+    <string name="sync_notification_waiting_text">%1$d आइटम प्रतीक्षा में हैं — ऑनलाइन होते ही अपने आप फिर से शुरू होगा।</string>
+
     <string name="scope_footer">स्कोप नीचे के ड्राइव और बैकलॉग को भी फ़िल्टर करता है</string>
     <string name="gaps_footer">वेब डैशबोर्ड पर ठीक करें · Data Ops → Herd Register</string>
     <string name="gaps_empty">कोई डेटा अंतराल नहीं — सभी पशुओं की आवश्यक जानकारी मौजूद है।</string>
