@@ -268,10 +268,21 @@ func TestScanRosterRequiresTaskIdentityAndReturnsCursor(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, &fakeWriter{}))
 
-	missing := httptest.NewRecorder()
-	mux.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster", nil))
-	if missing.Code != http.StatusBadRequest {
-		t.Fatalf("missing task status=%d want 400", missing.Code)
+	// task_id is OPTIONAL: absent -> shed-wide roster (200), not 400. Keeps the current app,
+	// which does not yet send task_id, working.
+	shedWide := httptest.NewRecorder()
+	shedWideReq := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster", nil)
+	shedWideReq = shedWideReq.WithContext(httpmiddleware.WithTenantID(shedWideReq.Context(), tenantID))
+	mux.ServeHTTP(shedWide, shedWideReq)
+	if shedWide.Code != http.StatusOK {
+		t.Fatalf("missing task_id (shed-wide) status=%d want 200", shedWide.Code)
+	}
+
+	// A MALFORMED task_id is still rejected.
+	badTask := httptest.NewRecorder()
+	mux.ServeHTTP(badTask, httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id=not-a-uuid", nil))
+	if badTask.Code != http.StatusBadRequest {
+		t.Fatalf("malformed task_id status=%d want 400", badTask.Code)
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/app/vaccination/execution/sheds/"+shedID+"/roster?task_id="+taskID+"&limit=1", nil)

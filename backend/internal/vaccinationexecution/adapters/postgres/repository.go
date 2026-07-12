@@ -14,9 +14,26 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
+
+// authorizedParkFilter returns the park ids a park-scoped actor may read, or nil when the caller is
+// tenant-wide / grant-less (no restriction). Derived from the request-context grants so read
+// queries enforce park scope in-query (defence in depth) without a signature change. A park-scoped
+// actor with no resolvable parks gets a non-nil empty slice -> matches nothing.
+func authorizedParkFilter(ctx context.Context, tenantID string) []string {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	if len(grants) == 0 || httpmiddleware.HasTenantWideGrant(grants, tenantID) {
+		return nil
+	}
+	parks := httpmiddleware.AuthorizedParkIDs(grants)
+	if parks == nil {
+		return []string{}
+	}
+	return parks
+}
 
 const (
 	defaultQueryTimeout     = 3 * time.Second
@@ -995,9 +1012,16 @@ ORDER BY effective.park_uuid ASC, effective.shed_uuid ASC, effective.stage ASC, 
 func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (domain.ScanRosterResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	identity, err := r.taskExecutionIdentity(ctx, q.TenantID, q.TaskID, q.ShedID)
-	if err != nil {
-		return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster identity: %w", err)
+	// task_id is OPTIONAL: when present the roster is pinned to that task's batch (task-scoped);
+	// when absent it falls back to the shed-wide roster (the pre-refactor behaviour the current
+	// app still relies on). The pinned identity is only resolved when a task is supplied.
+	identity := taskExecutionIdentity{}
+	if q.TaskID != "" {
+		var err error
+		identity, err = r.taskExecutionIdentity(ctx, q.TenantID, q.TaskID, q.ShedID)
+		if err != nil {
+			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster identity: %w", err)
+		}
 	}
 	limit := q.Limit
 	if limit <= 0 {
@@ -1010,7 +1034,10 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 	if q.Cursor != nil {
 		cursorGoatID, cursorObligationID = q.Cursor.GoatID, q.Cursor.ObligationID
 	}
-	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1)
+	// Park-scope clamp (defence in depth): a park-scoped app actor may only read rosters for sheds
+	// in their authorized parks. Tenant-wide (or grant-less internal) callers pass nil = no filter.
+	restrictParks := authorizedParkFilter(ctx, q.TenantID)
+	rows, err := r.pool.Query(ctx, scanRosterSQL, q.TenantID, q.ShedID, q.TaskID, identity.BatchID, cursorGoatID, cursorObligationID, limit+1, restrictParks)
 	if err != nil {
 		return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster: %w", err)
 	}
@@ -1091,13 +1118,14 @@ LEFT JOIN goat_identifiers aid2
  AND aid2.status = 'active'
 WHERE oi.tenant_id = $1::uuid
   AND g.shed_id = $2::uuid
-  AND oi.sop_task_id = $3::uuid
-  AND oi.batch_id = $4::uuid
+  AND ($3 = '' OR oi.sop_task_id = NULLIF($3, '')::uuid)
+  AND ($4 = '' OR oi.batch_id = NULLIF($4, '')::uuid)
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
   AND (
     $5 = '' OR g.goat_id > NULLIF($5, '')::uuid
     OR (g.goat_id = NULLIF($5, '')::uuid AND oi.obligation_id > NULLIF($6, '')::uuid)
   )
+  AND ($8::uuid[] IS NULL OR g.park_id = ANY($8::uuid[]))
 ORDER BY g.goat_id ASC, oi.obligation_id ASC
 LIMIT $7;
 `
@@ -1150,7 +1178,13 @@ WHERE st.tenant_id = $1::uuid
   AND st.task_id = $2::uuid
   AND st.scope_type = 'shed'
   AND ob.scope_type = 'shed'
-  AND ob.scope_id = st.scope_id`, tenantID, taskID).Scan(
+  AND ob.scope_id = st.scope_id
+  AND ($3::uuid[] IS NULL OR EXISTS (
+        SELECT 1 FROM goats g
+        WHERE g.tenant_id = st.tenant_id
+          AND g.shed_id = st.scope_id
+          AND g.park_id = ANY($3::uuid[])
+      ))`, tenantID, taskID, authorizedParkFilter(ctx, tenantID)).Scan(
 		&identity.TaskID, &identity.BatchID, &identity.SOPVersionID, &identity.TaskRowVersion, &shedID, &formDSL,
 	)
 	if err != nil {
@@ -1195,6 +1229,10 @@ func pinnedOptionSources(raw []byte) map[string]bool {
 }
 
 func (r *Repository) vaccineLotOptions(ctx context.Context, tenantID, batchID, shedID string) (domain.TaskOptionSource, error) {
+	// FEFO "not expired" is an India-business-day comparison, not the DB server's UTC CURRENT_DATE
+	// (a lot expiring today in Asia/Kolkata must not rank as usable past IST midnight). See
+	// GoatOS time semantics: derive the business day and pass it as a bound parameter.
+	bizToday := time.Now().In(biztime.DefaultLocation()).Format("2006-01-02")
 	rows, err := r.pool.Query(ctx, `
 WITH RECURSIVE chain AS (
   SELECT location_id, parent_location_id, 0 AS depth FROM locations
@@ -1217,8 +1255,8 @@ SELECT s.stock_id::text, COALESCE(NULLIF(s.lot_code,''), s.stock_id::text),
 FROM chain c JOIN inventory_stock s ON s.tenant_id=$1::uuid AND s.location_id=c.location_id
 JOIN items i ON i.item_id=s.item_id
 ORDER BY CASE WHEN s.status='active' AND s.quantity_in_stock>s.quantity_reserved
-                   AND (s.expiry_date IS NULL OR s.expiry_date>=CURRENT_DATE) THEN 0 ELSE 1 END,
-         c.depth, s.expiry_date ASC NULLS LAST, s.stock_id`, tenantID, batchID, shedID)
+                   AND (s.expiry_date IS NULL OR s.expiry_date>=$4::date) THEN 0 ELSE 1 END,
+         c.depth, s.expiry_date ASC NULLS LAST, s.stock_id`, tenantID, batchID, shedID, bizToday)
 	if err != nil {
 		return domain.TaskOptionSource{}, fmt.Errorf("vaccination execution: lot options: %w", err)
 	}

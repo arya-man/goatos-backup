@@ -109,6 +109,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/devices/{device_id}/deregister": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deregister the authenticated operator's own device on logout (decouples the FCM push binding).
+         * @description Self-service logout decouple. Clears the stored FCM push token binding and revokes the caller's OWN device (scoped by the device's registered_by = actor), so a signed-out user stops receiving pushes on that device. Idempotent for an already-revoked device the actor owns; an unknown device, or a device registered by another operator, returns 404.
+         */
+        post: operations["deregisterAppDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/tasks": {
         parameters: {
             query?: never;
@@ -1033,6 +1053,43 @@ export interface paths {
          * @description Reuses the same indexed cohort×protocol rollup /vaccination/operations already reads, re-aggregated by protocol only (no new hot-table query). Backs the mobile "Doses given" overlay.
          */
         get: operations["appVaccinationCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/vaccination/execution/sheds/{shed_id}/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-animal vaccination scan roster for a shed (keyset-paginated).
+         * @description Bounded per-animal obligations for the operator scan screen (RFID tags + vaccine label + status). task_id is OPTIONAL: given -> roster pinned to that task's batch; omitted -> shed-wide roster. Park-scoped actors only see sheds in their authorized parks.
+         */
+        get: operations["appScanRoster"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/vaccination/tasks/{task_id}/option-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pinned capture-form option sources (vaccine lots FEFO, route/site) for a SOP task. */
+        get: operations["appTaskOptionValues"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3392,6 +3449,38 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    deregisterAppDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: components["parameters"]["DeviceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Device deregistered (push binding cleared, device revoked). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description No such device registered by this operator. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listAppTasks: {
         parameters: {
             query?: {
@@ -5041,6 +5130,116 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appScanRoster: {
+        parameters: {
+            query?: {
+                task_id?: string;
+                /** @description Opaque keyset cursor for the next page. Omit to start from the beginning. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                shed_id: components["parameters"]["ShedId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Keyset page of per-animal scan obligations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        source?: string;
+                        rows?: {
+                            goatId?: string;
+                            primaryTag?: string;
+                            secondaryTag?: string | null;
+                            vaccineLabel?: string;
+                            status?: string;
+                            obligationId?: string;
+                            taskId?: string;
+                            batchId?: string;
+                            sopVersionId?: string;
+                            taskRowVersion?: number;
+                        }[];
+                        taskId?: string;
+                        batchId?: string;
+                        sopVersionId?: string;
+                        taskRowVersion?: number;
+                        next_cursor?: string | null;
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Task not found or outside your scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appTaskOptionValues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["parameters"]["TaskId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Option sources for the task's capture form. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        task_id?: string;
+                        batch_id?: string;
+                        sop_version_id?: string;
+                        task_row_version?: number;
+                        sources?: {
+                            source?: string;
+                            disabled_reason?: string | null;
+                            options?: {
+                                value?: string;
+                                label?: string;
+                                disabled?: boolean;
+                                disabled_reason?: string | null;
+                                available_quantity?: string | null;
+                                quantity_unit?: string | null;
+                                /** Format: date-time */
+                                expiry_date?: string | null;
+                                fefo_rank?: number | null;
+                            }[];
+                        }[];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Task not found or outside your scope. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             500: components["responses"]["ServerError"];
         };
     };

@@ -528,6 +528,9 @@ func (r *Repository) DeregisterDevice(ctx context.Context, cmd ports.DeregisterD
 		return domain.DeviceSummary{}, err
 	}
 	defer rollback(ctx, tx)
+	// Idempotent by design (logout is best-effort/replay-prone): only the FIRST deregister for the
+	// caller's own device flips state + audits. `status <> 'revoked'` makes a retry a no-op — no
+	// revoked_at rewrite, no row_version bump, no duplicate audit row.
 	tag, err := tx.Exec(ctx, `
 UPDATE workforce_member_devices
 SET status = 'revoked',
@@ -538,7 +541,8 @@ SET status = 'revoked',
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND device_id = $2::uuid
-  AND registered_by = $3::uuid`,
+  AND registered_by = $3::uuid
+  AND status <> 'revoked'`,
 		cmd.TenantID,
 		cmd.DeviceID,
 		cmd.ActorID,
@@ -547,7 +551,10 @@ WHERE tenant_id = $1::uuid
 		return domain.DeviceSummary{}, err
 	}
 	if tag.RowsAffected() == 0 {
-		return domain.DeviceSummary{}, ports.ErrNotFound
+		// 0 rows = either an unknown/foreign device (GetDeviceForActor -> ErrNotFound = 404) or an
+		// already-revoked device the actor owns (idempotent replay -> return it, no side effects).
+		// The untouched tx rolls back via the deferred rollback.
+		return r.GetDeviceForActor(contextWithoutCancel(ctx), cmd.TenantID, cmd.ActorID, cmd.DeviceID)
 	}
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "app.device.deregister", "workforce_member_device", cmd.DeviceID, nil, map[string]any{"reason": "app_logout_decouple"}); err != nil {
 		return domain.DeviceSummary{}, err

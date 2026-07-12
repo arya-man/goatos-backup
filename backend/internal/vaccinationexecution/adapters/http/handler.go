@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	obligationports "github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -340,8 +342,10 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
+	// task_id is OPTIONAL: present -> task-scoped roster; absent -> shed-wide roster (keeps the
+	// current app, which does not yet send task_id, working instead of 400-ing).
 	taskID := query.Get("task_id")
-	if !uuidutil.IsUUIDString(taskID) {
+	if taskID != "" && !uuidutil.IsUUIDString(taskID) {
 		h.badRequest(w, r, "invalid_task_id", "task_id must be a UUID")
 		return
 	}
@@ -373,7 +377,7 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.reader.ScanRoster(r.Context(), q)
 	if err != nil {
-		h.internal(w, r, err)
+		h.writeReadError(w, r, err)
 		return
 	}
 	response := map[string]interface{}{
@@ -393,7 +397,7 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 			h.internal(w, r, err)
 			return
 		}
-		response["nextCursor"] = encoded
+		response["next_cursor"] = encoded
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, response)
 }
@@ -406,7 +410,7 @@ func (h *Handler) TaskOptionValues(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.reader.TaskOptionValues(r.Context(), tenantID(r), taskID)
 	if err != nil {
-		h.internal(w, r, err)
+		h.writeReadError(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, response)
@@ -844,6 +848,17 @@ func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
 	httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 		errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
+}
+
+// writeReadError maps a read error to HTTP: a missing row (pgx.ErrNoRows — e.g. an unknown task,
+// or one resolved outside the actor's park scope) is a 404, not a 500.
+func (h *Handler) writeReadError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+			errorEnvelope{Code: "not_found", Message: "resource not found or outside your scope", TraceID: traceID(r)}, nil)
+		return
+	}
+	h.internal(w, r, err)
 }
 
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {

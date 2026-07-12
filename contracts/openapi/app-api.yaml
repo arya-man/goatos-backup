@@ -2516,6 +2516,129 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/vaccination/execution/sheds/{shed_id}/roster:
+    get:
+      tags:
+        - Vaccination
+      operationId: appScanRoster
+      summary: Per-animal vaccination scan roster for a shed (keyset-paginated).
+      description: >-
+        Bounded per-animal obligations for the operator scan screen (RFID tags + vaccine label +
+        status). task_id is OPTIONAL: given -> roster pinned to that task's batch; omitted ->
+        shed-wide roster. Park-scoped actors only see sheds in their authorized parks.
+      parameters:
+        - $ref: "#/components/parameters/ShedId"
+        - name: task_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque keyset cursor for the next page. Omit to start from the beginning.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 5000
+      responses:
+        "200":
+          description: Keyset page of per-animal scan obligations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    type: string
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        goatId: { type: string }
+                        primaryTag: { type: string }
+                        secondaryTag: { type: string, nullable: true }
+                        vaccineLabel: { type: string }
+                        status: { type: string }
+                        obligationId: { type: string }
+                        taskId: { type: string }
+                        batchId: { type: string }
+                        sopVersionId: { type: string }
+                        taskRowVersion: { type: integer }
+                  taskId: { type: string }
+                  batchId: { type: string }
+                  sopVersionId: { type: string }
+                  taskRowVersion: { type: integer }
+                  next_cursor:
+                    type: string
+                    nullable: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Task not found or outside your scope.
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/vaccination/tasks/{task_id}/option-values:
+    get:
+      tags:
+        - Vaccination
+      operationId: appTaskOptionValues
+      summary: Pinned capture-form option sources (vaccine lots FEFO, route/site) for a SOP task.
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Option sources for the task's capture form.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: { type: string }
+                  batch_id: { type: string }
+                  sop_version_id: { type: string }
+                  task_row_version: { type: integer }
+                  sources:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        source: { type: string }
+                        disabled_reason: { type: string, nullable: true }
+                        options:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              value: { type: string }
+                              label: { type: string }
+                              disabled: { type: boolean }
+                              disabled_reason: { type: string, nullable: true }
+                              available_quantity: { type: string, nullable: true }
+                              quantity_unit: { type: string, nullable: true }
+                              expiry_date: { type: string, format: date-time, nullable: true }
+                              fefo_rank: { type: integer, nullable: true }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Task not found or outside your scope.
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/config:
     get:
       tags:
