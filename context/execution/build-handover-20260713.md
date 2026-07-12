@@ -5,19 +5,27 @@ bugs are **closed**; this is the **feature/architecture build queue** Ravi wants
 finished. HRMS is explicitly **out of scope** for this queue (future).
 
 > ## ⚠️ CROSS-SESSION OWNERSHIP — READ BEFORE CLAIMING WORK
-> A separate **"FCM notification system for GCP" (Mesha AI · Max)** session is
-> already running and OWNS:
-> - **FCM / push** (mobile `FirebaseMessaging`+`onNewToken`+token-reg+deep-link;
->   backend send-side: recipient resolution + status→`notification_requests`
->   producer + raw token). → **REMOVED from this queue.** Do NOT build it here.
-> - Its **"Track A" = backend verifier slice + E2E** and **admin-web verify UI**
->   — this OVERLAPS §1 P0 items **1a (verification backend)** and **1c (admin-web
->   approve/rework UI)**. **Before building 1a/1c, confirm with Ravi / check main
->   for the Max session's landed commits.** If Max already shipped the verifier
->   backend + web verify UI, this queue's remaining unique work = **1b verifier
->   mobile app**, **P1 nav registry**, **P1 org role model**, **P2 1M cert**.
-> Two coordinators pushing main = collision. Fetch origin/main and re-read this
-> block before claiming any Verification/FCM work.
+> A separate **"FCM notification system for GCP" (Mesha AI · Max)** session owns
+> the **push/notification layer ONLY** — NOT the verifier feature. Boundary
+> confirmed by both sessions + Ravi:
+>
+> | Layer | Owner |
+> |---|---|
+> | **Verification vertical** — verifier state machine, verifier mobile app, admin-web approve/reject UI | **THIS queue (§1 P0 1a/1b/1c)** |
+> | Push/notification — produce+dispatch+deliver, recipient resolution, cadence, audit | Max (Track A) |
+> | Mobile FCM receive/display + token + deep-link + Firebase identity | Max (Track B) |
+>
+> - **FCM/push = Max.** REMOVED from this queue. Do NOT build push here.
+> - **Verification vertical = THIS queue, fully.** Max does NOT build the verifier
+>   state machine, verifier app, or approve/reject UI. Max only sends a push to
+>   whoever must verify/redo; the deep-link just OPENS the verify screen this
+>   queue builds.
+> - **The seam = the obligation/verification status-event contract:** the
+>   Verification module (1a) EMITS status events (item pending-verify, verdict
+>   approved/rejected/rework); Max's producer CONSUMES them to fan out pushes.
+>   So 1a must publish those events on the existing status-event bus — that's the
+>   only integration point. No shared files; Max's worktrees are isolated.
+> Fetch origin/main and re-read this block before claiming Verification/FCM work.
 
 ---
 
@@ -87,6 +95,11 @@ execution SOP video across every vertical. Today: `backend/internal/verification
   streamed signed URLs (scale rules apply — no god query).
 - Verdict + reason feed daily "SOP Video Double Verification" metrics (videos
   reviewed, violations flagged, penalties issued).
+- **SEAM WITH MAX SESSION (required):** emit status events on the existing
+  status-event bus — `item pending-verify` (on producer emit), `verdict approved`,
+  `verdict rejected/rework`. Max's notification producer consumes these to fan out
+  pushes to the verifier / operator. Do NOT build push here; just publish the
+  events. This is the only integration point.
 - Migrations: `verification_items` table + `verification.review` grant + seed
   Verifier role. Lock-safe, `make validate-migrations`.
 - **Separation of duty:** capturer ≠ verifier ≠ actor. Enforce in permissions.
@@ -173,15 +186,13 @@ session owns both the mobile FCM wiring and the backend send-side producer.
   mandatory + 2 optional videos (min3/max5) — already built in MOB-002.
 
 ## 4. Suggested session order
-0. **Confirm Verification ownership vs the Max session** (top block). If Max
-   already shipped verifier backend (1a) + admin-web verify UI (1c), skip them.
 1. Integrate the 4 wip branches + centralize baseline + push (§0). ~30 min.
    (In progress by the coordinator as of this handover — check main first.)
 2. Verification backend (1a) — migrations + module + vaccination producer + route
-   + `verification.review` permission + tests. **ONLY if Max didn't build it.**
-3. Verifier mobile app (1b) — depends on 1a routes/DTOs. **This session's clearest
-   unique piece** (Max is doing FCM, not the verifier queue app).
-4. admin-web approve/rework UI (1c) — **ONLY if Max didn't build it.**
+   + `verification.review` permission + **status-event emission (the Max seam)** +
+   tests. Biggest chunk; can fan out. **Fully this queue's — Max does NOT build it.**
+3. Verifier mobile app (1b) — depends on 1a routes/DTOs.
+4. admin-web approve/reject UI (1c) — parallel to 1b (routes exist / built in 1a).
 5. Nav registry composition (P1) — backend + both surfaces.
 6. Org role model (P1) — can inform 1a permissions; may pull earlier.
 7. 1M cert (P2) — last, good-to-have. (FCM removed — owned by Max session.)
@@ -203,8 +214,9 @@ context/repo-audits/last-35-commits-consolidated-bug-ledger.md   # closed ledger
 Ledger bugs: **done.** Phone capture (MOB-002): built + build-proven on emulator
 (full runtime flow needs a physical phone — BT-HID + camera). GCS upload:
 **proven** (real-cloud step = maintainer-only). Push notifications (FCM): being
-built by the **other (Max) session**, not here. What's left to BUILD in THIS
-queue: the **Verification vertical** (verifier mobile app for sure; backend +
-web approve screen only if the Max session didn't already do them) — the daily
-video double-check — plus **nav-from-grants** and the **full org role model**.
-HRMS excluded. 1M-scale is good-to-have, last.
+built by the **other (Max) session**, not here — they only SEND the "go verify"
+alert. What's left to BUILD in THIS queue: the **entire Verification vertical**
+(backend verifier module + verifier mobile app + admin-web approve/reject screen)
+— the daily video double-check — plus **nav-from-grants** and the **full org role
+model**. The only handoff to Max = my Verification emits a status event, their
+push consumes it. HRMS excluded. 1M-scale is good-to-have, last.
