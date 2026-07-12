@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.paparazzi)
     alias(libs.plugins.firebase.appdistribution)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 android {
@@ -41,12 +42,14 @@ android {
     // device when `adb reverse tcp:8080 tcp:8080` tunnels device-loopback → laptop.
     // (Was 10.0.2.2 = emulator-only host alias; localhost + adb reverse covers both.)
     flavorDimensions += "env"
+    val devApiBaseUrl = (project.findProperty("goatosDevApiBaseUrl") as String?)
+        ?: "http://localhost:8080/"
     productFlavors {
         create("dev") {
             dimension = "env"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
-            buildConfigField("String", "API_BASE_URL", "\"http://localhost:8080/\"")
+            buildConfigField("String", "API_BASE_URL", "\"${devApiBaseUrl.replace("\"", "\\\"")}\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"http://localhost:3311/login\"")
         }
         create("stg") {
@@ -80,6 +83,13 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        create("benchmark") {
+            initWith(getByName("release"))
+            isDebuggable = false
+            isProfileable = true
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
         }
     }
 
@@ -138,6 +148,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
+    baselineProfile(project(":benchmark"))
 
     // Firebase Auth + Credential Manager for stg/prod mobile SSO. Firebase options for
     // stg are committed as generated-equivalent string resources under src/stg/res.
@@ -156,6 +167,10 @@ dependencies {
 
     // Virtual-time coroutine testing (runTest/advanceTimeBy) for the offline-banner debounce.
     testImplementation(libs.kotlinx.coroutines.test)
+}
+
+baselineProfile {
+    dexLayoutOptimization = true
 }
 
 // Compose compiler stability/metrics reports (item 6: perf/stability audit). Written under

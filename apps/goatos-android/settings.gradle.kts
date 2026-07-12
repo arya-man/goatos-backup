@@ -24,6 +24,7 @@ rootProject.name = "goatos-android"
 
 // --- app (thin: Application, DI, nav host, theme, boot) ---
 include(":app")
+include(":benchmark")
 
 // --- core (feature-* depend only on core-*; core-model/core-common are Android-free) ---
 include(":core:core-model")

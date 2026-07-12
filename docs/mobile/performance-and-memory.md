@@ -22,6 +22,18 @@ Battery                            a full drive (hours of scanning) must not dra
 Gates: **Macrobenchmark** (cold start, scroll) + **Baseline Profiles** in CI on a
 hosted emulator; regressions fail the build.
 
+The required `android-quality` workflow builds an authenticated dev variant
+against a live migrated API, generates the release Baseline Profile, then runs
+cold-start and frame-timing Macrobenchmarks across the primary navigation path
+(`Calendar -> Vaccination -> You -> Calendar`). It uploads the managed-device
+results, generated profile, and a `current-sha.json` binding; a missing artifact
+fails the job. Compile-only verification is available without an emulator:
+
+```bash
+cd apps/goatos-android
+./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin
+```
+
 ## 2. Compose performance rules
 
 - **Stable state**: `@Immutable`/`@Stable` UI models; pass primitives/stable
@@ -37,7 +49,9 @@ hosted emulator; regressions fail the build.
   `Animatable`, not per-frame recomposition.
 - **Defer heavy work**: parse/diff on `Default`, IO on `IO`; UI thread only
   recomposes. Images via Coil with explicit target size (no full-res bitmaps).
-- **Baseline Profile** shipped for the hot path: launch → today's sheds → scan.
+- **Baseline Profile** shipped for the startup + primary navigation path; extend
+  it through shed → scan whenever that benchmark fixture has a backend-issued
+  executable task identity (never invent one in the client).
 - Enable Compose **strong-skipping**; run the **Compose compiler metrics** report
   in CI and fail on newly-unstable hot composables.
 

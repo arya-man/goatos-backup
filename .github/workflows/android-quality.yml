@@ -39,4 +39,100 @@ jobs:
           java-version: "21"
       - uses: android-actions/setup-android@v3
       - name: Compile + unit test (:app stg release)
-        run: make ci-local JOB=android
+        run: |
+          make ci-local JOB=android
+          (cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain)
+
+  baseline-profile-and-macrobenchmark:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.9-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: goatos
+          POSTGRES_DB: goatos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d goatos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable
+      GOATOS_ENV: test
+      GOATOS_AUTH_MODE: bearer
+      GOATOS_AUTH_ISSUER: goatos-local
+      GOATOS_AUTH_AUDIENCE: goatos-api
+      GOATOS_AUTH_HS256_SECRET: goatos-ci-android-secret-32-bytes-minimum
+      GOATOS_AUTH_MAX_TOKEN_TTL: 24h
+      GOATOS_HTTP_ADDR: 127.0.0.1:8080
+      GOATOS_TENANT_ID: 00000000-0000-4000-8000-000000000001
+      GOATOS_LOCAL_USER_ID: 90000000-0000-4000-8000-000000000101
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v5
+      - name: Enable KVM for the managed benchmark device
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Start the live bootstrap API used by navigation benchmarks
+        run: |
+          (cd backend && go run ./cmd/migrate)
+          (cd backend && go run ./cmd/seed-dev-grant -tenant-id "$GOATOS_TENANT_ID" -user-id "$GOATOS_LOCAL_USER_ID" -role ceo_internal -department leadership)
+          (cd backend && go run ./cmd/seed-calendar-vaccination-dev -tenant-id "$GOATOS_TENANT_ID")
+          (cd backend && go build -o "$RUNNER_TEMP/goatos-api" ./cmd/api)
+          "$RUNNER_TEMP/goatos-api" >"$RUNNER_TEMP/goatos-api.log" 2>&1 &
+          echo "api_pid=$!" >> "$GITHUB_ENV"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/readyz >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/goatos-api.log"
+          exit 1
+      - name: Generate Baseline Profile and measure startup plus primary navigation
+        working-directory: apps/goatos-android
+        run: |
+          token="$(cd ../../backend && go run ./cmd/mint-dev-token -tenant-id "$GOATOS_TENANT_ID" -user-id "$GOATOS_LOCAL_USER_ID" -ttl 2h 2>/dev/null)"
+          ./gradlew :app:generateDevReleaseBaselineProfile \
+            -PgoatosDevBearerToken="$token" \
+            -PgoatosDevApiBaseUrl=http://10.0.2.2:8080/ \
+            --no-configuration-cache --stacktrace
+          ./gradlew :benchmark:pixel2Api31DevNonMinifiedBenchmarkAndroidTest \
+            -PgoatosDevBearerToken="$token" \
+            -PgoatosDevApiBaseUrl=http://10.0.2.2:8080/ \
+            -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=Macrobenchmark \
+            --no-configuration-cache --stacktrace
+          mkdir -p benchmark/build/outputs/goatos-evidence
+          printf '{"git_sha":"%s","baseline_profile":true,"startup_benchmark":true,"navigation_benchmark":true}\n' \
+            "$GITHUB_SHA" > benchmark/build/outputs/goatos-evidence/current-sha.json
+      - name: Stop API and print its log
+        if: always()
+        run: |
+          if [ -n "${api_pid:-}" ]; then kill "$api_pid" 2>/dev/null || true; fi
+          cat "$RUNNER_TEMP/goatos-api.log" 2>/dev/null || true
+      - name: Publish current-SHA Android performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-performance-${{ github.sha }}
+          path: |
+            apps/goatos-android/benchmark/build/outputs/goatos-evidence/current-sha.json
+            apps/goatos-android/**/build/outputs/managed_device_android_test_additional_output/**
+            apps/goatos-android/**/build/reports/androidTests/managedDevice/**
+            apps/goatos-android/**/build/outputs/androidTest-results/**
+            apps/goatos-android/app/build/outputs/baselineProfiles/**
+            apps/goatos-android/app/src/**/generated/baselineProfiles/**
+          if-no-files-found: error
+          retention-days: 30
