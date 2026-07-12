@@ -250,6 +250,9 @@ func TestActionCenterParsesAsOfAndReanchorsHorizon(t *testing.T) {
 	if !reader.actionQuery.AsOf.Equal(asOf) {
 		t.Fatalf("as_of not parsed into query: got %v want %v", reader.actionQuery.AsOf, asOf)
 	}
+	if !reader.actionQuery.HistoricalAsOf {
+		t.Fatal("explicit past as_of must require an exact historical projection snapshot")
+	}
 	if !reader.actionQuery.DueBefore.Equal(asOf.Add(defaultHorizonDays * 24 * time.Hour)) {
 		t.Fatalf("due_before should re-anchor to as_of+horizon, got %v", reader.actionQuery.DueBefore)
 	}

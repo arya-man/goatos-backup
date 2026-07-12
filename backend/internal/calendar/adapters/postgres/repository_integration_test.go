@@ -54,6 +54,12 @@ func TestCalendarListRequiresFreshProjectionAndExposesVersion(t *testing.T) {
 	if got.Projection.ProjectionVersion <= 0 || got.Projection.Stale || got.Projection.ServingState != "fresh" {
 		t.Fatalf("projection metadata=%+v", got.Projection)
 	}
+	outsideWindow := q
+	outsideWindow.DateFrom = time.Now().Add(46 * 24 * time.Hour)
+	outsideWindow.DateTo = time.Now().Add(47 * 24 * time.Hour)
+	if _, err := repo.ListEvents(ctx, outsideWindow); !errors.Is(err, ports.ErrProjectionStale) {
+		t.Fatalf("outside projection window error=%v, want ErrProjectionStale", err)
+	}
 	if _, err := pool.Exec(ctx, `
 UPDATE calendar_projection_state
 SET projected_at = now() - interval '6 minutes', freshness_status = 'yellow', serving_state = 'stale'

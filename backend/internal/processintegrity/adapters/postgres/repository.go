@@ -189,8 +189,9 @@ WHERE tenant_id = $1::uuid
 	}
 	projectionAge := q.AsOf.Sub(meta.AsOf)
 	buildAge := q.AsOf.Sub(meta.ProjectedAt)
+	incompatibleAsOf := q.HistoricalAsOf && !meta.AsOf.Equal(q.AsOf)
 	meta.Stale = meta.ProjectionVersion <= 0 || meta.ServingState != "fresh" || meta.FreshnessStatus != "green" ||
-		projectionAge > defaultProjectionFresh || projectionAge < -time.Minute || buildAge > defaultProjectionFresh
+		incompatibleAsOf || (!q.HistoricalAsOf && (projectionAge > defaultProjectionFresh || projectionAge < -time.Minute || buildAge > defaultProjectionFresh))
 	if meta.Stale {
 		return meta, domain.ErrProjectionStale
 	}

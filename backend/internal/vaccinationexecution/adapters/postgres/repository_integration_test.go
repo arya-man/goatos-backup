@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -1649,6 +1650,58 @@ func projectedOperations(t *testing.T, ctx context.Context, repo *Repository, q 
 		t.Fatalf("RecomputeOperationsProjection: %v", err)
 	}
 	return repo.VaccinationOperations(ctx, q)
+}
+
+func TestVaccinationProjectionReadsRejectNonGreenServingState(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	dueBefore := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore}); err != nil {
+		t.Fatalf("RecomputeShedProjection: %v", err)
+	}
+	if _, err := repo.RecomputeExecutionProjection(ctx, domain.ExecutionProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore}); err != nil {
+		t.Fatalf("RecomputeExecutionProjection: %v", err)
+	}
+	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore}); err != nil {
+		t.Fatalf("RecomputeOperationsProjection: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name, servingState, freshnessStatus string
+	}{
+		{name: "stale state", servingState: "stale", freshnessStatus: "green"},
+		{name: "red freshness", servingState: "fresh", freshnessStatus: "red"},
+		{name: "rebuilding state", servingState: "rebuilding", freshnessStatus: "green"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, table := range []string{
+				"vaccination_shed_projection_state",
+				"vaccination_execution_projection_state",
+				"vaccination_operations_projection_state",
+			} {
+				query := fmt.Sprintf("UPDATE %s SET serving_state=$2, freshness_status=$3 WHERE tenant_id=$1::uuid", table)
+				if _, err := pool.Exec(ctx, query, testTenant, tc.servingState, tc.freshnessStatus); err != nil {
+					t.Fatalf("update %s: %v", table, err)
+				}
+			}
+
+			if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); !errors.Is(err, domain.ErrProjectionUnavailable) {
+				t.Fatalf("ShedSummary error = %v, want ErrProjectionUnavailable", err)
+			}
+			if _, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); !errors.Is(err, domain.ErrProjectionUnavailable) {
+				t.Fatalf("ListVaccinationExecution error = %v, want ErrProjectionUnavailable", err)
+			}
+			if _, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); !errors.Is(err, domain.ErrProjectionUnavailable) {
+				t.Fatalf("VaccinationOperations error = %v, want ErrProjectionUnavailable", err)
+			}
+		})
+	}
 }
 
 func TestVaccinationOperationsProjectionReadLatency(t *testing.T) {

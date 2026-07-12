@@ -189,6 +189,7 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 			return domain.Query{}, false
 		}
 		q.AsOf = parsed
+		q.HistoricalAsOf = parsed.Before(now)
 		// Re-anchor the default horizon to as_of; an explicit due_before below still wins.
 		q.DueBefore = q.AsOf.Add(defaultHorizonDays * 24 * time.Hour)
 	}

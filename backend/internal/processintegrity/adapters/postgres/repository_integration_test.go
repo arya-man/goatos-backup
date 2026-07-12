@@ -695,6 +695,36 @@ WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-24*time.Hour))
 	}
 }
 
+func TestProcessIntegrityHistoricalReadRequiresExactSnapshot(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	requestedAsOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: requestedAsOf.Add(30 * time.Second)}); err != nil {
+		t.Fatalf("RecomputeProjection(newer): %v", err)
+	}
+	q := domain.Query{
+		TenantID:       piTenant,
+		AsOf:           requestedAsOf,
+		HistoricalAsOf: true,
+		DueBefore:      requestedAsOf.Add(24 * time.Hour),
+		Limit:          10,
+	}
+	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
+		t.Fatalf("newer snapshot historical read error=%v, want ErrProjectionStale", err)
+	}
+	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: requestedAsOf}); err != nil {
+		t.Fatalf("RecomputeProjection(exact): %v", err)
+	}
+	if _, err := repo.ListRows(ctx, q); err != nil {
+		t.Fatalf("exact historical snapshot read: %v", err)
+	}
+}
+
 func TestProcessIntegrityProjectionReadPlanDoesNotReplayCanonicalTables(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

@@ -187,6 +187,7 @@ type Query struct {
 	DueAfter           *time.Time
 	DueBefore          time.Time
 	AsOf               time.Time
+	HistoricalAsOf     bool
 	Limit              int
 	Cursor             *Cursor
 	IncludeCompleted   bool

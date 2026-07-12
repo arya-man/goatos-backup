@@ -277,7 +277,8 @@ func (r *Repository) compatibleShedProjection(ctx context.Context, tenantID stri
 SELECT serving_projection_version,projected_at,as_of,freshness_status
 FROM vaccination_shed_projection_state
 WHERE tenant_id=$1::uuid AND serving_projection_version IS NOT NULL
-  AND serving_state IN ('fresh','stale','rebuilding')
+  AND serving_state = 'fresh'
+  AND freshness_status = 'green'
   AND (
     ($4::boolean AND as_of=$2::timestamptz AND due_before=$3::timestamptz)
     OR

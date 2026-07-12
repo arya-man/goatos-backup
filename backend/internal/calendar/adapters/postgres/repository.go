@@ -43,7 +43,7 @@ var _ ports.Repository = (*Repository)(nil)
 func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.CalendarEventListResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	projection, err := r.servingProjection(ctx, q.TenantID)
+	projection, err := r.servingProjection(ctx, q.TenantID, q.DateFrom, q.DateTo)
 	if err != nil {
 		return domain.CalendarEventListResponse{}, err
 	}
@@ -127,13 +127,14 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, NextCursor: next, Projection: projection}, nil
 }
 
-func (r *Repository) servingProjection(ctx context.Context, tenantID string) (domain.ProjectionMetadata, error) {
+func (r *Repository) servingProjection(ctx context.Context, tenantID string, dateFrom, dateTo time.Time) (domain.ProjectionMetadata, error) {
 	var meta domain.ProjectionMetadata
+	var projectedFrom, projectedTo time.Time
 	err := r.pool.QueryRow(ctx, `
-SELECT projection_version, projected_at, freshness_status, serving_state
+SELECT projection_version, projected_at, freshness_status, serving_state, date_from, date_to
 FROM calendar_projection_state
 WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, tenantID).Scan(
-		&meta.ProjectionVersion, &meta.ProjectedAt, &meta.FreshnessStatus, &meta.ServingState,
+		&meta.ProjectionVersion, &meta.ProjectedAt, &meta.FreshnessStatus, &meta.ServingState, &projectedFrom, &projectedTo,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ProjectionMetadata{}, ports.ErrProjectionUnavailable
@@ -143,6 +144,10 @@ WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, tenantID).Scan(
 	}
 	meta.Stale = meta.ProjectionVersion <= 0 || meta.ServingState != "fresh" || meta.FreshnessStatus != "green" ||
 		time.Since(meta.ProjectedAt) > defaultProjectionFresh || meta.ProjectedAt.After(time.Now().Add(time.Minute))
+	requestedToExclusive := dateTo.Add(24 * time.Hour)
+	if dateFrom.Before(projectedFrom) || requestedToExclusive.After(projectedTo) {
+		meta.Stale = true
+	}
 	if meta.Stale {
 		return meta, ports.ErrProjectionStale
 	}
