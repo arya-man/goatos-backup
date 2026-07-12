@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import { createAdminApiClient, createAppApiClient, GoatOSApiError } from "@goatos/api-client";
 import type { AdminApiComponents, AdminApiPaths, AppApiComponents, AppApiPaths } from "@goatos/api-client";
 import { cache } from "react";
-import { getFirebaseIdTokenCookie } from "@/lib/auth/server-session";
+import { resolveFirebaseIdToken } from "@/lib/auth/server-session";
 import { mintLocalDevBearerToken } from "./local-dev-token";
 import { AdminBootstrapCache } from "./admin-bootstrap-cache";
 
@@ -210,7 +210,7 @@ export type OutboxDLQListParams = {
 
 export const getServerConfig = cache(async function getServerConfig(requireTenant = false): Promise<ApiResult<ServerConfig>> {
   const baseUrl = process.env.GOATOS_API_BASE_URL ?? "http://127.0.0.1:8080";
-  const firebaseIdToken = await getFirebaseIdTokenCookie();
+  const firebaseIdToken = await resolveFirebaseIdToken();
   // Local bearer mode: self-mint a FRESH token per request (never the stale boot-time token) so the dev
   // server can't 401 with invalid_bearer_token after its original token's TTL lapses. Falls back to the
   // static GOATOS_BEARER_TOKEN only if self-minting isn't possible (e.g. dev secret unset). See

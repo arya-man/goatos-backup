@@ -7,6 +7,29 @@ export const COOKIE_PATH = "/";
 export const FIREBASE_ID_TOKEN_COOKIE = "goatos_firebase_id_token";
 export const FIREBASE_ID_TOKEN_MAX_AGE_SECONDS = 60 * 60;
 
+// Long-lived Firebase refresh token. Persisted httpOnly so SSR can mint a fresh
+// ID token after the short-lived id-token cookie lapses — this is what removes
+// the ~1h "always bounced to /login" cliff. Firebase refresh tokens stay valid
+// until revoked; we cap the cookie at 14 days and let the client re-issue it.
+export const FIREBASE_REFRESH_TOKEN_COOKIE = "goatos_firebase_refresh_token";
+export const FIREBASE_REFRESH_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 14;
+
+// Refresh the SSR ID token proactively once it is within this window of expiry,
+// so a request never forwards an about-to-expire Bearer to the backend.
+export const FIREBASE_ID_TOKEN_REFRESH_SKEW_SECONDS = 5 * 60;
+
+export function secondsUntilFirebaseIdTokenExpiry(idToken: string, nowMs = Date.now()): number | null {
+  const payload = decodeJwtPayload(idToken);
+  const exp = typeof payload?.exp === "number" ? payload.exp : null;
+  if (!exp) return null;
+  return Math.floor(exp - nowMs / 1000);
+}
+
+export function isFirebaseIdTokenFresh(idToken: string, nowMs = Date.now()): boolean {
+  const secondsLeft = secondsUntilFirebaseIdTokenExpiry(idToken, nowMs);
+  return secondsLeft !== null && secondsLeft > FIREBASE_ID_TOKEN_REFRESH_SKEW_SECONDS;
+}
+
 export function maxAgeForFirebaseIdToken(idToken: string, nowMs = Date.now()): number | null {
   const payload = decodeJwtPayload(idToken);
   const exp = typeof payload?.exp === "number" ? payload.exp : null;
