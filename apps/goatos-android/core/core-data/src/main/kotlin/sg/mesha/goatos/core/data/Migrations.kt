@@ -48,9 +48,27 @@ val MIGRATION_2_3: Migration = object : Migration(2, 3) {
  * v3 -> v4: adds the scanned-goat + proof-capture tables (MOB-002,
  * docs/mobile/proof-capture-sync-and-e2e.md §3) — Room-first SSOT for Submit's `goat_scan` /
  * `video_proof` recording-form controls. Purely additive.
+ *
+ * Also repairs a missing-migration defect: MOB-007 (commit 42d961d2) added the
+ * `roster_timetable_cache` / `roster_coverage_cache` @Entity tables to [GoatDatabase] but never
+ * added a migration to create them, so fresh installs got them via Room's createAllTables while
+ * every in-place upgrade crashed on open ("Migration didn't properly handle roster_timetable_cache").
+ * These two `IF NOT EXISTS` creates fix all upgrade paths without a version bump because every path
+ * to v4 runs this migration; new installs are unaffected (the tables already exist). Caught by
+ * GoatDatabaseMigrationTest's schema-equivalence check.
  */
 val MIGRATION_3_4: Migration = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
+        listOf(
+            "roster_timetable_cache",
+            "roster_coverage_cache",
+        ).forEach { table ->
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `$table` " +
+                    "(`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                    "PRIMARY KEY(`cacheKey`))",
+            )
+        }
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS `scanned_goat_capture` " +
                 "(`id` TEXT NOT NULL, `taskId` TEXT NOT NULL, `fieldKey` TEXT NOT NULL, " +

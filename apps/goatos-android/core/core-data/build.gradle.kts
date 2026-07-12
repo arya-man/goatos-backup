@@ -30,6 +30,21 @@ android {
             isReturnDefaultValues = true
         }
     }
+    // The exported Room schema JSON (room.schemaLocation below) is fed to
+    // MigrationTestHelper as a test asset. isIncludeAndroidResources = true (above) makes
+    // Robolectric read the unit-test merged assets, so the schemas resolve under a plain
+    // testDebugUnitTest run — no device/emulator needed.
+    sourceSets {
+        getByName("test").assets.srcDir("$projectDir/schemas")
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+}
+
+// Room exports one JSON schema per @Database version to $projectDir/schemas. These are
+// committed and reviewed as diffs, and are the golden schema MigrationTestHelper validates
+// GoatDatabase's MIGRATION_1_2 / 2_3 / 3_4 against.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -60,4 +75,7 @@ dependencies {
     // (shadowed) android.database.sqlite + Context — see the libs.versions.toml note.
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+    // MigrationTestHelper — runs each migration against the committed golden schema JSON
+    // and validates the resulting schema matches the @Entity definitions (GoatDatabaseMigrationTest).
+    testImplementation(libs.androidx.room.testing)
 }

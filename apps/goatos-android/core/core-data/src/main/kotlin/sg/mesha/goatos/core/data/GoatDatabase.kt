@@ -57,7 +57,11 @@ import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
         ProofCaptureEntity::class,
     ],
     version = 4,
-    exportSchema = false,
+    // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
+    // room.schemaLocation). The committed schema JSON is the golden schema
+    // MigrationTestHelper validates each migration against, and it makes every schema
+    // change reviewable as a diff. A version bump with no new schema JSON is a red flag.
+    exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
     abstract fun bootstrapCacheDao(): BootstrapCacheDao

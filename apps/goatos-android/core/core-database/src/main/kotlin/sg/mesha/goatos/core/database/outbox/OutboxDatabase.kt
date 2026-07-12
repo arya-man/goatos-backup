@@ -10,7 +10,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /** The local outbox database — separate from `core-data`'s `GoatDatabase` (bootstrap cache)
  *  by design: the outbox is a distinct, small, high-write-frequency schema and this keeps it
  *  independently testable/migratable without touching the bootstrap cache schema. */
-@Database(entities = [OutboxEntity::class], version = 3, exportSchema = false)
+// exportSchema=true: schemas/<db-fqcn>/<version>.json is the golden schema each
+// OUTBOX_MIGRATION_* is validated against by MigrationTestHelper, and makes schema
+// changes reviewable. The outbox holds not-yet-synced writes, so a silently-wrong
+// migration here loses operator submissions — validated migrations are mandatory.
+@Database(entities = [OutboxEntity::class], version = 3, exportSchema = true)
 abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outboxDao(): OutboxDao
 }
