@@ -40,6 +40,14 @@ type Repository interface {
 	// device-scoped key, so replaying the same event never duplicates a row. Returns the number of
 	// rows actually inserted (0 on an exact replay of every recipient, or when Recipients is empty).
 	QueueRoleNotifications(ctx context.Context, in QueueRoleNotifications) (int, error)
+
+	// ResolveVaccinationCompletionContext resolves a vaccination completion_id to the obligation_id,
+	// park_id (scope_id), sop_task_id, and recorded_by (executor) it was recorded against. Used by
+	// the notification layer to resolve completion IDs from vaccination.verify.rejected events into
+	// the obligation/park/task/executor context needed for recipient resolution and notification
+	// queuing. Returns ErrNotFound if the completion does not exist or is not linked to a recorded
+	// obligation.
+	ResolveVaccinationCompletionContext(ctx context.Context, tenantID, completionID string) (VaccinationCompletionContext, error)
 }
 
 type SendNudge struct {
@@ -145,4 +153,15 @@ type QueueRoleNotifications struct {
 	// DIFFERENT event (e.g. the rework that follows a later resubmission) gets its own rows.
 	EventKey   string
 	Recipients []NotificationRecipient
+}
+
+// VaccinationCompletionContext is the set of obligation/park/task/executor details resolved from a
+// vaccination completion_id for notification routing. Returned by ResolveVaccinationCompletionContext
+// to decouple the notification layer from importing internal/vaccination.
+type VaccinationCompletionContext struct {
+	ObligationID string // obligation_instances.obligation_id
+	ParkID       string // obligation_instances.scope_id (when scope_type = 'center')
+	ScopeType    string // obligation_instances.scope_type (should be 'center' for parks)
+	SOPTaskID    string // obligation_instances.sop_task_id
+	ExecutedBy   string // vaccination_completions.recorded_by (workforce_member_id, may be empty)
 }

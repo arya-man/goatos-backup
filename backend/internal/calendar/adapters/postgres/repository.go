@@ -3737,6 +3737,33 @@ func timePtr(v pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
+// ResolveVaccinationCompletionContext resolves a vaccination completion_id to its obligation context
+// (obligation_id, park_id, sop_task_id, executor). Couples at the DB level only, never importing
+// internal/vaccination or internal/sopbridge packages.
+func (r *Repository) ResolveVaccinationCompletionContext(ctx context.Context, tenantID, completionID string) (ports.VaccinationCompletionContext, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	var result ports.VaccinationCompletionContext
+	err := r.pool.QueryRow(ctx, `
+SELECT vc.obligation_id::text, oi.scope_id::text, oi.scope_type,
+       COALESCE(oi.sop_task_id::text, ''), COALESCE(vc.recorded_by::text, '')
+FROM vaccination_completions vc
+JOIN obligation_instances oi ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid
+LIMIT 1`,
+		tenantID, completionID).Scan(&result.ObligationID, &result.ParkID, &result.ScopeType, &result.SOPTaskID, &result.ExecutedBy)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ports.VaccinationCompletionContext{}, ports.ErrNotFound
+		}
+		return ports.VaccinationCompletionContext{}, fmt.Errorf("calendar: resolve vaccination completion: %w", err)
+	}
+
+	return result, nil
+}
+
 func marshalJSON(label string, value any) ([]byte, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {

@@ -1,61 +1,43 @@
 // Package notificationbridge is the notification PUSH LAYER for the vaccination verification loop
-// (docs/decisions/vaccination-notification-rules.md §4c). It is a pure, read-only CONSUMER of an
-// obligation/verification status-changed event -- it never drives, reimplements, or depends on the
-// verification state machine (that vertical -- the verifier app, the accept/reject transitions, the
-// admin-web review UI -- is owned elsewhere). This package's only job: turn an already-decided status
-// change into the right notification_requests rows, using two other already-independent modules
-// (workforce for recipient resolution, calendar for the durable notification write) the same way
-// sopbridge composes sop+vaccination, without any of the three knowing this package exists.
+// (docs/decisions/vaccination-notification-rules.md §4c). It is a pure, read-only CONSUMER of
+// vaccination.verify.rejected/accepted events published by the sopbridge/verification vertical --
+// it never drives, reimplements, or depends on the verification state machine itself. This package's
+// only job: turn an already-decided verify outcome into the right notification_requests rows, using
+// three already-independent modules (calendar for completion context, workforce for recipient
+// resolution, calendar for the durable notification write) the same way sopbridge composes
+// sop+vaccination, without any of the three knowing this package exists.
 package notificationbridge
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"strings"
+	"time"
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
 
-// EventObligationVerificationStatus is the event type this package subscribes to: one obligation's
-// verification/rework status changed. Published by whatever owns the verification state machine
-// (directly, or via a thin adapter translating its own event/outbox contract onto this bus) --
-// notificationbridge only consumes it, never publishes it itself, and carries no dependency on the
-// vaccination or sop packages. The payload is intentionally self-sufficient (ObligationVerificationStatusEvent
-// below) so this consumer never needs to read back into another module's tables to do its job.
-const EventObligationVerificationStatus = "obligation.verification_status_changed"
-
-// Status values this bridge acts on (vaccination-notification-rules.md §4c). Any other status
-// (e.g. "completed" / "approved") is a deliberate no-op: approval is rollup/digest only, never a push.
+// Real event types published by sopbridge/verification (internal/vaccination/app/verification_handler.go):
+// - vaccination.verify.rejected: proof rejected, recipient must rework
+// - vaccination.verify.accepted: proof approved (no-op push; digest-only)
+// Both carry the same VerificationEvent payload structure.
 const (
-	StatusVerificationPending = "verification_pending"
-	StatusRejected            = "rejected"
-	StatusReworkDue           = "rework_due"
+	EventVaccinationVerifyRejected = "vaccination.verify.rejected"
+	EventVaccinationVerifyAccepted = "vaccination.verify.accepted"
 )
 
-// ObligationVerificationStatusEvent is the payload contract this bridge consumes. Every field the
-// recipient-resolution + notification write needs travels in the event itself -- ParkID and
-// SOPTaskID are look-up KEYS (workforce position scope, calendar event linkage), not business
-// decisions, so carrying them here does not leak verification-vertical logic into this package.
-type ObligationVerificationStatusEvent struct {
-	ObligationID string `json:"obligation_id"`
-	CompletionID string `json:"completion_id,omitempty"`
-	// Status is one of StatusVerificationPending / StatusRejected / StatusReworkDue / anything else
-	// (e.g. "completed", "approved") -- the latter is a deliberate no-op for this bridge.
-	Status string `json:"status"`
-	// ParkID is the workforce_positions scope_id (scope_type='center') to resolve verifiers/park-head
-	// against -- required for StatusVerificationPending and StatusRejected/StatusReworkDue.
-	ParkID string `json:"park_id"`
-	// SOPTaskID backs the calendar_event_id ("calendar:" + SOPTaskID) the notification links to. The
-	// calendar_event_projections row for it MUST already exist (notification_requests.calendar_event_id
-	// has a hard FK) -- required for every status this bridge acts on.
-	SOPTaskID string `json:"sop_task_id"`
-	// ExecutedBy is the workforce_member_id who performed the execution -- required only for the
-	// rework leg (the operator who must redo the drive). Empty is a legitimate "unknown executor";
-	// the rework notification then falls back to the park head alone.
-	ExecutedBy string `json:"executed_by,omitempty"`
-	Reason     string `json:"reason,omitempty"`
+// VerificationEvent is the real event payload published by sopbridge for verify outcomes. Only
+// completion_id is required; verified_by and reason are optional. The notifier resolves completion_id
+// to its obligation context (obligation_id, park_id, sop_task_id, recorded_by) via a calendar repository
+// lookup, decoupling from internal/vaccination imports.
+type VerificationEvent struct {
+	CompletionID string `json:"completion_id"`
+	VerifiedBy   string `json:"verified_by,omitempty"`
+	Reason       string `json:"reason,omitempty"`
 }
 
 // Fixed vocabulary this bridge resolves recipients against (vaccination-notification-rules.md
@@ -68,12 +50,18 @@ const (
 	scopeCenter       = "center"
 	positionParkHead  = "park_head"
 
-	notificationTypeVerificationPending = "verification_pending"
-	notificationTypeRework              = "rework"
+	NotificationTypeVerificationPending = "verification_pending"
+	NotificationTypeRework              = "rework"
 	channelPushFCM                      = "push_fcm"
 	priorityNormal                      = "normal"
 	priorityHigh                        = "high"
 )
+
+// CompletionContextResolver is the slice of the calendar app service this bridge needs: resolve
+// a vaccination completion_id to its obligation context (obligation_id, park_id, sop_task_id, executor).
+type CompletionContextResolver interface {
+	ResolveVaccinationCompletionContext(ctx context.Context, tenantID, completionID string) (calendarports.VaccinationCompletionContext, error)
+}
 
 // RecipientResolver is the slice of the workforce roster app service this bridge needs: resolve
 // active, reachable devices for a duty holder, an explicit member, or a position holder.
@@ -89,129 +77,128 @@ type NotificationQueue interface {
 	QueueRoleNotifications(ctx context.Context, in calendarports.QueueRoleNotifications) (int, error)
 }
 
-// VerificationNotifier is a read-only consumer of EventObligationVerificationStatus that produces
-// notification_requests rows. It never subscribes to, publishes, or depends on any vaccination
-// verify/reject event -- the verification state machine is entirely out of this package's blast
-// radius. Idempotent: every write is a set-based INSERT ... ON CONFLICT DO NOTHING keyed by (tenant,
-// triggering event, recipient device), so at-least-once redelivery never duplicates a row.
+// VerificationNotifier is a read-only consumer of vaccination.verify.rejected/accepted events that
+// produces notification_requests rows. It resolves each completion_id to its obligation context via
+// the calendar repository and routes notifications to verifiers (on submit) or executors + park head
+// (on rework). Approved/completed outcomes are a deliberate no-op (digest-only, no push). Idempotent:
+// every write is a set-based INSERT ... ON CONFLICT DO NOTHING keyed by (tenant, triggering event,
+// recipient device), so at-least-once redelivery never duplicates a row.
 type VerificationNotifier struct {
-	recipients RecipientResolver
-	queue      NotificationQueue
+	contextResolver CompletionContextResolver
+	recipients      RecipientResolver
+	queue           NotificationQueue
 }
 
-// NewVerificationNotifier constructs the bridge over the workforce/calendar app-layer seams.
-func NewVerificationNotifier(recipients RecipientResolver, queue NotificationQueue) *VerificationNotifier {
-	return &VerificationNotifier{recipients: recipients, queue: queue}
+// NewVerificationNotifier constructs the bridge over the calendar/workforce/calendar app-layer seams.
+func NewVerificationNotifier(contextResolver CompletionContextResolver, recipients RecipientResolver, queue NotificationQueue) *VerificationNotifier {
+	return &VerificationNotifier{contextResolver: contextResolver, recipients: recipients, queue: queue}
 }
 
 var _ eventbus.Handler = (*VerificationNotifier)(nil)
 
-// Register subscribes the notifier to the single event type it consumes.
+// Register subscribes the notifier to the real vaccination verify events published by sopbridge.
 func (n *VerificationNotifier) Register(bus eventbus.Bus) {
-	bus.Subscribe(EventObligationVerificationStatus, n)
+	bus.Subscribe(EventVaccinationVerifyRejected, n)
+	bus.Subscribe(EventVaccinationVerifyAccepted, n)
 }
 
-// HandleEvent routes the event by its Status field. Always idempotent and side-effect-free on
+// HandleEvent routes the event by its type. Always idempotent and side-effect-free on
 // malformed/unknown payloads (never panics, never partially notifies) -- a bad event is a no-op, not
 // a dropped message the caller must know to retry differently.
 func (n *VerificationNotifier) HandleEvent(ctx context.Context, e eventbus.Event) error {
-	if n == nil || n.recipients == nil || n.queue == nil || e.Type != EventObligationVerificationStatus {
+	if n == nil || n.contextResolver == nil || n.recipients == nil || n.queue == nil {
 		return nil
 	}
-	var p ObligationVerificationStatusEvent
+	if e.Type != EventVaccinationVerifyRejected && e.Type != EventVaccinationVerifyAccepted {
+		return nil
+	}
+
+	var p VerificationEvent
 	if len(e.Payload) > 0 {
 		if err := json.Unmarshal(e.Payload, &p); err != nil {
 			return err
 		}
 	}
+
 	tenantID := strings.TrimSpace(e.TenantID)
-	obligationID := strings.TrimSpace(p.ObligationID)
-	parkID := strings.TrimSpace(p.ParkID)
-	sopTaskID := strings.TrimSpace(p.SOPTaskID)
-	// Refuse rather than guess: a missing tenant/obligation/park/SOP-task means this consumer cannot
-	// safely resolve recipients or link to a real calendar event. notification_requests.
-	// calendar_event_id has a hard FK to calendar_event_projections -- a fabricated id would either
-	// violate that FK or silently link the notification to the wrong drive.
-	if tenantID == "" || obligationID == "" || parkID == "" || sopTaskID == "" {
+	completionID := strings.TrimSpace(p.CompletionID)
+	if tenantID == "" || completionID == "" {
 		return nil
 	}
-	switch strings.TrimSpace(p.Status) {
-	case StatusVerificationPending:
-		return n.notifyVerifiers(ctx, tenantID, obligationID, parkID, sopTaskID, p.CompletionID)
-	case StatusRejected, StatusReworkDue:
-		return n.notifyRework(ctx, tenantID, obligationID, parkID, sopTaskID, p.CompletionID, strings.TrimSpace(p.ExecutedBy), p.Reason)
-	default:
-		// completed / approved / anything else: deliberate no-op (digest/rollup only, no push).
-		return nil
-	}
-}
 
-// eventKeyFor derives the idempotency scope for one (obligation, status) transition, further scoped
-// by completion id when present (a rework after a later resubmission gets a fresh completion id, so
-// it is correctly treated as a NEW event, not a replay of the earlier rejection).
-func eventKeyFor(status, obligationID, completionID string) string {
-	key := "obligation.verification_status_changed:" + status + ":" + obligationID
-	if completionID != "" {
-		key += ":" + completionID
-	}
-	return key
-}
-
-// notifyVerifiers implements the verification_pending row of §4c: notify the verifier(s) holding
-// duty_type='verify' for pc.vaccination at the obligation's park. No verifier duty seeded for that
-// park -> zero recipients -> QueueRoleNotifications is a legitimate no-op, never an error.
-func (n *VerificationNotifier) notifyVerifiers(ctx context.Context, tenantID, obligationID, parkID, sopTaskID, completionID string) error {
-	verifiers, err := n.recipients.ResolveModuleDutyRecipients(ctx, tenantID, scopeCenter, parkID, moduleVaccination, dutyVerify)
+	// Resolve completion_id to its obligation context (obligation_id, park_id, sop_task_id, executor).
+	ctx_, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	completionCtx, err := n.contextResolver.ResolveVaccinationCompletionContext(ctx_, tenantID, completionID)
 	if err != nil {
-		return err
+		if err == calendarports.ErrNotFound {
+			return nil // Completion does not exist or is not linked to an obligation; deliberate no-op.
+		}
+		return fmt.Errorf("notificationbridge: resolve completion context: %w", err)
 	}
-	eventKey := eventKeyFor(StatusVerificationPending, obligationID, completionID)
-	_, err = n.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
-		TenantID:         tenantID,
-		CalendarEventID:  calendarEventIDForTask(sopTaskID),
-		TargetType:       "obligation",
-		TargetID:         obligationID,
-		NotificationType: notificationTypeVerificationPending,
-		Channel:          channelPushFCM,
-		Priority:         priorityNormal,
-		Title:            "Proof waiting for your review",
-		Body:             "A vaccination proof is waiting for verification.",
-		TraceID:          eventKey,
-		EventKey:         eventKey,
-		Recipients:       toQueueRecipients(verifiers, "verifier"),
-	})
-	return err
+
+	switch e.Type {
+	case EventVaccinationVerifyRejected:
+		// Rejection → rework: notify the operator who executed + park head.
+		return n.notifyRework(ctx, tenantID, completionCtx, p.Reason)
+	case EventVaccinationVerifyAccepted:
+		// Acceptance → no-op (digest/rollup only, no push notification).
+		return nil
+	default:
+		return nil
+	}
 }
 
-// notifyRework implements the rejected/rework_due row of §4c: notify the operator who performed the
-// execution plus that park's park head. Leadership (Director/COO/CXO, scope_type='tenant') can never
-// appear here by construction -- ResolveMemberRecipients is scoped to one explicit member id (the
-// executor) and ResolvePositionRecipients is hardcoded to scopeCenter, never scope_type='tenant'.
-func (n *VerificationNotifier) notifyRework(ctx context.Context, tenantID, obligationID, parkID, sopTaskID, completionID, executedBy, reason string) error {
+// notifyRework implements the rejected/rework leg: notify the operator who executed + park head.
+// Leadership (Director/COO/CXO, scope_type='tenant') can never appear here by construction --
+// ResolveMemberRecipients is scoped to one explicit member id (the executor) and
+// ResolvePositionRecipients is hardcoded to scopeCenter, never scope_type='tenant'.
+func (n *VerificationNotifier) notifyRework(ctx context.Context, tenantID string, completionCtx calendarports.VaccinationCompletionContext, reason string) error {
+	eventKey := "vaccination.verify.rejected:" + completionCtx.ObligationID + ":" + completionCtx.ParkID
+
 	var recipients []calendarports.NotificationRecipient
-	if executedBy != "" {
-		operatorDevices, err := n.recipients.ResolveMemberRecipients(ctx, tenantID, executedBy)
+
+	// Notify the operator who executed (recorded_by), if known.
+	if completionCtx.ExecutedBy != "" {
+		operatorDevices, err := n.recipients.ResolveMemberRecipients(ctx, tenantID, completionCtx.ExecutedBy)
 		if err != nil {
 			return err
 		}
 		recipients = append(recipients, toQueueRecipients(operatorDevices, "operator")...)
 	}
-	parkHeadDevices, err := n.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
+
+	// Notify the park head (whoever currently holds the park_head position).
+	// Workforce positions are scoped scope_type='center' for a park, whereas the obligation
+	// carries scope_type='park' (obligation location model) for the SAME park UUID. Resolve
+	// recipients against the workforce scope constant, never the obligation's scope_type, or
+	// the park-head lookup finds nothing.
+	parkHeadDevices, err := n.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, completionCtx.ParkID, positionParkHead)
 	if err != nil {
 		return err
 	}
 	recipients = append(recipients, toQueueRecipients(parkHeadDevices, "park_head")...)
+
+	// If we resolved zero recipients (no operator AND no park head), log a warning so the gap is
+	// observable (a rejected proof reaching nobody is an operational issue, not success).
+	if len(recipients) == 0 {
+		slog.WarnContext(ctx, "vaccination_rework_notification_no_recipients",
+			"tenant_id", tenantID,
+			"obligation_id", completionCtx.ObligationID,
+			"park_id", completionCtx.ParkID,
+		)
+	}
+
 	body := "The verifier rejected a vaccination proof. This drive needs rework."
 	if reason != "" {
 		body += " Reason: " + reason
 	}
-	eventKey := eventKeyFor(StatusRejected, obligationID, completionID)
+
 	_, err = n.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
-		CalendarEventID:  calendarEventIDForTask(sopTaskID),
+		CalendarEventID:  calendarEventIDForTask(completionCtx.SOPTaskID),
 		TargetType:       "obligation",
-		TargetID:         obligationID,
-		NotificationType: notificationTypeRework,
+		TargetID:         completionCtx.ObligationID,
+		NotificationType: NotificationTypeRework,
 		Channel:          channelPushFCM,
 		Priority:         priorityHigh,
 		Title:            "Vaccination proof rejected — rework needed",
@@ -247,3 +234,22 @@ func toQueueRecipients(recipients []workforcedomain.NotificationRecipient, role 
 	}
 	return out
 }
+
+// ---- Integration contract for verification_pending notifications -----
+//
+// TODO: verification_pending notifications are NOT YET WIRED end-to-end.
+// This notifier subscribes to vaccination.verify.rejected and vaccination.verify.accepted today.
+// For verification_pending notifications (notifying verifiers when a proof is submitted for review),
+// the submission/proof vertical MUST publish a vaccination.verification.awaiting_review event when
+// a proof enters verification-pending status. Define this contract:
+//   - Topic: "vaccination.verification.awaiting_review"
+//   - Payload JSON:
+//     {
+//       "completion_id": "<uuid>",
+//       "submitted_by": "<workforce_member_id (executor)>",
+//       (optional) "submitted_at": "<RFC3339 timestamp>"
+//     }
+//
+// Once published, this notifier will subscribe to that event and route notifications to the park's
+// 'verify' duty holders via ResolveModuleDutyRecipients(moduleVaccination, dutyVerify).
+// See vaccination-notification-rules.md §4c for the full routing table.

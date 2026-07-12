@@ -273,6 +273,10 @@ func (f *fakeRepo) SweepEscalations(context.Context, ports.SweepEscalations) (in
 	return 0, nil
 }
 
+func (f *fakeRepo) ResolveVaccinationCompletionContext(context.Context, string, string) (ports.VaccinationCompletionContext, error) {
+	return ports.VaccinationCompletionContext{}, nil
+}
+
 func (f *fakeRepo) RefreshVaccinationProjection(context.Context, ports.RefreshVaccinationProjection) (int, error) {
 	return 0, nil
 }

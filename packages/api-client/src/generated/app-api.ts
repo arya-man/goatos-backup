@@ -1524,6 +1524,8 @@ export interface components {
             app_install_id: string;
             device_public_key_hash?: string | null;
             push_token_hash?: string | null;
+            /** @description Raw FCM registration token used as the push delivery address (message.token). push_token_hash stays the identity/dedup hash. */
+            fcm_token?: string | null;
             app_version: string;
             os_version?: string;
             metadata?: {
@@ -1534,6 +1536,8 @@ export interface components {
             app_version?: string;
             os_version?: string;
             push_token_hash?: string | null;
+            /** @description Raw FCM registration token used as the push delivery address (message.token). push_token_hash stays the identity/dedup hash. */
+            fcm_token?: string | null;
             metadata?: {
                 [key: string]: unknown;
             };

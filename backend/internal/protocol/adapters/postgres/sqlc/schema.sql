@@ -2764,7 +2764,7 @@ CREATE TABLE public.domain_event_processed_events (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT domain_event_processed_events_attempt_check CHECK ((attempt_count >= 1)),
     CONSTRAINT domain_event_processed_events_delivery_attempt_check CHECK ((delivery_attempt >= 0)),
-    CONSTRAINT domain_event_processed_events_status_check CHECK ((status = ANY (ARRAY['processing'::text, 'effects_committed'::text, 'processed'::text, 'failed'::text])))
+    CONSTRAINT domain_event_processed_events_status_check CHECK ((status = ANY (ARRAY['processing'::text, 'processed'::text, 'failed'::text])))
 );
 
 
@@ -3689,7 +3689,7 @@ CREATE TABLE public.notification_requests (
     CONSTRAINT notification_requests_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
     CONSTRAINT notification_requests_delivery_attempts_check CHECK ((delivery_attempts >= 0)),
     CONSTRAINT notification_requests_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'exhausted'::text, 'suppressed'::text, 'read'::text]))),
-    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text, 'verification_pending'::text, 'rework'::text])))
+    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text])))
 );
 
 
@@ -5124,69 +5124,6 @@ CREATE TABLE public.vaccination_generation_runs (
 
 
 --
--- Name: vaccination_shed_projection_rows; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.vaccination_shed_projection_rows (
-    vaccination_shed_projection_row_id bigint NOT NULL,
-    tenant_id uuid NOT NULL,
-    park_id text NOT NULL,
-    park_name text NOT NULL,
-    shed_id text NOT NULL,
-    shed_name text NOT NULL,
-    animals integer DEFAULT 0 NOT NULL,
-    due_animals integer DEFAULT 0 NOT NULL,
-    open_cells integer DEFAULT 0 NOT NULL,
-    sessions integer DEFAULT 0 NOT NULL,
-    capacity_status text NOT NULL,
-    shed_status text NOT NULL,
-    last_done timestamp with time zone,
-    next_due timestamp with time zone,
-    projection_version bigint NOT NULL,
-    projected_at timestamp with time zone NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT vaccination_shed_projection_capacity_status_check CHECK ((capacity_status = ANY (ARRAY['within_cap'::text, 'over_cap'::text, 'capacity_breach'::text]))),
-    CONSTRAINT vaccination_shed_projection_nonnegative_check CHECK (((animals >= 0) AND (due_animals >= 0) AND (due_animals <= animals) AND (open_cells >= 0) AND (sessions >= 0))),
-    CONSTRAINT vaccination_shed_projection_shed_status_check CHECK ((shed_status = ANY (ARRAY['overdue'::text, 'needs_review'::text, 'split'::text, 'due'::text, 'scheduled'::text, 'on_track'::text])))
-);
-
-
---
--- Name: vaccination_shed_projection_r_vaccination_shed_projection_r_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-ALTER TABLE public.vaccination_shed_projection_rows ALTER COLUMN vaccination_shed_projection_row_id ADD GENERATED ALWAYS AS IDENTITY (
-    SEQUENCE NAME public.vaccination_shed_projection_r_vaccination_shed_projection_r_seq
-    START WITH 1
-    INCREMENT BY 1
-    NO MINVALUE
-    NO MAXVALUE
-    CACHE 1
-);
-
-
---
--- Name: vaccination_shed_projection_state; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.vaccination_shed_projection_state (
-    tenant_id uuid NOT NULL,
-    projection_version bigint NOT NULL,
-    serving_projection_version bigint,
-    projected_at timestamp with time zone NOT NULL,
-    as_of timestamp with time zone NOT NULL,
-    row_count bigint DEFAULT 0 NOT NULL,
-    freshness_status text DEFAULT 'unknown'::text NOT NULL,
-    serving_state text DEFAULT 'never_synced'::text NOT NULL,
-    last_error text,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT vaccination_shed_projection_state_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
-    CONSTRAINT vaccination_shed_projection_state_row_count_check CHECK ((row_count >= 0)),
-    CONSTRAINT vaccination_shed_projection_state_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text])))
-);
-
-
---
 -- Name: vaccines; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5394,7 +5331,6 @@ CREATE TABLE public.workforce_member_devices (
     revoked_at timestamp with time zone,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
-    fcm_token text,
     CONSTRAINT workforce_member_devices_app_install_check CHECK ((btrim(app_install_id) <> ''::text)),
     CONSTRAINT workforce_member_devices_app_version_check CHECK ((btrim(app_version) <> ''::text)),
     CONSTRAINT workforce_member_devices_platform_check CHECK ((platform = 'android'::text)),
@@ -7169,22 +7105,6 @@ ALTER TABLE ONLY public.vaccination_generation_runs
 
 ALTER TABLE ONLY public.vaccination_generation_runs
     ADD CONSTRAINT vaccination_generation_runs_pkey PRIMARY KEY (run_id);
-
-
---
--- Name: vaccination_shed_projection_rows vaccination_shed_projection_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vaccination_shed_projection_rows
-    ADD CONSTRAINT vaccination_shed_projection_rows_pkey PRIMARY KEY (vaccination_shed_projection_row_id);
-
-
---
--- Name: vaccination_shed_projection_state vaccination_shed_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vaccination_shed_projection_state
-    ADD CONSTRAINT vaccination_shed_projection_state_pkey PRIMARY KEY (tenant_id);
 
 
 --
@@ -10094,62 +10014,6 @@ CREATE INDEX vaccination_generation_runs_status_idx ON public.vaccination_genera
 --
 
 CREATE INDEX vaccination_generation_runs_version_idx ON public.vaccination_generation_runs USING btree (tenant_id, protocol_version_id, started_at DESC);
-
-
---
--- Name: vaccination_shed_projection_rows_capacity_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX vaccination_shed_projection_rows_capacity_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, capacity_status, park_name, shed_name);
-
-
---
--- Name: vaccination_shed_projection_rows_due_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX vaccination_shed_projection_rows_due_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, due_animals DESC, park_name, shed_name);
-
-
---
--- Name: vaccination_shed_projection_rows_hot_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX vaccination_shed_projection_rows_hot_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, park_name, shed_name);
-
-
---
--- Name: vaccination_shed_projection_rows_next_due_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX vaccination_shed_projection_rows_next_due_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, next_due, park_name, shed_name);
-
-
---
--- Name: vaccination_shed_projection_rows_park_shed_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX vaccination_shed_projection_rows_park_shed_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, park_id, shed_id);
-
-
---
--- Name: vaccination_shed_projection_rows_status_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX vaccination_shed_projection_rows_status_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, shed_status, park_name, shed_name);
-
-
---
--- Name: vaccination_shed_projection_rows_version_row_uidx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX vaccination_shed_projection_rows_version_row_uidx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, shed_id);
-
-
---
--- Name: vaccination_shed_projection_state_updated_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX vaccination_shed_projection_state_updated_idx ON public.vaccination_shed_projection_state USING btree (updated_at DESC);
 
 
 --
@@ -14292,22 +14156,6 @@ ALTER TABLE ONLY public.vaccination_generation_runs
 
 ALTER TABLE ONLY public.vaccination_generation_runs
     ADD CONSTRAINT vaccination_generation_runs_version_fk FOREIGN KEY (tenant_id, protocol_version_id) REFERENCES public.protocol_versions(tenant_id, protocol_version_id);
-
-
---
--- Name: vaccination_shed_projection_rows vaccination_shed_projection_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vaccination_shed_projection_rows
-    ADD CONSTRAINT vaccination_shed_projection_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
-
-
---
--- Name: vaccination_shed_projection_state vaccination_shed_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vaccination_shed_projection_state
-    ADD CONSTRAINT vaccination_shed_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

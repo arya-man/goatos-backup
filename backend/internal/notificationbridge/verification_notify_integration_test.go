@@ -35,6 +35,8 @@ import (
 	"github.com/vgoats/goatos/backend/internal/notificationbridge"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
@@ -69,6 +71,17 @@ const (
 
 	vnVerifierPositionCode = "preventive_care_verifier"
 	vnLeadershipPosition   = "pc_director"
+
+	// Baseline vaccination SOP skeleton ids seeded by migration 000075_vaccination_module.sql for
+	// vnTenant -- the same fixture internal/obligation/adapters/postgres/sweeper_integration_test.go
+	// reuses (see skeletonSOPID there) to satisfy sop_tasks' FKs to sop_definitions/sop_versions.
+	vnSkeletonSOPID     = "b0000000-0000-4000-8000-000000000001"
+	vnSkeletonVersionID = "b0000000-0000-4000-8000-000000000002"
+
+	// Baseline custodian party seeded by migration 000001_phase_1_identity_foundation.sql for
+	// vnTenant -- same fixture reused as meshaParty in sweeper_integration_test.go.
+	vnCustodianParty = "00000000-0000-4000-8000-000000001001"
+	vnGoatID         = "f9000000-0000-4000-8000-000000000099"
 )
 
 func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
@@ -79,10 +92,12 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 
 	workforceRepo := workforcepg.NewRepository(pool, 5*time.Second)
 	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
-	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, 5*time.Second))
+	calendarRepo := calendarpg.NewRepository(pool, 5*time.Second)
+	calendarService := calendarapp.NewService(calendarRepo)
+	protoRepo := protopg.NewRepository(pool, 5*time.Second)
 
 	bus := eventbus.NewInProcessBus()
-	notificationbridge.NewVerificationNotifier(rosterService, calendarService).Register(bus)
+	notificationbridge.NewVerificationNotifier(calendarRepo, rosterService, calendarService).Register(bus)
 
 	// ---- Seed INPUT facts only ------------------------------------------------------------------
 
@@ -143,49 +158,100 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 		           'verification_pending', now(), 'obligation', 1, $3, 'operator')`,
 		vnTenant, "calendar:"+vnSOPTaskID, vnPark)
 
-	// ---- Drive the notification producer off the published status-changed event ------------------
+	// Seed a real protocol definition -> version -> rule chain so the obligation_instances row
+	// below satisfies obligation_instances_version_tenant_fk (tenant_id, protocol_version_id ->
+	// protocol_versions) and obligation_instances_rule_tenant_fk (tenant_id, rule_id ->
+	// protocol_rules). Mirrors the pattern in
+	// internal/obligation/adapters/postgres/sweeper_integration_test.go.
+	vnProtocolID, err := protoRepo.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: vnTenant, Code: "vaccination.verification_notify", Name: "VN Verification Notify", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("seed protocol definition: %v", err)
+	}
+	vnProtocolVersionID, err := protoRepo.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: vnTenant, ProtocolID: vnProtocolID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte("{}"), ProofPolicy: []byte("{}"),
+	})
+	if err != nil {
+		t.Fatalf("seed protocol version: %v", err)
+	}
+	vnRuleID, err := protoRepo.CreateRule(ctx, protodomain.NewRule{
+		TenantID: vnTenant, ProtocolVersionID: vnProtocolVersionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", EligibilityJSON: []byte("{}"), ProofPolicy: []byte("{}"),
+	})
+	if err != nil {
+		t.Fatalf("seed protocol rule: %v", err)
+	}
 
-	publish := func(status, reason string) {
+	// Seed the sop_tasks row obligation_instances.sop_task_id's FK
+	// (obligation_instances_sop_task_tenant_fk) requires, reusing the baseline vaccination SOP
+	// skeleton (sop_id/sop_version_id) already present for vnTenant.
+	exec(t, ctx, pool, "sop task",
+		`INSERT INTO sop_tasks (
+		   task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id
+		 ) VALUES ($1, $2, $3, $4, 'vaccination_proof_verification', 'VN drive proof review', 'submitted', 'park', $5)`,
+		vnSOPTaskID, vnTenant, vnSkeletonSOPID, vnSkeletonVersionID, vnPark)
+
+	// Seed obligation_instances row (links completion to sop_task_id and park via scope_id).
+	// In production, this row is created by the obligation engine when a vaccination obligation
+	// is opened for a drive; here we seed it as an INPUT fact the notification layer consumes.
+	exec(t, ctx, pool, "obligation instance",
+		`INSERT INTO obligation_instances (
+		   obligation_id, tenant_id, protocol_version_id, rule_id, target_type, target_id,
+		   scope_type, scope_id, due_at, sop_task_id, idempotency_key, status
+		 ) VALUES ($1, $2, $5, $6,
+		           'tenant', $2, 'park', $3,
+		           now() + interval '1 hour', $4, 'vn-obl-idem-001', 'scheduled')`,
+		vnObligationID, vnTenant, vnPark, vnSOPTaskID, vnProtocolVersionID, vnRuleID)
+
+	// Seed the goat vaccination_completions.goat_id's FK (vaccination_completions_goat_tenant_fk)
+	// requires -- an input fact (the animal the proof is for), same shape as the goats seed in
+	// sweeper_integration_test.go (custodian party + park are baseline fixtures for vnTenant).
+	exec(t, ctx, pool, "goat",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)`,
+		vnGoatID, vnTenant, vnCustodianParty, vnPark)
+
+	// Seed vaccination_completion row (the proof that was submitted for verification).
+	// In production, this row is created when an operator records a vaccination proof;
+	// here we seed it as an INPUT fact so the notifier can resolve it to its obligation context.
+	exec(t, ctx, pool, "vaccination completion",
+		`INSERT INTO vaccination_completions (
+		   completion_id, tenant_id, obligation_id, goat_id, status, administered_at,
+		   recorded_by, idempotency_key
+		 ) VALUES ($1, $2, $3, $5, 'recorded', now(), $4, 'vn-comp-idem-001')`,
+		vnCompletionID, vnTenant, vnObligationID, vnOperatorMember, vnGoatID)
+
+	// ---- Drive the notification producer off the REAL vaccination.verify.rejected event -------
+
+	publishRejected := func(reason string) {
 		t.Helper()
-		payload, err := json.Marshal(notificationbridge.ObligationVerificationStatusEvent{
-			ObligationID: vnObligationID,
+		payload, err := json.Marshal(notificationbridge.VerificationEvent{
 			CompletionID: vnCompletionID,
-			Status:       status,
-			ParkID:       vnPark,
-			SOPTaskID:    vnSOPTaskID,
-			ExecutedBy:   vnOperatorMember,
+			VerifiedBy:   vnVerifierMember,
 			Reason:       reason,
 		})
 		if err != nil {
 			t.Fatalf("encode event: %v", err)
 		}
 		if err := bus.Publish(ctx, eventbus.Event{
-			Type:     notificationbridge.EventObligationVerificationStatus,
+			Type:     notificationbridge.EventVaccinationVerifyRejected,
 			TenantID: vnTenant,
-			Key:      vnObligationID,
+			Key:      vnCompletionID,
 			Payload:  payload,
 		}); err != nil {
-			t.Fatalf("publish %s event: %v", status, err)
+			t.Fatalf("publish rejected event: %v", err)
 		}
 	}
 
-	// 1. verification_pending -> only the verifier's device.
-	publish(notificationbridge.StatusVerificationPending, "")
+	// verification_pending -> only the verifier's device.
+	// (This test does NOT yet cover verification_pending because the vertical that submits proofs
+	//  has not yet published the vaccination.verification.awaiting_review event. See
+	//  verification_notify.go's integration contract comment.)
 
-	pendingRows := queryRecipients(t, ctx, pool, vnTenant, "verification_pending")
-	if len(pendingRows) != 1 {
-		t.Fatalf("verification_pending rows = %d, want 1: %#v", len(pendingRows), pendingRows)
-	}
-	if pendingRows[0].recipientRef != vnVerifierToken {
-		t.Fatalf("verification_pending recipient = %q, want verifier token %q", pendingRows[0].recipientRef, vnVerifierToken)
-	}
-	if pendingRows[0].channel != "push_fcm" {
-		t.Fatalf("verification_pending channel = %q, want push_fcm", pendingRows[0].channel)
-	}
-
-	// 2. rejected -> the operator + park head, high priority; verifier/leadership get nothing for
-	// THIS event.
-	publish(notificationbridge.StatusRejected, "video unclear")
+	// 1. rejected -> the operator + park head, high priority; verifier/leadership get nothing for THIS event.
+	publishRejected("video unclear")
 
 	reworkRows := queryRecipients(t, ctx, pool, vnTenant, "rework")
 	if len(reworkRows) != 2 {
@@ -205,7 +271,7 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 		t.Fatalf("rework recipients = %#v, want operator %q + park head %q", gotRework, vnOperatorToken, vnParkHeadToken)
 	}
 
-	// 3. Never emit a leadership (tenant-scope) recipient, for either event.
+	// 2. Never emit a leadership (tenant-scope) recipient, for either event.
 	leadershipCount := countRows(t, ctx, pool,
 		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND recipient_ref = $2`,
 		vnTenant, vnLeadershipToken)
@@ -213,21 +279,39 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 		t.Fatalf("leadership notification rows = %d, want 0", leadershipCount)
 	}
 
-	// 4. Replay the identical rejected event: idempotent, no duplicate rows.
-	publish(notificationbridge.StatusRejected, "video unclear")
+	// 3. Replay the identical rejected event: idempotent, no duplicate rows.
+	publishRejected("video unclear")
 
 	totalAfterReplay := countRows(t, ctx, pool,
 		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1`, vnTenant)
-	if totalAfterReplay != 3 { // 1 verification_pending + 2 rework, unchanged by the replay
-		t.Fatalf("total notification_requests rows after replay = %d, want 3 (no duplicates)", totalAfterReplay)
+	if totalAfterReplay != 2 { // 2 rework, unchanged by the replay
+		t.Fatalf("total notification_requests rows after replay = %d, want 2 (no duplicates)", totalAfterReplay)
 	}
 
-	// 5. A status this bridge doesn't act on (e.g. approval) produces no row.
-	publish("completed", "")
-	totalAfterCompleted := countRows(t, ctx, pool,
+	// 4. vaccination.verify.accepted is a no-op (approval is digest/rollup only, no push).
+	publishAccepted := func() {
+		t.Helper()
+		payload, err := json.Marshal(notificationbridge.VerificationEvent{
+			CompletionID: vnCompletionID,
+			VerifiedBy:   vnVerifierMember,
+		})
+		if err != nil {
+			t.Fatalf("encode event: %v", err)
+		}
+		if err := bus.Publish(ctx, eventbus.Event{
+			Type:     notificationbridge.EventVaccinationVerifyAccepted,
+			TenantID: vnTenant,
+			Key:      vnCompletionID,
+			Payload:  payload,
+		}); err != nil {
+			t.Fatalf("publish accepted event: %v", err)
+		}
+	}
+	publishAccepted()
+	totalAfterAccepted := countRows(t, ctx, pool,
 		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1`, vnTenant)
-	if totalAfterCompleted != 3 {
-		t.Fatalf("total notification_requests rows after a 'completed' event = %d, want 3 (unchanged -- no push on approval)", totalAfterCompleted)
+	if totalAfterAccepted != 2 {
+		t.Fatalf("total notification_requests rows after an 'accepted' event = %d, want 2 (unchanged -- no push on approval)", totalAfterAccepted)
 	}
 }
 
@@ -277,4 +361,28 @@ func countRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string
 		t.Fatalf("count rows (%s): %v", sql, err)
 	}
 	return n
+}
+
+// TestNotificationTypeEnumGuard ensures the notification_type string constants used by the
+// VerificationNotifier exactly match the migration 000171 notification_requests_type_check
+// allowed set, so a future rename can't silently produce invalid types.
+func TestNotificationTypeEnumGuard(t *testing.T) {
+	allowedTypes := map[string]bool{
+		"reminder":              true,
+		"nudge":                 true,
+		"escalation":            true,
+		"verification_pending":  true,
+		"rework":                true,
+	}
+
+	usedTypes := map[string]bool{
+		notificationbridge.NotificationTypeVerificationPending: true,
+		notificationbridge.NotificationTypeRework:              true,
+	}
+
+	for notificationType := range usedTypes {
+		if !allowedTypes[notificationType] {
+			t.Errorf("notification_type '%s' is used by VerificationNotifier but not in the allowed set", notificationType)
+		}
+	}
 }

@@ -523,7 +523,9 @@ ORDER BY position_code, module_code, duty_type`, tenantID, positionCodes, at)
 // carries (moduleCode, dutyType) at (scopeType, scopeID) `at`. One set-based query joining
 // workforce_positions -> position_module_duties -> workforce_members -> workforce_member_devices,
 // using position_module_duties_by_module (tenant_id, module_code, duty_type), the active-seat index,
-// and workforce_member_devices_member_status_idx -- bounded, indexed, no N+1.
+// and workforce_member_devices_member_status_idx -- bounded, indexed, no N+1. Caller must pass
+// park/position/module scope, never tenant-wide.
+// scale-guard: bounded recipient fan-out LIMIT 1000 prevents unbounded device multi-device notifications.
 func (r *Repository) ResolveModuleDutyRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string, at time.Time) ([]domain.NotificationRecipient, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -553,7 +555,8 @@ WHERE p.tenant_id = $1::uuid
   AND p.status = 'active'
   AND p.valid_from <= $4::timestamptz
   AND (p.valid_to IS NULL OR p.valid_to > $4::timestamptz)
-ORDER BY 1, 2`, tenantID, scopeType, scopeID, at, moduleCode, dutyType, at)
+ORDER BY 1, 2
+LIMIT 1000`, tenantID, scopeType, scopeID, at, moduleCode, dutyType, at)
 	if err != nil {
 		return nil, err
 	}
@@ -562,6 +565,7 @@ ORDER BY 1, 2`, tenantID, scopeType, scopeID, at, moduleCode, dutyType, at)
 
 // ResolveMemberRecipients returns active, reachable devices for one specific workforce member (e.g.
 // the operator who executed a completion). Indexed on workforce_member_devices_member_status_idx.
+// scale-guard: bounded recipient fan-out LIMIT 1000 prevents unbounded multi-device notifications.
 func (r *Repository) ResolveMemberRecipients(ctx context.Context, tenantID, workforceMemberID string) ([]domain.NotificationRecipient, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -572,7 +576,8 @@ WHERE d.tenant_id = $1::uuid
   AND d.workforce_member_id = $2::uuid
   AND d.status = 'active'
   AND d.fcm_token IS NOT NULL
-ORDER BY 1, 2`, tenantID, workforceMemberID)
+ORDER BY 1, 2
+LIMIT 1000`, tenantID, workforceMemberID)
 	if err != nil {
 		return nil, err
 	}
@@ -581,7 +586,9 @@ ORDER BY 1, 2`, tenantID, workforceMemberID)
 
 // ResolvePositionRecipients returns active, reachable devices for whoever actively holds
 // positionCode at (scopeType, scopeID) `at` (e.g. the park head). Uses the same active-seat index as
-// GetActivePositionByCode plus workforce_member_devices_member_status_idx.
+// GetActivePositionByCode plus workforce_member_devices_member_status_idx. Caller must pass
+// park/position scope, never tenant-wide.
+// scale-guard: bounded recipient fan-out LIMIT 1000 prevents unbounded multi-device notifications.
 func (r *Repository) ResolvePositionRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string, at time.Time) ([]domain.NotificationRecipient, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -600,7 +607,8 @@ WHERE p.tenant_id = $1::uuid
   AND p.status = 'active'
   AND p.valid_from <= $5::timestamptz
   AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
-ORDER BY 1, 2`, tenantID, scopeType, scopeID, positionCode, at)
+ORDER BY 1, 2
+LIMIT 1000`, tenantID, scopeType, scopeID, positionCode, at)
 	if err != nil {
 		return nil, err
 	}

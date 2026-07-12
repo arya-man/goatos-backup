@@ -455,6 +455,12 @@ func mapRepoError(err error) error {
 	}
 }
 
+// ResolveVaccinationCompletionContext delegates to the repository to resolve a vaccination completion_id
+// to its obligation context. Used by the notification layer to decouple from importing internal/vaccination.
+func (s *Service) ResolveVaccinationCompletionContext(ctx context.Context, tenantID, completionID string) (ports.VaccinationCompletionContext, error) {
+	return s.repo.ResolveVaccinationCompletionContext(ctx, tenantID, completionID)
+}
+
 func mustCalendarLocation() *time.Location {
 	loc, err := time.LoadLocation(domain.DefaultTimezone)
 	if err != nil {

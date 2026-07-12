@@ -528,6 +528,27 @@ func (r *Repository) DeregisterDevice(ctx context.Context, cmd ports.DeregisterD
 		return domain.DeviceSummary{}, err
 	}
 	defer rollback(ctx, tx)
+	// Capture the device's CURRENT fcm_token before it is cleared below, locking the row (FOR UPDATE)
+	// so no concurrent register/heartbeat can rotate the token between this read and the revoke. This
+	// is the match key for the suppress step further down. RowsAffected() on the UPDATE below (not
+	// this SELECT) remains the sole source of truth for the idempotent/not-found branch, so a miss here
+	// (ErrNoRows: already revoked or foreign device) is not treated as an error -- fcmToken just stays
+	// nil and the UPDATE's own 0-rows check short-circuits before the suppress step runs.
+	var fcmToken *string
+	if err := tx.QueryRow(ctx, `
+SELECT fcm_token
+FROM workforce_member_devices
+WHERE tenant_id = $1::uuid
+  AND device_id = $2::uuid
+  AND registered_by = $3::uuid
+  AND status <> 'revoked'
+FOR UPDATE`,
+		cmd.TenantID,
+		cmd.DeviceID,
+		cmd.ActorID,
+	).Scan(&fcmToken); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return domain.DeviceSummary{}, err
+	}
 	// Idempotent by design (logout is best-effort/replay-prone): only the FIRST deregister for the
 	// caller's own device flips state + audits. `status <> 'revoked'` makes a retry a no-op — no
 	// revoked_at rewrite, no row_version bump, no duplicate audit row.
@@ -556,6 +577,29 @@ WHERE tenant_id = $1::uuid
 		// already-revoked device the actor owns (idempotent replay -> return it, no side effects).
 		// The untouched tx rolls back via the deferred rollback.
 		return r.GetDeviceForActor(contextWithoutCancel(ctx), cmd.TenantID, cmd.ActorID, cmd.DeviceID)
+	}
+	// Close the offline-logout / shared-phone delivery window: a notification_requests row snapshots
+	// the recipient's raw FCM token into recipient_ref at QUEUE time (calendar's QueueRoleNotifications
+	// -- see docs/decisions/vaccination-notification-rules.md §4c). If the client's deleteToken() never
+	// reached FCM (offline at logout), rows already queued against this token could still deliver to
+	// the phone after a different user logs in and the token is reused, before the OS rotates it. In
+	// the SAME transaction as the revoke, suppress this device's still-pending rows keyed by the exact
+	// token being cleared. Only 'queued'/'failed' rows are touched -- 'sent'/'read' rows are audit
+	// history and must never be rewritten. This complements, not replaces, the mobile deleteToken()
+	// best-effort call.
+	if fcmToken != nil {
+		if _, err := tx.Exec(ctx, `
+UPDATE notification_requests
+SET status = 'suppressed',
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND recipient_ref = $2
+  AND status IN ('queued', 'failed')`,
+			cmd.TenantID,
+			*fcmToken,
+		); err != nil {
+			return domain.DeviceSummary{}, err
+		}
 	}
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "app.device.deregister", "workforce_member_device", cmd.DeviceID, nil, map[string]any{"reason": "app_logout_decouple"}); err != nil {
 		return domain.DeviceSummary{}, err
