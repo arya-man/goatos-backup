@@ -82,7 +82,7 @@ export const VERIFICATION_REVIEW_COPY = {
     reasonLabel: "Penalty / escalation note",
     reasonPlaceholder: "Log a penalty or escalation note (not yet backed by an API)…",
     submit: "Log penalty note",
-    disabled: "Penalty/escalation logging is not backed by a Goat OS API yet. The daily 'penalties issued' metric is currently tracked manually per the PHC-Director EOD handbook (context/architecture/verifier-app-and-flow.md). Tracked as a Verification-module TODO.",
+    disabled: "Penalty/escalation logging is not backed by a Mesha API yet. The daily 'penalties issued' metric is currently tracked manually per the PHC-Director EOD handbook. Tracked as a Verification-module TODO.",
   },
   action: {
     close: "Close",

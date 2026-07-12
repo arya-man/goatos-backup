@@ -1,4 +1,4 @@
-import { VerificationReviewPage } from "@/features/verification-review/verification-review-page";
+import { VerificationReviewPage } from "@/features/verification-review";
 import type { RouteSearchParams } from "@/lib/search-params";
 
 export const dynamic = "force-dynamic";

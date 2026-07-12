@@ -350,7 +350,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// rework notifications to the executor + park head. verification_pending notifications
 	// require the submission vertical to publish a vaccination.verification.awaiting_review event
 	// (cross-session contract documented in verification_notify.go).
-	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService).Register(bus)
+	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
 			WithVerificationProducer(verificationService).

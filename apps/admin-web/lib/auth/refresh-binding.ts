@@ -58,3 +58,22 @@ export async function resolveBoundRefreshToken(
 
   return { decision: "store", refreshToken: exchanged.refreshToken.trim() };
 }
+
+// Cookie state the session route must write for the refresh-token cookie given a
+// binding decision. The cookie must ALWAYS reflect the outcome so it can never
+// outlive the user it belongs to:
+//   store — persist the verified, rotated refresh token for its full lifetime.
+//   skip  — CLEAR any existing cookie (value "", maxAge 0). Without this, a prior
+//           user A's refresh token survives a switch to user B whenever the
+//           exchange cannot verify B's token, and SSR silently reverts the
+//           session to A once B's id token expires.
+// (`reject` never reaches here — the route returns 401 with no cookie writes.)
+export function refreshCookieState(
+  binding: RefreshBindingDecision,
+  persistMaxAgeSeconds: number,
+): { value: string; maxAge: number } {
+  if (binding.decision === "store") {
+    return { value: binding.refreshToken, maxAge: persistMaxAgeSeconds };
+  }
+  return { value: "", maxAge: 0 };
+}

@@ -87,11 +87,13 @@ type VerificationNotifier struct {
 	contextResolver CompletionContextResolver
 	recipients      RecipientResolver
 	queue           NotificationQueue
+	logger          *slog.Logger
 }
 
 // NewVerificationNotifier constructs the bridge over the calendar/workforce/calendar app-layer seams.
-func NewVerificationNotifier(contextResolver CompletionContextResolver, recipients RecipientResolver, queue NotificationQueue) *VerificationNotifier {
-	return &VerificationNotifier{contextResolver: contextResolver, recipients: recipients, queue: queue}
+// logger is the process logger from platform/observability.New; when nil, gap warnings are skipped.
+func NewVerificationNotifier(contextResolver CompletionContextResolver, recipients RecipientResolver, queue NotificationQueue, logger *slog.Logger) *VerificationNotifier {
+	return &VerificationNotifier{contextResolver: contextResolver, recipients: recipients, queue: queue, logger: logger}
 }
 
 var _ eventbus.Handler = (*VerificationNotifier)(nil)
@@ -187,8 +189,8 @@ func (n *VerificationNotifier) notifyRework(ctx context.Context, tenantID string
 
 	// If we resolved zero recipients (no operator AND no park head), log a warning so the gap is
 	// observable (a rejected proof reaching nobody is an operational issue, not success).
-	if len(recipients) == 0 {
-		slog.WarnContext(ctx, "vaccination_rework_notification_no_recipients",
+	if len(recipients) == 0 && n.logger != nil {
+		n.logger.WarnContext(ctx, "vaccination_rework_notification_no_recipients",
 			"tenant_id", tenantID,
 			"obligation_id", completionCtx.ObligationID,
 			"park_id", completionCtx.ParkID,

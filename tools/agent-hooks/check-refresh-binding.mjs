@@ -15,7 +15,7 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const authDir = path.resolve(here, "../../apps/admin-web/lib/auth");
 
-const { resolveBoundRefreshToken } = await import(
+const { resolveBoundRefreshToken, refreshCookieState } = await import(
   path.join(authDir, "refresh-binding.ts")
 );
 const { firebaseUidFromToken } = await import(
@@ -93,6 +93,37 @@ function tracked(impl) {
   const d = await resolveBoundRefreshToken(null, "refreshA", exchange, firebaseUidFromToken);
   check("no id-token uid -> skip", d.decision === "skip");
   check("no id-token uid -> exchange never called", exchange.calls === 0);
+}
+
+// --- refreshCookieState (cookie the route writes for each decision) ---
+const LONG = 60 * 60 * 24 * 14;
+{
+  const s = refreshCookieState({ decision: "store", refreshToken: "rotatedA" }, LONG);
+  check("store -> persist rotated token for full lifetime", s.value === "rotatedA" && s.maxAge === LONG);
+}
+{
+  const s = refreshCookieState({ decision: "skip" }, LONG);
+  check("skip -> clear cookie (empty value, maxAge 0)", s.value === "" && s.maxAge === 0);
+}
+
+// --- route-level cookie behaviour: pre-existing A refresh cookie + B sign-in
+//     whose exchange fails (skip) must CLEAR A's refresh cookie. ---
+{
+  // Mirror the route: it always writes FIREBASE_REFRESH_TOKEN_COOKIE from
+  // refreshCookieState(binding). Model the browser cookie jar as a Map.
+  const REFRESH_COOKIE = "goatos_firebase_refresh_token";
+  const jar = new Map([[REFRESH_COOKIE, { value: "A-refresh-token", maxAge: LONG }]]);
+  const applyRoute = (binding) => {
+    const s = refreshCookieState(binding, LONG);
+    jar.set(REFRESH_COOKIE, { value: s.value, maxAge: s.maxAge });
+  };
+
+  // B signs in; exchange outage -> resolveBoundRefreshToken returns skip.
+  const skip = await resolveBoundRefreshToken("uidB", "B-refresh-token", tracked(async () => null), firebaseUidFromToken);
+  check("account switch B sign-in with exchange failure -> skip", skip.decision === "skip");
+  applyRoute(skip);
+  const after = jar.get(REFRESH_COOKIE);
+  check("switch A->B (exchange fail): A refresh cookie is cleared", after.value === "" && after.maxAge === 0);
 }
 
 if (failures > 0) {

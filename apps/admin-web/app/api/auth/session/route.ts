@@ -10,7 +10,7 @@ import {
   maxAgeForFirebaseIdToken,
 } from "@/lib/auth/session-cookie";
 import { exchangeRefreshTokenForIdToken } from "@/lib/auth/firebase-refresh";
-import { resolveBoundRefreshToken } from "@/lib/auth/refresh-binding";
+import { refreshCookieState, resolveBoundRefreshToken } from "@/lib/auth/refresh-binding";
 
 export const dynamic = "force-dynamic";
 
@@ -66,18 +66,20 @@ export async function POST(request: NextRequest) {
   });
   // Persist the long-lived refresh token so SSR can mint fresh ID tokens after
   // the id-token cookie above expires (removes the ~1h forced-relogin cliff).
-  // Only the verified, rotated refresh token bound to this user is stored.
-  if (binding.decision === "store") {
-    response.cookies.set({
-      name: FIREBASE_REFRESH_TOKEN_COOKIE,
-      value: binding.refreshToken,
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: COOKIE_PATH,
-      maxAge: FIREBASE_REFRESH_TOKEN_MAX_AGE_SECONDS,
-    });
-  }
+  // ALWAYS write this cookie: on `store` persist the verified, rotated token
+  // bound to this user; on `skip` (exchange outage / no refresh token /
+  // undecodable uid) clear it, so a prior user's refresh token cannot survive an
+  // account switch and revert the session once the new id token expires.
+  const refreshCookie = refreshCookieState(binding, FIREBASE_REFRESH_TOKEN_MAX_AGE_SECONDS);
+  response.cookies.set({
+    name: FIREBASE_REFRESH_TOKEN_COOKIE,
+    value: refreshCookie.value,
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: COOKIE_PATH,
+    maxAge: refreshCookie.maxAge,
+  });
   return response;
 }
 

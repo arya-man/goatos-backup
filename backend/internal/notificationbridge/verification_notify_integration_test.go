@@ -25,6 +25,7 @@ package notificationbridge_test
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -97,7 +98,7 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 	protoRepo := protopg.NewRepository(pool, 5*time.Second)
 
 	bus := eventbus.NewInProcessBus()
-	notificationbridge.NewVerificationNotifier(calendarRepo, rosterService, calendarService).Register(bus)
+	notificationbridge.NewVerificationNotifier(calendarRepo, rosterService, calendarService, slog.Default()).Register(bus)
 
 	// ---- Seed INPUT facts only ------------------------------------------------------------------
 
