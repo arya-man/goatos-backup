@@ -1115,8 +1115,10 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND system = false
   AND due_at >= TIMESTAMPTZ '2026-06-27 00:00:00+00'
   AND due_at < TIMESTAMPTZ '2026-08-12 00:00:00+00'
+  AND event_type <> 'vaccination_dose_due'
   AND (''::text = '' OR owner_key = ''::text)
   AND (''::text = '' OR status = ''::text)
+  AND (''::text <> '' OR status NOT IN ('completed', 'canceled'))
   AND (''::text = '' OR park_id = nullif(''::text, '')::uuid)
   AND (''::text = '' OR shed_id = nullif(''::text, '')::uuid)
   AND (NULL::timestamptz IS NULL OR (due_at, event_id) > (NULL::timestamptz, ''::text))

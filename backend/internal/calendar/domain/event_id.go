@@ -24,6 +24,7 @@ type DriveTargetCursor struct {
 type ParsedDriveEvent struct {
 	BatchID  string
 	RuleID   string
+	ParkID   string
 	ShedID   string
 	Catchup  bool
 	DueDay   string // YYYY-MM-DD in the IST business-date bucket
@@ -41,9 +42,20 @@ type ParsedHistoryEvent struct {
 func ParseDriveEventID(eventID string) (ParsedDriveEvent, error) {
 	eventID = strings.TrimSpace(eventID)
 	parts := strings.Split(eventID, ":")
+	if len(parts) == 2 && parts[0] == "batch" && uuidutil.IsUUIDString(parts[1]) {
+		return ParsedDriveEvent{BatchID: parts[1]}, nil
+	}
 	if len(parts) == 6 && parts[0] == "batch" && parts[2] == "rule" && parts[4] == "shed" &&
 		uuidutil.IsUUIDString(parts[1]) && uuidutil.IsUUIDString(parts[3]) && uuidutil.IsUUIDString(parts[5]) {
 		return ParsedDriveEvent{BatchID: parts[1], RuleID: parts[3], ShedID: parts[5]}, nil
+	}
+	if len(parts) == 5 && parts[0] == "catchup" && parts[1] == "park" && parts[3] == "due" &&
+		uuidutil.IsUUIDString(parts[2]) && isDueDay(parts[4]) {
+		return ParsedDriveEvent{Catchup: true, ParkID: parts[2], DueDay: parts[4]}, nil
+	}
+	if len(parts) == 5 && parts[0] == "catchup" && parts[1] == "tenant" && parts[3] == "due" &&
+		uuidutil.IsUUIDString(parts[2]) && isDueDay(parts[4]) {
+		return ParsedDriveEvent{Catchup: true, TenantID: parts[2], DueDay: parts[4]}, nil
 	}
 	if len(parts) == 7 && parts[0] == "catchup" && parts[1] == "shed" && parts[3] == "rule" && parts[5] == "due" &&
 		uuidutil.IsUUIDString(parts[2]) && uuidutil.IsUUIDString(parts[4]) && isDueDay(parts[6]) {

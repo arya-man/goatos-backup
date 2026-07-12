@@ -225,6 +225,9 @@ func (r *Repository) SendNudge(ctx context.Context, in ports.SendNudge) (domain.
 	if err != nil {
 		return domain.CalendarActionResponse{}, err
 	}
+	if directNotificationTargetReadOnly(target) {
+		return domain.CalendarActionResponse{}, ports.ErrEventNotActionable
+	}
 	fingerprint := requestFingerprint(in.TenantID, in.EventID, in.ActorID, in.Channel, in.Message, in.Reason)
 	res, err := reserveIdempotency(ctx, tx, in.TenantID, scope, in.IdempotencyKey, fingerprint)
 	if err != nil {
@@ -329,6 +332,9 @@ func (r *Repository) Snooze(ctx context.Context, in ports.Snooze) (domain.Calend
 	target, err := loadActionTarget(ctx, tx, in.TenantID, in.EventID, in.Scope)
 	if err != nil {
 		return domain.CalendarActionResponse{}, err
+	}
+	if directNotificationTargetReadOnly(target) {
+		return domain.CalendarActionResponse{}, ports.ErrEventNotActionable
 	}
 	fingerprint := requestFingerprint(in.TenantID, in.EventID, in.ActorID, fpTime(in.SnoozeUntil), in.Reason, fmt.Sprintf("%t", in.ReplaceExisting))
 	res, err := reserveIdempotency(ctx, tx, in.TenantID, scope, in.IdempotencyKey, fingerprint)
@@ -800,6 +806,7 @@ SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), prima
 	WHERE tenant_id = $1::uuid
 	  AND slice_key = 'vaccination'
 	  AND system = false
+	  AND event_type <> 'vaccination_dose_due'
 	  AND due_at <= now() + interval '1 hour'
 	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
 	  AND NOT EXISTS (
@@ -851,6 +858,7 @@ FROM calendar_event_projections
 	  AND event_id = $2
 	  AND slice_key = 'vaccination'
 	  AND system = false
+	  AND event_type <> 'vaccination_dose_due'
 	  AND due_at <= now() + interval '1 hour'
 	  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
 	  AND NOT EXISTS (
@@ -996,6 +1004,7 @@ WITH candidates AS (
   WHERE tenant_id = $1::uuid
     AND slice_key = 'vaccination'
     AND system = false
+    AND event_type <> 'vaccination_dose_due'
     AND due_at IS NOT NULL
     AND due_at <= $2::timestamptz
     AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
@@ -1594,6 +1603,10 @@ FOR UPDATE`, tenantID, eventID, tenantWide, parkIDs, shedIDs).Scan(
 	return out, nil
 }
 
+func directNotificationTargetReadOnly(target actionTarget) bool {
+	return target.TargetType == "catchup" || target.EventType == "vaccination_dose_due"
+}
+
 func activeSnoozeIDs(ctx context.Context, tx pgx.Tx, tenantID, eventID string) ([]string, error) {
 	rows, err := tx.Query(ctx, `
 SELECT snooze_id::text
@@ -1794,13 +1807,10 @@ candidates AS (
       AND slice_key = 'vaccination'
       AND system = false
       AND due_at >= $6::timestamptz AND due_at < $7::timestamptz
+      AND event_type <> 'vaccination_dose_due'
       AND ($2::text = '' OR owner_key = $2::text)
       AND ($3::text = '' OR status = $3::text)
       AND ($3::text <> '' OR status NOT IN ('completed', 'canceled'))
-      -- Accepted per-goat completions come from the bounded canonical-history
-      -- branch below. Keep completed drive/batch projections, but do not emit a
-      -- second copy of the same completed dose from the hot projection.
-      AND ($3::text <> 'completed' OR event_type <> 'vaccination_dose_due')
       AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
       AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
       AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))
@@ -1823,6 +1833,7 @@ candidates AS (
       AND slice_key = 'vaccination'
       AND system = false
       AND due_at IS NOT NULL
+      AND event_type <> 'vaccination_dose_due'
       AND status IN ('overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due', 'deferred', 'blocked')
       AND ($2::text = '' OR owner_key = $2::text)
       AND ($3::text = '' OR status = $3::text)
@@ -1876,10 +1887,10 @@ WITH marker_rows AS (
   WHERE tenant_id = $1::uuid
     AND slice_key = 'vaccination'
     AND system = false
+    AND event_type <> 'vaccination_dose_due'
     AND ($2::text = '' OR owner_key = $2::text)
     AND ($3::text = '' OR status = $3::text)
     AND ($3::text <> '' OR status NOT IN ('completed', 'canceled'))
-    AND NOT (status = 'completed' AND event_type = 'vaccination_dose_due')
     AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
     AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
     AND due_at >= $6::timestamptz
@@ -2308,15 +2319,18 @@ WITH obligation_events AS (
 catchup_drive_events AS (
   SELECT
     CASE
-      WHEN grouped.shed_id IS NOT NULL THEN
-        'catchup:shed:' || grouped.shed_id::text || ':rule:' || grouped.rule_id::text || ':due:' || grouped.due_day
+      WHEN grouped.park_id IS NOT NULL THEN
+        'catchup:park:' || grouped.park_id::text || ':due:' || grouped.due_day
       ELSE
-        'catchup:tenant:' || $1::text || ':rule:' || grouped.rule_id::text || ':due:' || grouped.due_day
+        'catchup:tenant:' || $1::text || ':due:' || grouped.due_day
     END AS event_id,
     'vaccination_drive'::text AS event_type,
     'pc'::text AS owner_key,
-    grouped.vaccine_name || ' catch-up drive' AS title,
-    COALESCE(grouped.shed_name, grouped.park_code, 'Catch-up drive') AS subtitle,
+    CASE
+      WHEN grouped.park_id IS NOT NULL THEN 'Park vaccination drive'
+      ELSE 'Vaccination drive'
+    END AS title,
+    'Catch-up drive'::text AS subtitle,
     grouped.status,
     grouped.severity,
     grouped.due_at,
@@ -2326,21 +2340,25 @@ catchup_drive_events AS (
     grouped.timezone_source,
     grouped.park_id,
     grouped.park_code,
-    grouped.shed_id,
-    grouped.shed_name,
+    CASE WHEN grouped.shed_count = 1 THEN grouped.primary_shed_id ELSE NULL::uuid END AS shed_id,
+    CASE WHEN grouped.shed_count = 1 THEN grouped.primary_shed_name ELSE NULL::text END AS shed_name,
     NULL::uuid AS cohort_id,
     NULL::text AS cohort_name,
-    'shed'::text AS target_type,
+    CASE
+      WHEN grouped.shed_count = 1 THEN 'shed'::text
+      WHEN grouped.park_id IS NOT NULL THEN 'park'::text
+      ELSE 'tenant'::text
+    END AS target_type,
     grouped.target_count,
-    grouped.protocol_id,
-    grouped.protocol_version_id,
-    grouped.rule_id,
-    grouped.vaccine_name,
-    grouped.dose_code,
+    NULL::uuid AS protocol_id,
+    NULL::uuid AS protocol_version_id,
+    NULL::uuid AS rule_id,
+    queue_meta.queue_summary AS vaccine_name,
+    queue_meta.queue_preview AS dose_code,
     true AS source_backed,
-    grouped.source_label,
-    CASE WHEN grouped.target_count = 1 THEN 'obligation' ELSE 'catchup' END AS source_target_type,
-    CASE WHEN grouped.target_count = 1 THEN grouped.single_obligation_id ELSE COALESCE(grouped.shed_id, $1::uuid) END AS source_target_id,
+    queue_meta.queue_summary AS source_label,
+    'catchup'::text AS source_target_type,
+    COALESCE(grouped.park_id, CASE WHEN grouped.shed_count = 1 THEN grouped.primary_shed_id ELSE NULL::uuid END, $1::uuid) AS source_target_id,
     'PC drive team'::text AS assignee_label,
     'pc_vaccinator'::text AS executor_role,
     'PC verifier'::text AS verifier_label,
@@ -2351,41 +2369,50 @@ catchup_drive_events AS (
     false AS cross_cutting,
     jsonb_build_object(
       'vaccination', '/vaccination/operations',
-      'drive', CASE WHEN grouped.shed_id IS NOT NULL THEN '/vaccination/execution/sheds/' || grouped.shed_id::text ELSE NULL END
+      'drive', CASE WHEN grouped.shed_count = 1 AND grouped.primary_shed_id IS NOT NULL THEN '/vaccination/execution/sheds/' || grouped.primary_shed_id::text ELSE NULL END
     ) AS links,
     jsonb_build_object(
-      'summary', jsonb_build_object('owner', 'PC', 'target_count', grouped.target_count, 'catchup', true),
-      'source_and_rule', jsonb_build_object(
-        'protocol_version_id', grouped.protocol_version_id,
-        'rule_id', grouped.rule_id,
-        'due_day', grouped.due_day
+      'summary', jsonb_build_object(
+        'owner', 'PC',
+        'target_count', grouped.target_count,
+        'catchup', true,
+        'queue_count', grouped.queue_count,
+        'queue_preview', queue_meta.queue_preview,
+        'shed_count', grouped.shed_count
       ),
-      'execution', jsonb_build_object('catchup', true, 'work_state', grouped.status),
+      'source_and_rule', jsonb_build_object(
+        'due_day', grouped.due_day,
+        'queue_count', grouped.queue_count,
+        'queue_preview', queue_meta.queue_preview
+      ),
+      'execution', jsonb_build_object(
+        'catchup', true,
+        'work_state', grouped.status,
+        'shed_count', grouped.shed_count
+      ),
       'stock', jsonb_build_object(),
       'proof', jsonb_build_object(),
       'verification', jsonb_build_object(),
       'notification_channels', jsonb_build_array('local-stub'),
-      'notification_policy', jsonb_build_object('nudge_allowed', true),
+      'notification_policy', jsonb_build_object('nudge_allowed', false, 'read_only', true),
       'links', jsonb_build_object()
     ) AS detail
   FROM (
     SELECT
-      loc.shed_id,
-      loc.shed_name,
       loc.park_id,
       loc.park_code,
-      pr.rule_id,
-      pd.protocol_id,
-      pv.protocol_version_id,
-      pd.name AS vaccine_name,
-      pr.dose_code,
-      (array_agg(oi.obligation_id ORDER BY oi.obligation_id))[1] AS single_obligation_id,
-      pd.name AS source_label,
-      ''::text AS source_ref,
+      count(DISTINCT loc.shed_id)::int AS shed_count,
+      NULLIF(min(loc.shed_id::text), '')::uuid AS primary_shed_id,
+      min(loc.shed_name) FILTER (WHERE loc.shed_name IS NOT NULL) AS primary_shed_name,
       'Asia/Kolkata'::text AS timezone,
       'india_only'::text AS timezone_source,
       to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS due_day,
-      count(*)::int AS target_count,
+      count(DISTINCT oi.target_id)::int AS target_count,
+      count(DISTINCT pr.rule_id)::int AS queue_count,
+      array_agg(
+        DISTINCT COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
+        ORDER BY COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
+      ) AS queue_labels,
       min(oi.due_at) AS due_at,
       min(COALESCE(oi.window_start, oi.due_at)) AS window_start,
       max(COALESCE(oi.window_end, oi.due_at + make_interval(days => pr.due_window_days))) AS window_end,
@@ -2451,53 +2478,68 @@ catchup_drive_events AS (
       AND pv.status = 'published'
       AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
     GROUP BY
-      loc.shed_id, loc.shed_name, loc.park_id, loc.park_code,
-      pr.rule_id, pd.protocol_id, pv.protocol_version_id, pd.name, pr.dose_code,
-      source_label, source_ref,
+      loc.park_id, loc.park_code,
       'Asia/Kolkata'::text,
       'india_only'::text,
       due_day
-    HAVING count(*) > 1
   ) grouped
+  CROSS JOIN LATERAL (
+    SELECT
+      CASE
+        WHEN grouped.queue_count <= 0 THEN 'Vaccination queue'
+        WHEN grouped.queue_count = 1 THEN '1 vaccine queue'
+        ELSE grouped.queue_count::text || ' vaccine queues'
+      END AS queue_summary,
+      CASE
+        WHEN grouped.queue_count <= 0 THEN 'Vaccination queue'
+        WHEN grouped.queue_count = 1 THEN split_part(grouped.queue_labels[1], '|', 1)
+        WHEN grouped.queue_count = 2 THEN split_part(grouped.queue_labels[1], '|', 1) || ', ' || split_part(grouped.queue_labels[2], '|', 1)
+        WHEN grouped.queue_count = 3 THEN split_part(grouped.queue_labels[1], '|', 1) || ', ' || split_part(grouped.queue_labels[2], '|', 1) || ', ' || split_part(grouped.queue_labels[3], '|', 1)
+        ELSE split_part(grouped.queue_labels[1], '|', 1) || ', ' || split_part(grouped.queue_labels[2], '|', 1) || ', ' || split_part(grouped.queue_labels[3], '|', 1) || ' +' || (grouped.queue_count - 3)::text || ' more'
+      END AS queue_preview
+  ) queue_meta
 ),
 batch_events AS (
-  SELECT DISTINCT ON (ob.batch_id, pr.rule_id)
-    'batch:' || ob.batch_id::text || ':rule:' || pr.rule_id::text || ':shed:' || ob.scope_id::text AS event_id,
+  SELECT
+    'batch:' || grouped.batch_id::text AS event_id,
     'vaccination_drive'::text AS event_type,
     'pc'::text AS owner_key,
-    pd.name || ' drive' AS title,
-    COALESCE(scope_loc.name, 'Vaccination drive') AS subtitle,
-    CASE ob.status
+    CASE
+      WHEN grouped.park_id IS NOT NULL THEN 'Park vaccination drive'
+      ELSE 'Vaccination drive'
+    END AS title,
+    'Scheduled drive'::text AS subtitle,
+    CASE grouped.batch_status
       WHEN 'planned' THEN 'scheduled'
       WHEN 'superseded' THEN 'canceled'
-      ELSE ob.status
+      ELSE grouped.batch_status
     END AS status,
     CASE
-      WHEN COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < now() AND ob.status <> 'completed' THEN 'warning'
+      WHEN grouped.due_at < now() AND grouped.batch_status <> 'completed' THEN 'warning'
       ELSE 'info'
     END AS severity,
-    COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AS due_at,
-    COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AS window_start,
-    COALESCE(ob.window_end, ob.window_start + interval '8 hours', ob.planned_date::timestamptz + interval '8 hours') AS window_end,
+    grouped.due_at,
+    grouped.window_start,
+    grouped.window_end,
     'Asia/Kolkata'::text AS timezone,
     'india_only'::text AS timezone_source,
-    scope_parent.location_id AS park_id,
-    scope_parent.location_code AS park_code,
-    ob.scope_id AS shed_id,
-    scope_loc.name AS shed_name,
+    grouped.park_id,
+    grouped.park_code,
+    grouped.shed_id,
+    grouped.shed_name,
     NULL::uuid AS cohort_id,
     NULL::text AS cohort_name,
     'shed'::text AS target_type,
-    GREATEST(ob.estimated_targets, 1)::int AS target_count,
-    pd.protocol_id,
-    pv.protocol_version_id,
-    pr.rule_id,
-    pd.name AS vaccine_name,
-    pr.dose_code,
+    grouped.target_count,
+    grouped.protocol_id,
+    grouped.protocol_version_id,
+    NULL::uuid AS rule_id,
+    queue_meta.queue_summary AS vaccine_name,
+    queue_meta.queue_preview AS dose_code,
     true AS source_backed,
-    pd.name AS source_label,
+    queue_meta.queue_summary AS source_label,
     'batch'::text AS source_target_type,
-    ob.batch_id AS source_target_id,
+    grouped.batch_id AS source_target_id,
     'PC drive team'::text AS assignee_label,
     'pc_vaccinator'::text AS executor_role,
     'PC verifier'::text AS verifier_label,
@@ -2508,44 +2550,102 @@ batch_events AS (
     false AS cross_cutting,
     jsonb_build_object(
       'vaccination', '/vaccination/operations',
-      'drive', '/vaccination/execution/sheds/' || ob.scope_id::text
+      'drive', CASE WHEN grouped.shed_id IS NOT NULL THEN '/vaccination/execution/sheds/' || grouped.shed_id::text ELSE NULL END
     ) AS links,
     jsonb_build_object(
-      'summary', jsonb_build_object('owner', 'PC', 'target_count', GREATEST(ob.estimated_targets, 1)),
-      'source_and_rule', jsonb_build_object(
-        'protocol_version_id', pv.protocol_version_id,
-        'rule_id', pr.rule_id
+      'summary', jsonb_build_object(
+        'owner', 'PC',
+        'target_count', grouped.target_count,
+        'queue_count', grouped.queue_count,
+        'queue_preview', queue_meta.queue_preview
       ),
-      'execution', jsonb_build_object('batch_id', ob.batch_id, 'sop_task_id', ob.sop_task_id, 'work_state', ob.status),
-      'stock', jsonb_build_object('reserved_qty', ob.reserved_quantity, 'planned_qty', ob.planned_quantity),
+      'source_and_rule', jsonb_build_object(
+        'protocol_version_id', grouped.protocol_version_id,
+        'queue_count', grouped.queue_count,
+        'queue_preview', queue_meta.queue_preview
+      ),
+      'execution', jsonb_build_object('batch_id', grouped.batch_id, 'sop_task_id', grouped.sop_task_id, 'work_state', grouped.batch_status),
+      'stock', jsonb_build_object('reserved_qty', grouped.reserved_quantity, 'planned_qty', grouped.planned_quantity),
       'proof', jsonb_build_object(),
       'verification', jsonb_build_object('verifier', 'PC verifier'),
       'notification_channels', jsonb_build_array('local-stub'),
       'notification_policy', jsonb_build_object('nudge_allowed', true),
       'links', jsonb_build_object()
     ) AS detail
-  FROM obligation_batches ob
-  JOIN obligation_instances oi
-    ON oi.tenant_id = ob.tenant_id AND oi.batch_id = ob.batch_id
-  JOIN protocol_versions pv
-    ON pv.tenant_id = ob.tenant_id AND pv.protocol_version_id = ob.protocol_version_id
-  JOIN protocol_definitions pd
-    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-  JOIN protocol_rules pr
-    ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
-  LEFT JOIN locations scope_loc
-    ON scope_loc.tenant_id = ob.tenant_id AND scope_loc.location_id = ob.scope_id
-  LEFT JOIN locations scope_parent
-    ON scope_parent.tenant_id = ob.tenant_id AND scope_parent.location_id = scope_loc.parent_location_id
-  WHERE ob.tenant_id = $1::uuid
-    AND ob.scope_type = 'shed'
-    AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= $2::timestamptz
-    AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
-    AND pd.category = 'vaccination'
-    AND pv.status = 'published'
-    AND ob.status NOT IN ('superseded', 'canceled')
-    AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days')
-  ORDER BY ob.batch_id, pr.rule_id, COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)
+  FROM (
+    SELECT
+      ob.batch_id,
+      ob.status AS batch_status,
+      COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AS due_at,
+      COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AS window_start,
+      COALESCE(ob.window_end, ob.window_start + interval '8 hours', ob.planned_date::timestamptz + interval '8 hours') AS window_end,
+      scope_parent.location_id AS park_id,
+      scope_parent.location_code AS park_code,
+      ob.scope_id AS shed_id,
+      scope_loc.name AS shed_name,
+      GREATEST(ob.estimated_targets, 1)::int AS target_count,
+      pd.protocol_id,
+      pv.protocol_version_id,
+      ob.sop_task_id,
+      ob.reserved_quantity,
+      ob.planned_quantity,
+      count(DISTINCT pr.rule_id)::int AS queue_count,
+      array_agg(
+        DISTINCT COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
+        ORDER BY COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
+      ) AS queue_labels
+    FROM obligation_batches ob
+    JOIN obligation_instances oi
+      ON oi.tenant_id = ob.tenant_id AND oi.batch_id = ob.batch_id
+    JOIN protocol_versions pv
+      ON pv.tenant_id = ob.tenant_id AND pv.protocol_version_id = ob.protocol_version_id
+    JOIN protocol_definitions pd
+      ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+    JOIN protocol_rules pr
+      ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+    LEFT JOIN locations scope_loc
+      ON scope_loc.tenant_id = ob.tenant_id AND scope_loc.location_id = ob.scope_id
+    LEFT JOIN locations scope_parent
+      ON scope_parent.tenant_id = ob.tenant_id AND scope_parent.location_id = scope_loc.parent_location_id
+    WHERE ob.tenant_id = $1::uuid
+      AND ob.scope_type = 'shed'
+      AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= $2::timestamptz
+      AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
+      AND pd.category = 'vaccination'
+      AND pv.status = 'published'
+      AND ob.status NOT IN ('superseded', 'canceled')
+      AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days')
+    GROUP BY
+      ob.batch_id,
+      ob.status,
+      COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end),
+      COALESCE(ob.window_end, ob.window_start + interval '8 hours', ob.planned_date::timestamptz + interval '8 hours'),
+      scope_parent.location_id,
+      scope_parent.location_code,
+      ob.scope_id,
+      scope_loc.name,
+      GREATEST(ob.estimated_targets, 1)::int,
+      pd.protocol_id,
+      pv.protocol_version_id,
+      ob.sop_task_id,
+      ob.reserved_quantity,
+      ob.planned_quantity
+  ) grouped
+  CROSS JOIN LATERAL (
+    SELECT
+      CASE
+        WHEN grouped.queue_count <= 0 THEN 'Vaccination queue'
+        WHEN grouped.queue_count = 1 THEN '1 vaccine queue'
+        ELSE grouped.queue_count::text || ' vaccine queues'
+      END AS queue_summary,
+      CASE
+        WHEN grouped.queue_count <= 0 THEN 'Vaccination queue'
+        WHEN grouped.queue_count = 1 THEN split_part(grouped.queue_labels[1], '|', 1)
+        WHEN grouped.queue_count = 2 THEN split_part(grouped.queue_labels[1], '|', 1) || ', ' || split_part(grouped.queue_labels[2], '|', 1)
+        WHEN grouped.queue_count = 3 THEN split_part(grouped.queue_labels[1], '|', 1) || ', ' || split_part(grouped.queue_labels[2], '|', 1) || ', ' || split_part(grouped.queue_labels[3], '|', 1)
+        ELSE split_part(grouped.queue_labels[1], '|', 1) || ', ' || split_part(grouped.queue_labels[2], '|', 1) || ', ' || split_part(grouped.queue_labels[3], '|', 1) || ' +' || (grouped.queue_count - 3)::text || ' more'
+      END AS queue_preview
+  ) queue_meta
 ),
 sop_events AS (
   SELECT DISTINCT ON (st.task_id)
@@ -2855,7 +2955,7 @@ WITH source_event_ids AS (
 
   UNION ALL
 
-  SELECT 'batch:' || ob.batch_id::text || ':rule:' || oi.rule_id::text || ':shed:' || ob.scope_id::text AS event_id
+  SELECT 'batch:' || ob.batch_id::text AS event_id
   FROM obligation_batches ob
   JOIN obligation_instances oi
     ON oi.tenant_id = ob.tenant_id AND oi.batch_id = ob.batch_id
@@ -2876,11 +2976,11 @@ WITH source_event_ids AS (
 
   SELECT
     CASE
-      WHEN loc.shed_id IS NOT NULL THEN
-        'catchup:shed:' || loc.shed_id::text || ':rule:' || pr.rule_id::text || ':due:' ||
+      WHEN loc.park_id IS NOT NULL THEN
+        'catchup:park:' || loc.park_id::text || ':due:' ||
         to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
       ELSE
-        'catchup:tenant:' || oi.tenant_id::text || ':rule:' || pr.rule_id::text || ':due:' ||
+        'catchup:tenant:' || oi.tenant_id::text || ':due:' ||
         to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
     END AS event_id
   FROM obligation_instances oi
@@ -2903,6 +3003,11 @@ WITH source_event_ids AS (
   LEFT JOIN LATERAL (
     SELECT
       CASE
+        WHEN oi.scope_type = 'park' THEN scope_loc.location_id
+        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
+        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
+      END AS park_id,
+      CASE
         WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
         WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
       END AS shed_id
@@ -2918,7 +3023,6 @@ WITH source_event_ids AS (
     AND pv.status = 'published'
     AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
   GROUP BY event_id
-  HAVING count(*) > 1
 
   UNION ALL
 

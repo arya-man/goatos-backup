@@ -12,9 +12,10 @@ import (
 )
 
 const calendarDriveTargetsSQL = `
+WITH matched_obligations AS (
 SELECT
-  oi.obligation_id::text,
-  oi.target_id::text AS animal_id,
+  oi.obligation_id,
+  oi.target_id AS animal_id,
   g.display_id AS display_id,
   aid1.identifier_value AS animal_identifier_1,
   aid2.identifier_value AS animal_identifier_2,
@@ -22,6 +23,14 @@ SELECT
   oi.status,
   oi.due_at
 FROM obligation_instances oi
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
+ AND pv.status = 'published'
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+ AND pd.category = 'vaccination'
 JOIN goats g
   ON g.tenant_id = oi.tenant_id
  AND g.goat_id = oi.target_id
@@ -49,29 +58,59 @@ LEFT JOIN locations scope_grand
 LEFT JOIN LATERAL (
   SELECT
     CASE
+      WHEN oi.scope_type = 'park' THEN scope_loc.location_id
+      WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
+      WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
+    END AS park_id,
+    CASE
       WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
       WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
     END AS shed_id
 ) loc ON true
 WHERE oi.tenant_id = $1::uuid
-  AND oi.rule_id = $2::uuid
   AND oi.status NOT IN ('waived', 'canceled', 'superseded')
   AND (
-    ($3::uuid IS NOT NULL AND oi.batch_id = $3::uuid)
+    ($2::uuid IS NOT NULL AND oi.batch_id = $2::uuid)
     OR (
-      $3::uuid IS NULL
+      $2::uuid IS NULL
       AND oi.batch_id IS NULL
-      AND to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $4::text
+      AND to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
       AND (
-        ($5::uuid IS NULL AND loc.shed_id IS NULL)
-        OR loc.shed_id = $5::uuid
+        ($4::uuid IS NOT NULL AND loc.park_id = $4::uuid)
+        OR ($5::uuid IS NOT NULL AND loc.shed_id = $5::uuid)
+        OR ($6::uuid IS NOT NULL AND oi.tenant_id = $6::uuid AND loc.park_id IS NULL AND loc.shed_id IS NULL)
       )
+      AND ($7::uuid IS NULL OR oi.rule_id = $7::uuid)
     )
   )
-  AND ($6::uuid IS NULL OR oi.obligation_id > $6::uuid)
-  AND ($7::bool OR g.park_id::text = ANY($8::text[]) OR g.shed_id::text = ANY($9::text[]))
-ORDER BY oi.obligation_id ASC
-LIMIT $10`
+  AND ($9::bool OR g.park_id::text = ANY($10::text[]) OR g.shed_id::text = ANY($11::text[]))
+),
+animal_targets AS (
+  SELECT DISTINCT ON (animal_id)
+    obligation_id,
+    animal_id,
+    display_id,
+    animal_identifier_1,
+    animal_identifier_2,
+    stage,
+    status,
+    due_at
+  FROM matched_obligations
+  ORDER BY animal_id, due_at ASC, obligation_id ASC
+)
+SELECT
+  obligation_id::text,
+  animal_id::text,
+  display_id,
+  animal_identifier_1,
+  animal_identifier_2,
+  stage,
+  status,
+  due_at
+FROM animal_targets
+WHERE ($8::uuid IS NULL OR obligation_id > $8::uuid)
+ORDER BY obligation_id ASC
+LIMIT $12`
 
 func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQuery) (domain.CalendarDriveTargetListResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -95,15 +134,27 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 	fetchLimit := limit + 1
 
 	var batchID any
+	var parkID any
 	var shedID any
+	var tenantID any
+	var ruleID any
 	dueDay := parsed.DueDay
 	if parsed.BatchID != "" {
 		batchID = parsed.BatchID
 		dueDay = ""
 	} else {
 		batchID = nil
+		if parsed.ParkID != "" {
+			parkID = parsed.ParkID
+		}
 		if parsed.ShedID != "" {
 			shedID = parsed.ShedID
+		}
+		if parsed.TenantID != "" {
+			tenantID = parsed.TenantID
+		}
+		if parsed.RuleID != "" {
+			ruleID = parsed.RuleID
 		}
 	}
 
@@ -117,7 +168,7 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	rows, err := r.pool.Query(ctx, calendarDriveTargetsSQL,
-		q.TenantID, parsed.RuleID, batchID, dueDay, shedID, cursorID,
+		q.TenantID, batchID, dueDay, parkID, shedID, tenantID, ruleID, cursorID,
 		tenantWide, parkIDs, shedIDs, fetchLimit)
 	if err != nil {
 		return domain.CalendarDriveTargetListResponse{}, fmt.Errorf("calendar: list drive targets: %w", err)

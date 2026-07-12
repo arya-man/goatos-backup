@@ -415,8 +415,8 @@ func TestCalendarVaccinationProjectionRefreshBackfillsObligations(t *testing.T) 
 	if err != nil {
 		t.Fatalf("RefreshVaccinationProjection: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("projection count = %d, want 1", count)
+	if count != 2 {
+		t.Fatalf("projection count = %d, want obligation row plus one catch-up drive summary", count)
 	}
 	var gotEventID string
 	var sourceBacked bool
@@ -429,6 +429,20 @@ WHERE tenant_id = $1::uuid AND event_id = $2`,
 	}
 	if gotEventID != "obligation:"+obligationID || !sourceBacked {
 		t.Fatalf("projection event_id=%s source_backed=%t", gotEventID, sourceBacked)
+	}
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: time.Now().UTC().Add(-time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].EventID != catchupEventID(testTenantID, dueAt) || list.Items[0].EventType != domain.EventVaccinationDrive {
+		t.Fatalf("list items=%#v, want one visible catch-up drive", list.Items)
 	}
 }
 
@@ -492,9 +506,244 @@ WHERE tenant_id=$1::uuid
 		testTenantID).Scan(&eventID, &eventType, &targetCount); err != nil {
 		t.Fatalf("query drive projection: %v", err)
 	}
-	if !strings.HasPrefix(eventID, "batch:"+batchID+":rule:"+ruleID+":shed:") || eventType != domain.EventVaccinationDrive || targetCount != len(obligationIDs) {
+	if eventID != batchEventID(batchID) || eventType != domain.EventVaccinationDrive || targetCount != len(obligationIDs) {
 		t.Fatalf("drive projection id=%s type=%s targets=%d, want one batch drive with %d goats", eventID, eventType, targetCount, len(obligationIDs))
 	}
+}
+
+func TestCalendarVaccinationProjectionCollapsesMultipleRulesIntoSingleCatchupDrive(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolIDs := []string{
+		"86000000-0000-4000-8000-000000000a21",
+		"86000000-0000-4000-8000-000000000a27",
+	}
+	versionIDs := []string{
+		"86000000-0000-4000-8000-000000000a22",
+		"86000000-0000-4000-8000-000000000a28",
+	}
+	ruleIDs := []string{
+		"86000000-0000-4000-8000-000000000a23",
+		"86000000-0000-4000-8000-000000000a24",
+	}
+	obligationIDs := []string{
+		"86000000-0000-4000-8000-000000000a25",
+		"86000000-0000-4000-8000-000000000a26",
+	}
+	dueAt := stableSameLocalDayDueAt(time.Now().UTC())
+	seedVaccinationObligation(t, ctx, pool, protocolIDs[0], versionIDs[0], ruleIDs[0], obligationIDs[0], dueAt)
+	seedVaccinationObligation(t, ctx, pool, protocolIDs[1], versionIDs[1], ruleIDs[1], obligationIDs[1], dueAt.Add(15*time.Minute))
+	for _, obligationID := range obligationIDs {
+		attachObligationToGoatScope(t, ctx, pool, obligationID, obligationID, "tenant", testTenantID)
+	}
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: dueAt.Add(-time.Hour),
+		DateTo:   dueAt.Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+
+	assertCount(t, ctx, pool, "multi-rule catchup visible drive", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid
+  AND event_id = $2
+  AND event_type='vaccination_drive'
+  AND status <> 'canceled'
+  AND target_count = 2`, 1, testTenantID, catchupEventID(testTenantID, dueAt))
+}
+
+func TestCalendarCatchupDriveTargetsUseVaccinationAnimalAndQueueSemantics(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	dueAt := stableSameLocalDayDueAt(time.Now().UTC())
+	vaccinatedGoatID := "86000000-0000-4000-8000-000000000b01"
+	feedGoatID := "86000000-0000-4000-8000-000000000b02"
+	obligationIDs := []string{
+		"86000000-0000-4000-8000-000000000b11",
+		"86000000-0000-4000-8000-000000000b12",
+	}
+	seedVaccinationObligation(t, ctx, pool,
+		"86000000-0000-4000-8000-000000000b21",
+		"86000000-0000-4000-8000-000000000b22",
+		"86000000-0000-4000-8000-000000000b23",
+		obligationIDs[0],
+		dueAt,
+	)
+	seedVaccinationObligation(t, ctx, pool,
+		"86000000-0000-4000-8000-000000000b31",
+		"86000000-0000-4000-8000-000000000b32",
+		"86000000-0000-4000-8000-000000000b33",
+		obligationIDs[1],
+		dueAt.Add(15*time.Minute),
+	)
+	for _, obligationID := range obligationIDs {
+		attachObligationToGoatScope(t, ctx, pool, obligationID, vaccinatedGoatID, "park", testParkA)
+	}
+	seedNonVaccinationGoatObligation(t, ctx, pool,
+		"86000000-0000-4000-8000-000000000b41",
+		"86000000-0000-4000-8000-000000000b42",
+		"86000000-0000-4000-8000-000000000b43",
+		"86000000-0000-4000-8000-000000000b44",
+		feedGoatID,
+		testParkA,
+		dueAt.Add(30*time.Minute),
+	)
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: dueAt.Add(-time.Hour),
+		DateTo:   dueAt.Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+
+	catchupID := catchupParkEventID(testParkA, dueAt)
+	var targetCount, queueCount int
+	var nudgeAllowed string
+	if err := pool.QueryRow(ctx, `
+SELECT target_count,
+       (detail #>> '{summary,queue_count}')::int,
+       detail #>> '{notification_policy,nudge_allowed}'
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid AND event_id=$2`,
+		testTenantID, catchupID).Scan(&targetCount, &queueCount, &nudgeAllowed); err != nil {
+		t.Fatalf("query catch-up projection metadata: %v", err)
+	}
+	if targetCount != 1 || queueCount != 2 || nudgeAllowed != "false" {
+		t.Fatalf("catch-up target_count=%d queue_count=%d nudge_allowed=%s, want 1 animal, 2 queues, read-only", targetCount, queueCount, nudgeAllowed)
+	}
+	targets, err := repo.ListDriveTargets(ctx, domain.DriveTargetQuery{
+		TenantID: testTenantID,
+		EventID:  catchupID,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListDriveTargets: %v", err)
+	}
+	if len(targets.Items) != 1 || targets.Items[0].AnimalID != vaccinatedGoatID {
+		t.Fatalf("targets=%#v, want one vaccinated goat and no feed-direction obligation", targets.Items)
+	}
+	if _, err := repo.SendNudge(ctx, ports.SendNudge{
+		TenantID: testTenantID, EventID: catchupID, ActorID: testActorID,
+		IdempotencyKey: "calendar-catchup-nudge-blocked", Channel: "local-stub",
+		Message: "direct catch-up nudge should not queue", Scope: domain.ScopeFilter{TenantWide: true},
+	}); !errors.Is(err, ports.ErrEventNotActionable) {
+		t.Fatalf("SendNudge catch-up err = %v, want ErrEventNotActionable", err)
+	}
+	if _, err := repo.Snooze(ctx, ports.Snooze{
+		TenantID: testTenantID, EventID: catchupID, ActorID: testActorID,
+		IdempotencyKey: "calendar-catchup-snooze-blocked",
+		SnoozeUntil:    time.Now().UTC().Add(2 * time.Hour),
+		Reason:         "direct catch-up snooze should not queue",
+		Scope:          domain.ScopeFilter{TenantWide: true},
+	}); !errors.Is(err, ports.ErrEventNotActionable) {
+		t.Fatalf("Snooze catch-up err = %v, want ErrEventNotActionable", err)
+	}
+}
+
+func TestCalendarReminderSweepTargetsCatchupSummaryNotHiddenDose(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	obligationID := "86000000-0000-4000-8000-000000000b51"
+	dueAt := time.Now().UTC().Add(30 * time.Minute)
+	seedVaccinationObligation(t, ctx, pool,
+		"86000000-0000-4000-8000-000000000b52",
+		"86000000-0000-4000-8000-000000000b53",
+		"86000000-0000-4000-8000-000000000b54",
+		obligationID,
+		dueAt,
+	)
+	attachObligationToGoatScope(t, ctx, pool, obligationID, "86000000-0000-4000-8000-000000000b55", "tenant", testTenantID)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: time.Now().UTC().Add(-time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+	queued, err := repo.SweepDueReminders(ctx, testTenantID, 10)
+	if err != nil {
+		t.Fatalf("SweepDueReminders: %v", err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued reminders = %d, want visible catch-up summary only", queued)
+	}
+	catchupID := catchupEventID(testTenantID, dueAt)
+	assertCount(t, ctx, pool, "catch-up reminder request", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND notification_type='reminder'`, 1, testTenantID, catchupID)
+	assertCount(t, ctx, pool, "hidden dose reminder skipped", `
+SELECT count(*)
+FROM notification_requests
+WHERE tenant_id=$1::uuid
+  AND calendar_event_id=$2
+  AND notification_type='reminder'`, 0, testTenantID, "obligation:"+obligationID)
+}
+
+func TestCalendarVaccinationProjectionCollapsesMultipleRulesInBatchIntoSingleDrive(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	protocolIDs := []string{
+		"86000000-0000-4000-8000-000000000a31",
+		"86000000-0000-4000-8000-000000000a38",
+	}
+	versionIDs := []string{
+		"86000000-0000-4000-8000-000000000a32",
+		"86000000-0000-4000-8000-000000000a39",
+	}
+	batchID := "86000000-0000-4000-8000-000000000a33"
+	ruleIDs := []string{
+		"86000000-0000-4000-8000-000000000a34",
+		"86000000-0000-4000-8000-000000000a35",
+	}
+	obligationIDs := []string{
+		"86000000-0000-4000-8000-000000000a36",
+		"86000000-0000-4000-8000-000000000a37",
+	}
+	dueAt := stableSameLocalDayDueAt(time.Now().UTC())
+	seedVaccinationObligation(t, ctx, pool, protocolIDs[0], versionIDs[0], ruleIDs[0], obligationIDs[0], dueAt)
+	seedVaccinationObligation(t, ctx, pool, protocolIDs[1], versionIDs[1], ruleIDs[1], obligationIDs[1], dueAt.Add(15*time.Minute))
+	seedVaccinationBatch(t, ctx, pool, batchID, versionIDs[0], dueAt, obligationIDs...)
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: dueAt.Add(-time.Hour),
+		DateTo:   dueAt.Add(24 * time.Hour),
+		Limit:    100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection: %v", err)
+	}
+
+	assertCount(t, ctx, pool, "multi-rule batch visible drive", `
+SELECT count(*)
+FROM calendar_event_projections
+WHERE tenant_id=$1::uuid
+  AND event_id = $2
+  AND event_type='vaccination_drive'
+  AND status <> 'canceled'
+  AND target_count = 2`, 1, testTenantID, batchEventID(batchID))
 }
 
 func TestCalendarVaccinationProjectionPreservesMissedStatus(t *testing.T) {
@@ -566,8 +815,8 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 	if err != nil {
 		t.Fatalf("RefreshVaccinationProjection: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("old missed projection count = %d, want 1", count)
+	if count != 2 {
+		t.Fatalf("old missed projection count = %d, want obligation row plus one visible drive", count)
 	}
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID,
@@ -580,8 +829,8 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(list.Items) != 1 || list.Items[0].EventID != "obligation:"+obligationID || list.Items[0].Status != domain.StatusMissed {
-		t.Fatalf("list items=%#v, want old missed obligation visible outside date window", list.Items)
+	if len(list.Items) != 1 || list.Items[0].EventID != catchupEventID(testTenantID, dueAt) || list.Items[0].Status != domain.StatusMissed {
+		t.Fatalf("list items=%#v, want old missed drive summary visible outside date window", list.Items)
 	}
 }
 
@@ -608,8 +857,8 @@ func TestCalendarProjectionAndListIncludePastDueOpenExceptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshVaccinationProjection: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("past-due open projection count = %d, want 1", count)
+	if count != 2 {
+		t.Fatalf("past-due open projection count = %d, want obligation row plus one visible drive", count)
 	}
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID,
@@ -622,8 +871,8 @@ func TestCalendarProjectionAndListIncludePastDueOpenExceptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(list.Items) != 1 || list.Items[0].EventID != "obligation:"+obligationID || list.Items[0].Status != domain.StatusOverdue {
-		t.Fatalf("list items=%#v, want old overdue obligation visible outside date window", list.Items)
+	if len(list.Items) != 1 || list.Items[0].EventID != catchupEventID(testTenantID, dueAt) || list.Items[0].Status != domain.StatusOverdue {
+		t.Fatalf("list items=%#v, want old overdue drive summary visible outside date window", list.Items)
 	}
 }
 
@@ -662,24 +911,22 @@ func TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation(t *tes
 	if queued != 1 {
 		t.Fatalf("queued escalations = %d, want 1", queued)
 	}
-	eventID := "obligation:" + obligationID
+	eventID := catchupEventID(testTenantID, dueAt)
 	assertCount(t, ctx, pool, "escalation notifications", `
 SELECT count(*)
 FROM notification_requests
 WHERE tenant_id=$1::uuid
   AND calendar_event_id=$2
-  AND target_type='obligation'
+  AND target_type='catchup'
   AND target_id=$3::uuid
   AND notification_type='escalation'
-  AND status='queued'`, 1, testTenantID, eventID, obligationID)
-	assertCount(t, ctx, pool, "obligation escalations", `
+  AND status='queued'`, 1, testTenantID, eventID, testTenantID)
+	assertCount(t, ctx, pool, "hidden obligation escalation skipped for catch-up summary", `
 SELECT count(*)
 FROM obligation_escalations
 WHERE tenant_id=$1::uuid
   AND obligation_id=$2::uuid
-  AND level=1
-  AND escalated_to_role='operator'
-  AND status='open'`, 1, testTenantID, obligationID)
+  AND level=1`, 0, testTenantID, obligationID)
 	var status, escalationState string
 	if err := pool.QueryRow(ctx, `
 SELECT status, escalation_state
@@ -864,13 +1111,14 @@ func TestCalendarEscalationAcknowledgeAndResolveWorkflow(t *testing.T) {
 		t.Fatalf("RefreshVaccinationProjection: %v", err)
 	}
 	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
-		TenantID:    testTenantID,
-		Limit:       10,
-		Now:         time.Now().UTC(),
-		Level1After: 0,
-		Level2After: 4 * time.Hour,
-		Level3After: 24 * time.Hour,
-		Level4After: 48 * time.Hour,
+		TenantID:     testTenantID,
+		ObligationID: obligationID,
+		Limit:        10,
+		Now:          time.Now().UTC(),
+		Level1After:  0,
+		Level2After:  4 * time.Hour,
+		Level3After:  24 * time.Hour,
+		Level4After:  48 * time.Hour,
 	}); err != nil {
 		t.Fatalf("SweepEscalations: %v", err)
 	}
@@ -1003,13 +1251,14 @@ func TestCalendarEscalationResolveClosesActiveLadder(t *testing.T) {
 		t.Fatalf("RefreshVaccinationProjection: %v", err)
 	}
 	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
-		TenantID:    testTenantID,
-		Limit:       10,
-		Now:         time.Now().UTC(),
-		Level1After: 0,
-		Level2After: 12 * time.Hour,
-		Level3After: 24 * time.Hour,
-		Level4After: 48 * time.Hour,
+		TenantID:     testTenantID,
+		ObligationID: obligationID,
+		Limit:        10,
+		Now:          time.Now().UTC(),
+		Level1After:  0,
+		Level2After:  12 * time.Hour,
+		Level3After:  24 * time.Hour,
+		Level4After:  48 * time.Hour,
 	}); err != nil {
 		t.Fatalf("SweepEscalations level 1: %v", err)
 	}
@@ -1023,13 +1272,14 @@ func TestCalendarEscalationResolveClosesActiveLadder(t *testing.T) {
 		t.Fatalf("AcknowledgeEscalation level 1: %v", err)
 	}
 	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
-		TenantID:    testTenantID,
-		Limit:       10,
-		Now:         time.Now().UTC(),
-		Level1After: 0,
-		Level2After: 4 * time.Hour,
-		Level3After: 24 * time.Hour,
-		Level4After: 48 * time.Hour,
+		TenantID:     testTenantID,
+		ObligationID: obligationID,
+		Limit:        10,
+		Now:          time.Now().UTC(),
+		Level1After:  0,
+		Level2After:  4 * time.Hour,
+		Level3After:  24 * time.Hour,
+		Level4After:  48 * time.Hour,
 	}); err != nil {
 		t.Fatalf("SweepEscalations level 2: %v", err)
 	}
@@ -1077,13 +1327,14 @@ SELECT count(*)
 FROM calendar_event_projections
 WHERE tenant_id=$1::uuid AND event_id=$2 AND escalation_state='resolved'`, 1, testTenantID, eventID)
 	reopened, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
-		TenantID:    testTenantID,
-		Limit:       10,
-		Now:         time.Now().UTC(),
-		Level1After: 0,
-		Level2After: 4 * time.Hour,
-		Level3After: 24 * time.Hour,
-		Level4After: 48 * time.Hour,
+		TenantID:     testTenantID,
+		ObligationID: obligationID,
+		Limit:        10,
+		Now:          time.Now().UTC(),
+		Level1After:  0,
+		Level2After:  4 * time.Hour,
+		Level3After:  24 * time.Hour,
+		Level4After:  48 * time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("SweepEscalations after resolve: %v", err)
@@ -1120,13 +1371,14 @@ func TestCalendarEscalationResolveDoesNotSilenceNextLevel(t *testing.T) {
 		t.Fatalf("RefreshVaccinationProjection: %v", err)
 	}
 	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
-		TenantID:    testTenantID,
-		Limit:       10,
-		Now:         time.Now().UTC(),
-		Level1After: 0,
-		Level2After: 12 * time.Hour,
-		Level3After: 24 * time.Hour,
-		Level4After: 48 * time.Hour,
+		TenantID:     testTenantID,
+		ObligationID: obligationID,
+		Limit:        10,
+		Now:          time.Now().UTC(),
+		Level1After:  0,
+		Level2After:  12 * time.Hour,
+		Level3After:  24 * time.Hour,
+		Level4After:  48 * time.Hour,
 	}); err != nil {
 		t.Fatalf("SweepEscalations level 1: %v", err)
 	}
@@ -1143,13 +1395,14 @@ func TestCalendarEscalationResolveDoesNotSilenceNextLevel(t *testing.T) {
 		t.Fatalf("resolve response = %#v, want resolved", resolved)
 	}
 	queued, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
-		TenantID:    testTenantID,
-		Limit:       10,
-		Now:         time.Now().UTC(),
-		Level1After: 0,
-		Level2After: 4 * time.Hour,
-		Level3After: 24 * time.Hour,
-		Level4After: 48 * time.Hour,
+		TenantID:     testTenantID,
+		ObligationID: obligationID,
+		Limit:        10,
+		Now:          time.Now().UTC(),
+		Level1After:  0,
+		Level2After:  4 * time.Hour,
+		Level3After:  24 * time.Hour,
+		Level4After:  48 * time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("SweepEscalations next level: %v", err)
@@ -1197,13 +1450,14 @@ func TestCalendarEscalationSweepRoutesLevel3ToPCDirector(t *testing.T) {
 		t.Fatalf("RefreshVaccinationProjection: %v", err)
 	}
 	queued, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
-		TenantID:    testTenantID,
-		Limit:       10,
-		Now:         time.Now().UTC(),
-		Level1After: 0,
-		Level2After: 4 * time.Hour,
-		Level3After: 24 * time.Hour,
-		Level4After: 48 * time.Hour,
+		TenantID:     testTenantID,
+		ObligationID: obligationID,
+		Limit:        10,
+		Now:          time.Now().UTC(),
+		Level1After:  0,
+		Level2After:  4 * time.Hour,
+		Level3After:  24 * time.Hour,
+		Level4After:  48 * time.Hour,
 	})
 	if err != nil {
 		t.Fatalf("SweepEscalations: %v", err)
@@ -1264,6 +1518,7 @@ func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t
 			obligationID,
 			dueAt.Add(time.Duration(i)*time.Hour),
 		)
+		attachObligationToGoatScope(t, ctx, pool, obligationID, obligationID, "tenant", testTenantID)
 	}
 	count, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
 		TenantID: testTenantID,
@@ -1277,7 +1532,7 @@ func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t
 	if count != 4 {
 		t.Fatalf("projection count = %d, want 3 obligations plus 1 aggregated catch-up drive", count)
 	}
-	catchupID := catchupEventID(testTenantID, sharedRuleID, dueAt)
+	catchupID := catchupEventID(testTenantID, dueAt)
 	assertCount(t, ctx, pool, "projected catch-up drive", `
 SELECT count(*)
 FROM calendar_event_projections
@@ -1570,13 +1825,26 @@ INSERT INTO calendar_event_projections (
 	}
 }
 
-func catchupEventID(tenantID, ruleID string, dueAt time.Time) string {
+func batchEventID(batchID string) string {
+	return fmt.Sprintf("batch:%s", batchID)
+}
+
+func catchupEventID(tenantID string, dueAt time.Time) string {
 	loc, err := time.LoadLocation("Asia/Kolkata")
 	if err != nil {
 		loc = time.FixedZone("IST", 5*60*60+30*60)
 	}
 	day := dueAt.In(loc).Format("2006-01-02")
-	return fmt.Sprintf("catchup:tenant:%s:rule:%s:due:%s", tenantID, ruleID, day)
+	return fmt.Sprintf("catchup:tenant:%s:due:%s", tenantID, day)
+}
+
+func catchupParkEventID(parkID string, dueAt time.Time) string {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		loc = time.FixedZone("IST", 5*60*60+30*60)
+	}
+	day := dueAt.In(loc).Format("2006-01-02")
+	return fmt.Sprintf("catchup:park:%s:due:%s", parkID, day)
 }
 
 func stableSameLocalDayDueAt(now time.Time) time.Time {
@@ -1776,6 +2044,103 @@ SET lifecycle_status = 'alive',
         updated_at = now()`, goatID, testTenantID, testCustodianID)
 	if err != nil {
 		t.Fatalf("seed calendar goat: %v", err)
+	}
+}
+
+func attachObligationToGoatScope(t *testing.T, ctx context.Context, pool *pgxpool.Pool, obligationID, goatID, scopeType, scopeID string) {
+	t.Helper()
+	seedCalendarGoat(t, ctx, pool, goatID)
+	if scopeType == "park" {
+		seedCalendarLocations(t, ctx, pool, scopeID, testShedA)
+	}
+	if scopeType == "shed" {
+		seedCalendarLocations(t, ctx, pool, testParkA, scopeID)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat',
+    target_id = $3::uuid,
+    scope_type = $4,
+    scope_id = $5::uuid,
+    batch_id = NULL,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, obligationID, goatID, scopeType, scopeID); err != nil {
+		t.Fatalf("attach obligation %s to goat %s: %v", obligationID, goatID, err)
+	}
+}
+
+func seedNonVaccinationGoatObligation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, protocolID, versionID, ruleID, obligationID, goatID, parkID string, dueAt time.Time) {
+	t.Helper()
+	seedCalendarGoat(t, ctx, pool, goatID)
+	seedCalendarLocations(t, ctx, pool, parkID, testShedA)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+VALUES (
+  $1::uuid, $2::uuid,
+  'feed.calendar.projection_test.p' || right(replace(($1::uuid)::text, '-', ''), 12),
+  'Projection Test Feed', 'feed_direction', 'active'
+)
+ON CONFLICT (protocol_id) DO UPDATE
+SET category = 'feed_direction',
+    status = 'active',
+    updated_at = now()`,
+		protocolID, testTenantID); err != nil {
+		t.Fatalf("seed non-vaccination protocol definition: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO protocol_versions (
+  protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+  version_label, status, effective_from, effective_to, rule_dsl, proof_policy, published_at
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'tenant', NULL, 1,
+  'Projection active feed test', 'draft', DATE '2026-01-01', DATE '2028-01-01',
+  '{}'::jsonb, '{}'::jsonb, NULL
+)
+ON CONFLICT (protocol_version_id) DO UPDATE
+SET status = CASE WHEN protocol_versions.status = 'published' THEN protocol_versions.status ELSE 'draft' END,
+    updated_at = now()`,
+		versionID, testTenantID, protocolID); err != nil {
+		t.Fatalf("seed non-vaccination protocol version: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO protocol_rules (
+  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
+  offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
+  proof_policy, sort_order
+)
+VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'FEED-QUEUE', 1, 'calendar',
+  0, 1, 0, 'none', 'immediate', '{}'::jsonb, '{}'::jsonb, 10
+)
+ON CONFLICT (rule_id) DO NOTHING`,
+		ruleID, testTenantID, versionID); err != nil {
+		t.Fatalf("seed non-vaccination protocol rule: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE protocol_versions
+SET status = 'published',
+    published_at = COALESCE(published_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid`,
+		testTenantID, versionID); err != nil {
+		t.Fatalf("publish non-vaccination protocol version: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO obligation_instances (
+  obligation_id, tenant_id, protocol_version_id, rule_id, target_type, target_id,
+  scope_type, scope_id, due_at, window_start, window_end, status, idempotency_key
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'goat', $5::uuid,
+  'park', $6::uuid, $7::timestamptz, $7::timestamptz, $7::timestamptz + interval '1 day',
+  'scheduled', 'calendar-feed-projection-test-' || ($1::uuid)::text
+)
+ON CONFLICT (obligation_id) DO UPDATE
+SET due_at = EXCLUDED.due_at,
+    status = 'scheduled',
+    updated_at = now()`,
+		obligationID, testTenantID, versionID, ruleID, goatID, parkID, dueAt); err != nil {
+		t.Fatalf("seed non-vaccination obligation: %v", err)
 	}
 }
 

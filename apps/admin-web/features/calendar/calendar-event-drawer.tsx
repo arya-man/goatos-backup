@@ -161,6 +161,7 @@ export function CalendarEventDrawer({
   const nudgeKey = randomUUID();
   const snoozeKey = randomUUID();
   const isClosedHistory = event.status === "completed" || event.status === "canceled";
+  const isCatchupSummary = event.event_id.startsWith("catchup:");
   // snooze_until (default +24h) is computed in the snooze server action — Date.now() is an impure call and
   // is not allowed on the render path.
 
@@ -330,7 +331,7 @@ export function CalendarEventDrawer({
                     </thead>
                     <tbody>
                       {targets.map((row) => (
-                        <tr key={row.obligation_id}>
+                        <tr key={row.animal_id}>
                           <td>
                             <span className="gid">{row.display_id}</span>
                           </td>
@@ -460,7 +461,7 @@ export function CalendarEventDrawer({
 
         {/* Footer — Send nudge / Snooze are real idempotent backend actions; Open drive/workflow deep-links. */}
         <div className="df">
-          {!isClosedHistory ? (
+          {!isClosedHistory && !isCatchupSummary ? (
             <>
               <form action={sendNudgeAction} style={{ flex: 1, display: "flex" }}>
                 <input type="hidden" name="event_id" value={event.event_id} />
