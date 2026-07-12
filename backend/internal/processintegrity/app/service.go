@@ -40,23 +40,21 @@ func (s *Service) ActionCenter(ctx context.Context, q domain.Query) (domain.Acti
 		CountsByWorkState: result.CountsByWorkState,
 		TotalCount:        result.TotalCount,
 		NextCursor:        result.NextCursor,
+		Projection:        result.Projection,
 	}, nil
 }
 
 func (s *Service) ActionCenterCounts(ctx context.Context, q domain.Query) (domain.ActionCenterCountsResponse, error) {
 	q = s.defaults(q)
-	counts, err := s.repo.CountByWorkState(ctx, q)
+	result, err := s.repo.ListRows(ctx, q)
 	if err != nil {
 		return domain.ActionCenterCountsResponse{}, err
 	}
-	var total int64
-	for _, count := range counts {
-		total += count.Count
-	}
 	return domain.ActionCenterCountsResponse{
 		Source:            domain.SourceAPI,
-		CountsByWorkState: counts,
-		TotalCount:        total,
+		CountsByWorkState: result.CountsByWorkState,
+		TotalCount:        result.TotalCount,
+		Projection:        result.Projection,
 	}, nil
 }
 
@@ -92,6 +90,7 @@ func (s *Service) ProtocolAdherence(ctx context.Context, q domain.Query) (domain
 		Rows:       rows,
 		TotalCount: result.TotalCount,
 		NextCursor: result.NextCursor,
+		Projection: result.Projection,
 	}, nil
 }
 
@@ -158,7 +157,7 @@ func (s *Service) ControlTower(ctx context.Context, q domain.Query) (domain.Cont
 			ObligationID: row.ObligationID,
 		})
 	}
-	return domain.ControlTowerResponse{Source: domain.SourceAPI, Summary: summary, Alerts: alerts, TotalCount: result.TotalCount, NextCursor: result.NextCursor}, nil
+	return domain.ControlTowerResponse{Source: domain.SourceAPI, Summary: summary, Alerts: alerts, TotalCount: result.TotalCount, NextCursor: result.NextCursor, Projection: result.Projection}, nil
 }
 
 func controlTowerCanReuseAlertCounts(q domain.Query) bool {

@@ -2265,6 +2265,19 @@ export interface components {
             owner: components["schemas"]["ProcessIntegrityOwner"];
             evidence: components["schemas"]["ProcessIntegrityEvidence"];
         };
+        ProcessIntegrityProjectionMetadata: {
+            /** Format: int64 */
+            projection_version: number;
+            /** Format: date-time */
+            projected_at: string;
+            /** Format: date-time */
+            as_of: string;
+            /** @enum {string} */
+            freshness_status: "green" | "yellow" | "red" | "unknown";
+            /** @enum {string} */
+            serving_state: "never_synced" | "fresh" | "stale" | "rebuilding" | "failed";
+            stale: boolean;
+        };
         ActionCenterResponse: {
             /** @enum {string} */
             source: "api";
@@ -2272,12 +2285,14 @@ export interface components {
             counts_by_work_state: components["schemas"]["CountByWorkState"][];
             total_count: number;
             next_cursor?: string;
+            projection: components["schemas"]["ProcessIntegrityProjectionMetadata"];
         };
         ActionCenterCountsResponse: {
             /** @enum {string} */
             source: "api";
             counts_by_work_state: components["schemas"]["CountByWorkState"][];
             total_count: number;
+            projection: components["schemas"]["ProcessIntegrityProjectionMetadata"];
         };
         AdherenceSummary: {
             expected_count: number;
@@ -2305,6 +2320,7 @@ export interface components {
             rows: components["schemas"]["AdherenceRow"][];
             total_count: number;
             next_cursor?: string;
+            projection: components["schemas"]["ProcessIntegrityProjectionMetadata"];
         };
         ControlTowerSummary: {
             process_intact: boolean;
@@ -2343,6 +2359,7 @@ export interface components {
             alerts: components["schemas"]["ControlTowerAlert"][];
             total_count: number;
             next_cursor?: string;
+            projection: components["schemas"]["ProcessIntegrityProjectionMetadata"];
         };
         WorkflowNode: {
             key: string;

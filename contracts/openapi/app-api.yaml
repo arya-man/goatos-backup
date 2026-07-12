@@ -6208,6 +6208,35 @@ components:
           $ref: "#/components/schemas/ProcessIntegrityOwner"
         evidence:
           $ref: "#/components/schemas/ProcessIntegrityEvidence"
+    ProcessIntegrityProjectionMetadata:
+      type: object
+      additionalProperties: false
+      required:
+        - projection_version
+        - projected_at
+        - as_of
+        - freshness_status
+        - serving_state
+        - stale
+      properties:
+        projection_version:
+          type: integer
+          format: int64
+          minimum: 1
+        projected_at:
+          type: string
+          format: date-time
+        as_of:
+          type: string
+          format: date-time
+        freshness_status:
+          type: string
+          enum: [green, yellow, red, unknown]
+        serving_state:
+          type: string
+          enum: [never_synced, fresh, stale, rebuilding, failed]
+        stale:
+          type: boolean
     ActionCenterResponse:
       type: object
       additionalProperties: false
@@ -6216,6 +6245,7 @@ components:
         - items
         - counts_by_work_state
         - total_count
+        - projection
       properties:
         source:
           type: string
@@ -6234,6 +6264,8 @@ components:
           minimum: 0
         next_cursor:
           type: string
+        projection:
+          $ref: "#/components/schemas/ProcessIntegrityProjectionMetadata"
     ActionCenterCountsResponse:
       type: object
       additionalProperties: false
@@ -6241,6 +6273,7 @@ components:
         - source
         - counts_by_work_state
         - total_count
+        - projection
       properties:
         source:
           type: string
@@ -6253,6 +6286,8 @@ components:
         total_count:
           type: integer
           minimum: 0
+        projection:
+          $ref: "#/components/schemas/ProcessIntegrityProjectionMetadata"
     AdherenceSummary:
       type: object
       additionalProperties: false
@@ -6321,6 +6356,7 @@ components:
         - summary
         - rows
         - total_count
+        - projection
       properties:
         source:
           type: string
@@ -6337,6 +6373,8 @@ components:
           minimum: 0
         next_cursor:
           type: string
+        projection:
+          $ref: "#/components/schemas/ProcessIntegrityProjectionMetadata"
     ControlTowerSummary:
       type: object
       additionalProperties: false
@@ -6425,6 +6463,7 @@ components:
         - summary
         - alerts
         - total_count
+        - projection
       properties:
         source:
           type: string
@@ -6441,6 +6480,8 @@ components:
           minimum: 0
         next_cursor:
           type: string
+        projection:
+          $ref: "#/components/schemas/ProcessIntegrityProjectionMetadata"
     WorkflowNode:
       type: object
       additionalProperties: false

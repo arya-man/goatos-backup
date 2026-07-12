@@ -20,6 +20,20 @@ const (
 // (HTTP 503) instead of an unbounded fallback. See docs/decisions/high-scale-dashboard-projections.md.
 var ErrProjectionUnavailable = errors.New("processintegrity: read model projection unavailable")
 
+// ErrProjectionStale is distinct from never-synced/unavailable: a serving version exists, but its
+// freshness/state is outside the five-minute operational policy. Reads fail closed so dashboards do
+// not present old process state as current truth.
+var ErrProjectionStale = errors.New("processintegrity: read model projection stale")
+
+type ProjectionMetadata struct {
+	ProjectionVersion int64     `json:"projection_version"`
+	ProjectedAt       time.Time `json:"projected_at"`
+	AsOf              time.Time `json:"as_of"`
+	FreshnessStatus   string    `json:"freshness_status"`
+	ServingState      string    `json:"serving_state"`
+	Stale             bool      `json:"stale"`
+}
+
 type WorkState string
 
 const (
@@ -214,6 +228,7 @@ type ListResult struct {
 	TotalCount        int64              `json:"total_count"`
 	AdherenceSummary  AdherenceSummary   `json:"-"`
 	NextCursor        *string            `json:"next_cursor,omitempty"`
+	Projection        ProjectionMetadata `json:"projection"`
 }
 
 type ActionCenterResponse struct {
@@ -222,12 +237,14 @@ type ActionCenterResponse struct {
 	CountsByWorkState []CountByWorkState `json:"counts_by_work_state"`
 	TotalCount        int64              `json:"total_count"`
 	NextCursor        *string            `json:"next_cursor,omitempty"`
+	Projection        ProjectionMetadata `json:"projection"`
 }
 
 type ActionCenterCountsResponse struct {
 	Source            string             `json:"source"`
 	CountsByWorkState []CountByWorkState `json:"counts_by_work_state"`
 	TotalCount        int64              `json:"total_count"`
+	Projection        ProjectionMetadata `json:"projection"`
 }
 
 type AdherenceSummary struct {
@@ -252,11 +269,12 @@ type AdherenceRow struct {
 }
 
 type ProtocolAdherenceResponse struct {
-	Source     string           `json:"source"`
-	Summary    AdherenceSummary `json:"summary"`
-	Rows       []AdherenceRow   `json:"rows"`
-	TotalCount int64            `json:"total_count"`
-	NextCursor *string          `json:"next_cursor,omitempty"`
+	Source     string             `json:"source"`
+	Summary    AdherenceSummary   `json:"summary"`
+	Rows       []AdherenceRow     `json:"rows"`
+	TotalCount int64              `json:"total_count"`
+	NextCursor *string            `json:"next_cursor,omitempty"`
+	Projection ProjectionMetadata `json:"projection"`
 }
 
 type ControlTowerSummary struct {
@@ -295,6 +313,7 @@ type ControlTowerResponse struct {
 	Alerts     []ControlTowerAlert `json:"alerts"`
 	TotalCount int64               `json:"total_count"`
 	NextCursor *string             `json:"next_cursor,omitempty"`
+	Projection ProjectionMetadata  `json:"projection"`
 }
 
 type WorkflowNode struct {

@@ -257,6 +257,7 @@ func TestProcessIntegrityProductionQueryPlanUsesIndexes(t *testing.T) {
 
 	for _, forbidden := range []string{
 		"Seq Scan on process_integrity_projection_rows",
+		"Seq Scan on process_integrity_projection_summaries",
 		"Seq Scan on process_integrity_projection_state",
 	} {
 		if strings.Contains(plan, forbidden) {
@@ -569,7 +570,7 @@ func TestProcessIntegrityProjectionPruneReturnsDatabaseAndCancellationErrors(t *
 	}
 }
 
-func TestProcessIntegrityProjectionReadableDuringStaleAndRebuildStates(t *testing.T) {
+func TestProcessIntegrityProjectionRefusesStaleAndRebuildStates(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -588,8 +589,8 @@ SET serving_state = 'stale',
     freshness_status = 'yellow',
     as_of = $2::timestamptz
 WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-24*time.Hour))
-	if _, ok := repo.servingProjectionVersion(ctx, q.TenantID); !ok {
-		t.Fatal("stale projection with a serving version must stay readable")
+	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
+		t.Fatalf("stale projection error=%v, want ErrProjectionStale", err)
 	}
 	execPI(t, ctx, pool, "mark projection rebuilding", `
 UPDATE process_integrity_projection_state
@@ -598,16 +599,16 @@ SET serving_state = 'rebuilding',
     as_of = $2::timestamptz,
     row_count = (SELECT COUNT(*) FROM process_integrity_projection_rows WHERE tenant_id = $1::uuid)
 WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-10*time.Minute))
-	if _, ok := repo.servingProjectionVersion(ctx, q.TenantID); !ok {
-		t.Fatal("projection should serve last good rows during bounded rebuild")
+	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
+		t.Fatalf("rebuilding projection error=%v, want ErrProjectionStale", err)
 	}
 	execPI(t, ctx, pool, "mark projection failed", `
 UPDATE process_integrity_projection_state
 SET serving_state = 'failed',
     freshness_status = 'red'
 WHERE tenant_id = $1::uuid`, piTenant)
-	if _, ok := repo.servingProjectionVersion(ctx, q.TenantID); ok {
-		t.Fatal("failed projection state must not serve rows")
+	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
+		t.Fatalf("failed projection error=%v, want ErrProjectionStale", err)
 	}
 	execPI(t, ctx, pool, "clear serving projection while rebuilding", `
 UPDATE process_integrity_projection_state
@@ -615,8 +616,8 @@ SET serving_state = 'rebuilding',
     freshness_status = 'unknown',
     serving_projection_version = NULL
 WHERE tenant_id = $1::uuid`, piTenant)
-	if _, ok := repo.servingProjectionVersion(ctx, q.TenantID); ok {
-		t.Fatal("rebuilding projection with no serving version must not serve rows")
+	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionUnavailable) {
+		t.Fatalf("no serving projection error=%v, want ErrProjectionUnavailable", err)
 	}
 }
 
@@ -665,7 +666,7 @@ func TestProcessIntegrityRequestPathRefusesCanonicalReplayWhenProjectionUnavaila
 	}
 }
 
-func TestProcessIntegrityProjectionServesStaleProjectionInsteadOfCanonicalReplay(t *testing.T) {
+func TestProcessIntegrityProjectionFailsClosedWhenOverAge(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -677,38 +678,20 @@ func TestProcessIntegrityProjectionServesStaleProjectionInsteadOfCanonicalReplay
 	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
 		t.Fatalf("RecomputeProjection: %v", err)
 	}
-	const marker = "served-from-stale-projection"
 	execPI(t, ctx, pool, "mark projection stale", `
 UPDATE process_integrity_projection_state
 SET serving_state = 'stale',
     freshness_status = 'yellow',
     as_of = $2::timestamptz
 WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-24*time.Hour))
-	execPI(t, ctx, pool, "mark first projection row", `
-UPDATE process_integrity_projection_rows
-SET next_action = $2
-WHERE process_integrity_projection_row_id = (
-  SELECT process_integrity_projection_row_id
-  FROM process_integrity_projection_rows rows
-  JOIN process_integrity_projection_state state
-    ON state.tenant_id = rows.tenant_id
-   AND state.serving_projection_version = rows.projection_version
-  WHERE rows.tenant_id = $1::uuid
-  ORDER BY rows.sort_priority, rows.due_at, rows.row_id
-  LIMIT 1
-)`, piTenant, marker)
-
-	got, err := repo.ListRows(ctx, domain.Query{
+	_, err := repo.ListRows(ctx, domain.Query{
 		TenantID:  piTenant,
 		AsOf:      asOf,
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Limit:     1,
 	})
-	if err != nil {
-		t.Fatalf("ListRows stale projection: %v", err)
-	}
-	if len(got.Rows) != 1 || got.Rows[0].NextAction != marker {
-		t.Fatalf("stale projection was not served; rows=%#v", got.Rows)
+	if !errors.Is(err, domain.ErrProjectionStale) {
+		t.Fatalf("ListRows stale projection error=%v, want ErrProjectionStale", err)
 	}
 }
 
@@ -747,6 +730,9 @@ func TestProcessIntegrityProjectionReadPlanDoesNotReplayCanonicalTables(t *testi
 	if !strings.Contains(lowerPlan, "process_integrity_projection_rows") {
 		t.Fatalf("projection hot read plan must read process_integrity_projection_rows:\n%s", plan)
 	}
+	if !strings.Contains(lowerPlan, "process_integrity_projection_summaries") {
+		t.Fatalf("summary/count hot read must use preaggregated summary rows:\n%s", plan)
+	}
 	for _, forbidden := range []string{
 		"obligation_instances",
 		"obligation_status_events",
@@ -772,6 +758,17 @@ func TestProcessIntegrityProjectionReadPlanDoesNotReplayCanonicalTables(t *testi
 func TestProcessIntegrityProjectionInsertSQLUpsertsRows(t *testing.T) {
 	if !strings.Contains(processIntegrityProjectionInsertSQL, "ON CONFLICT (tenant_id, projection_version, row_id) DO UPDATE") {
 		t.Fatal("projection insert SQL must upsert by tenant/version/row so recompute builds a new serving generation before flipping")
+	}
+}
+
+func TestProcessIntegrityHotRowsDoNotComputeWindowTotalAndSummariesUseBusinessDayGrain(t *testing.T) {
+	upperRows := strings.ToUpper(processIntegrityProjectionRowsSQL)
+	if strings.Contains(upperRows, "COUNT(*) OVER") || strings.Contains(upperRows, "COUNT(1) OVER") {
+		t.Fatal("hot row page must not force a full filtered scan for a window total")
+	}
+	if !strings.Contains(processIntegrityProjectionSummaryInsertSQL, "due_business_date") ||
+		!strings.Contains(processIntegrityProjectionSummaryInsertSQL, "AT TIME ZONE 'Asia/Kolkata'") {
+		t.Fatal("summary projector must collapse due timestamps to the IST business-date grain")
 	}
 }
 

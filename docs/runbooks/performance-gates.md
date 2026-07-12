@@ -87,13 +87,27 @@ For Control Tower, Action Center, Calendar, and Protocol Adherence:
   `process_integrity_projection_state.serving_projection_version`, then prunes
   old versions in bounded batches; it must not delete the live serving version
   before the replacement is ready;
+- the same off-request transaction publishes
+  `process_integrity_projection_summaries`; navigation counts, Control Tower
+  cards, and adherence KPIs read those versioned summary grains rather than
+  grouping all serving rows per request. Summary due windows use IST business
+  dates; row-list boundaries are normalized to the same start/end-of-business-
+  day contract so partial timestamps cannot produce mismatched totals;
 - read APIs query the projection by tenant, category, scope, state, due window,
   owner, and cursor;
-- stale or rebuilding projection states serve the last known
-  `serving_projection_version` instead of replaying canonical tables on every
-  request;
-- responses expose projection freshness when stale data is possible;
+- stale, failed, rebuilding, never-synced, or over-five-minute projections fail
+  closed with a typed retryable `503`; they never replay canonical tables and
+  never silently serve old process state;
+- successful responses expose version, `projected_at`, `as_of`, freshness, and
+  serving state;
 - staging reports include scaled `EXPLAIN (ANALYZE, BUFFERS)` and API p95/p99.
+
+Current residual: the five-minute scheduled process-integrity projector is a
+full tenant rebuild. It is the repair/backfill path and is idempotent with an
+atomic last-known-good version swap, but the event-driven dirty-scope
+queue/worker is not implemented yet. Until that consumer lands, the API's
+five-minute fail-closed policy is the correctness boundary; a scheduler delay
+is visible as `projection_stale`, not hidden by request-time recompute.
 
 Manual process-integrity rebuild:
 

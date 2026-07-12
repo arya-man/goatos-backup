@@ -54,15 +54,15 @@ func TestActionCenterUsesBoundedClosedHistoryByDefault(t *testing.T) {
 	if _, err := svc.ActionCenterCounts(context.Background(), domain.Query{TenantID: "tenant-1"}); err != nil {
 		t.Fatalf("action center counts: %v", err)
 	}
-	if len(repo.countQueries) != 1 || repo.countQueries[0].IncludeCompleted {
-		t.Fatalf("default Action Center counts must use bounded closed history, got queries=%+v", repo.countQueries)
+	if len(repo.listQueries) != 2 || repo.listQueries[1].IncludeCompleted {
+		t.Fatalf("default Action Center counts must use bounded closed history, got queries=%+v", repo.listQueries)
 	}
 
 	completed := domain.WorkStateCompleted
 	if _, err := svc.ActionCenter(context.Background(), domain.Query{TenantID: "tenant-1", WorkState: &completed}); err != nil {
 		t.Fatalf("completed action center: %v", err)
 	}
-	if len(repo.listQueries) != 2 || !repo.listQueries[1].IncludeCompleted {
+	if len(repo.listQueries) != 3 || !repo.listQueries[2].IncludeCompleted {
 		t.Fatalf("completed work-state filter must include closed history, got queries=%+v", repo.listQueries)
 	}
 }

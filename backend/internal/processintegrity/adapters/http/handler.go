@@ -317,6 +317,11 @@ func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
 // retryable 503 (the read model has no serving version) — never a 500 and never a silent unbounded
 // canonical fallback. Everything else is a 500.
 func (h *Handler) readError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, domain.ErrProjectionStale) {
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+			errorEnvelope{Code: "projection_stale", Message: "process integrity read model is stale; retry after projection refresh", TraceID: traceID(r)}, err)
+		return
+	}
 	if errors.Is(err, domain.ErrProjectionUnavailable) {
 		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
 			errorEnvelope{Code: "projection_unavailable", Message: "process integrity read model is temporarily unavailable", TraceID: traceID(r)}, err)

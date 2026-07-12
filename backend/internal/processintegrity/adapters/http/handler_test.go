@@ -89,6 +89,26 @@ func TestActionCenterProjectionUnavailableReturns503(t *testing.T) {
 	}
 }
 
+func TestActionCenterProjectionStaleReturnsTyped503(t *testing.T) {
+	reader := &fakeReader{err: domain.ErrProjectionStale}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader))
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/action-center", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), handlerTenant))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	var body errorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Code != "projection_stale" {
+		t.Fatalf("error code = %q, want projection_stale", body.Code)
+	}
+}
+
 func TestActionCenterParsesBoundedVaccinationQuery(t *testing.T) {
 	reader := &fakeReader{}
 	mux := http.NewServeMux()

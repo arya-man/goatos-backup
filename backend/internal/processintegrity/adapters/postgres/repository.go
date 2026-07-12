@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -52,13 +53,14 @@ func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListR
 	defer cancel()
 	q = normalizeQuery(q)
 	args := queryArgs(q)
-	if _, ok := r.servingProjectionVersion(ctx, q.TenantID); !ok {
+	projection, err := r.servingProjection(ctx, q)
+	if err != nil {
 		slog.Default().WarnContext(ctx,
-			"processintegrity: read model projection unavailable; refusing canonical compute-on-read fallback",
+			"processintegrity: read model projection cannot serve current read; refusing canonical compute-on-read fallback",
 			"tenant_id", q.TenantID, "read_path", "list_rows")
-		return domain.ListResult{}, domain.ErrProjectionUnavailable
+		return domain.ListResult{}, err
 	}
-	return r.listRowsProjected(ctx, q, args)
+	return r.listRowsProjected(ctx, q, args, projection)
 }
 
 func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]domain.CountByWorkState, error) {
@@ -66,20 +68,22 @@ func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]do
 	defer cancel()
 	q = normalizeQuery(q)
 	args := queryArgs(q)
-	if _, ok := r.servingProjectionVersion(ctx, q.TenantID); !ok {
+	projection, err := r.servingProjection(ctx, q)
+	if err != nil {
 		slog.Default().WarnContext(ctx,
-			"processintegrity: read model projection unavailable; refusing canonical compute-on-read fallback",
+			"processintegrity: read model projection cannot serve current read; refusing canonical compute-on-read fallback",
 			"tenant_id", q.TenantID, "read_path", "count_by_work_state")
-		return nil, domain.ErrProjectionUnavailable
+		return nil, err
 	}
 	counts, _, err := r.countByWorkStateProjected(ctx, countQueryArgs(args))
 	if err != nil {
 		return nil, err
 	}
+	_ = projection
 	return counts, nil
 }
 
-func (r *Repository) listRowsProjected(ctx context.Context, q domain.Query, args []any) (domain.ListResult, error) {
+func (r *Repository) listRowsProjected(ctx context.Context, q domain.Query, args []any, projection domain.ProjectionMetadata) (domain.ListResult, error) {
 	rows, err := r.pool.Query(ctx, processIntegrityProjectionRowsSQL, args...)
 	if err != nil {
 		return domain.ListResult{}, fmt.Errorf("processintegrity: list projection rows: %w", err)
@@ -108,7 +112,9 @@ func (r *Repository) listRowsProjected(ctx context.Context, q domain.Query, args
 	counts := []domain.CountByWorkState{}
 	var totalCount int64
 	summary := domain.AdherenceSummary{}
-	if q.IncludeAdherenceSummary {
+	if q.RowID != nil {
+		totalCount = int64(len(out))
+	} else if q.IncludeAdherenceSummary {
 		summaryRows := r.pool.QueryRow(ctx, processIntegrityProjectionAdherenceSummarySQL, countQueryArgs(args)...)
 		if err := summaryRows.Scan(
 			&summary.ExpectedCount,
@@ -136,7 +142,7 @@ func (r *Repository) listRowsProjected(ctx context.Context, q domain.Query, args
 		}
 		next = &encoded
 	}
-	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next}, nil
+	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next, Projection: projection}, nil
 }
 
 func (r *Repository) countByWorkStateProjected(ctx context.Context, args []any) ([]domain.CountByWorkState, int64, error) {
@@ -166,18 +172,29 @@ func (r *Repository) countByWorkStateProjected(ctx context.Context, args []any) 
 // one exists. Every request-path read requires a serving version; there is no canonical compute-on-read
 // fallback. The projection stores completed rows and honours the IncludeCompleted ($14) / adherence
 // filters, so it serves Action Center, Protocol Adherence, counts, and single-row drilldowns alike.
-func (r *Repository) servingProjectionVersion(ctx context.Context, tenantID string) (int64, bool) {
-	var servingVersion int64
+func (r *Repository) servingProjection(ctx context.Context, q domain.Query) (domain.ProjectionMetadata, error) {
+	var meta domain.ProjectionMetadata
 	err := r.pool.QueryRow(ctx, `
-SELECT serving_projection_version
+SELECT serving_projection_version, projected_at, as_of, freshness_status, serving_state
 FROM process_integrity_projection_state
 WHERE tenant_id = $1::uuid
-  AND serving_projection_version IS NOT NULL
-  AND serving_state IN ('fresh', 'stale', 'rebuilding')`, tenantID).Scan(&servingVersion)
-	if err != nil {
-		return 0, false
+	  AND serving_projection_version IS NOT NULL`, q.TenantID).Scan(
+		&meta.ProjectionVersion, &meta.ProjectedAt, &meta.AsOf, &meta.FreshnessStatus, &meta.ServingState,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ProjectionMetadata{}, domain.ErrProjectionUnavailable
 	}
-	return servingVersion, servingVersion > 0
+	if err != nil {
+		return domain.ProjectionMetadata{}, fmt.Errorf("processintegrity: read projection state: %w", err)
+	}
+	projectionAge := q.AsOf.Sub(meta.AsOf)
+	buildAge := q.AsOf.Sub(meta.ProjectedAt)
+	meta.Stale = meta.ProjectionVersion <= 0 || meta.ServingState != "fresh" || meta.FreshnessStatus != "green" ||
+		projectionAge > defaultProjectionFresh || projectionAge < -time.Minute || buildAge > defaultProjectionFresh
+	if meta.Stale {
+		return meta, domain.ErrProjectionStale
+	}
+	return meta, nil
 }
 
 func (r *Repository) GetRow(ctx context.Context, q domain.Query, rowID string) (domain.Row, bool, error) {
@@ -235,6 +252,9 @@ func (r *Repository) RecomputeProjection(ctx context.Context, req domain.Project
 
 	if _, err := tx.Exec(ctx, processIntegrityProjectionInsertSQL, projectionBuildArgs(req.TenantID, asOf, projectionVersion, projectedAt)...); err != nil {
 		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: upsert projection rows: %w", err)
+	}
+	if _, err := tx.Exec(ctx, processIntegrityProjectionSummaryInsertSQL, req.TenantID, projectionVersion, projectedAt); err != nil {
+		return domain.ProjectionRecomputeResult{}, fmt.Errorf("processintegrity: upsert projection summaries: %w", err)
 	}
 
 	counts, err := projectionCountsForTenant(ctx, tx, req.TenantID, projectionVersion)
@@ -401,6 +421,15 @@ WHERE rows.process_integrity_projection_row_id = doomed.process_integrity_projec
 
 		// If the last batch was smaller than requested, all old rows are deleted
 		if rowsAffected < int64(batchSize) {
+			if _, err := r.pool.Exec(ctx, `
+DELETE FROM process_integrity_projection_summaries summaries
+USING process_integrity_projection_state state
+WHERE summaries.tenant_id = $1::uuid
+  AND state.tenant_id = summaries.tenant_id
+  AND state.serving_projection_version IS NOT NULL
+  AND summaries.projection_version <> state.serving_projection_version`, tenantID); err != nil {
+				return fmt.Errorf("delete stale projection summaries: %w", err)
+			}
 			return nil
 		}
 	}
@@ -424,9 +453,10 @@ func projectionCountsForTenant(ctx context.Context, q interface {
 }, tenantID string, projectionVersion int64) ([]domain.CountByWorkState, error) {
 	rows, err := q.Query(ctx, `
 SELECT work_state, COUNT(*)::bigint
-FROM process_integrity_projection_rows
+FROM process_integrity_projection_summaries
 WHERE tenant_id = $1::uuid
   AND projection_version = $2::bigint
+  AND owner_id = ''
 GROUP BY work_state
 ORDER BY work_state`, tenantID, projectionVersion)
 	if err != nil {
@@ -579,11 +609,24 @@ func normalizeQuery(q domain.Query) domain.Query {
 	if q.DueBefore.IsZero() {
 		q.DueBefore = q.AsOf.Add(30 * 24 * time.Hour)
 	}
+	// Process-integrity due filters are an operational business-date contract. Normalizing both row
+	// and summary reads to the same IST day boundaries keeps totals exact while allowing the projector
+	// to collapse arbitrarily many same-day obligations into bounded summary grains.
+	if q.DueAfter != nil {
+		start := startOfBusinessDay(*q.DueAfter)
+		q.DueAfter = &start
+	}
+	q.DueBefore = startOfBusinessDay(q.DueBefore).Add(24*time.Hour - time.Nanosecond)
 	return q
 }
 
+func startOfBusinessDay(t time.Time) time.Time {
+	local := t.In(biztime.DefaultLocation())
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, biztime.DefaultLocation())
+}
+
 func queryArgs(q domain.Query) []any {
-	closedAfter := q.AsOf.Add(-defaultClosedHistoryAge)
+	closedAfter := startOfBusinessDay(q.AsOf.Add(-defaultClosedHistoryAge))
 	cursorSort := -1
 	cursorDue := pgtype.Timestamptz{}
 	cursorRow := ""
@@ -1504,7 +1547,8 @@ WHERE tenant_id = $1::uuid
     FROM process_integrity_projection_state
     WHERE tenant_id = $1::uuid
       AND serving_projection_version IS NOT NULL
-      AND serving_state IN ('fresh', 'stale', 'rebuilding')
+      AND serving_state = 'fresh'
+      AND freshness_status = 'green'
   )
   AND ($15::text = '' OR category = $15::text)
   AND ($2::text = '' OR park_id = $2::text)
@@ -1593,8 +1637,8 @@ LIMIT $19;
 `
 
 const processIntegrityProjectionCountsSQL = `
-SELECT work_state, COUNT(*)::bigint
-` + processIntegrityProjectionFilterSQL + `
+SELECT work_state, COALESCE(SUM(row_count), 0)::bigint
+` + processIntegrityProjectionSummaryFilterSQL + `
 GROUP BY work_state
 ORDER BY work_state;
 `
@@ -1603,10 +1647,88 @@ const processIntegrityProjectionAdherenceSummarySQL = `
 SELECT
   COALESCE(SUM(expected_count), 0)::integer AS expected_count,
   COALESCE(SUM(completed_count), 0)::integer AS completed_count,
-  COALESCE(COUNT(*) FILTER (WHERE NOT process_intact), 0)::integer AS open_gap_count,
-  COALESCE(SUM(CASE WHEN work_state = 'deferred' THEN GREATEST(deferred_count, 1) ELSE 0 END), 0)::integer AS deferred_count,
-  COALESCE(COUNT(*) FILTER (WHERE process_intact), 0)::integer AS process_intact_count
-` + processIntegrityProjectionFilterSQL + `;
+  COALESCE(SUM(row_count) FILTER (WHERE NOT process_intact), 0)::integer AS open_gap_count,
+  COALESCE(SUM(deferred_count), 0)::integer AS deferred_count,
+  COALESCE(SUM(row_count) FILTER (WHERE process_intact), 0)::integer AS process_intact_count
+` + processIntegrityProjectionSummaryFilterSQL + `;
+`
+
+const processIntegrityProjectionSummaryFilterSQL = `
+FROM process_integrity_projection_summaries
+WHERE tenant_id = $1::uuid
+  AND projection_version = (
+    SELECT serving_projection_version
+    FROM process_integrity_projection_state
+    WHERE tenant_id = $1::uuid
+      AND serving_projection_version IS NOT NULL
+      AND serving_state = 'fresh'
+      AND freshness_status = 'green'
+  )
+  AND ($15::text = '' OR category = $15::text)
+  AND ($2::text = '' OR park_id = $2::text)
+  AND ($3::text = '' OR shed_id = $3::text)
+  AND ($4::timestamptz IS NULL OR due_business_date >= ($4::timestamptz AT TIME ZONE 'Asia/Kolkata')::date)
+  AND due_business_date <= ($5::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+  AND ($6::text = '' OR work_state = $6::text)
+  AND ($7::text = '' OR severity = $7::text)
+  AND (($8::text = '' AND owner_id = '') OR ($8::text <> '' AND owner_id = $8::text))
+  AND ($9::text = '' OR protocol_version_id = $9::text)
+  -- Keep the shared row/count query argument contract typed. as_of ($10) is enforced by the
+  -- projection-freshness gate and row_id ($12) never reaches summary reads, but Postgres still
+  -- requires types for every positional parameter below the highest referenced placeholder.
+  AND ($10::timestamptz IS NULL OR $10::timestamptz IS NOT NULL)
+  AND ($12::text = $12::text)
+  AND (NOT $13::boolean OR work_state IN ('rejected', 'blocked', 'overdue', 'proof_pending', 'verification_pending'))
+  AND ($14::boolean OR work_state <> 'completed' OR due_business_date >= ($11::timestamptz AT TIME ZONE 'Asia/Kolkata')::date)
+`
+
+const processIntegrityProjectionSummaryInsertSQL = `
+WITH grains AS (
+  SELECT
+    tenant_id, projection_version, category, park_id, shed_id, ''::text AS owner_id,
+    protocol_version_id, (due_at AT TIME ZONE 'Asia/Kolkata')::date AS due_business_date, work_state, severity, process_intact,
+    expected_count, completed_count,
+    CASE WHEN work_state = 'deferred' THEN GREATEST(deferred_count, 1) ELSE 0 END AS deferred_count
+  FROM process_integrity_projection_rows
+  WHERE tenant_id = $1::uuid AND projection_version = $2::bigint
+
+  UNION ALL
+
+  SELECT
+    rows.tenant_id, rows.projection_version, rows.category, rows.park_id, rows.shed_id, owners.owner_id,
+    rows.protocol_version_id, (rows.due_at AT TIME ZONE 'Asia/Kolkata')::date, rows.work_state, rows.severity, rows.process_intact,
+    rows.expected_count, rows.completed_count,
+    CASE WHEN rows.work_state = 'deferred' THEN GREATEST(rows.deferred_count, 1) ELSE 0 END
+  FROM process_integrity_projection_rows rows
+  CROSS JOIN LATERAL (
+    SELECT DISTINCT owner_id
+    FROM unnest(rows.owner_refs) owner_id
+    WHERE owner_id <> ''
+  ) owners
+  WHERE rows.tenant_id = $1::uuid AND rows.projection_version = $2::bigint
+)
+INSERT INTO process_integrity_projection_summaries (
+  tenant_id, projection_version, category, park_id, shed_id, owner_id,
+  protocol_version_id, due_business_date, work_state, severity, process_intact,
+  row_count, expected_count, completed_count, deferred_count, projected_at
+)
+SELECT
+  tenant_id, projection_version, category, park_id, shed_id, owner_id,
+  protocol_version_id, due_business_date, work_state, severity, process_intact,
+  COUNT(*)::bigint, SUM(expected_count)::bigint, SUM(completed_count)::bigint,
+  SUM(deferred_count)::bigint, $3::timestamptz
+FROM grains
+GROUP BY tenant_id, projection_version, category, park_id, shed_id, owner_id,
+  protocol_version_id, due_business_date, work_state, severity, process_intact
+ON CONFLICT (
+  tenant_id, projection_version, category, park_id, shed_id, owner_id,
+  protocol_version_id, due_business_date, work_state, severity, process_intact
+) DO UPDATE SET
+  row_count = EXCLUDED.row_count,
+  expected_count = EXCLUDED.expected_count,
+  completed_count = EXCLUDED.completed_count,
+  deferred_count = EXCLUDED.deferred_count,
+  projected_at = EXCLUDED.projected_at;
 `
 
 const processIntegrityProjectionInsertSQL = processIntegrityAllRowsSQL + `,
