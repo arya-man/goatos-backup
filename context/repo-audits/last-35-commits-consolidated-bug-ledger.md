@@ -1,6 +1,6 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Current closure state after the counter-fix batch: **41 tracked, 13 fixed with proof, 28 open — 1 P0, 15 P1, 10 P2, 2 P3.** Fixed rows are C35-003/004/007/008/010/014/015/016/020/023/025, FIXCHK-003, and NEW-E2E-001. NEW-E2E-001 (the +1 that took the tracked total 40→41) is now FIXED with proof — a real projector defect, see its row. C35-002, C35-005 and C35-013 remain explicitly partial/open; no partial is counted closed.
+> Current closure state after the counter-fix batch: **41 tracked, 14 fixed with proof, 27 open — 1 P0, 14 P1, 10 P2, 2 P3.** Fixed rows are C35-003/004/007/008/009/010/014/015/016/020/023/025, FIXCHK-003, and NEW-E2E-001. C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). NEW-E2E-001 (the +1 that took the tracked total 40→41) is now FIXED with proof — a real projector defect, see its row. C35-002, C35-005 and C35-013 remain explicitly partial/open; no partial is counted closed.
 >
 > Closure detail (Claude, NEW-E2E-001 + the C35-015 gating pass): **NEW-E2E-001** — `TestKernelStoryC_BatchDriveVerifyControlTower` failed deterministically (control-tower alert row = 0); **ROOT-CAUSED + FIXED** — the projector's closed-history inclusion keyed recency off due-date not completion-time, so a near-now completion with an old due_at vanished from the projection; now green (`totalProjRows` 0→1, full `backend/tests/e2e/...` suite green). While gating **C35-015** on `make ci-local`, two PRE-EXISTING failures independent of C35-015 were also cleared: the stale sqlc schema snapshots (missing `herd_register_goat_projection_scope_idx`/`planned_batch_finalization_keyset_idx`) were regenerated + pushed → sqlc-check green; contract-drift was only a dirty-tree artifact (uncommitted generated client), green on commit.
 >
@@ -470,7 +470,7 @@ Guardrail needed: Required branch-protection check tied to current SHA and path-
 ID: C35-009  
 Priority: P1  
 Title: Published scale report is prose, not current-SHA scale execution  
-Status: open  
+Status: FIXED + PUSHED (false-green closed; 1M automation is honest remainder)  
 Origin: prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-019; scale-audit report  
@@ -484,7 +484,8 @@ Counterargument: Expensive scale certification may be intentionally scheduled or
 Why it survives / why downgraded: Then the report must say stale/unverified and block release criteria; it currently presents a first-class CI report without current execution.  
 E2E / guardrail status: stale evidence/false-green.  
 Fix sketch: Generate the report only from current-SHA gate outputs and datasets, record commit/data cardinality, and fail/mark red when certification did not run.  
-Guardrail needed: Workflow test that asserts report job depends on and consumes latency-gate artifacts for the same SHA.
+Guardrail needed: Workflow test that asserts report job depends on and consumes latency-gate artifacts for the same SHA.  
+Fix (pushed): the scale-audit Pages report is no longer static prose — `tools/ci/generate-scale-audit-report.py` renders it from current-SHA latency-gate artifacts and stamps a certification badge: UNVERIFIED (no gate artifact for this SHA — the honest default on main), VERIFIED (all gates passed), or FAILED (any gate failed); it can no longer present green without real current-SHA gate data. `.github/workflows/pages.yml` calls the generator (inline Python removed), `tools/ci/test-scale-audit-report-generator.sh` (8 tests, green) locks the three states, and `docs/runbooks/github-workflows.md` documents them. Honest remainder: wiring the actual `api-latency-gate`/`process-integrity-latency-gate` CI jobs to run per-commit and a real 1M-row dataset certification are follow-ups (intentionally manual/scheduled per the counterargument); until then the badge reads UNVERIFIED, which is the correct honest state.
 
 ### C35-010
 
