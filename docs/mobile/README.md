@@ -17,6 +17,7 @@ this is the pre-implementation design set the maintainer asked for.
 | [system-design.md](system-design.md) | Runtime architecture, data flow, sync state machine, threading model, push/notification flow, analytics taxonomy, boot/bootstrap contract |
 | [design-system.md](design-system.md) | Design tokens, Compose theme, component inventory (ported from the mock), motion, dark/light, accessibility, i18n |
 | [screens.md](screens.md) | Screen-by-screen spec: every mock view/overlay → Compose destination, state, backend contract, role visibility |
+| [transitions-and-motion.md](transitions-and-motion.md) | Screen-motion contract (Claude + Codex): M3 pattern → Goat OS surface map (drill = shared axis X, top-level tabs = fade through, sheets = `ModalBottomSheet`), motion tokens, reversibility, and the current-code transition audit |
 | [performance-and-memory.md](performance-and-memory.md) | Low-end-device budgets, Compose recomposition-safety cheat sheet, memory-leak prevention checklist, profiling gates |
 | [backend-driven-config.md](backend-driven-config.md) | Bootstrap-as-live-config: nav/labels/flags/tunables/module kill-switch pushed on the fly (no APK), config API (ETag/revision), Room/DataStore cache, FCM config-ping |
 | [rfid-keyboard-reader.md](rfid-keyboard-reader.md) | RFID reader V1 rule: Bluetooth HID keyboard-wedge capture, Android 10+ permission/status matrix, no edit box/soft keyboard, SDK/BLE optional later |
