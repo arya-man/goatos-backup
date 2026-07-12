@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 
 /** Shared JSON codec for outbox payload/result blobs — lenient so a field added later never
@@ -33,4 +34,20 @@ data class ReschedulePayload(
 @Serializable
 data class ProofUploadPayload(
     @SerialName("request") val request: ProofUploadRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.VERIFY_TASK].
+ *  Leadership verify action on a record task (C35-011). */
+@Serializable
+data class VerifyTaskPayload(
+    @SerialName("task_id") val taskId: String,
+    @SerialName("request") val request: ReviewTaskRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.REWORK_TASK].
+ *  Leadership rework action on a record task (C35-011). */
+@Serializable
+data class ReworkTaskPayload(
+    @SerialName("task_id") val taskId: String,
+    @SerialName("request") val request: ReviewTaskRequestDto,
 )

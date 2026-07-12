@@ -134,3 +134,17 @@ data class SubmissionResponseDto(
     @SerialName("task") val task: TaskSummaryDto = TaskSummaryDto(),
     @SerialName("trace_id") val traceId: String = "",
 )
+
+/** Request body for POST /admin/tasks/{task_id}/verify and POST /admin/tasks/{task_id}/rework. */
+@Serializable
+data class ReviewTaskRequestDto(
+    @SerialName("reason") val reason: String,
+    @SerialName("row_version") val rowVersion: Int,
+)
+
+/** Response for task review (verify/rework) operations. */
+@Serializable
+data class ReviewTaskResponseDto(
+    @SerialName("task") val task: TaskSummaryDto = TaskSummaryDto(),
+    @SerialName("trace_id") val traceId: String = "",
+)

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.feature.record.RecordEvent
 import sg.mesha.goatos.feature.record.RecordTone
@@ -28,12 +29,14 @@ import javax.inject.Inject
  * [RecordUiState.isRefreshing]/[RecordUiState.isOffline] flags; the DTO → UiState mapping is
  * unchanged. An empty real response shows an honest empty state; a refresh failure with NO cache
  * ever observed shows an honest error state; a refresh failure WITH cached data keeps rendering
- * that cache and only flips [RecordUiState.isOffline] — never a blank/loading wall. The record is
- * read-only; the only event ([RecordEvent.Close]) is navigation.
+ * that cache and only flips [RecordUiState.isOffline] — never a blank/loading wall.
+ *
+ * Verify/Rework actions (C35-011) are enqueued to the outbox for offline-first delivery.
  */
 @HiltViewModel
 class RecordViewModel @Inject constructor(
     private val repo: ExecutionRepository,
+    private val syncRepo: SyncRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -43,11 +46,12 @@ class RecordViewModel @Inject constructor(
     val state: StateFlow<RecordUiState> = _state.asStateFlow()
 
     init {
-        // Cache-first: renders whatever Room already has (possibly nothing, on a cold
-        // install) immediately, then re-renders after every successful refresh below.
+        // Cache-first OFFLINE-FIRST FIX (C35-019): observe directly from the shedId
+        // route parameter. Do NOT call repo.rows() to derive the ID — that duplicates
+        // the network read and breaks a cold offline launch when the cache is empty.
+        // Room is the single source of truth; refresh upserts Room in the background.
         viewModelScope.launch {
-            val id = shedId ?: repo.rows().rows.firstOrNull()?.shedId
-            id?.let {
+            shedId?.let {
                 repo.observeShed(it).collectLatest { resource -> applyResource(resource) }
             }
         }
@@ -59,9 +63,8 @@ class RecordViewModel @Inject constructor(
      *  [RecordUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _state.update { it.copy(isRefreshing = true) }
-        val id = shedId ?: repo.rows().rows.firstOrNull()?.shedId
-        if (id != null) {
-            val result = repo.refreshShed(id)
+        if (shedId != null) {
+            val result = repo.refreshShed(shedId)
             _state.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
         } else {
             _state.update { current ->
@@ -86,6 +89,18 @@ class RecordViewModel @Inject constructor(
     fun onEvent(event: RecordEvent) {
         when (event) {
             RecordEvent.Close -> Unit // navigation — handled by the nav host.
+            is RecordEvent.Verify -> {
+                // Enqueue verify task to outbox for offline-first delivery.
+                viewModelScope.launch {
+                    syncRepo.enqueueVerifyTask(event.taskId, event.reason, event.rowVersion)
+                }
+            }
+            is RecordEvent.Rework -> {
+                // Enqueue rework task to outbox for offline-first delivery.
+                viewModelScope.launch {
+                    syncRepo.enqueueReworkTask(event.taskId, event.reason, event.rowVersion)
+                }
+            }
         }
     }
 

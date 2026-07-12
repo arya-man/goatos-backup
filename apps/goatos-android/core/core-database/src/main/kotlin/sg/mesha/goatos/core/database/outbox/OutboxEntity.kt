@@ -8,7 +8,7 @@ import androidx.room.PrimaryKey
  * Write kinds the outbox knows how to drain. One row per attempted operation; see
  * `SyncEngine.dispatch` (`:core:core-data`) for the per-type app-api call.
  */
-enum class OutboxOpType { SHED_SUBMIT, PROOF_UPLOAD, RESCHEDULE }
+enum class OutboxOpType { SHED_SUBMIT, PROOF_UPLOAD, RESCHEDULE, VERIFY_TASK, REWORK_TASK }
 
 /**
  * Outbox row lifecycle. Deliberately only these four states (the task's explicit ask) —

@@ -17,6 +17,7 @@ import sg.mesha.goatos.core.database.outbox.OutboxOpType
 import sg.mesha.goatos.core.database.outbox.OutboxStatus
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import java.security.MessageDigest
 import java.util.UUID
@@ -82,6 +83,20 @@ interface SyncRepository {
         groupKey: String,
         idempotencyKey: String,
         request: ProofUploadRequestDto,
+    ): AppResult<String>
+
+    /** Enqueues a leadership verify action on a record task (C35-011). */
+    suspend fun enqueueVerifyTask(
+        taskId: String,
+        reason: String,
+        rowVersion: Int,
+    ): AppResult<String>
+
+    /** Enqueues a leadership rework action on a record task (C35-011). */
+    suspend fun enqueueReworkTask(
+        taskId: String,
+        reason: String,
+        rowVersion: Int,
     ): AppResult<String>
 
     /** Re-arms a FAILED (dead-letter or conflict) row for another attempt — the SAME
@@ -156,6 +171,34 @@ class DefaultSyncRepository(
         idempotencyKey = idempotencyKey,
         payloadJson = syncJson.encodeToString(ProofUploadPayload(request = request)),
     )
+
+    override suspend fun enqueueVerifyTask(
+        taskId: String,
+        reason: String,
+        rowVersion: Int,
+    ): AppResult<String> {
+        val idempotencyKey = "$taskId-verify-${System.currentTimeMillis()}"
+        return enqueue(
+            opType = OutboxOpType.VERIFY_TASK,
+            groupKey = taskId,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(VerifyTaskPayload(taskId = taskId, request = ReviewTaskRequestDto(reason = reason, rowVersion = rowVersion))),
+        )
+    }
+
+    override suspend fun enqueueReworkTask(
+        taskId: String,
+        reason: String,
+        rowVersion: Int,
+    ): AppResult<String> {
+        val idempotencyKey = "$taskId-rework-${System.currentTimeMillis()}"
+        return enqueue(
+            opType = OutboxOpType.REWORK_TASK,
+            groupKey = taskId,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(ReworkTaskPayload(taskId = taskId, request = ReviewTaskRequestDto(reason = reason, rowVersion = rowVersion))),
+        )
+    }
 
     private suspend fun enqueue(
         opType: OutboxOpType,

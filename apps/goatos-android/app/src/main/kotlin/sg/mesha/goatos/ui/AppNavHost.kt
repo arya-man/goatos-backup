@@ -432,6 +432,14 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         RecordEvent.Close -> navController.popBackStack()
+                        is RecordEvent.Verify -> {
+                            // ViewModel handles Verify event (enqueues to outbox).
+                            // No nav change needed; event carries task metadata.
+                        }
+                        is RecordEvent.Rework -> {
+                            // ViewModel handles Rework event (enqueues to outbox).
+                            // No nav change needed; event carries task metadata.
+                        }
                     }
                 },
             )

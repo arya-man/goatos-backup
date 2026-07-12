@@ -203,6 +203,8 @@ class SyncEngine(
         OutboxOpType.SHED_SUBMIT -> dispatchShedSubmit(item)
         OutboxOpType.RESCHEDULE -> dispatchReschedule(item)
         OutboxOpType.PROOF_UPLOAD -> dispatchProofUpload(item)
+        OutboxOpType.VERIFY_TASK -> dispatchVerifyTask(item)
+        OutboxOpType.REWORK_TASK -> dispatchReworkTask(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -245,6 +247,18 @@ class SyncEngine(
     private suspend fun dispatchProofUpload(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<ProofUploadPayload>(item.payloadJson)
         val response = api.registerProof(item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchVerifyTask(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<VerifyTaskPayload>(item.payloadJson)
+        val response = api.verifyAppTask(payload.taskId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchReworkTask(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ReworkTaskPayload>(item.payloadJson)
+        val response = api.reworkAppTask(payload.taskId, item.idempotencyKey, payload.request)
         return syncJson.encodeToString(response)
     }
 

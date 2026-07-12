@@ -14,6 +14,8 @@ import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
+import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
+import sg.mesha.goatos.core.network.dto.ReviewTaskResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
@@ -215,6 +217,22 @@ interface AppApi {
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto
 
+    /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
+     *  Idempotent via [idempotencyKey]. The outbox drains this like submitAppTask. */
+    suspend fun verifyAppTask(
+        taskId: String,
+        idempotencyKey: String,
+        request: ReviewTaskRequestDto,
+    ): ReviewTaskResponseDto
+
+    /** POST /admin/tasks/{task_id}/rework — leadership rework action on a record task (C35-011).
+     *  Idempotent via [idempotencyKey]. The outbox drains this like submitAppTask. */
+    suspend fun reworkAppTask(
+        taskId: String,
+        idempotencyKey: String,
+        request: ReviewTaskRequestDto,
+    ): ReviewTaskResponseDto
+
     /** GET /app/vaccination/execution/sheds/{shed_id}/roster — per-animal scan roster with RFID tags. */
     suspend fun getScanRoster(
         shedId: String,
@@ -362,6 +380,18 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto = SubmissionResponseDto()
+
+    override suspend fun verifyAppTask(
+        taskId: String,
+        idempotencyKey: String,
+        request: ReviewTaskRequestDto,
+    ): ReviewTaskResponseDto = ReviewTaskResponseDto()
+
+    override suspend fun reworkAppTask(
+        taskId: String,
+        idempotencyKey: String,
+        request: ReviewTaskRequestDto,
+    ): ReviewTaskResponseDto = ReviewTaskResponseDto()
 
     override suspend fun getScanRoster(
         shedId: String,

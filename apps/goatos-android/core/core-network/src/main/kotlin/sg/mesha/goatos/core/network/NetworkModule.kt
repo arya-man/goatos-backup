@@ -28,6 +28,8 @@ import sg.mesha.goatos.core.network.dto.forCreateUpload
 import sg.mesha.goatos.core.network.dto.ProtocolAdherenceResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
+import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
+import sg.mesha.goatos.core.network.dto.ReviewTaskResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 // Device DTOs live in the network package (AppApi.kt); no dto.* import needed.
@@ -136,6 +138,20 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: SubmitTaskRequestDto,
     ): SubmissionResponseDto
+
+    @POST("admin/tasks/{task_id}/verify")
+    suspend fun verifyAppTask(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ReviewTaskRequestDto,
+    ): ReviewTaskResponseDto
+
+    @POST("admin/tasks/{task_id}/rework")
+    suspend fun reworkAppTask(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ReviewTaskRequestDto,
+    ): ReviewTaskResponseDto
 
     @GET("app/vaccination/execution/sheds/{shed_id}/roster")
     suspend fun getScanRoster(
@@ -275,6 +291,18 @@ class RetrofitAppApi(private val service: AppApiService) : AppApi {
         idempotencyKey: String,
         request: SubmitTaskRequestDto,
     ): SubmissionResponseDto = service.submitAppTask(taskId, idempotencyKey, request)
+
+    override suspend fun verifyAppTask(
+        taskId: String,
+        idempotencyKey: String,
+        request: ReviewTaskRequestDto,
+    ): ReviewTaskResponseDto = service.verifyAppTask(taskId, idempotencyKey, request)
+
+    override suspend fun reworkAppTask(
+        taskId: String,
+        idempotencyKey: String,
+        request: ReviewTaskRequestDto,
+    ): ReviewTaskResponseDto = service.reworkAppTask(taskId, idempotencyKey, request)
 
     override suspend fun getScanRoster(
         shedId: String,
