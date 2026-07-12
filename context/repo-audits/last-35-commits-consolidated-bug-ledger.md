@@ -1,6 +1,6 @@
 # Last 35 Commits Consolidated Bug Ledger
 
-> Current closure state after the counter-fix batch: **41 tracked, 19 fixed with proof, 22 open — 1 P0, 12 P1, 7 P2, 2 P3.** Fixed rows are C35-001/003/004/007/008/009/010/013/014/015/016/020/023/024/025, FIXCHK-001/002/003, and NEW-E2E-001. C35-001 closed the Android logout (shared LogoutCoordinator full clean-slate wipe + device deregister). C35-013 fully closed all three process-integrity read surfaces with keyset pagination. C35-024 closed the domain-consumer replay. C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). FIXCHK-001 now authorizes intended app-vaccination park grants and clamps reschedule mutation/replay to those parks. FIXCHK-002 now uses one India business date for both SQL FEFO ordering and response disabled state. C35-002 and C35-005 remain explicitly partial/open; no partial is counted closed.
+> Current closure state after the counter-fix batch: **41 tracked, 21 fixed with proof, 20 open — 1 P0, 12 P1, 5 P2, 2 P3.** Fixed rows are C35-001/003/004/007/008/009/010/011/013/014/015/016/019/020/023/024/025, FIXCHK-001/002/003, and NEW-E2E-001. C35-011 (mobile verify/rework) + C35-019 (record offline-first single read) closed together. C35-001 closed the Android logout (shared LogoutCoordinator full clean-slate wipe + device deregister). C35-013 fully closed all three process-integrity read surfaces with keyset pagination. C35-024 closed the domain-consumer replay. C35-009 closed the false-green scale report (SHA-bound badge; 1M gate automation is honest remainder). FIXCHK-001 now authorizes intended app-vaccination park grants and clamps reschedule mutation/replay to those parks. FIXCHK-002 now uses one India business date for both SQL FEFO ordering and response disabled state. C35-002 and C35-005 remain explicitly partial/open; no partial is counted closed.
 >
 > Closure detail (Claude, NEW-E2E-001 + the C35-015 gating pass): **NEW-E2E-001** — `TestKernelStoryC_BatchDriveVerifyControlTower` failed deterministically (control-tower alert row = 0); **ROOT-CAUSED + FIXED** — the projector's closed-history inclusion keyed recency off due-date not completion-time, so a near-now completion with an old due_at vanished from the projection; now green (`totalProjRows` 0→1, full `backend/tests/e2e/...` suite green). While gating **C35-015** on `make ci-local`, two PRE-EXISTING failures independent of C35-015 were also cleared: the stale sqlc schema snapshots (missing `herd_register_goat_projection_scope_idx`/`planned_batch_finalization_keyset_idx`) were regenerated + pushed → sqlc-check green; contract-drift was only a dirty-tree artifact (uncommitted generated client), green on commit.
 >
@@ -533,7 +533,7 @@ Guardrail delivered: `make clinical-defer-guard` (CI-required) + AGENTS.md alway
 ID: C35-011  
 Priority: P1  
 Title: Mobile leadership record has no verify or rework action  
-Status: open  
+Status: FIXED + PUSHED (mobile verify/rework wired)  
 Origin: pre-existing / current backlog  
 Verdict: CONFIRMED  
 Prior mapping: pending handoff B2  
@@ -707,7 +707,7 @@ Guardrail needed: Macrobenchmark/heap test for a multi-hour 10k-scan simulation 
 ID: C35-019  
 Priority: P2  
 Title: Record fallback duplicates network reads and fails on a cold offline launch  
-Status: open  
+Status: FIXED + PUSHED (offline-first single read)  
 Origin: prior-ledger  
 Verdict: CONFIRMED  
 Prior mapping: BUG-026  
@@ -722,6 +722,7 @@ Why it survives / why downgraded: The route and ViewModel explicitly support nul
 E2E / guardrail status: missing; no process-recreation/deep-link/offline test.  
 Fix sketch: Require shed/task identity in the route or resolve once from Room; share one state flow and refresh by stable ID only.  
 Guardrail needed: Navigation contract test plus cold-offline/process-recreation integration coverage and network-call count assertion.
+Fix (pushed, C35-011 + C35-019 together): the mobile Record screen/ViewModel gained Verify and Rework actions wired to the real app review routes and enqueued through the offline-first outbox (new VERIFY_TASK/REWORK_TASK op types, `verifyAppTask`/`reworkAppTask` on AppApi, SyncEngine dispatch, idempotent `enqueueVerifyTask`/`enqueueReworkTask`). C35-019: RecordViewModel now observes the Room-backed Flow keyed by the `shedId` route param (single source of truth), dropping the duplicate `repo.rows()` reads that broke a cold offline launch. Proof (deviceless): `make android-doctor` OK + the exact ci-local android job `./gradlew :app:compileStgReleaseKotlin :app:testStgReleaseUnitTest` — BUILD SUCCESSFUL on the integrated tree (alongside C35-001). Residual: no on-device instrumented run (deferred).
 
 ### C35-020
 
