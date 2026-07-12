@@ -27,6 +27,10 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 backend_dir="$repo_root/backend"
 android_dir="$repo_root/apps/goatos-android"
+# Resolve JDK/SDK/PATH independently of ~/.zshrc so agents and CI behave the
+# same in non-interactive shells.
+# shellcheck source=tools/dev/android-env.sh
+source "$repo_root/tools/dev/android-env.sh"
 api_base="http://localhost:8080"
 bootstrap_path="/app/bootstrap"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
@@ -113,15 +117,13 @@ log "fresh dev token baked into ~/.gradle/gradle.properties (validated: /app/boo
 [ "$token_only" = "1" ] && { log "token-only: done."; exit 0; }
 
 # --- build + install + tunnel + launch ---------------------------------------
-dev="$(pick_device)"; [ -n "$dev" ] || die "no adb device. Connect the phone by USB + enable USB debugging + tap Allow."
-log "device: $dev"
-
-if [ -z "${JAVA_HOME:-}" ] || [ ! -x "$JAVA_HOME/bin/java" ]; then
-  for c in "$(/usr/libexec/java_home -v 21 2>/dev/null || true)" /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home; do
-    [ -n "$c" ] && [ -x "$c/bin/java" ] && { export JAVA_HOME="$c"; break; }
-  done
+dev="$(pick_device)"
+if [ -z "$dev" ]; then
+  log "no authorized USB device or booted emulator; starting the configured AVD fallback..."
+  dev="$(bash "$repo_root/tools/dev/android-emulator-ensure.sh")" || \
+    die "no usable Android device and emulator fallback failed"
 fi
-[ -n "${JAVA_HOME:-}" ] || die "no JDK 21 found. Install openjdk@21 or set JAVA_HOME."
+log "device: $dev"
 log "JAVA_HOME=$JAVA_HOME"
 
 log "building :app:assembleDevDebug ..."

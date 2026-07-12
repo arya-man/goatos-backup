@@ -105,6 +105,13 @@ Read first:
 - `context/analytics/final-analytics-infra.md`
 - `context/agents/ai-agent-context-and-protocols.md`
 
+Android verification is not allowed to stop at a missing inherited `JAVA_HOME`
+or unavailable USB phone. Run `make android-doctor`; repo tooling resolves the
+pinned JDK/SDK itself. Run `make android-dev-run`; it prefers an authorized
+physical phone and otherwise starts/waits for the configured emulator. See
+`docs/runbooks/android-dev-device.md`. JDK 21 runs Gradle/AGP; app bytecode
+compatibility remains Java/Kotlin 17.
+
 Historical planning/archive docs were removed from the active tree. If a human
 explicitly asks for archaeology, use git history or source material rather than
 normal build docs.

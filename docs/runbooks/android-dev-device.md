@@ -3,8 +3,10 @@
 One command, no re-figuring:
 
 ```bash
-make android-dev-run                       # auto-picks the connected device
+make android-doctor                        # JDK + SDK + AVD + Gradle diagnosis
+make android-dev-run                       # USB phone, else auto-starts emulator
 # or:
+make android-emulator-ensure               # explicitly start/wait for the AVD
 tools/dev/android-dev-run.sh -s <serial>   # target a specific adb serial
 tools/dev/android-dev-run.sh --token-only  # just re-mint + bake a fresh token
 tools/dev/android-dev-run.sh --no-clear    # keep app data (skip pm clear)
@@ -13,15 +15,59 @@ tools/dev/android-dev-run.sh --no-clear    # keep app data (skip pm clear)
 ## Prerequisites
 
 1. Local backend up on `:8080` — `make dev-local-service-start` (check: `curl -s -o /dev/null -w '%{http_code}' localhost:8080/readyz` → `204`).
-2. Device connected by **USB** with **Developer Options → USB debugging** on; tap **Allow** on the RSA prompt. Works on a physical phone or the emulator.
-3. JDK 21 available (the script finds `openjdk@21` / `/usr/libexec/java_home -v 21`).
+2. Either a physical device connected by **USB** with USB debugging authorized,
+   or one AVD configured in Android Studio Device Manager. A missing USB phone is
+   not a blocker: `android-dev-run` starts and waits for the AVD automatically.
+3. JDK 21 available. Repository scripts resolve Homebrew `openjdk@21` themselves;
+   they do not depend on the current shell having `JAVA_HOME` set.
+
+## One-time permanent macOS shell setup
+
+Repository commands work without shell configuration. For direct `java`, `adb`,
+`emulator`, and `./gradlew` commands in every new terminal, use this machine-local
+file and source it from both `~/.zprofile` and `~/.zshrc`:
+
+```bash
+mkdir -p ~/.config/goatos
+cat > ~/.config/goatos/android-env.zsh <<'EOF'
+export JAVA_HOME="/opt/homebrew/opt/openjdk@21"
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+EOF
+```
+
+Add this one line to both shell files:
+
+```bash
+[ -f "$HOME/.config/goatos/android-env.zsh" ] && source "$HOME/.config/goatos/android-env.zsh"
+```
+
+Open a new terminal and run `make android-doctor`. Goat OS uses JDK 21 to run
+Gradle/AGP while compiling Java/Kotlin bytecode for target 17; those are not a
+contradiction.
+
+## When no USB phone is available
+
+`make android-dev-run` checks for an authorized physical phone first, then a
+booted emulator, then starts `${GOATOS_ANDROID_AVD}` (or the first configured
+AVD). It waits for `sys.boot_completed=1` before building/installing.
+
+```bash
+GOATOS_ANDROID_AVD=Medium_Phone_API_36.1 make android-emulator-ensure
+GOATOS_ANDROID_EMULATOR_HEADLESS=1 make android-emulator-ensure # CI-style
+```
+
+If no AVD exists: Android Studio → Device Manager → Create Device → choose a
+medium phone → install an ARM64 API 36 image. Then rerun `make android-doctor`.
 
 ## What the script does (and why each step exists)
 
 1. **Mints a fresh dev bearer token and VALIDATES it** against `GET /app/bootstrap` (must be `200`) *before* building. The dev flavor authenticates with an HS256 bearer baked at build time (`BuildConfig.DEV_BEARER_TOKEN` ← gradle prop `goatosDevBearerToken`). Two things make this the usual failure:
    - The token **expires** (≤ 24h, capped by `GOATOS_AUTH_MAX_TOKEN_TTL`). A day later → silent `401` → the app shows **"Couldn't load your workspace."**
    - It must be signed with the **secret the RUNNING backend actually uses**, which is **not always** the `run-local-stack-supervised.sh` default (the stack can be started with an env override). The script tries, in order, `$GOATOS_AUTH_HS256_SECRET` → the **live `:8080` process env** → the supervised-script default, and keeps the first token that returns `200`.
-2. **Builds** `:app:assembleDevDebug` (rebakes the fresh token).
+2. Selects an authorized USB device or boots the emulator fallback, then
+   **builds** `:app:assembleDevDebug` (rebakes the fresh token).
 3. **Installs** `-r`, then **`pm clear`** (so the app drops the old cached token in DataStore and picks up the freshly-baked one — `install -r` alone keeps app data).
 4. **`adb reverse tcp:8080 tcp:8080`** — tunnels the device's `localhost:8080` to the laptop over USB. The dev flavor's `API_BASE_URL` is `http://localhost:8080/` for exactly this reason. **`10.0.2.2` is emulator-only and does NOT reach the laptop from a physical phone.**
 5. **Launches** `MainActivity`.

@@ -155,6 +155,18 @@ Calendar or dashboard label.
 - Tokens stay server-side for admin-web. Do not put bearer tokens in
   `NEXT_PUBLIC_*`, localStorage, rendered HTML, query params, or static assets.
 
+## Local Android Toolchain And Device Gate
+
+- Run `make android-doctor` before treating JDK, SDK, or device availability as
+  a blocker. Repository scripts resolve JDK 21 and the Android SDK without
+  relying on a parent agent shell's environment.
+- Run `make android-dev-run` for device proof. It prefers an authorized physical
+  phone and automatically starts/waits for a configured AVD when USB is absent.
+- A missing USB phone is never by itself a mobile verification blocker. If no AVD
+  exists either, record that exact gap and create one using
+  `docs/runbooks/android-dev-device.md` before deferring device validation.
+- JDK 21 is the Gradle/AGP runtime; source/bytecode compatibility remains 17.
+
 ## Removed From Active Frontend Scope
 
 Do not revive these old admin/dashboard features unless product scope is

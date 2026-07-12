@@ -269,9 +269,17 @@ docker-cleanup-goatos-execute:
 docker-storage-scripts-test:
 	bash tools/dev/test-docker-storage-scripts.sh
 
-# Run the Android dev app on a USB device (physical phone or emulator) against the
-# local backend on :8080 — mints+validates a fresh dev token, builds, installs,
-# tunnels (adb reverse), and launches. See docs/runbooks/android-dev-device.md.
-.PHONY: android-dev-run
+# Diagnose the pinned JDK/SDK/AVD setup. The scripts resolve their own environment
+# and do not rely on an agent session having sourced ~/.zshrc.
+.PHONY: android-doctor android-emulator-ensure android-dev-run
+android-doctor:
+	bash tools/dev/android-doctor.sh
+
+android-emulator-ensure:
+	bash tools/dev/android-emulator-ensure.sh
+
+# Run the Android dev app on a physical phone when present, otherwise start the
+# configured emulator automatically. Mints+validates a fresh dev token, builds,
+# installs, tunnels (adb reverse), and launches. See android-dev-device.md.
 android-dev-run:
 	bash tools/dev/android-dev-run.sh
