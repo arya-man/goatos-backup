@@ -15,6 +15,11 @@ export const dynamic = "force-dynamic";
 // (docs/decisions/role-module-nav-composition.md) and the Verification module has no nav-registry
 // contribution yet (same current state as /operations/dlq). Reachable by direct route until that
 // backend nav-registry entry lands.
+//
+// Telemetry (TELEMETRY GUARDRAIL, AGENTS.md): this route is covered globally by
+// ObservabilityErrorBoundary (app/(admin)/layout.tsx), and its primary action fires a real Faro
+// `pushEvent` from features/verification-review/verification-review-telemetry.tsx, rendered inside
+// VerificationReviewPage's drawer — see that file for the pushEvent/faro wiring.
 export default async function Page({ searchParams }: { searchParams: Promise<RouteSearchParams> }) {
   return <VerificationReviewPage searchParams={await searchParams} />;
 }
