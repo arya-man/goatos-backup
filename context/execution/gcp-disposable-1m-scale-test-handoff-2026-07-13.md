@@ -81,6 +81,35 @@ implement -> static guards -> targeted tests -> GCP 1M proof -> report -> review
 A green runner with an unfixed code path is not closure. A code fix without the
 runner evidence is also not closure.
 
+## Current Scale-Guard Debt: `47 -> 23` Is Not on Main
+
+At handoff creation, the exact current-`main` command reports:
+
+```text
+make scale-guard
+scale-guard: RATCHET PASS — NOT SCALE CERTIFIED
+(47 time-bounded known offenders across 20 rule/file groups; zero new)
+```
+
+The historical `integration/scale-wave` branch has tip `819f91b3` with the
+message `47->23 offenders (24 genuinely cleared)`. That commit and the branch's
+remediation commits are not ancestors of current `main`. Therefore:
+
+- do not claim `47 -> 23` is already merged;
+- do not merge/cherry-pick the stale wave wholesale because `main` has since
+  changed Calendar, projections, migrations, SOP, mobile and verification code;
+- reconcile each root fix onto current `main`, preserving newer behavior and
+  rerunning its current tests and migration gates;
+- record the before/after rule, file and count matrix; deleting baseline lines
+  without removing the real finding is not a fix; and
+- treat 23 as an intermediate burn-down result, not the certification target.
+
+This remediation is Phase 2 work before the GCP proof. The GCP runner records
+and validates the resulting guard count but cannot reduce it by itself. Full
+certification requires zero unresolved P0/P1 request-path offenders and an
+explicit owner, issue, expiry and boundedness proof for any remaining lower-risk
+exception.
+
 ## Recommended Disposable Resources
 
 ### Projection/read-path run
@@ -229,6 +258,13 @@ end-to-end CQRS chain.
 Run the current-SHA repository guards, including migration validation, sqlc
 plans, API-client drift, scale guard and the targeted `COUNT(*) OVER()` before
 bounded-page rule when it lands.
+
+Save a machine-readable scale-guard matrix containing rule, file, line, count,
+severity, owner, issue, expiry and disposition. Fail if the current-SHA count
+regresses, if a baseline entry is removed without the corresponding code finding
+disappearing, or if a P0/P1 request-path finding remains. The historical
+`47 -> 23` branch is input for reconciliation only; it is not acceptable proof
+for the tested SHA.
 
 Static success is recorded separately and must never be labelled 1M proof.
 
@@ -399,6 +435,7 @@ An omitted required row is a failed report. There is no implicit pass.
 | Historical `as_of` | Immutable historical snapshots or removal of advertised support | Past public-API query succeeds from stored snapshot without changing live serving state |
 | Execution `COUNT(*) OVER()` | `LIMIT + 1`/`has_more`, or a separately materialized exact total | Plan shows page-bounded work as matching cardinality grows |
 | Incomplete CI scale boundary | Current-SHA 1M evidence for every declared hot path and projector throughput | No required path remains 1,300-only; report names every excluded boundary |
+| Scale-guard `47 -> 23` wave | Reconcile each stale-branch fix onto current `main`; do not only edit the baseline | Current-SHA guard matrix, zero unresolved P0/P1 request-path offenders, and evidence for every retained bounded exception |
 
 ## Report and Main-Branch Publication
 
