@@ -164,7 +164,7 @@ class VerifyDetailViewModel @Inject constructor(
             (item.shedLabel ?: item.shedId)?.let { VerifyContextRow(VerifyContextKind.SHED, it) },
             (item.parkLabel ?: item.parkId)?.let { VerifyContextRow(VerifyContextKind.PARK, it) },
             (item.operatorName ?: item.operatorId)?.let { VerifyContextRow(VerifyContextKind.OPERATOR, it) },
-            item.capturedAt?.let { VerifyContextRow(VerifyContextKind.CAPTURED_AT, it) },
+            item.capturedAt.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.CAPTURED_AT, it) },
         )
     }
 }
