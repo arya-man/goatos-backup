@@ -34,6 +34,12 @@ and notification channels are delivery/execution layers. If a message is lost,
 delayed, retried, or delivered twice, the kernel must be able to reconstruct the
 right answer from Postgres and idempotency keys.
 
+Database workload isolation, indexing proof, partition/retention policy, and
+projection maintenance are governed by the
+[One-Million PostgreSQL Readiness ADR](../decisions/one-million-postgres-readiness.md).
+That ADR records current implementation gaps; it does not waive any threshold
+in this plan or claim that the one-million run has passed.
+
 ## 2. Scale Model
 
 The design target is not "small farm demo" scale.

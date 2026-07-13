@@ -95,6 +95,9 @@ Vaccination work-session bundle ADR (pending sign-off)
 High-scale dashboard projection architecture
   docs/decisions/high-scale-dashboard-projections.md
 
+One-million PostgreSQL workload, indexing, partitioning, and projection readiness
+  docs/decisions/one-million-postgres-readiness.md
+
 Goat OS agent skill bundle and reference map
   .agents/skills/goatos-build/SKILL.md
 
