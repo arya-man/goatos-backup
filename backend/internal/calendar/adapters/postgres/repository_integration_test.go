@@ -2596,6 +2596,37 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
 	}
 }
 
+// seedBatchStockBlock marks a batch as stock-blocked using the exact obligation_batches.context
+// shape written by the canonical source, MarkBatchStockBlocked/MarkBatchStockBlocks
+// (backend/internal/obligation/adapters/postgres/repository.go) -- the same
+// `context #>> '{stock_block,state}' = 'blocked'` marker that DRV-REV-001's
+// obligation_drive_membership.is_blocked reads. drive_summary.blocked_count must derive from THIS
+// marker, never from obligation_instances.status (which has no stored 'blocked' value).
+func seedBatchStockBlock(t *testing.T, ctx context.Context, pool *pgxpool.Pool, batchID, itemID, reason string) {
+	t.Helper()
+	tag, err := pool.Exec(ctx, `
+UPDATE obligation_batches
+SET context = context || jsonb_build_object(
+      'stock_block', jsonb_build_object(
+        'state', 'blocked',
+        'item_id', $3::text,
+        'required_qty', 10::bigint,
+        'reason', $4::text,
+        'blocked_at', now(),
+        'retry_after', now() + interval '15 minutes'
+      )
+    ),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, batchID, itemID, reason)
+	if err != nil {
+		t.Fatalf("seed batch stock block %s: %v", batchID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		t.Fatalf("seed batch stock block %s: no batch row updated", batchID)
+	}
+}
+
 func seedProtocolRuleVaccineName(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID, ruleID, vaccineName string) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, `
@@ -3341,6 +3372,250 @@ func TestDriveSummaryStatusBucketsCoverLiveStatusSet(t *testing.T) {
 	sum := s.CompletedCount + s.DueCount + s.OverdueCount + s.DeferredCount + s.BlockedCount
 	if sum != s.TotalCount {
 		t.Errorf("invariant violated: buckets sum %d != total_count %d", sum, s.TotalCount)
+	}
+}
+
+// TestDriveSummaryStatusBucketsBlockedNotDeferredOrCompletedMultipleDimensions proves DRV-REV-001:
+// drive_summary.blocked_count must be derived from obligation_drive_membership.is_blocked --
+// whether the obligation's OWN batch carries an active obligation_batches.context.stock_block (the
+// canonical marker written by MarkBatchStockBlocked/MarkBatchStockBlocks in the obligation module)
+// -- never from obligation_instances.status, which has no stored 'blocked' value per the 000097
+// CHECK constraint (scheduled/due/in_progress/deferred/completed/missed/waived/canceled/superseded).
+//
+// It seeds ONE stock-blocked batch carrying TWO obligations with different statuses to prove the
+// mandatory bucket precedence (completed > deferred > blocked > overdue > due): the scheduled
+// obligation on the blocked batch counts as blocked, but the DEFERRED obligation on that SAME
+// blocked batch still counts as deferred (a clinical/anchor hold must not be reclassified as a
+// stock issue). A second, non-blocked batch supplies a completed and a missed(overdue) obligation
+// so every live bucket is exercised in one drive (StatusBuckets). The shared rule also carries TWO
+// protocol_rule_dimensions rows (MultipleDimensions) to prove the vaccine_labels fan-out does not
+// double blocked_count.
+func TestDriveSummaryStatusBucketsBlockedNotDeferredOrCompletedMultipleDimensions(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	driveDate := biztime.BusinessDayStart(time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC))
+	seedCalendarProjectionStateWindow(t, ctx, pool, driveDate.Add(-24*time.Hour), driveDate.Add(48*time.Hour))
+
+	protocolID := "d1000000-0000-4000-8000-000000000001"
+	versionID := "d1000000-0000-4000-8000-000000000002"
+	ruleID := "d1000000-0000-4000-8000-000000000003"
+
+	parkID := testParkA
+	shedBlocked := testShedA
+	shedOpen := testShedB
+
+	oBlockedOpen := "d2000000-0000-4000-8000-000000000001"     // scheduled, on the stock-blocked batch -> blocked
+	oBlockedDeferred := "d2000000-0000-4000-8000-000000000002" // deferred, on the SAME stock-blocked batch -> deferred, NOT blocked
+	oOpenCompleted := "d2000000-0000-4000-8000-000000000003"   // completed, on the open batch -> completed
+	oOpenMissed := "d2000000-0000-4000-8000-000000000004"      // missed, on the open batch -> overdue
+	oOpenScheduled := "d2000000-0000-4000-8000-000000000005"   // scheduled, on the open batch -> due
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, oBlockedOpen, driveDate)
+	for _, id := range []string{oBlockedDeferred, oOpenCompleted, oOpenMissed, oOpenScheduled} {
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, driveDate)
+	}
+	// Two dimension rows on the shared rule -- must not double blocked_count (or any bucket).
+	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "dim-a", "FMD")
+	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "dim-b", "PPR")
+
+	blockedBatchID := "d3000000-0000-4000-8000-000000000001"
+	openBatchID := "d3000000-0000-4000-8000-000000000002"
+	seedVaccinationBatchForShed(t, ctx, pool, blockedBatchID, versionID, parkID, shedBlocked, driveDate, oBlockedOpen, oBlockedDeferred)
+	seedVaccinationBatchForShed(t, ctx, pool, openBatchID, versionID, parkID, shedOpen, driveDate, oOpenCompleted, oOpenMissed, oOpenScheduled)
+
+	seedBatchStockBlock(t, ctx, pool, blockedBatchID, "item-fmd-vial", "reserve failed: insufficient stock")
+
+	setDriveObligationStatus(t, ctx, pool, oBlockedOpen, "scheduled")
+	setDriveObligationStatus(t, ctx, pool, oBlockedDeferred, "deferred")
+	setDriveObligationStatus(t, ctx, pool, oOpenCompleted, "completed")
+	setDriveObligationStatus(t, ctx, pool, oOpenMissed, "missed")
+	setDriveObligationStatus(t, ctx, pool, oOpenScheduled, "scheduled")
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection: %v", err)
+	}
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+
+	var drive *domain.CalendarEvent
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+		}
+	}
+	if drive == nil {
+		t.Fatalf("no vaccination_drive event found in %d events", len(resp.Items))
+	}
+	if drive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil")
+	}
+	s := drive.DriveSummary
+
+	if s.TotalCount != 5 {
+		t.Errorf("total_count = %d, want 5", s.TotalCount)
+	}
+	if s.BlockedCount != 1 {
+		t.Errorf("blocked_count = %d, want 1 (only the scheduled obligation on the stock-blocked batch)", s.BlockedCount)
+	}
+	if s.DeferredCount != 1 {
+		t.Errorf("deferred_count = %d, want 1 (the deferred obligation on the SAME stock-blocked batch must stay deferred, not blocked)", s.DeferredCount)
+	}
+	if s.CompletedCount != 1 {
+		t.Errorf("completed_count = %d, want 1", s.CompletedCount)
+	}
+	if s.OverdueCount != 1 {
+		t.Errorf("overdue_count = %d, want 1 (the missed obligation on the open batch)", s.OverdueCount)
+	}
+	if s.DueCount != 1 {
+		t.Errorf("due_count = %d, want 1 (the scheduled obligation on the OPEN batch, not the blocked one)", s.DueCount)
+	}
+	sum := s.CompletedCount + s.DueCount + s.OverdueCount + s.DeferredCount + s.BlockedCount
+	if sum != s.TotalCount {
+		t.Errorf("invariant violated: buckets sum %d != total_count %d", sum, s.TotalCount)
+	}
+}
+
+// TestDriveSummaryBlockedBucketDateShiftParkScopeMultiPageConsistent proves three more DRV-REV-001
+// properties for the blocked bucket:
+//  1. DateShift -- the blocked obligation's membership day comes from its BATCH's window
+//     (COALESCE(window_start, planned_date, window_end)), the same D+7 hold/reschedule basis DRV-001
+//     covers, never the obligation's own raw due_at.
+//  2. ParkScope -- the blocked obligation still resolves to the correct PARK (never the shed).
+//  3. MultiPage -- blocked_count is a whole-result aggregate: paging with a tiny Limit must not
+//     change it, proving it is not reconstructed from whatever rows the current UI page happens to
+//     fetch.
+func TestDriveSummaryBlockedBucketDateShiftParkScopeMultiPageConsistent(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	rawDueDay := biztime.BusinessDayStart(time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC))
+	batchWindowDay := rawDueDay.Add(7 * 24 * time.Hour)
+	seedCalendarProjectionStateWindow(t, ctx, pool, rawDueDay.Add(-72*time.Hour), batchWindowDay.Add(72*time.Hour))
+
+	protocolID := "d4000000-0000-4000-8000-000000000001"
+	versionID := "d4000000-0000-4000-8000-000000000002"
+	ruleID := "d4000000-0000-4000-8000-000000000003"
+	obligationID := "d4000000-0000-4000-8000-000000000004"
+	batchID := "d4000000-0000-4000-8000-000000000005"
+
+	// The obligation's OWN due_at stays at rawDueDay; only its batch is scheduled for
+	// batchWindowDay (D+7) and gets stock-blocked -- the blocked bucket must attach to the
+	// batch-window day, not the raw due_at day.
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, rawDueDay)
+	seedProtocolRuleVaccineName(t, ctx, pool, versionID, ruleID, "FMD")
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, batchWindowDay, obligationID)
+	seedBatchStockBlock(t, ctx, pool, batchID, "item-fmd-vial", "reserve failed: insufficient stock")
+	setDriveObligationStatus(t, ctx, pool, obligationID, "scheduled")
+
+	// 5 unrelated, earlier-due individual dose_due events sort ahead of the drive card in
+	// due_at-ascending order, pushing the drive card past page one once listed with Limit=1
+	// (mirrors TestDriveSummaryMultiPageListingKeepsWholeResultTotals).
+	for i := 0; i < 5; i++ {
+		id := fmt.Sprintf("d4000000-0000-4000-8000-0000000001%02d", i)
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, batchWindowDay.Add(-time.Duration(6-i)*time.Hour))
+	}
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: rawDueDay.Add(-72 * time.Hour),
+		DateTo:   batchWindowDay.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection: %v", err)
+	}
+
+	findDrive := func(items []domain.CalendarEvent) *domain.CalendarEvent {
+		for i := range items {
+			if items[i].EventType == domain.EventVaccinationDrive && items[i].ParkID != nil && *items[i].ParkID == testParkA {
+				return &items[i]
+			}
+		}
+		return nil
+	}
+
+	// Wide single page: fetch everything at once, at the BATCH WINDOW day (not the raw due_at day).
+	wide, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: batchWindowDay.Add(-1 * time.Hour),
+		DateTo:   batchWindowDay.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("list events (wide page): %v", err)
+	}
+	wideDrive := findDrive(wide.Items)
+	if wideDrive == nil {
+		t.Fatalf("no vaccination_drive event found at the batch window day (DateShift regression)")
+	}
+	if wideDrive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil at the batch window day")
+	}
+	if wideDrive.ParkID == nil || *wideDrive.ParkID != testParkA {
+		t.Fatalf("park_id = %v, want %s (ParkScope: blocked obligation must resolve to the park, not the shed)", wideDrive.ParkID, testParkA)
+	}
+	if wideDrive.DriveSummary.BlockedCount != 1 {
+		t.Fatalf("wide-page blocked_count = %d, want 1", wideDrive.DriveSummary.BlockedCount)
+	}
+
+	// Narrow page size (Limit=1): walk the keyset cursor one row at a time until the drive card
+	// surfaces on its own page, then confirm blocked_count is unchanged (MultiPage/Pagination).
+	var narrowDrive *domain.CalendarEvent
+	var cursor *domain.CalendarCursor
+	for page := 0; page < 20 && narrowDrive == nil; page++ {
+		resp, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID,
+			OwnerKey: domain.OwnerAll,
+			DateFrom: batchWindowDay.Add(-1 * time.Hour),
+			DateTo:   batchWindowDay.Add(24 * time.Hour),
+			Limit:    1,
+			Cursor:   cursor,
+			Scope:    domain.ScopeFilter{TenantWide: true},
+		})
+		if err != nil {
+			t.Fatalf("list events (narrow page %d): %v", page, err)
+		}
+		narrowDrive = findDrive(resp.Items)
+		if resp.NextCursor == nil {
+			break
+		}
+		decoded, err := domain.DecodeCalendarCursor(*resp.NextCursor)
+		if err != nil {
+			t.Fatalf("decode cursor: %v", err)
+		}
+		cursor = &decoded
+	}
+	if narrowDrive == nil {
+		t.Fatalf("drive not found while paging with Limit=1")
+	}
+	if narrowDrive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil on the narrow (Limit=1) page")
+	}
+	if narrowDrive.DriveSummary.BlockedCount != wideDrive.DriveSummary.BlockedCount {
+		t.Errorf("narrow-page blocked_count = %d, want %d (page size must not change the aggregate)", narrowDrive.DriveSummary.BlockedCount, wideDrive.DriveSummary.BlockedCount)
 	}
 }
 
