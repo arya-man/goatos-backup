@@ -294,6 +294,10 @@ Do:
   canonical data through `make seed-closeout` / `tools/dev/seed-closeout.sh`.
   New projection tables also need access-pattern indexes, freshness/version
   state, and an explicit partitioning decision.
+- Do not start local, staging, or production app code against a database that is
+  behind that build's migrations. Apply migrations first, seed only canonical
+  source truth second, run deterministic closeout/projectors third, then start
+  API/admin/workers or mark the environment green.
 - Use `.agents/skills/goatos-build/SKILL.md` as the active agent reference map.
 - Use ports/adapters for replaceable vendors and tools.
 - Use OpenAPI REST/JSON for web/mobile app APIs.

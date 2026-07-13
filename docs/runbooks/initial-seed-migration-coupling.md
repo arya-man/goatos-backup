@@ -62,6 +62,12 @@ migrate schema
 -> verify green gates
 ```
 
+Do not start the API, admin-web, workers, or seed closeout against a database
+whose migration head is behind the code being run. Local launchers and staging
+deployments must apply that build's migrations first, then seed only canonical
+source truth, then run the deterministic closeout/projectors. A deployment that
+cannot prove this order is not green.
+
 For an already-seeded database where a later migration adds a derived table,
 apply migrations, run `make seed-closeout`, then verify the affected APIs. Do
 not reseed source rows just to fill a derived table.

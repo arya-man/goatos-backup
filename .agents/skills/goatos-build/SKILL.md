@@ -166,6 +166,10 @@ one product; this skill is the navigation layer.
   model, static catalog/config, or operational/audit/event. Derived app-visible
   tables are filled by deterministic projectors registered in
   `tools/dev/seed-closeout.sh`, not by hand-written seed rows.
+- Local/staging/prod app code must not start against a database behind that
+  build's migrations. The setup order is always: migrate schema, seed only
+  canonical source truth, run deterministic closeout/projectors, then start or
+  certify API/admin/workers.
 - Keep AI as proposer/triage, never canonical authority.
 - Preserve module boundaries in the Go modular monolith.
 - Keep frontend/mobile behind app APIs and generated clients.

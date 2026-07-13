@@ -96,8 +96,13 @@ async function prepareLocalEnvironment() {
   const role = process.env.GOATOS_LOCAL_ROLE || defaultRole;
   const ttl = process.env.GOATOS_LOCAL_TOKEN_TTL || "12h";
 
+  console.log("Applying Goat OS local migrations before admin-web start.");
+  runGo(["run", "./cmd/migrate", "-timeout=10m"], localEnv);
+
   console.log(`Preparing local dev auth for tenant ${tenantId}, user ${userId}, role ${role}.`);
   runGo(["run", "./cmd/seed-dev-grant", "-tenant-id", tenantId, "-user-id", userId, "-role", role], localEnv);
+  runSeedCloseoutIfPresent(localEnv);
+
   const bearerToken = runGo(["run", "./cmd/mint-dev-token", "-tenant-id", tenantId, "-user-id", userId, "-ttl", ttl], localEnv).trim();
   if (bearerToken === "") {
     console.error("mint-dev-token returned an empty token.");
@@ -116,27 +121,63 @@ async function prepareLocalEnvironment() {
 }
 
 function detectDockerDatabaseUrl() {
-  const port = detectDockerPostgresPort("goatos-local-current") || detectDockerPostgresPort("goatos");
-  if (!port) return "";
-  return `postgres://postgres:goatos@127.0.0.1:${port}/goatos?sslmode=disable`;
-}
-
-function detectDockerPostgresPort(namePattern) {
   try {
-    const args =
-      namePattern === "goatos-local-current"
-        ? ["ps", "--filter", "name=goatos-local-current", "--format", "{{.Ports}}"]
-        : ["ps", "--format", "{{.Names}} {{.Ports}}"];
-    const output = execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    const output = execFileSync("docker", ["ps", "--format", "{{.Names}}|{{.Ports}}"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const candidates = [];
     for (const line of output.split("\n")) {
-      if (namePattern !== "goatos-local-current" && !line.includes(namePattern)) continue;
-      const match = line.match(/127\.0\.0\.1:(\d+)->5432\/tcp/);
-      if (match) return match[1];
+      const [name = "", ports = ""] = line.split("|");
+      if (!isLocalAppPostgresContainer(name)) continue;
+      const match = ports.match(/127\.0\.0\.1:(\d+)->5432\/tcp/);
+      if (match) candidates.push({ name, port: match[1] });
+    }
+
+    if (candidates.length > 1) {
+      console.error("Multiple Goat OS local app Postgres containers are running; refusing to guess DATABASE_URL.");
+      for (const candidate of candidates) {
+        console.error(`${candidate.name}:${candidate.port}`);
+      }
+      console.error("Stop the extra container or set DATABASE_URL explicitly.");
+      process.exit(1);
+    }
+    if (candidates.length === 1) {
+      return `postgres://postgres:goatos@127.0.0.1:${candidates[0].port}/goatos?sslmode=disable`;
     }
   } catch {
     return "";
   }
   return "";
+}
+
+function isLocalAppPostgresContainer(name) {
+  return (
+    name === "goatos-local-current" ||
+    name.startsWith("goatos-local-kernel-postgres-") ||
+    name === "goatos-postgres" ||
+    name.startsWith("goatos-postgres-")
+  );
+}
+
+function runSeedCloseoutIfPresent(env) {
+  const seedCloseout = path.join(repoRoot, "tools/dev/seed-closeout.sh");
+  try {
+    execFileSync("test", ["-f", seedCloseout], { stdio: "ignore" });
+  } catch {
+    return;
+  }
+
+  try {
+    console.log(`Running Goat OS local seed closeout for tenant ${env.GOATOS_TENANT_ID}.`);
+    execFileSync("bash", [seedCloseout], {
+      cwd: repoRoot,
+      env,
+      stdio: "inherit",
+    });
+  } catch (error) {
+    process.exit(error.status || 1);
+  }
 }
 
 function runGo(args, env) {

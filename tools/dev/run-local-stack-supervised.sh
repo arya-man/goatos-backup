@@ -31,25 +31,35 @@ log() {
 }
 
 detect_docker_database_url() {
-  local port=""
+  local candidates=""
 
   if command -v docker >/dev/null 2>&1; then
-    port="$(
-      docker ps --filter "name=goatos-local-current" --format '{{.Ports}}' 2>/dev/null \
-        | sed -nE 's/.*127\.0\.0\.1:([0-9]+)->5432\/tcp.*/\1/p' \
-        | head -n 1
+    candidates="$(
+      docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
+        | awk '
+            $1 == "goatos-local-current" ||
+            $1 ~ /^goatos-local-kernel-postgres-/ ||
+            $1 == "goatos-postgres" ||
+            $1 ~ /^goatos-postgres-/ {
+              if (match($0, /127\.0\.0\.1:[0-9]+->5432\/tcp/)) {
+                print $0
+              }
+            }
+          '
     )"
-
-    if [ -z "$port" ]; then
-      port="$(
-        docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
-          | grep 'goatos' \
-          | sed -nE 's/.*127\.0\.0\.1:([0-9]+)->5432\/tcp.*/\1/p' \
-          | head -n 1
-      )"
-    fi
   fi
 
+  local count
+  count="$(printf '%s\n' "$candidates" | sed '/^$/d' | wc -l | tr -d ' ')"
+  if [ "$count" -gt 1 ]; then
+    echo "Multiple Goat OS local app Postgres containers are running; refusing to guess DATABASE_URL." >&2
+    printf '%s\n' "$candidates" >&2
+    echo "Stop the extra container or set DATABASE_URL explicitly." >&2
+    exit 2
+  fi
+
+  local port
+  port="$(printf '%s\n' "$candidates" | sed -nE 's/.*127\.0\.0\.1:([0-9]+)->5432\/tcp.*/\1/p' | head -n 1)"
   if [ -n "$port" ]; then
     printf 'postgres://postgres:goatos@127.0.0.1:%s/goatos?sslmode=disable\n' "$port"
   fi
@@ -62,8 +72,12 @@ export GOATOS_AUTH_AUDIENCE="${GOATOS_AUTH_AUDIENCE:-goatos-api}"
 export GOATOS_AUTH_HS256_SECRET="${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-secret-32-bytes-min}"
 export GOATOS_AUTH_MAX_TOKEN_TTL="${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}"
 export GOATOS_HTTP_ADDR="${GOATOS_HTTP_ADDR:-$host:$api_port}"
-export DATABASE_URL="${DATABASE_URL:-$(detect_docker_database_url)}"
-export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable}"
+if [ -z "${DATABASE_URL:-}" ]; then
+  DATABASE_URL="$(detect_docker_database_url)"
+  export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable}"
+else
+  export DATABASE_URL
+fi
 export GOATOS_API_BASE_URL="$api_base_url"
 export GOATOS_TENANT_ID="${GOATOS_TENANT_ID:-${GOATOS_LOCAL_TENANT_ID:-00000000-0000-4000-8000-000000000001}}"
 
@@ -160,6 +174,25 @@ seed_dev_grant() {
       -tenant-id "$GOATOS_TENANT_ID" \
       -user-id "$local_user_id" \
       -role "$local_role"
+  ) >>"$supervisor_log" 2>&1
+}
+
+migrate_local_database() {
+  log "Applying Goat OS local migrations to $DATABASE_URL."
+  (
+    cd "$repo_root/backend"
+    go run ./cmd/migrate -timeout=10m
+  ) >>"$supervisor_log" 2>&1
+}
+
+seed_closeout_if_present() {
+  if [ ! -f "$repo_root/tools/dev/seed-closeout.sh" ]; then
+    return 0
+  fi
+  log "Running Goat OS local seed closeout for tenant $GOATOS_TENANT_ID."
+  (
+    cd "$repo_root"
+    bash tools/dev/seed-closeout.sh
   ) >>"$supervisor_log" 2>&1
 }
 
@@ -282,7 +315,7 @@ log "Database URL target: $DATABASE_URL"
 
 while [ "$stop_requested" = "0" ]; do
   cleanup
-  if seed_dev_grant && start_api && start_projection_refresher && start_web && monitor_stack; then
+  if migrate_local_database && seed_dev_grant && seed_closeout_if_present && start_api && start_projection_refresher && start_web && monitor_stack; then
     break
   fi
   cleanup
