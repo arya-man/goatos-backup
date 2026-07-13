@@ -3362,10 +3362,16 @@ export interface components {
             verdict_reason?: string;
             /** Format: uuid */
             operator_id?: string;
+            /** @description Backend-owned display label for operator_id. Never a raw UUID. */
+            operator_name?: string;
             /** Format: uuid */
             shed_id?: string;
+            /** @description Backend-owned display label for shed_id. Never a raw UUID. */
+            shed_label?: string;
             /** Format: uuid */
             park_id?: string;
+            /** @description Backend-owned display label for park_id. Never a raw UUID. */
+            park_label?: string;
             /** Format: date-time */
             captured_at: string;
             /** Format: uuid */
