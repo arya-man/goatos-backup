@@ -52,27 +52,10 @@ detect_docker_database_url() {
   fi
 }
 
-if [ -z "${DATABASE_URL:-}" ]; then
-  db_url_inherited=0
-  DATABASE_URL="$(detect_docker_database_url)"
-  export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable}"
-else
-  db_url_inherited=1
-  export DATABASE_URL
-fi
-
-# DRV-R3 fail-closed guard: an auto-detected local docker DB is safe to mutate, but an INHERITED
-# DATABASE_URL cannot be verified as a disposable local target (a Cloud SQL Auth Proxy also listens
-# on 127.0.0.1), so refuse to migrate/seed it unless the operator explicitly opts in.
-assert_mutable_local_db() {
-  if [ "$db_url_inherited" = "1" ] && [ "${GOATOS_ALLOW_DB_MUTATION:-}" != "1" ] && [ "${GOATOS_ALLOW_DB_MUTATION:-}" != "true" ]; then
-    echo "Refusing to migrate/seed: DATABASE_URL was supplied from the environment and cannot be verified as a" >&2
-    echo "disposable LOCAL database (a Cloud SQL Auth Proxy also listens on 127.0.0.1). If this really is your" >&2
-    echo "local dev DB, set GOATOS_ALLOW_DB_MUTATION=1 to opt in; otherwise unset DATABASE_URL to use the" >&2
-    echo "auto-detected local docker database." >&2
-    exit 1
-  fi
-}
+# DRV-R3 local-DB mutation trust decision + guard (shared, tested: tools/dev/test-db-mutation-guard.sh).
+# shellcheck source=tools/dev/lib/db-mutation-guard.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/db-mutation-guard.sh"
+resolve_database_url detect_docker_database_url
 export GOATOS_API_BASE_URL="$api_base_url"
 export GOATOS_TENANT_ID="${GOATOS_TENANT_ID:-${GOATOS_LOCAL_TENANT_ID:-00000000-0000-4000-8000-000000000001}}"
 

@@ -72,25 +72,10 @@ export GOATOS_AUTH_AUDIENCE="${GOATOS_AUTH_AUDIENCE:-goatos-api}"
 export GOATOS_AUTH_HS256_SECRET="${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-secret-32-bytes-min}"
 export GOATOS_AUTH_MAX_TOKEN_TTL="${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}"
 export GOATOS_HTTP_ADDR="${GOATOS_HTTP_ADDR:-$host:$api_port}"
-if [ -z "${DATABASE_URL:-}" ]; then
-  db_url_inherited=0
-  DATABASE_URL="$(detect_docker_database_url)"
-  export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable}"
-else
-  db_url_inherited=1
-  export DATABASE_URL
-fi
-
-# DRV-R3 fail-closed guard: only an auto-detected local docker DB is trusted for mutation; an INHERITED
-# DATABASE_URL (a Cloud SQL Auth Proxy also listens on 127.0.0.1) requires an explicit opt-in.
-assert_mutable_local_db() {
-  if [ "$db_url_inherited" = "1" ] && [ "${GOATOS_ALLOW_DB_MUTATION:-}" != "1" ] && [ "${GOATOS_ALLOW_DB_MUTATION:-}" != "true" ]; then
-    echo "Refusing to migrate/seed: DATABASE_URL was supplied from the environment and cannot be verified as a" >&2
-    echo "disposable LOCAL database. Set GOATOS_ALLOW_DB_MUTATION=1 to opt in, or unset DATABASE_URL to use the" >&2
-    echo "auto-detected local docker database." >&2
-    exit 1
-  fi
-}
+# DRV-R3 local-DB mutation trust decision + guard (shared, tested: tools/dev/test-db-mutation-guard.sh).
+# shellcheck source=tools/dev/lib/db-mutation-guard.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/db-mutation-guard.sh"
+resolve_database_url detect_docker_database_url
 export GOATOS_API_BASE_URL="$api_base_url"
 export GOATOS_TENANT_ID="${GOATOS_TENANT_ID:-${GOATOS_LOCAL_TENANT_ID:-00000000-0000-4000-8000-000000000001}}"
 
@@ -266,13 +251,16 @@ start_projection_refresher() {
         printf '%s projection refresh failed: %s\n' "$(timestamp)" "$label"
       fi
     }
+    # DRV-R3b — sleep FIRST so neither the initial start nor a monitor-triggered restart of this
+    # refresher fires an immediate projection recompute (a DB mutation). Prep already reprojected once
+    # (seed closeout) before the supervise loop; periodic refresh then runs only after each interval.
     while true; do
+      sleep "$interval"
       printf '%s refreshing local read-model projections\n' "$(timestamp)"
       run_projection_refresh vaccination_shed go run ./cmd/vaccination-shed-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
       run_projection_refresh vaccination_execution go run ./cmd/vaccination-execution-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
       run_projection_refresh vaccination_operations go run ./cmd/vaccination-operations-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
       run_projection_refresh process_integrity go run ./cmd/process-integrity-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
-      sleep "$interval"
     done
   ) >>"$projection_log" 2>&1 &
   projection_pid="$!"
