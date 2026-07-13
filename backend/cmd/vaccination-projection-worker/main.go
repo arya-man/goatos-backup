@@ -2,9 +2,10 @@
 // vaccination-shed read model (P0-B, context/execution/api-projection-performance-handoff-2026-07-13.md).
 // One invocation:
 //  1. reclaims any expired dirty-scope leases (a crashed/killed prior worker instance),
-//  2. claims up to -limit pending, ready dirty scopes with `FOR UPDATE SKIP LOCKED`
-//     (backend/internal/vaccinationexecution/adapters/postgres/dirty_scopes.go ClaimDirtyScopes,
-//     mirroring the outbox ClaimPending lease pattern),
+//  2. claims up to -limit pending, ready dirty scopes with `FOR UPDATE SKIP LOCKED`, filtered to
+//     -tenant-id when set so a single-tenant deployment job never has its claim budget consumed by
+//     another tenant's rows (C5-003; backend/internal/vaccinationexecution/adapters/postgres/dirty_scopes.go
+//     ClaimDirtyScopes, mirroring the outbox ClaimPending lease pattern),
 //  3. calls RebuildShedShard (incremental_shed_projection.go) for exactly each claimed shed --
 //     never a tenant-wide rebuild, never a copy of any other shed's row,
 //  4. marks each scope done or retries/dead-letters it on failure,
@@ -84,7 +85,12 @@ func run(args []string) error {
 		fmt.Printf("reclaimed expired leases=%d\n", reclaimed)
 	}
 
-	claimed, err := repo.ClaimDirtyScopes(ctx, cfg.Owner, cfg.ClaimLimit, now)
+	// C5-003: ClaimDirtyScopes' tenantID filter (empty = global/all-tenant fair claim for a shared
+	// worker; non-empty = filter BEFORE ORDER BY/LIMIT so foreign-tenant rows never enter the claim
+	// set) closes the starvation bug -- a single-tenant deployment job (cfg.TenantID set from
+	// GOATOS_TENANT_ID) now claims ONLY its own tenant's dirty scopes, so another tenant's rows can
+	// never fill this run's -limit batch and starve it.
+	claimed, err := repo.ClaimDirtyScopes(ctx, cfg.Owner, cfg.TenantID, cfg.ClaimLimit, now)
 	if err != nil {
 		return fmt.Errorf("claim dirty scopes: %w", err)
 	}
@@ -99,9 +105,11 @@ func run(args []string) error {
 	// the identical "one durable-queue claim, one operation per claimed item" problem.
 	for _, scope := range claimed {
 		if cfg.TenantID != "" && scope.TenantID != cfg.TenantID {
-			// Defensive: ClaimDirtyScopes is tenant-agnostic (claims across all tenants in one
-			// pass); a configured tenant-id filter is a narrowing debug/ops knob, not the normal
-			// path. Put it back for another worker/tenant run rather than silently dropping it.
+			// Belt-and-suspenders only: ClaimDirtyScopes now filters by tenantID itself (C5-003), so
+			// with cfg.TenantID set this branch should never actually trigger. Kept as a defensive
+			// re-queue in case of a future caller that claims without the filter (e.g. a shared
+			// multi-tenant worker run with an empty tenantID that later narrows by cfg.TenantID for
+			// some other reason) so a mismatch is never silently dropped.
 			// scale-guard:ignore: bounded by len(claimed) <= cfg.ClaimLimit (see loop comment above); a defensive re-queue for the rare tenant-filter-mismatch ops-knob path.
 			if err := repo.MarkDirtyScopeFailed(ctx, scope.DirtyScopeID, "tenant_filter_mismatch", now); err != nil {
 				return fmt.Errorf("re-queue out-of-scope dirty scope %d: %w", scope.DirtyScopeID, err)

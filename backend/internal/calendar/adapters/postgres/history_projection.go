@@ -26,7 +26,18 @@ import (
 // version-stamp / insert / state-upsert / bounded-prune / mark-failed-on-error shape this file mirrors.
 
 const (
-	defaultCalendarHistoryProjectionFresh    = 7 * time.Minute // > 5m refresh schedule; serve LKG through a late cycle instead of 503
+	// defaultHistoryProjectionFresh bounds how old calendar_history_projection_state.projected_at may
+	// be before a completed/history read is treated as stale (C5-002). This intentionally does NOT
+	// reuse the 7-minute defaultProjectionFresh TTL used by the fast-moving UPCOMING (vaccination-
+	// execution/shed) gate in repository.go: history is append-mostly (accepted completions never
+	// change after the fact) and this projector runs on a much less frequent schedule (C5-001), so a
+	// 7-minute TTL would falsely flag history stale on every normal cycle. 90 minutes gives generous
+	// headroom over the projector's own refresh cadence while still catching a genuinely broken
+	// projector. A stale history projection is NEVER fail-closed here -- last-known-good rows are
+	// still served, with Stale surfaced in the response's HistoryProjection metadata; only a projection
+	// that has NEVER been built (no serving_projection_version at all) fails closed with
+	// ErrProjectionUnavailable, see historyProjectionFreshness in repository.go.
+	defaultHistoryProjectionFresh            = 90 * time.Minute
 	calendarHistoryProjectionPruneBatchSize  = 5000
 	defaultCalendarHistoryProjectionLookback = 400 * 24 * time.Hour
 	defaultCalendarHistoryProjectionLookahd  = 24 * time.Hour

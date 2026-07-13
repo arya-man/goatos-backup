@@ -43,6 +43,7 @@ var _ ports.Repository = (*Repository)(nil)
 func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.CalendarEventListResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	completedOnly := q.Status != nil && *q.Status == domain.StatusCompleted
 	projection, err := r.servingProjection(ctx, q.TenantID, q.DateFrom, q.DateTo)
 	if err != nil {
 		// A pure completed/accepted-history list is served entirely from the canonical
@@ -51,12 +52,27 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 		// the bounded canonical-history exception. Every other status is backed by
 		// calendar_event_projections and stays fail-closed. GetEventDetail already reads history
 		// canonically without this gate; this keeps ListEvents consistent with it.
-		completedOnly := q.Status != nil && *q.Status == domain.StatusCompleted
 		if !completedOnly || (!errors.Is(err, ports.ErrProjectionStale) && !errors.Is(err, ports.ErrProjectionUnavailable)) {
 			return domain.CalendarEventListResponse{}, err
 		}
 		// servingProjection returns best-effort metadata alongside ErrProjectionStale and a zero
 		// value for ErrProjectionUnavailable; either is fine to surface for a canonical read.
+	}
+	// C5-002: the completed_history CTE branch of calendarListSQL only ever contributes rows when the
+	// status filter is exactly "completed" (completedOnly); calendarDateMarkersSQL's history branch is
+	// broader (it also contributes when no status narrows the request at all). Gate the HISTORY
+	// projection's own freshness independently of the UPCOMING gate above -- this is what was missing
+	// before: a never-synced history projection used to silently return zero rows instead of failing
+	// closed.
+	requestedToExclusive := q.DateTo.Add(24 * time.Hour)
+	historyMarkersActive := q.IncludeDateMarkers && (q.Status == nil || strings.TrimSpace(*q.Status) == "" || *q.Status == domain.StatusCompleted)
+	var historyProjection *domain.ProjectionMetadata
+	if completedOnly || historyMarkersActive {
+		meta, herr := r.historyProjectionFreshness(ctx, q.TenantID, true, q.DateFrom, requestedToExclusive)
+		if herr != nil {
+			return domain.CalendarEventListResponse{}, herr
+		}
+		historyProjection = &meta
 	}
 	limit := q.Limit
 	if limit <= 0 {
@@ -87,7 +103,7 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	}
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	rows, err := r.pool.Query(ctx, calendarListSQL,
-		q.TenantID, ownerKey, status, parkID, shedID, q.DateFrom, q.DateTo.Add(24*time.Hour), cursorDue, cursorEventID, fetchLimit,
+		q.TenantID, ownerKey, status, parkID, shedID, q.DateFrom, requestedToExclusive, cursorDue, cursorEventID, fetchLimit,
 		tenantWide, parkIDs, shedIDs)
 	if err != nil {
 		return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: list events: %w", err)
@@ -108,7 +124,7 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	dateMarkers := []domain.CalendarDateMarker{}
 	if q.IncludeDateMarkers {
 		markerRows, err := r.pool.Query(ctx, calendarDateMarkersSQL,
-			q.TenantID, ownerKey, status, parkID, shedID, q.DateFrom, q.DateTo.Add(24*time.Hour),
+			q.TenantID, ownerKey, status, parkID, shedID, q.DateFrom, requestedToExclusive,
 			tenantWide, parkIDs, shedIDs)
 		if err != nil {
 			return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: list date markers: %w", err)
@@ -135,7 +151,7 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 		}
 		next = &cursor
 	}
-	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, NextCursor: next, Projection: projection}, nil
+	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, NextCursor: next, Projection: projection, HistoryProjection: historyProjection}, nil
 }
 
 func (r *Repository) servingProjection(ctx context.Context, tenantID string, dateFrom, dateTo time.Time) (domain.ProjectionMetadata, error) {
@@ -167,14 +183,70 @@ WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, tenantID).Scan(
 	return meta, nil
 }
 
+// historyProjectionFreshness gates a completed/history read against calendar_history_projection_state
+// (C5-002). Unlike servingProjection (the fast-moving UPCOMING vaccination-execution/shed gate), a
+// stale or partial-coverage history projection is NOT fail-closed: history is append-mostly, so serving
+// last-known-good rows with the staleness/partial-coverage surfaced in the returned metadata is safer
+// than a hard 503. The ONE fail-closed case is a projection that has NEVER completed a build (no
+// serving_projection_version at all) -- an empty completed_history read is then indistinguishable from
+// "genuinely no history", so this returns ports.ErrProjectionUnavailable instead of a misleadingly
+// empty success, letting the caller tell "not built yet" apart from "no history".
+//
+// checkCoverage/dateFrom/dateToExclusive are only meaningful for a date-windowed read (ListEvents,
+// calendarDateMarkersSQL); GetEventDetail's single-event lookup has no request-level date window to
+// compare against and passes checkCoverage=false.
+func (r *Repository) historyProjectionFreshness(ctx context.Context, tenantID string, checkCoverage bool, dateFrom, dateToExclusive time.Time) (domain.ProjectionMetadata, error) {
+	var meta domain.ProjectionMetadata
+	var servingVersion *int64
+	var projectedFrom, projectedTo *time.Time
+	err := r.pool.QueryRow(ctx, `
+SELECT serving_projection_version, projected_at, freshness_status, serving_state, date_from, date_to
+FROM calendar_history_projection_state
+WHERE tenant_id = $1::uuid`, tenantID).Scan(
+		&servingVersion, &meta.ProjectedAt, &meta.FreshnessStatus, &meta.ServingState, &projectedFrom, &projectedTo,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// No row at all: RecomputeVaccinationHistoryProjection has never run for this tenant.
+		return domain.ProjectionMetadata{}, ports.ErrProjectionUnavailable
+	}
+	if err != nil {
+		return domain.ProjectionMetadata{}, fmt.Errorf("calendar: read history projection state: %w", err)
+	}
+	if servingVersion == nil {
+		// A row exists (a build was attempted) but has never completed successfully -- still
+		// never-synced from the reader's point of view.
+		return domain.ProjectionMetadata{}, ports.ErrProjectionUnavailable
+	}
+	meta.ProjectionVersion = *servingVersion
+	meta.Stale = meta.ServingState != "fresh" || meta.FreshnessStatus != "green" ||
+		time.Since(meta.ProjectedAt) > defaultHistoryProjectionFresh
+	if checkCoverage && projectedFrom != nil && projectedTo != nil {
+		// Same +/-1 minute clock-call-skew tolerance as servingProjection's coverage check.
+		if dateFrom.Before(projectedFrom.Add(-time.Minute)) || dateToExclusive.After(projectedTo.Add(time.Minute)) {
+			meta.PartialCoverage = true
+		}
+	}
+	return meta, nil
+}
+
 func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (domain.CalendarEventDetail, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	var detailRaw, linksRaw []byte
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
+	var historyProjection *domain.ProjectionMetadata
 	event, err := scanCalendarEventWithDetail(r.pool.QueryRow(ctx, calendarDetailSQL, q.TenantID, q.EventID, tenantWide, parkIDs, shedIDs), &detailRaw, &linksRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if _, ok := completedHistoryEventKey(q.EventID); ok {
+			// C5-002: a single-event history lookup has no request-level date window, so
+			// checkCoverage=false -- but a NEVER-synced history projection must still fail closed
+			// (ErrProjectionUnavailable) rather than silently falling through to ErrNotFound, which
+			// would misreport "not built yet" as "this event does not exist".
+			meta, herr := r.historyProjectionFreshness(ctx, q.TenantID, false, time.Time{}, time.Time{})
+			if herr != nil {
+				return domain.CalendarEventDetail{}, herr
+			}
+			historyProjection = &meta
 			// History detail now serves from the calendar_history_projection_rows projector output
 			// (migration 000178 + history_projection.go) keyed directly by event_id, replacing the
 			// canonical vaccination_completions/obligation_instances/protocol_* join that used to run
@@ -213,6 +285,7 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 		NotificationPolicy:   blocks.raw("notification_policy"),
 		Links:                rawOrObject(links, nil),
 		RecentActions:        recent.Items,
+		HistoryProjection:    historyProjection,
 	}, nil
 }
 

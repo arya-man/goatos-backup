@@ -1308,6 +1308,20 @@ SELECT dirty_scope_id, tenant_id::text, projection_kind, shed_id, reason, status
 FROM vaccination_projection_dirty_scopes
 WHERE status = 'pending'
   AND next_attempt_at <= now()
+  AND (''::text = '' OR tenant_id = '00000000-0000-4000-8000-000000000001'::uuid)
+ORDER BY next_attempt_at, dirty_scope_id
+LIMIT 200
+FOR UPDATE SKIP LOCKED;"
+
+  # C5-003: the tenant-scoped claim (the normal single-tenant deployment-job shape, GOATOS_TENANT_ID
+  # set) stays index-backed on the same claim index even with the tenant filter applied -- the filter
+  # is a Filter clause evaluated during the ordered index scan, not a second Seq Scan.
+  explain_must_use_index "ClaimDirtyScopesLeaseTenantScoped" 'Seq Scan on vaccination_projection_dirty_scopes' "EXPLAIN (COSTS OFF)
+SELECT dirty_scope_id, tenant_id::text, projection_kind, shed_id, reason, status, attempt_count, max_attempts, enqueued_at
+FROM vaccination_projection_dirty_scopes
+WHERE status = 'pending'
+  AND next_attempt_at <= now()
+  AND ('00000000-0000-4000-8000-000000000001'::text = '' OR tenant_id = '00000000-0000-4000-8000-000000000001'::uuid)
 ORDER BY next_attempt_at, dirty_scope_id
 LIMIT 200
 FOR UPDATE SKIP LOCKED;"
@@ -1366,6 +1380,13 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND business_date >= DATE '2026-06-01'
   AND business_date < DATE '2026-07-01'
 GROUP BY business_date;"
+
+  # C5-002: historyProjectionFreshness's own freshness/coverage gate read (repository.go), a single
+  # PK lookup on calendar_history_projection_state (tenant_id uuid PRIMARY KEY).
+  explain_must_use_index "CalendarHistoryProjectionStateRead" 'Seq Scan on calendar_history_projection_state' "EXPLAIN (COSTS OFF)
+SELECT serving_projection_version, projected_at, freshness_status, serving_state, date_from, date_to
+FROM calendar_history_projection_state
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid;"
 }
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \

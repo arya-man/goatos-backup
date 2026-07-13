@@ -394,11 +394,23 @@ each rule below was a real production-shaped defect.
    projection fails closed with a typed `503`. Publish new serving metadata only
    after the atomic version swap commits.
 
-4. **Canonical/history reads bypass the hot-projection gate.** A read served
-   ENTIRELY from a bounded canonical index (e.g. completed / accepted-history) is
-   independent of the hot projection and must serve even when that projection is
-   absent or stale. Only projection-backed statuses fail-closed. Gate on the exact
-   query shape (e.g. `status = completed` only), never on the endpoint.
+4. **Canonical/history reads bypass the hot (UPCOMING) projection gate, but the
+   history projection still owns its OWN freshness gate (C5-002).** A read served
+   from a bounded canonical/history projection (e.g. Calendar completed-history)
+   is independent of the fast-moving UPCOMING projection's gate and must serve
+   even when that one is absent or stale. That does NOT mean the history
+   projection's own state is unconditionally trusted: a history projection that
+   has **never completed a build** (no serving version at all) must fail closed
+   with a typed retryable error rather than a silent empty success — an empty
+   result there is indistinguishable from "genuinely no history". A history
+   projection that HAS synced but is stale, or whose covered date window is
+   narrower than the request, is append-mostly and safe to serve
+   last-known-good, but the response must surface that staleness/partial-coverage
+   in its own metadata rather than presenting it as fully fresh. Use a TTL tuned
+   to the history projector's OWN (much slower) refresh cadence, never the fast
+   UPCOMING gate's TTL. Gate on the exact query shape that actually reads the
+   history projection (e.g. `status = completed`, or date-marker reads with no
+   narrowing non-completed status filter), never on the endpoint.
 
 5. **Prune re-derives the current serving version inside the DELETE.** A cleanup
    that removes non-serving projection versions must re-read
@@ -414,6 +426,31 @@ each rule below was a real production-shaped defect.
    derive the live `as_of` *after* acquiring it, so a queued build cannot publish
    an already-expired timestamp. Wrap page-refresh + tombstone + state publication
    for a slice in one transaction; upsert state on first bootstrap.
+
+7. **Full-tenant sweeps are the correctness backstop until incremental
+   invalidation coverage is complete (C5-001).** A bounded incremental
+   projector (dirty-scope queue + per-shed/per-scope rebuild) does not retire the
+   periodic full-tenant recompute it sits alongside just because it exists:
+   retire the full sweep only once EVERY invalidation source for that projection
+   (goat shift/exit, completion, capacity/protocol-rule/SOP/workforce/location
+   changes, etc.) is covered by an incremental enqueue path, and only alongside a
+   guard that rejects a scheduled whole-tenant projection command outside an
+   explicit bootstrap/repair run. Until then, do the safe, real win instead:
+   decouple projector CADENCE from projector WORK. An append-mostly sub-
+   projection (e.g. Calendar's ~400-day completed-history + date-marker
+   projection) does not need to be replayed on the same tight schedule as a
+   fast-moving sub-projection (e.g. the every-5-min upcoming vaccination-shed
+   projection) just because one job happens to compute both — split them into
+   separate jobs/schedules (or an interval guard inside the shared job) so the
+   slow-changing half runs on its own, much less frequent cadence. See
+   `cmd/calendar-vaccination-projector` (`-project-calendar-history`, split into
+   the `calendar_projector` every-5-min job and the hourly
+   `calendar_history_projector` job in `infra/envs/{dev,stg}/cloud_run_jobs.tf`,
+   and the local-kernel `workers`/`maintenance` loop split in
+   `tools/dev/local-kernel-loop.sh`) as the worked example. Retiring the full
+   sweeps entirely + closing incremental-invalidation coverage + adding the
+   scheduled-whole-tenant-command guard is the gated NEXT increment, not done as
+   part of this cadence split.
 
 ## Acceptance Checklist
 

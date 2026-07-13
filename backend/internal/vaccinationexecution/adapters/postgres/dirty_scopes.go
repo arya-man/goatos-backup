@@ -73,7 +73,16 @@ DO UPDATE SET
 // claim disjoint scopes -- never the same shed twice. A scope already at its attempt budget is
 // dead-lettered here rather than claimed, mirroring outbox's ClaimPending pre-publish dead-letter
 // check.
-func (r *Repository) ClaimDirtyScopes(ctx context.Context, owner string, limit int, now time.Time) ([]domain.DirtyScope, error) {
+//
+// tenantID is an OPTIONAL claim filter (C5-003): empty means the global/all-tenant fair claim a
+// shared multi-tenant worker uses; a non-empty tenantID filters BEFORE the ORDER BY/LIMIT so foreign-
+// tenant rows never enter the claim set at all and never consume the caller's claim budget. Before
+// this filter existed, a single-tenant deployment job (the normal shape: one worker configured with
+// GOATOS_TENANT_ID) claimed across ALL tenants in one query -- another tenant's dirty rows could fill
+// the whole -limit batch and starve the configured tenant. cmd/vaccination-projection-worker still
+// keeps its defensive re-queue of any out-of-scope claimed row as belt-and-suspenders, but with this
+// filter in place that path should never actually trigger for a tenant-scoped worker.
+func (r *Repository) ClaimDirtyScopes(ctx context.Context, owner, tenantID string, limit int, now time.Time) ([]domain.DirtyScope, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if limit <= 0 {
@@ -86,6 +95,7 @@ func (r *Repository) ClaimDirtyScopes(ctx context.Context, owner string, limit i
 	if owner == "" {
 		owner = "vaccination-projection-worker"
 	}
+	tenantID = strings.TrimSpace(tenantID)
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -103,9 +113,10 @@ SELECT dirty_scope_id, tenant_id::text, projection_kind, shed_id, reason, status
 FROM vaccination_projection_dirty_scopes
 WHERE status = 'pending'
   AND next_attempt_at <= $1
+  AND ($3::text = '' OR tenant_id = $3::uuid)
 ORDER BY next_attempt_at, dirty_scope_id
 LIMIT $2
-FOR UPDATE SKIP LOCKED`, now, limit)
+FOR UPDATE SKIP LOCKED`, now, limit, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: claim dirty scopes: select: %w", err)
 	}

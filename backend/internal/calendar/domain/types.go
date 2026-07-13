@@ -120,6 +120,13 @@ type CalendarEventListResponse struct {
 	DateMarkers  []CalendarDateMarker `json:"date_markers"`
 	NextCursor   *string              `json:"next_cursor"`
 	Projection   ProjectionMetadata   `json:"projection"`
+	// HistoryProjection is the freshness/coverage metadata for the completed-history projection
+	// (calendar_history_projection_state), populated ONLY when this read actually touched the
+	// completed_history CTE (an explicit status=completed filter, or date-marker inclusion when no
+	// non-completed status filter narrows the request). Distinct from Projection, which describes the
+	// fast-moving UPCOMING vaccination-execution/shed projection gate. Nil means the history
+	// projection was not consulted for this request at all (C5-002).
+	HistoryProjection *ProjectionMetadata `json:"history_projection,omitempty"`
 }
 
 type ProjectionMetadata struct {
@@ -128,6 +135,11 @@ type ProjectionMetadata struct {
 	FreshnessStatus   string    `json:"freshness_status"`
 	ServingState      string    `json:"serving_state"`
 	Stale             bool      `json:"stale"`
+	// PartialCoverage is true when the requested date window extends beyond what the projection's
+	// own [date_from, date_to) build window covers. It never fails the read (history is served
+	// last-known-good) but tells the caller the response may be missing rows outside the covered
+	// window.
+	PartialCoverage bool `json:"partial_coverage,omitempty"`
 }
 
 // CalendarDateMarker is the bounded month-grid summary. It keeps the calendar
@@ -239,6 +251,9 @@ type CalendarEventDetail struct {
 	NotificationPolicy   json.RawMessage       `json:"notification_policy"`
 	Links                json.RawMessage       `json:"links"`
 	RecentActions        []CalendarHistoryItem `json:"recent_actions"`
+	// HistoryProjection mirrors CalendarEventListResponse.HistoryProjection: populated only when
+	// this detail was served from the completed-history projection fallback (calendarHistoryProjectionDetailSQL).
+	HistoryProjection *ProjectionMetadata `json:"history_projection,omitempty"`
 }
 
 type CalendarDriveTarget struct {

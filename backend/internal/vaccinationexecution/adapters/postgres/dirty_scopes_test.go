@@ -90,7 +90,7 @@ func TestClaimDirtyScopesSkipLockedNoDoubleClaim(t *testing.T) {
 	}
 
 	now := time.Now()
-	firstClaim, err := repo.ClaimDirtyScopes(ctx, "worker-1", 1, now)
+	firstClaim, err := repo.ClaimDirtyScopes(ctx, "worker-1", "", 1, now)
 	if err != nil {
 		t.Fatalf("first claim: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestClaimDirtyScopesSkipLockedNoDoubleClaim(t *testing.T) {
 	}
 	firstShed := firstClaim[0].ShedID
 
-	secondClaim, err := repo.ClaimDirtyScopes(ctx, "worker-2", 10, now)
+	secondClaim, err := repo.ClaimDirtyScopes(ctx, "worker-2", "", 10, now)
 	if err != nil {
 		t.Fatalf("second claim: %v", err)
 	}
@@ -119,12 +119,97 @@ func TestClaimDirtyScopesSkipLockedNoDoubleClaim(t *testing.T) {
 	}
 
 	// A third claim attempt sees nothing pending left (both sheds are now leased).
-	thirdClaim, err := repo.ClaimDirtyScopes(ctx, "worker-3", 10, now)
+	thirdClaim, err := repo.ClaimDirtyScopes(ctx, "worker-3", "", 10, now)
 	if err != nil {
 		t.Fatalf("third claim: %v", err)
 	}
 	if len(thirdClaim) != 0 {
 		t.Fatalf("third claim size = %d, want 0 (nothing left pending)", len(thirdClaim))
+	}
+}
+
+// testTenantB is a second tenant for TestClaimDirtyScopesTenantFilterPreventsCrossTenantStarvation --
+// distinct from testTenant (seedVaccinationExecutionProjection's tenant). Dirty-scope rows only need a
+// tenant_id FK to tenants(tenant_id); they carry no FK to locations, so this tenant needs no park/shed
+// fixtures of its own.
+const testTenantB = "00000000-0000-4000-8000-000000000099"
+
+// TestClaimDirtyScopesTenantFilterPreventsCrossTenantStarvation is the C5-003 regression test: before
+// the fix, ClaimDirtyScopes had no tenant filter, so a shared claim query ordered purely by
+// (next_attempt_at, dirty_scope_id) let another tenant's dirty rows consume the whole -limit claim
+// batch and starve the configured tenant -- exactly the failure mode a single-tenant deployment job
+// (GOATOS_TENANT_ID set) hits in production. This seeds MORE dirty scopes for tenant B, enqueued
+// FIRST so they would sort ahead of tenant A's single scope under the old unfiltered query, then
+// proves a tenant-A-scoped claim with a limit equal to tenant B's row count (1) still claims exactly
+// tenant A's scope, (2) never claims or mutates any tenant B row, and (3) tenant A is not starved.
+func TestClaimDirtyScopesTenantFilterPreventsCrossTenantStarvation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO tenants (tenant_id, name, status, created_at, updated_at)
+VALUES ($1::uuid, 'Tenant B (dirty-scope isolation test)', 'active', now(), now())`, testTenantB); err != nil {
+		t.Fatalf("seed tenant B: %v", err)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Tenant B enqueues first (3 sheds) -- smaller dirty_scope_id / earlier next_attempt_at, so an
+	// unfiltered global ORDER BY would return these before tenant A's row below.
+	tenantBShedIDs := []string{
+		"90000000-0000-4000-8000-000000000201",
+		"90000000-0000-4000-8000-000000000202",
+		"90000000-0000-4000-8000-000000000203",
+	}
+	if err := repo.EnqueueDirtySheds(ctx, testTenantB, tenantBShedIDs, "seed_tenant_b"); err != nil {
+		t.Fatalf("enqueue tenant B sheds: %v", err)
+	}
+
+	// Tenant A (testTenant) enqueues one shed AFTER tenant B's rows.
+	if err := repo.EnqueueDirtyShed(ctx, testTenant, testShedIncA, "seed_tenant_a"); err != nil {
+		t.Fatalf("enqueue tenant A shed: %v", err)
+	}
+
+	now := time.Now()
+	// limit == len(tenantBShedIDs): under the pre-fix unfiltered query, this limit would be entirely
+	// consumed by tenant B's 3 rows (enqueued first), leaving tenant A's row unclaimed this run.
+	claimed, err := repo.ClaimDirtyScopes(ctx, "worker-tenant-a", testTenant, len(tenantBShedIDs), now)
+	if err != nil {
+		t.Fatalf("tenant-scoped claim: %v", err)
+	}
+
+	// (1) Only tenant A's scope is claimed.
+	if len(claimed) != 1 {
+		t.Fatalf("claimed = %#v, want exactly 1 (tenant A's own scope, never any tenant B row)", claimed)
+	}
+	if claimed[0].TenantID != testTenant || claimed[0].ShedID != testShedIncA {
+		t.Fatalf("claimed scope = %#v, want tenant=%s shed=%s", claimed[0], testTenant, testShedIncA)
+	}
+
+	// (2) Tenant B's rows were neither claimed nor mutated: still pending, attempt_count unchanged.
+	for _, shedID := range tenantBShedIDs {
+		status, attempts := dirtyScopeStatusAndAttempts(t, ctx, pool, testTenantB, shedID)
+		if status != "pending" {
+			t.Fatalf("tenant B shed %s status = %q, want pending (must not be claimed by tenant A's filtered claim)", shedID, status)
+		}
+		if attempts != 0 {
+			t.Fatalf("tenant B shed %s attempt_count = %d, want 0 (untouched)", shedID, attempts)
+		}
+	}
+	if pending := countDirtyScopes(t, ctx, pool, testTenantB, tenantBShedIDs[0], "pending"); pending != 1 {
+		t.Fatalf("tenant B shed %s pending count = %d, want 1", tenantBShedIDs[0], pending)
+	}
+
+	// (3) Tenant A is not starved: its one dirty scope was fully drained despite tenant B's rows
+	// dominating the unfiltered ordering and despite a claim limit sized to tenant B's row count.
+	if leased := countDirtyScopes(t, ctx, pool, testTenant, testShedIncA, "leased"); leased != 1 {
+		t.Fatalf("tenant A shed %s leased count = %d, want 1 (claimed, not starved)", testShedIncA, leased)
+	}
+	if pending := countDirtyScopes(t, ctx, pool, testTenant, testShedIncA, "pending"); pending != 0 {
+		t.Fatalf("tenant A shed %s pending count = %d, want 0 (already claimed)", testShedIncA, pending)
 	}
 }
 
@@ -366,7 +451,7 @@ func TestMarkDirtyScopeFailedRetriesThenDeadLetters(t *testing.T) {
 
 	now := time.Now()
 	for attempt := 1; attempt <= 3; attempt++ {
-		claimed, err := repo.ClaimDirtyScopes(ctx, "worker-retry", 10, now)
+		claimed, err := repo.ClaimDirtyScopes(ctx, "worker-retry", "", 10, now)
 		if err != nil {
 			t.Fatalf("claim attempt %d: %v", attempt, err)
 		}
@@ -411,7 +496,7 @@ func TestMarkDirtyScopeDoneDeletesUnchangedLease(t *testing.T) {
 	if err := repo.EnqueueDirtyShed(ctx, testTenant, testShedIncA, "seed"); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
-	claimed, err := repo.ClaimDirtyScopes(ctx, "worker-1", 10, time.Now())
+	claimed, err := repo.ClaimDirtyScopes(ctx, "worker-1", "", 10, time.Now())
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -450,7 +535,7 @@ func TestMarkDirtyScopeDonePreservesConcurrentReDirty(t *testing.T) {
 	if err := repo.EnqueueDirtyShed(ctx, testTenant, testShedIncA, "original_reason"); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}
-	claimed, err := repo.ClaimDirtyScopes(ctx, "worker-1", 10, time.Now())
+	claimed, err := repo.ClaimDirtyScopes(ctx, "worker-1", "", 10, time.Now())
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -487,7 +572,7 @@ func TestMarkDirtyScopeDonePreservesConcurrentReDirty(t *testing.T) {
 
 	// The re-enqueued scope is claimable again (a fresh worker will rebuild shed A for the write that
 	// arrived mid-flight, instead of that signal being lost forever).
-	second, err := repo.ClaimDirtyScopes(ctx, "worker-2", 10, time.Now())
+	second, err := repo.ClaimDirtyScopes(ctx, "worker-2", "", 10, time.Now())
 	if err != nil {
 		t.Fatalf("second claim: %v", err)
 	}
@@ -519,7 +604,7 @@ func TestReclaimExpiredDirtyScopeLeasesRetriesThenDeadLetters(t *testing.T) {
 
 	now := time.Now()
 	for attempt := 1; attempt <= 2; attempt++ {
-		claimed, err := repo.ClaimDirtyScopes(ctx, "worker-crash-loop", 10, now)
+		claimed, err := repo.ClaimDirtyScopes(ctx, "worker-crash-loop", "", 10, now)
 		if err != nil {
 			t.Fatalf("claim attempt %d: %v", attempt, err)
 		}

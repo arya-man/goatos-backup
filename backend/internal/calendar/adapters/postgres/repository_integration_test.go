@@ -501,6 +501,11 @@ WHERE tenant_id = $1::uuid AND event_id IN ($2, $3)`,
 		t.Fatalf("default list items = %#v, want only active event", list.Items)
 	}
 	completed := domain.StatusCompleted
+	// C5-002: a status=completed request now also gates on the completed-history projection's own
+	// freshness (independent of the hot calendar_event_projections table this test's completedID
+	// actually lives in) -- seed a synced-but-empty history projection so this test still exercises
+	// only the hot-table exclusion behavior it is named for, not the never-synced fail-closed path.
+	seedCalendarHistoryProjectionState(t, ctx, pool, testTenantID, time.Now().UTC().Add(-90*24*time.Hour), time.Now().UTC().Add(45*24*time.Hour))
 	list, err = repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID,
 		OwnerKey: domain.OwnerAll,
@@ -2212,6 +2217,27 @@ ON CONFLICT (tenant_id, slice_key) DO UPDATE SET
   projection_version = EXCLUDED.projection_version, date_from = EXCLUDED.date_from, date_to = EXCLUDED.date_to,
   projected_at = now(), freshness_status = 'green', serving_state = 'fresh', last_error = NULL`, testTenantID, from, to); err != nil {
 		t.Fatalf("seed calendar projection state: %v", err)
+	}
+}
+
+// seedCalendarHistoryProjectionState directly seeds a fresh SERVING calendar_history_projection_state
+// row -- the completed-history projection's own freshness gate (C5-002) -- without running
+// RecomputeVaccinationHistoryProjection's canonical join. For tests that only need "the history
+// projection has been synced" (so a status=completed / date-marker request does not fail closed with
+// ErrProjectionUnavailable) and do not care about any actual calendar_history_projection_rows content.
+func seedCalendarHistoryProjectionState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string, from, to time.Time) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO calendar_history_projection_state (
+  tenant_id, projection_version, serving_projection_version, projected_at, date_from, date_to,
+  freshness_status, serving_state
+) VALUES ($1::uuid, (extract(epoch FROM now()) * 1000)::bigint, (extract(epoch FROM now()) * 1000)::bigint, now(),
+  $2::timestamptz, $3::timestamptz, 'green', 'fresh')
+ON CONFLICT (tenant_id) DO UPDATE SET
+  projection_version = EXCLUDED.projection_version, serving_projection_version = EXCLUDED.serving_projection_version,
+  date_from = EXCLUDED.date_from, date_to = EXCLUDED.date_to,
+  projected_at = now(), freshness_status = 'green', serving_state = 'fresh', last_error = NULL`, tenantID, from, to); err != nil {
+		t.Fatalf("seed calendar history projection state: %v", err)
 	}
 }
 

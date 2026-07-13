@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -91,25 +92,26 @@ WHERE vc.tenant_id = $1::uuid AND vc.status = 'accepted' AND oi.status = 'comple
 		t.Fatalf("fixture setup failed: canonical target_count=%d, want 2", wantTargetCount)
 	}
 
-	// Before any recompute, the completed-history read must still serve (bootstrap-empty), never
-	// error: a canonical/history read is independent of the hot vaccination projection's freshness
-	// gate, and a missing/never-synced HISTORY projection must not 500 either.
-	bootstrap, err := repo.ListEvents(ctx, domain.Query{
+	// Before any recompute, the completed-history read must FAIL CLOSED (C5-002), never return a
+	// misleading empty success: an empty result here would be indistinguishable from "genuinely no
+	// history" when it is really "the projection has never been built". This is independent of the hot
+	// vaccination (UPCOMING) projection's own freshness gate, which stays a separate concern.
+	if _, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll, Status: &completedStatus,
 		DateFrom: administeredAt.Add(-time.Hour), DateTo: administeredAt.Add(24 * time.Hour),
 		Limit: 20, IncludeDateMarkers: true, Scope: domain.ScopeFilter{TenantWide: true},
-	})
-	if err != nil {
-		t.Fatalf("ListEvents before first history recompute: %v", err)
-	}
-	if len(bootstrap.Items) != 0 || len(bootstrap.DateMarkers) != 0 {
-		t.Fatalf("bootstrap history list = %#v, want empty before first recompute", bootstrap)
+	}); !errors.Is(err, ports.ErrProjectionUnavailable) {
+		t.Fatalf("ListEvents before first history recompute = %v, want ErrProjectionUnavailable (never-synced fails closed)", err)
 	}
 
 	rows, err := repo.RecomputeVaccinationHistoryProjection(ctx, ports.RefreshVaccinationHistoryProjection{
 		TenantID: testTenantID,
 		DateFrom: administeredAt.Add(-24 * time.Hour),
-		DateTo:   administeredAt.Add(24 * time.Hour),
+		// +48h (not +24h): the coverage contract projects one day beyond the max query range (same
+		// inclusive-query/exclusive-projection-bound contract as the UPCOMING gate), and the ListEvents
+		// call below queries DateTo=administeredAt+24h, whose exclusive bound is DateTo+24h. Matching it
+		// exactly here lets the later fresh-in-window assertion prove full (non-partial) coverage.
+		DateTo: administeredAt.Add(48 * time.Hour),
 	})
 	if err != nil {
 		t.Fatalf("RecomputeVaccinationHistoryProjection: %v", err)
@@ -178,6 +180,11 @@ WHERE tenant_id = $1::uuid AND projection_version = $2::bigint AND business_date
 	if len(list.DateMarkers) != 1 || list.DateMarkers[0].Date != "2025-12-09" || list.DateMarkers[0].CompletedCount != wantTargetCount {
 		t.Fatalf("history date markers=%#v, want one completed marker with %d administrations", list.DateMarkers, wantTargetCount)
 	}
+	// Fresh, in-window history projection metadata must be surfaced clean (C5-002): not stale, not
+	// partial coverage -- the query window sits entirely inside the projector's own build window.
+	if list.HistoryProjection == nil || list.HistoryProjection.Stale || list.HistoryProjection.PartialCoverage {
+		t.Fatalf("history projection metadata=%#v, want non-nil, fresh, full coverage", list.HistoryProjection)
+	}
 	assertCount(t, ctx, pool, "history not copied to hot calendar_event_projections", `
 SELECT count(*) FROM calendar_event_projections
 WHERE tenant_id = $1::uuid AND event_id = $2`, 0, testTenantID, history.EventID)
@@ -193,6 +200,123 @@ WHERE tenant_id = $1::uuid AND event_id = $2`, 0, testTenantID, history.EventID)
 	if detail.Event.TargetCount != wantTargetCount || detail.Event.Status != domain.StatusCompleted ||
 		!strings.Contains(string(detail.Execution), wantCompletedCount) {
 		t.Fatalf("history detail=%#v execution=%s, want completed_count=%d", detail.Event, detail.Execution, wantTargetCount)
+	}
+	if detail.HistoryProjection == nil || detail.HistoryProjection.Stale {
+		t.Fatalf("history detail projection metadata=%#v, want non-nil and fresh", detail.HistoryProjection)
+	}
+}
+
+// TestCalendarHistoryProjectionServesStaleLastKnownGoodWithFlag proves a STALE (but previously
+// synced) history projection is NOT fail-closed (C5-002): history is append-mostly, so serving the
+// last-known-good rows is safer than a 503, but the response must surface Stale=true rather than
+// silently presenting stale data as fully fresh.
+func TestCalendarHistoryProjectionServesStaleLastKnownGoodWithFlag(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		protocolID  = "87000000-0000-4000-8000-000000000951"
+		versionID   = "87000000-0000-4000-8000-000000000952"
+		ruleID      = "87000000-0000-4000-8000-000000000953"
+		obligationA = "87000000-0000-4000-8000-000000000954"
+		completionA = "87000000-0000-4000-8000-000000000956"
+	)
+	administeredAt := time.Date(2025, time.October, 1, 3, 30, 0, 0, time.UTC)
+	completedStatus := domain.StatusCompleted
+
+	seedCalendarLocations(t, ctx, pool, testParkA, testShedA)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationA, administeredAt)
+	seedCalendarGoat(t, ctx, pool, obligationA)
+	if _, err := pool.Exec(ctx, `
+UPDATE goats
+SET park_id=$2::uuid, shed_id=$3::uuid, current_location_id=$3::uuid, updated_at=now()
+	WHERE tenant_id=$1::uuid AND goat_id = $4::uuid`,
+		testTenantID, testParkA, testShedA, obligationA); err != nil {
+		t.Fatalf("locate stale-fixture goat: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type='goat', target_id=obligation_id, scope_type='shed', scope_id=$2::uuid,
+    status='completed', completed_at=due_at, updated_at=now()
+	WHERE tenant_id=$1::uuid AND obligation_id = $3::uuid`,
+		testTenantID, testShedA, obligationA); err != nil {
+		t.Fatalf("complete stale-fixture obligation: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, verified_at,
+  verified_by, status, idempotency_key
+) VALUES ($2::uuid, $1::uuid, $3::uuid, $3::uuid, $5::timestamptz, $5::timestamptz, $4::uuid, 'accepted', 'history-projection-stale-a')`,
+		testTenantID, completionA, obligationA, testActorID, administeredAt); err != nil {
+		t.Fatalf("seed stale-fixture accepted completion: %v", err)
+	}
+
+	if _, err := repo.RecomputeVaccinationHistoryProjection(ctx, ports.RefreshVaccinationHistoryProjection{
+		TenantID: testTenantID,
+		DateFrom: administeredAt.Add(-24 * time.Hour),
+		DateTo:   administeredAt.Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("RecomputeVaccinationHistoryProjection: %v", err)
+	}
+
+	// Backdate the serving state well past defaultHistoryProjectionFresh (90m) without touching the
+	// projected rows themselves -- simulates a scheduled projector run that stopped landing.
+	if _, err := pool.Exec(ctx, `
+UPDATE calendar_history_projection_state
+SET projected_at = now() - interval '3 hours'
+WHERE tenant_id = $1::uuid`, testTenantID); err != nil {
+		t.Fatalf("backdate history projection state: %v", err)
+	}
+
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll, Status: &completedStatus,
+		DateFrom: administeredAt.Add(-time.Hour), DateTo: administeredAt.Add(24 * time.Hour),
+		Limit: 20, IncludeDateMarkers: true, Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents stale history: %v, want last-known-good success (not fail-closed)", err)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("stale history items=%d, want the last-known-good grouped event still served", len(list.Items))
+	}
+	if list.HistoryProjection == nil || !list.HistoryProjection.Stale {
+		t.Fatalf("history projection metadata=%#v, want Stale=true surfaced for a projection well past its TTL", list.HistoryProjection)
+	}
+}
+
+// TestCalendarHistoryProjectionOutOfWindowSurfacesPartialCoverage proves a request whose date range
+// extends beyond the history projection's own built [date_from, date_to) window still serves (never
+// fails closed on coverage alone) but surfaces PartialCoverage=true so the caller knows the response
+// may be missing rows outside what was actually projected.
+func TestCalendarHistoryProjectionOutOfWindowSurfacesPartialCoverage(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	completedStatus := domain.StatusCompleted
+	narrowFrom := time.Date(2025, time.September, 1, 0, 0, 0, 0, time.UTC)
+	narrowTo := time.Date(2025, time.September, 10, 0, 0, 0, 0, time.UTC)
+	seedCalendarHistoryProjectionState(t, ctx, pool, testTenantID, narrowFrom, narrowTo)
+
+	// Request a window that starts well before the projected date_from.
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll, Status: &completedStatus,
+		DateFrom: narrowFrom.Add(-30 * 24 * time.Hour), DateTo: narrowFrom,
+		Limit: 20, IncludeDateMarkers: true, Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents out-of-window history: %v, want success with partial coverage surfaced", err)
+	}
+	if list.HistoryProjection == nil || !list.HistoryProjection.PartialCoverage {
+		t.Fatalf("history projection metadata=%#v, want PartialCoverage=true for a request outside the projected window", list.HistoryProjection)
+	}
+	if list.HistoryProjection.Stale {
+		t.Fatalf("history projection metadata=%#v, want Stale=false -- coverage and staleness are independent signals", list.HistoryProjection)
 	}
 }
 
