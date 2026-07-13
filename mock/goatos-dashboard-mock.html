@@ -947,9 +947,8 @@
         <div class="rhythm" id="rhythm"></div>
       </div></div>
       <div class="card" id="monthView" style="display:none;margin-bottom:16px"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-cal"/></svg><h3 id="mLabel">June 2026</h3><div class="sp"></div><button class="btn sm" onclick="calNav(-1)">‹ Prev</button><button class="btn sm" onclick="calToday()">Today</button><button class="btn sm" onclick="calNav(1)">Next ›</button></div><div class="bd"><div class="mcal" id="mcal"></div><div class="note" style="margin-top:10px">Weekly crons (sanitation Fri · weigh-in Mon · EOD) repeat every week; one-offs (harvest, procurement arrival) sit on their date. Pillars fire on different cadences — month view shows them all. Navigate Jan–Dec 2026.</div></div></div>
-      <div id="weekView" class="grid g2" style="grid-template-columns:1.7fr 1fr">
+      <div id="weekView">
         <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-cal"/></svg><h3>This week</h3><div class="sp"></div><span class="legend"><span><span class="sw" style="background:var(--brand)"></span>shed-scoped</span><span><span class="sw" style="background:var(--teal)"></span>fodder / non-shed</span><span><span class="sw" style="background:var(--purple)"></span>coordination</span></span></div><div class="bd"><div class="agenda" id="agenda"></div></div></div>
-        <div class="card"><div class="hd"><svg class="ic" style="color:var(--amber)"><use href="#i-clock"/></svg><h3>Reminders &amp; coordination</h3></div><div class="bd feed" id="reminders"></div></div>
       </div>
     </section>
 
@@ -3680,8 +3679,6 @@ function renderCal(){
     html+=`<div class="dh">${dy}${dy==='Fri'?' · today':''}</div>`+evs.map(([e,i])=>`<div class="ev" style="border-left-color:${e.c}" onclick="openEvent(${i})"><div class="et">${e.t==='next'?'+wk':e.t}</div><div class="eb"><b>${e.ti}</b><div class="em">${e.m}</div>${e.drive?driveCardHtml(e.drive):''}</div>${e.rem?`<span class="erem">${e.rem}</span>`:''}</div>`).join('');});
   if(!shown)html+=`<div class="note">No scheduled events${calDayFilter?' on '+calDayFilter:' this week'}. <span class="muted">Add one with “New event”.</span></div>`;
   document.getElementById('agenda').innerHTML=html;
-  document.getElementById('reminders').innerHTML=CAL.map((e,i)=>[e,i]).filter(([e])=>e.rem&&inDom(e)).map(([e,i])=>`<div class="fitem" style="cursor:pointer" onclick="openEvent(${i})"><span class="fic" style="background:color-mix(in srgb,${e.c} 20%,var(--panel));color:${e.c}"><svg class="ic"><use href="#i-clock"/></svg></span><div class="tx"><b>${e.ti}</b><div class="mt">${e.m}</div><div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap"><span class="tag t-info" style="font-size:10px">Slack @owner</span><span class="tag t-info" style="font-size:10px">app push</span><span class="tag t-info" style="font-size:10px">webhook</span><span class="tag t-info" style="font-size:10px">browser</span></div></div><span class="erem">${e.rem}</span></div>`).join('')
-    +`<div class="note" style="margin-top:10px">Every reminder fires on <b>all 4 channels at once</b> — Slack (@mention in the park channel), app push, webhook, and browser push — and climbs the reporting line (manager → boss → director) if unacknowledged.</div>`;
 }
 function openEvent(i){const e=CAL[i];if(!e)return;curCalEvt=i;
   const body=`<div class="metagrid">
