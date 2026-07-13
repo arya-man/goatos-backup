@@ -5,7 +5,7 @@
 #
 # Why it is a SEPARATE opt-in target (not part of `make ai-setup`): it runs the
 # backend test suite, which is slow and — for the DB-backed integration tests —
-# needs the local dev database up (`make dev-local` / proxy on :55432). A fresh
+# needs the local dev database up (`make dev-local`). A fresh
 # clone should bootstrap fast, so coverage is a follow-up you run once the test
 # env is available. Partial coverage still ingests: packages whose tests fail or
 # skip simply contribute nothing, the rest are counted.
@@ -40,7 +40,7 @@ if [ ! -x "$GCOV" ]; then
 fi
 [ -x "$GCOV" ] || { echo "repowise-coverage: gcov2lcov unavailable — skipping."; exit 0; }
 
-echo "repowise-coverage: running backend test suite with coverage (best-effort; DB-backed tests need :55432)..."
+echo "repowise-coverage: running backend test suite with coverage (best-effort; DB-backed tests need the local dev DB)..."
 ( cd "$REPO/backend" && go test ./... -coverprofile="$PROFILE" -covermode=atomic -timeout "${REPOWISE_COVERAGE_TIMEOUT:-300s}" ) \
     || echo "repowise-coverage: some tests failed/skipped (expected without full dev DB/seed) — ingesting partial coverage."
 

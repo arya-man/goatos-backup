@@ -37,10 +37,7 @@ detect_docker_database_url() {
     candidates="$(
       docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
         | awk '
-            $1 == "goatos-local-current" ||
-            $1 ~ /^goatos-local-kernel-postgres-/ ||
-            $1 == "goatos-postgres" ||
-            $1 ~ /^goatos-postgres-/ {
+            $1 == "goatos-local-current" {
               if (match($0, /127\.0\.0\.1:[0-9]+->5432\/tcp/)) {
                 print $0
               }

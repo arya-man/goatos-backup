@@ -16,7 +16,7 @@
 #     -> CT / AC / PA / WF / vaccination ops / shed drilldown / Passport read the same Postgres truth
 #
 # Prerequisites (see docs/runbooks/vaccination-local-business-chain.md):
-#   - local stack up: admin-web :3300, api :8080, docker PG 127.0.0.1:55432 (`make dev-local`)
+#   - local stack up: admin-web :3300, api :8080, one shared DATABASE_URL (`make dev-local`)
 #   - DB migrated to head. `make dev-local` does NOT migrate; in particular migration
 #     000082 (sop_task_review_fanouts / sop_task_submission_fanouts) must be applied or the
 #     SOP submission step 500s with: relation "sop_task_submission_fanouts" does not exist.
@@ -29,17 +29,19 @@
 # with a later source-backed version if PC/vet data changes.
 set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$REPO_ROOT/tools/dev/e2e-db-env.sh"
+goatos_e2e_require_isolated_database "tools/dev/vaccination-chain-proof.sh"
 export GOATOS_ENV=local GOATOS_AUTH_MODE=bearer
 export GOATOS_AUTH_ISSUER=goatos-local GOATOS_AUTH_AUDIENCE=goatos-api
 export GOATOS_AUTH_HS256_SECRET="${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-secret-32-bytes-min}" GOATOS_AUTH_MAX_TOKEN_TTL=24h
-export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable}"
 PGURL="$DATABASE_URL"; API="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 TENANT=00000000-0000-4000-8000-000000000001
 USER=90000000-0000-4000-8000-000000000101
 PROOF_PARK=00000000-0000-4000-8000-000000003001
 OLD_VERSION=00000000-0000-4000-8000-00000000b011    # retired ET+TT baseline; must not generate obligations
 OLD_RULE=00000000-0000-4000-8000-00000000b012       # retired legacy ET primary rule
-BACKEND="$(cd "$(dirname "$0")/../../backend" && pwd)"
+BACKEND="$REPO_ROOT/backend"
 psqlq(){ psql "$PGURL" -tAc "$1"; }
 jqp(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }
 has(){ grep -q "$1" <<<"$2" && echo HIT || echo MISS; }

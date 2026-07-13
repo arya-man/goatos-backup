@@ -7,7 +7,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: check guardrails e2e-integrity-guard aggregate-projection-guard scale-guard clinical-defer-guard sweeper-deployment-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard seed-migration-guard india-date-guard offline-first-guard local-gcp-kernel-parity-guard ci-local mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
+.PHONY: check guardrails e2e-integrity-guard aggregate-projection-guard scale-guard clinical-defer-guard sweeper-deployment-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: vaccination-execution-projection-recompute vaccination-operations-projection-recompute
 
@@ -63,7 +63,7 @@ ai-rebuild-repowise:
 
 # Opt-in: populate the repowise dashboard Coverage tab (free, no LLM). Runs the
 # backend test suite with coverage, then ingests it. DB-backed tests need the
-# local dev DB up (:55432) for full coverage; partial coverage still ingests.
+# local dev DB up for full coverage; partial coverage still ingests.
 ai-repowise-coverage:
 	bash tools/agent-hooks/repowise-coverage.sh
 
@@ -111,6 +111,7 @@ guardrails:
 	$(MAKE) seed-migration-guard
 	$(MAKE) india-date-guard
 	$(MAKE) offline-first-guard
+	$(MAKE) local-single-db-guard
 	$(MAKE) room-migration-guard
 	$(MAKE) telemetry-guard
 	$(MAKE) local-gcp-kernel-parity-guard
@@ -198,6 +199,9 @@ india-date-guard:
 offline-first-guard:
 	node tools/agent-hooks/check-offline-first-reads.mjs --self-test
 	node tools/agent-hooks/check-offline-first-reads.mjs
+
+local-single-db-guard:
+	bash tools/agent-hooks/check-local-single-db.sh
 
 # ci-local: run the SAME required CI gates as .github/workflows/ci.yml locally.
 # Per AGENTS.md a GitHub Actions billing/platform failure is NEVER a closure
@@ -370,13 +374,14 @@ seed-stg-email-grants:
 
 # Full source-backed vaccination seed chain for local/dev rehearsals. This is the
 # safe "whole setup" path after clean slate: access grants, HRMS roster/leave,
-# strict shed ownership, position duties, vaccination source/config seed, then
-# every vaccination read model needed by live pages.
+# vaccination source/config seed (which creates canonical shed locations), strict
+# shed ownership, position duties, then every vaccination read model needed by
+# live pages.
 seed-vaccination-source-full: seed-dev-email-grants
 	cd backend && go run ./cmd/seed-roster-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)"
+	cd backend && go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)"
 	cd backend && go run ./cmd/seed-shed-positions -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -mapping "$(GOATOS_SHED_MANAGER_MAPPING)" -strict
 	cd backend && go run ./cmd/seed-position-duties -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}"
-	cd backend && go run ./cmd/seed-vaccination-real -tenant-id "$${GOATOS_TENANT_ID:-$(GOATOS_LOCAL_TENANT_ID)}" -source "$(GOATOS_VACCINATION_SOURCE_DIR)"
 	$(MAKE) seed-closeout
 
 # Deterministic post-seed/post-migration closeout. Runs only projectors/backfills

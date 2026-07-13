@@ -58,6 +58,7 @@ The standard setup shape is:
 ```text
 migrate schema
 -> seed canonical source truth
+-> refresh Postgres planner statistics for bulk-loaded source tables
 -> make seed-closeout
 -> verify green gates
 ```
@@ -71,6 +72,51 @@ cannot prove this order is not green.
 For an already-seeded database where a later migration adds a derived table,
 apply migrations, run `make seed-closeout`, then verify the affected APIs. Do
 not reseed source rows just to fill a derived table.
+
+For a destructive clean-slate seed or any bulk import/backfill, the seed/import
+must run `ANALYZE` on the canonical tables it bulk-loaded before read-model
+projectors or latency gates run. Freshly truncated/empty tables can leave
+Postgres with stale planner statistics; then a correct projector can choose a
+pathological plan and time out. The stats refresh is infrastructure hygiene, not
+business mutation, and it belongs between canonical seed commit and derived
+read-model closeout.
+
+## Local Single-DB Contract
+
+Normal local laptop runtime is one database: API, admin-web, and mobile dev
+must resolve the same Goat OS `DATABASE_URL`. They may auto-detect the single
+`goatos-local-current` Docker Postgres, or fall back to
+`127.0.0.1:5433/goatos`; they must not silently point one surface at host
+Postgres and another surface at a Docker DB.
+
+If multiple Goat OS app Postgres containers are visible, local launchers must
+fail instead of guessing. E2E, proof, and load harnesses must not silently use
+the normal `5433` app DB or an old hidden port. They source
+`tools/dev/e2e-db-env.sh`, which fails closed unless `GOATOS_E2E_DATABASE_URL`
+or `DATABASE_URL` is explicitly passed. If a proof intentionally targets the
+normal app DB, the `5433` URL must still be visible in the command/evidence.
+Mutating proof/load scripts that create goats/proofs, replay outbox, insert
+history, or run migrations additionally refuse `5433` unless
+`GOATOS_E2E_ALLOW_APP_DB_MUTATION=1` is present. Destructive/load tests should
+use an isolated DB with owned seed/cleanup, such as the explicit GCP-kernel
+parity stack on `55432`. That stack is not the normal laptop runtime DB.
+
+Examples:
+
+```bash
+# Normal local API/admin/mobile database.
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable'
+
+# Intentional mutating proof against the normal local DB. This can create goats,
+# proofs, outbox rows, trusted-history rows, and projection changes.
+GOATOS_E2E_ALLOW_APP_DB_MUTATION=1 \
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' \
+tools/dev/vaccination-chain-proof.sh
+
+# Explicit isolated local GCP-kernel parity database.
+make dev-local-kernel-up
+GOATOS_E2E_DATABASE_URL='postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable'
+```
 
 ## Why This Matters
 

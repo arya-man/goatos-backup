@@ -2,6 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$repo_root/tools/dev/e2e-db-env.sh"
 run_id="${GOATOS_KERNEL_E2E_RUN_ID:-KERNEL-E2E-$(date -u +%Y%m%d-%H%M%S)}"
 report_dir="${GOATOS_KERNEL_E2E_REPORT_DIR:-$repo_root/.codex-goatos-render/high-scale-kernel-e2e/$run_id}"
 certification_mode="${GOATOS_KERNEL_E2E_CERTIFICATION:-0}"
@@ -18,7 +19,7 @@ run_live="${GOATOS_KERNEL_E2E_RUN_LIVE:-1}"
 run_browser="${GOATOS_KERNEL_E2E_RUN_BROWSER:-0}"
 run_perf="${GOATOS_KERNEL_E2E_RUN_PERF:-1}"
 allow_local_checksum_drift="${GOATOS_KERNEL_E2E_ALLOW_LOCAL_CHECKSUM_DRIFT:-0}"
-local_database_url="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable}"
+local_database_url="$DATABASE_URL"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 local_user_id="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000101}"
 api_base_url="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
@@ -41,6 +42,10 @@ require_bool GOATOS_KERNEL_E2E_CERTIFICATION "$certification_mode"
 require_bool GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED "$allow_not_implemented"
 require_bool GOATOS_KERNEL_E2E_ALLOW_LOCAL_CHECKSUM_DRIFT "$allow_local_checksum_drift"
 require_bool GOATOS_KERNEL_E2E_RUN_PERF "$run_perf"
+
+if [ "$run_live" = "1" ] || [ "$run_perf" = "1" ]; then
+  goatos_e2e_require_isolated_database "tools/dev/high-scale-kernel-e2e-all.sh"
+fi
 
 if [ "$certification_mode" = "1" ] && [ "$allow_not_implemented" != "0" ]; then
   printf 'GOATOS_KERNEL_E2E_CERTIFICATION=1 requires GOATOS_KERNEL_E2E_ALLOW_NOT_IMPLEMENTED=0\n' >&2

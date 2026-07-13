@@ -10,6 +10,8 @@ set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$repo_root/tools/dev/e2e-db-env.sh"
+goatos_e2e_require_isolated_database "tools/dev/procurement-vaccination-e2e-matrix.sh"
 backend_dir="$repo_root/backend"
 
 export GOATOS_ENV="${GOATOS_ENV:-local}"
@@ -21,7 +23,6 @@ export GOATOS_AUTH_MAX_TOKEN_TTL="${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}"
 export GOATOS_TENANT_ID="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 export GOATOS_LOCAL_USER_ID="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000101}"
 export GOATOS_API_BASE_URL="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
-export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable}"
 
 TENANT="$GOATOS_TENANT_ID"
 USER="$GOATOS_LOCAL_USER_ID"

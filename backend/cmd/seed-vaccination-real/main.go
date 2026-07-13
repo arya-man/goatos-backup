@@ -124,6 +124,8 @@ type stats struct {
 	KernelDeferred     int         // kernel-deferred obligations
 	KernelSuppressed   int         // kernel-suppressed (already completed) obligations
 	Purged             purgeCounts // synthetic fixtures removed
+	PrunedSheds        int         // active migration/demo sheds retired because they are not in source
+	PrunedShedAttrs    int         // derived location attrs disabled for pruned sheds
 }
 
 type oblIns struct {
@@ -194,6 +196,10 @@ func run(args []string) error {
 	if _, err := seed(ctx, pool, pgCfg, *tenantID, loc, goats, cells, *purgeFixtures, *allowPartialGeneration); err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
+	if err := analyzePostSeedTables(ctx, pool); err != nil {
+		return fmt.Errorf("analyze post-seed tables: %w", err)
+	}
+	fmt.Println("post_seed_analyze completed")
 
 	processProjection, err := processpg.NewRepository(pool, pgCfg.QueryTimeout).RecomputeProjection(ctx, processdomain.ProjectionRecomputeRequest{
 		TenantID: *tenantID,
@@ -239,6 +245,24 @@ func run(args []string) error {
 	fmt.Printf("vaccination_operations_projection rows=%d version=%d as_of=%s\n",
 		operationsProjection.Rows, operationsProjection.ProjectionVersion, operationsProjection.AsOf.Format(time.RFC3339))
 	return nil
+}
+
+func analyzePostSeedTables(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `
+ANALYZE
+  locations,
+  location_operational_attributes,
+  workforce_members,
+  workforce_positions,
+  goats,
+  goat_identifiers,
+  protocol_definitions,
+  protocol_versions,
+  protocol_rules,
+  obligation_instances,
+  obligation_status_events,
+  vaccination_completions`)
+	return err
 }
 
 // ---- source loaders ----
@@ -699,6 +723,13 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 	st.Animals = len(goatRows)
 
+	prunedSheds, prunedAttrs, err := retireActiveShedsOutsideSource(ctx, tx, tenantID, sourceShedCodes(goats))
+	if err != nil {
+		return st, fmt.Errorf("retire non-source active sheds: %w", err)
+	}
+	st.PrunedSheds = prunedSheds
+	st.PrunedShedAttrs = prunedAttrs
+
 	// Identifiers. animal_identifier_1 is the best available real-world animal ID;
 	// animal_identifier_2 carries the secondary tag when both RFID and old/source tag exist.
 	for _, gi := range goatRows {
@@ -1134,11 +1165,13 @@ func printSeedSummary(st stats, genRes vaccinationdomain.GenerateResult) {
 		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
 		"  obligations=%d (completed=%d scheduled=%d) completions_history=%d pending_source=%d skipped_cells=%d\n"+
 		"  purged_fixtures total=%d (calendar_projections=%d obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n"+
+		"  pruned_non_source_active_sheds=%d disabled_shed_attrs=%d\n"+
 		"  kernel_generation generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
 		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
 		st.Obligations, st.Completed, st.Scheduled, st.CompletionsHistory, st.PendingSource, st.Skipped,
 		st.Purged.total(), st.Purged.CalendarProjections, st.Purged.Obligations, st.Purged.Batches,
 		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows,
+		st.PrunedSheds, st.PrunedShedAttrs,
 		genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.FailedGoats, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory)
 }
 
@@ -1646,6 +1679,93 @@ func distinctShedKeys(goats []goatRecord) []shedKey {
 		}
 	}
 	return out
+}
+
+func sourceShedCodes(goats []goatRecord) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, k := range distinctShedKeys(goats) {
+		if strings.TrimSpace(k.farm) == "" || strings.TrimSpace(k.shed) == "" {
+			continue
+		}
+		code := strings.ToUpper(strings.TrimSpace(shedCode(k.farm, k.shed)))
+		if code == "" || seen[code] {
+			continue
+		}
+		seen[code] = true
+		out = append(out, code)
+	}
+	return out
+}
+
+func retireActiveShedsOutsideSource(ctx context.Context, tx pgx.Tx, tenantID string, sourceCodes []string) (int, int, error) {
+	if len(sourceCodes) == 0 {
+		return 0, 0, errors.New("source shed code list is empty")
+	}
+	var retired, attrsDisabled int
+	if err := tx.QueryRow(ctx, `
+		WITH target AS (
+			SELECT s.location_id
+			FROM locations s
+			WHERE s.tenant_id = $1::uuid
+			  AND s.location_type = 'shed'
+			  AND s.status = 'active'
+			  AND s.location_code IS NOT NULL
+			  AND NOT (upper(s.location_code) = ANY($2::text[]))
+			  AND NOT EXISTS (
+			    SELECT 1 FROM goats g
+			    WHERE g.tenant_id = s.tenant_id
+			      AND (g.shed_id = s.location_id OR g.current_location_id = s.location_id)
+			  )
+			  AND NOT EXISTS (
+			    SELECT 1 FROM workforce_members w
+			    WHERE w.tenant_id = s.tenant_id AND w.primary_location_id = s.location_id
+			  )
+			  AND NOT EXISTS (
+			    SELECT 1 FROM workforce_positions wp
+			    WHERE wp.tenant_id = s.tenant_id
+			      AND wp.scope_type = 'shed'
+			      AND wp.scope_id = s.location_id
+			      AND wp.status = 'active'
+			  )
+			  AND NOT EXISTS (
+			    SELECT 1 FROM locations child
+			    WHERE child.tenant_id = s.tenant_id AND child.parent_location_id = s.location_id
+			  )
+			  AND NOT EXISTS (
+			    SELECT 1 FROM inventory_stock inv
+			    WHERE inv.tenant_id = s.tenant_id AND inv.location_id = s.location_id
+			  )
+			  AND NOT EXISTS (
+			    SELECT 1 FROM calendar_event_projections cep
+			    WHERE cep.tenant_id = s.tenant_id
+			      AND (cep.shed_id = s.location_id OR cep.park_id = s.location_id)
+			  )
+		), retired AS (
+			UPDATE locations l
+			SET status = 'inactive',
+			    retired_at = COALESCE(l.retired_at, now()),
+			    operational_notes = concat_ws(E'\n', NULLIF(l.operational_notes, ''), 'Retired by source seed: active shed not present in canonical goat source.'),
+			    updated_at = now(),
+			    row_version = l.row_version + 1
+			FROM target t
+			WHERE l.location_id = t.location_id
+			RETURNING l.location_id
+		), attrs AS (
+			UPDATE location_operational_attributes loa
+			SET usable_for_vaccination = false,
+			    usable_for_sop = false,
+			    updated_at = now()
+			FROM retired r
+			WHERE loa.tenant_id = $1::uuid
+			  AND loa.location_id = r.location_id
+			RETURNING 1
+		)
+		SELECT (SELECT count(*) FROM retired), (SELECT count(*) FROM attrs)`,
+		tenantID, sourceCodes).Scan(&retired, &attrsDisabled); err != nil {
+		return 0, 0, err
+	}
+	return retired, attrsDisabled, nil
 }
 
 func shedCode(farm, shed string) string {

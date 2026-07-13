@@ -2,7 +2,7 @@
 // tools/dev/lib/db-mutation-guard.sh. Pure + importable so it is unit-tested (db-mutation-guard.test.mjs).
 //
 // Only a recognized auto-detected local docker container is TRUSTED for migrate/seed without asking.
-// An inherited DATABASE_URL, or the no-docker 127.0.0.1:5432 fallback, is UNTRUSTED — a Cloud SQL Auth
+// An inherited DATABASE_URL, or the no-docker 127.0.0.1:5433 fallback, is UNTRUSTED — a Cloud SQL Auth
 // Proxy (or an unrelated Postgres) also listens on 127.0.0.1, so those require an explicit opt-in.
 
 /**
@@ -30,7 +30,7 @@ export function assertMutableLocalDb(trusted, env = process.env) {
   if (!trusted && !optIn) {
     console.error(
       "Refusing to migrate/seed: DATABASE_URL is not a verified disposable LOCAL database\n" +
-        "(inherited from the environment, or the no-docker 127.0.0.1:5432 fallback — a Cloud SQL Auth\n" +
+        "(inherited from the environment, or the no-docker 127.0.0.1:5433 fallback — a Cloud SQL Auth\n" +
         "Proxy also listens there). Set GOATOS_ALLOW_DB_MUTATION=1 to opt in, or start a recognized local\n" +
         "docker Postgres container.",
     );

@@ -18,6 +18,15 @@ Default local endpoints:
 - Postgres: `127.0.0.1:55432`
 - Pub/Sub emulator: `127.0.0.1:8085`
 
+This `55432` database is an explicit isolated parity stack DB. It is not the
+normal laptop app DB and must not be used by API/admin-web/mobile dev launchers.
+Any E2E/proof/load script that targets this stack must pass it explicitly:
+
+```bash
+GOATOS_E2E_DATABASE_URL='postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable' \
+tools/dev/high-scale-kernel-e2e-all.sh
+```
+
 Override a conflicting port with `GOATOS_LOCAL_API_PORT`,
 `GOATOS_LOCAL_PG_PORT`, or `GOATOS_LOCAL_PUBSUB_PORT`. The stack is persistent
 and remains running after the command, as required for local development.

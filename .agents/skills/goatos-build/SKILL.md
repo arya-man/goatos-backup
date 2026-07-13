@@ -166,10 +166,32 @@ one product; this skill is the navigation layer.
   model, static catalog/config, or operational/audit/event. Derived app-visible
   tables are filled by deterministic projectors registered in
   `tools/dev/seed-closeout.sh`, not by hand-written seed rows.
+- Source-backed vaccination seed means the whole executable setup: founder
+  grants, HRMS roster, attendance/leave, timetable-backed positions, strict
+  shed-manager/backup mapping, position duties, published
+  `vaccination.matrix` config, trusted vaccination history, generated future
+  obligations, and deterministic projection closeout. A goats-only seed is not
+  a usable Goat OS seed.
+- After destructive seeds, bulk imports, fixture resets, or large canonical
+  backfills, refresh Postgres planner statistics for touched canonical tables
+  before running read-model projectors or latency gates. The source seed must
+  `ANALYZE` freshly loaded location, HRMS, goat, protocol, obligation, event,
+  and vaccination-completion tables after commit and before projection closeout.
 - Local/staging/prod app code must not start against a database behind that
   build's migrations. The setup order is always: migrate schema, seed only
   canonical source truth, run deterministic closeout/projectors, then start or
   certify API/admin/workers.
+- Normal local laptop runtime must use one Goat OS app database for API,
+  admin-web, and mobile. Resolve the single `goatos-local-current` Docker DB or
+  the `127.0.0.1:5433/goatos` fallback; if multiple Goat OS app Postgres
+  containers are visible, fail instead of guessing. E2E/proof/load scripts must
+  fail closed unless `GOATOS_E2E_DATABASE_URL` or `DATABASE_URL` is explicitly
+  passed. Mutating proof/load scripts that create goats/proofs, replay outbox,
+  insert history, or run migrations must refuse the normal `5433` app DB unless
+  `GOATOS_E2E_ALLOW_APP_DB_MUTATION=1` is also present. Destructive/load tests
+  should use an isolated DB with its own seed/cleanup, such as the explicit
+  local GCP-kernel stack on `55432`; that stack must not become the default
+  local runtime DB.
 - Staging deployment authority is Cloud Deploy. GitHub Actions, Cloud Build, or
   local operators may build images and create releases, but `goatos-stg` Cloud
   Run services/jobs must be updated by `tools/deploy/stg-clouddeploy-task.sh`

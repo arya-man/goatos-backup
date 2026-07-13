@@ -22,6 +22,11 @@ leave windows, timetable-backed positions, strict shed-manager mapping, and
 position duties, the system cannot know who owns a drive, who covers leave, or
 whether a shed is executable.
 
+The seed is also responsible for publishing the reviewed vaccination config.
+Goat/vaccination source rows without the active `vaccination.matrix`, capacity
+defaults, ownership duties, and post-seed projections are not a usable Goat OS
+environment.
+
 ## Binding Rule
 
 Vaccination dates present in the source sheet are base schedule anchors, not
@@ -44,6 +49,10 @@ open due work.
   skipped, future open work, or blocked review according to the seeder's
   documented source-value mapping. `Pending` must not backfill synthetic late
   work from a past anchor date.
+- Birth time is clock-time provenance only. It must never satisfy DOB evidence
+  or drive vaccination scheduling. When workbook extracts expose birth time as
+  `HH:MM:SS`, normalize it to `HH:MM` for JSON/source drift checks and seed
+  manifests; seconds are ignored.
 
 `Pending` has a single writer: the vaccination kernel. The source importer must
 not insert an open placeholder and then invoke generation for the same goat and
@@ -122,6 +131,11 @@ schema. See `docs/runbooks/initial-seed-migration-coupling.md`.
 For local/dev rehearsals, the one-command source path is:
 
 ```bash
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' \
+GOATOS_ENV=local \
+GOATOS_TENANT_ID='00000000-0000-4000-8000-000000000001' \
+GOATOS_VACCINATION_SOURCE_DIR='/Users/ravi/mesha/source-material/vgoats-seed' \
+GOATOS_SHED_MANAGER_MAPPING='/Users/ravi/mesha/source-material/vgoats-seed/shed-manager-mapping.jul11-vaccination.csv' \
 make seed-vaccination-source-full
 ```
 
@@ -129,6 +143,9 @@ For an already-seeded database after additive migrations, do not rerun source
 seed just to fill derived tables. Apply the migrations, then run:
 
 ```bash
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' \
+GOATOS_ENV=local \
+GOATOS_TENANT_ID='00000000-0000-4000-8000-000000000001' \
 make seed-closeout
 ```
 
@@ -137,26 +154,49 @@ truth. It must never fabricate goats, owners, completion history, protocol
 facts, notifications, audit rows, or derived statuses.
 
 That target uses the source bundle at `GOATOS_VACCINATION_SOURCE_DIR` and the
-strict shed-manager mapping at `GOATOS_SHED_MANAGER_MAPPING`. Override those
-environment variables only when intentionally changing the reviewed source
-bundle.
+strict shed-manager mapping at `GOATOS_SHED_MANAGER_MAPPING`. The `Makefile`
+defaults to `../source-material/vgoats-seed` from the repo root, but shared
+runbooks and handoffs should still show the explicit source paths so Claude,
+Codex, or a human operator cannot accidentally seed from a different local
+folder.
+
+The current reviewed bundle must include:
+
+- `goats.json`
+- `vaccination.json`
+- `roster-name-mapping.jun26-review.csv`
+- `attendance-jun-26.json`
+- `timetable-goats-team-v1.json`
+- `shed-manager-mapping.jul11-vaccination.csv`
 
 1. Seed founder/builder access grants for the tenant.
 2. Seed HRMS from the reviewed source bundle: roster-name mapping, Jun-26
-   attendance/leave, timetable positions, strict shed-manager mapping, and
-   position duties. Hard stop on missing manager, missing backup, unreviewed
-   shed owner, or source coverage drift.
-3. Import source base-anchor dates when they are on or before backend business
+   attendance/leave, and timetable-backed workforce positions. This is not
+   optional; vaccination ownership and escalation cannot be computed without it.
+3. Import source goat identity/location rows and vaccination base-anchor dates.
+   On a clean DB this creates the canonical shed locations that strict
+   shed-owner positions attach to; do not seed owner positions against
+   non-existent sheds.
+4. Seed strict shed ownership and position duties from the reviewed
+   shed-manager mapping. Hard stop on missing manager, missing backup,
+   unreviewed shed owner, or source coverage drift.
+5. Import source base-anchor dates when they are on or before backend business
    date and persist them only as trusted anchor history, never as open work on
    or before that business date.
-4. Publish or reuse the intended `vaccination.matrix` version and its seed
+6. Publish or reuse the intended `vaccination.matrix` version and its seed
    config/capacity defaults.
-5. Reconcile evidence with matching active rules into accepted completions; keep
+7. Reconcile evidence with matching active rules into accepted completions; keep
    unmatched evidence visible as config/review gaps.
-6. Run the validated vaccination generation path to materialize only strictly
+8. Run the validated vaccination generation path to materialize only strictly
    future obligations from anchor history, DOB, entry date, stage, species, and
    current constraint state.
-7. Recompute every derived read model that the UI reads through `make
+9. Refresh planner statistics for the freshly bulk-loaded canonical tables
+   before any heavy projector or latency gate. At minimum, the source seed must
+   `ANALYZE` locations, HRMS position tables, goats, identifiers, protocol
+   tables, obligations, status events, and vaccination completions after the
+   canonical source transaction commits. This is not business data; it prevents
+   Postgres from planning projection rebuilds with stale empty-table estimates.
+10. Recompute every derived read model that the UI reads through `make
    seed-closeout`. The seed is not green until these deterministic projector
    entry points have completed for the target tenant:
    - `vaccination-eligibility-rollup-recompute`
@@ -168,14 +208,14 @@ bundle.
      present in the checkout
    - Calendar history/counts projectors when their owning command exists and
      the surface is visible/configured.
-8. Verify Action Center buckets, shed status, execution rows, operations rows,
+11. Verify Action Center buckets, shed status, execution rows, operations rows,
    next due dates, and capacity session splits through backend APIs using
    server-owned live time. A seed that leaves `projection_unavailable` on
    `/vaccination/sheds`, `/vaccination/execution`, or `/vaccination/operations`
    is failed even if the canonical source tables contain rows.
-9. Run the kernel seed/generation tests before pushing or seeding a shared
+12. Run the kernel seed/generation tests before pushing or seeding a shared
    environment.
-10. Require the seed reconciliation to prove zero seed-owned Pending
+13. Require the seed reconciliation to prove zero seed-owned Pending
    placeholders, zero duplicate active goat/rule pairs, zero active non-repeat
    work already satisfied by accepted history, zero schedulable open work on or
    before the business date, future-only repeat work, and zero normal active
@@ -199,6 +239,48 @@ New projection tables must ship with their read-path indexes, freshness/version
 state, and an explicit partitioning decision. Partition only when the data shape
 needs it, such as append-only/time-windowed high-volume data. A small indexed
 summary table should stay a normal table with the access pattern documented.
+
+## Local Database Rule
+
+Normal local laptop runtime has one Goat OS app database. API, admin-web, and
+Android/mobile dev flows must resolve the same `DATABASE_URL`; they must not
+silently split between host Postgres, a Docker Postgres, and an old kernel
+database. The normal fallback is `postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable`,
+or the single detected `goatos-local-current` Docker database.
+
+If more than one Goat OS app Postgres container is running, normal local
+launchers must fail and ask the operator to stop the extra container or provide
+an explicit `DATABASE_URL`. E2E/proof/load scripts must not silently use the
+normal app DB or an old hidden DB. They must fail closed unless
+`GOATOS_E2E_DATABASE_URL` or `DATABASE_URL` is explicitly passed. If a proof is
+meant to run against the normal local app DB, the `5433` URL must still appear
+explicitly in the command/evidence. Mutating proof/load scripts that create
+goats/proofs, replay outbox, insert history, or run migrations refuse `5433`
+unless `GOATOS_E2E_ALLOW_APP_DB_MUTATION=1` is also present. Destructive/load
+tests should use an isolated DB with its own seed/cleanup, such as the explicit
+GCP-kernel parity stack on `55432`. Separate E2E/load-test databases must never
+become the default DB for laptop API/admin-web/mobile runtime.
+
+For E2E/proof/load scripts, choose the DB mode explicitly:
+
+```bash
+# Intentional mutating proof against the normal seeded local app DB.
+# This can create goats/proofs, outbox rows, history rows, and projections.
+GOATOS_E2E_ALLOW_APP_DB_MUTATION=1 \
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' \
+tools/dev/vaccination-chain-proof.sh
+
+# Isolated production-shaped kernel stack; start it first, then target its DB.
+make dev-local-kernel-up
+GOATOS_E2E_DATABASE_URL='postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable' \
+tools/dev/high-scale-kernel-e2e-all.sh
+```
+
+The proof/load scripts source `tools/dev/e2e-db-env.sh` and fail if neither
+`GOATOS_E2E_DATABASE_URL` nor `DATABASE_URL` is present. Mutating scripts also
+fail on `5433` unless `GOATOS_E2E_ALLOW_APP_DB_MUTATION=1` is present. The port
+must come from the chosen runtime: `5433` for the single normal local app DB, or
+`55432` for the explicit local GCP-kernel parity stack.
 
 ## Test Gates
 

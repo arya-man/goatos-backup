@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Non-destructive local admin-web E2E smoke.
+# Mutating local admin-web E2E smoke.
 #
 # This is a runner for the currently implemented proof paths:
 #   1. data-plane vaccination chain proof
@@ -9,6 +9,8 @@ set -euo pipefail
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$repo_root/tools/dev/e2e-db-env.sh"
+goatos_e2e_require_isolated_database "tools/dev/admin-web-e2e-smoke.sh"
 backend_dir="$repo_root/backend"
 run_id="${GOATOS_E2E_RUN_ID:-E2E-$(date +%Y%m%d-%H%M%S)}"
 report_dir="${GOATOS_E2E_REPORT_DIR:-$repo_root/.codex-goatos-render/e2e-smoke/$run_id}"
@@ -23,7 +25,6 @@ export GOATOS_TENANT_ID="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-00000000000
 export GOATOS_LOCAL_USER_ID="${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000101}"
 export GOATOS_API_BASE_URL="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 export GOATOS_ADMIN_WEB_BASE_URL="${GOATOS_ADMIN_WEB_BASE_URL:-http://127.0.0.1:3300}"
-export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable}"
 
 mkdir -p "$report_dir"
 

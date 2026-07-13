@@ -294,10 +294,35 @@ Do:
   canonical data through `make seed-closeout` / `tools/dev/seed-closeout.sh`.
   New projection tables also need access-pattern indexes, freshness/version
   state, and an explicit partitioning decision.
+- Source-backed vaccination seed means the whole executable setup, not goats
+  alone: founder grants, HRMS roster, attendance/leave, timetable-backed
+  positions, strict shed manager/backup mapping, position duties, published
+  `vaccination.matrix` config, trusted vaccination history, generated future
+  obligations, and deterministic read-model closeout. Missing HRMS/config is a
+  failed seed, even when goat rows exist.
+- After any destructive seed, bulk import, fixture reset, or large canonical
+  backfill, refresh Postgres planner statistics for the touched canonical
+  tables before projector recompute or latency gates. The normal source seed
+  must `ANALYZE` the freshly loaded location, HRMS, goat, protocol, obligation,
+  event, and vaccination-completion tables after commit and before read-model
+  projection. This prevents projection timeouts caused by stale empty-table
+  planner estimates.
 - Do not start local, staging, or production app code against a database that is
   behind that build's migrations. Apply migrations first, seed only canonical
   source truth second, run deterministic closeout/projectors third, then start
   API/admin/workers or mark the environment green.
+- Normal local laptop runtime must resolve exactly one Goat OS app database for
+  API, admin-web, and mobile. Use the single detected `goatos-local-current`
+  Docker DB or the `127.0.0.1:5433/goatos` fallback; if multiple Goat OS app
+  Postgres containers are running, local launchers must fail instead of
+  guessing. E2E/proof/load scripts must fail closed unless
+  `GOATOS_E2E_DATABASE_URL` or `DATABASE_URL` is explicitly passed. Mutating
+  proof/load scripts that create goats/proofs, replay outbox, insert history, or
+  run migrations must refuse the normal `5433` app DB unless
+  `GOATOS_E2E_ALLOW_APP_DB_MUTATION=1` is also present. Destructive/load tests
+  should use an isolated DB with its own seed/cleanup, such as the explicit
+  local GCP-kernel stack on `55432`; that stack must never become the default
+  laptop runtime DB.
 - Deploy `goatos-stg` through Cloud Deploy. Build systems may create images and
   Cloud Deploy releases, but Cloud Run service/job mutations for staging belong
   to `deploy/clouddeploy/stg/clouddeploy.yaml` and

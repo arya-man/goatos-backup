@@ -128,7 +128,7 @@ bearer for a user that has that role's grant, then run. Role comes from `user_sc
 #    DSN the running :8080 uses (pull it: ps eww <:8080 pid> | tr ' ' '\n' | grep ^DATABASE_URL=).
 #    GOATOS_ENV=local is required (seed-dev-grant refuses non-local targets).
 cd backend
-DATABASE_URL='postgres://postgres:<pw>@127.0.0.1:55432/goatos?sslmode=disable' GOATOS_ENV=local \
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' GOATOS_ENV=local \
   go run ./cmd/seed-dev-grant \
     -tenant-id 00000000-0000-4000-8000-000000000001 \
     -user-id 90000000-0000-4000-8000-000000000103 \

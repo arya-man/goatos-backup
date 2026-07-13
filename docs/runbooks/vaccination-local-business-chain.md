@@ -37,7 +37,7 @@ of the admin-web slice; admin-web must not show fake field-app buttons.
 ## Repeatable Command (one script)
 
 The whole chain is captured by one repeatable, no-browser script that drives the
-real local stack (admin-web `:3300`, api `:8080`, docker PG `127.0.0.1:55432`) and
+real local stack (admin-web `:3300`, api `:8080`, one shared `DATABASE_URL`) and
 prints concrete IDs plus a per-surface read-model check:
 
 ```bash
@@ -56,9 +56,9 @@ Passport read models. It ends in a `## CLOSED …` line with all IDs.
 ### Prerequisites (and the migration gap this run hit)
 
 ```bash
-make dev-local        # local PG (docker :55432), api (:8080), admin-web (:3300)
-# make dev-local reuses an already-healthy API and does NOT migrate by itself.
-# The DB must be at migration head. This run found 000082
+make dev-local        # one local Goat OS DB, api (:8080), admin-web (:3300)
+# make dev-local applies migrations before local API/admin-web start.
+# The DB must be at migration head. The historical run found 000082
 # (sop_task_review_fanouts / sop_task_submission_fanouts) UNAPPLIED on the local
 # docker DB; SOP submission then 500s with:
 #   relation "sop_task_submission_fanouts" does not exist (SQLSTATE 42P01)
@@ -66,11 +66,11 @@ make dev-local        # local PG (docker :55432), api (:8080), admin-web (:3300)
 # just not applied locally):
 awk '/-- \+goose Up/{u=1} /-- \+goose Down/{u=0} u' \
   backend/migrations/postgres/000082_vaccination_rework_and_sop_review_fanout.sql \
-  | psql "postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable" -v ON_ERROR_STOP=1
+  | psql "$DATABASE_URL" -v ON_ERROR_STOP=1
 # Seed (idempotent): actor grant + source-derived ET dev baseline.
 cd backend
 export GOATOS_ENV=local
-export DATABASE_URL="postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable"
+export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable}"
 go run ./cmd/seed-dev-grant -tenant-id <tenant> -user-id <user> -role ceo_internal
 go run ./cmd/seed-vaccination-trigger              # protocol/inventory/SOP/lot fixtures
 ```

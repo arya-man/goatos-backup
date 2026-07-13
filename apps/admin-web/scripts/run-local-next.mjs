@@ -15,11 +15,11 @@ const defaultUserId = "90000000-0000-4000-8000-000000000101";
 const defaultRole = "ceo_internal";
 const defaultApiBaseUrl = "http://127.0.0.1:8080";
 // DRV-R3a: classify the local DB target — only a recognized auto-detected docker container is trusted;
-// an inherited DATABASE_URL OR the no-docker 127.0.0.1:5432 fallback is untrusted (needs an opt-in).
+// an inherited DATABASE_URL OR the no-docker 127.0.0.1:5433 fallback is untrusted (needs an opt-in).
 const databaseClassification = classifyLocalDatabaseUrl({
   inheritedUrl: process.env.DATABASE_URL,
   dockerDetectedUrl: detectDockerDatabaseUrl(),
-  fallbackUrl: "postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable",
+  fallbackUrl: "postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable",
 });
 const defaultDatabaseUrl = databaseClassification.url;
 const defaultHS256Secret = "goatos-local-dev-secret-32-bytes-min";
@@ -112,7 +112,7 @@ async function prepareLocalEnvironment() {
     console.log("Local database already prepared by the stack orchestrator; skipping migrate/seed/closeout.");
   } else {
     // DRV-R3a fail-closed guard: refuse to migrate/seed unless the target is a TRUSTED local docker DB.
-    // An inherited DATABASE_URL OR the no-docker 127.0.0.1:5432 fallback (a Cloud SQL Auth Proxy also
+    // An inherited DATABASE_URL OR the no-docker 127.0.0.1:5433 fallback (a Cloud SQL Auth Proxy also
     // listens there) is untrusted and needs an explicit GOATOS_ALLOW_DB_MUTATION=1 opt-in.
     assertMutableLocalDb(databaseClassification.trusted);
 
@@ -173,12 +173,7 @@ function detectDockerDatabaseUrl() {
 }
 
 function isLocalAppPostgresContainer(name) {
-  return (
-    name === "goatos-local-current" ||
-    name.startsWith("goatos-local-kernel-postgres-") ||
-    name === "goatos-postgres" ||
-    name.startsWith("goatos-postgres-")
-  );
+  return name === "goatos-local-current";
 }
 
 function runSeedCloseoutIfPresent(env) {

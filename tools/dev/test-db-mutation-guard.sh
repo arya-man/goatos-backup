@@ -26,12 +26,12 @@ out=$( bash -c '
   unset DATABASE_URL; resolve_database_url fake_detected; echo "$db_url_inherited|$DATABASE_URL"' )
 check "detected docker URL is trusted" "0|postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable" "$out"
 
-# 3. No docker container -> hardcoded 127.0.0.1:5432 fallback is UNTRUSTED (DRV-R3a).
+# 3. No docker container -> hardcoded 127.0.0.1:5433 fallback is UNTRUSTED (DRV-R3a).
 out=$( bash -c '
   . "'"$here"'/lib/db-mutation-guard.sh"
   fake_none() { :; }
   unset DATABASE_URL; resolve_database_url fake_none; echo "$db_url_inherited|$DATABASE_URL"' )
-check "no-docker 127.0.0.1:5432 fallback is untrusted (DRV-R3a)" "1|postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable" "$out"
+check "no-docker 127.0.0.1:5433 fallback is untrusted (DRV-R3a)" "1|postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable" "$out"
 
 # 4. assert refuses UNTRUSTED without opt-in.
 ( db_url_inherited=1; unset GOATOS_ALLOW_DB_MUTATION; assert_mutable_local_db ) >/dev/null 2>&1 && r=0 || r=1

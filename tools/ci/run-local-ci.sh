@@ -58,6 +58,7 @@ run_guardrails() {
   step "seed-migration-guard"     make seed-migration-guard
   step "india-date-guard"         make india-date-guard
   step "offline-first-guard"      make offline-first-guard
+  step "local-single-db-guard"    make local-single-db-guard
   step "mobile-guard"             make mobile-guard
   step "telemetry-guard"          make telemetry-guard
   step "admin-web-request-reads-guard" make admin-web-request-reads-guard

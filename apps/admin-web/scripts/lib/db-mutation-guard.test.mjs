@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assertMutableLocalDb, classifyLocalDatabaseUrl } from "./db-mutation-guard.mjs";
 
-const FALLBACK = "postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable";
+const FALLBACK = "postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 test("inherited DATABASE_URL is untrusted", () => {
@@ -29,7 +29,7 @@ test("detected docker container is trusted", () => {
   assert.equal(c.url, detected);
 });
 
-test("no-docker 127.0.0.1:5432 fallback is UNTRUSTED (DRV-R3a: direct dev:local)", () => {
+test("no-docker 127.0.0.1:5433 fallback is UNTRUSTED (DRV-R3a: direct dev:local)", () => {
   const c = classifyLocalDatabaseUrl({ inheritedUrl: undefined, dockerDetectedUrl: undefined, fallbackUrl: FALLBACK });
   assert.equal(c.source, "fallback");
   assert.equal(c.trusted, false);

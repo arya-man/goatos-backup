@@ -10,24 +10,26 @@
 #     -> Calendar, Action Center, Workflow, and Passport read the same next-dose work
 #
 # Prerequisites:
-#   - local stack up: api :8080 and docker PG 127.0.0.1:55432 (`make dev-local`)
+#   - local stack up: api :8080 and one shared DATABASE_URL (`make dev-local`)
 #   - migrations applied
 #   - Preventive Care Vaccination Rules config already authored/published by
 #     `seed-vaccination-trigger` or the live authoring smoke.
 set -euo pipefail
 
 export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+. "$REPO_ROOT/tools/dev/e2e-db-env.sh"
+goatos_e2e_require_isolated_database "tools/dev/vaccination-trusted-history-proof.sh"
 export GOATOS_ENV=local GOATOS_AUTH_MODE=bearer
 export GOATOS_AUTH_ISSUER=goatos-local GOATOS_AUTH_AUDIENCE=goatos-api
 export GOATOS_AUTH_HS256_SECRET="${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-secret-32-bytes-min}" GOATOS_AUTH_MAX_TOKEN_TTL=24h
-export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable}"
 
 PGURL="$DATABASE_URL"
 API="${GOATOS_API_BASE_URL:-http://127.0.0.1:8080}"
 TENANT="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 USER="${GOATOS_USER_ID:-90000000-0000-4000-8000-000000000101}"
 PARK="${GOATOS_PARK_ID:-00000000-0000-4000-8000-000000003001}"
-BACKEND="$(cd "$(dirname "$0")/../../backend" && pwd)"
+BACKEND="$REPO_ROOT/backend"
 
 psqlq(){ psql "$PGURL" -q -v ON_ERROR_STOP=1 -tAc "$1"; }
 jqp(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }

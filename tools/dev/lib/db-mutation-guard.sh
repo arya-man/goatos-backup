@@ -9,7 +9,7 @@
 #   - DATABASE_URL inherited from the environment  -> UNTRUSTED (could be a Cloud SQL Auth Proxy, which
 #     also listens on 127.0.0.1, or an unrelated Postgres).
 #   - A recognized Goat OS local docker container was detected  -> TRUSTED.
-#   - No recognized docker container: the hardcoded 127.0.0.1:5432 fallback  -> UNTRUSTED (DRV-R3a: it
+#   - No recognized docker container: the hardcoded 127.0.0.1:5433 fallback  -> UNTRUSTED (DRV-R3a: it
 #     could be anything on that port).
 
 # resolve_database_url <detect_fn_name>
@@ -30,7 +30,7 @@ resolve_database_url() {
     export DATABASE_URL="$detected"
   else
     db_url_inherited=1
-    export DATABASE_URL="postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable"
+    export DATABASE_URL="postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable"
   fi
 }
 
@@ -41,7 +41,7 @@ assert_mutable_local_db() {
     && [ "${GOATOS_ALLOW_DB_MUTATION:-}" != "1" ] \
     && [ "${GOATOS_ALLOW_DB_MUTATION:-}" != "true" ]; then
     echo "Refusing to migrate/seed: DATABASE_URL is not a verified disposable LOCAL database" >&2
-    echo "(inherited from the environment, or the no-docker 127.0.0.1:5432 fallback — a Cloud SQL Auth" >&2
+    echo "(inherited from the environment, or the no-docker 127.0.0.1:5433 fallback — a Cloud SQL Auth" >&2
     echo "Proxy also listens there). Set GOATOS_ALLOW_DB_MUTATION=1 to opt in, or unset DATABASE_URL to" >&2
     echo "use an auto-detected local docker database." >&2
     exit 1
