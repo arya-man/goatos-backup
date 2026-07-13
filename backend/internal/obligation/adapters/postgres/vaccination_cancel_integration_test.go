@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -143,7 +144,7 @@ func TestCancelOpenVaccinationObligationsForGoatVersion(t *testing.T) {
 	a2 := insertOpenObl(t, ctx, pool, repo, f.v1, f.r1, "obl-v1-b", 2) // second v1 row => multi-row bulk insert
 	keep := insertOpenObl(t, ctx, pool, repo, f.v2, f.r2, "obl-v2", 3) // other version => must survive
 
-	n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, testGoatID, f.v1, "ineligible_after_recheck", time.Now().UTC())
+	n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, testGoatID, f.v1, "ineligible_after_recheck", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("cancel by version: %v", err)
 	}
@@ -156,7 +157,7 @@ func TestCancelOpenVaccinationObligationsForGoatVersion(t *testing.T) {
 
 	// Replay: rows are already canceled so the UPDATE ... RETURNING selects nothing, the bulk insert
 	// and outbox loop are skipped, and the earlier side-effect counts are unchanged.
-	n2, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, testGoatID, f.v1, "ineligible_after_recheck", time.Now().UTC())
+	n2, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, testGoatID, f.v1, "ineligible_after_recheck", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("replay cancel by version: %v", err)
 	}
@@ -185,7 +186,7 @@ func TestCancelOpenVaccinationObligationsForGoatExceptVersions(t *testing.T) {
 	keep := insertOpenObl(t, ctx, pool, repo, f.v2, f.r2, "obl-v2", 3)
 
 	// v2 is effective; every open obligation NOT on v2 (both v1 rows) must be cancelled.
-	n, err := repo.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, testGoatID, []string{f.v2}, "version_no_longer_effective", time.Now().UTC())
+	n, err := repo.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, testGoatID, []string{f.v2}, "version_no_longer_effective", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("cancel except-versions: %v", err)
 	}
@@ -197,7 +198,7 @@ func TestCancelOpenVaccinationObligationsForGoatExceptVersions(t *testing.T) {
 	assertUntouched(t, ctx, pool, "obl-v2 (effective)", keep)
 
 	// Replay is idempotent and touches no side-effect counts.
-	n2, err := repo.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, testGoatID, []string{f.v2}, "version_no_longer_effective", time.Now().UTC())
+	n2, err := repo.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, testGoatID, []string{f.v2}, "version_no_longer_effective", time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		t.Fatalf("replay cancel except-versions: %v", err)
 	}
