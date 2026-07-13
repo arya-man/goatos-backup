@@ -68,6 +68,9 @@ Operational kernel golden rule
 Operational kernel system design and diagram
   context/architecture/operational-kernel-system-design.md
 
+Operational kernel 5k-to-50k deployment envelope and reversible consolidation ADR
+  docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+
 Forms and SOP engine
   context/forms/final-forms-sop-engine.md
 

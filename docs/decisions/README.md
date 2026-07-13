@@ -7,6 +7,13 @@ link it from `context/README.md`.
 
 Active ADRs:
 
+- `docs/decisions/operational-kernel-5k-50k-scale-envelope.md` - Accepted
+  5,000-to-50,000-animal deployment envelope: replace the 17 scheduled Cloud Run
+  Job fleet with one HA modular kernel worker, drop disposable projection
+  tables/test data, serve canonical keyset+aggregate SQL (with an explicit
+  scale-guard reconciliation), and add projections/workers back one measured
+  hotspot at a time. Narrows the one-million-scale docs to future work.
+
 - `docs/decisions/one-million-postgres-readiness.md` - PostgreSQL readiness
   contract for one-million scale: explicit workload connection budgets,
   query-shape indexing and scaled planner proof, behavior-driven partitioning
