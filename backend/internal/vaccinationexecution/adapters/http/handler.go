@@ -491,6 +491,7 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 			authorizedParkIDs = []string{}
 		}
 	}
+	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=reschedule-decision-comparison-instant expiry=2026-12-31
 	id, isReplay, err := h.writer.RescheduleObligationByID(r.Context(), requestTenantID, obligationID, idempotencyKey, authorizedParkIDs, req.DueAt, windowStart, req.WindowEnd, time.Now().UTC())
 	if err != nil {
 		if errors.Is(err, obligationports.ErrNotFound) {

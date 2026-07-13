@@ -56,6 +56,7 @@ func (s *Service) signPreviewToken(tenantID, axis, fingerprint string, count int
 	if err != nil {
 		return "", err
 	}
+	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=token-issuance-timestamp-absolute-instant expiry=2026-12-31
 	return signPreviewTokenAt(tenantID, axis, fingerprint, count, s.signingKey, time.Now().UTC(), nonce)
 }
 

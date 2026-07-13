@@ -649,7 +649,9 @@ SET status = 'acknowledged',
     acknowledgement_note = $5
 WHERE tenant_id = $1::uuid
   AND escalation_id = $2::uuid
-  AND status = 'open'`, in.TenantID, esc.EscalationID, in.ActorID, time.Now().UTC(), in.Reason)
+  AND status = 'open'`, in.TenantID, esc.EscalationID, in.ActorID,
+		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=escalation-ack-absolute-instant-storage expiry=2026-12-31
+		time.Now().UTC(), in.Reason)
 		return tag.RowsAffected() > 0, "acknowledged", err
 	case "resolve_escalation":
 		tag, err := tx.Exec(ctx, `
@@ -660,7 +662,9 @@ SET status = 'resolved',
     resolution_note = $5
 WHERE tenant_id = $1::uuid
   AND escalation_id = $2::uuid
-  AND status IN ('open', 'acknowledged')`, in.TenantID, esc.EscalationID, in.ActorID, time.Now().UTC(), in.Reason)
+  AND status IN ('open', 'acknowledged')`, in.TenantID, esc.EscalationID, in.ActorID,
+		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=escalation-resolve-absolute-instant-storage expiry=2026-12-31
+		time.Now().UTC(), in.Reason)
 		return tag.RowsAffected() > 0, "resolved", err
 	default:
 		return false, "", ports.ErrEventNotActionable
@@ -681,7 +685,9 @@ SET status = 'resolved',
 WHERE tenant_id = $1::uuid
   AND obligation_id = $2::uuid
   AND status IN ('open', 'acknowledged')
-RETURNING escalation_id::text, level`, in.TenantID, esc.ObligationID, in.ActorID, time.Now().UTC(), in.Reason)
+RETURNING escalation_id::text, level`, in.TenantID, esc.ObligationID, in.ActorID,
+		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=escalation-auto-resolve-absolute-instant-storage expiry=2026-12-31
+		time.Now().UTC(), in.Reason)
 	if err != nil {
 		return escalationClosure{}, fmt.Errorf("calendar: resolve active escalation ladder: %w", err)
 	}

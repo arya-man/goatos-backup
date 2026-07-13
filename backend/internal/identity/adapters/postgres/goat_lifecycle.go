@@ -12,6 +12,7 @@ import (
 	identitydb "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres/sqlc"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 const (
@@ -543,10 +544,10 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 		"scope_id":                     cmd.GoatID,
 	}
 	if cmd.BreedingDate != nil {
-		payload["breeding_date"] = cmd.BreedingDate.UTC().Format("2006-01-02")
+		payload["breeding_date"] = biztime.BusinessDate(*cmd.BreedingDate)
 	}
 	if cmd.LastDeliveryDate != nil {
-		payload["last_delivery_date"] = cmd.LastDeliveryDate.UTC().Format("2006-01-02")
+		payload["last_delivery_date"] = biztime.BusinessDate(*cmd.LastDeliveryDate)
 	}
 	return r.finishGoatLifecycleMutation(ctx, tx, qtx, &committed, goatLifecycleFinish{
 		TenantUUID:     tenantUUID,

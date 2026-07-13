@@ -713,6 +713,7 @@ func (s *GenerationService) generateForVersionWithRun(ctx context.Context, tenan
 	if genErr != nil {
 		lastError = genErr.Error()
 	}
+	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=generation-run-finish-absolute-instant-storage expiry=2026-12-31
 	if err := s.runs.FinishGenerationRun(ctx, tenantID, run.RunID, res, "", lastError, time.Now().UTC()); err != nil && genErr == nil {
 		genErr = err
 	}

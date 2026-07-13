@@ -2529,6 +2529,7 @@ func obligationUUIDs(values []string) ([]pgtype.UUID, error) {
 // (SM-3 death/sale) and writes a 'canceled' status event for each, in one transaction. Idempotent: a
 // re-run finds no open rows and cancels nothing. Completed/accepted history is never touched.
 func (r *Repository) CancelOpenForGoat(ctx context.Context, tenantID, goatID, reason string) (int, error) {
+	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=cancellation-event-absolute-instant-storage expiry=2026-12-31
 	return r.CancelOpenForGoatAt(ctx, tenantID, goatID, reason, time.Now().UTC(), "")
 }
 
@@ -2541,8 +2542,10 @@ func (r *Repository) CancelOpenForGoatAt(ctx context.Context, tenantID, goatID, 
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	if occurredAt.IsZero() {
+		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=cancellation-event-absolute-instant-storage expiry=2026-12-31
 		occurredAt = time.Now().UTC()
 	} else {
+		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=cancellation-event-absolute-instant-storage expiry=2026-12-31
 		occurredAt = occurredAt.UTC()
 	}
 	tenant, err := pgconv.UUID(tenantID)
@@ -2704,6 +2707,7 @@ func (r *Repository) ReScopeOpenForGoat(ctx context.Context, tenantID, goatID, s
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := r.queries.WithTx(tx)
 
+	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=rescope-event-absolute-instant-storage expiry=2026-12-31
 	count, err := reScopeOpenForGoatInTx(ctx, tx, qtx, tenant, tenantID, goatID, scopeType, scopeID, scopeID, time.Now().UTC())
 	if err != nil {
 		return 0, err

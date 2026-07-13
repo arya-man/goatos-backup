@@ -249,6 +249,7 @@ func (s *SweeperService) deferBlockedSweepCandidates(ctx context.Context, tenant
 		return nil
 	}
 	for {
+		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=sweep-deferral-absolute-instant-storage expiry=2026-12-31
 		n, err := deferrer.DeferBlockedVaccinationSweepCandidates(ctx, tenantID, versionID, dueBefore, time.Now().UTC(), s.page)
 		if err != nil {
 			return err

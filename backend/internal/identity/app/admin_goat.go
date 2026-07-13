@@ -876,6 +876,7 @@ func (s *Service) signAdminGoatBulkPreview(tenantID, fileHash string, rows []dom
 	if err != nil {
 		return "", err
 	}
+	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=admin-goat-token-issuance-absolute-instant expiry=2026-12-31
 	return signAdminGoatBulkPreviewWithKeyAt(tenantID, fileHash, rows, s.bulkPreviewSigningKey, time.Now().UTC(), nonce)
 }
 
@@ -884,6 +885,7 @@ func signAdminGoatBulkPreviewWithKey(tenantID, fileHash string, rows []domain.Ad
 	if err != nil {
 		return "", err
 	}
+	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=admin-goat-token-issuance-absolute-instant expiry=2026-12-31
 	return signAdminGoatBulkPreviewWithKeyAt(tenantID, fileHash, rows, signingKey, time.Now().UTC(), nonce)
 }
 

@@ -1077,6 +1077,7 @@ func (r *Repository) Readiness(ctx context.Context, tenantID string) (domain.Rea
 		TenantID:          tenantID,
 		Status:            domain.ReadinessBlocked,
 		GenerationAllowed: false,
+		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=readiness-checked-at-absolute-instant expiry=2026-12-31
 		Subgates:          defaultSubgates(time.Now().UTC()),
 	}
 	rows, err := r.pool.Query(ctx, `
