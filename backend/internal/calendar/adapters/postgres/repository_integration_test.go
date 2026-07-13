@@ -119,6 +119,90 @@ func TestCalendarProjectionCoverageUsesInclusiveQueryExclusiveBound(t *testing.T
 	}
 }
 
+func TestCalendarProjectionDefaultWindowCoversUIWeekAndMonthWindows(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	cases := []struct {
+		name        string
+		anchor      time.Time
+		requestFrom time.Time
+		requestTo   time.Time
+	}{
+		{
+			name:        "wednesday_week_starts_monday",
+			anchor:      mustBusinessDate(t, "2026-07-15"),
+			requestFrom: mustBusinessDate(t, "2026-07-13"),
+			requestTo:   mustBusinessDate(t, "2026-07-19"),
+		},
+		{
+			name:        "sunday_week_starts_previous_month",
+			anchor:      mustBusinessDate(t, "2026-08-02"),
+			requestFrom: mustBusinessDate(t, "2026-07-27"),
+			requestTo:   mustBusinessDate(t, "2026-08-02"),
+		},
+		{
+			name:        "mid_month_picker_requests_whole_month",
+			anchor:      mustBusinessDate(t, "2026-07-15"),
+			requestFrom: mustBusinessDate(t, "2026-07-01"),
+			requestTo:   mustBusinessDate(t, "2026-07-31"),
+		},
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			projectedFrom, projectedTo := calendarDefaultProjectionWindowForTest(tc.anchor)
+			seedCalendarProjectionStateWindow(t, ctx, pool, projectedFrom, projectedTo)
+			q := domain.Query{
+				TenantID: testTenantID,
+				OwnerKey: domain.OwnerAll,
+				DateFrom: tc.requestFrom,
+				DateTo:   tc.requestTo,
+				Limit:    10,
+				Scope:    domain.ScopeFilter{TenantWide: true},
+			}
+			if _, err := repo.ListEvents(ctx, q); err != nil {
+				t.Fatalf("case %d: projected [%s,%s) must cover UI request [%s,%s], got %v",
+					i,
+					projectedFrom.Format(time.RFC3339),
+					projectedTo.Format(time.RFC3339),
+					tc.requestFrom.Format("2006-01-02"),
+					tc.requestTo.Format("2006-01-02"),
+					err,
+				)
+			}
+		})
+	}
+}
+
+func calendarDefaultProjectionWindowForTest(anchor time.Time) (time.Time, time.Time) {
+	dayStart := biztime.BusinessDayStart(anchor.In(biztime.DefaultLocation()))
+	weekStart := dayStart.AddDate(0, 0, -((int(dayStart.Weekday()) + 6) % 7))
+	monthStart := time.Date(dayStart.Year(), dayStart.Month(), 1, 0, 0, 0, 0, dayStart.Location())
+	dateFrom := monthStart
+	if weekStart.Before(monthStart) {
+		dateFrom = weekStart
+	}
+	dateTo := dayStart.AddDate(0, 0, 47)
+	monthEndExclusive := monthStart.AddDate(0, 1, 0)
+	if monthEndExclusive.After(dateTo) {
+		dateTo = monthEndExclusive
+	}
+	return dateFrom, dateTo
+}
+
+func mustBusinessDate(t *testing.T, raw string) time.Time {
+	t.Helper()
+	parsed, err := time.ParseInLocation("2006-01-02", raw, biztime.DefaultLocation())
+	if err != nil {
+		t.Fatalf("parse date %q: %v", raw, err)
+	}
+	return parsed
+}
+
 func TestCalendarAcceptedHistoryRangePlanUsesPartialIndex(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

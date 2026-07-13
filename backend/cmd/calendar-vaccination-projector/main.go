@@ -32,6 +32,10 @@ type config struct {
 	HistoryDateTo   time.Time
 }
 
+var nowInBusinessLocation = func() time.Time {
+	return time.Now().In(biztime.DefaultLocation())
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -110,8 +114,8 @@ func parseFlags(args []string) (config, error) {
 	var cfg config
 	fs := flag.NewFlagSet("calendar-vaccination-projector", flag.ContinueOnError)
 	fs.StringVar(&cfg.TenantID, "tenant-id", getenv("GOATOS_TENANT_ID"), "tenant id")
-	dateFrom := fs.String("date-from", getenv("GOATOS_CALENDAR_PROJECTOR_DATE_FROM"), "RFC3339 lower bound; default previous business-day midnight")
-	dateTo := fs.String("date-to", getenv("GOATOS_CALENDAR_PROJECTOR_DATE_TO"), "RFC3339 exclusive upper bound; default today business-day midnight plus 47d")
+	dateFrom := fs.String("date-from", getenv("GOATOS_CALENDAR_PROJECTOR_DATE_FROM"), "RFC3339 lower bound; default covers current UI week/month window")
+	dateTo := fs.String("date-to", getenv("GOATOS_CALENDAR_PROJECTOR_DATE_TO"), "RFC3339 exclusive upper bound; default covers current UI month plus max forward query")
 	fs.IntVar(&cfg.Limit, "limit", intEnv("GOATOS_CALENDAR_PROJECTOR_LIMIT", 1000), "max projection rows to upsert")
 	fs.BoolVar(&cfg.PruneClosed, "prune-closed", boolEnv("GOATOS_CALENDAR_PROJECTOR_PRUNE_CLOSED", true), "prune old closed vaccination projection rows after refresh")
 	fs.IntVar(&cfg.PruneLimit, "prune-limit", intEnv("GOATOS_CALENDAR_PROJECTOR_PRUNE_LIMIT", 1000), "max old closed projection rows to prune")
@@ -127,9 +131,8 @@ func parseFlags(args []string) (config, error) {
 	if strings.TrimSpace(cfg.TenantID) == "" {
 		return config{}, errors.New("tenant-id is required")
 	}
-	now := time.Now().In(biztime.DefaultLocation())
-	cfg.DateFrom = biztime.BusinessDayStart(now.Add(-24 * time.Hour))
-	cfg.DateTo = biztime.BusinessDayStart(now).AddDate(0, 0, 47)
+	now := nowInBusinessLocation()
+	cfg.DateFrom, cfg.DateTo = defaultUpcomingProjectionWindow(now)
 	var err error
 	if strings.TrimSpace(*dateFrom) != "" {
 		cfg.DateFrom, err = time.Parse(time.RFC3339, strings.TrimSpace(*dateFrom))
@@ -172,6 +175,34 @@ func parseFlags(args []string) (config, error) {
 		return config{}, errors.New("closed-retention must be positive")
 	}
 	return cfg, nil
+}
+
+func defaultUpcomingProjectionWindow(now time.Time) (time.Time, time.Time) {
+	dayStart := biztime.BusinessDayStart(now.In(biztime.DefaultLocation()))
+	weekStart := dayStart.AddDate(0, 0, -mondayOffset(dayStart))
+	monthStart := time.Date(dayStart.Year(), dayStart.Month(), 1, 0, 0, 0, 0, dayStart.Location())
+	dateFrom := earlierTime(weekStart, monthStart)
+
+	// Calendar list reads allow an inclusive 45-day range; the repository
+	// coverage gate checks an exclusive upper bound, so keep 47 whole business
+	// days from today and also cover the visible current-month picker window.
+	dateTo := dayStart.AddDate(0, 0, 47)
+	monthEndExclusive := monthStart.AddDate(0, 1, 0)
+	if monthEndExclusive.After(dateTo) {
+		dateTo = monthEndExclusive
+	}
+	return dateFrom, dateTo
+}
+
+func mondayOffset(t time.Time) int {
+	return (int(t.Weekday()) + 6) % 7
+}
+
+func earlierTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
 }
 
 func getenv(key string) string {

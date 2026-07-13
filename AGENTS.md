@@ -297,8 +297,9 @@ Do:
 - Register projection closeout by app-visible output, not just by executable
   name. If one projector command owns multiple read models, `seed-closeout`
   must pass explicit flags for each output. Any default-false `-project-*` flag
-  for a visible read model must appear as `-project-...=true` in closeout, or
-  the seed can claim the projector ran while leaving that table empty.
+  for a visible read model must appear as `-project-...=true` on the owning
+  command invocation in closeout, or the seed can claim the projector ran while
+  leaving that table empty.
 - Projection-backed operator pages must follow the last-known-good serving
   contract. No first projection, no serving rows, or a requested window outside
   projected coverage may fail closed. A stale/yellow/rebuilding/failed/over-TTL
@@ -492,8 +493,10 @@ Do:
   TTL to mask a date-coverage bug; (2) date coverage is inclusive-query vs
   exclusive projection `date_to` — project one day beyond the max query range
   (45d ⇒ 46d), calendar/day-based projectors must align default windows to
-  business-day boundaries rather than `now±N` clock instants, and fixed-date
-  tests seed the window around their fixed dates; (3) stale last-known-good rows serve with freshness metadata while
+  business-day boundaries and cover the UI's supported week/month query windows
+  (for example Monday-start weeks and first-to-last-day month picker requests)
+  rather than `now±N` clock instants, and fixed-date tests seed the window
+  around their fixed dates; (3) stale last-known-good rows serve with freshness metadata while
   no first projection or an uncovered date/window fails closed; (4) a rebuild
   keeps serving last-known-good and a failed rebuild never clobbers it; (5) reads
   served entirely from a bounded canonical index (completed/accepted history)

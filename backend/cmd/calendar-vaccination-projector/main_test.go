@@ -66,3 +66,79 @@ func TestParseFlagsDefaultsCoverWholeBusinessDays(t *testing.T) {
 		t.Fatalf("projection window = %s, want at least 47d", cfg.DateTo.Sub(cfg.DateFrom))
 	}
 }
+
+func TestParseFlagsDefaultWindowCoversCalendarUIWeekAndMonth(t *testing.T) {
+	t.Setenv("GOATOS_TENANT_ID", "00000000-0000-4000-8000-000000000001")
+	cases := []struct {
+		name       string
+		now        string
+		windowFrom time.Time
+		windowTo   time.Time
+	}{
+		{
+			name:       "wednesday_week_starts_monday",
+			now:        "2026-07-15T13:00:00+05:30",
+			windowFrom: mustISTDate(t, "2026-07-13"),
+			windowTo:   mustISTDate(t, "2026-07-19"),
+		},
+		{
+			name:       "sunday_week_can_start_in_previous_month",
+			now:        "2026-08-02T13:00:00+05:30",
+			windowFrom: mustISTDate(t, "2026-07-27"),
+			windowTo:   mustISTDate(t, "2026-08-02"),
+		},
+		{
+			name:       "mid_month_picker_requests_first_to_last_day",
+			now:        "2026-07-15T13:00:00+05:30",
+			windowFrom: mustISTDate(t, "2026-07-01"),
+			windowTo:   mustISTDate(t, "2026-07-31"),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			freezeProjectorNow(t, mustISTInstant(t, tc.now))
+			cfg, err := parseFlags([]string{"-timeout", "1s"})
+			if err != nil {
+				t.Fatalf("parseFlags: %v", err)
+			}
+			if !projectionCoversInclusiveWindow(cfg.DateFrom, cfg.DateTo, tc.windowFrom, tc.windowTo) {
+				t.Fatalf("projection [%s,%s) does not cover UI window [%s,%s]",
+					cfg.DateFrom.Format(time.RFC3339),
+					cfg.DateTo.Format(time.RFC3339),
+					tc.windowFrom.Format("2006-01-02"),
+					tc.windowTo.Format("2006-01-02"),
+				)
+			}
+		})
+	}
+}
+
+func freezeProjectorNow(t *testing.T, now time.Time) {
+	t.Helper()
+	previous := nowInBusinessLocation
+	nowInBusinessLocation = func() time.Time { return now }
+	t.Cleanup(func() { nowInBusinessLocation = previous })
+}
+
+func mustISTInstant(t *testing.T, raw string) time.Time {
+	t.Helper()
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t.Fatalf("parse time %q: %v", raw, err)
+	}
+	return parsed.In(biztime.DefaultLocation())
+}
+
+func mustISTDate(t *testing.T, raw string) time.Time {
+	t.Helper()
+	parsed, err := time.ParseInLocation("2006-01-02", raw, biztime.DefaultLocation())
+	if err != nil {
+		t.Fatalf("parse date %q: %v", raw, err)
+	}
+	return parsed
+}
+
+func projectionCoversInclusiveWindow(projectedFrom, projectedTo, requestFrom, requestTo time.Time) bool {
+	return !requestFrom.Before(projectedFrom) && !requestTo.Add(24*time.Hour).After(projectedTo)
+}

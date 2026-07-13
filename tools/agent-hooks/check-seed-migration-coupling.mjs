@@ -117,15 +117,12 @@ const PROJECTION_RUNTIME_COMPANION_PATTERNS = [
 ];
 
 const MIGRATION_RE = /^backend\/migrations\/postgres\/\d+_[^/]+\.sql$/;
-const PROJECTOR_MAIN_RE = /^backend\/cmd\/[^/]*projector[^/]*\/main\.go$/;
+const PROJECTION_COMMAND_MAIN_RE = /^backend\/cmd\/[^/]*(?:projector|projection|recompute)[^/]*\/main\.go$/;
 const IGNORE_RE =
   /seed-migration-guard:ignore\s+owner=\S+\s+issue=\S+\s+reason=\S+.*\s+expiry=\d{4}-\d{2}-\d{2}/;
 
 const SQL_OP_RE =
   /\b(CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE(?:\s+IF\s+EXISTS)?|DROP\s+TABLE(?:\s+IF\s+EXISTS)?|TRUNCATE(?:\s+TABLE)?|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:ONLY\s+)?(?:(?:"?[a-zA-Z_][\w]*"?|\*)\.)?"?([a-zA-Z_][\w]*)"?/gi;
-const PROJECTOR_FLAG_RE =
-  /fs\.BoolVar\([^,]+,\s*"([^"]*project[^"]*)",\s*boolEnv\([^,]+,\s*false\s*\)/g;
-
 function git(args, options = {}) {
   return execFileSync("git", args, {
     cwd: repo,
@@ -194,6 +191,17 @@ function stripBlockComments(source) {
       .map(() => "")
       .join("\n")
   );
+}
+
+function stripGoLineComments(source) {
+  return source
+    .split("\n")
+    .map((line) => stripCommentOutsideQuotes(line, "//"))
+    .join("\n");
+}
+
+function stripGoComments(source) {
+  return stripGoLineComments(stripBlockComments(source));
 }
 
 function stripInlineSqlComment(line) {
@@ -271,30 +279,259 @@ function hasProjectionRuntimeCompanion(files) {
   return files.filter((rel) => PROJECTION_RUNTIME_COMPANION_PATTERNS.some((re) => re.test(rel)));
 }
 
-function findDefaultFalseProjectorFlags(source, rel = "") {
-  const flags = [];
-  PROJECTOR_FLAG_RE.lastIndex = 0;
+function stripCommentOutsideQuotes(line, marker) {
+  let quote = "";
+  let escaped = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (line.startsWith(marker, i)) {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+
+function findBalancedCallEnd(source, openIndex) {
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+  for (let i = openIndex; i < source.length; i += 1) {
+    const ch = source[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && quote !== "`") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "(") depth += 1;
+    if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function splitTopLevelArgs(source) {
+  const args = [];
+  let current = "";
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && quote !== "`") {
+      current += ch;
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      current += ch;
+      if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      current += ch;
+      quote = ch;
+      continue;
+    }
+    if (ch === "(" || ch === "[" || ch === "{") depth += 1;
+    if (ch === ")" || ch === "]" || ch === "}") depth -= 1;
+    if (ch === "," && depth === 0) {
+      args.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim()) args.push(current.trim());
+  return args;
+}
+
+function findGoCalls(source, methodName) {
+  const calls = [];
+  const clean = stripGoComments(source);
+  const re = new RegExp(`\\b[a-zA-Z_]\\w*\\.${methodName}\\s*\\(`, "g");
   let match;
-  while ((match = PROJECTOR_FLAG_RE.exec(source)) !== null) {
-    flags.push({ file: rel, flag: match[1], line: lineOfIndex(source, match.index) });
+  while ((match = re.exec(clean)) !== null) {
+    const openIndex = clean.indexOf("(", match.index);
+    const closeIndex = findBalancedCallEnd(clean, openIndex);
+    if (closeIndex < 0) continue;
+    calls.push({
+      args: splitTopLevelArgs(clean.slice(openIndex + 1, closeIndex)),
+      line: lineOfIndex(clean, match.index),
+    });
+    re.lastIndex = closeIndex + 1;
+  }
+  return calls;
+}
+
+function stringLiteralValue(arg) {
+  const trimmed = arg.trim();
+  const match = /^"((?:\\.|[^"])*)"$/.exec(trimmed);
+  if (!match) return "";
+  return match[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
+function defaultExpressionIsFalse(arg) {
+  return /\bfalse\b/.test(arg);
+}
+
+function commandNameFromMainPath(rel) {
+  const match = /^backend\/cmd\/([^/]+)\/main\.go$/.exec(rel);
+  return match ? match[1] : "";
+}
+
+function isProjectionCommandMain(rel) {
+  return PROJECTION_COMMAND_MAIN_RE.test(rel);
+}
+
+function findDefaultFalseProjectorFlags(source, rel = "") {
+  const command = commandNameFromMainPath(rel);
+  const flags = [];
+  for (const call of findGoCalls(source, "BoolVar")) {
+    if (call.args.length < 3) continue;
+    const flag = stringLiteralValue(call.args[1]);
+    if (!flag || !/project/i.test(flag) || !defaultExpressionIsFalse(call.args[2])) continue;
+    flags.push({ file: rel, command, flag, line: call.line });
+  }
+  for (const call of findGoCalls(source, "Bool")) {
+    if (call.args.length < 2) continue;
+    const flag = stringLiteralValue(call.args[0]);
+    if (!flag || !/project/i.test(flag) || !defaultExpressionIsFalse(call.args[1])) continue;
+    flags.push({ file: rel, command, flag, line: call.line });
   }
   return flags;
 }
 
+function shellLogicalCommands(source) {
+  const commands = [];
+  let current = "";
+  let startLine = 1;
+  const lines = source.split("\n");
+  for (let i = 0; i < lines.length; i += 1) {
+    let line = stripCommentOutsideQuotes(lines[i], "#").trimEnd();
+    if (!line.trim() && !current) continue;
+    if (!current) startLine = i + 1;
+    if (line.endsWith("\\")) {
+      current += `${line.slice(0, -1)} `;
+      continue;
+    }
+    current += line;
+    const trimmed = current.trim();
+    if (trimmed) commands.push({ command: trimmed, line: startLine });
+    current = "";
+  }
+  if (current.trim()) commands.push({ command: current.trim(), line: startLine });
+  return commands;
+}
+
+function shellTokens(source) {
+  const tokens = [];
+  let current = "";
+  let quote = "";
+  let escaped = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && quote !== "'") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) {
+        quote = "";
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+    current += ch;
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+function parseSeedCloseoutInvocations(source) {
+  return shellLogicalCommands(source)
+    .map(({ command, line }) => ({ tokens: shellTokens(command), line }))
+    .filter(({ tokens }) => tokens[0] === "run_go_cmd" && tokens[1])
+    .map(({ tokens, line }) => ({ command: tokens[1], args: tokens.slice(2), line }));
+}
+
+function invocationEnablesFlag(invocation, flag) {
+  for (let i = 0; i < invocation.args.length; i += 1) {
+    const arg = invocation.args[i];
+    if (arg === `-${flag}=true` || arg === `--${flag}=true`) return true;
+    if (arg === `-${flag}` || arg === `--${flag}`) {
+      const next = invocation.args[i + 1];
+      if (next === "false" || next === "0" || next === "no" || next === "off") return false;
+      return next === undefined || next.startsWith("-") || next === "true" || next === "1" || next === "yes" || next === "on";
+    }
+  }
+  return false;
+}
+
 function seedCloseoutFlagFailures(flags, closeoutSource) {
+  const invocations = parseSeedCloseoutInvocations(closeoutSource);
   const failures = [];
-  for (const { file, flag, line } of flags) {
-    if (!closeoutSource.includes(`-${flag}=true`)) {
-      failures.push({ file, flag, line });
+  for (const { file, command, flag, line } of flags) {
+    const ownerInvocations = invocations.filter((invocation) => invocation.command === command);
+    if (!ownerInvocations.some((invocation) => invocationEnablesFlag(invocation, flag))) {
+      failures.push({ file, command, flag, line });
     }
   }
   return failures;
 }
 
 function projectorFiles() {
-  return splitLines(gitMaybe(["ls-files", "backend/cmd/*projector*/main.go"])).filter((rel) =>
-    PROJECTOR_MAIN_RE.test(rel)
-  );
+  return splitLines(gitMaybe(["ls-files", "backend/cmd/*/main.go"])).filter(isProjectionCommandMain);
 }
 
 function currentProjectionRegistryFailures() {
@@ -413,8 +650,39 @@ function runSelfTest() {
   if (present.length !== 0) {
     throw new Error("self-test default-false projector flag explicit closeout was rejected");
   }
+  const directFalse = findDefaultFalseProjectorFlags(
+    `fs.BoolVar(&cfg.ProjectFoo, "project-foo", false, "foo")\n_ = fs.Bool("project-bar", false, "bar")`,
+    "backend/cmd/new-projection-recompute/main.go"
+  );
+  if (directFalse.map((f) => f.flag).sort().join(",") !== "project-bar,project-foo") {
+    throw new Error(`self-test alternate false declarations not detected: ${JSON.stringify(directFalse)}`);
+  }
+  const commentedCloseout = seedCloseoutFlagFailures(
+    flags,
+    "# run_go_cmd calendar-vaccination-projector -project-calendar-history=true\nrun_go_cmd calendar-vaccination-projector -project-calendar-upcoming=true"
+  );
+  if (commentedCloseout.length !== 1) {
+    throw new Error("self-test commented closeout line was incorrectly accepted");
+  }
+  const wrongOwner = seedCloseoutFlagFailures(
+    [{ ...flags[0], command: "calendar-vaccination-projector" }],
+    "run_go_cmd other-projection-recompute -project-calendar-history=true"
+  );
+  if (wrongOwner.length !== 1) {
+    throw new Error("self-test same flag under wrong command was incorrectly accepted");
+  }
+  const explicitFalse = seedCloseoutFlagFailures(
+    flags,
+    "run_go_cmd calendar-vaccination-projector -project-calendar-history false"
+  );
+  if (explicitFalse.length !== 1) {
+    throw new Error("self-test explicit false flag value was incorrectly accepted");
+  }
+  if (!isProjectionCommandMain("backend/cmd/new-projection-recompute/main.go")) {
+    throw new Error("self-test projection/recompute command file was not scanned");
+  }
 
-  console.log(`seed-migration-coupling: all ${cases.length + 3} self-tests passed`);
+  console.log(`seed-migration-coupling: all ${cases.length + 8} self-tests passed`);
 }
 
 function runScan() {
@@ -427,7 +695,7 @@ function runScan() {
     console.error("can log that the projector ran while leaving a projection table empty.");
     console.error("");
     for (const f of registryFailures) {
-      console.error(`- ${f.file}:${f.line}: -${f.flag} defaults false; add -${f.flag}=true to seed-closeout`);
+      console.error(`- ${f.file}:${f.line}: ${f.command} -${f.flag} defaults false; add -${f.flag}=true to that command in seed-closeout`);
     }
     process.exit(1);
   }
