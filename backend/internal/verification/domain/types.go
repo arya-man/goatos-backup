@@ -65,8 +65,11 @@ type Item struct {
 	Status        string
 	VerdictReason *string
 	OperatorID    *string
+	OperatorName  *string // backend-owned display label for OperatorID
 	ShedID        *string
+	ShedLabel     *string // backend-owned display label for ShedID
 	ParkID        *string
+	ParkLabel     *string // backend-owned display label for ParkID
 	CapturedAt    time.Time
 	VerifiedBy    *string
 	VerifiedAt    *time.Time

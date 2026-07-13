@@ -240,3 +240,128 @@ func TestListQueueKeysetIsBoundedAndOrdered_RealPostgres(t *testing.T) {
 		t.Fatalf("total items seen across pages = %d, want %d", len(seen), total)
 	}
 }
+
+func TestListQueueFetchesDisplayLabels_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+
+	// Seed workforce member for operator
+	var operatorID string
+	err := pool.QueryRow(ctx, `
+INSERT INTO workforce_members (tenant_id, display_name, display_code, status, primary_role_hint)
+VALUES ($1::uuid, 'Ravi Operator', 'OP-001', 'active', 'operator')
+RETURNING workforce_member_id::text`, tenantID).Scan(&operatorID)
+	if err != nil {
+		t.Fatalf("insert workforce_member: %v", err)
+	}
+
+	// Seed locations for shed and park
+	var shedID, parkID string
+	err = pool.QueryRow(ctx, `
+INSERT INTO locations (tenant_id, location_type, name, status)
+VALUES ($1::uuid, 'shed', 'Shed A', 'active')
+RETURNING location_id::text`, tenantID).Scan(&shedID)
+	if err != nil {
+		t.Fatalf("insert shed location: %v", err)
+	}
+
+	err = pool.QueryRow(ctx, `
+INSERT INTO locations (tenant_id, location_type, name, status)
+VALUES ($1::uuid, 'park', 'Park 1', 'active')
+RETURNING location_id::text`, tenantID).Scan(&parkID)
+	if err != nil {
+		t.Fatalf("insert park location: %v", err)
+	}
+
+	// Create a verification item with operator, shed, and park references
+	createResult, err := repo.CreateItem(ctx, domain.CreateItem{
+		TenantID:       tenantID,
+		Vertical:       "preventive_care",
+		Module:         "vaccination",
+		Category:       "vaccination_proof",
+		Source:         domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: tenantID},
+		MediaRefs:      []string{"proof-1"},
+		OperatorID:     &operatorID,
+		ShedID:         &shedID,
+		ParkID:         &parkID,
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
+		IdempotencyKey: "vaccination:submission:display-labels",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+	_ = createResult.Created
+
+	// List the queue and verify labels are populated
+	items, err := repo.ListQueue(ctx, ports.ListQueueParams{
+		TenantID: tenantID,
+		Category: "vaccination_proof",
+		Status:   domain.StatusPending,
+		Cursor:   nil,
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("ListQueue returned %d items, want 1", len(items))
+	}
+
+	item := items[0]
+	if item.OperatorID == nil || *item.OperatorID != operatorID {
+		t.Fatalf("operator_id mismatch: got %v, want %s", item.OperatorID, operatorID)
+	}
+	if item.OperatorName == nil || *item.OperatorName != "Ravi Operator" {
+		t.Fatalf("operator_name = %v, want 'Ravi Operator'", item.OperatorName)
+	}
+
+	if item.ShedID == nil || *item.ShedID != shedID {
+		t.Fatalf("shed_id mismatch: got %v, want %s", item.ShedID, shedID)
+	}
+	if item.ShedLabel == nil || *item.ShedLabel != "Shed A" {
+		t.Fatalf("shed_label = %v, want 'Shed A'", item.ShedLabel)
+	}
+
+	if item.ParkID == nil || *item.ParkID != parkID {
+		t.Fatalf("park_id mismatch: got %v, want %s", item.ParkID, parkID)
+	}
+	if item.ParkLabel == nil || *item.ParkLabel != "Park 1" {
+		t.Fatalf("park_label = %v, want 'Park 1'", item.ParkLabel)
+	}
+
+	// Verify that labels are never raw UUIDs (regression test for STATUS-003)
+	if item.OperatorName != nil && isUUID(*item.OperatorName) {
+		t.Fatalf("operator_name should not be a raw UUID: %s", *item.OperatorName)
+	}
+	if item.ShedLabel != nil && isUUID(*item.ShedLabel) {
+		t.Fatalf("shed_label should not be a raw UUID: %s", *item.ShedLabel)
+	}
+	if item.ParkLabel != nil && isUUID(*item.ParkLabel) {
+		t.Fatalf("park_label should not be a raw UUID: %s", *item.ParkLabel)
+	}
+}
+
+// isUUID is a simple check to detect if a string looks like a UUID (regression test for STATUS-003).
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	if s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
+		return false
+	}
+	// Check for hex characters in UUID position groups
+	for i, ch := range s {
+		if ch == '-' && (i == 8 || i == 13 || i == 18 || i == 23) {
+			continue
+		}
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') && (ch < 'A' || ch > 'F') {
+			return false
+		}
+	}
+	return true
+}

@@ -128,14 +128,20 @@ class VerifyQueueViewModel @Inject constructor(
         return options
     }
 
-    private fun VerificationQueueItem.toRow(): VerificationQueueRow = VerificationQueueRow(
-        id = itemId,
-        category = category,
-        categoryLabel = humanizeCategory(category),
-        title = shedId ?: source.module.ifBlank { category },
-        subtitle = listOfNotNull(parkId, operatorId, capturedAt).joinToString(" · "),
-        statusTone = statusTone(status),
-    )
+    private fun VerificationQueueItem.toRow(): VerificationQueueRow {
+        // Backend-owned display labels: never render raw UUIDs. Use labels when available.
+        val title = shedLabel ?: shedId ?: source.module.ifBlank { category }
+        val subtitle = listOfNotNull(parkLabel ?: parkId, operatorName ?: operatorId, capturedAt)
+            .joinToString(" · ")
+        return VerificationQueueRow(
+            id = itemId,
+            category = category,
+            categoryLabel = humanizeCategory(category),
+            title = title,
+            subtitle = subtitle,
+            statusTone = statusTone(status),
+        )
+    }
 }
 
 internal fun humanizeCategory(category: String): String =

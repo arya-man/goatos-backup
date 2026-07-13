@@ -9045,12 +9045,21 @@ components:
         operator_id:
           type: string
           format: uuid
+        operator_name:
+          type: string
+          description: Backend-owned display label for operator_id. Never a raw UUID.
         shed_id:
           type: string
           format: uuid
+        shed_label:
+          type: string
+          description: Backend-owned display label for shed_id. Never a raw UUID.
         park_id:
           type: string
           format: uuid
+        park_label:
+          type: string
+          description: Backend-owned display label for park_id. Never a raw UUID.
         captured_at:
           type: string
           format: date-time

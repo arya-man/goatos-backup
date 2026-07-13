@@ -51,6 +51,12 @@ const itemColumns = `item_id::text, tenant_id::text, vertical, module, category,
   status, verdict_reason, operator_id::text, shed_id::text, park_id::text, captured_at, verified_by::text,
   verified_at, row_version, created_at, updated_at`
 
+const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical, vi.module, vi.category, vi.source_module,
+  vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.media_refs,
+  vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.park_id::text, vi.captured_at, vi.verified_by::text,
+  vi.verified_at, vi.row_version, vi.created_at, vi.updated_at,
+  wm.display_name::text, shed_loc.name::text, park_loc.name::text`
+
 func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (domain.CreateItemResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -130,15 +136,18 @@ func (r *Repository) ListQueue(ctx context.Context, params ports.ListQueueParams
 		cursorItemID = params.Cursor.ItemID
 	}
 	rows, err := r.pool.Query(ctx, `
-SELECT `+itemColumns+`
-FROM verification_items
-WHERE tenant_id = $1::uuid
-  AND status = $2
-  AND ($3 = '' OR category = $3)
-  AND ($4 = '' OR vertical = $4)
-  AND ($5 = '' OR module = $5)
-  AND ($6::timestamptz IS NULL OR (captured_at, item_id) > ($6::timestamptz, $7::uuid))
-ORDER BY captured_at ASC, item_id ASC
+SELECT `+itemColumnsWithLabels+`
+FROM verification_items vi
+LEFT JOIN workforce_members wm ON vi.tenant_id = wm.tenant_id AND vi.operator_id = wm.workforce_member_id
+LEFT JOIN locations shed_loc ON vi.tenant_id = shed_loc.tenant_id AND vi.shed_id = shed_loc.location_id
+LEFT JOIN locations park_loc ON vi.tenant_id = park_loc.tenant_id AND vi.park_id = park_loc.location_id
+WHERE vi.tenant_id = $1::uuid
+  AND vi.status = $2
+  AND ($3 = '' OR vi.category = $3)
+  AND ($4 = '' OR vi.vertical = $4)
+  AND ($5 = '' OR vi.module = $5)
+  AND ($6::timestamptz IS NULL OR (vi.captured_at, vi.item_id) > ($6::timestamptz, $7::uuid))
+ORDER BY vi.captured_at ASC, vi.item_id ASC
 LIMIT $8`,
 		params.TenantID, params.Status, params.Category, params.Vertical, params.Module,
 		cursorCapturedAt, cursorItemID, params.Limit,
@@ -149,7 +158,7 @@ LIMIT $8`,
 	defer rows.Close()
 	items := make([]domain.Item, 0, params.Limit)
 	for rows.Next() {
-		item, err := scanItem(rows)
+		item, err := scanItemWithLabels(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -362,6 +371,46 @@ func scanItem(row rowScanner) (domain.Item, error) {
 	item.OperatorID = operatorID
 	item.ShedID = shedID
 	item.ParkID = parkID
+	item.VerifiedBy = verifiedBy
+	item.VerifiedAt = verifiedAt
+	item.CapturedAt = item.CapturedAt.UTC()
+	item.CreatedAt = item.CreatedAt.UTC()
+	item.UpdatedAt = item.UpdatedAt.UTC()
+	if len(mediaJSON) > 0 {
+		if err := json.Unmarshal(mediaJSON, &item.MediaRefs); err != nil {
+			return domain.Item{}, fmt.Errorf("verification: unmarshal media_refs: %w", err)
+		}
+	}
+	return item, nil
+}
+
+func scanItemWithLabels(row rowScanner) (domain.Item, error) {
+	var (
+		item                                                  domain.Item
+		sourceTaskID, sourceSubmissionID                      *string
+		operatorID, shedID, parkID, verifiedBy, verdictReason *string
+		operatorName, shedLabel, parkLabel                    *string
+		mediaJSON                                             []byte
+		verifiedAt                                            *time.Time
+	)
+	if err := row.Scan(
+		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
+		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
+		&mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
+		&item.CapturedAt, &verifiedBy, &verifiedAt, &item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
+		&operatorName, &shedLabel, &parkLabel,
+	); err != nil {
+		return domain.Item{}, err
+	}
+	item.Source.TaskID = sourceTaskID
+	item.Source.SubmissionID = sourceSubmissionID
+	item.VerdictReason = verdictReason
+	item.OperatorID = operatorID
+	item.OperatorName = operatorName
+	item.ShedID = shedID
+	item.ShedLabel = shedLabel
+	item.ParkID = parkID
+	item.ParkLabel = parkLabel
 	item.VerifiedBy = verifiedBy
 	item.VerifiedAt = verifiedAt
 	item.CapturedAt = item.CapturedAt.UTC()

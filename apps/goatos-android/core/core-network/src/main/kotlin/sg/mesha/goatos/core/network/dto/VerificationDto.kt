@@ -59,8 +59,11 @@ data class VerificationQueueItem(
     @SerialName("source") val source: VerificationSourceRef = VerificationSourceRef(),
     @SerialName("verdict_reason") val verdictReason: String? = null,
     @SerialName("operator_id") val operatorId: String? = null,
+    @SerialName("operator_name") val operatorName: String? = null,
     @SerialName("shed_id") val shedId: String? = null,
+    @SerialName("shed_label") val shedLabel: String? = null,
     @SerialName("park_id") val parkId: String? = null,
+    @SerialName("park_label") val parkLabel: String? = null,
     @SerialName("verified_by") val verifiedBy: String? = null,
     @SerialName("verified_at") val verifiedAt: String? = null,
 )

@@ -43,8 +43,11 @@ type queueItemResponse struct {
 	Status        string             `json:"status"`
 	VerdictReason *string            `json:"verdict_reason,omitempty"`
 	OperatorID    *string            `json:"operator_id,omitempty"`
+	OperatorName  *string            `json:"operator_name,omitempty"` // backend-owned display label
 	ShedID        *string            `json:"shed_id,omitempty"`
+	ShedLabel     *string            `json:"shed_label,omitempty"` // backend-owned display label
 	ParkID        *string            `json:"park_id,omitempty"`
+	ParkLabel     *string            `json:"park_label,omitempty"` // backend-owned display label
 	CapturedAt    string             `json:"captured_at"`
 	VerifiedBy    *string            `json:"verified_by,omitempty"`
 	VerifiedAt    *string            `json:"verified_at,omitempty"`
@@ -85,8 +88,11 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		Status:        row.Item.Status,
 		VerdictReason: row.Item.VerdictReason,
 		OperatorID:    row.Item.OperatorID,
+		OperatorName:  row.Item.OperatorName,
 		ShedID:        row.Item.ShedID,
+		ShedLabel:     row.Item.ShedLabel,
 		ParkID:        row.Item.ParkID,
+		ParkLabel:     row.Item.ParkLabel,
 		CapturedAt:    row.Item.CapturedAt.Format(rfc3339Nano),
 		VerifiedBy:    row.Item.VerifiedBy,
 		VerifiedAt:    verifiedAt,

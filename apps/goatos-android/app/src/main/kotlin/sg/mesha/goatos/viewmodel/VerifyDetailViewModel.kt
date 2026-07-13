@@ -158,10 +158,13 @@ class VerifyDetailViewModel @Inject constructor(
         )
     }
 
-    private fun buildContext(item: VerificationQueueItem): List<VerifyContextRow> = listOfNotNull(
-        item.shedId?.let { VerifyContextRow(VerifyContextKind.SHED, it) },
-        item.parkId?.let { VerifyContextRow(VerifyContextKind.PARK, it) },
-        item.operatorId?.let { VerifyContextRow(VerifyContextKind.OPERATOR, it) },
-        item.capturedAt?.let { VerifyContextRow(VerifyContextKind.CAPTURED_AT, it) },
-    )
+    private fun buildContext(item: VerificationQueueItem): List<VerifyContextRow> {
+        // Backend-owned display labels: never render raw UUIDs (STATUS-003).
+        return listOfNotNull(
+            (item.shedLabel ?: item.shedId)?.let { VerifyContextRow(VerifyContextKind.SHED, it) },
+            (item.parkLabel ?: item.parkId)?.let { VerifyContextRow(VerifyContextKind.PARK, it) },
+            (item.operatorName ?: item.operatorId)?.let { VerifyContextRow(VerifyContextKind.OPERATOR, it) },
+            item.capturedAt?.let { VerifyContextRow(VerifyContextKind.CAPTURED_AT, it) },
+        )
+    }
 }
