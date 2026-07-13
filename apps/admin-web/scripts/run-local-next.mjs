@@ -96,12 +96,37 @@ async function prepareLocalEnvironment() {
   const role = process.env.GOATOS_LOCAL_ROLE || defaultRole;
   const ttl = process.env.GOATOS_LOCAL_TOKEN_TTL || "12h";
 
-  console.log("Applying Goat OS local migrations before admin-web start.");
-  runGo(["run", "./cmd/migrate", "-timeout=10m"], localEnv);
+  // DRV-R3 single-owner prep: when the stack orchestrator (run-local-stack.sh / supervised) already
+  // migrated + seeded + ran closeout, it hands off GOATOS_LOCAL_DB_PREPARED=1 so this wrapper does NOT
+  // repeat those DB mutations (it still mints the dev token, which is the wrapper's own job).
+  const alreadyPrepared =
+    process.env.GOATOS_LOCAL_DB_PREPARED === "1" || process.env.GOATOS_LOCAL_DB_PREPARED === "true";
+  if (alreadyPrepared) {
+    console.log("Local database already prepared by the stack orchestrator; skipping migrate/seed/closeout.");
+  } else {
+    // DRV-R3 fail-closed guard: an auto-detected local docker DB is safe to mutate, but an INHERITED
+    // DATABASE_URL cannot be verified as a disposable local target — a Cloud SQL Auth Proxy also listens
+    // on 127.0.0.1 — so refuse to migrate/seed it unless the operator explicitly opts in.
+    const inheritedDbUrl = typeof process.env.DATABASE_URL === "string" && process.env.DATABASE_URL !== "";
+    const mutationOptIn =
+      process.env.GOATOS_ALLOW_DB_MUTATION === "1" || process.env.GOATOS_ALLOW_DB_MUTATION === "true";
+    if (inheritedDbUrl && !mutationOptIn) {
+      console.error(
+        "Refusing to migrate/seed: DATABASE_URL was supplied from the environment and cannot be verified as a\n" +
+          "disposable LOCAL database (a Cloud SQL Auth Proxy also listens on 127.0.0.1). If this really is your\n" +
+          "local dev DB, set GOATOS_ALLOW_DB_MUTATION=1 to opt in; otherwise unset DATABASE_URL to use the\n" +
+          "auto-detected local docker database.",
+      );
+      process.exit(1);
+    }
 
-  console.log(`Preparing local dev auth for tenant ${tenantId}, user ${userId}, role ${role}.`);
-  runGo(["run", "./cmd/seed-dev-grant", "-tenant-id", tenantId, "-user-id", userId, "-role", role], localEnv);
-  runSeedCloseoutIfPresent(localEnv);
+    console.log("Applying Goat OS local migrations before admin-web start.");
+    runGo(["run", "./cmd/migrate", "-timeout=10m"], localEnv);
+
+    console.log(`Preparing local dev auth for tenant ${tenantId}, user ${userId}, role ${role}.`);
+    runGo(["run", "./cmd/seed-dev-grant", "-tenant-id", tenantId, "-user-id", userId, "-role", role], localEnv);
+    runSeedCloseoutIfPresent(localEnv);
+  }
 
   const bearerToken = runGo(["run", "./cmd/mint-dev-token", "-tenant-id", tenantId, "-user-id", userId, "-ttl", ttl], localEnv).trim();
   if (bearerToken === "") {

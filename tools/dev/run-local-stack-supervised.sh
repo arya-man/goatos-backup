@@ -73,11 +73,24 @@ export GOATOS_AUTH_HS256_SECRET="${GOATOS_AUTH_HS256_SECRET:-goatos-local-dev-se
 export GOATOS_AUTH_MAX_TOKEN_TTL="${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}"
 export GOATOS_HTTP_ADDR="${GOATOS_HTTP_ADDR:-$host:$api_port}"
 if [ -z "${DATABASE_URL:-}" ]; then
+  db_url_inherited=0
   DATABASE_URL="$(detect_docker_database_url)"
   export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable}"
 else
+  db_url_inherited=1
   export DATABASE_URL
 fi
+
+# DRV-R3 fail-closed guard: only an auto-detected local docker DB is trusted for mutation; an INHERITED
+# DATABASE_URL (a Cloud SQL Auth Proxy also listens on 127.0.0.1) requires an explicit opt-in.
+assert_mutable_local_db() {
+  if [ "$db_url_inherited" = "1" ] && [ "${GOATOS_ALLOW_DB_MUTATION:-}" != "1" ] && [ "${GOATOS_ALLOW_DB_MUTATION:-}" != "true" ]; then
+    echo "Refusing to migrate/seed: DATABASE_URL was supplied from the environment and cannot be verified as a" >&2
+    echo "disposable LOCAL database. Set GOATOS_ALLOW_DB_MUTATION=1 to opt in, or unset DATABASE_URL to use the" >&2
+    echo "auto-detected local docker database." >&2
+    exit 1
+  fi
+}
 export GOATOS_API_BASE_URL="$api_base_url"
 export GOATOS_TENANT_ID="${GOATOS_TENANT_ID:-${GOATOS_LOCAL_TENANT_ID:-00000000-0000-4000-8000-000000000001}}"
 
@@ -230,7 +243,9 @@ start_web() {
   fi
 
   log "Starting Mesha admin-web at http://$host:$web_port/."
-  npm --prefix "$repo_root/apps/admin-web" run dev:local >>"$web_log" 2>&1 &
+  # Single-owner prep (DRV-R3): DB migrate/seed/closeout already ran once before the supervise loop, so
+  # the dev:local wrapper must NOT repeat them on any (re)start; it still mints its own dev token.
+  GOATOS_LOCAL_DB_PREPARED=1 npm --prefix "$repo_root/apps/admin-web" run dev:local >>"$web_log" 2>&1 &
   web_pid="$!"
   wait_for_web
 }
@@ -313,9 +328,17 @@ touch "$api_log" "$web_log" "$projection_log" "$supervisor_log"
 log "Starting durable Goat OS local stack supervisor."
 log "Database URL target: $DATABASE_URL"
 
+# DRV-R3 single-owner prep: migrate + seed + closeout run EXACTLY ONCE here (guarded), never inside the
+# restart loop below — a monitor-triggered restart must only relaunch the servers, not re-mutate the DB.
+assert_mutable_local_db
+if ! (migrate_local_database && seed_dev_grant && seed_closeout_if_present); then
+  log "Local database preparation failed; not starting the stack."
+  exit 1
+fi
+
 while [ "$stop_requested" = "0" ]; do
   cleanup
-  if migrate_local_database && seed_dev_grant && seed_closeout_if_present && start_api && start_projection_refresher && start_web && monitor_stack; then
+  if start_api && start_projection_refresher && start_web && monitor_stack; then
     break
   fi
   cleanup

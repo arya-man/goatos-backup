@@ -53,11 +53,26 @@ detect_docker_database_url() {
 }
 
 if [ -z "${DATABASE_URL:-}" ]; then
+  db_url_inherited=0
   DATABASE_URL="$(detect_docker_database_url)"
   export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable}"
 else
+  db_url_inherited=1
   export DATABASE_URL
 fi
+
+# DRV-R3 fail-closed guard: an auto-detected local docker DB is safe to mutate, but an INHERITED
+# DATABASE_URL cannot be verified as a disposable local target (a Cloud SQL Auth Proxy also listens
+# on 127.0.0.1), so refuse to migrate/seed it unless the operator explicitly opts in.
+assert_mutable_local_db() {
+  if [ "$db_url_inherited" = "1" ] && [ "${GOATOS_ALLOW_DB_MUTATION:-}" != "1" ] && [ "${GOATOS_ALLOW_DB_MUTATION:-}" != "true" ]; then
+    echo "Refusing to migrate/seed: DATABASE_URL was supplied from the environment and cannot be verified as a" >&2
+    echo "disposable LOCAL database (a Cloud SQL Auth Proxy also listens on 127.0.0.1). If this really is your" >&2
+    echo "local dev DB, set GOATOS_ALLOW_DB_MUTATION=1 to opt in; otherwise unset DATABASE_URL to use the" >&2
+    echo "auto-detected local docker database." >&2
+    exit 1
+  fi
+}
 export GOATOS_API_BASE_URL="$api_base_url"
 export GOATOS_TENANT_ID="${GOATOS_TENANT_ID:-${GOATOS_LOCAL_TENANT_ID:-00000000-0000-4000-8000-000000000001}}"
 
@@ -120,6 +135,7 @@ seed_closeout_if_present() {
   )
 }
 
+assert_mutable_local_db
 migrate_local_database
 (
   cd "$repo_root/backend"
@@ -152,4 +168,6 @@ fi
 
 echo "Starting Mesha admin-web at http://127.0.0.1:3300/"
 echo "API log: $api_log"
-npm --prefix "$repo_root/apps/admin-web" run dev:local
+# Single-owner prep (DRV-R3): this script already migrated + seeded + ran closeout above, so tell the
+# dev:local wrapper NOT to repeat those DB mutations (it still mints its own dev token).
+GOATOS_LOCAL_DB_PREPARED=1 npm --prefix "$repo_root/apps/admin-web" run dev:local
