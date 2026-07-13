@@ -9,6 +9,17 @@ RUN --mount=type=cache,target=/root/.npm npm --prefix apps/admin-web ci --no-aud
 
 FROM deps AS build
 
+# Build-time configuration for Faro RUM and app metadata.
+# These values are baked into the Next.js build at `npm run build`.
+ARG NEXT_PUBLIC_FARO_COLLECTOR_URL
+ARG NEXT_PUBLIC_GOATOS_ENV
+ARG NEXT_PUBLIC_APP_VERSION
+
+# Set as environment variables so Next.js build can access them.
+ENV NEXT_PUBLIC_FARO_COLLECTOR_URL=${NEXT_PUBLIC_FARO_COLLECTOR_URL}
+ENV NEXT_PUBLIC_GOATOS_ENV=${NEXT_PUBLIC_GOATOS_ENV}
+ENV NEXT_PUBLIC_APP_VERSION=${NEXT_PUBLIC_APP_VERSION}
+
 COPY apps/admin-web ./apps/admin-web
 COPY packages/api-client ./packages/api-client
 WORKDIR /repo/apps/admin-web

@@ -1,39 +1,83 @@
 {
   "uid": "goatos-stg-kernel-pipeline",
-  "title": "Goat OS stg — Kernel pipeline",
-  "description": "One row per operational-kernel stage, mirroring the golden chain event -> txn -> audit/outbox -> trigger -> obligation -> sweeper -> notify -> proof (context/architecture/operational-kernel.md). Metric names verified against backend/internal/platform/kmetrics/*.go and cross-checked against the exact GMP metric.type strings already used by infra/envs/stg/monitoring.tf alert policies. Queried through the 'Google Cloud Monitoring' (stackdriver) datasource — this environment has no Prometheus datasource. Pub/Sub backlog comes free from native pubsub.googleapis.com metrics (no OTel instrumentation needed). An operator should be able to look at the top summary row alone and know WHERE the pipeline is backed up.",
+  "title": "Goat OS stg \u2014 Kernel pipeline",
+  "description": "One row per operational-kernel stage, mirroring the golden chain event -> txn -> audit/outbox -> trigger -> obligation -> sweeper -> notify -> proof (context/architecture/operational-kernel.md). Metric names verified against backend/internal/platform/kmetrics/*.go and cross-checked against the exact GMP metric.type strings already used by infra/envs/stg/monitoring.tf alert policies. Queried through the 'Google Cloud Monitoring' (stackdriver) datasource \u2014 this environment has no Prometheus datasource. Pub/Sub backlog comes free from native pubsub.googleapis.com metrics (no OTel instrumentation needed). An operator should be able to look at the top summary row alone and know WHERE the pipeline is backed up.",
   "schemaVersion": 39,
   "version": 1,
   "editable": true,
   "graphTooltip": 1,
   "timezone": "Asia/Kolkata",
-  "time": { "from": "now-6h", "to": "now" },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "refresh": "30s",
-  "tags": ["goatos", "stg", "kernel", "outbox", "obligations", "pipeline"],
+  "tags": [
+    "goatos",
+    "stg",
+    "kernel",
+    "outbox",
+    "obligations",
+    "pipeline"
+  ],
   "panels": [
     {
       "id": 200,
-      "title": "Pipeline health — at a glance",
+      "title": "Pipeline health \u2014 at a glance",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
       "collapsed": false,
       "panels": []
     },
     {
       "id": 1,
       "title": "Outbox queue depth",
-      "description": "kernel.outbox.queue_depth (gauge) — rows claimed in the most recent relay batch, a proxy for queue depth (a true COUNT(*) is intentionally avoided on the hot path). Green under 50, amber to 200, red above — tune once a real baseline is observed.",
+      "description": "kernel.outbox.queue_depth (gauge) \u2014 rows claimed in the most recent relay batch, a proxy for queue depth (a true COUNT(*) is intentionally avoided on the hot path). Green under 50, amber to 200, red above \u2014 tune once a real baseline is observed.",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 50 }, { "color": "red", "value": 200 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 200
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
       "targets": [
         {
           "refId": "A",
@@ -41,7 +85,15 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_queue_depth/gauge", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_outbox_queue_depth/gauge",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_SUM",
@@ -53,18 +105,43 @@
     {
       "id": 2,
       "title": "DLQ backlog (dead-lettered, undelivered)",
-      "description": "pubsub.googleapis.com/subscription/num_undelivered_messages on goatos-stg-outbox-events-dlq-inspect — the true dead-letter inspection subscription (native GCP metric, free). Any value > 0 for 5m pages ops via the pubsub_dlq_backlog alert policy in monitoring.tf, so red starts at 1, not a softer threshold.",
+      "description": "pubsub.googleapis.com/subscription/num_undelivered_messages on goatos-stg-outbox-events-dlq-inspect \u2014 the true dead-letter inspection subscription (native GCP metric, free). Any value > 0 for 5m pages ops via the pubsub_dlq_backlog alert policy in monitoring.tf, so red starts at 1, not a softer threshold.",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
       "targets": [
         {
           "refId": "A",
@@ -72,7 +149,15 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "pubsub.googleapis.com/subscription/num_undelivered_messages", "AND", "resource.label.subscription_id", "=", "goatos-stg-outbox-events-dlq-inspect"],
+            "filters": [
+              "metric.type",
+              "=",
+              "pubsub.googleapis.com/subscription/num_undelivered_messages",
+              "AND",
+              "resource.label.subscription_id",
+              "=",
+              "goatos-stg-outbox-events-dlq-inspect"
+            ],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_SUM",
@@ -84,18 +169,47 @@
     {
       "id": 3,
       "title": "Consumer lag",
-      "description": "kernel.consumer.lag (gauge, seconds) — age of a domain event at handle time. SLO 60s (consumer_lag_slo_seconds in variables.tf); the kernel_consumer_lag alert policy pages above this.",
+      "description": "kernel.consumer.lag (gauge, seconds) \u2014 age of a domain event at handle time. SLO 60s (consumer_lag_slo_seconds in variables.tf); the kernel_consumer_lag alert policy pages above this.",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 30 }, { "color": "red", "value": 60 }] }
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 60
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
       "targets": [
         {
           "refId": "A",
@@ -103,7 +217,15 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_MAX",
@@ -117,16 +239,47 @@
       "title": "Notification failure rate",
       "description": "MQL ratio: 100 * rate(kernel.notify.failures) / rate(kernel.notify.send.duration count). SLO success > 99% (notification_success_slo_ratio); red at the 1% alert threshold used by kernel_notification_failure_rate in monitoring.tf.",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 0, "max": 10,
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 1 }] }
+          "unit": "percent",
+          "min": 0,
+          "max": 10,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
         },
         "overrides": []
       },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area", "textMode": "value_and_name" },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      },
       "targets": [
         {
           "refId": "A",
@@ -141,9 +294,14 @@
     },
     {
       "id": 201,
-      "title": "Stage 1 — Outbox relay (audit -> publish)",
+      "title": "Stage 1 \u2014 Outbox relay (audit -> publish)",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
       "collapsed": false,
       "panels": []
     },
@@ -152,10 +310,37 @@
       "title": "Publish duration p50 / p99 by outcome",
       "description": "kernel.outbox.publish.duration, labels outcome (published/retry_scheduled/failed/dead_letter), event_type. One instrument covers success and failure so a single histogram tells you both latency and where messages are going.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 6 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
       "datasource": "Google Cloud Monitoring",
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 5,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -164,9 +349,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.outcome"],
+            "groupBys": [
+              "metric.label.outcome"
+            ],
             "perSeriesAligner": "ALIGN_PERCENTILE_50",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -179,9 +374,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_outbox_publish_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.outcome"],
+            "groupBys": [
+              "metric.label.outcome"
+            ],
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -192,19 +397,84 @@
     {
       "id": 6,
       "title": "Outbox throughput: reclaimed / retry-scheduled / dead-lettered",
-      "description": "kernel.outbox.reclaimed (stale lease recovery), kernel.outbox.retry_scheduled, kernel.outbox.dead_letters — all counters, rate/5m. A rising dead-letter line with flat reclaimed/retry means messages are failing outright, not just slow to land.",
+      "description": "kernel.outbox.reclaimed (stale lease recovery), kernel.outbox.retry_scheduled, kernel.outbox.dead_letters \u2014 all counters, rate/5m. A rising dead-letter line with flat reclaimed/retry means messages are failing outright, not just slow to land.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 6 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
-        "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 0, "stacking": { "mode": "normal" } } },
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 0,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "dead-lettered" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
-          { "matcher": { "id": "byName", "options": "retry-scheduled" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
-          { "matcher": { "id": "byName", "options": "reclaimed" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "blue" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dead-lettered"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "retry-scheduled"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reclaimed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -213,9 +483,17 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_reclaimed_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "logging.googleapis.com/user/goatos_kernel_outbox_reclaimed",
+              "AND",
+              "resource.type",
+              "=",
+              "cloud_run_job"
+            ],
             "view": "FULL",
-            "perSeriesAligner": "ALIGN_RATE",
+            "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s"
           }
@@ -227,9 +505,17 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_retry_scheduled_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "logging.googleapis.com/user/goatos_kernel_outbox_retry_scheduled",
+              "AND",
+              "resource.type",
+              "=",
+              "cloud_run_job"
+            ],
             "view": "FULL",
-            "perSeriesAligner": "ALIGN_RATE",
+            "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s"
           }
@@ -241,9 +527,17 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_outbox_dead_letters_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "logging.googleapis.com/user/goatos_kernel_outbox_dead_letter",
+              "AND",
+              "resource.type",
+              "=",
+              "cloud_run_job"
+            ],
             "view": "FULL",
-            "perSeriesAligner": "ALIGN_RATE",
+            "perSeriesAligner": "ALIGN_DELTA",
             "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s"
           }
@@ -252,24 +546,49 @@
     },
     {
       "id": 202,
-      "title": "Stage 2 — Pub/Sub transport",
+      "title": "Stage 2 \u2014 Pub/Sub transport",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
       "collapsed": false,
       "panels": []
     },
     {
       "id": 7,
       "title": "Domain-events subscription backlog",
-      "description": "pubsub.googleapis.com/subscription/num_undelivered_messages on goatos-stg-domain-events — the live consumer's own backlog (distinct from the DLQ-inspect subscription in the summary row above). A sustained climb here means the domain consumer is falling behind ingestion, before it ever shows up as consumer lag.",
+      "description": "pubsub.googleapis.com/subscription/num_undelivered_messages on goatos-stg-domain-events \u2014 the live consumer's own backlog (distinct from the DLQ-inspect subscription in the summary row above). A sustained climb here means the domain consumer is falling behind ingestion, before it ever shows up as consumer lag.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 14 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
-        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 1 } },
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 1
+          }
+        },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -278,7 +597,15 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "pubsub.googleapis.com/subscription/num_undelivered_messages", "AND", "resource.label.subscription_id", "=", "goatos-stg-domain-events"],
+            "filters": [
+              "metric.type",
+              "=",
+              "pubsub.googleapis.com/subscription/num_undelivered_messages",
+              "AND",
+              "resource.label.subscription_id",
+              "=",
+              "goatos-stg-domain-events"
+            ],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_NONE",
@@ -292,17 +619,49 @@
       "title": "DLQ subscription backlog (dead-letter, trend)",
       "description": "pubsub.googleapis.com/subscription/num_undelivered_messages on goatos-stg-outbox-events-dlq-inspect, plotted over time (the summary stat above shows only the latest value).",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 14 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
         "defaults": {
-          "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 0 },
-          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] },
-          "color": { "mode": "thresholds" }
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 0
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
         },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -311,7 +670,15 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "pubsub.googleapis.com/subscription/num_undelivered_messages", "AND", "resource.label.subscription_id", "=", "goatos-stg-outbox-events-dlq-inspect"],
+            "filters": [
+              "metric.type",
+              "=",
+              "pubsub.googleapis.com/subscription/num_undelivered_messages",
+              "AND",
+              "resource.label.subscription_id",
+              "=",
+              "goatos-stg-outbox-events-dlq-inspect"
+            ],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_NONE",
@@ -322,9 +689,14 @@
     },
     {
       "id": 203,
-      "title": "Stage 3 — Domain-event consumer",
+      "title": "Stage 3 \u2014 Domain-event consumer",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
       "collapsed": false,
       "panels": []
     },
@@ -333,15 +705,57 @@
       "title": "Handle duration p50 / p99 + lag",
       "description": "kernel.consumer.handle.duration (labels outcome, event_type) alongside kernel.consumer.lag (publish-to-handle age). Lag climbing while handle duration stays flat points at Pub/Sub delivery delay, not slow processing.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 22 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
-        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1 } },
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 5,
+            "lineWidth": 1
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "consumer lag" }, "properties": [{ "id": "custom.lineWidth", "value": 2 }, { "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "consumer lag"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -350,9 +764,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.outcome"],
+            "groupBys": [
+              "metric.label.outcome"
+            ],
             "perSeriesAligner": "ALIGN_PERCENTILE_50",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -365,9 +789,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.outcome"],
+            "groupBys": [
+              "metric.label.outcome"
+            ],
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -380,7 +814,15 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_consumer_lag_seconds/gauge",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_MAX",
             "crossSeriesReducer": "REDUCE_MAX",
@@ -394,15 +836,52 @@
       "title": "Validation errors + processed/duplicate/failed outcomes",
       "description": "kernel.consumer.validation_errors (schema-invalid envelopes, rejected before dispatch) plus the outcome breakdown of kernel.consumer.handle.duration's _count series (processed / duplicate_skipped / failed).",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 22 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
-        "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 0, "stacking": { "mode": "normal" } } },
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 0,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byName", "options": "validation errors" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "validation errors"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -411,7 +890,15 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_validation_errors_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_consumer_validation_errors_total/counter",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
@@ -425,9 +912,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_consumer_handle_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.outcome"],
+            "groupBys": [
+              "metric.label.outcome"
+            ],
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -437,21 +934,53 @@
     },
     {
       "id": 204,
-      "title": "Stage 4 — Obligation sweeper",
+      "title": "Stage 4 \u2014 Obligation sweeper",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
       "collapsed": false,
       "panels": []
     },
     {
       "id": 11,
       "title": "Sweeper batch duration p50 / p99 by stage",
-      "description": "kernel.sweeper.batch.duration, label stage (version / park_consolidation / mark_missed, etc.) — one histogram covers the sweeper's internal phases.",
+      "description": "kernel.sweeper.batch.duration, label stage (version / park_consolidation / mark_missed, etc.) \u2014 one histogram covers the sweeper's internal phases.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 30 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
       "datasource": "Google Cloud Monitoring",
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 5,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -460,9 +989,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.stage"],
+            "groupBys": [
+              "metric.label.stage"
+            ],
             "perSeriesAligner": "ALIGN_PERCENTILE_50",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -475,9 +1014,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_sweeper_batch_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.stage"],
+            "groupBys": [
+              "metric.label.stage"
+            ],
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -488,12 +1037,35 @@
     {
       "id": 12,
       "title": "Obligations swept + tasks created (throughput)",
-      "description": "kernel.sweeper.obligations_swept + kernel.sweeper.tasks_created, both by stage. This is the sweeper's actual output — obligations advanced and SOP batch tasks created per run.",
+      "description": "kernel.sweeper.obligations_swept + kernel.sweeper.tasks_created, both by stage. This is the sweeper's actual output \u2014 obligations advanced and SOP batch tasks created per run.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 30 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
       "datasource": "Google Cloud Monitoring",
-      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 50, "lineWidth": 0 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -502,9 +1074,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_obligations_swept_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_sweeper_obligations_swept_total/counter",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.stage"],
+            "groupBys": [
+              "metric.label.stage"
+            ],
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -517,9 +1099,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_sweeper_tasks_created_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_sweeper_tasks_created_total/counter",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.stage"],
+            "groupBys": [
+              "metric.label.stage"
+            ],
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -529,9 +1121,14 @@
     },
     {
       "id": 205,
-      "title": "Stage 5 — Notification dispatch",
+      "title": "Stage 5 \u2014 Notification dispatch",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 37 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
       "collapsed": false,
       "panels": []
     },
@@ -540,10 +1137,37 @@
       "title": "Send duration p50 / p99 by channel",
       "description": "kernel.notify.send.duration, label channel (sms/email/push/webhook/...).",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 38 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
       "datasource": "Google Cloud Monitoring",
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5, "lineWidth": 1 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 5,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -552,9 +1176,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.channel"],
+            "groupBys": [
+              "metric.label.channel"
+            ],
             "perSeriesAligner": "ALIGN_PERCENTILE_50",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -567,9 +1201,19 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_notify_send_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.channel"],
+            "groupBys": [
+              "metric.label.channel"
+            ],
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_NONE",
             "alignmentPeriod": "300s"
@@ -580,18 +1224,66 @@
     {
       "id": 14,
       "title": "Failures + exhausted retries by channel",
-      "description": "kernel.notify.failures (will retry) vs kernel.notify.exhausted (used its last attempt — a genuinely undelivered notification). A channel showing exhausted-without-failures growth means the retry budget itself may be misconfigured.",
+      "description": "kernel.notify.failures (will retry) vs kernel.notify.exhausted (used its last attempt \u2014 a genuinely undelivered notification). A channel showing exhausted-without-failures growth means the retry budget itself may be misconfigured.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 38 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
       "datasource": "Google Cloud Monitoring",
       "fieldConfig": {
-        "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 60, "lineWidth": 0 } },
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 0
+          }
+        },
         "overrides": [
-          { "matcher": { "id": "byRegexp", "options": "/exhausted.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
-          { "matcher": { "id": "byRegexp", "options": "/failures.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/exhausted.*/"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/failures.*/"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
         ]
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -600,11 +1292,21 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_notify_failures_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "logging.googleapis.com/user/goatos_kernel_notify_failed",
+              "AND",
+              "resource.type",
+              "=",
+              "cloud_run_job"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.channel"],
-            "perSeriesAligner": "ALIGN_RATE",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "groupBys": [
+              "metric.label.channel"
+            ],
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s"
           }
         },
@@ -615,11 +1317,21 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_notify_exhausted_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "logging.googleapis.com/user/goatos_kernel_notify_exhausted",
+              "AND",
+              "resource.type",
+              "=",
+              "cloud_run_job"
+            ],
             "view": "FULL",
-            "groupBys": ["metric.label.channel"],
-            "perSeriesAligner": "ALIGN_RATE",
-            "crossSeriesReducer": "REDUCE_NONE",
+            "groupBys": [
+              "metric.label.channel"
+            ],
+            "perSeriesAligner": "ALIGN_DELTA",
+            "crossSeriesReducer": "REDUCE_SUM",
             "alignmentPeriod": "300s"
           }
         }
@@ -627,21 +1339,49 @@
     },
     {
       "id": 206,
-      "title": "Stage 6 — Cloud Tasks enqueue",
+      "title": "Stage 6 \u2014 Cloud Tasks enqueue",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
       "collapsed": false,
       "panels": []
     },
     {
       "id": 15,
       "title": "Enqueue duration p50 / p99",
-      "description": "kernel.cloudtasks.enqueue.duration — one CreateTask call's latency.",
+      "description": "kernel.cloudtasks.enqueue.duration \u2014 one CreateTask call's latency.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 46 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      },
       "datasource": "Google Cloud Monitoring",
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -650,7 +1390,15 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_cloudtasks_enqueue_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_cloudtasks_enqueue_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_PERCENTILE_50",
             "crossSeriesReducer": "REDUCE_MAX",
@@ -664,7 +1412,15 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_cloudtasks_enqueue_duration_seconds/histogram", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_cloudtasks_enqueue_duration_seconds/histogram",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_PERCENTILE_99",
             "crossSeriesReducer": "REDUCE_MAX",
@@ -676,12 +1432,35 @@
     {
       "id": 16,
       "title": "Idempotent collisions (expected no-ops)",
-      "description": "kernel.cloudtasks.idempotent_collisions — CreateTask calls that hit an existing task name (codes.AlreadyExists), the intended idempotent-replay path. Tracked here so the volume stays visible instead of vanishing silently into a treated-as-success branch.",
+      "description": "kernel.cloudtasks.idempotent_collisions \u2014 CreateTask calls that hit an existing task name (codes.AlreadyExists), the intended idempotent-replay path. Tracked here so the volume stays visible instead of vanishing silently into a treated-as-success branch.",
       "type": "timeseries",
-      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 46 },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
       "datasource": "Google Cloud Monitoring",
-      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "bars", "fillOpacity": 50, "lineWidth": 0 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 50,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
       "targets": [
         {
           "refId": "A",
@@ -690,7 +1469,15 @@
           "queryType": "timeSeriesList",
           "timeSeriesList": {
             "projectName": "goatos-stg",
-            "filters": ["metric.type", "=", "prometheus.googleapis.com/kernel_cloudtasks_idempotent_collisions_total/counter", "AND", "resource.type", "=", "generic_task"],
+            "filters": [
+              "metric.type",
+              "=",
+              "prometheus.googleapis.com/kernel_cloudtasks_idempotent_collisions_total/counter",
+              "AND",
+              "resource.type",
+              "=",
+              "generic_task"
+            ],
             "view": "FULL",
             "perSeriesAligner": "ALIGN_RATE",
             "crossSeriesReducer": "REDUCE_SUM",
@@ -703,19 +1490,47 @@
       "id": 207,
       "title": "End-to-end",
       "type": "row",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 53 },
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 53
+      },
       "collapsed": false,
       "panels": []
     },
     {
       "id": 17,
       "title": "End-to-end event age (outbox publish -> sweep), approx. p99",
-      "description": "Upper-bound proxy: sum of per-stage p99s (outbox publish + consumer handle + sweeper batch), until a dedicated end-to-end span metric is exported from the propagated outbox traceparent (OBSERVABILITY_DESIGN.md section 2.2). Read this as 'worst case, not typical case' — a true single-trace measurement will read lower once wired.",
+      "description": "Upper-bound proxy: sum of per-stage p99s (outbox publish + consumer handle + sweeper batch), until a dedicated end-to-end span metric is exported from the propagated outbox traceparent (OBSERVABILITY_DESIGN.md section 2.2). Read this as 'worst case, not typical case' \u2014 a true single-trace measurement will read lower once wired.",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 54 },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 54
+      },
       "datasource": "Google Cloud Monitoring",
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 2 } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
       "targets": [
         {
           "refId": "A",

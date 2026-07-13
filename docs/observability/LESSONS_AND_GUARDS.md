@@ -657,19 +657,28 @@ on the deployed Job but the socket never appears. Separately, `gcloud run ... --
 (fixed by re-injecting it at `spec.template.metadata.annotations`, but that alone still isn't
 enough for a multi-container Job).
 
-**Status / fix:** the **API service telemetry is LIVE** (sidecar works for services). The
-**13 kernel Jobs are NOT rolled out** — the collector-sidecar-on-Jobs design is blocked by
-this limitation. **Do not** roll the sidecar onto the Jobs. Two forward paths (pick per env):
-1. **Log-based metrics (recommended for short-lived Jobs):** the kernel Jobs already emit
-   structured `RunResult` counts (published, dead_letters, reclaimed, consumer lag, sweeper
-   batch, notify success) to stdout → Cloud Logging. Define Cloud Monitoring **log-based
-   metrics** from those logs and point the kernel-pipeline dashboard panels at them. No
-   sidecar, no Cloud SQL mount issue, no double-run risk. This is the standard pattern for
-   ephemeral Jobs.
-2. **In-process GCP exporter for Jobs:** extend `platform/observability` so that when a Job
-   detects it's short-lived, it exports metrics/traces **directly** to Cloud Monitoring /
-   Cloud Trace (the GCP exporters) with a force-flush on exit, instead of OTLP-to-a-sidecar.
-   Bigger code change; keeps everything as real OTel metrics.
+**Status / fix:** **RESOLVED (2026-07-13) via log-based metrics (path #1)**. The **API service telemetry is LIVE** (sidecar works for services). The **kernel Jobs now use Cloud Logging log-based metrics** — no sidecar, no Cloud SQL mount issue.
+
+**Solution detail:** The kernel Jobs already emit structured `RunResult` counts (published, dead_letters, reclaimed, consumer lag, sweeper batch, notify success) to stdout → Cloud Logging in `jsonPayload`. Cloud Monitoring **log-based metrics** extract numeric field values from these logs at ingest time. The kernel-pipeline Grafana dashboard queries these metrics via the Google Cloud Monitoring datasource.
+
+**Implementation:**
+- Script: `infra/observability/kernel-log-metrics.sh` (idempotent, runs once per env)
+- Creates metrics: `goatos_kernel_outbox_*`, `goatos_kernel_notify_*`, `goatos_kernel_sweeper_runs`.
+  **Live count in stg is 14 (12 DISTRIBUTION + 2 INT64)**, not 13+1 — see
+  `KERNEL_LOG_METRICS.md` "Obligation Sweeper" section for a live duplicate
+  (`goatos_kernel_sweeper_obligations_v2`) that needs a maintainer decision
+  (delete vs. wire up for real)
+- Log filters validated against live stg executions (batch, latency, outcome breakdowns all present)
+- Dashboard panels 6, 14 updated to use `logging.googleapis.com/user/goatos_kernel_*` metrics
+- Reference: `docs/observability/KERNEL_LOG_METRICS.md` (deployment guide, troubleshooting, future enhancements for sweeper JSON migration)
+
+**Why this is better than the sidecar:**
+- No Cloud SQL socket mount issue (no sidecar at all)
+- No double-run risk (Jobs execute once, emit once)
+- No storage overhead (logs are ephemeral; metrics are time-series only)
+- Proven pattern for ephemeral workloads (GCP best practice)
+
+**Deferred:** In-process GCP exporter for Jobs remains optional for future work if full OTel histogram/trace instrumentation is needed. Log-based metrics + structured logs satisfy stg/prod observability requirements.
 
 **Prevention / next-env note:** never assume Service behavior == Job behavior on Cloud Run.
 Any multi-container Job that needs Cloud SQL must be proven with a real `execute` before
@@ -677,6 +686,57 @@ rollout. When editing live Jobs via YAML, re-inject the cloudsql annotation (exp
 AND verify the socket actually mounts. Always **canary a single Job with `maxRetries=0`** (so
 a failure can't double-run) and restore the original single-container config immediately if it
 fails — a kernel Job left broken stops that stage of the pipeline.
+
+---
+
+### 23. Grafana Alloy's own control-plane server silently wins the port race against `faro.receiver` — RUM was never actually ingested
+
+**Symptom:** `goatos-stg-grafana-alloy` reported Ready and passed its Cloud Run startup TCP
+probe on port 8080, and even served HTTP 200 for every path — but a synthetic Faro-shaped POST
+to the service's public URL (any path, including where the browser SDK posts) returned Alloy's
+own bundled React UI `index.html` (`<title>Grafana Alloy</title>`), never a receiver response.
+Zero RUM/browser spans ever reached Cloud Trace (verified via the Cloud Trace v1 API — only
+normal backend/API/Grafana Cloud Run auto-instrumentation spans were present, no `mesha-admin-web`
+or Web Vitals span names).
+
+**Root cause:** `infra/observability/Dockerfile`'s `CMD` passed
+`--server.http.listen-addr=0.0.0.0:8080` (Alloy's own control-plane/UI HTTP server), while
+`alloy-config.alloy`'s `faro.receiver "admin_web_rum" { server { listen_port = 8080 } }` block
+opens a **second, independent** `net.Listen` for the receiver itself — the component framework
+does not multiplex it behind Alloy's own server. Two listeners, one process, one port. Cloud Run
+logs showed the crash-loop plainly on every cold start: Alloy's own server binds 8080 first
+(`"now listening for http traffic" service=http addr=0.0.0.0:8080`), then the faro.receiver's own
+bind attempt fails a few ms later (`"server exited with error" ... err="listen tcp 0.0.0.0:8080:
+bind: address already in use"`). The container still reports Ready because *something* (Alloy's
+own UI) is listening on 8080 and answers the TCP probe — the failure is silent from Cloud Run's
+point of view.
+
+**Fix location:** `infra/observability/Dockerfile` → `CMD` now passes
+`--server.http.listen-addr=127.0.0.1:12345` (Alloy's own UI/debug server is loopback-only — it was
+never meant to be the public endpoint anyway; Cloud Run only forwards the container's exposed port
+to browsers). This frees 0.0.0.0:8080 for `faro.receiver`'s own listener, which is the one that
+actually needs to be reachable from the browser.
+
+**Prevention guard:**
+- Never point `--server.http.listen-addr` (or any other Alloy-own-server flag) at the same port a
+  component's own `server { listen_port = ... }` block uses. If a component needs the public Cloud
+  Run port, Alloy's own control server must move off it (loopback or a different port entirely).
+- **Do not treat a green Cloud Run `Ready` status or a 200 from `curl <service-url>/` as proof a
+  Faro receiver (or any component with its own dedicated listener) is actually up.** A 200 there
+  only proves *some* HTTP server in the container is listening — verify the specific component by
+  POSTing a real (or synthetic) payload of that component's expected shape and checking the
+  response is NOT the generic Alloy UI HTML, and independently check the downstream sink (Cloud
+  Trace / Cloud Logging / GMP) for actual data.
+- Grep Cloud Run revision logs for `"address already in use"` after every Alloy config or
+  Dockerfile CMD change — this is a Cloud Run-Ready-but-functionally-broken failure mode that
+  passes the startup probe.
+
+**Next env check (prod):** after deploying `goatos-prod-grafana-alloy`, do NOT rely on the
+service's Ready status. POST a Faro-shaped payload directly to the service URL and confirm the
+response is not the Alloy UI `index.html`; then load the real admin-web prod URL a few times and
+confirm a genuine RUM trace appears in Cloud Trace within ~1-2 minutes. If either check fails,
+check revision logs for the `bind: address already in use` signature before assuming a different
+root cause.
 
 ---
 
