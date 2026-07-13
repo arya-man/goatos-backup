@@ -84,6 +84,12 @@ func (s *Service) ListEvents(ctx context.Context, q domain.Query) (domain.Calend
 		return domain.CalendarEventListResponse{}, mapRepoError(err)
 	}
 	resp.Presentation = domain.CalendarPresentationForQuery(q.OwnerKey)
+	// DRV-005: reminder_rail.empty_message reuses the same backend-owned copy the week view already
+	// renders (CalendarPresentation.Week.ReminderEmptyMessage) rather than a second hardcoded literal
+	// in the repository layer.
+	if resp.ReminderRail != nil {
+		resp.ReminderRail.EmptyMessage = resp.Presentation.Week.ReminderEmptyMessage
+	}
 	return resp, nil
 }
 

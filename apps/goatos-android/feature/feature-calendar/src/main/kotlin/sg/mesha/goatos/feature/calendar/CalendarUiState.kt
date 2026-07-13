@@ -41,6 +41,28 @@ data class CalendarWeekDay(
 )
 
 /**
+ * Park-level vaccination-drive progress (v4) — a straight mapping of the backend
+ * `drive_summary` object (see `DriveSummaryDto`). [EventCard] renders every field as-is;
+ * it never re-derives shed/animal counts from the underlying target rows. Null when the
+ * item is not drive-aggregated or the backend has not populated `drive_summary` yet.
+ */
+data class CalendarDriveSummary(
+    val parkName: String = "",
+    val dueDateLabel: String = "",
+    val shedCount: Int = 0,
+    val shedsCompleted: Int = 0,
+    val vaccineLabels: List<String> = emptyList(),
+    val totalCount: Int = 0,
+    val completedCount: Int = 0,
+    val remainingCount: Int = 0,
+    val dueCount: Int = 0,
+    val overdueCount: Int = 0,
+    val deferredCount: Int = 0,
+    val blockedCount: Int = 0,
+    val ownerLabel: String = "",
+)
+
+/**
  * A drive/shed card shown under a week day or inside a day sheet. [ctaLabel] and
  * [target] are backend-provided per principal (operator "Open drive" / leadership
  * "View drive status"); a null [ctaLabel] renders a dimmed, non-drillable card.
@@ -58,6 +80,8 @@ data class CalendarItem(
     val vaccineCount: Int = 0,
     val targetCount: Int = 0,
     val vaccineLabels: List<String> = emptyList(),
+    /** Park-level drive progress card content (v4); see [CalendarDriveSummary]. */
+    val driveSummary: CalendarDriveSummary? = null,
     val statusLabel: String,
     val statusTone: CalendarTone,
     val categoryLabel: String? = null,

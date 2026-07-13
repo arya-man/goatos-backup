@@ -799,6 +799,12 @@
   .ev .et{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);width:52px;flex:none;padding-top:1px}
   .ev .eb{flex:1;min-width:0}.ev .eb b{font-size:13.5px}.ev .em{color:var(--muted);font-size:12px;margin-top:2px}
   .ev .erem{font-size:10px;font-weight:800;color:var(--amber);background:var(--warnx);padding:2px 7px;border-radius:6px;white-space:nowrap;flex:none}
+  /* park-level vaccination drive progress card (aggregated calendar events) */
+  .drivecard{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .drivecard-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .drivecard-hd b{font-size:13px}
+  .drivecard-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .drivecard-ft{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;padding-top:8px;border-top:1px solid var(--line2)}
   /* ownership matrix */
   .owncard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px;box-shadow:var(--shadow)}
   .owncard .oh{display:flex;align-items:center;gap:9px;margin-bottom:9px}
@@ -856,6 +862,7 @@
     .pgsize{min-width:40px}
     .g4{grid-template-columns:repeat(2,1fr)}
     .g3,.g2{grid-template-columns:1fr}
+    .calendar-week-grid{grid-template-columns:1fr}
     .kpi .val{font-size:21px}
     .brand b{font-size:14px}
     .phead .btn{padding:7px 10px;font-size:12.5px}

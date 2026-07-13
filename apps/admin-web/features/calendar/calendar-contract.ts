@@ -6,7 +6,7 @@
 // the adapter layer the swap requires (it is NOT a 1:1 rename of the old local types).
 import type { AppApiComponents } from "@goatos/api-client";
 import type { Tone } from "@/components/ui-primitives";
-import { copy, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalOption, optionGroup, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import {
   Boxes,
   CalendarClock,
@@ -26,6 +26,8 @@ export type CalendarEvent = AppApiComponents["schemas"]["CalendarEvent"];
 export type CalendarDateMarker = AppApiComponents["schemas"]["CalendarDateMarker"];
 export type CalendarEventDetail = AppApiComponents["schemas"]["CalendarEventDetail"];
 export type CalendarEventListResponse = AppApiComponents["schemas"]["CalendarEventListResponse"];
+export type CalendarReminderRail = AppApiComponents["schemas"]["CalendarReminderRail"];
+export type CalendarReminderRailItem = AppApiComponents["schemas"]["CalendarReminderRailItem"];
 export type CalendarHistoryItem = AppApiComponents["schemas"]["CalendarHistoryItem"];
 export type CalendarStatus = AppApiComponents["schemas"]["CalendarStatus"];
 export type CalendarSeverity = AppApiComponents["schemas"]["CalendarSeverity"];
@@ -335,4 +337,25 @@ export function driveShedId(event: CalendarEvent): string | null {
 
 export function hasWorkflowLink(event: CalendarEvent): boolean {
   return linkPresent(event.links ?? {}, "workflow");
+}
+
+// Resolve an option-group-backed state to its label, or a "not configured" placeholder for the
+// none/not_scheduled sentinel values. Shared by the event drawer and the week-view reminders rail so
+// both render reminder/escalation state text identically.
+export function contractStateLabel(page: AdminUiPageContract, groupId: string, state: string | null | undefined, noneKey = "label.placeholder"): string {
+  const key = state?.trim();
+  if (!key || key === "none" || key === "not_scheduled") return copy(page, noneKey);
+  return optionalOption(page, groupId, key)?.label ?? key.replace(/_/g, " ");
+}
+
+// ── Drive summary ────────────────────────────────────────────────────────────────────────────────
+//
+// Park-level drive progress data for aggregated `vaccination_drive` calendar events. Emitted by the
+// backend (`backend/internal/calendar` + `contracts/openapi/app-api.yaml`) on `CalendarEvent` and
+// carried on the generated client type — consumed straight from the generated schema so the frontend
+// can never drift from the backend contract.
+export type CalendarDriveSummary = AppApiComponents["schemas"]["DriveSummary"];
+
+export function driveSummaryOf(event: CalendarEvent): CalendarDriveSummary | null {
+  return event.drive_summary ?? null;
 }

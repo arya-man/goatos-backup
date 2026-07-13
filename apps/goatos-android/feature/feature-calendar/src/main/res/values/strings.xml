@@ -42,4 +42,14 @@
     <string name="calendar_drive_vaccines">Vaccines</string>
     <string name="calendar_drive_doses">Doses</string>
     <string name="calendar_loading_more">Loading…</string>
+
+    <!-- v4 park-level drive progress card (EventCard / DriveProgressCard) -->
+    <string name="calendar_drive_title">Vaccination drive · %1$s</string>
+    <string name="calendar_drive_sheds_done">Sheds done</string>
+    <string name="calendar_drive_animals">Doses</string>
+    <string name="calendar_drive_remaining_left">%1$d left</string>
+    <string name="calendar_drive_due">%1$d due</string>
+    <string name="calendar_drive_overdue">%1$d overdue</string>
+    <string name="calendar_drive_deferred">%1$d deferred</string>
+    <string name="calendar_drive_blocked">%1$d blocked</string>
 </resources>

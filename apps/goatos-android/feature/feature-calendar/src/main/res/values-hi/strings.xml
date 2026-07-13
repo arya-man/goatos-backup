@@ -29,4 +29,14 @@
     <string name="calendar_drive_sheds">शेड</string>
     <string name="calendar_drive_vaccines">टीके</string>
     <string name="calendar_drive_doses">खुराक</string>
+
+    <!-- v4 park-level drive progress card -->
+    <string name="calendar_drive_title">टीकाकरण ड्राइव · %1$s</string>
+    <string name="calendar_drive_sheds_done">शेड पूर्ण</string>
+    <string name="calendar_drive_animals">खुराक</string>
+    <string name="calendar_drive_remaining_left">%1$d शेष</string>
+    <string name="calendar_drive_due">%1$d देय</string>
+    <string name="calendar_drive_overdue">%1$d अतिदेय</string>
+    <string name="calendar_drive_deferred">%1$d टाला गया</string>
+    <string name="calendar_drive_blocked">%1$d अवरुद्ध</string>
 </resources>

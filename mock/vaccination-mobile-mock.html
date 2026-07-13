@@ -908,6 +908,13 @@
     drivestatus:{en:'Drive status',hi:'ड्राइव स्थिति',kn:'ಡ್ರೈವ್ ಸ್ಥಿತಿ',te:'డ్రైవ్ స్థితి'},
     shedsfollow:{en:'Tap a shed for its live status · red = delayed, chase the team',hi:'लाइव स्थिति के लिए शेड टैप करें · लाल = देरी, टीम से संपर्क करें',kn:'ಲೈವ್ ಸ್ಥಿತಿಗೆ ಶೆಡ್ ಟ್ಯಾಪ್ · ಕೆಂಪು = ವಿಳಂಬ, ತಂಡವನ್ನು ಸಂಪರ್ಕಿಸಿ',te:'లైవ్ స్థితి కోసం షెడ్ ట్యాప్ · ఎరుపు = ఆలస్యం, బృందాన్ని సంప్రదించండి'},
     viewstatus:{en:'View drive status',hi:'ड्राइव स्थिति देखें',kn:'ಡ್ರೈವ್ ಸ್ಥಿತಿ ನೋಡಿ',te:'డ్రైవ్ స్థితి చూడండి'},
+    drivehdr:{en:'Vaccination drive',hi:'टीकाकरण ड्राइव',kn:'ಲಸಿಕೆ ಡ್ರೈವ್',te:'టీకా డ్రైవ్'},
+    shedsdonelbl:{en:'Sheds done',hi:'शेड पूर्ण',kn:'ಶೆಡ್ ಪೂರ್ಣ',te:'షెడ్లు పూర్తి'},
+    animalslbl:{en:'Animals',hi:'पशु',kn:'ಪ್ರಾಣಿಗಳು',te:'జంతువులు'},
+    remleft:{en:'left',hi:'शेष',kn:'ಬಾಕಿ',te:'మిగిలి'},
+    removerdue:{en:'overdue',hi:'अतिदेय',kn:'ಮೀರಿದ',te:'గడువు మీరిన'},
+    remdeferred:{en:'deferred',hi:'टाला गया',kn:'ಮುಂದೂಡಲಾಗಿದೆ',te:'వాయిదా'},
+    remblocked:{en:'blocked',hi:'अवरुद्ध',kn:'ತಡೆಹಿಡಿಯಲಾಗಿದೆ',te:'నిలిపివేయబడింది'},
     synch:{en:'Sync status',hi:'सिंक स्थिति',kn:'ಸಿಂಕ್ ಸ್ಥಿತಿ',te:'సింక్ స్థితి'},
     syncsub:{en:'Records save on the phone first, then sync when online',hi:'रिकॉर्ड पहले फ़ोन पर सहेजे जाते हैं, फिर ऑनलाइन होने पर सिंक',kn:'ದಾಖಲೆಗಳು ಮೊದಲು ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಯುತ್ತವೆ, ನಂತರ ಆನ್‌ಲೈನ್ ಆದಾಗ ಸಿಂಕ್',te:'రికార్డులు ముందు ఫోన్‌లో సేవ్ అవుతాయి, ఆన్‌లైన్‌లో ఉన్నప్పుడు సింక్'},
     syncmore:{en:'Offline-first: a full drive records with no signal. The outbox uploads video proof then the shed record, retries with backoff, and never creates a duplicate.',hi:'ऑफ़लाइन-फर्स्ट: बिना सिग्नल पूरी ड्राइव रिकॉर्ड होती है। आउटबॉक्स वीडियो प्रूफ़ फिर शेड रिकॉर्ड अपलोड करता है, बैकऑफ़ से पुनः प्रयास, कोई डुप्लिकेट नहीं।',kn:'ಆಫ್‌ಲೈನ್-ಫಸ್ಟ್: ಸಿಗ್ನಲ್ ಇಲ್ಲದೆ ಪೂರ್ಣ ಡ್ರೈವ್ ದಾಖಲಾಗುತ್ತದೆ. ಔಟ್‌ಬಾಕ್ಸ್ ವಿಡಿಯೊ ಪ್ರೂಫ್ ನಂತರ ಶೆಡ್ ದಾಖಲೆ ಅಪ್‌ಲೋಡ್ ಮಾಡುತ್ತದೆ, ಬ್ಯಾಕ್‌ಆಫ್‌ನೊಂದಿಗೆ ಮರುಪ್ರಯತ್ನ, ನಕಲು ಇಲ್ಲ.',te:'ఆఫ్‌లైన్-ఫస్ట్: సిగ్నల్ లేకుండా పూర్తి డ్రైవ్ రికార్డ్ అవుతుంది. అవుట్‌బాక్స్ వీడియో ప్రూఫ్ తర్వాత షెడ్ రికార్డ్ అప్‌లోడ్ చేస్తుంది, బ్యాకాఫ్‌తో మళ్లీ ప్రయత్నిస్తుంది, డూప్లికేట్ ఉండదు.'}
@@ -1066,7 +1073,17 @@
   $('#proofbox').addEventListener('click',function(){toast('Video attached','Shed clip · 00:48');});
 
   /* ---------- calendar: week / month / history (dots match real drives) ---------- */
-  var DR={6:[],7:[{n:'Today · 4 sheds',pill:'ok',pl:'Due now',sub:'77 animals due · Gandhi 1 · Castro 1 · Mandela 1 · Sumathi 1',go:1}],8:[{n:'3 sheds due',pill:'mut',pl:'Scheduled',sub:'Godel 1 · Yashoda 2 · Ho Chi Minh · 76 animals'}],9:[],10:[{n:'2 sheds due',pill:'mut',pl:'Scheduled',sub:'Sumathi 2 · Castro 2 · 54 animals'}],11:[],12:[]};
+  // Each entry = one park-level drive_summary (v4): park, due date, headline status, the
+  // vaccines it clubs, shed/animal progress, and the remaining-work breakdown. Mirrors the
+  // backend drive_summary shape the Android DriveProgressCard renders 1:1.
+  var DR={
+    6:[],
+    7:[{park:'CBE',duedate:'Tue 7 Jul',pill:'ok',pl:'Due now',vaccines:['FMD','HS'],shedCount:4,shedsDone:1,total:77,completed:20,remaining:57,due_n:40,overdue_n:12,deferred_n:3,blocked_n:2,owner:'Arun Kumar',go:1}],
+    8:[{park:'CBE',duedate:'Wed 8 Jul',pill:'mut',pl:'Scheduled',vaccines:['Goat Pox'],shedCount:3,shedsDone:0,total:76,completed:0,remaining:76,due_n:76,overdue_n:0,deferred_n:0,blocked_n:0,owner:'Arun Kumar'}],
+    9:[],
+    10:[{park:'CBE',duedate:'Fri 10 Jul',pill:'mut',pl:'Scheduled',vaccines:['PPR'],shedCount:2,shedsDone:0,total:54,completed:0,remaining:54,due_n:54,overdue_n:0,deferred_n:0,blocked_n:0,owner:'Indradev Kumar'}],
+    11:[],12:[]
+  };
   var WD={6:'Mon',7:'Tue',8:'Wed',9:'Thu',10:'Fri',11:'Sat',12:'Sun'};
   var HIST=[
     {d:'Jul 1',n:'ET + TT · Primary',cov:98,dose:'1 ml SC',elig:120,given:118,skip:2,park:'CBE',sheds:'Gandhi 1 · Castro 1',op:'Arun Kumar',bk:'Indradev Kumar',win:'08:05–10:20'},
@@ -1093,18 +1110,46 @@
     {v:'Blue Tongue',iv:'every 1 year · sheep',next:'03 Oct 2027'},
     {v:'PPR',iv:'every 3 years',next:'10 Jul 2029'}
   ];
-  function evtCard(dr){var head='<div class="t"><span class="pill '+dr.pill+'">'+dr.pl+'</span><span style="flex:1"></span><span class="pill mut">Vaccination</span></div><div class="nm"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg>'+dr.n+'</div><div class="mt"><span>'+dr.sub+'</span></div>';
+  // v4 park-level drive progress card — mirrors the backend drive_summary shape the
+  // Android DriveProgressCard renders 1:1: header (title · park + due date + headline
+  // pill), vaccine chips, sheds/animals stats, a progress bar, and a remaining-work
+  // breakdown (due/overdue/deferred/blocked, nonzero only), footer = owner + CTA.
+  function evtCard(dr){
+    var TX=function(k,d){return TXT[k]?(TXT[k][curLang]||TXT[k].en):d;};
+    var head='<div class="t"><span class="pill '+dr.pill+'">'+dr.pl+'</span><span style="flex:1"></span>'+(dr.duedate?'<span class="pill mut">'+dr.duedate+'</span>':'')+'</div>';
+    var title='<div class="nm"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg>'+TX('drivehdr','Vaccination drive')+' · '+dr.park+'</div>';
+    var vax=(dr.vaccines&&dr.vaccines.length)?('<div class="vgroups" style="margin-top:10px">'+dr.vaccines.map(function(v){return '<span class="vchip"><svg class="ic vg-syr"><use href="#i-syringe"/></svg><b>'+v+'</b></span>';}).join('')+'</div>'):'';
+    var pct=dr.total?Math.round(100*dr.completed/dr.total):0;
+    var nums='<div class="nums" style="margin-top:12px"><div><b>'+dr.shedsDone+'/'+dr.shedCount+'</b><span>'+TX('shedsdonelbl','Sheds done')+'</span></div><div><b>'+dr.completed+'/'+dr.total+' · '+pct+'%</b><span>'+TX('animalslbl','Animals')+'</span></div></div>';
+    var bar='<div class="barp"><i style="width:'+pct+'%"></i></div>';
+    var rem=[];
+    if(dr.remaining)rem.push('<span class="pill mut">'+dr.remaining+' '+TX('remleft','left')+'</span>');
+    if(dr.due_n)rem.push('<span class="pill warn">'+dr.due_n+' '+TX('due2','due')+'</span>');
+    if(dr.overdue_n)rem.push('<span class="pill dng">'+dr.overdue_n+' '+TX('removerdue','overdue')+'</span>');
+    if(dr.deferred_n)rem.push('<span class="pill mut">'+dr.deferred_n+' '+TX('remdeferred','deferred')+'</span>');
+    if(dr.blocked_n)rem.push('<span class="pill dng">'+dr.blocked_n+' '+TX('remblocked','blocked')+'</span>');
+    var remRow=rem.length?('<div class="t" style="margin-top:9px">'+rem.join('')+'</div>'):'';
+    var body=head+title+vax+nums+bar+remRow;
     var clkKey=(role==='operator')?'opendrive':'viewstatus';
-    var clkTxt=TXT[clkKey]?(TXT[clkKey][curLang]||TXT[clkKey].en):(role==='operator'?'Open drive':'View drive status');
-    return dr.go?('<div class="card evt" data-go="v-sheds">'+head+'<div class="clk">'+clkTxt+' <svg class="ic" style="width:13px;height:13px"><use href="#i-chev"/></svg></div></div>'):('<div class="card evt dim">'+head+'</div>');}
+    var clkTxt=TX(clkKey,role==='operator'?'Open drive':'View drive status');
+    if(dr.go){
+      var footer='<div class="clk">'+(dr.owner?dr.owner+' · ':'')+clkTxt+' <svg class="ic" style="width:13px;height:13px"><use href="#i-chev"/></svg></div>';
+      return '<div class="card evt" data-go="v-sheds">'+body+footer+'</div>';
+    }
+    var footerDim=dr.owner?('<div class="mt" style="margin-top:11px"><span>'+dr.owner+'</span></div>'):'';
+    return '<div class="card evt dim">'+body+footerDim+'</div>';
+  }
   // Today's drive card is role/scope-aware: it must match the follow-up the tap opens
   // (operator/parkmgr = own park; director/ceo = all parks or picked park).
   function todayDriveCard(){
     var parks=shedsScopeParks();
     var day=SHEDS.filter(function(s){return parks.indexOf(s.park)>=0;});
-    var due=day.reduce(function(a,s){return a+shedDue(s);},0);
-    var label=parks.length>1?'All parks · 2':parks[0];
-    return {n:'Today · '+day.length+' sheds',pill:'ok',pl:'Due now',sub:due+' animals due · '+label+' · '+day.map(function(s){return s.name;}).join(' · '),go:1};
+    var total=day.reduce(function(a,s){return a+shedDue(s);},0);
+    var completed=day.reduce(function(a,s){return a+shedDone(s);},0);
+    var shedsDone=day.filter(function(s){return shedStatus(s)==='done';}).length;
+    var vax=[];day.forEach(function(s){s.groups.forEach(function(g){if(vax.indexOf(g.v)<0)vax.push(g.v);});});
+    var label=parks.length>1?'All parks':parks[0];
+    return {park:label,duedate:'Today',pill:'ok',pl:'Due now',vaccines:vax,shedCount:day.length,shedsDone:shedsDone,total:total,completed:completed,remaining:total-completed,due_n:total-completed,overdue_n:0,deferred_n:0,blocked_n:0,owner:'Arun Kumar',go:1};
   }
   function renderWeek(){
     var strip=$('#weekStrip'); if(strip)strip.innerHTML=[6,7,8,9,10,11,12].map(function(d){var cls='d'+(d===sel?' today':'')+((DR[d]&&DR[d].length&&d!==sel)?' has':'');return '<div class="'+cls+'" data-day="'+d+'"><div class="dn">'+WD[d][0]+'</div><div class="dd">'+d+'</div></div>';}).join('');

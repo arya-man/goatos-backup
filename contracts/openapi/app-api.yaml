@@ -1979,6 +1979,13 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: include_reminder_rail
+          in: query
+          required: false
+          description: Include the whole-filtered-week reminder/escalation rail summary (week view). Separate from include_date_markers so the week list gets the rail without paying for month date-markers.
+          schema:
+            type: boolean
+            default: false
         - name: cursor
           in: query
           required: false
@@ -5544,6 +5551,79 @@ components:
           type: boolean
         links:
           $ref: "#/components/schemas/CalendarEventLinks"
+        drive_summary:
+          allOf:
+            - $ref: "#/components/schemas/DriveSummary"
+          nullable: true
+    DriveSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - park_name
+        - due_date
+        - shed_count
+        - sheds_completed
+        - vaccine_labels
+        - total_count
+        - completed_count
+        - remaining_count
+        - due_count
+        - overdue_count
+        - deferred_count
+        - blocked_count
+        - owner_label
+      properties:
+        park_name:
+          type: string
+          description: Park name or code
+        due_date:
+          type: string
+          format: date
+          description: Drive due date
+        shed_count:
+          type: integer
+          minimum: 0
+          description: Number of unique sheds in the drive
+        sheds_completed:
+          type: integer
+          minimum: 0
+          description: Number of sheds where all obligations are completed
+        vaccine_labels:
+          type: array
+          items:
+            type: string
+          description: List of vaccine names involved in the drive
+        total_count:
+          type: integer
+          minimum: 0
+          description: Total obligations in the drive
+        completed_count:
+          type: integer
+          minimum: 0
+          description: Completed obligations
+        remaining_count:
+          type: integer
+          minimum: 0
+          description: Remaining obligations
+        due_count:
+          type: integer
+          minimum: 0
+          description: Active open obligations
+        overdue_count:
+          type: integer
+          minimum: 0
+          description: Overdue/missed obligations
+        deferred_count:
+          type: integer
+          minimum: 0
+          description: Deferred obligations
+        blocked_count:
+          type: integer
+          minimum: 0
+          description: Blocked obligations
+        owner_label:
+          type: string
+          description: Owner/team label
     CalendarPresentationQuery:
       type: object
       additionalProperties:
@@ -5845,6 +5925,54 @@ components:
           $ref: "#/components/schemas/CalendarProjectionMetadata"
           description: "Freshness and coverage metadata for the completed-history projection, populated only when this read consulted the history CTE (explicit status=completed filter or date-marker inclusion). Null otherwise."
           nullable: true
+        reminder_rail:
+          $ref: "#/components/schemas/CalendarReminderRail"
+          description: "Backend-computed, whole-filtered-week reminder/escalation rail. Populated only when include_reminder_rail is set (the week view request shape); null otherwise so a plain paged list fetch does not pay for it."
+          nullable: true
+    CalendarReminderRail:
+      type: object
+      additionalProperties: false
+      required:
+        - count
+        - empty_message
+        - items
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          description: "Total active reminder/escalation events in the full filtered week window, independent of the bounded items preview below."
+        empty_message:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarReminderRailItem"
+          description: "Bounded (~20) keyset-ordered preview of active reminder/escalation events."
+    CalendarReminderRailItem:
+      type: object
+      additionalProperties: false
+      required:
+        - event_id
+        - title
+        - subtitle
+        - reminder_label
+        - escalation_label
+        - channels
+      properties:
+        event_id:
+          type: string
+        title:
+          type: string
+        subtitle:
+          type: string
+        reminder_label:
+          type: string
+        escalation_label:
+          type: string
+        channels:
+          type: array
+          items:
+            type: string
     CalendarDateMarker:
       type: object
       additionalProperties: false

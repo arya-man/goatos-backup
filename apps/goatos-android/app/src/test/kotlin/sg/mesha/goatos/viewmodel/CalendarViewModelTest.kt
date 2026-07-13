@@ -1,9 +1,11 @@
 package sg.mesha.goatos.viewmodel
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import sg.mesha.goatos.core.network.dto.CalendarDateMarkerDto
 import sg.mesha.goatos.core.network.dto.CalendarEventDto
+import sg.mesha.goatos.core.network.dto.DriveSummaryDto
 import sg.mesha.goatos.feature.calendar.CalendarTone
 import kotlinx.serialization.json.JsonPrimitive
 import java.time.LocalDate
@@ -60,5 +62,77 @@ class CalendarViewModelTest {
         ).routeTarget()
 
         assertEquals("record/shed-1", target)
+    }
+
+    @Test
+    fun `drive summary formats ISO due date to localized display label`() {
+        val item = CalendarEventDto(
+            eventId = "calendar:drive",
+            aggregated = true,
+            driveSummary = DriveSummaryDto(
+                parkName = "CBE",
+                dueDate = "2026-07-07",
+                shedCount = 4,
+                shedsCompleted = 1,
+                vaccineLabels = listOf("FMD", "HS"),
+                totalCount = 77,
+                completedCount = 20,
+                remainingCount = 57,
+                dueCount = 40,
+                overdueCount = 12,
+                deferredCount = 3,
+                blockedCount = 2,
+                ownerLabel = "Arun Kumar",
+            ),
+        ).toCalendarItem()
+
+        val summary = requireNotNull(item.driveSummary)
+        assertEquals("CBE", summary.parkName)
+        assertEquals("Tue 7 Jul", summary.dueDateLabel)
+        assertEquals(4, summary.shedCount)
+        assertEquals(1, summary.shedsCompleted)
+        assertEquals(listOf("FMD", "HS"), summary.vaccineLabels)
+        assertEquals(77, summary.totalCount)
+        assertEquals(20, summary.completedCount)
+        assertEquals(57, summary.remainingCount)
+        assertEquals(40, summary.dueCount)
+        assertEquals(12, summary.overdueCount)
+        assertEquals(3, summary.deferredCount)
+        assertEquals(2, summary.blockedCount)
+        assertEquals("Arun Kumar", summary.ownerLabel)
+    }
+
+    @Test
+    fun `drive summary handles malformed due date gracefully`() {
+        val item = CalendarEventDto(
+            eventId = "calendar:drive",
+            aggregated = true,
+            driveSummary = DriveSummaryDto(
+                parkName = "CBE",
+                dueDate = "invalid-date",
+                shedCount = 4,
+                shedsCompleted = 1,
+                vaccineLabels = listOf("FMD", "HS"),
+                totalCount = 77,
+                completedCount = 20,
+                remainingCount = 57,
+                dueCount = 40,
+                overdueCount = 12,
+                deferredCount = 3,
+                blockedCount = 2,
+                ownerLabel = "Arun Kumar",
+            ),
+        ).toCalendarItem()
+
+        val summary = requireNotNull(item.driveSummary)
+        // Malformed input falls back to raw string without crashing
+        assertEquals("invalid-date", summary.dueDateLabel)
+    }
+
+    @Test
+    fun `aggregated event with no drive summary maps to a null summary`() {
+        val item = CalendarEventDto(eventId = "calendar:legacy", aggregated = true).toCalendarItem()
+
+        assertNull(item.driveSummary)
     }
 }

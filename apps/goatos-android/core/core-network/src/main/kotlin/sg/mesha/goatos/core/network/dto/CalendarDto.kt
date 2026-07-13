@@ -59,6 +59,31 @@ data class CalendarDateMarkerDto(
     @SerialName("drive_count") val driveCount: Int = 0,
 )
 
+/**
+ * Park-level vaccination-drive progress (v4). A drive clubs multiple sheds and vaccines
+ * under one park scope; this replaces the old per-item shed/vaccine/dose tile trio with a
+ * single progress summary the Calendar card renders as-is (no client-side aggregation —
+ * mobile-guard: this is a straight field pass-through, never a fetch/rollup of the
+ * underlying target rows). Nullable/absent on [CalendarEventDto] until the backend ships
+ * `drive_summary`; the screen falls back to the legacy tiles in that case.
+ */
+@Serializable
+data class DriveSummaryDto(
+    @SerialName("park_name") val parkName: String = "",
+    @SerialName("due_date") val dueDate: String = "",
+    @SerialName("shed_count") val shedCount: Int = 0,
+    @SerialName("sheds_completed") val shedsCompleted: Int = 0,
+    @SerialName("vaccine_labels") val vaccineLabels: List<String> = emptyList(),
+    @SerialName("total_count") val totalCount: Int = 0,
+    @SerialName("completed_count") val completedCount: Int = 0,
+    @SerialName("remaining_count") val remainingCount: Int = 0,
+    @SerialName("due_count") val dueCount: Int = 0,
+    @SerialName("overdue_count") val overdueCount: Int = 0,
+    @SerialName("deferred_count") val deferredCount: Int = 0,
+    @SerialName("blocked_count") val blockedCount: Int = 0,
+    @SerialName("owner_label") val ownerLabel: String = "",
+)
+
 @Serializable
 data class CalendarPresentationDto(
     @SerialName("page_title") val pageTitle: String = "",
@@ -117,6 +142,8 @@ data class CalendarEventDto(
     @SerialName("review_count") val reviewCount: Int = 0,
     @SerialName("shed_labels") val shedLabels: List<String> = emptyList(),
     @SerialName("vaccine_labels") val vaccineLabels: List<String> = emptyList(),
+    // Park-level drive progress (v4) — see [DriveSummaryDto]. Null until the backend ships it.
+    @SerialName("drive_summary") val driveSummary: DriveSummaryDto? = null,
     @SerialName("protocol_id") val protocolId: String? = null,
     @SerialName("protocol_version_id") val protocolVersionId: String? = null,
     @SerialName("rule_id") val ruleId: String? = null,

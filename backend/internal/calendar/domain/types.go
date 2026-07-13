@@ -59,6 +59,23 @@ const (
 	EventVaccinationConfigActivationReview = "vaccination_config_activation_review"
 )
 
+// DriveSummary holds park-level drive progress data for vaccination drive events.
+type DriveSummary struct {
+	ParkName       string   `json:"park_name"`
+	DueDate        string   `json:"due_date"`
+	ShedCount      int      `json:"shed_count"`
+	ShedsCompleted int      `json:"sheds_completed"`
+	VaccineLabels  []string `json:"vaccine_labels"`
+	TotalCount     int      `json:"total_count"`
+	CompletedCount int      `json:"completed_count"`
+	RemainingCount int      `json:"remaining_count"`
+	DueCount       int      `json:"due_count"`
+	OverdueCount   int      `json:"overdue_count"`
+	DeferredCount  int      `json:"deferred_count"`
+	BlockedCount   int      `json:"blocked_count"`
+	OwnerLabel     string   `json:"owner_label"`
+}
+
 // CalendarEvent is the generic hot-list/month payload. It intentionally stays source-agnostic.
 type CalendarEvent struct {
 	EventID                    string          `json:"event_id"`
@@ -111,6 +128,7 @@ type CalendarEvent struct {
 	System                     bool            `json:"system"`
 	CrossCutting               bool            `json:"cross_cutting"`
 	Links                      json.RawMessage `json:"links"`
+	DriveSummary               *DriveSummary   `json:"drive_summary,omitempty"`
 }
 
 type CalendarEventListResponse struct {
@@ -127,6 +145,32 @@ type CalendarEventListResponse struct {
 	// fast-moving UPCOMING vaccination-execution/shed projection gate. Nil means the history
 	// projection was not consulted for this request at all (C5-002).
 	HistoryProjection *ProjectionMetadata `json:"history_projection,omitempty"`
+	// ReminderRail (DRV-005) is a backend-computed, whole-filtered-week summary of ACTIVE
+	// reminder/escalation events (same owner/park/shed/date scope as Items), computed by a single
+	// bounded/indexed query over calendar_event_projections -- never derived by the frontend from
+	// whatever page of Items happens to be on screen. Populated only when q.IncludeDateMarkers is
+	// true (the week/month view request shape); nil otherwise so a plain paged list fetch does not
+	// pay for it.
+	ReminderRail *CalendarReminderRail `json:"reminder_rail,omitempty"`
+}
+
+// CalendarReminderRail is the whole-result reminder/escalation rail for the requested week window.
+// Count is the total number of active reminder/escalation events in the filtered window (not just
+// len(Items)); Items is a bounded (~20) preview ordered by due_at, so the rail never silently
+// empties just because the matching event fell on request page 2+ of the main list.
+type CalendarReminderRail struct {
+	Count        int                        `json:"count"`
+	EmptyMessage string                     `json:"empty_message"`
+	Items        []CalendarReminderRailItem `json:"items"`
+}
+
+type CalendarReminderRailItem struct {
+	EventID         string   `json:"event_id"`
+	Title           string   `json:"title"`
+	Subtitle        string   `json:"subtitle"`
+	ReminderLabel   string   `json:"reminder_label"`
+	EscalationLabel string   `json:"escalation_label"`
+	Channels        []string `json:"channels"`
 }
 
 type ProjectionMetadata struct {
@@ -332,7 +376,11 @@ type Query struct {
 	Cursor             *CalendarCursor
 	Limit              int
 	IncludeDateMarkers bool
-	Scope              ScopeFilter
+	// IncludeReminderRail requests the whole-week reminder/escalation rail summary. It is a
+	// SEPARATE trigger from IncludeDateMarkers: the week view needs the rail but not the month
+	// date-markers, so gating the rail on IncludeDateMarkers left it null on the week list.
+	IncludeReminderRail bool
+	Scope               ScopeFilter
 }
 
 type EventQuery struct {

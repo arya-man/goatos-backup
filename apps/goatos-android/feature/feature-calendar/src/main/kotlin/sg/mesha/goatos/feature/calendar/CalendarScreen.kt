@@ -6,11 +6,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -335,6 +337,7 @@ private fun WeekDayCell(
 @Composable
 private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
     val drillable = item.ctaLabel != null && item.target != null
+    val drive = item.driveSummary
     Column(
         Modifier
             .fillMaxWidth()
@@ -353,6 +356,11 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 StatusPill(if (item.allDay) stringResource(R.string.calendar_all_day) else item.timeLabel, CalendarTone.Neutral)
                 Spacer(Modifier.size(6.dp))
             }
+            // Drive due date (v4 park-level card) sits alongside the headline status pill.
+            drive?.dueDateLabel?.takeIf { it.isNotEmpty() }?.let {
+                StatusPill(it, CalendarTone.Neutral)
+                Spacer(Modifier.size(6.dp))
+            }
             item.categoryLabel?.let { StatusPill(it, CalendarTone.Muted) }
         }
         Row(
@@ -368,7 +376,13 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
             )
             Spacer(Modifier.size(8.dp))
             Text(
-                text = item.title,
+                // Park-level drives (v4) get the fixed "Vaccination drive · <park>" chrome
+                // (localized here); everything else keeps the backend-supplied item.title.
+                text = if (drive != null) {
+                    stringResource(R.string.calendar_drive_title, drive.parkName)
+                } else {
+                    item.title
+                },
                 color = if (drillable) MeshaColors.Ink else MeshaColors.Muted,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.W700,
@@ -402,56 +416,185 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
             )
         }
         if (item.aggregated) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                DriveMetric(
-                    label = stringResource(R.string.calendar_drive_sheds),
-                    value = item.shedCount,
-                    modifier = Modifier.weight(1f),
-                )
-                DriveMetric(
-                    label = stringResource(R.string.calendar_drive_vaccines),
-                    value = item.vaccineCount,
-                    modifier = Modifier.weight(1f),
-                )
-                DriveMetric(
-                    label = stringResource(R.string.calendar_drive_doses),
-                    value = item.targetCount,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            if (item.vaccineLabels.isNotEmpty()) {
-                Text(
-                    text = item.vaccineLabels.joinToString(" · "),
-                    color = MeshaColors.Brand2,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.W700,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
+            if (drive != null) {
+                // v4 park-level drive progress card — rendered purely from the backend
+                // drive_summary; no target-row fetch/parse happens here.
+                DriveProgressCard(summary = drive, modifier = Modifier.padding(top = 10.dp))
+            } else {
+                // Legacy fallback while a backend response predates drive_summary.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    DriveMetric(
+                        label = stringResource(R.string.calendar_drive_sheds),
+                        value = item.shedCount.toString(),
+                        modifier = Modifier.weight(1f),
+                    )
+                    DriveMetric(
+                        label = stringResource(R.string.calendar_drive_vaccines),
+                        value = item.vaccineCount.toString(),
+                        modifier = Modifier.weight(1f),
+                    )
+                    DriveMetric(
+                        label = stringResource(R.string.calendar_drive_doses),
+                        value = item.targetCount.toString(),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (item.vaccineLabels.isNotEmpty()) {
+                    Text(
+                        text = item.vaccineLabels.joinToString(" · "),
+                        color = MeshaColors.Brand2,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.W700,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
             }
         }
-        item.ctaLabel?.let {
-            // ctaLabel non-null = drillable; the verb itself is fixed chrome, localized here
-            // (the VM's English "Open" is ignored so the label follows the app locale).
-            Text(
-                text = "${stringResource(R.string.calendar_cta_open)}  ›",
-                color = MeshaColors.Brand2,
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.W700,
+        val ownerLabel = drive?.ownerLabel?.takeIf { it.isNotEmpty() }
+        if (item.ctaLabel != null || ownerLabel != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(top = 11.dp),
+            ) {
+                // Footer owner (v4 drive card): who owns follow-up on this drive.
+                ownerLabel?.let {
+                    Text(text = it, color = MeshaColors.Muted, fontSize = 12.5.sp, fontWeight = FontWeight.W600)
+                    if (item.ctaLabel != null) {
+                        Text(text = "  ·  ", color = MeshaColors.Muted, fontSize = 12.5.sp, fontWeight = FontWeight.W600)
+                    }
+                }
+                item.ctaLabel?.let {
+                    // ctaLabel non-null = drillable; the verb itself is fixed chrome, localized
+                    // here (the VM's English "Open" is ignored so it follows the app locale).
+                    Text(
+                        text = "${stringResource(R.string.calendar_cta_open)}  ›",
+                        color = MeshaColors.Brand2,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.W700,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * v4 park-level drive progress card — replaces the old sheds/vaccines/doses tile trio.
+ * Every value here is a straight [CalendarDriveSummary] field read; nothing is fetched,
+ * paginated, or aggregated client-side (mobile-guard: card = summary, not a rollup).
+ */
+@Composable
+// telemetry:exempt DriveProgressCard is a presentational render of the backend drive_summary read model; it adds no new user action or funnel step (the card's tap-to-drill navigation is the pre-existing EventCard onClick, already instrumented at the navigation layer).
+private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth()) {
+        if (summary.vaccineLabels.isNotEmpty()) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                summary.vaccineLabels.forEach { DriveVaccineChip(it) }
+            }
+            Spacer(Modifier.size(10.dp))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            DriveMetric(
+                label = stringResource(R.string.calendar_drive_sheds_done),
+                value = "${summary.shedsCompleted}/${summary.shedCount}",
+                modifier = Modifier.weight(1f),
             )
+            val pct = if (summary.totalCount > 0) summary.completedCount * 100 / summary.totalCount else 0
+            DriveMetric(
+                label = stringResource(R.string.calendar_drive_animals),
+                value = "${summary.completedCount}/${summary.totalCount} · $pct%",
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(Modifier.size(10.dp))
+        val fraction = if (summary.totalCount > 0) {
+            summary.completedCount.toFloat() / summary.totalCount.toFloat()
+        } else {
+            0f
+        }
+        DriveProgressBar(fraction)
+        val remaining = buildList {
+            if (summary.remainingCount > 0) {
+                add(stringResource(R.string.calendar_drive_remaining_left, summary.remainingCount) to CalendarTone.Muted)
+            }
+            if (summary.dueCount > 0) {
+                add(stringResource(R.string.calendar_drive_due, summary.dueCount) to CalendarTone.Warn)
+            }
+            if (summary.overdueCount > 0) {
+                add(stringResource(R.string.calendar_drive_overdue, summary.overdueCount) to CalendarTone.Danger)
+            }
+            if (summary.deferredCount > 0) {
+                add(stringResource(R.string.calendar_drive_deferred, summary.deferredCount) to CalendarTone.Neutral)
+            }
+            if (summary.blockedCount > 0) {
+                add(stringResource(R.string.calendar_drive_blocked, summary.blockedCount) to CalendarTone.Danger)
+            }
+        }
+        if (remaining.isNotEmpty()) {
+            Spacer(Modifier.size(9.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                remaining.forEach { (label, tone) -> StatusPill(label, tone) }
+            }
         }
     }
 }
 
 @Composable
-private fun DriveMetric(label: String, value: Int, modifier: Modifier = Modifier) {
+private fun DriveVaccineChip(label: String) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(MeshaColors.Surf2)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(9.dp))
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(
+            imageVector = MeshaIcons.Syringe,
+            contentDescription = null,
+            tint = MeshaColors.Brand,
+            modifier = Modifier.size(12.dp),
+        )
+        Text(text = label, color = MeshaColors.Ink, fontSize = 11.sp, fontWeight = FontWeight.W800, maxLines = 1)
+    }
+}
+
+@Composable
+private fun DriveProgressBar(fraction: Float, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(7.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(MeshaColors.Surf3),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .height(7.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MeshaColors.BrandGradient),
+        )
+    }
+}
+
+@Composable
+private fun DriveMetric(label: String, value: String, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
@@ -468,7 +611,7 @@ private fun DriveMetric(label: String, value: Int, modifier: Modifier = Modifier
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = value.toString(),
+            text = value,
             color = MeshaColors.Ink,
             fontSize = 15.sp,
             fontWeight = FontWeight.W800,
@@ -891,10 +1034,25 @@ private fun previewState(): CalendarUiState = CalendarUiState(
         CalendarItem(
             id = "drive-today",
             title = "Today · 4 sheds",
-            subtitle = "77 animals due · CBE · Gandhi 1 · Castro 1 · Mandela 1 · Sumathi 1",
+            subtitle = "",
+            aggregated = true,
             statusLabel = "Due now",
             statusTone = CalendarTone.Ok,
-            categoryLabel = "Vaccination",
+            driveSummary = CalendarDriveSummary(
+                parkName = "CBE",
+                dueDateLabel = "Tue 7 Jul",
+                shedCount = 4,
+                shedsCompleted = 1,
+                vaccineLabels = listOf("FMD", "HS"),
+                totalCount = 77,
+                completedCount = 20,
+                remainingCount = 57,
+                dueCount = 40,
+                overdueCount = 12,
+                deferredCount = 3,
+                blockedCount = 2,
+                ownerLabel = "Arun Kumar",
+            ),
             ctaLabel = "Open drive",
             target = "sheds?scope_token=abc",
         ),

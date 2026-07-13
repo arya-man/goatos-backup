@@ -26,6 +26,8 @@ import sg.mesha.goatos.core.network.dto.CalendarDateMarkerDto
 import sg.mesha.goatos.core.network.dto.CalendarEventDto
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.CalendarPresentationDto
+import sg.mesha.goatos.core.network.dto.DriveSummaryDto
+import sg.mesha.goatos.feature.calendar.CalendarDriveSummary
 import sg.mesha.goatos.feature.calendar.CalendarEvent
 import sg.mesha.goatos.feature.calendar.CalendarHistoryRow
 import sg.mesha.goatos.feature.calendar.CalendarItem
@@ -493,6 +495,7 @@ internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
         vaccineCount = vaccineCount,
         targetCount = targetCount,
         vaccineLabels = vaccineLabels,
+        driveSummary = driveSummary?.toCalendarDriveSummary(),
         statusLabel = status,
         statusTone = calendarTone(),
         categoryLabel = vaccineName,
@@ -500,6 +503,31 @@ internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
         target = target,
     )
 }
+
+/** Straight field mapping — see [DriveSummaryDto] / [CalendarDriveSummary] docs. */
+internal fun DriveSummaryDto.toCalendarDriveSummary(): CalendarDriveSummary = CalendarDriveSummary(
+    parkName = parkName,
+    dueDateLabel = formatDriveDueDate(dueDate),
+    shedCount = shedCount,
+    shedsCompleted = shedsCompleted,
+    vaccineLabels = vaccineLabels,
+    totalCount = totalCount,
+    completedCount = completedCount,
+    remainingCount = remainingCount,
+    dueCount = dueCount,
+    overdueCount = overdueCount,
+    deferredCount = deferredCount,
+    blockedCount = blockedCount,
+    ownerLabel = ownerLabel,
+)
+
+internal fun formatDriveDueDate(dueDate: String): String =
+    runCatching {
+        LocalDate.parse(dueDate).let { date ->
+            "${date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} " +
+                "${date.dayOfMonth} ${date.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)}"
+        }
+    }.getOrDefault(dueDate)
 
 internal fun calendarTimeLabel(dueAt: String): String =
     runCatching {

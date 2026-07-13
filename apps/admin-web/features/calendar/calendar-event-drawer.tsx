@@ -7,7 +7,6 @@ import { scopeHref, type Scope } from "@/lib/scope";
 import {
   copy,
   optionalCopy,
-  optionalOption,
   optionLabel,
   optionTone,
   type AdminUiPageContract,
@@ -15,6 +14,7 @@ import {
 import { sendNudgeAction, snoozeAction } from "./calendar-actions";
 import {
   blockEntries,
+  contractStateLabel,
   driveShedId,
   eventTypeMeta,
   hasWorkflowLink,
@@ -66,20 +66,6 @@ function BlockCard({
         </div>
       ) : null}
     </div>
-  );
-}
-
-function contractStateLabel(
-  pageContract: AdminUiPageContract,
-  groupId: string,
-  state: string | null | undefined,
-  noneKey = "label.placeholder",
-): string {
-  const key = state?.trim();
-  if (!key || key === "none" || key === "not_scheduled")
-    return copy(pageContract, noneKey);
-  return (
-    optionalOption(pageContract, groupId, key)?.label ?? key.replace(/_/g, " ")
   );
 }
 

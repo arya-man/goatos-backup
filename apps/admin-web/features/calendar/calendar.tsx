@@ -15,16 +15,20 @@ import {
   presentationQueryToSearch,
   type CalendarDateMarker,
   type CalendarEvent,
+  type CalendarReminderRail,
   type CalendarOwnerFilter,
   type CalendarOwnerPresentationTab,
   type CalendarPresentation,
   type CalendarPresentationTab,
+  type CalendarRhythmDay,
   type OwnerPresentationMap,
 } from "./calendar-contract";
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { CalendarEventDrawer } from "./calendar-event-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
 import { historyWindow, monthWindow, weekWindow } from "./calendar-window";
+import { DriveProgressCard } from "./calendar-drive-card";
+import { OwnerLegend, RemindersRail, RhythmCard } from "./calendar-week-panels";
 
 const PATH = "/calendar";
 
@@ -78,21 +82,18 @@ function EventRow({
   ]
     .filter(Boolean)
     .join(" · ");
+  // summary_tertiary often repeats subtitle/shed_name verbatim (e.g. a single-shed drive's tertiary
+  // line is just that shed's name again) — only render it as a second meta line when it adds
+  // information the first `.em` line doesn't already carry.
+  const showTertiary = event.summary_tertiary && event.summary_tertiary !== event.subtitle && event.summary_tertiary !== event.shed_name;
   return (
     <Link href={href} replace scroll={false} className="ev celllink" style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
       <div className="et">{event.all_day ? copy(pageContract, "calendar.drive.all_day") : timeOf(event.due_at)}</div>
       <div className="eb">
         <b>{event.title}</b>
         <div className="em">{meta}</div>
-        {event.aggregated ? (
-          <div className="metagrid" style={{ marginTop: 10 }}>
-            <div><div className="k">{copy(pageContract, "calendar.drive.sheds")}</div><div className="v">{event.shed_count}</div></div>
-            <div><div className="k">{copy(pageContract, "calendar.drive.vaccines")}</div><div className="v">{event.vaccine_count}</div></div>
-            <div><div className="k">{copy(pageContract, "calendar.drive.doses")}</div><div className="v">{event.target_count}</div></div>
-            <div><div className="k">{copy(pageContract, "calendar.drive.packets")}</div><div className="v">{event.drive_count}</div></div>
-          </div>
-        ) : null}
-        {event.summary_tertiary ? <div className="em" style={{ marginTop: 7 }}>{event.summary_tertiary}</div> : null}
+        {event.aggregated ? <DriveProgressCard event={event} pageContract={pageContract} /> : null}
+        {showTertiary ? <div className="em" style={{ marginTop: 7 }}>{event.summary_tertiary}</div> : null}
       </div>
     </Link>
   );
@@ -152,6 +153,9 @@ export async function VaccinationCalendarPage({
       dateFrom: listWindow.dateFrom,
       dateTo: listWindow.dateTo,
       cursor: listCursor,
+      // Week (non-history) view owns the reminders rail; request the whole-week rail summary here
+      // so it never depends on which paginated event page is on screen (DRV-005).
+      includeReminderRail: !historyMode,
     }),
     markerRequest,
     selectedEventId ? getCalendarVaccinationEventDetail(selectedEventId) : Promise.resolve(null),
@@ -402,7 +406,12 @@ export async function VaccinationCalendarPage({
           clearOwnerHref={hrefWith({ owner_key: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           dayFilter={effectiveDayFilter}
           clearDayHref={hrefWith({ day: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
+          rhythmDayHref={(day) =>
+            hrefWith({ ...presentationQueryToSearch(day.query), event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })
+          }
           pageContract={pageContract}
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          reminderRail={list.ok ? list.data.reminder_rail : undefined}
         />
       )}
 
@@ -440,7 +449,9 @@ function WeekView({
   clearOwnerHref,
   dayFilter,
   clearDayHref,
+  rhythmDayHref,
   pageContract,
+  reminderRail,
 }: {
   events: CalendarEvent[];
   today: string;
@@ -451,7 +462,10 @@ function WeekView({
   clearOwnerHref: string;
   dayFilter?: string;
   clearDayHref: string;
+  rhythmDayHref: (day: CalendarRhythmDay) => string;
   pageContract: AdminUiPageContract;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  reminderRail?: CalendarReminderRail | null;
 }) {
   const scoped = dayFilter ? events.filter((event) => weekdayOf(event.due_at) === dayFilter) : events;
   const sorted = [...scoped].sort((a, b) => a.due_at.localeCompare(b.due_at));
@@ -464,64 +478,73 @@ function WeekView({
   }
   const selectedOwnerLabel = ownerScopeLabel(ownerKey, ownerMeta);
   const showFilteredEmpty = byDate.size === 0 && events.length > 0;
+  const todayWeekday = weekdayOf(`${today}T00:00:00+05:30`);
 
   return (
-    <div className="card">
-      <div className="hd">
-        <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
-        <h3>{presentation.week.title}</h3>
-        <Tag tone={ownerKey === "all" ? "mut" : "info"}>{selectedOwnerLabel}</Tag>
-        {dayFilter ? <Tag tone="info">{dayFilter}</Tag> : null}
-      </div>
-      <div className="bd">
-        {ownerKey !== "all" ? (
-          <div className="fchipsbar calband">
-            {presentation.week.scope_only_message || (
-              <>
-                {copy(pageContract, "week.showing_prefix")} <b>{selectedOwnerLabel}</b> {copy(pageContract, "week.work_only_suffix")}
-              </>
-            )}
-            <Link href={clearOwnerHref} replace scroll={false} className="lenslink">
-              ↺ {presentation.week.clear_scope_label}
-            </Link>
+    <>
+      <RhythmCard rhythmDayHref={rhythmDayHref} todayWeekday={todayWeekday} dayFilter={dayFilter} presentation={presentation} />
+      <div className="grid calendar-week-grid">
+        <div className="card">
+          <div className="hd">
+            <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+            <h3>{presentation.week.title}</h3>
+            <Tag tone={ownerKey === "all" ? "mut" : "info"}>{selectedOwnerLabel}</Tag>
+            {dayFilter ? <Tag tone="info">{dayFilter}</Tag> : null}
+            <span className="sp" />
+            <OwnerLegend ownerMeta={ownerMeta} />
           </div>
-        ) : null}
-        <div className="fchipsbar calband">
-          {dayFilter ? (
-            <>
-              {copy(pageContract, "week.showing_prefix")} <b>{dayFilter}</b> {copy(pageContract, "week.only_suffix")}
-              <Link href={clearDayHref} replace scroll={false} className="lenslink">
-                ↺ {presentation.week.clear_day_label}
-              </Link>
-            </>
-          ) : (
-            <>
-              {presentation.week.whole_period_message}
-              <span className="lenslink mutedlink" aria-disabled="true">
-                {presentation.week.all_days_selected_label}
-              </span>
-            </>
-          )}
-        </div>
-        <div className="agenda">
-          {byDate.size === 0 && showFilteredEmpty ? (
-            <p className="muted small" style={{ margin: "4px 2px" }}>
-              {presentation.week.empty_message}
-              {dayFilter ? ` ${copy(pageContract, "week.empty_day_prefix")} ${dayFilter}` : ""} {copy(pageContract, "week.empty_scope_suffix")}
-            </p>
-          ) : byDate.size > 0 ? (
-            Array.from(byDate.entries()).map(([key, rows]) => (
-              <div key={key}>
-                <div className="dh">{dateHeading(key, today, pageContract)}</div>
-                {rows.map((event) => (
-                  <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
-                ))}
+          <div className="bd">
+            {ownerKey !== "all" ? (
+              <div className="fchipsbar calband">
+                {presentation.week.scope_only_message || (
+                  <>
+                    {copy(pageContract, "week.showing_prefix")} <b>{selectedOwnerLabel}</b> {copy(pageContract, "week.work_only_suffix")}
+                  </>
+                )}
+                <Link href={clearOwnerHref} replace scroll={false} className="lenslink">
+                  ↺ {presentation.week.clear_scope_label}
+                </Link>
               </div>
-            ))
-          ) : null}
+            ) : null}
+            <div className="fchipsbar calband">
+              {dayFilter ? (
+                <>
+                  {copy(pageContract, "week.showing_prefix")} <b>{dayFilter}</b> {copy(pageContract, "week.only_suffix")}
+                  <Link href={clearDayHref} replace scroll={false} className="lenslink">
+                    ↺ {presentation.week.clear_day_label}
+                  </Link>
+                </>
+              ) : (
+                <>
+                  {presentation.week.whole_period_message}
+                  <span className="lenslink mutedlink" aria-disabled="true">
+                    {presentation.week.all_days_selected_label}
+                  </span>
+                </>
+              )}
+            </div>
+            <div className="agenda">
+              {byDate.size === 0 && showFilteredEmpty ? (
+                <p className="muted small" style={{ margin: "4px 2px" }}>
+                  {presentation.week.empty_message}
+                  {dayFilter ? ` ${copy(pageContract, "week.empty_day_prefix")} ${dayFilter}` : ""} {copy(pageContract, "week.empty_scope_suffix")}
+                </p>
+              ) : byDate.size > 0 ? (
+                Array.from(byDate.entries()).map(([key, rows]) => (
+                  <div key={key}>
+                    <div className="dh">{dateHeading(key, today, pageContract)}</div>
+                    {rows.map((event) => (
+                      <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
+                    ))}
+                  </div>
+                ))
+              ) : null}
+            </div>
+          </div>
         </div>
+        <RemindersRail reminderRail={reminderRail} presentation={presentation} eventHref={eventHref} />
       </div>
-    </div>
+    </>
   );
 }
 

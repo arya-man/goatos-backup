@@ -141,6 +141,19 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 			return domain.CalendarEventListResponse{}, err
 		}
 	}
+	// DRV-005: reminder_rail is a backend-computed, whole-filtered-week summary -- never the
+	// frontend filtering whatever page of Items it happens to hold (a reminder on list page 2 would
+	// otherwise vanish from the rail). Same trigger (q.IncludeDateMarkers) and same owner/park/shed/
+	// date scope as the date-marker query above; the total Count comes from a single bounded, indexed
+	// query's count(*) OVER() window, independent of the reminderRailLimit-sized Items preview.
+	var reminderRail *domain.CalendarReminderRail
+	if q.IncludeReminderRail {
+		rail, err := r.reminderRail(ctx, q.TenantID, ownerKey, status, parkID, shedID, q.DateFrom, requestedToExclusive, tenantWide, parkIDs, shedIDs)
+		if err != nil {
+			return domain.CalendarEventListResponse{}, err
+		}
+		reminderRail = &rail
+	}
 	var next *string
 	if len(items) > limit {
 		items = items[:limit]
@@ -151,7 +164,102 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 		}
 		next = &cursor
 	}
-	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, NextCursor: next, Projection: projection, HistoryProjection: historyProjection}, nil
+	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, NextCursor: next, Projection: projection, HistoryProjection: historyProjection, ReminderRail: reminderRail}, nil
+}
+
+// reminderRailLimit bounds the reminder rail preview (task calls for "~20 items"). The whole-result
+// Count field is independent of this bound -- it comes from the same query's count(*) OVER() window.
+const reminderRailLimit = 20
+
+// reminderRail runs calendarReminderRailSQL: a single bounded, indexed scan of calendar_event_projections
+// for ACTIVE reminder/escalation events (same semantics as admin-web's hasReminderOrEscalation) within the
+// requested week window, scoped identically to the main list/date-marker queries. EmptyMessage is left
+// blank here -- the app-layer service fills it from the same CalendarPresentation.Week.ReminderEmptyMessage
+// copy the week view already renders, so there is exactly one backend-owned literal, not a duplicate.
+func (r *Repository) reminderRail(ctx context.Context, tenantID, ownerKey, status, parkID, shedID string, dateFrom, dateToExclusive time.Time, tenantWide bool, parkIDs, shedIDs []string) (domain.CalendarReminderRail, error) {
+	rows, err := r.pool.Query(ctx, calendarReminderRailSQL,
+		tenantID, ownerKey, status, parkID, shedID, dateFrom, dateToExclusive, tenantWide, parkIDs, shedIDs, reminderRailLimit)
+	if err != nil {
+		return domain.CalendarReminderRail{}, fmt.Errorf("calendar: list reminder rail: %w", err)
+	}
+	defer rows.Close()
+	rail := domain.CalendarReminderRail{Items: []domain.CalendarReminderRailItem{}}
+	for rows.Next() {
+		var eventID, title, subtitle, reminderState, escalationState, channel string
+		var totalCount int
+		if err := rows.Scan(&eventID, &title, &subtitle, &reminderState, &escalationState, &channel, &totalCount); err != nil {
+			return domain.CalendarReminderRail{}, fmt.Errorf("calendar: scan reminder rail row: %w", err)
+		}
+		rail.Count = totalCount
+		item := domain.CalendarReminderRailItem{
+			EventID:         eventID,
+			Title:           title,
+			Subtitle:        subtitle,
+			ReminderLabel:   reminderStateLabel(reminderState),
+			EscalationLabel: escalationStateLabel(escalationState),
+			Channels:        []string{},
+		}
+		if strings.TrimSpace(channel) != "" {
+			item.Channels = []string{channel}
+		}
+		rail.Items = append(rail.Items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return domain.CalendarReminderRail{}, err
+	}
+	return rail, nil
+}
+
+// reminderStateLabel/escalationStateLabel humanize the durable reminder_state/escalation_state kernel
+// values for the reminder rail badge (mirrors admin-web's activeReminderState/activeEscalationState
+// active-set semantics in calendar-contract.ts -- not_scheduled/none are never surfaced here because
+// calendarReminderRailSQL's WHERE clause already excludes them).
+func reminderStateLabel(state string) string {
+	switch state {
+	case "scheduled":
+		return "Reminder scheduled"
+	case "queued":
+		return "Reminder queued"
+	case "nudged", "sent":
+		return "Reminder sent"
+	case "snoozed":
+		return "Reminder snoozed"
+	case "escalated":
+		return "Reminder escalated"
+	default:
+		return ""
+	}
+}
+
+func escalationStateLabel(state string) string {
+	switch state {
+	case "pending":
+		return "Escalation pending"
+	case "queued":
+		return "Escalation queued"
+	case "escalated":
+		return "Escalated"
+	case "acknowledged":
+		return "Escalation acknowledged"
+	case "level_1_open":
+		return "Escalated · L1"
+	case "level_2_open":
+		return "Escalated · L2"
+	case "level_3_open":
+		return "Escalated · L3"
+	case "level_4_open":
+		return "Escalated · L4"
+	case "level_1_acknowledged":
+		return "Escalated · L1 acknowledged"
+	case "level_2_acknowledged":
+		return "Escalated · L2 acknowledged"
+	case "level_3_acknowledged":
+		return "Escalated · L3 acknowledged"
+	case "level_4_acknowledged":
+		return "Escalated · L4 acknowledged"
+	default:
+		return ""
+	}
 }
 
 func (r *Repository) servingProjection(ctx context.Context, tenantID string, dateFrom, dateTo time.Time) (domain.ProjectionMetadata, error) {
@@ -727,8 +835,8 @@ SET status = 'acknowledged',
 WHERE tenant_id = $1::uuid
   AND escalation_id = $2::uuid
   AND status = 'open'`, in.TenantID, esc.EscalationID, in.ActorID,
-		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=escalation-ack-absolute-instant-storage expiry=2026-12-31
-		time.Now().UTC(), in.Reason)
+			// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=escalation-ack-absolute-instant-storage expiry=2026-12-31
+			time.Now().UTC(), in.Reason)
 		return tag.RowsAffected() > 0, "acknowledged", err
 	case "resolve_escalation":
 		tag, err := tx.Exec(ctx, `
@@ -740,8 +848,8 @@ SET status = 'resolved',
 WHERE tenant_id = $1::uuid
   AND escalation_id = $2::uuid
   AND status IN ('open', 'acknowledged')`, in.TenantID, esc.EscalationID, in.ActorID,
-		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=escalation-resolve-absolute-instant-storage expiry=2026-12-31
-		time.Now().UTC(), in.Reason)
+			// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=escalation-resolve-absolute-instant-storage expiry=2026-12-31
+			time.Now().UTC(), in.Reason)
 		return tag.RowsAffected() > 0, "resolved", err
 	default:
 		return false, "", ports.ErrEventNotActionable
@@ -1487,6 +1595,20 @@ func (r *Repository) RefreshVaccinationProjection(ctx context.Context, in ports.
 	if err := tx.QueryRow(ctx, `SELECT (extract(epoch FROM clock_timestamp()) * 1000000)::bigint, clock_timestamp()`).Scan(&projectionVersion, &projectedAt); err != nil {
 		return 0, fmt.Errorf("calendar: projection stamp: %w", err)
 	}
+	// DRV-004: materialize the drive_summary aggregate EXACTLY ONCE for this refresh call, before the
+	// keyset page loop below runs it (potentially many times) via calendarVaccinationProjectionRefreshSQL.
+	// The DROP is defensive (ON COMMIT DROP already clears the previous transaction's copy; transactional
+	// DDL means a rolled-back refresh leaves no residue either) -- cheap and makes reuse of a pooled
+	// connection across refresh calls safe regardless of how the prior transaction ended.
+	if _, err := tx.Exec(ctx, `DROP TABLE IF EXISTS calendar_drive_summary_tmp`); err != nil {
+		return 0, fmt.Errorf("calendar: reset drive summary materialization: %w", err)
+	}
+	if _, err := tx.Exec(ctx, calendarVaccinationDriveSummaryMaterializeSQL, in.TenantID, in.DateFrom, in.DateTo); err != nil {
+		return 0, fmt.Errorf("calendar: materialize drive summary: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `CREATE INDEX ON calendar_drive_summary_tmp (park_id, due_date)`); err != nil {
+		return 0, fmt.Errorf("calendar: index drive summary: %w", err)
+	}
 	total := 0
 	var cursor *domain.CalendarCursor
 	for {
@@ -2032,7 +2154,8 @@ candidates AS (
            COALESCE((detail->'summary'->>'deferred_count')::int, 0) AS deferred_count,
            COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
            ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
-           ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels
+           ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
+           CASE WHEN jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary
     FROM calendar_event_projections
     WHERE tenant_id = $1::uuid
       AND slice_key = 'vaccination'
@@ -2072,7 +2195,8 @@ candidates AS (
            COALESCE((detail->'summary'->>'deferred_count')::int, 0) AS deferred_count,
            COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
            ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
-           ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels
+           ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
+           CASE WHEN jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary
     FROM calendar_event_projections
     WHERE tenant_id = $1::uuid
       AND slice_key = 'vaccination'
@@ -2106,7 +2230,8 @@ candidates AS (
            0::int AS drive_count, 0::int AS catch_up_count, 0::int AS scheduled_count,
            0::int AS deferred_count, 0::int AS review_count,
            CASE WHEN shed_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[shed_name] END AS shed_labels,
-           CASE WHEN vaccine_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[vaccine_name] END AS vaccine_labels
+           CASE WHEN vaccine_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[vaccine_name] END AS vaccine_labels,
+           NULL::jsonb AS drive_summary
     FROM completed_history
     WHERE ($2::text = '' OR owner_key = $2::text)
       AND $3::text = 'completed'
@@ -2126,11 +2251,12 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
        primary_notification_channel, escalation_state, system, cross_cutting, links,
        aggregated, all_day, summary_primary, summary_secondary, summary_tertiary,
        shed_count, vaccine_count, drive_count, catch_up_count, scheduled_count,
-       deferred_count, review_count, shed_labels, vaccine_labels
+       deferred_count, review_count, shed_labels, vaccine_labels, drive_summary
 FROM candidates
 ORDER BY due_at ASC, event_id ASC
 LIMIT $10`
 
+// projection-review: membership=calendar_event_projections rows in the requested [$6,$7) window matching the same owner/status/park/shed/scope filters as the list query, UNION ALL with the materialized calendar_history_date_markers projector output gated by calendar_history_projection_state.serving_projection_version; group_key=marker_date (Asia/Kolkata calendar day), the live branch from due_at and the history branch from the already-IST-derived business_date, both collapsed by the outer GROUP BY marker_date so a day never double-counts; join_cardinality=plain per-row GROUP BY over calendar_event_projections with no dimension join (no fan-out), the history branch's JOIN to history_serving is a semijoin against calendar_history_projection_state's tenant_id PRIMARY KEY (at most one row); pagination=whole-result, one query per ListEvents(IncludeDateMarkers) call bounded to the requested date range, never recomputed per event row or UI list page; scope=park_id/shed_id read directly from calendar_event_projections' precomputed columns (already resolved at refresh time), no ad hoc parent/self coalescing
 const calendarDateMarkersSQL = `
 WITH history_serving AS (
   SELECT serving_projection_version
@@ -2192,6 +2318,33 @@ FROM marker_rows
 GROUP BY marker_date
 ORDER BY marker_date`
 
+// projection-review: membership=calendar_event_projections rows in the requested [$6,$7) window matching the same owner/status/park/shed/scope filters as the list/date-marker queries (system=false, slice_key='vaccination', event_type <> 'vaccination_dose_due'); group_key=event_id (one row per already-materialized projection row, no grouping/aggregation beyond the window count(*) OVER() total, so there is no group key collision to prove); join_cardinality=no JOIN at all -- a single filtered SELECT against calendar_event_projections, so there is no dimension fan-out to dedupe; pagination=whole-result total (count(*) OVER() over the FULL filtered week window, independent of the ~20-row LIMIT below) AND bounded-execution (one indexed query per ListEvents(IncludeDateMarkers) call, LIMIT $11 keeps the returned preview small, never recomputed by filtering whatever page of Items the frontend currently holds); scope=park_id/shed_id read directly from calendar_event_projections' precomputed columns (already resolved at refresh time), same tenant-wide/park/shed scope predicate as calendarListSQL/calendarDateMarkersSQL
+const calendarReminderRailSQL = `
+SELECT event_id, title, subtitle, reminder_state, escalation_state, primary_notification_channel,
+       count(*) OVER ()::int AS total_count
+FROM calendar_event_projections
+WHERE tenant_id = $1::uuid
+  AND slice_key = 'vaccination'
+  AND system = false
+  AND event_type <> 'vaccination_dose_due'
+  AND ($2::text = '' OR owner_key = $2::text)
+  AND ($3::text = '' OR status = $3::text)
+  AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
+  AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
+  AND due_at >= $6::timestamptz
+  AND due_at < $7::timestamptz
+  AND ($8::bool OR park_id::text = ANY($9::text[]) OR shed_id::text = ANY($10::text[]))
+  AND (
+    reminder_state IN ('scheduled', 'queued', 'nudged', 'snoozed', 'sent', 'escalated')
+    OR escalation_state IN (
+      'pending', 'queued', 'escalated', 'acknowledged',
+      'level_1_open', 'level_2_open', 'level_3_open', 'level_4_open',
+      'level_1_acknowledged', 'level_2_acknowledged', 'level_3_acknowledged', 'level_4_acknowledged'
+    )
+  )
+ORDER BY due_at ASC, event_id ASC
+LIMIT $11`
+
 const calendarDetailSQL = `
 SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
        window_end, timezone, timezone_source, park_id::text, park_code, shed_id::text, shed_name,
@@ -2213,6 +2366,7 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
        COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
        ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
        ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
+       CASE WHEN jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary,
        detail
 FROM calendar_event_projections
 WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
@@ -2254,6 +2408,7 @@ SELECT
   0::int AS deferred_count, 0::int AS review_count,
   CASE WHEN r.shed_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[r.shed_name] END AS shed_labels,
   CASE WHEN r.vaccine_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[r.vaccine_name] END AS vaccine_labels,
+  NULL::jsonb AS drive_summary,
   r.detail
 FROM calendar_history_projection_rows r
 JOIN history_serving hs ON hs.serving_projection_version = r.projection_version
@@ -2363,6 +2518,137 @@ FROM history
 WHERE ($3::timestamptz IS NULL OR (occurred_at, history_id) < ($3::timestamptz, $4::text))
 ORDER BY occurred_at DESC, history_id DESC
 LIMIT $5`
+
+// DRV-004 bounded execution: this materializes the drive_summary aggregate (obligation_drive_membership
+// -> obligation_drive_vaccine_labels -> obligation_drive_shed_complete -> obligation_drive_summary) EXACTLY
+// ONCE per RefreshVaccinationProjection call, into the transaction-scoped temp table
+// calendar_drive_summary_tmp (ON COMMIT DROP -- transactional DDL means a rolled-back refresh leaves no
+// residue either). RefreshVaccinationProjection executes this before entering its keyset page loop; every
+// call to refreshVaccinationProjectionPage then reads the small, indexed temp table instead of re-scanning
+// obligation_instances/obligation_batches/protocol_* for every page. Same tenant/date-window/status/scope
+// filters as the CTE chain this replaces -- copied byte-for-byte from the original inline CTEs so the
+// aggregation semantics (membership source, group key, join cardinality, scope matrix) are unchanged; see
+// the projection-review marker below calendarVaccinationProjectionRefreshSQL's obligation_drive_summary stub.
+const calendarVaccinationDriveSummaryMaterializeSQL = `
+CREATE TEMP TABLE calendar_drive_summary_tmp ON COMMIT DROP AS
+WITH obligation_drive_membership AS (
+  SELECT
+    oi.obligation_id,
+    oi.status,
+    oi.rule_id,
+    pd.name AS protocol_name,
+    loc.park_id,
+    loc.park_code,
+    loc.shed_id,
+    (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
+  CROSS JOIN LATERAL (
+    SELECT
+      CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_type ELSE oi.scope_type END AS scope_type,
+      CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_id ELSE oi.scope_id END AS scope_id,
+      CASE
+        WHEN oi.batch_id IS NOT NULL THEN COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)
+        ELSE oi.due_at
+      END AS membership_at
+  ) member
+  LEFT JOIN locations scope_loc
+    ON scope_loc.tenant_id = oi.tenant_id
+   AND scope_loc.location_id = member.scope_id
+   AND member.scope_type IN ('park', 'shed', 'cohort')
+  LEFT JOIN locations scope_parent
+    ON scope_parent.tenant_id = oi.tenant_id
+   AND scope_parent.location_id = scope_loc.parent_location_id
+  LEFT JOIN locations scope_grand
+    ON scope_grand.tenant_id = oi.tenant_id
+   AND scope_grand.location_id = scope_parent.parent_location_id
+  LEFT JOIN LATERAL (
+    SELECT
+      CASE
+        WHEN member.scope_type = 'park' THEN scope_loc.location_id
+        WHEN member.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
+        WHEN member.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
+      END AS park_id,
+      CASE
+        WHEN member.scope_type = 'park' THEN scope_loc.location_code
+        WHEN member.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code
+        WHEN member.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_code
+      END AS park_code,
+      CASE
+        WHEN member.scope_type = 'shed' THEN scope_loc.location_id
+        WHEN member.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
+      END AS shed_id
+  ) loc ON true
+  WHERE oi.tenant_id = $1::uuid
+    AND pd.category = 'vaccination'
+    AND pv.status = 'published'
+    AND oi.status NOT IN ('superseded', 'canceled', 'waived')
+    AND (
+      (oi.batch_id IS NOT NULL
+        AND ob.status NOT IN ('superseded', 'canceled')
+        AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= $2::timestamptz
+        AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
+        AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days'))
+      OR
+      (oi.batch_id IS NULL
+        AND (
+          (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
+          OR oi.status IN ('missed', 'in_progress', 'deferred')
+          OR (oi.status IN ('scheduled', 'due') AND oi.due_at < now())
+        ))
+    )
+),
+obligation_drive_vaccine_labels AS (
+  SELECT
+    m.park_id,
+    m.due_date,
+    array_remove(array_agg(DISTINCT COALESCE(NULLIF(prd.vaccine_json->>'name', ''), m.protocol_name)), NULL)::text[] AS vaccine_labels
+  FROM obligation_drive_membership m
+  LEFT JOIN protocol_rule_dimensions prd
+    ON prd.tenant_id = $1::uuid AND prd.rule_id = m.rule_id
+  GROUP BY m.park_id, m.due_date
+),
+obligation_drive_shed_complete AS (
+  SELECT park_id, due_date, count(*)::int AS sheds_completed
+  FROM (
+    SELECT park_id, due_date, shed_id
+    FROM obligation_drive_membership
+    WHERE shed_id IS NOT NULL
+    GROUP BY park_id, due_date, shed_id
+    HAVING count(DISTINCT obligation_id) = count(DISTINCT obligation_id) FILTER (WHERE status = 'completed')
+  ) done_sheds
+  GROUP BY park_id, due_date
+),
+obligation_drive_summary AS (
+  SELECT
+    m.park_id,
+    m.due_date,
+    count(DISTINCT m.obligation_id) FILTER (WHERE m.status IN (
+      'completed', 'scheduled', 'due', 'in_progress', 'proof_pending',
+      'verification_pending', 'rejected', 'rework_due', 'overdue', 'missed',
+      'deferred', 'blocked'))::int AS total_count,
+    count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'completed')::int AS completed_count,
+    count(DISTINCT m.obligation_id) FILTER (WHERE m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due'))::int AS due_count,
+    count(DISTINCT m.obligation_id) FILTER (WHERE m.status IN ('overdue', 'missed'))::int AS overdue_count,
+    count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'deferred')::int AS deferred_count,
+    count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'blocked')::int AS blocked_count,
+    count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
+    COALESCE(max(sc.sheds_completed), 0)::int AS sheds_completed,
+    COALESCE(max(vl.vaccine_labels), ARRAY[]::text[]) AS vaccine_labels,
+    max(m.park_code) AS park_code
+  FROM obligation_drive_membership m
+  LEFT JOIN obligation_drive_shed_complete sc
+    ON sc.park_id IS NOT DISTINCT FROM m.park_id AND sc.due_date = m.due_date
+  LEFT JOIN obligation_drive_vaccine_labels vl
+    ON vl.park_id IS NOT DISTINCT FROM m.park_id AND vl.due_date = m.due_date
+  GROUP BY m.park_id, m.due_date
+)
+SELECT * FROM obligation_drive_summary`
 
 const calendarVaccinationProjectionRefreshSQL = `
 WITH obligation_events AS (
@@ -2867,6 +3153,26 @@ park_drive_groups AS (
   FROM drive_sources
   GROUP BY park_id, to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
 ),
+-- drive_summary aggregation. Emits EXACTLY ONE row per (park_id, due_date) so the LEFT JOIN
+-- into park_drive_events below is 1:1 and never fans a single park-drive event_id into multiple
+-- rows (which would break the ON CONFLICT (tenant_id, event_id) upsert in the refresh).
+--
+-- DRV-004 bounded execution: obligation_drive_membership -> obligation_drive_vaccine_labels ->
+-- obligation_drive_shed_complete -> obligation_drive_summary is NOT computed inline here anymore.
+-- RefreshVaccinationProjection materializes it EXACTLY ONCE per refresh call, before the keyset
+-- page loop begins, via calendarVaccinationDriveSummaryMaterializeSQL into the transaction-scoped
+-- temp table calendar_drive_summary_tmp (ON COMMIT DROP), indexed on (park_id, due_date). Every
+-- keyset page of THIS query then does a single indexed lookup into that temp table instead of
+-- re-scanning obligation_instances/obligation_batches/protocol_* per page. Membership, group key,
+-- join cardinality, and scope matrix are byte-identical to the CTE chain this replaces (see
+-- calendarVaccinationDriveSummaryMaterializeSQL above) -- only WHERE this work executes changed,
+-- never the aggregation semantics. Proof: TestRefreshVaccinationProjectionMaterializesDriveSummaryOnce
+-- (query-count + EXPLAIN evidence) in repository_integration_test.go.
+--
+-- projection-review: membership=oi.batch_id (batched -> obligation_batches window/scope, unbatched -> obligation's own due_at/scope, mirroring catchup_drive_events); group_key=(park_id, due_date) derived from that same membership source, matching park_drive_groups' (park_id, due_day) key in Asia/Kolkata; join_cardinality=count(DISTINCT obligation_id) FILTER per bucket over a one-row-per-obligation membership CTE, dimension fan-out isolated to a separate DISTINCT array_agg for vaccine_labels, one summary row per (park_id, due_date) LEFT JOINed 1:1 into park_drive_events; pagination=whole-result AND bounded-execution -- obligation_drive_summary is materialized EXACTLY ONCE per RefreshVaccinationProjection call (calendarVaccinationDriveSummaryMaterializeSQL, executed before the keyset page loop) into the indexed temp table calendar_drive_summary_tmp(park_id, due_date), never re-derived per UI list page (reads are indexed lookups over the materialized calendar_event_projections.detail) nor re-scanned per keyset refresh page (each page reads the small indexed temp table, not obligation_instances/obligation_batches again); scope=explicit park/shed/cohort location matrix (scope_loc/scope_parent/scope_grand), batch scope for batched obligations and obligation scope for unbatched, never COALESCE(parent_id, self_id)
+obligation_drive_summary AS (
+  SELECT * FROM calendar_drive_summary_tmp
+),
 park_drive_events AS (
   SELECT
     CASE
@@ -2970,9 +3276,27 @@ park_drive_events AS (
         'nudge_allowed', NOT grouped.has_catch_up,
         'read_only', grouped.has_catch_up
       ),
-      'links', jsonb_build_object('vaccination', '/vaccination')
+      'links', jsonb_build_object('vaccination', '/vaccination'),
+      'drive_summary', CASE WHEN obl_summary.total_count > 0 THEN jsonb_build_object(
+        'park_name', COALESCE(obl_summary.park_code, grouped.park_code, 'Vaccination drive'),
+        'due_date', grouped.due_day,
+        'shed_count', obl_summary.shed_count,
+        'sheds_completed', obl_summary.sheds_completed,
+        'vaccine_labels', to_jsonb(obl_summary.vaccine_labels),
+        'total_count', obl_summary.total_count,
+        'completed_count', obl_summary.completed_count,
+        'remaining_count', obl_summary.total_count - obl_summary.completed_count,
+        'due_count', obl_summary.due_count,
+        'overdue_count', obl_summary.overdue_count,
+        'deferred_count', obl_summary.deferred_count,
+        'blocked_count', obl_summary.blocked_count,
+        'owner_label', 'PC'
+      ) ELSE NULL END
     ) AS detail
   FROM park_drive_groups grouped
+  LEFT JOIN obligation_drive_summary obl_summary
+    ON obl_summary.park_id IS NOT DISTINCT FROM grouped.park_id
+    AND obl_summary.due_date = grouped.due_day::date
   CROSS JOIN LATERAL (
     SELECT COALESCE(array_agg(DISTINCT label ORDER BY label), ARRAY[]::text[]) AS labels
     FROM drive_sources source
@@ -3489,6 +3813,7 @@ func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]
 	var protocolID, versionID, ruleID, vaccineName, doseCode pgtype.Text
 	var assignee, executor, verifier pgtype.Text
 	var links []byte
+	var driveSummaryRaw []byte
 	dest := []any{
 		&event.EventID, &event.EventType, &event.OwnerKey, &event.Title, &event.Subtitle,
 		&event.Status, &event.Severity, &event.DueAt, &windowStart, &windowEnd,
@@ -3501,13 +3826,22 @@ func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]
 		&event.SummaryPrimary, &event.SummarySecondary, &event.SummaryTertiary,
 		&event.ShedCount, &event.VaccineCount, &event.DriveCount, &event.CatchUpCount,
 		&event.ScheduledCount, &event.DeferredCount, &event.ReviewCount,
-		&event.ShedLabels, &event.VaccineLabels,
+		&event.ShedLabels, &event.VaccineLabels, &driveSummaryRaw,
 	}
 	if detail != nil {
 		dest = append(dest, detail)
 	}
 	if err := rows.Scan(dest...); err != nil {
 		return domain.CalendarEvent{}, err
+	}
+	// drive_summary is populated only for aggregated park-level vaccination_drive events; it is
+	// NULL (nil) for every other event type and left as a nil *DriveSummary.
+	if len(driveSummaryRaw) > 0 && string(driveSummaryRaw) != "null" {
+		var ds domain.DriveSummary
+		if err := json.Unmarshal(driveSummaryRaw, &ds); err != nil {
+			return domain.CalendarEvent{}, fmt.Errorf("calendar: decode drive_summary: %w", err)
+		}
+		event.DriveSummary = &ds
 	}
 	event.WindowStart = timePtr(windowStart)
 	event.WindowEnd = timePtr(windowEnd)

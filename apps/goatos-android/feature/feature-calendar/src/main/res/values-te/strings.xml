@@ -29,4 +29,14 @@
     <string name="calendar_drive_sheds">షెడ్లు</string>
     <string name="calendar_drive_vaccines">టీకాలు</string>
     <string name="calendar_drive_doses">డోసులు</string>
+
+    <!-- v4 park-level drive progress card -->
+    <string name="calendar_drive_title">టీకా డ్రైవ్ · %1$s</string>
+    <string name="calendar_drive_sheds_done">షెడ్లు పూర్తి</string>
+    <string name="calendar_drive_animals">డోసులు</string>
+    <string name="calendar_drive_remaining_left">%1$d మిగిలి</string>
+    <string name="calendar_drive_due">%1$d బాకీ</string>
+    <string name="calendar_drive_overdue">%1$d గడువు మీరిన</string>
+    <string name="calendar_drive_deferred">%1$d వాయిదా</string>
+    <string name="calendar_drive_blocked">%1$d నిలిపివేయబడింది</string>
 </resources>

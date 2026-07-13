@@ -2024,6 +2024,38 @@ export interface components {
             system: boolean;
             cross_cutting: boolean;
             links: components["schemas"]["CalendarEventLinks"];
+            drive_summary?: components["schemas"]["DriveSummary"] | null;
+        };
+        DriveSummary: {
+            /** @description Park name or code */
+            park_name: string;
+            /**
+             * Format: date
+             * @description Drive due date
+             */
+            due_date: string;
+            /** @description Number of unique sheds in the drive */
+            shed_count: number;
+            /** @description Number of sheds where all obligations are completed */
+            sheds_completed: number;
+            /** @description List of vaccine names involved in the drive */
+            vaccine_labels: string[];
+            /** @description Total obligations in the drive */
+            total_count: number;
+            /** @description Completed obligations */
+            completed_count: number;
+            /** @description Remaining obligations */
+            remaining_count: number;
+            /** @description Active open obligations */
+            due_count: number;
+            /** @description Overdue/missed obligations */
+            overdue_count: number;
+            /** @description Deferred obligations */
+            deferred_count: number;
+            /** @description Blocked obligations */
+            blocked_count: number;
+            /** @description Owner/team label */
+            owner_label: string;
         };
         CalendarPresentationQuery: {
             [key: string]: string;
@@ -2129,6 +2161,23 @@ export interface components {
             projection: components["schemas"]["CalendarProjectionMetadata"];
             /** @description Freshness and coverage metadata for the completed-history projection, populated only when this read consulted the history CTE (explicit status=completed filter or date-marker inclusion). Null otherwise. */
             history_projection?: components["schemas"]["CalendarProjectionMetadata"];
+            /** @description Backend-computed, whole-filtered-week reminder/escalation rail. Populated only when include_reminder_rail is set (the week view request shape); null otherwise so a plain paged list fetch does not pay for it. */
+            reminder_rail?: components["schemas"]["CalendarReminderRail"];
+        };
+        CalendarReminderRail: {
+            /** @description Total active reminder/escalation events in the full filtered week window, independent of the bounded items preview below. */
+            count: number;
+            empty_message: string;
+            /** @description Bounded (~20) keyset-ordered preview of active reminder/escalation events. */
+            items: components["schemas"]["CalendarReminderRailItem"][];
+        };
+        CalendarReminderRailItem: {
+            event_id: string;
+            title: string;
+            subtitle: string;
+            reminder_label: string;
+            escalation_label: string;
+            channels: string[];
         };
         CalendarDateMarker: {
             /** Format: date */
@@ -4895,6 +4944,8 @@ export interface operations {
                 date_to?: string;
                 /** @description Include bounded per-day counts for complete month-grid rendering. */
                 include_date_markers?: boolean;
+                /** @description Include the whole-filtered-week reminder/escalation rail summary (week view). Separate from include_date_markers so the week list gets the rail without paying for month date-markers. */
+                include_reminder_rail?: boolean;
                 cursor?: string;
                 limit?: number;
             };

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
@@ -294,7 +295,7 @@ func TestCalendarReminderSweepRearmsOpenWorkDaily(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 	eventID := "calendar:86000000-0000-4000-8000-000000001222"
 	seedCalendarProjection(t, ctx, pool, eventID, time.Now().UTC().Add(30*time.Minute), "queued")
-	yesterdayKey := testTenantID + ":calendar.reminder:" + eventID + ":" + calendarBusinessDate(time.Now().UTC().Add(-24*time.Hour))
+	yesterdayKey := testTenantID + ":calendar.reminder:" + eventID + ":" + calendarBusinessDate(time.Now().In(biztime.DefaultLocation()).Add(-24*time.Hour))
 	if _, err := pool.Exec(ctx, `
 INSERT INTO notification_requests (
   tenant_id, calendar_event_id, target_type, notification_type, channel,
@@ -314,7 +315,7 @@ INSERT INTO notification_requests (
 	if queued != 1 {
 		t.Fatalf("queued reminders = %d, want daily rearm", queued)
 	}
-	todayKey := testTenantID + ":calendar.reminder:" + eventID + ":" + calendarBusinessDate(time.Now().UTC())
+	todayKey := testTenantID + ":calendar.reminder:" + eventID + ":" + calendarBusinessDate(time.Now().In(biztime.DefaultLocation()))
 	assertCount(t, ctx, pool, "daily reminder key", `
 SELECT count(*)
 FROM notification_requests
@@ -2646,5 +2647,969 @@ WHERE tenant_id = $1::uuid
 	payload, ok := envelope["payload"].(map[string]any)
 	if !ok || payload["action_id"] != aggregateID || payload["event_id"] != calendarEventID {
 		t.Fatalf("%s nested payload = %#v", label, envelope["payload"])
+	}
+}
+
+// TestDriveSummaryComputesCountsAndInvariants verifies that a multi-shed, mixed-status
+// vaccination_drive calendar event computes a single park-level drive_summary with correct
+// obligation status-bucket counts, maintains the invariant
+// total = completed + due + overdue + deferred + blocked, resolves park_name to the PARK
+// (never a shed), and — critically — that the projection refresh does NOT 500 with an
+// ON CONFLICT double-row error (the P0 caused by fanning one park-drive event_id into many rows).
+func TestDriveSummaryComputesCountsAndInvariants(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Fixed business-day window so the projection state (seeded around these dates) covers the drive.
+	driveDate := biztime.BusinessDayStart(time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC))
+	seedCalendarProjectionStateWindow(t, ctx, pool, driveDate.Add(-24*time.Hour), driveDate.Add(48*time.Hour))
+
+	protocolID := "aa000000-0000-4000-8000-000000000001"
+	versionID := "aa000000-0000-4000-8000-000000000002"
+	ruleID := "aa000000-0000-4000-8000-000000000003"
+
+	parkID := testParkA
+	shedA := testShedA
+	shedB := testShedB
+	shedC := "86000000-0000-4000-8000-000000000713"
+
+	// 6 obligations across 3 sheds under ONE park, mixed statuses:
+	//   Shed A: completed, completed          -> shed fully complete (sheds_completed = 1)
+	//   Shed B: completed, scheduled(due)     -> not complete
+	//   Shed C: deferred, missed(overdue)     -> not complete
+	oA1 := "ab000000-0000-4000-8000-000000000001"
+	oA2 := "ab000000-0000-4000-8000-000000000002"
+	oB1 := "ab000000-0000-4000-8000-000000000003"
+	oB2 := "ab000000-0000-4000-8000-000000000004"
+	oC1 := "ab000000-0000-4000-8000-000000000005"
+	oC2 := "ab000000-0000-4000-8000-000000000006"
+
+	// First obligation establishes the published vaccination protocol/version/rule.
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, oA1, driveDate)
+	for _, id := range []string{oA2, oB1, oB2, oC1, oC2} {
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, driveDate)
+	}
+	// Give the rule a vaccine name so drive_summary.vaccine_labels populates.
+	seedProtocolRuleVaccineName(t, ctx, pool, versionID, ruleID, "FMD")
+
+	// One batch per shed, same park + date -> a single PARK-level vaccination_drive event.
+	seedVaccinationBatchForShed(t, ctx, pool, "ac000000-0000-4000-8000-000000000001", versionID, parkID, shedA, driveDate, oA1, oA2)
+	seedVaccinationBatchForShed(t, ctx, pool, "ac000000-0000-4000-8000-000000000002", versionID, parkID, shedB, driveDate, oB1, oB2)
+	seedVaccinationBatchForShed(t, ctx, pool, "ac000000-0000-4000-8000-000000000003", versionID, parkID, shedC, driveDate, oC1, oC2)
+
+	// Apply the mixed statuses (batch attach left them 'scheduled').
+	setDriveObligationStatus(t, ctx, pool, oA1, "completed")
+	setDriveObligationStatus(t, ctx, pool, oA2, "completed")
+	setDriveObligationStatus(t, ctx, pool, oB1, "completed")
+	setDriveObligationStatus(t, ctx, pool, oB2, "scheduled")
+	setDriveObligationStatus(t, ctx, pool, oC1, "deferred")
+	setDriveObligationStatus(t, ctx, pool, oC2, "missed")
+
+	// Refresh the projection — must NOT error (the old fan-out caused an ON CONFLICT 500 here).
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection (fan-out ON CONFLICT regression): %v", err)
+	}
+
+	q := domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	}
+	resp, err := repo.ListEvents(ctx, q)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+
+	var drive *domain.CalendarEvent
+	driveCount := 0
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+			driveCount++
+		}
+	}
+	if drive == nil {
+		t.Fatalf("no vaccination_drive event found in %d events", len(resp.Items))
+	}
+	// Exactly one park-level drive event (the fan-out bug would surface as duplicates/500 upstream).
+	if driveCount != 1 {
+		t.Fatalf("expected exactly 1 vaccination_drive event, got %d", driveCount)
+	}
+	if drive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil for vaccination_drive event %s", drive.EventID)
+	}
+	s := drive.DriveSummary
+
+	if s.TotalCount != 6 {
+		t.Errorf("total_count = %d, want 6", s.TotalCount)
+	}
+	if s.CompletedCount != 3 {
+		t.Errorf("completed_count = %d, want 3", s.CompletedCount)
+	}
+	if s.DueCount != 1 {
+		t.Errorf("due_count = %d, want 1 (the one scheduled)", s.DueCount)
+	}
+	if s.OverdueCount != 1 {
+		t.Errorf("overdue_count = %d, want 1 (the one missed)", s.OverdueCount)
+	}
+	if s.DeferredCount != 1 {
+		t.Errorf("deferred_count = %d, want 1", s.DeferredCount)
+	}
+	if s.BlockedCount != 0 {
+		t.Errorf("blocked_count = %d, want 0", s.BlockedCount)
+	}
+	if s.ShedCount != 3 {
+		t.Errorf("shed_count = %d, want 3", s.ShedCount)
+	}
+	if s.ShedsCompleted != 1 {
+		t.Errorf("sheds_completed = %d, want 1 (shed A fully complete)", s.ShedsCompleted)
+	}
+
+	// Invariant: total = completed + due + overdue + deferred + blocked.
+	sum := s.CompletedCount + s.DueCount + s.OverdueCount + s.DeferredCount + s.BlockedCount
+	if sum != s.TotalCount {
+		t.Errorf("invariant violated: buckets sum %d != total_count %d", sum, s.TotalCount)
+	}
+	// remaining = total - completed.
+	if s.RemainingCount != s.TotalCount-s.CompletedCount {
+		t.Errorf("remaining_count = %d, want %d", s.RemainingCount, s.TotalCount-s.CompletedCount)
+	}
+	// park_name must be the PARK code/name, never a shed code.
+	if s.ParkName == "" {
+		t.Errorf("park_name is empty")
+	}
+	if strings.Contains(strings.ToUpper(s.ParkName), "SHED") {
+		t.Errorf("park_name %q looks like a shed code, want the park", s.ParkName)
+	}
+	if s.OwnerLabel != "PC" {
+		t.Errorf("owner_label = %q, want PC", s.OwnerLabel)
+	}
+	if len(s.VaccineLabels) == 0 || s.VaccineLabels[0] != "FMD" {
+		t.Errorf("vaccine_labels = %v, want [FMD]", s.VaccineLabels)
+	}
+}
+
+// setDriveObligationStatus flips an obligation to a target status, keeping completed_at consistent
+// so status-derived reads stay valid.
+func setDriveObligationStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, obligationID, status string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status = $3,
+    completed_at = CASE WHEN $3 = 'completed' THEN COALESCE(completed_at, now()) ELSE NULL END,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligationID, status); err != nil {
+		t.Fatalf("set obligation %s status=%s: %v", obligationID, status, err)
+	}
+}
+
+// seedProtocolRuleDimension inserts one protocol_rule_dimensions row for a given selector_key.
+// Unlike seedProtocolRuleVaccineName (which always uses the rule_id as the selector_key), this
+// lets a test attach MULTIPLE dimension rows to the same rule -- protocol_rule_dimensions has no
+// uniqueness on rule_id alone (the unique key is (tenant_id, protocol_version_id, rule_id,
+// selector_key)), so a rule can legitimately carry more than one dimension row.
+func seedProtocolRuleDimension(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID, ruleID, selectorKey, vaccineName string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO protocol_rule_dimensions (
+  tenant_id, protocol_version_id, rule_id, category, ruleset_family,
+  selector_key, dose_code, source_dose_code, vaccine_code, vaccine_json
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'vaccination', 'calendar-projection-test',
+  $4, 'first', 'first', lower(replace($5, ' ', '_')), jsonb_build_object('name', $5)
+)
+ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE
+SET vaccine_json = EXCLUDED.vaccine_json`, testTenantID, versionID, ruleID, selectorKey, vaccineName); err != nil {
+		t.Fatalf("seed protocol rule dimension %s: %v", selectorKey, err)
+	}
+}
+
+// seedCalendarFarmParent inserts a FARM location and re-parents an existing park under it,
+// matching the production location hierarchy (farm -> park -> shed -> cohort). Tests use this to
+// prove that park_id resolution reads the PARK's own location row, not
+// COALESCE(parent_location_id, scope_id) -- which, once a park has a real farm parent, silently
+// resolves to the farm instead.
+func seedCalendarFarmParent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, farmID, parkID string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (
+  location_id, tenant_id, location_type, location_code, name, parent_location_id,
+  country, timezone, status, updated_at
+) VALUES (
+  $1::uuid, $2::uuid, 'farm', 'TST-FARM-' || right(($1::uuid)::text, 4), 'Test Farm ' || right(($1::uuid)::text, 4),
+  NULL, 'IN', 'Asia/Kolkata', 'active', now()
+)
+ON CONFLICT (location_id) DO UPDATE
+SET status = 'active', updated_at = now()`, farmID, testTenantID); err != nil {
+		t.Fatalf("seed farm location: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE locations SET parent_location_id = $1::uuid, updated_at = now()
+WHERE tenant_id = $2::uuid AND location_id = $3::uuid`, farmID, testTenantID, parkID); err != nil {
+		t.Fatalf("re-parent park %s under farm %s: %v", parkID, farmID, err)
+	}
+}
+
+// seedCalendarCohortLocation ensures park+shed exist (park -> shed) and adds a cohort location
+// parented to the shed (shed -> cohort), the two-hop chain a cohort-scoped obligation must resolve
+// through (cohort -> shed -> park) to find its park.
+func seedCalendarCohortLocation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, parkID, shedID, cohortID string) {
+	t.Helper()
+	seedCalendarLocations(t, ctx, pool, parkID, shedID)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO locations (
+  location_id, tenant_id, location_type, location_code, name, parent_location_id,
+  country, timezone, status, updated_at
+) VALUES (
+  $1::uuid, $2::uuid, 'cohort', 'TST-' || right(($1::uuid)::text, 4), 'Test Cohort ' || right(($1::uuid)::text, 4),
+  $3::uuid, 'IN', 'Asia/Kolkata', 'active', now()
+)
+ON CONFLICT (location_id) DO UPDATE
+SET status = 'active', parent_location_id = EXCLUDED.parent_location_id, updated_at = now()`,
+		cohortID, testTenantID, shedID); err != nil {
+		t.Fatalf("seed cohort location: %v", err)
+	}
+}
+
+// TestDriveSummaryDateShiftAttachesToBatchWindow proves DRV-001: a batched obligation's drive
+// membership (park + day) must be derived from its BATCH's planned/window date, the same
+// COALESCE(window_start, planned_date, window_end) basis batch_events itself uses -- never from
+// the obligation's own raw due_at. Before the fix, obligation_drive_summary grouped by oi.due_at
+// directly, so an obligation whose batch reschedules it to a later window (a hold, or any
+// D -> D+7 batch scheduling) never joined into its own batch's drive card: drive_summary came
+// back nil at the card's actual (batch-window) date.
+func TestDriveSummaryDateShiftAttachesToBatchWindow(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	rawDueDay := biztime.BusinessDayStart(time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC))
+	batchWindowDay := rawDueDay.Add(7 * 24 * time.Hour)
+	seedCalendarProjectionStateWindow(t, ctx, pool, rawDueDay.Add(-24*time.Hour), batchWindowDay.Add(72*time.Hour))
+
+	protocolID := "ba000000-0000-4000-8000-000000000001"
+	versionID := "ba000000-0000-4000-8000-000000000002"
+	ruleID := "ba000000-0000-4000-8000-000000000003"
+	obligationID := "ba000000-0000-4000-8000-000000000004"
+	batchID := "ba000000-0000-4000-8000-000000000005"
+
+	// The obligation's OWN due_at stays at rawDueDay; only its batch is scheduled for
+	// batchWindowDay (D+7) -- exactly the hold/reschedule shape DRV-001 covers.
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, rawDueDay)
+	seedProtocolRuleVaccineName(t, ctx, pool, versionID, ruleID, "FMD")
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, batchWindowDay, obligationID)
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: rawDueDay.Add(-24 * time.Hour),
+		DateTo:   batchWindowDay.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection: %v", err)
+	}
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: batchWindowDay.Add(-1 * time.Hour),
+		DateTo:   batchWindowDay.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+
+	var drive *domain.CalendarEvent
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+		}
+	}
+	if drive == nil {
+		t.Fatalf("no vaccination_drive event found at the batch window day in %d events", len(resp.Items))
+	}
+	if drive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil at the batch window day -- the summary's due_at-basis grouping missed the batch-window-basis event (DRV-001 regression)")
+	}
+	if drive.DriveSummary.TotalCount != 1 {
+		t.Errorf("total_count = %d, want 1", drive.DriveSummary.TotalCount)
+	}
+}
+
+// TestDriveSummaryMultipleDimensionsCountsObligationsOnce proves DRV-002: a rule with more than
+// one protocol_rule_dimensions row (no uniqueness on rule_id alone -- the unique key is
+// (tenant_id, protocol_version_id, rule_id, selector_key)) must not fan out the obligation count.
+// Before the fix, obligation_drive_base LEFT JOINed protocol_rule_dimensions directly and counted
+// with plain count(*), so 6 obligations under a 2-dimension rule counted as 12.
+func TestDriveSummaryMultipleDimensionsCountsObligationsOnce(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	driveDate := biztime.BusinessDayStart(time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC))
+	seedCalendarProjectionStateWindow(t, ctx, pool, driveDate.Add(-24*time.Hour), driveDate.Add(48*time.Hour))
+
+	protocolID := "bd000000-0000-4000-8000-000000000001"
+	versionID := "bd000000-0000-4000-8000-000000000002"
+	ruleID := "bd000000-0000-4000-8000-000000000003"
+
+	obligationIDs := []string{
+		"bd000000-0000-4000-8000-000000000011",
+		"bd000000-0000-4000-8000-000000000012",
+		"bd000000-0000-4000-8000-000000000013",
+		"bd000000-0000-4000-8000-000000000014",
+		"bd000000-0000-4000-8000-000000000015",
+		"bd000000-0000-4000-8000-000000000016",
+	}
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationIDs[0], driveDate)
+	for _, id := range obligationIDs[1:] {
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, driveDate)
+	}
+	for i, id := range obligationIDs {
+		goatID := fmt.Sprintf("bd000000-0000-4000-8000-0000000000%02d", 21+i)
+		attachObligationToGoatScope(t, ctx, pool, id, goatID, "shed", testShedA)
+	}
+	// One rule, TWO dimension rows (two selector keys) -- the exact one-to-many shape that fans
+	// out a plain (non-DISTINCT) LEFT JOIN aggregate.
+	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "dim-a", "FMD")
+	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "dim-b", "PPR")
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection: %v", err)
+	}
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+
+	var drive *domain.CalendarEvent
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+		}
+	}
+	if drive == nil {
+		t.Fatalf("no vaccination_drive event found in %d events", len(resp.Items))
+	}
+	if drive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil")
+	}
+	if drive.DriveSummary.TotalCount != len(obligationIDs) {
+		t.Errorf("total_count = %d, want %d (a 2-dimension rule must not double-count an obligation)", drive.DriveSummary.TotalCount, len(obligationIDs))
+	}
+}
+
+// TestDriveSummaryParkScopeAttachesToCorrectPark proves DRV-003 for park scope: a park-scoped
+// obligation must resolve its OWN location as the park, never COALESCE(parent_location_id,
+// scope_id) -- which, once the park has a real farm parent (the production hierarchy is
+// farm -> park -> shed -> cohort), silently resolves to the FARM instead of the park.
+func TestDriveSummaryParkScopeAttachesToCorrectPark(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	driveDate := biztime.BusinessDayStart(time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC))
+	seedCalendarProjectionStateWindow(t, ctx, pool, driveDate.Add(-24*time.Hour), driveDate.Add(48*time.Hour))
+
+	protocolID := "be000000-0000-4000-8000-000000000001"
+	versionID := "be000000-0000-4000-8000-000000000002"
+	ruleID := "be000000-0000-4000-8000-000000000003"
+	obligationID := "be000000-0000-4000-8000-000000000004"
+	goatID := "be000000-0000-4000-8000-000000000005"
+	farmID := "be000000-0000-4000-8000-000000000701"
+	parkID := "be000000-0000-4000-8000-000000000702"
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, driveDate)
+	seedProtocolRuleVaccineName(t, ctx, pool, versionID, ruleID, "FMD")
+	attachObligationToGoatScope(t, ctx, pool, obligationID, goatID, "park", parkID)
+	// Give the park a real FARM parent, matching the production hierarchy -- this is the exact
+	// condition that turns COALESCE(parent_location_id, scope_id) into the wrong (farm) id.
+	seedCalendarFarmParent(t, ctx, pool, farmID, parkID)
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection: %v", err)
+	}
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+
+	var drive *domain.CalendarEvent
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+		}
+	}
+	if drive == nil {
+		t.Fatalf("no vaccination_drive event found in %d events", len(resp.Items))
+	}
+	if drive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil -- park-scoped obligation resolved to the wrong park_id (the farm) and missed the park's drive card (DRV-003 regression)")
+	}
+	if drive.DriveSummary.TotalCount != 1 {
+		t.Errorf("total_count = %d, want 1", drive.DriveSummary.TotalCount)
+	}
+}
+
+// TestDriveSummaryCohortScopeAttachesToCorrectPark proves DRV-003 for cohort scope: a
+// cohort-scoped obligation must resolve two hops up (cohort -> shed -> park), never
+// COALESCE(parent_location_id, scope_id) -- which resolves only one hop up, to the cohort's
+// immediate parent (the SHED), not the park.
+func TestDriveSummaryCohortScopeAttachesToCorrectPark(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	driveDate := biztime.BusinessDayStart(time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC))
+	seedCalendarProjectionStateWindow(t, ctx, pool, driveDate.Add(-24*time.Hour), driveDate.Add(48*time.Hour))
+
+	protocolID := "bf000000-0000-4000-8000-000000000001"
+	versionID := "bf000000-0000-4000-8000-000000000002"
+	ruleID := "bf000000-0000-4000-8000-000000000003"
+	obligationID := "bf000000-0000-4000-8000-000000000004"
+	goatID := "bf000000-0000-4000-8000-000000000005"
+	parkID := "bf000000-0000-4000-8000-000000000701"
+	shedID := "bf000000-0000-4000-8000-000000000702"
+	cohortID := "bf000000-0000-4000-8000-000000000703"
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, driveDate)
+	seedProtocolRuleVaccineName(t, ctx, pool, versionID, ruleID, "FMD")
+	seedCalendarCohortLocation(t, ctx, pool, parkID, shedID, cohortID)
+	seedCalendarGoat(t, ctx, pool, goatID)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat', target_id = $3::uuid, scope_type = 'cohort', scope_id = $4::uuid,
+    batch_id = NULL, updated_at = now()
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, obligationID, goatID, cohortID); err != nil {
+		t.Fatalf("attach obligation to cohort scope: %v", err)
+	}
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection: %v", err)
+	}
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+
+	var drive *domain.CalendarEvent
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+		}
+	}
+	if drive == nil {
+		t.Fatalf("no vaccination_drive event found in %d events", len(resp.Items))
+	}
+	if drive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil -- cohort-scoped obligation resolved to the wrong park_id (the shed) and missed the park's drive card (DRV-003 regression)")
+	}
+	if drive.DriveSummary.TotalCount != 1 {
+		t.Errorf("total_count = %d, want 1", drive.DriveSummary.TotalCount)
+	}
+}
+
+// TestDriveSummaryUnrelatedSameParkDoesNotBleed proves the (park_id, due_date) group key is
+// exact: an obligation whose RAW due_at coincidentally lands on the SAME day as another drive in
+// the SAME park, but whose actual batch is scheduled for a totally different day, must not bleed
+// its count into the other day's drive_summary. Before the fix, obligation_drive_summary grouped
+// by oi.due_at (never the batch's own window), so this unrelated obligation would show up in the
+// wrong drive's counts.
+func TestDriveSummaryUnrelatedSameParkDoesNotBleed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	dayOne := biztime.BusinessDayStart(time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC))
+	dayTwo := dayOne.Add(10 * 24 * time.Hour)
+	seedCalendarProjectionStateWindow(t, ctx, pool, dayOne.Add(-24*time.Hour), dayTwo.Add(48*time.Hour))
+
+	protocolID := "c0000000-0000-4000-8000-000000000001"
+	versionID := "c0000000-0000-4000-8000-000000000002"
+	ruleID := "c0000000-0000-4000-8000-000000000003"
+	shedX := "c0000000-0000-4000-8000-000000000801"
+	shedY := "c0000000-0000-4000-8000-000000000802"
+	oxObligation := "c0000000-0000-4000-8000-000000000011"
+	oyObligation := "c0000000-0000-4000-8000-000000000012"
+	batchX := "c0000000-0000-4000-8000-000000000021"
+	batchY := "c0000000-0000-4000-8000-000000000022"
+
+	// Drive X: park A, day one, batch window == day one (no shift).
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, oxObligation, dayOne)
+	seedProtocolRuleVaccineName(t, ctx, pool, versionID, ruleID, "FMD")
+	seedVaccinationBatchForShed(t, ctx, pool, batchX, versionID, testParkA, shedX, dayOne, oxObligation)
+
+	// Drive Y: same park A, its OWN raw due_at also happens to fall on day one, but it is actually
+	// scheduled (batch window) for a completely different day (day two) -- an unrelated drive that
+	// must not bleed into day one's counts.
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, oyObligation, dayOne)
+	seedVaccinationBatchForShed(t, ctx, pool, batchY, versionID, testParkA, shedY, dayTwo, oyObligation)
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: dayOne.Add(-24 * time.Hour),
+		DateTo:   dayTwo.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection: %v", err)
+	}
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: dayOne.Add(-1 * time.Hour),
+		DateTo:   dayOne.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+
+	var drive *domain.CalendarEvent
+	driveCount := 0
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+			driveCount++
+		}
+	}
+	if driveCount != 1 {
+		t.Fatalf("expected exactly 1 vaccination_drive event on day one, got %d", driveCount)
+	}
+	if drive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil for day one's drive")
+	}
+	if drive.DriveSummary.TotalCount != 1 {
+		t.Errorf("total_count = %d, want 1 (day two's unrelated obligation must not bleed in)", drive.DriveSummary.TotalCount)
+	}
+}
+
+// TestDriveSummaryStatusBucketsCoverLiveStatusSet proves the status-bucket mapping is exact and
+// disjoint across the live obligation_instances statuses (the 000097 migration's CHECK constraint:
+// scheduled, due, in_progress, deferred, completed, missed, waived, canceled, superseded --
+// waived/canceled/superseded are excluded from the drive's live scope, leaving six). It pairs
+// those six statuses with a two-dimension rule and asserts the EXACT expected count per bucket
+// (not just sum(buckets) == total_count, an invariant the fan-out bug satisfies trivially by
+// doubling every bucket), so this test fails first against the pre-fix count(*) fan-out.
+func TestDriveSummaryStatusBucketsCoverLiveStatusSet(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	driveDate := biztime.BusinessDayStart(time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC))
+	seedCalendarProjectionStateWindow(t, ctx, pool, driveDate.Add(-24*time.Hour), driveDate.Add(48*time.Hour))
+
+	protocolID := "c1000000-0000-4000-8000-000000000001"
+	versionID := "c1000000-0000-4000-8000-000000000002"
+	ruleID := "c1000000-0000-4000-8000-000000000003"
+
+	statuses := []string{"completed", "scheduled", "due", "in_progress", "deferred", "missed"}
+	obligationIDs := make([]string, len(statuses))
+	for i := range statuses {
+		obligationIDs[i] = fmt.Sprintf("c1000000-0000-4000-8000-0000000000%02d", 11+i)
+	}
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationIDs[0], driveDate)
+	for _, id := range obligationIDs[1:] {
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, driveDate)
+	}
+	for i, id := range obligationIDs {
+		goatID := fmt.Sprintf("c1000000-0000-4000-8000-0000000000%02d", 31+i)
+		attachObligationToGoatScope(t, ctx, pool, id, goatID, "shed", testShedA)
+		setDriveObligationStatus(t, ctx, pool, id, statuses[i])
+	}
+	// Two dimension rows on the shared rule -- must not double the per-status counts.
+	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "dim-a", "FMD")
+	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "dim-b", "PPR")
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection: %v", err)
+	}
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+
+	var drive *domain.CalendarEvent
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+		}
+	}
+	if drive == nil {
+		t.Fatalf("no vaccination_drive event found in %d events", len(resp.Items))
+	}
+	if drive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil")
+	}
+	s := drive.DriveSummary
+	if s.TotalCount != 6 {
+		t.Errorf("total_count = %d, want 6 (a 2-dimension rule must not double-count)", s.TotalCount)
+	}
+	if s.CompletedCount != 1 {
+		t.Errorf("completed_count = %d, want 1", s.CompletedCount)
+	}
+	if s.DueCount != 3 {
+		t.Errorf("due_count = %d, want 3 (scheduled + due + in_progress)", s.DueCount)
+	}
+	if s.OverdueCount != 1 {
+		t.Errorf("overdue_count = %d, want 1 (missed)", s.OverdueCount)
+	}
+	if s.DeferredCount != 1 {
+		t.Errorf("deferred_count = %d, want 1", s.DeferredCount)
+	}
+	if s.BlockedCount != 0 {
+		t.Errorf("blocked_count = %d, want 0 (no live obligation_instances status maps to blocked)", s.BlockedCount)
+	}
+	sum := s.CompletedCount + s.DueCount + s.OverdueCount + s.DeferredCount + s.BlockedCount
+	if sum != s.TotalCount {
+		t.Errorf("invariant violated: buckets sum %d != total_count %d", sum, s.TotalCount)
+	}
+}
+
+// TestDriveSummaryMultiPageListingKeepsWholeResultTotals proves drive_summary is a whole-result
+// aggregate, not a capped read-time rollup: it is computed once by the refresh and materialized
+// into calendar_event_projections.detail, so ListEvents paging with a tiny page size must return
+// the exact same total_count as one wide page -- the aggregate must never be reconstructed from
+// whatever rows the current request page happens to fetch.
+func TestDriveSummaryMultiPageListingKeepsWholeResultTotals(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	driveDate := biztime.BusinessDayStart(time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC))
+	seedCalendarProjectionStateWindow(t, ctx, pool, driveDate.Add(-72*time.Hour), driveDate.Add(48*time.Hour))
+
+	protocolID := "c2000000-0000-4000-8000-000000000001"
+	versionID := "c2000000-0000-4000-8000-000000000002"
+	ruleID := "c2000000-0000-4000-8000-000000000003"
+	batchID := "c2000000-0000-4000-8000-000000000004"
+
+	driveObligations := []string{
+		"c2000000-0000-4000-8000-000000000011",
+		"c2000000-0000-4000-8000-000000000012",
+		"c2000000-0000-4000-8000-000000000013",
+	}
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, driveObligations[0], driveDate)
+	for _, id := range driveObligations[1:] {
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, driveDate)
+	}
+	seedProtocolRuleVaccineName(t, ctx, pool, versionID, ruleID, "FMD")
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, driveDate, driveObligations...)
+
+	// 5 unrelated, earlier-due individual dose_due events sort ahead of the drive card in
+	// due_at-ascending order, pushing the drive card past page one once the list is paged with
+	// Limit=1.
+	for i := 0; i < 5; i++ {
+		id := fmt.Sprintf("c2000000-0000-4000-8000-0000000000%02d", 21+i)
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, driveDate.Add(-time.Duration(6-i)*time.Hour))
+	}
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: driveDate.Add(-72 * time.Hour),
+		DateTo:   driveDate.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection: %v", err)
+	}
+
+	// findDrive matches the shed-batch drive specifically (by ParkID) so it is not confused with
+	// the unrelated tenant-wide catch-up drive card the 5 earlier-due obligations also produce.
+	findDrive := func(items []domain.CalendarEvent) *domain.CalendarEvent {
+		for i := range items {
+			if items[i].EventType == domain.EventVaccinationDrive && items[i].ParkID != nil && *items[i].ParkID == testParkA {
+				return &items[i]
+			}
+		}
+		return nil
+	}
+
+	// Wide single page: fetch everything at once.
+	wide, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: driveDate.Add(-72 * time.Hour),
+		DateTo:   driveDate.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("list events (wide page): %v", err)
+	}
+	wideDrive := findDrive(wide.Items)
+	if wideDrive == nil || wideDrive.DriveSummary == nil {
+		t.Fatalf("drive not found (or drive_summary nil) on the wide page")
+	}
+	if wideDrive.DriveSummary.TotalCount != len(driveObligations) {
+		t.Fatalf("wide-page total_count = %d, want %d", wideDrive.DriveSummary.TotalCount, len(driveObligations))
+	}
+
+	// Narrow page size (Limit=1): walk the keyset cursor one row at a time until the drive card
+	// surfaces on its own page.
+	var narrowDrive *domain.CalendarEvent
+	var cursor *domain.CalendarCursor
+	for page := 0; page < 20 && narrowDrive == nil; page++ {
+		resp, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID,
+			OwnerKey: domain.OwnerAll,
+			DateFrom: driveDate.Add(-72 * time.Hour),
+			DateTo:   driveDate.Add(24 * time.Hour),
+			Limit:    1,
+			Cursor:   cursor,
+			Scope:    domain.ScopeFilter{TenantWide: true},
+		})
+		if err != nil {
+			t.Fatalf("list events (narrow page %d): %v", page, err)
+		}
+		narrowDrive = findDrive(resp.Items)
+		if resp.NextCursor == nil {
+			break
+		}
+		decoded, err := domain.DecodeCalendarCursor(*resp.NextCursor)
+		if err != nil {
+			t.Fatalf("decode cursor: %v", err)
+		}
+		cursor = &decoded
+	}
+	if narrowDrive == nil {
+		t.Fatalf("drive not found while paging with Limit=1")
+	}
+	if narrowDrive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil on the narrow (Limit=1) page")
+	}
+	if narrowDrive.DriveSummary.TotalCount != wideDrive.DriveSummary.TotalCount {
+		t.Errorf("narrow-page total_count = %d, want %d (page size must not change the aggregate)", narrowDrive.DriveSummary.TotalCount, wideDrive.DriveSummary.TotalCount)
+	}
+}
+
+// driveSummaryExecutionCounter is a pgx.QueryTracer that counts how many times two distinguishable
+// query shapes execute against the traced pool: the drive_summary materialize statement (unique
+// substring "obligation_drive_membership AS (", which after the DRV-004 fix appears ONLY in
+// calendarVaccinationDriveSummaryMaterializeSQL) and the per-keyset-page refresh statement (unique
+// substring "upserted AS (", present in calendarVaccinationProjectionRefreshSQL and nowhere else).
+type driveSummaryExecutionCounter struct {
+	materializeCount int
+	pageIterations   int
+}
+
+func (c *driveSummaryExecutionCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if strings.Contains(data.SQL, "obligation_drive_membership AS (") {
+		c.materializeCount++
+	}
+	if strings.Contains(data.SQL, "upserted AS (") {
+		c.pageIterations++
+	}
+	return ctx
+}
+
+func (c *driveSummaryExecutionCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {
+}
+
+// TestRefreshVaccinationProjectionMaterializesDriveSummaryOnceMultiPage proves DRV-004 bounded
+// execution: obligation_drive_membership -> obligation_drive_summary must be computed EXACTLY ONCE
+// per RefreshVaccinationProjection call, never once per keyset refresh page. It seeds enough
+// individually-due obligations (each its own due_at) that a tiny in.Limit forces multiple
+// refreshVaccinationProjectionPage iterations (query-count evidence, not just a passing invariant
+// test), then asserts the drive_summary materialize statement ran exactly once while the per-page
+// refresh statement ran more than once.
+func TestRefreshVaccinationProjectionMaterializesDriveSummaryOnceMultiPage(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tracer := &driveSummaryExecutionCounter{}
+	tracedCfg := pool.Config().Copy()
+	tracedCfg.ConnConfig.Tracer = tracer
+	tracedPool, err := pgxpool.NewWithConfig(ctx, tracedCfg)
+	if err != nil {
+		t.Fatalf("traced pool: %v", err)
+	}
+	defer tracedPool.Close()
+	repo := NewRepository(tracedPool, 10*time.Second)
+
+	driveDate := biztime.BusinessDayStart(time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC))
+	windowFrom := driveDate.Add(-72 * time.Hour)
+	windowTo := driveDate.Add(72 * time.Hour)
+	seedCalendarProjectionStateWindow(t, ctx, pool, windowFrom, windowTo)
+
+	protocolID := "c3000000-0000-4000-8000-000000000001"
+	versionID := "c3000000-0000-4000-8000-000000000002"
+	ruleID := "c3000000-0000-4000-8000-000000000003"
+
+	const seedCount = 6
+	for i := 0; i < seedCount; i++ {
+		id := fmt.Sprintf("c3000000-0000-4000-8000-0000000000%02d", 11+i)
+		dueAt := driveDate.Add(time.Duration(i) * time.Hour)
+		if i == 0 {
+			seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, id, dueAt)
+		} else {
+			seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, dueAt)
+		}
+	}
+
+	total, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: windowFrom,
+		DateTo:   windowTo,
+		Limit:    1,
+	})
+	if err != nil {
+		t.Fatalf("refresh projection: %v", err)
+	}
+	if total < seedCount {
+		t.Fatalf("upserted count = %d, want at least %d (all seeded obligations)", total, seedCount)
+	}
+	if tracer.pageIterations < 2 {
+		t.Fatalf("refresh only ran %d page iteration(s); Limit=1 over %d obligations must force multiple pages for this test to prove anything", tracer.pageIterations, seedCount)
+	}
+	if tracer.materializeCount != 1 {
+		t.Fatalf("DRV-004 regression: obligation_drive_membership materialize statement ran %d times across %d refresh page(s), want exactly 1 (it must be computed once per refresh call, not once per keyset page)", tracer.materializeCount, tracer.pageIterations)
+	}
+}
+
+// TestRefreshVaccinationProjectionDriveSummaryTempTableIndexedLookup is the EXPLAIN half of the
+// DRV-004 bounded-execution proof: it directly runs calendarVaccinationDriveSummaryMaterializeSQL
+// once, then EXPLAINs the per-page stub `SELECT * FROM calendar_drive_summary_tmp` (what
+// calendarVaccinationProjectionRefreshSQL's obligation_drive_summary CTE now reduces to) and asserts
+// the plan is a scan of the small temp table -- not a re-join across
+// obligation_instances/obligation_batches/protocol_* -- so every keyset page after the first pays
+// only for a cheap indexed/seq scan of a handful of (park_id, due_date) rows.
+func TestRefreshVaccinationProjectionDriveSummaryTempTableIndexedLookup(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	driveDate := biztime.BusinessDayStart(time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC))
+	windowFrom := driveDate.Add(-72 * time.Hour)
+	windowTo := driveDate.Add(72 * time.Hour)
+	seedCalendarProjectionStateWindow(t, ctx, pool, windowFrom, windowTo)
+
+	protocolID := "c4000000-0000-4000-8000-000000000001"
+	versionID := "c4000000-0000-4000-8000-000000000002"
+	ruleID := "c4000000-0000-4000-8000-000000000003"
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, "c4000000-0000-4000-8000-000000000011", driveDate)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `DROP TABLE IF EXISTS calendar_drive_summary_tmp`); err != nil {
+		t.Fatalf("reset temp table: %v", err)
+	}
+	if _, err := tx.Exec(ctx, calendarVaccinationDriveSummaryMaterializeSQL, testTenantID, windowFrom, windowTo); err != nil {
+		t.Fatalf("materialize drive summary: %v", err)
+	}
+	if _, err := tx.Exec(ctx, `CREATE INDEX ON calendar_drive_summary_tmp (park_id, due_date)`); err != nil {
+		t.Fatalf("index drive summary: %v", err)
+	}
+
+	rows, err := tx.Query(ctx, `EXPLAIN (FORMAT TEXT) SELECT * FROM calendar_drive_summary_tmp`)
+	if err != nil {
+		t.Fatalf("explain temp table lookup: %v", err)
+	}
+	defer rows.Close()
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatalf("scan explain line: %v", err)
+		}
+		plan.WriteString(line)
+		plan.WriteString("\n")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("explain rows: %v", err)
+	}
+	planText := plan.String()
+	for _, forbidden := range []string{"obligation_instances", "obligation_batches", "protocol_versions", "protocol_rules"} {
+		if strings.Contains(planText, forbidden) {
+			t.Fatalf("per-page drive_summary lookup plan still references %s -- expected a bare scan of the small materialized temp table, got:\n%s", forbidden, planText)
+		}
+	}
+	if !strings.Contains(planText, "calendar_drive_summary_tmp") {
+		t.Fatalf("expected plan to scan calendar_drive_summary_tmp, got:\n%s", planText)
 	}
 }

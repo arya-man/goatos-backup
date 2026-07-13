@@ -289,6 +289,7 @@ func dropClonedDatabaseAsync(admin, pool *pgxpool.Pool, db string) (error, <-cha
 	var dropErr error
 	dropped := false
 	for i := 0; i < 10; i++ {
+		// scale-guard:ignore: bounded 10-attempt test-DB drop retry in the test harness (transient-lock backoff on teardown), not a request/worker path
 		if _, dropErr = admin.Exec(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS %s`, quoteIdent(db))); dropErr == nil {
 			dropped = true
 			break
