@@ -17,10 +17,11 @@ import (
 // context/execution/api-projection-performance-handoff-2026-07-13.md). RebuildShedShard recomputes
 // and upserts ONLY the one claimed shed's row into the tenant's CURRENT serving projection_version
 // -- it never scans or copies any other shed's row, and it never restamps a tenant-wide as_of.
-// Per-shed freshness truth lives in vaccination_shed_shard_state (migration 000179), never a mixed
+// Per-shed freshness truth lives in vaccination_shed_shard_state (migration 000182), never a mixed
 // tenant timestamp. Contrast with RecomputeShedProjection (shed_projection.go), the full-tenant
 // bootstrap/repair rebuild that stamps a brand-new projection_version for every shed at once; that
-// command remains the explicit, unchanged bootstrap/repair path.
+// command remains the explicit, unchanged bootstrap/repair path -- this incremental projector is
+// ADDITIVE, lower-latency maintenance ALONGSIDE it, not a replacement (see that file's header).
 //
 // Two rejected designs this file must not reproduce (handoff doc "Rejected Unsafe Work"):
 //  1. a "bounded" worker that copied every unchanged tenant row into a new global version per dirty
@@ -30,7 +31,43 @@ import (
 //  2. an in-place refresh that stamped ONE tenant-wide as_of/freshness over sheds rebuilt at
 //     different times -- vaccination_shed_shard_state is keyed (tenant_id, shed_id): only the
 //     rebuilt shed's row is touched.
+//
+// Cross-projector version-race guard (P0 fix): RebuildShedShard uses a DIFFERENT advisory lock
+// (shardAdvisoryLockSalt, tenant+shed) than RecomputeShedProjection's tenant-wide lock (86170), so
+// the two are NOT mutually exclusive by advisory lock alone -- a full RecomputeShedProjection can
+// commit a new projection_version, flip vaccination_shed_projection_state.serving_projection_version,
+// and prune the old version WHILE a RebuildShedShard for some shed is still mid-flight against the
+// OLD version. Without a guard, RebuildShedShard would blindly upsert into a version that is about
+// to be (or already was) pruned -- a silently lost incremental write -- while still stamping
+// vaccination_shed_shard_state 'fresh', falsely telling the read-time freshness gate the shed is
+// current. RebuildShedShard closes this by taking `SELECT ... FOR SHARE` on the tenant's
+// vaccination_shed_projection_state row at the START of its transaction and holding it through
+// commit: this does not block concurrent RebuildShedShard calls for OTHER sheds (FOR SHARE is
+// mutually compatible), but it DOES force RecomputeShedProjection's own flip UPDATE (which needs an
+// exclusive lock on that same row) to block until this rebuild finishes -- the flip, and therefore
+// the prune that only runs after it commits, cannot land while this rebuild is using the version it
+// captured. Immediately before the final write, RebuildShedShard re-reads the same row (still under
+// the same lock) and aborts -- committing nothing, never stamping shard_state -- if the serving
+// version is no longer what it started with (RebuildShedShardResult.VersionConflict = true); the
+// caller re-enqueues the shed so the next attempt targets whatever is actually serving. See
+// TestRebuildShedShardSerializesAgainstConcurrentFullRebuild for the concurrency proof.
 const shardAdvisoryLockSalt = 86174
+
+// rebuildShedShardTestHookAfterInitialRead, when non-nil, is invoked once RebuildShedShard has
+// captured the initial FOR SHARE-locked serving_projection_version, before it runs the (potentially
+// slow) shard-scoped SELECT. It exists ONLY so a test can deterministically interleave a concurrent
+// RecomputeShedProjection within that exact window, without sleep-based flakiness. Production code
+// never sets this; nil is a zero-overhead no-op.
+var rebuildShedShardTestHookAfterInitialRead func()
+
+// rebuildShedShardTestOverrideRecheckVersion, when non-nil, replaces the freshly re-read serving
+// version used for the pre-write verification (see the recheck below), for exactly one call. It
+// exists ONLY to let a test deterministically exercise the abort-on-version-change branch: under the
+// FOR SHARE design in this file, a genuine change between the initial read and this recheck cannot
+// occur in production (that invariant is the point of the fix -- see
+// TestRebuildShedShardSerializesAgainstConcurrentFullRebuild for the real concurrency proof), so this
+// seam is fault injection used solely to prove the abort branch's own logic. Nil in production.
+var rebuildShedShardTestOverrideRecheckVersion func(actual int64) int64
 
 // RebuildShedShard recomputes ONLY shedID's row (goats/obligations/completions filtered to that
 // shed) and UPSERTs it into the tenant's serving projection_version. When the shed has no
@@ -79,12 +116,18 @@ func (r *Repository) RebuildShedShard(ctx context.Context, req domain.RebuildShe
 		return domain.RebuildShedShardResult{}, fmt.Errorf("vaccination execution: rebuild shed shard: lock: %w", err)
 	}
 
+	// FOR SHARE (not FOR UPDATE): held for the rest of this transaction, it lets any number of
+	// concurrent RebuildShedShard calls for OTHER sheds keep taking this same lock (S-S is
+	// compatible), but blocks RecomputeShedProjection's flip UPDATE (which needs an exclusive lock
+	// on this row) until this rebuild commits or rolls back -- see the cross-projector version-race
+	// guard comment at the top of this file.
 	var servingVersion int64
 	err = tx.QueryRow(ctx, `
 SELECT serving_projection_version
 FROM vaccination_shed_projection_state
 WHERE tenant_id = $1::uuid
-  AND serving_projection_version IS NOT NULL`, tenantID).Scan(&servingVersion)
+  AND serving_projection_version IS NOT NULL
+FOR SHARE`, tenantID).Scan(&servingVersion)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			if commitErr := tx.Commit(ctx); commitErr != nil {
@@ -94,6 +137,13 @@ WHERE tenant_id = $1::uuid
 			return domain.RebuildShedShardResult{TenantID: tenantID, ShedID: shedID, Deferred: true}, nil
 		}
 		return domain.RebuildShedShardResult{}, fmt.Errorf("vaccination execution: rebuild shed shard: serving version: %w", err)
+	}
+
+	// Test-only seam: lets a test deterministically interleave a concurrent RecomputeShedProjection
+	// in the exact window between capturing servingVersion (above) and writing the shard row (below).
+	// Always nil in production.
+	if rebuildShedShardTestHookAfterInitialRead != nil {
+		rebuildShedShardTestHookAfterInitialRead()
 	}
 
 	var (
@@ -113,6 +163,35 @@ WHERE tenant_id = $1::uuid
 		found = false
 	default:
 		return domain.RebuildShedShardResult{}, fmt.Errorf("vaccination execution: rebuild shed shard: select: %w", scanErr)
+	}
+
+	// Re-verify, immediately before the write, that the serving version we are about to write into
+	// is still current. Under correct FOR SHARE usage this lock (held since the initial read above)
+	// makes a genuine change here unreachable in practice -- RecomputeShedProjection's flip cannot
+	// have committed while we hold it -- but this is the load-bearing safety net if that invariant
+	// is ever weakened, and it is the ONLY thing standing between "write into a version about to be
+	// pruned" and a safe abort. Never skip it.
+	var recheckVersion int64
+	recheckErr := tx.QueryRow(ctx, `
+SELECT serving_projection_version
+FROM vaccination_shed_projection_state
+WHERE tenant_id = $1::uuid
+  AND serving_projection_version IS NOT NULL
+FOR SHARE`, tenantID).Scan(&recheckVersion)
+	if recheckErr != nil && recheckErr != pgx.ErrNoRows {
+		return domain.RebuildShedShardResult{}, fmt.Errorf("vaccination execution: rebuild shed shard: recheck serving version: %w", recheckErr)
+	}
+	if recheckErr == nil && rebuildShedShardTestOverrideRecheckVersion != nil {
+		recheckVersion = rebuildShedShardTestOverrideRecheckVersion(recheckVersion)
+	}
+	if recheckErr == pgx.ErrNoRows || recheckVersion != servingVersion {
+		// The tenant's serving_projection_version moved (or vanished) since our initial read -- a
+		// concurrent full RecomputeShedProjection committed a new version and this shed's captured
+		// target (servingVersion) is now orphaned and headed for the next prune cycle. Abort without
+		// writing the row or stamping shard_state 'fresh': the deferred rollback below discards this
+		// transaction, and the caller re-enqueues the shed so the next attempt targets whatever is
+		// now actually serving.
+		return domain.RebuildShedShardResult{TenantID: tenantID, ShedID: shedID, VersionConflict: true}, nil
 	}
 
 	projectedAt := time.Now()

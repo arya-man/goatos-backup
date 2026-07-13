@@ -93,31 +93,21 @@ WHERE tenant_id = $1::uuid
 		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: count rows: %w", err)
 	}
 
-	// Seed/refresh PER-SHED shard freshness state for every shed this full rebuild just touched,
-	// in the same set-based statement (bounded by shed cardinality, same as the row insert above --
-	// never a per-shed loop). This keeps vaccination_shed_shard_state coherent even for tenants not
-	// yet using the incremental worker (RebuildShedShard, incremental_shed_projection.go): the
-	// read-time freshness gate (AnyShedShardStale) only ever sees a shed as stale relative to the
-	// last time IT was rebuilt, whether that rebuild was this full recompute or a later incremental
-	// shard rebuild.
-	if _, err := tx.Exec(ctx, `
-INSERT INTO vaccination_shed_shard_state (
-  tenant_id, shed_id, projected_at, as_of, next_transition_at, source_watermark, row_present, serving_state, updated_at
-)
-SELECT $1::uuid, rows.shed_id, $2::timestamptz, $3::timestamptz, NULL, NULL, true, 'fresh', now()
-FROM vaccination_shed_projection_rows rows
-WHERE rows.tenant_id = $1::uuid
-  AND rows.projection_version = $4::bigint
-ON CONFLICT (tenant_id, shed_id) DO UPDATE SET
-  projected_at = EXCLUDED.projected_at,
-  as_of = EXCLUDED.as_of,
-  row_present = true,
-  serving_state = 'fresh',
-  updated_at = now()`,
-		req.TenantID, projectedAt, asOf, projectionVersion); err != nil {
-		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: upsert shard state: %w", err)
-	}
-
+	// Lock-ORDER note (cross-projector deadlock guard, paired with the P0 version-race fix in
+	// incremental_shed_projection.go): the state-row flip below and the per-shed shard_state seed
+	// that follows it MUST run in this exact order -- state row FIRST, shard_state SECOND -- because
+	// RebuildShedShard (the incremental projector) takes its own lock on this state row FIRST (`FOR
+	// SHARE`, held for its whole transaction) and only touches a shard_state row LAST. If this
+	// function acquired shard_state locks before the state-row lock (the original order), the two
+	// transactions would take those two locks in OPPOSITE order -- a textbook AB-BA deadlock: this
+	// full rebuild seeding shard_state for a shed while RebuildShedShard is mid-flight for that SAME
+	// shed (holding the state-row lock, waiting on this rebuild's shard_state row) would each hold a
+	// lock the other needs, and Postgres would abort one of them (`deadlock detected`, SQLSTATE
+	// 40P01) rather than serialize cleanly. Flipping the state row first means any RebuildShedShard
+	// call already in flight blocks THIS function at the state-row UPDATE below (never reaching the
+	// shard_state seed until that rebuild has fully committed or rolled back), so both transactions
+	// converge on the same lock order and never deadlock. See
+	// TestRebuildShedShardSerializesAgainstConcurrentFullRebuild for the regression coverage.
 	if _, err := tx.Exec(ctx, `
 INSERT INTO vaccination_shed_projection_state (
   tenant_id, projection_version, serving_projection_version, projected_at, as_of, due_before, row_count,
@@ -139,6 +129,56 @@ ON CONFLICT (tenant_id) DO UPDATE SET
   updated_at = now()`,
 		req.TenantID, projectionVersion, projectedAt, asOf, dueBefore, rowCount); err != nil {
 		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: upsert state: %w", err)
+	}
+
+	// Seed/refresh PER-SHED shard freshness state for every shed this full rebuild just touched,
+	// in the same set-based statement (bounded by shed cardinality, same as the row insert above --
+	// never a per-shed loop). This keeps vaccination_shed_shard_state coherent even for tenants not
+	// yet using the incremental worker (RebuildShedShard, incremental_shed_projection.go): the
+	// read-time freshness gate (AnyShedShardStale) only ever sees a shed as stale relative to the
+	// last time IT was rebuilt, whether that rebuild was this full recompute or a later incremental
+	// shard rebuild. Runs AFTER the state-row flip above -- see the lock-order note there.
+	if _, err := tx.Exec(ctx, `
+INSERT INTO vaccination_shed_shard_state (
+  tenant_id, shed_id, projected_at, as_of, next_transition_at, source_watermark, row_present, serving_state, updated_at
+)
+SELECT $1::uuid, rows.shed_id, $2::timestamptz, $3::timestamptz, NULL, NULL, true, 'fresh', now()
+FROM vaccination_shed_projection_rows rows
+WHERE rows.tenant_id = $1::uuid
+  AND rows.projection_version = $4::bigint
+ON CONFLICT (tenant_id, shed_id) DO UPDATE SET
+  projected_at = EXCLUDED.projected_at,
+  as_of = EXCLUDED.as_of,
+  row_present = true,
+  serving_state = 'fresh',
+  updated_at = now()`,
+		req.TenantID, projectedAt, asOf, projectionVersion); err != nil {
+		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: upsert shard state: %w", err)
+	}
+
+	// Reconcile: a shed that VANISHED from this full rebuild (e.g. its location was deactivated off
+	// the goat-move path, or it lost every alive animal in a way the incremental path never observed)
+	// has no row in the new version and so was NOT touched by the seed above -- its shard_state row
+	// would otherwise keep row_present=true forever with a projected_at that stops advancing, and
+	// after defaultShedShardStaleTTL elapses AnyShedShardStale/AnyShedShardStaleInScope would treat
+	// it as a permanently stale served shed, poisoning reads for its scope even though it is no
+	// longer served at all. Anti-join it out of row_present in the SAME transaction as the rebuild
+	// (bounded by shed cardinality, same set-based shape as the seed above -- never a per-shed loop).
+	// scale-guard:ignore: single bounded UPDATE keyed by (tenant_id, shed_id) anti-joined against this same rebuild's own row set; shed counts are bounded (a tenant has at most a few hundred sheds), never per-animal scale.
+	if _, err := tx.Exec(ctx, `
+UPDATE vaccination_shed_shard_state s
+SET row_present = false,
+    updated_at = now()
+WHERE s.tenant_id = $1::uuid
+  AND s.row_present
+  AND NOT EXISTS (
+    SELECT 1
+    FROM vaccination_shed_projection_rows rows
+    WHERE rows.tenant_id = $1::uuid
+      AND rows.projection_version = $2::bigint
+      AND rows.shed_id = s.shed_id
+  )`, req.TenantID, projectionVersion); err != nil {
+		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: reconcile vanished shard state: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -354,10 +394,14 @@ func (r *Repository) listShedProjection(ctx context.Context, q domain.ShedSummar
 	// has fallen behind (e.g. its dirty-scope rebuild is failing/dead-lettered). Gate on the
 	// per-shed shard state too -- a single indexed EXISTS check, never a per-row scan -- so a stale
 	// shed fails the whole read closed instead of silently serving green with missed
-	// scheduled->due->overdue transitions for that shed. Historical as_of reads are unaffected by
-	// live shard staleness (they already require an exact compatible snapshot above).
+	// scheduled->due->overdue transitions for that shed. The check is SCOPED to the sheds actually
+	// being served (q.ShedID for a single shed detail, q.ParkID for a park-filtered list, or
+	// tenant-wide when neither filter is set): one stale/dead-lettered shed elsewhere in the tenant
+	// must not 503 every OTHER shed's read (AnyShedShardStaleInScope, dirty_scopes.go). Historical
+	// as_of reads are unaffected by live shard staleness (they already require an exact compatible
+	// snapshot above).
 	if !q.HistoricalAsOf {
-		stale, err := r.AnyShedShardStale(ctx, q.TenantID, defaultShedShardStaleTTL)
+		stale, err := r.AnyShedShardStaleInScope(ctx, q.TenantID, q.ShedID, q.ParkID, defaultShedShardStaleTTL)
 		if err != nil {
 			slog.Default().WarnContext(ctx, "vaccination execution: shed shard staleness check failed; serving without the per-shed gate", "tenant_id", q.TenantID, "error", err)
 		} else if stale {

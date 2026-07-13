@@ -56,4 +56,11 @@ type RebuildShedShardResult struct {
 	RowPresent        bool
 	NextTransitionAt  *time.Time
 	Deferred          bool // true when there is no serving projection_version yet; the shard write was skipped
+	// VersionConflict is true when the tenant's serving_projection_version changed (or disappeared)
+	// between RebuildShedShard's initial read and its final pre-write re-check -- e.g. a concurrent
+	// full RecomputeShedProjection committed a new version (and will prune the old one) while this
+	// rebuild was in flight. No row was written and shard_state was NOT stamped fresh; the caller
+	// must re-enqueue the shed so the next attempt targets whatever is now actually serving, rather
+	// than silently writing into (and falsely marking fresh) a version that is about to be orphaned.
+	VersionConflict bool
 }

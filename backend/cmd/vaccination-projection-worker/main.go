@@ -88,7 +88,7 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("claim dirty scopes: %w", err)
 	}
-	var rebuilt, deferred, failed int
+	var rebuilt, deferred, versionConflicts, failed int
 	// This loop is the intended per-scope worker shape, not an accidental N+1: each claimed dirty
 	// scope names a DIFFERENT shed, and RebuildShedShard's whole purpose is to recompute exactly
 	// that one shed with its own shed-scoped query (incremental_shed_projection.go) -- there is no
@@ -131,13 +131,22 @@ func run(args []string) error {
 			}
 			continue
 		}
+		if result.VersionConflict {
+			versionConflicts++
+			// scale-guard:ignore: bounded by len(claimed) <= cfg.ClaimLimit (see loop comment above); re-queues this one scope because a concurrent full RecomputeShedProjection flipped the serving version while this rebuild was in flight (incremental_shed_projection.go cross-projector version-race guard) -- never writes into the now-orphaned version.
+			if markErr := repo.MarkDirtyScopeFailed(ctx, scope.DirtyScopeID, "serving_projection_version_changed_during_rebuild", now); markErr != nil {
+				return fmt.Errorf("mark version-conflict dirty scope %d: %w", scope.DirtyScopeID, markErr)
+			}
+			fmt.Printf("rebuild aborted (version conflict) tenant=%s shed=%s attempt=%d\n", scope.TenantID, scope.ShedID, scope.AttemptCount+1)
+			continue
+		}
 		// scale-guard:ignore: bounded by len(claimed) <= cfg.ClaimLimit (see loop comment above); marks this one successfully rebuilt scope done (deletes its queue row).
 		if err := repo.MarkDirtyScopeDone(ctx, scope.DirtyScopeID); err != nil {
 			return fmt.Errorf("mark dirty scope %d done: %w", scope.DirtyScopeID, err)
 		}
 		rebuilt++
 	}
-	fmt.Printf("claimed=%d rebuilt=%d deferred=%d failed=%d\n", len(claimed), rebuilt, deferred, failed)
+	fmt.Printf("claimed=%d rebuilt=%d deferred=%d version_conflicts=%d failed=%d\n", len(claimed), rebuilt, deferred, versionConflicts, failed)
 
 	if cfg.EnqueueDueTransitions {
 		if strings.TrimSpace(cfg.TenantID) == "" {

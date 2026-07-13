@@ -1,11 +1,14 @@
 -- +goose Up
 -- Bounded incremental shed-projection dirty-scope queue + per-shed shard freshness state (P0-B,
--- context/execution/api-projection-performance-handoff-2026-07-13.md). Replaces the every-5-min
--- full-tenant vaccination_shed_projection_rows rebuild (RecomputeShedProjection) with per-shed
--- incremental maintenance: a write enqueues ONLY the affected shed(s); a leased worker
--- (cmd/vaccination-projection-worker) rebuilds ONLY that shed's row into the CURRENT serving
--- projection_version (see incremental_shed_projection.go RebuildShedShard). RecomputeShedProjection
--- remains the explicit bootstrap/repair path, unchanged.
+-- context/execution/api-projection-performance-handoff-2026-07-13.md). This is ADDITIVE lower-
+-- latency incremental maintenance ALONGSIDE the every-5-min full-tenant
+-- vaccination_shed_projection_rows rebuild (RecomputeShedProjection), NOT a replacement for it: a
+-- write enqueues ONLY the affected shed(s); a leased worker (cmd/vaccination-projection-worker)
+-- rebuilds ONLY that shed's row into the CURRENT serving projection_version (see
+-- incremental_shed_projection.go RebuildShedShard) between full-rebuild cycles. RecomputeShedProjection
+-- keeps running on its existing schedule in every environment and remains the correctness backstop --
+-- the explicit bootstrap/repair path, and the path of record until incremental maintenance covers
+-- every invalidation source and the full sweep is deliberately retired.
 --
 -- Two REJECTED designs this schema must not reproduce (handoff doc, "Rejected Unsafe Work"):
 --   1. a "bounded" worker that copied every unchanged tenant row into a new global version per

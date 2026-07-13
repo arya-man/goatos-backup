@@ -140,6 +140,80 @@ func TestRecomputeShedProjectionMatchesLiveShedSummary(t *testing.T) {
 	}
 }
 
+// TestRecomputeShedProjectionReconcilesVanishedShardState is the P1 regression test for the
+// shard_state reconciliation added to RecomputeShedProjection. Before the fix, the shard_state seed
+// was purely additive (INSERT ... SELECT from the new version's own rows): a shed that VANISHES from
+// a full rebuild (e.g. its location is deactivated off the goat-move path) has no row in the new
+// version, so it was never touched -- its shard_state row stayed row_present=true with a projected_at
+// that would never advance again (nothing ever rebuilds a shed with no qualifying row), and once that
+// timestamp aged past the TTL, AnyShedShardStale/AnyShedShardStaleInScope would report it stale
+// FOREVER, poisoning every read in its scope. This proves: after a full rebuild that excludes a
+// previously-served shed, that shed's shard_state flips to row_present=false and no longer poisons
+// the gate, even though its projected_at was deliberately left ancient and never refreshed.
+func TestRecomputeShedProjectionReconcilesVanishedShardState(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	seedIncrementalShardSheds(t, ctx, pool)
+
+	goatID := "70000000-0000-4000-8000-000000000180"
+	insertProjectionGoat(t, ctx, pool, goatID, testShedIncA, testPark)
+	insertShedScopedObligation(t, ctx, pool, "70000000-0000-4000-8000-000000000181", testShedIncA, goatID, "scheduled", "2026-06-20 00:00:00+00", "vanish-a-1")
+
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	first, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("bootstrap RecomputeShedProjection: %v", err)
+	}
+	if _, found := tryReadShedRow(t, ctx, pool, testTenant, first.ProjectionVersion, testShedIncA); !found {
+		t.Fatalf("precondition: shed A should have a projection row after bootstrap")
+	}
+	before := readShardState(t, ctx, pool, testTenant, testShedIncA)
+	if !before.RowPresent {
+		t.Fatalf("precondition: shed A shard_state row_present should be true after bootstrap")
+	}
+
+	// Age shed A's shard_state well beyond any real TTL. If the reconciliation below did not run,
+	// this alone would poison the read-time gate for shed A FOREVER: nothing would ever re-stamp it,
+	// since shed A no longer has any projection row for the incremental worker to touch again either.
+	execProjectionSQL(t, ctx, pool, "age shed A shard state",
+		`UPDATE vaccination_shed_shard_state SET projected_at = now() - interval '2 hours' WHERE tenant_id = $1 AND shed_id = $2`,
+		testTenant, testShedIncA)
+
+	// Shed A's location is deactivated (e.g. decommissioned) off the goat-move path -- the goat
+	// itself is still 'alive', but the shed no longer qualifies as an active shed location, so shed A
+	// drops out of the next full rebuild entirely.
+	execProjectionSQL(t, ctx, pool, "deactivate shed A",
+		`UPDATE locations SET status = 'inactive' WHERE tenant_id = $1 AND location_id = $2`,
+		testTenant, testShedIncA)
+
+	time.Sleep(2 * time.Millisecond)
+	second, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("second RecomputeShedProjection: %v", err)
+	}
+	if _, found := tryReadShedRow(t, ctx, pool, testTenant, second.ProjectionVersion, testShedIncA); found {
+		t.Fatalf("shed A still has a projection row after being deactivated")
+	}
+
+	after := readShardState(t, ctx, pool, testTenant, testShedIncA)
+	if after.RowPresent {
+		t.Fatalf("shed A shard_state row_present = true, want false after vanishing from the full rebuild")
+	}
+
+	shedA := testShedIncA
+	stale, err := repo.AnyShedShardStaleInScope(ctx, testTenant, &shedA, nil, defaultShedShardStaleTTL)
+	if err != nil {
+		t.Fatalf("AnyShedShardStaleInScope: %v", err)
+	}
+	if stale {
+		t.Fatalf("AnyShedShardStaleInScope(shed A) = true; a vanished (row_present=false) shed must not poison the gate even though its projected_at was never refreshed")
+	}
+}
+
 // queryCanonicalShedSummaryForParity runs canonicalShedSummarySQLForParity -- a TEST-ONLY, from-first-
 // principles reconstruction of shed status straight from raw obligation/goat/capacity-config history,
 // independent of RecomputeShedProjection -- and returns every tenant shed ordered by shed_id (no

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -393,6 +394,215 @@ func TestMarkDirtyScopeFailedRetriesThenDeadLetters(t *testing.T) {
 	}
 	if got := countDirtyScopes(t, ctx, pool, testTenant, testShedIncA, "pending"); got != 1 {
 		t.Fatalf("pending dirty scopes after re-enqueue = %d, want 1", got)
+	}
+}
+
+// TestMarkDirtyScopeDoneDeletesUnchangedLease proves the normal-path behavior of the P2 guarded
+// MarkDirtyScopeDone: a scope that was claimed and completed with NO concurrent re-dirty (updated_at
+// still equals leased_at) is deleted, exactly as before the guard was added.
+func TestMarkDirtyScopeDoneDeletesUnchangedLease(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	if err := repo.EnqueueDirtyShed(ctx, testTenant, testShedIncA, "seed"); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	claimed, err := repo.ClaimDirtyScopes(ctx, "worker-1", 10, time.Now())
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed size = %d, want 1", len(claimed))
+	}
+
+	if err := repo.MarkDirtyScopeDone(ctx, claimed[0].DirtyScopeID); err != nil {
+		t.Fatalf("mark done: %v", err)
+	}
+	if got := countDirtyScopes(t, ctx, pool, testTenant, testShedIncA, "pending"); got != 0 {
+		t.Fatalf("pending scopes after done = %d, want 0", got)
+	}
+	if got := countDirtyScopes(t, ctx, pool, testTenant, testShedIncA, "leased"); got != 0 {
+		t.Fatalf("leased scopes after done = %d, want 0 (deleted)", got)
+	}
+}
+
+// TestMarkDirtyScopeDonePreservesConcurrentReDirty is the P2 regression test for the
+// MarkDirtyScopeDone guard. Before the fix, MarkDirtyScopeDone deleted strictly by
+// (dirty_scope_id, status='leased') -- if a NEW write re-dirtied the SAME shed while a worker's
+// rebuild for it was still in flight (the coalescing UPSERT in EnqueueDirtySheds updates the
+// already-leased row's reason/updated_at rather than creating a second row), that newer signal was
+// silently dropped the instant the in-flight rebuild completed and called MarkDirtyScopeDone,
+// because the row was deleted regardless. This proves the newer signal survives: after a completion
+// races a concurrent re-dirty, the scope is reset to pending (not deleted) with the re-dirty's own
+// reason, so the next claim rebuilds the shed again for the write that arrived mid-flight.
+func TestMarkDirtyScopeDonePreservesConcurrentReDirty(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	if err := repo.EnqueueDirtyShed(ctx, testTenant, testShedIncA, "original_reason"); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	claimed, err := repo.ClaimDirtyScopes(ctx, "worker-1", 10, time.Now())
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(claimed) != 1 {
+		t.Fatalf("claimed size = %d, want 1", len(claimed))
+	}
+	dirtyScopeID := claimed[0].DirtyScopeID
+
+	// A NEW write re-dirties shed A WHILE the worker above is still (notionally) mid-rebuild for the
+	// original reason. The coalescing UPSERT updates THIS SAME leased row (reason + updated_at),
+	// never resetting it to pending or creating a second row.
+	if err := repo.EnqueueDirtyShed(ctx, testTenant, testShedIncA, "concurrent_write"); err != nil {
+		t.Fatalf("concurrent re-dirty enqueue: %v", err)
+	}
+	if got := countDirtyScopes(t, ctx, pool, testTenant, testShedIncA, "leased"); got != 1 {
+		t.Fatalf("leased scopes after concurrent re-dirty = %d, want 1 (still the same row, coalesced)", got)
+	}
+
+	// The original worker finishes its rebuild (for "original_reason") and marks the scope done.
+	if err := repo.MarkDirtyScopeDone(ctx, dirtyScopeID); err != nil {
+		t.Fatalf("mark done: %v", err)
+	}
+
+	if got := countDirtyScopes(t, ctx, pool, testTenant, testShedIncA, "leased"); got != 0 {
+		t.Fatalf("leased scopes after done = %d, want 0 (no longer leased)", got)
+	}
+	pending := countDirtyScopes(t, ctx, pool, testTenant, testShedIncA, "pending")
+	if pending != 1 {
+		t.Fatalf("pending scopes after done = %d, want 1 -- the concurrent re-dirty must NOT be silently dropped", pending)
+	}
+	if reason := dirtyScopeReason(t, ctx, pool, testTenant, testShedIncA); reason != "concurrent_write" {
+		t.Fatalf("reason after done = %q, want the concurrent re-dirty's reason %q preserved", reason, "concurrent_write")
+	}
+
+	// The re-enqueued scope is claimable again (a fresh worker will rebuild shed A for the write that
+	// arrived mid-flight, instead of that signal being lost forever).
+	second, err := repo.ClaimDirtyScopes(ctx, "worker-2", 10, time.Now())
+	if err != nil {
+		t.Fatalf("second claim: %v", err)
+	}
+	if len(second) != 1 || second[0].ShedID != testShedIncA {
+		t.Fatalf("second claim = %#v, want exactly shed A claimable again", second)
+	}
+}
+
+// TestReclaimExpiredDirtyScopeLeasesRetriesThenDeadLetters is the P2 regression test proving
+// ReclaimExpiredDirtyScopeLeases now increments attempt_count (and eventually dead-letters) exactly
+// like MarkDirtyScopeFailed's explicit-failure path. Before the fix, a worker that reliably crashed
+// mid-rebuild for the SAME shed (never reaching MarkDirtyScopeFailed) would have its lease reclaimed
+// back to pending with attempt_count untouched forever -- pending -> leased -> expired -> pending in
+// an unbounded loop that never reaches max_attempts and never dead-letters.
+func TestReclaimExpiredDirtyScopeLeasesRetriesThenDeadLetters(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	if err := repo.EnqueueDirtyShed(ctx, testTenant, testShedIncA, "seed"); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	execProjectionSQL(t, ctx, pool, "tight attempt budget",
+		`UPDATE vaccination_projection_dirty_scopes SET max_attempts = 2 WHERE tenant_id = $1 AND shed_id = $2 AND status = 'pending'`,
+		testTenant, testShedIncA)
+
+	now := time.Now()
+	for attempt := 1; attempt <= 2; attempt++ {
+		claimed, err := repo.ClaimDirtyScopes(ctx, "worker-crash-loop", 10, now)
+		if err != nil {
+			t.Fatalf("claim attempt %d: %v", attempt, err)
+		}
+		if len(claimed) != 1 {
+			t.Fatalf("claim attempt %d size = %d, want 1", attempt, len(claimed))
+		}
+		// Simulate a worker that crashed mid-rebuild: the lease expires WITHOUT ever calling
+		// MarkDirtyScopeFailed or MarkDirtyScopeDone.
+		expiredAt := now.Add(1 * time.Minute)
+		execProjectionSQL(t, ctx, pool, "expire lease",
+			`UPDATE vaccination_projection_dirty_scopes SET lease_expires_at = $3::timestamptz WHERE tenant_id = $1 AND shed_id = $2 AND status = 'leased'`,
+			testTenant, testShedIncA, expiredAt.Add(-time.Second))
+
+		reclaimed, err := repo.ReclaimExpiredDirtyScopeLeases(ctx, expiredAt)
+		if err != nil {
+			t.Fatalf("reclaim attempt %d: %v", attempt, err)
+		}
+		if reclaimed != 1 {
+			t.Fatalf("reclaimed attempt %d = %d, want 1", attempt, reclaimed)
+		}
+		now = expiredAt.Add(4 * time.Minute) // past every backoff/lease window for the next claim
+	}
+
+	status, attemptCount := dirtyScopeStatusAndAttempts(t, ctx, pool, testTenant, testShedIncA)
+	if status != "dead_letter" {
+		t.Fatalf("status = %q, want dead_letter after two crash-loop reclaims exhausted max_attempts=2", status)
+	}
+	if attemptCount != 2 {
+		t.Fatalf("attempt_count = %d, want 2", attemptCount)
+	}
+}
+
+// TestShedSummaryStalenessGateIsScopedPerShed is the P1 regression test for the scoped freshness
+// gate (AnyShedShardStaleInScope, wired into listShedProjection). Before the fix, listShedProjection
+// gated EVERY shed read (including a single ShedDetail) on AnyShedShardStale -- tenant-wide -- so one
+// stale/dead-lettered shed 503'd every OTHER shed's read too. This proves: with shed A stale and shed
+// B fresh, GetShedDetail(B) (ShedSummary scoped to shed B) still serves, GetShedDetail(A) fails
+// closed, and an unfiltered tenant-wide read still fails closed (the tenant-wide fallback is
+// preserved when no shed/park scope is given).
+func TestShedSummaryStalenessGateIsScopedPerShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	seedIncrementalShardSheds(t, ctx, pool)
+
+	goatA := "70000000-0000-4000-8000-000000000170"
+	insertProjectionGoat(t, ctx, pool, goatA, testShedIncA, testPark)
+	insertShedScopedObligation(t, ctx, pool, "70000000-0000-4000-8000-000000000171", testShedIncA, goatA, "scheduled", "2026-06-20 00:00:00+00", "scope-a-1")
+	goatB := "70000000-0000-4000-8000-000000000172"
+	insertProjectionGoat(t, ctx, pool, goatB, testShedIncB, testPark)
+	insertShedScopedObligation(t, ctx, pool, "70000000-0000-4000-8000-000000000173", testShedIncB, goatB, "scheduled", "2026-06-20 00:00:00+00", "scope-b-1")
+
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	dueBefore := asOf.Add(30 * 24 * time.Hour)
+	if _, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf}); err != nil {
+		t.Fatalf("bootstrap RecomputeShedProjection: %v", err)
+	}
+	// Rebuild both sheds incrementally so each has its own shard_state row to independently backdate.
+	if _, err := repo.RebuildShedShard(ctx, domain.RebuildShedShardRequest{TenantID: testTenant, ShedID: testShedIncA, AsOf: asOf}); err != nil {
+		t.Fatalf("RebuildShedShard(A): %v", err)
+	}
+	if _, err := repo.RebuildShedShard(ctx, domain.RebuildShedShardRequest{TenantID: testTenant, ShedID: testShedIncB, AsOf: asOf}); err != nil {
+		t.Fatalf("RebuildShedShard(B): %v", err)
+	}
+
+	// Backdate ONLY shed A's shard_state beyond the staleness TTL.
+	execProjectionSQL(t, ctx, pool, "backdate shed A shard state",
+		`UPDATE vaccination_shed_shard_state SET projected_at = now() - interval '1 hour' WHERE tenant_id = $1 AND shed_id = $2`,
+		testTenant, testShedIncA)
+
+	shedA, shedB := testShedIncA, testShedIncB
+
+	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, ShedID: &shedB, AsOf: asOf, DueBefore: dueBefore, Limit: 1}); err != nil {
+		t.Fatalf("ShedSummary(shed B) = %v, want success -- shed A's staleness must not affect shed B's scoped read", err)
+	}
+	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, ShedID: &shedA, AsOf: asOf, DueBefore: dueBefore, Limit: 1}); !errors.Is(err, domain.ErrProjectionUnavailable) {
+		t.Fatalf("ShedSummary(shed A) err = %v, want ErrProjectionUnavailable (shed A is stale)", err)
+	}
+	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 200}); !errors.Is(err, domain.ErrProjectionUnavailable) {
+		t.Fatalf("unfiltered ShedSummary err = %v, want ErrProjectionUnavailable (tenant-wide fallback when no shed/park scope is given)", err)
 	}
 }
 

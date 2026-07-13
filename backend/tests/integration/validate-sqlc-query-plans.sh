@@ -1260,6 +1260,78 @@ WHERE tenant_id='00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY stage,protocol_id LIMIT 501;"
 }
 
+validate_vaccination_projection_dirty_scopes_plans() {
+  # P0-B bounded incremental shed-projection dirty-scope queue + per-shed shard freshness state
+  # (migration 000182: vaccination_projection_dirty_scopes, vaccination_shed_shard_state;
+  # dirty_scopes.go). Proves the exact production read shapes stay index-backed: the tenant-wide and
+  # scoped freshness gates (AnyShedShardStale / AnyShedShardStaleInScope, the P1 scoped-staleness
+  # fix), ClaimDirtyScopes' FOR UPDATE SKIP LOCKED claim, and EnqueueDueTransitions' time-driven pass
+  # (both its next_transition_at branch and its stale-fallback branch).
+  explain_must_use_index "AnyShedShardStaleTenantWide" 'Seq Scan on vaccination_shed_shard_state' "EXPLAIN (COSTS OFF)
+SELECT EXISTS (
+  SELECT 1
+  FROM vaccination_shed_shard_state
+  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND row_present
+    AND projected_at < now() - interval '10 minutes'
+);"
+
+  explain_must_use_index "AnyShedShardStaleScopedToShed" 'Seq Scan on vaccination_shed_shard_state' "EXPLAIN (COSTS OFF)
+SELECT EXISTS (
+  SELECT 1
+  FROM vaccination_shed_shard_state s
+  WHERE s.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND s.row_present
+    AND s.projected_at < now() - interval '10 minutes'
+    AND s.shed_id = '70000000-0000-4000-8000-000000000002'
+);"
+
+  explain_must_use_index "AnyShedShardStaleScopedToPark" 'Seq Scan on vaccination_shed_shard_state|Seq Scan on locations' "EXPLAIN (COSTS OFF)
+SELECT EXISTS (
+  SELECT 1
+  FROM vaccination_shed_shard_state s
+  WHERE s.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND s.row_present
+    AND s.projected_at < now() - interval '10 minutes'
+    AND EXISTS (
+      SELECT 1
+      FROM locations l
+      WHERE l.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+        AND l.parent_location_id = '70000000-0000-4000-8000-000000000001'::uuid
+        AND l.location_type = 'shed'
+        AND l.location_id = s.shed_id::uuid
+    )
+);"
+
+  explain_must_use_index "ClaimDirtyScopesLease" 'Seq Scan on vaccination_projection_dirty_scopes' "EXPLAIN (COSTS OFF)
+SELECT dirty_scope_id, tenant_id::text, projection_kind, shed_id, reason, status, attempt_count, max_attempts, enqueued_at
+FROM vaccination_projection_dirty_scopes
+WHERE status = 'pending'
+  AND next_attempt_at <= now()
+ORDER BY next_attempt_at, dirty_scope_id
+LIMIT 200
+FOR UPDATE SKIP LOCKED;"
+
+  explain_must_use_index "EnqueueDueTransitionsNextTransition" 'Seq Scan on vaccination_shed_shard_state' "EXPLAIN (COSTS OFF)
+SELECT shed_id
+FROM vaccination_shed_shard_state
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND row_present
+  AND next_transition_at IS NOT NULL
+  AND next_transition_at <= now()
+ORDER BY next_transition_at, shed_id
+LIMIT 200;"
+
+  explain_must_use_index "EnqueueDueTransitionsStaleFallback" 'Seq Scan on vaccination_shed_shard_state' "EXPLAIN (COSTS OFF)
+SELECT shed_id
+FROM vaccination_shed_shard_state
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND row_present
+  AND projected_at < now() - interval '10 minutes'
+ORDER BY projected_at, shed_id
+LIMIT 200;"
+}
+
 validate_calendar_history_projection_plans() {
   # Calendar completed-history + date-marker projection (migration 000178 +
   # history_projection.go): calendarListSQL's completed_history CTE and
@@ -1332,6 +1404,7 @@ validate_operations_audit_plans
 validate_calendar_vaccination_plans
 validate_herd_register_summary_plan
 validate_vaccination_shed_projection_plan
+validate_vaccination_projection_dirty_scopes_plans
 validate_verification_queue_plan
 validate_vaccination_execution_projection_read_plan
 validate_vaccination_operations_projection_read_plan

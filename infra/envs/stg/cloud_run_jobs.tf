@@ -102,6 +102,24 @@ locals {
         GOATOS_PG_QUERY_TIMEOUT                  = "30s"
       }
     }
+    vaccination_projection_worker = {
+      # Drains vaccination_projection_dirty_scopes (P0-B bounded incremental shed projector,
+      # migration 000182 / cmd/vaccination-projection-worker). The dirty-shed enqueue handlers
+      # (dirty_shed_handlers.go) are wired into domain-event-consumer, which IS deployed to stg --
+      # without this job, stg enqueues dirty scopes but nothing ever drains them, so the queue grows
+      # unbounded. Mirrors the dev job (same service account, same args/schedule).
+      name                = "goatos-stg-vaccination-projection-worker"
+      service_account_key = "vaccination_generator"
+      command             = ["/app/bin/vaccination-projection-worker"]
+      args                = ["-timeout=90s", "-limit=200", "-enqueue-due-transitions=true", "-due-transitions-limit=200"]
+      timeout             = "120s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/2 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.stg_tenant_id
+      }
+    }
     calendar_projector = {
       name                = "goatos-stg-calendar-projector"
       service_account_key = "calendar_projector"

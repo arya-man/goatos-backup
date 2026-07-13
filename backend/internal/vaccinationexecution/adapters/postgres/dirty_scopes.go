@@ -178,14 +178,50 @@ WHERE dirty_scope_id = $1
 // MarkDirtyScopeDone deletes a successfully rebuilt scope. Deleting (rather than keeping a 'done'
 // row forever) keeps the queue table bounded by outstanding + recently dead-lettered work, not
 // unboundedly growing with every historical rebuild.
+//
+// Guarded re-dirty check (P2): EnqueueDirtySheds' coalescing UPSERT can update THIS SAME row (via
+// the partial unique index) while the worker's rebuild for it is still in flight -- a write for shed
+// A lands, re-dirtying it, WHILE a worker is mid-RebuildShedShard(A) for the ORIGINAL reason. The
+// coalescing UPDATE bumps updated_at (and reason) but deliberately leaves the row leased and leaves
+// leased_at untouched ("a shed already leased by a worker is left leased, never reset to pending" --
+// EnqueueDirtySheds' own comment), so a naive delete-by-(dirty_scope_id,status='leased') here would
+// silently discard that newer signal the moment the in-flight rebuild completes, even though the
+// rebuild may predate it and not reflect it. Comparing updated_at to leased_at (both stamped equal by
+// ClaimDirtyScopes at lease time, and ONLY updated_at moves on a coalesced re-dirty) tells us, purely
+// from the row's own columns, whether that happened: if unchanged, this rebuild is known to cover the
+// latest signal and it is safe to delete; if changed, do NOT delete -- reset the scope back to
+// pending (clearing the lease) so the next claim re-runs RebuildShedShard for the newer write instead
+// of losing it.
 func (r *Repository) MarkDirtyScopeDone(ctx context.Context, dirtyScopeID int64) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	if _, err := r.pool.Exec(ctx, `
+	tag, err := r.pool.Exec(ctx, `
 DELETE FROM vaccination_projection_dirty_scopes
 WHERE dirty_scope_id = $1
-  AND status = 'leased'`, dirtyScopeID); err != nil {
-		return fmt.Errorf("vaccination execution: mark dirty scope done: %w", err)
+  AND status = 'leased'
+  AND updated_at = leased_at`, dirtyScopeID)
+	if err != nil {
+		return fmt.Errorf("vaccination execution: mark dirty scope done: delete: %w", err)
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	// Either this scope was coalesced-re-dirtied while its lease was in flight (updated_at moved
+	// past leased_at) -- the case this guard exists for -- or it is no longer in the state we
+	// expect (already reclaimed, dead-lettered, or completed by something else), in which case this
+	// UPDATE's WHERE clause matches nothing and is a safe no-op.
+	if _, err := r.pool.Exec(ctx, `
+UPDATE vaccination_projection_dirty_scopes
+SET status = 'pending',
+    lease_owner = NULL,
+    leased_at = NULL,
+    lease_expires_at = NULL,
+    next_attempt_at = now(),
+    updated_at = now()
+WHERE dirty_scope_id = $1
+  AND status = 'leased'
+  AND updated_at <> leased_at`, dirtyScopeID); err != nil {
+		return fmt.Errorf("vaccination execution: mark dirty scope done: re-enqueue after concurrent re-dirty: %w", err)
 	}
 	return nil
 }
@@ -223,12 +259,25 @@ WHERE dirty_scope_id = $1
 // ReclaimExpiredDirtyScopeLeases resets scopes whose lease expired without completing (a crashed
 // or killed worker) back to pending so another worker instance can claim them. Bounded by the same
 // WHERE clause every run; no per-row loop.
+//
+// This ALSO increments attempt_count and dead-letters once max_attempts is exhausted, exactly like
+// MarkDirtyScopeFailed's explicit-failure path. Without this, a worker that reliably crashes
+// mid-rebuild for the SAME shed (e.g. a poison-pill row that panics the shard-scoped query) would
+// loop pending -> leased -> expired -> pending forever: only an explicit MarkDirtyScopeFailed call
+// bumped attempt_count, and a crash never reaches that call, so the scope would never reach
+// max_attempts and never dead-letter -- an unbounded retry loop hammering the same broken shed
+// indefinitely instead of eventually surfacing as a DLQ item for operator attention.
 func (r *Repository) ReclaimExpiredDirtyScopeLeases(ctx context.Context, now time.Time) (int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	tag, err := r.pool.Exec(ctx, `
 UPDATE vaccination_projection_dirty_scopes
-SET status = 'pending',
+SET attempt_count = attempt_count + 1,
+    status = CASE WHEN attempt_count + 1 >= max_attempts THEN 'dead_letter' ELSE 'pending' END,
+    last_error = CASE
+      WHEN attempt_count + 1 >= max_attempts THEN 'lease_expired_max_attempts_exhausted'
+      ELSE last_error
+    END,
     lease_owner = NULL,
     leased_at = NULL,
     lease_expires_at = NULL,
@@ -329,6 +378,55 @@ SELECT EXISTS (
     AND projected_at < now() - $2::interval
 )`, tenantID, ttl.String()).Scan(&stale); err != nil {
 		return false, fmt.Errorf("vaccination execution: any shed shard stale: %w", err)
+	}
+	return stale, nil
+}
+
+// AnyShedShardStaleInScope is the SCOPED counterpart to AnyShedShardStale (Serving-Read Freshness
+// Contract, docs/decisions/high-scale-dashboard-projections.md). AnyShedShardStale gates on ANY
+// served shed anywhere in the tenant being behind -- correct for an unfiltered tenant-wide list, but
+// wrong for a single shed detail read or a park-scoped list: one stale or dead-lettered shed
+// elsewhere in the tenant must not 503 every OTHER shed's read. When shedID is set (the common
+// ShedDetail case), this is a single indexed (tenant_id, shed_id) lookup on the shard_state primary
+// key -- no different in cost from checking any other single row. When only parkID is set, staleness
+// is scoped to that park's sheds via the locations parent-child join
+// (locations_tenant_parent_order_idx), still bounded by shed cardinality (a tenant has at most a few
+// hundred sheds, never per-animal scale). When neither is set (an unfiltered read), this falls back to
+// the tenant-wide check -- a genuinely unscoped read still needs the tenant-wide guarantee.
+func (r *Repository) AnyShedShardStaleInScope(ctx context.Context, tenantID string, shedID, parkID *string, ttl time.Duration) (bool, error) {
+	shed := ""
+	if shedID != nil {
+		shed = strings.TrimSpace(*shedID)
+	}
+	park := ""
+	if parkID != nil {
+		park = strings.TrimSpace(*parkID)
+	}
+	if shed == "" && park == "" {
+		return r.AnyShedShardStale(ctx, tenantID, ttl)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var stale bool
+	if err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM vaccination_shed_shard_state s
+  WHERE s.tenant_id = $1::uuid
+    AND s.row_present
+    AND s.projected_at < now() - $2::interval
+    AND ($3::text = '' OR s.shed_id = $3)
+    AND ($4::text = '' OR EXISTS (
+      SELECT 1
+      FROM locations l
+      WHERE l.tenant_id = $1::uuid
+        AND l.parent_location_id = $4::uuid
+        AND l.location_type = 'shed'
+        AND l.location_id = s.shed_id::uuid
+    ))
+)`, tenantID, ttl.String(), shed, park).Scan(&stale); err != nil {
+		return false, fmt.Errorf("vaccination execution: any shed shard stale in scope: %w", err)
 	}
 	return stale, nil
 }
