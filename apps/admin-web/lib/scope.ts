@@ -7,7 +7,11 @@
 //   scope_mode = company | park        (park without `park` = all parks as park/shed breakdown)
 //   park       = <location uuid>        (omitted/`all` = company-wide)
 //   range      = last_7_days | last_30_days | custom
-//   as_of      = YYYY-MM-DD             (compute state as-of this date; default today)
+//   as_of      = YYYY-MM-DD             (top-bar date scope; default today. Per-endpoint semantics:
+//                                        process-integrity reads (CT/AC/PA/WF) reconstruct that
+//                                        business date from versioned snapshots; the vaccination
+//                                        execution/shed reads are current-view-only and reject a past
+//                                        as_of with 400 historical_as_of_unsupported.)
 //   date_from / date_to = YYYY-MM-DD    (custom range bounds)
 //   domain     = vaccination | procurement | …  (command-lens data source; omitted = default vaccination)
 import { one, type RouteSearchParams } from "@/lib/search-params";

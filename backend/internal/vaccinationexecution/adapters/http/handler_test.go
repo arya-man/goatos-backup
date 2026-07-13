@@ -493,39 +493,48 @@ func TestExecutionParsesAsOf(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, &fakeWriter{}).WithClock(func() time.Time { return serverNow }))
 
-	// A same-India-business-day as_of flows into the query (so the top-bar date scopes execution/shed
-	// reads). 06:00Z on 2026-07-11 is 11:30 IST that same business day (Z avoids the URL '+'->space decode).
-	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-07-11T06:00:00Z", nil)
+	// A future as_of clamps to now and flows into the query (the current view). admin-web sends the
+	// inclusive IST end-of-day for "today", which is future until day end and clamps to now.
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2027-01-01T00:00:00Z", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	want := time.Date(2026, 7, 11, 6, 0, 0, 0, time.UTC)
-	if !reader.last.AsOf.Equal(want) {
-		t.Fatalf("as_of not parsed into query: got %v want %v", reader.last.AsOf, want)
+	if !reader.last.AsOf.Equal(serverNow) {
+		t.Fatalf("as_of not clamped into query: got %v want %v", reader.last.AsOf, serverNow)
 	}
 
-	// A prior-day (historical) as_of is not supported: an honest 400, never a misleading
-	// projection_unavailable 503 (production only builds the current snapshot). 06:00Z on 2026-07-10
-	// is 11:30 IST the prior business day.
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-07-10T06:00:00Z", nil)
-	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
-	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("historical as_of status = %d want 400 body=%s", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "historical_as_of_unsupported") {
-		t.Fatalf("historical as_of body = %s, want historical_as_of_unsupported", rec.Body.String())
-	}
+	// A prior-day as_of is a historical point-in-time request: an honest 400, never a misleading
+	// projection_unavailable 503. 06:00Z on 2026-07-10 is 11:30 IST the prior business day.
+	assertHistoricalAsOfRejected(t, mux, "/vaccination/execution?as_of=2026-07-10T06:00:00Z")
+	// VE-001 guard: an EARLIER-SAME-DAY instant is also historical (06:00Z = 11:30 IST, before
+	// serverNow 18:15 IST) and must not slip through to return a misleading current snapshot.
+	assertHistoricalAsOfRejected(t, mux, "/vaccination/execution?as_of=2026-07-11T06:00:00Z")
 
 	// Malformed as_of is a 400.
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-06-24", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("malformed as_of status = %d want 400", rec.Code)
+	}
+}
+
+// assertHistoricalAsOfRejected asserts a past as_of on a vaccination-execution read is a 400
+// historical_as_of_unsupported (current-view-only contract), not a 200 misleading current snapshot
+// and not a projection_unavailable 503.
+func assertHistoricalAsOfRejected(t *testing.T, mux http.Handler, target string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("%s status = %d want 400 body=%s", target, rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "historical_as_of_unsupported") {
+		t.Fatalf("%s body = %s, want historical_as_of_unsupported", target, rec.Body.String())
 	}
 }
 
