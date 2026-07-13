@@ -60,6 +60,8 @@ hot_tables = {
     "sop_tasks",
     "vaccination_completions",
     "vaccination_generation_runs",
+    "vaccination_projection_dirty_scopes",
+    "vaccination_shed_shard_state",
 }
 
 hot_table_prefixes = (
