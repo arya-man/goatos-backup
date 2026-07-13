@@ -205,11 +205,11 @@ func run(args []string) error {
 	fmt.Printf("process_integrity_projection rows=%d version=%d as_of=%s\n",
 		processProjection.Rows, processProjection.ProjectionVersion, processProjection.AsOf.Format(time.RFC3339))
 
-	// Deploy-seed population (C35-002, vaccinationexecution half): keep the shed-wise read model
-	// (vaccination_shed_projection_rows, migration 000167) warm right after a real-data seed, the same
-	// way the process-integrity projection above is refreshed. ShedSummary itself still serves the live
-	// CTE; this only keeps the projection from starting cold in a freshly seeded environment.
-	shedProjection, err := vaccexecpg.NewRepository(pool, pgCfg.QueryTimeout).RecomputeShedProjection(ctx, vaccexecdomain.ShedProjectionRecomputeRequest{
+	// Deploy-seed population (C35-002, vaccinationexecution half): every
+	// vaccination read path serves versioned projections now. A real-data seed is
+	// not complete until these read models are warm from the canonical seed rows.
+	vaccinationExecutionRepo := vaccexecpg.NewRepository(pool, pgCfg.QueryTimeout)
+	shedProjection, err := vaccinationExecutionRepo.RecomputeShedProjection(ctx, vaccexecdomain.ShedProjectionRecomputeRequest{
 		TenantID: *tenantID,
 	})
 	if err != nil {
@@ -218,6 +218,26 @@ func run(args []string) error {
 
 	fmt.Printf("vaccination_shed_projection rows=%d version=%d as_of=%s\n",
 		shedProjection.Rows, shedProjection.ProjectionVersion, shedProjection.AsOf.Format(time.RFC3339))
+
+	executionProjection, err := vaccinationExecutionRepo.RecomputeExecutionProjection(ctx, vaccexecdomain.ExecutionProjectionRecomputeRequest{
+		TenantID: *tenantID,
+	})
+	if err != nil {
+		return fmt.Errorf("recompute vaccination execution projection after vaccination seed: %w", err)
+	}
+
+	fmt.Printf("vaccination_execution_projection rows=%d version=%d as_of=%s\n",
+		executionProjection.Rows, executionProjection.ProjectionVersion, executionProjection.AsOf.Format(time.RFC3339))
+
+	operationsProjection, err := vaccinationExecutionRepo.RecomputeOperationsProjection(ctx, vaccexecdomain.OperationsProjectionRecomputeRequest{
+		TenantID: *tenantID,
+	})
+	if err != nil {
+		return fmt.Errorf("recompute vaccination operations projection after vaccination seed: %w", err)
+	}
+
+	fmt.Printf("vaccination_operations_projection rows=%d version=%d as_of=%s\n",
+		operationsProjection.Rows, operationsProjection.ProjectionVersion, operationsProjection.AsOf.Format(time.RFC3339))
 	return nil
 }
 

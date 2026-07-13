@@ -7,6 +7,21 @@ The identity-quality and clean-slate migration rules are defined in
 `docs/protocol-engine/migration-and-cutover.md`; this contract adds the
 vaccination-specific date/history and kernel ownership rules.
 
+## Why This Flow Exists
+
+The vaccination pages are projection-backed on purpose. At million-animal scale,
+the UI must read compact read models instead of replaying every obligation,
+completion, SOP, owner, and status event on each request. A seed therefore has
+two phases: write canonical source truth, then rebuild the read models that live
+pages serve. If a seed skips the second phase, the database can contain correct
+canonical rows while the UI correctly returns `projection_unavailable`.
+
+HRMS is part of the same setup, not a later cosmetic step. Vaccination work is
+routed by shed manager and backup ownership; without the roster, attendance/
+leave windows, timetable-backed positions, strict shed-manager mapping, and
+position duties, the system cannot know who owns a drive, who covers leave, or
+whether a shed is executable.
+
 ## Binding Rule
 
 Vaccination dates present in the source sheet are base schedule anchors, not
@@ -98,21 +113,48 @@ review/config gap. It must not convert uncertainty into a clean due schedule.
 For a destructive staging rebuild, also follow
 `docs/runbooks/staging-vaccination-clean-slate.md`.
 
-1. Import source base-anchor dates when they are on or before backend business
+For local/dev rehearsals, the one-command source path is:
+
+```bash
+make seed-vaccination-source-full
+```
+
+That target uses the source bundle at `GOATOS_VACCINATION_SOURCE_DIR` and the
+strict shed-manager mapping at `GOATOS_SHED_MANAGER_MAPPING`. Override those
+environment variables only when intentionally changing the reviewed source
+bundle.
+
+1. Seed founder/builder access grants for the tenant.
+2. Seed HRMS from the reviewed source bundle: roster-name mapping, Jun-26
+   attendance/leave, timetable positions, strict shed-manager mapping, and
+   position duties. Hard stop on missing manager, missing backup, unreviewed
+   shed owner, or source coverage drift.
+3. Import source base-anchor dates when they are on or before backend business
    date and persist them only as trusted anchor history, never as open work on
    or before that business date.
-2. Publish or reuse the intended `vaccination.matrix` version.
-3. Reconcile evidence with matching active rules into accepted completions; keep
+4. Publish or reuse the intended `vaccination.matrix` version and its seed
+   config/capacity defaults.
+5. Reconcile evidence with matching active rules into accepted completions; keep
    unmatched evidence visible as config/review gaps.
-4. Run the validated vaccination generation path to materialize only strictly
+6. Run the validated vaccination generation path to materialize only strictly
    future obligations from anchor history, DOB, entry date, stage, species, and
    current constraint state.
-5. Recompute process-integrity and vaccination execution projections.
-6. Verify Action Center buckets, shed status, next due dates, and capacity
-   session splits through backend APIs using server-owned live time.
-7. Run the kernel seed/generation tests before pushing or seeding a shared
+7. Recompute every derived read model that the UI reads. The seed is not green
+   until these projector entry points have completed for the target tenant:
+   - `vaccination-eligibility-rollup-recompute`
+   - `process-integrity-projection-recompute`
+   - `vaccination-shed-projection-recompute`
+   - `vaccination-execution-projection-recompute`
+   - `vaccination-operations-projection-recompute`
+   - Calendar and counts projectors for any visible Calendar/Counts surface.
+8. Verify Action Center buckets, shed status, execution rows, operations rows,
+   next due dates, and capacity session splits through backend APIs using
+   server-owned live time. A seed that leaves `projection_unavailable` on
+   `/vaccination/sheds`, `/vaccination/execution`, or `/vaccination/operations`
+   is failed even if the canonical source tables contain rows.
+9. Run the kernel seed/generation tests before pushing or seeding a shared
    environment.
-8. Require the seed reconciliation to prove zero seed-owned Pending
+10. Require the seed reconciliation to prove zero seed-owned Pending
    placeholders, zero duplicate active goat/rule pairs, zero active non-repeat
    work already satisfied by accepted history, zero schedulable open work on or
    before the business date, future-only repeat work, and zero normal active

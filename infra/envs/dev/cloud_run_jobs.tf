@@ -62,6 +62,57 @@ locals {
         GOATOS_TENANT_ID = var.dev_tenant_id
       }
     }
+    process_integrity_projector = {
+      name                = "goatos-dev-process-integrity-projector"
+      service_account_key = "vaccination_generator"
+      command             = ["/app/bin/process-integrity-projection-recompute"]
+      args                = ["-timeout=120s"]
+      timeout             = "180s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/5 * * * *"
+      env = {
+        GOATOS_ENV                          = "dev"
+        GOATOS_ALLOW_DEV_CLOUDSQL_TARGET    = "true"
+        GOATOS_DEV_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
+        GOATOS_TENANT_ID                    = var.dev_tenant_id
+        GOATOS_PG_QUERY_TIMEOUT             = "30s"
+      }
+    }
+    vaccination_execution_projector = {
+      name                = "goatos-dev-vaccination-execution-projector"
+      service_account_key = "vaccination_generator"
+      command             = ["/app/bin/vaccination-execution-projection-recompute"]
+      args                = ["-timeout=120s"]
+      timeout             = "180s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/5 * * * *"
+      env = {
+        GOATOS_ENV                          = "dev"
+        GOATOS_ALLOW_DEV_CLOUDSQL_TARGET    = "true"
+        GOATOS_DEV_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
+        GOATOS_TENANT_ID                    = var.dev_tenant_id
+        GOATOS_PG_QUERY_TIMEOUT             = "30s"
+      }
+    }
+    vaccination_operations_projector = {
+      name                = "goatos-dev-vaccination-operations-projector"
+      service_account_key = "vaccination_generator"
+      command             = ["/app/bin/vaccination-operations-projection-recompute"]
+      args                = ["-timeout=120s"]
+      timeout             = "180s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/5 * * * *"
+      env = {
+        GOATOS_ENV                          = "dev"
+        GOATOS_ALLOW_DEV_CLOUDSQL_TARGET    = "true"
+        GOATOS_DEV_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
+        GOATOS_TENANT_ID                    = var.dev_tenant_id
+        GOATOS_PG_QUERY_TIMEOUT             = "30s"
+      }
+    }
     obligation_sweeper = {
       name                = "goatos-dev-obligation-sweeper"
       service_account_key = "obligation_sweeper"
@@ -79,20 +130,6 @@ locals {
         GOATOS_CLOUD_TASKS_QUEUE_ID              = google_cloud_tasks_queue.near_term_kernel.name
         GOATOS_CLOUD_TASKS_OAUTH_SERVICE_ACCOUNT = google_service_account.runtime["cloud_tasks_enqueuer"].email
         GOATOS_NOTIFICATION_DISPATCHER_RUN_URL   = local.notification_dispatcher_run_url
-      }
-    }
-    process_integrity_projector = {
-      name                = "goatos-dev-process-integrity-projector"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/process-integrity-projection-recompute"]
-      args                = ["-timeout=9m"]
-      timeout             = "600s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
-      env = {
-        GOATOS_TENANT_ID        = var.dev_tenant_id
-        GOATOS_PG_QUERY_TIMEOUT = "30s"
       }
     }
     vaccination_projection_worker = {

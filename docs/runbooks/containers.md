@@ -23,6 +23,10 @@ docker build -f apps/admin-web/Dockerfile -t goatos-admin-web:local .
 /app/bin/domain-event-processed-sweeper
 /app/bin/generate-vaccination-obligations
 /app/bin/vaccination-eligibility-rollup-recompute
+/app/bin/process-integrity-projection-recompute
+/app/bin/vaccination-shed-projection-recompute
+/app/bin/vaccination-execution-projection-recompute
+/app/bin/vaccination-operations-projection-recompute
 /app/bin/obligation-sweeper
 /app/bin/calendar-vaccination-projector
 /app/bin/calendar-reminder-sweeper
@@ -84,6 +88,40 @@ This is the current explicit projector entry point. The future event-driven path
 changed → outbox/Pub-Sub → incremental projector) is documented in the command
 header and migration `000156`; until it lands, run the recompute after bulk
 changes.
+
+The vaccination dashboard and command surfaces are projection-backed. After any
+bulk seed/import/backfill, rebuild the matching read models before UI or API
+verification. These commands are packaged in the same backend runtime image:
+
+```bash
+docker run --rm \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  -e GOATOS_TENANT_ID="${GOATOS_TENANT_ID}" \
+  --entrypoint /app/bin/process-integrity-projection-recompute \
+  goatos-backend:local -tenant-id "${GOATOS_TENANT_ID}"
+
+docker run --rm \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  -e GOATOS_TENANT_ID="${GOATOS_TENANT_ID}" \
+  --entrypoint /app/bin/vaccination-shed-projection-recompute \
+  goatos-backend:local -tenant-id "${GOATOS_TENANT_ID}"
+
+docker run --rm \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  -e GOATOS_TENANT_ID="${GOATOS_TENANT_ID}" \
+  --entrypoint /app/bin/vaccination-execution-projection-recompute \
+  goatos-backend:local -tenant-id "${GOATOS_TENANT_ID}"
+
+docker run --rm \
+  -e DATABASE_URL="${DATABASE_URL}" \
+  -e GOATOS_TENANT_ID="${GOATOS_TENANT_ID}" \
+  --entrypoint /app/bin/vaccination-operations-projection-recompute \
+  goatos-backend:local -tenant-id "${GOATOS_TENANT_ID}"
+```
+
+For shared dev/staging Cloud SQL, also set the environment-specific target guard
+variables (`GOATOS_ENV`, `GOATOS_ALLOW_DEV_CLOUDSQL_TARGET` /
+`GOATOS_ALLOW_STG_CLOUDSQL_TARGET`, and the matching Cloud SQL connection name).
 
 Expired shared idempotency keys are cleaned by a bounded job-style binary. Dry
 run first, then execute with an operator-chosen limit:

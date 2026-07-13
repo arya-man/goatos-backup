@@ -133,8 +133,10 @@ Before enabling the new dev environment, snapshot the old dashboard state:
 6. Deploy API and admin-web first.
 7. Enable workers in controlled order after API/admin smoke passes:
    outbox relay, domain consumer, obligation sweeper, calendar projector,
-   reminder/escalation sweepers, notification dispatcher in dev-safe mode,
-   inventory batch reconciler, partition maintainer, and the domain
+   process-integrity projector, vaccination shed projection worker,
+   vaccination execution/operations projectors, reminder/escalation sweepers,
+   notification dispatcher in
+   dev-safe mode, inventory batch reconciler, partition maintainer, and the domain
    processed-event retention sweeper.
 8. Verify Cloud Monitoring baseline policies before enabling unattended worker
    schedules: Cloud Run errors, outbox relay dead letters, Pub/Sub DLQ backlog,
@@ -172,6 +174,9 @@ Minimum seed set:
   it as a test scenario.
 - Parks, sheds, shed profiles, and `animal_stage_lookup` rows that prove shed
   profile stage can override stale goat stage.
+- HRMS roster, attendance/leave windows, timetable-backed positions, shed
+  manager ownership, backup coverage, and position duties. Vaccination is not
+  seeded green until every executable shed has a real manager and backup path.
 - Operators and verifiers with explicit scopes.
 - SOP template and published SOP version for vaccination proof and verification.
 - Preventive Care (PC) vaccination protocol version with approved source metadata, schedule rows,
@@ -209,7 +214,12 @@ Run the validation through both UI creation and sheet import:
 9. Confirm missed, blocked, deferred, rework, proof-pending, and completed states
    appear correctly in Calendar, Action Center, Protocol Adherence, and
    vaccination execution.
-10. Confirm DLQ/retry visibility for forced worker failures.
+10. Confirm the read-model projectors are green: eligibility rollup,
+    process-integrity, vaccination shed, vaccination execution, vaccination
+    operations, Calendar, and Counts if enabled. `/vaccination/sheds`,
+    `/vaccination/execution`, and `/vaccination/operations` must return `200`,
+    not `projection_unavailable`.
+11. Confirm DLQ/retry visibility for forced worker failures.
 
 ## Google Readiness Gates
 
@@ -237,6 +247,7 @@ Do not call the dev deploy complete until there is evidence for:
 - outbox DLQ operator job list-mode output
 - Pub/Sub DLQ inspect subscription pull/ack proof in dev-safe mode
 - sweeper and projector logs
+- vaccination shed/execution/operations projection state and API evidence
 - notification/DLQ dev-safe visibility
 - screenshots for the vaccination slice and command surfaces
 - seed ledger and rollback notes
@@ -260,5 +271,9 @@ The expected future order is:
 5. Reconcile counts against legacy dashboards and source ledgers.
 6. Promote clean rows into canonical tables through the same app/domain paths
    used by normal writes when feasible.
-7. Generate obligations/read models through the operational kernel.
+7. Generate obligations/read models through the operational kernel. After any
+   bulk seed/import/backfill, run the required projection rebuilds before UI
+   verification: eligibility rollup, process-integrity, vaccination shed,
+   vaccination execution, vaccination operations, Calendar, and visible Counts
+   projections.
 8. Produce a signed migration evidence pack before any production cutover.

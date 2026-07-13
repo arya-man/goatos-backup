@@ -3,9 +3,8 @@
 // obligation/goat/capacity-config tables.
 //
 // This is intentionally off the request path (C35-002, vaccinationexecution half). GET /vaccination/sheds
-// (ShedSummary) still serves the live compute-on-read CTE today; this command keeps the projection warm
-// so a later change can flip that read over without a cold read model. Mirrors
-// backend/cmd/process-integrity-projection-recompute.
+// reads this projection; this command keeps the read model warm after seed/import
+// and between incremental projector runs. Mirrors backend/cmd/process-integrity-projection-recompute.
 package main
 
 import (

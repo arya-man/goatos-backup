@@ -13,10 +13,12 @@ api_base_url="${GOATOS_API_BASE_URL:-http://$host:$api_port}"
 log_dir="$repo_root/.codex-goatos-render/logs"
 api_log="$log_dir/local-api.log"
 web_log="$log_dir/local-admin-web.log"
+projection_log="$log_dir/local-projections.log"
 supervisor_log="$log_dir/local-stack-supervisor.log"
 
 api_pid=""
 web_pid=""
+projection_pid=""
 stop_requested="0"
 
 timestamp() {
@@ -100,8 +102,10 @@ kill_pid() {
 }
 
 cleanup() {
+  kill_pid "$projection_pid"
   kill_pid "$web_pid"
   kill_pid "$api_pid"
+  projection_pid=""
   web_pid=""
   api_pid=""
 }
@@ -198,6 +202,34 @@ start_web() {
   wait_for_web
 }
 
+start_projection_refresher() {
+  if [ -n "$projection_pid" ] && kill -0 "$projection_pid" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local interval="${GOATOS_LOCAL_PROJECTION_REFRESH_SECONDS:-120}"
+  log "Starting local read-model projection refresher every ${interval}s."
+  (
+    cd "$repo_root/backend"
+    run_projection_refresh() {
+      local label="$1"
+      shift
+      if ! "$@"; then
+        printf '%s projection refresh failed: %s\n' "$(timestamp)" "$label"
+      fi
+    }
+    while true; do
+      printf '%s refreshing local read-model projections\n' "$(timestamp)"
+      run_projection_refresh vaccination_shed go run ./cmd/vaccination-shed-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
+      run_projection_refresh vaccination_execution go run ./cmd/vaccination-execution-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
+      run_projection_refresh vaccination_operations go run ./cmd/vaccination-operations-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
+      run_projection_refresh process_integrity go run ./cmd/process-integrity-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
+      sleep "$interval"
+    done
+  ) >>"$projection_log" 2>&1 &
+  projection_pid="$!"
+}
+
 monitor_stack() {
   local api_failures=0
   local web_failures=0
@@ -210,6 +242,10 @@ monitor_stack() {
     fi
     if [ -n "$web_pid" ] && ! kill -0 "$web_pid" >/dev/null 2>&1; then
       log "Mesha admin-web process exited; restarting stack."
+      return 1
+    fi
+    if [ -n "$projection_pid" ] && ! kill -0 "$projection_pid" >/dev/null 2>&1; then
+      log "Read-model projection refresher exited; restarting stack."
       return 1
     fi
 
@@ -239,14 +275,14 @@ monitor_stack() {
 
 restart_delay="${GOATOS_LOCAL_SERVICE_RESTART_DELAY_SECONDS:-5}"
 mkdir -p "$log_dir"
-touch "$api_log" "$web_log" "$supervisor_log"
+touch "$api_log" "$web_log" "$projection_log" "$supervisor_log"
 
 log "Starting durable Goat OS local stack supervisor."
 log "Database URL target: $DATABASE_URL"
 
 while [ "$stop_requested" = "0" ]; do
   cleanup
-  if seed_dev_grant && start_api && start_web && monitor_stack; then
+  if seed_dev_grant && start_api && start_projection_refresher && start_web && monitor_stack; then
     break
   fi
   cleanup

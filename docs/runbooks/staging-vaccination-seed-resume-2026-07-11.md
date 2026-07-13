@@ -152,6 +152,19 @@ Known seed commands and staging readiness:
 - `backend/cmd/vaccination-eligibility-rollup-recompute`
   - Must run after goat/vaccination seed.
   - Populates `vaccination_eligibility_rollups` for cheap config preview.
+- `backend/cmd/process-integrity-projection-recompute`
+  - Must run after goat/vaccination seed and after sweeper changes.
+  - Populates Action Center, Control Tower, Protocol Adherence, Workflow, and
+    grouped sidebar-count read models.
+- `backend/cmd/vaccination-shed-projection-recompute`
+  - Must run after goat/vaccination seed and after sweeper changes.
+  - Populates the shed-wise `/vaccination` read model.
+- `backend/cmd/vaccination-execution-projection-recompute`
+  - Must run after goat/vaccination seed and after sweeper changes.
+  - Populates `/vaccination/execution`.
+- `backend/cmd/vaccination-operations-projection-recompute`
+  - Must run after goat/vaccination seed and after sweeper changes.
+  - Populates `/vaccination/operations`.
 
 ## Problem Statements Captured
 
@@ -233,9 +246,16 @@ Strict rule:
 9. Seed position duties after center/role and shed-scoped positions exist.
 10. Seed vaccination/goats from `goats.json` and `vaccination.json`.
 11. Run eligibility rollup recompute.
-12. Run or trigger projection/outbox processing required for Action Center,
-    Calendar, Workflow, and sidebar counts.
-13. Verify final green gates:
+12. Run projection rebuilds from the seeded source state:
+    - process-integrity projection
+    - vaccination shed projection
+    - vaccination execution projection
+    - vaccination operations projection
+    - calendar vaccination projection
+    - counts projection, if the Counts surface is visible in that environment
+13. Run or trigger outbox processing required for Action Center, Calendar,
+    Workflow, and sidebar counts.
+14. Verify final green gates:
     - 1,311 source animal rows represented.
     - 1,310 nonblank primary IDs plus known secondary fallback row.
     - no missing-ID chip condition.
@@ -250,8 +270,16 @@ Strict rule:
       explicit config/review gaps; none are silently dropped because a rule was
       missing at seed time.
     - `vaccination_eligibility_rollups` has rows.
+    - `vaccination_shed_projection_state`,
+      `vaccination_execution_projection_state`,
+      `vaccination_operations_projection_state`, and
+      `process_integrity_projection_state` have a serving version built after
+      the final seed write.
+    - `GET /vaccination/sheds`, `GET /vaccination/execution`, and
+      `GET /vaccination/operations` return `200`, not
+      `projection_unavailable`.
     - capacity config/rule uses buffer 7.
-14. Stop the Cloud SQL proxy when finished.
+15. Stop the Cloud SQL proxy when finished.
 
 ## Stop Conditions
 

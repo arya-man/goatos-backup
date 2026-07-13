@@ -285,7 +285,23 @@ immediately after staging seed, verify the event/projection chain:
   - counts projection recompute
   - vaccination eligibility rollup recompute
   - process-integrity projection/update jobs
+  - vaccination shed projection recompute
+  - vaccination execution projection recompute
+  - vaccination operations projection recompute
   - outbox publisher if it is a separate service/job
+- A seed is incomplete if any live vaccination API returns
+  `projection_unavailable`. After the source seed, these endpoints must return
+  `200` from the target tenant without falling back to canonical table replay:
+  - `GET /vaccination/sheds`
+  - `GET /vaccination/execution`
+  - `GET /vaccination/operations`
+- Projection state must be fresh and non-empty for the seeded tenant:
+  `vaccination_shed_projection_state`,
+  `vaccination_execution_projection_state`,
+  `vaccination_operations_projection_state`, and
+  `process_integrity_projection_state` must have a serving projection version,
+  `serving_state IN ('fresh','stale','rebuilding')`, no unexplained
+  `last_error`, and `projected_at/as_of` after the final source seed write.
 - Verify DLQ/dead-letter counts are zero or explicitly explained.
 - Verify Action Center, Calendar, Protocol Adherence, Workflows, and the
   shed-wise vaccination page match the seeded DB counts.
@@ -370,10 +386,13 @@ To make the red items green:
 5. Drain or explain outbox rows. Before staging demo, failed rows must be zero
    and pending rows must either be zero or an intentional currently-running async
    queue with documented consumers.
-6. Recompute Calendar/Action Center/process-integrity projections from the
-   seeded obligations. Verify sidebar badges and page counts reconcile to the
-   backend grouped-work query.
-7. Seed HRMS vaccination ownership before vaccination demo: create/resolve
+6. Recompute Calendar/Action Center/process-integrity and vaccination
+   shed/execution/operations projections from the seeded obligations. Verify
+   sidebar badges, `/vaccination`, `/vaccination/execution`, and
+   `/vaccination/operations` all return backend rows instead of
+   `projection_unavailable`.
+7. Seed HRMS vaccination ownership before vaccination demo from the reviewed
+   roster mapping, attendance/leave, and timetable source files; create/resolve
    Health Manager and Health AM workforce members, then run
    `seed-shed-positions -mapping /Users/ravi/mesha/source-material/vgoats-seed/shed-manager-mapping.jul11-vaccination.csv -strict`
    to create shed-scoped `workforce_positions` for every vaccination shed and

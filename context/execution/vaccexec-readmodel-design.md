@@ -74,21 +74,28 @@ This series ports the same shape to `ShedSummary`, `ListVaccinationExecutionPage
    asserts the projection rows equal the live rows field-by-field (Animals, DueAnimals, OpenCells,
    Sessions, Capacity, Status, LastDone, NextDue) for every seeded shed. This is the proof that the
    projector reproduces exactly what the request path serves today.
-5. **Refresh wiring** so the projection stays fresh in every environment, mirroring
-   `process_integrity_projector` exactly:
-   - `backend/cmd/vaccination-shed-projection-recompute/main.go` — a CLI, same shape as
+5. **Refresh wiring** so all vaccinationexecution projections stay fresh in every
+   environment:
+   - `backend/cmd/vaccination-shed-projection-recompute/main.go`,
+     `backend/cmd/vaccination-execution-projection-recompute/main.go`, and
+     `backend/cmd/vaccination-operations-projection-recompute/main.go` are CLI
+     entry points with the same target guards as
      `backend/cmd/process-integrity-projection-recompute`.
-   - `make vaccination-shed-projection-recompute` (Makefile) runs it locally.
-   - `infra/envs/stg/cloud_run_jobs.tf` adds a `vaccination_shed_projector` entry to
-     `local.kernel_jobs` (Cloud Run Job + Cloud Scheduler `*/5 * * * *`, reusing the
-     `vaccination_generator` service account exactly like `process_integrity_projector` does).
-     `process_integrity_projector` itself is stg-only today (not in `infra/envs/dev`), so this
-     mirrors that same scope rather than inventing a dev job with no precedent.
-   - `backend/Dockerfile` builds `vaccination-shed-projection-recompute` into `/app/bin/` alongside
-     `process-integrity-projection-recompute`.
-   - `backend/cmd/seed-vaccination-real/main.go` calls `RecomputeShedProjection` right after the
-     existing `RecomputeProjection` (process-integrity) call — the deploy-seed population step, so
-     a freshly seeded environment does not start with a cold shed projection.
+   - Make targets run all three locally.
+   - `tools/dev/run-local-stack-supervised.sh` starts a local projection refresher
+     with the API/admin-web so local pages do not go stale five minutes after a
+     seed.
+   - `infra/envs/dev/cloud_run_jobs.tf` and `infra/envs/stg/cloud_run_jobs.tf`
+     schedule process-integrity plus vaccination `execution` and `operations`
+     projector jobs. The shed read model stays fresh through the bounded
+     `vaccination-projection-worker`; full shed recompute remains the
+     seed/backfill repair command.
+   - `backend/Dockerfile` builds all three vaccination projector commands into
+     `/app/bin/` alongside `process-integrity-projection-recompute`.
+   - `backend/cmd/seed-vaccination-real/main.go` recomputes process-integrity,
+     shed, execution, and operations projections after the canonical seed writes
+     complete. A freshly seeded environment must not start with cold
+     `projection_unavailable` vaccination surfaces.
 
 ## Explicitly not complete
 

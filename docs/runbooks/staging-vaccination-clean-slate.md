@@ -84,16 +84,23 @@ source shed.
    migration version.
 7. Seed, in order:
    - founder/builder email grants;
-   - reviewed roster/workforce;
+   - reviewed roster/workforce from roster mapping, attendance/leave, and
+     timetable source files;
    - reviewed strict shed manager and backup positions;
    - position duties;
    - goats, identifiers, vaccination matrix, accepted history, and kernel-owned
      open work with `seed-vaccination-real`.
+   HRMS is a required seed layer, not a UI nicety: vaccination execution needs
+   manager and backup ownership before any shed can be considered routable.
 8. The vaccination seed must run its embedded reconciliation and exit non-zero
    if any invariant below is violated. Do not bypass it or hand-edit its rows.
-9. Recompute vaccination eligibility rollups, process-integrity projection,
-   Calendar vaccination projection, and counts projection using the deployed
-   artifact.
+9. Recompute every read model the UI serves using the deployed artifact. These
+   projections are the million-scale serving path; staging is not green while
+   the app would need to replay canonical obligations live:
+   vaccination eligibility rollups, process-integrity projection, vaccination
+   shed projection, vaccination execution projection, vaccination operations
+   projection, Calendar vaccination projection, and counts projection if Counts
+   is visible.
 10. Run the obligation sweeper only after the seed and projections are clean,
     then recompute affected projections once more.
 11. Validate DB, API, and UI evidence. Restore Scheduler jobs only after all
@@ -127,9 +134,12 @@ postflight must also record the surrounding counts.
   shared-staging test/story/dummy/local protocol or obligation data.
 - Every imported vaccination shed has reviewed manager and backup ownership.
 - `vaccination_eligibility_rollups` is populated and capacity buffer is 7 days.
-- Process-integrity and Calendar projection build times are after the final
-  obligation update; their grouped counts reconcile to canonical obligation
-  counts.
+- Process-integrity, vaccination shed, vaccination execution, vaccination
+  operations, and Calendar projection build times are after the final obligation
+  update; their grouped counts reconcile to canonical obligation counts.
+- `GET /vaccination/sheds`, `GET /vaccination/execution`, and
+  `GET /vaccination/operations` return `200` from projection rows. Any
+  `projection_unavailable` response means the seed is not complete.
 - Historical source dates appear as base-anchor history. Open cards are
   explainable only from legitimate future cycles strictly after the backend
   business date or from explicit review blockers; they must not be historical
@@ -144,9 +154,10 @@ the dashboard look clean.
 
 - `goatos-stg-vaccination-generator` must have enough command and Cloud Run
   timeout for a full tenant pass and must fail the execution on partial work.
-- `goatos-stg-process-integrity-projector` runs at least every five minutes so a
-  partial or newly completed writer cannot leave an indefinitely stale green
-  projection.
+- Process-integrity plus vaccination execution/operations projectors run at
+  least every five minutes, and the bounded shed projection worker drains dirty
+  shed scopes. A partial or newly completed writer must not leave an
+  indefinitely stale green projection.
 - A successful seed is never inferred from a UI screenshot. Preserve the source
   manifest, backup ID, deployed image digest, seed reconciliation output, DB
   invariant query output, job execution status, and final API/UI evidence.
