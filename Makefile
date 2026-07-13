@@ -465,6 +465,7 @@ docker-storage-scripts-test:
 # single-owner prep (no dev:local double-mutation), and never re-mutate on a supervisor restart.
 db-mutation-guard-test:
 	bash tools/dev/test-db-mutation-guard.sh
+	node --test apps/admin-web/scripts/lib/db-mutation-guard.test.mjs
 
 # Diagnose the pinned JDK/SDK/AVD setup. The scripts resolve their own environment
 # and do not rely on an agent session having sourced ~/.zshrc.

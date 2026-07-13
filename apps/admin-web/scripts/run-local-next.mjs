@@ -2,6 +2,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import net from "node:net";
 import path from "node:path";
+import { assertMutableLocalDb, classifyLocalDatabaseUrl } from "./lib/db-mutation-guard.mjs";
 
 const mode = process.argv[2];
 const host = "127.0.0.1";
@@ -13,8 +14,14 @@ const defaultTenantId = "00000000-0000-4000-8000-000000000001";
 const defaultUserId = "90000000-0000-4000-8000-000000000101";
 const defaultRole = "ceo_internal";
 const defaultApiBaseUrl = "http://127.0.0.1:8080";
-const defaultDatabaseUrl =
-  detectDockerDatabaseUrl() || "postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable";
+// DRV-R3a: classify the local DB target — only a recognized auto-detected docker container is trusted;
+// an inherited DATABASE_URL OR the no-docker 127.0.0.1:5432 fallback is untrusted (needs an opt-in).
+const databaseClassification = classifyLocalDatabaseUrl({
+  inheritedUrl: process.env.DATABASE_URL,
+  dockerDetectedUrl: detectDockerDatabaseUrl(),
+  fallbackUrl: "postgres://postgres:goatos@127.0.0.1:5432/goatos?sslmode=disable",
+});
+const defaultDatabaseUrl = databaseClassification.url;
 const defaultHS256Secret = "goatos-local-dev-secret-32-bytes-min";
 
 if (mode !== "dev" && mode !== "start") {
@@ -104,21 +111,10 @@ async function prepareLocalEnvironment() {
   if (alreadyPrepared) {
     console.log("Local database already prepared by the stack orchestrator; skipping migrate/seed/closeout.");
   } else {
-    // DRV-R3 fail-closed guard: an auto-detected local docker DB is safe to mutate, but an INHERITED
-    // DATABASE_URL cannot be verified as a disposable local target — a Cloud SQL Auth Proxy also listens
-    // on 127.0.0.1 — so refuse to migrate/seed it unless the operator explicitly opts in.
-    const inheritedDbUrl = typeof process.env.DATABASE_URL === "string" && process.env.DATABASE_URL !== "";
-    const mutationOptIn =
-      process.env.GOATOS_ALLOW_DB_MUTATION === "1" || process.env.GOATOS_ALLOW_DB_MUTATION === "true";
-    if (inheritedDbUrl && !mutationOptIn) {
-      console.error(
-        "Refusing to migrate/seed: DATABASE_URL was supplied from the environment and cannot be verified as a\n" +
-          "disposable LOCAL database (a Cloud SQL Auth Proxy also listens on 127.0.0.1). If this really is your\n" +
-          "local dev DB, set GOATOS_ALLOW_DB_MUTATION=1 to opt in; otherwise unset DATABASE_URL to use the\n" +
-          "auto-detected local docker database.",
-      );
-      process.exit(1);
-    }
+    // DRV-R3a fail-closed guard: refuse to migrate/seed unless the target is a TRUSTED local docker DB.
+    // An inherited DATABASE_URL OR the no-docker 127.0.0.1:5432 fallback (a Cloud SQL Auth Proxy also
+    // listens there) is untrusted and needs an explicit GOATOS_ALLOW_DB_MUTATION=1 opt-in.
+    assertMutableLocalDb(databaseClassification.trusted);
 
     console.log("Applying Goat OS local migrations before admin-web start.");
     runGo(["run", "./cmd/migrate", "-timeout=10m"], localEnv);
