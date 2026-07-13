@@ -257,6 +257,7 @@ start_projection_refresher() {
       run_projection_refresh vaccination_shed go run ./cmd/vaccination-shed-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
       run_projection_refresh vaccination_execution go run ./cmd/vaccination-execution-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
       run_projection_refresh vaccination_operations go run ./cmd/vaccination-operations-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
+      run_projection_refresh calendar go run ./cmd/calendar-vaccination-projector -tenant-id "$GOATOS_TENANT_ID" -project-calendar-upcoming=true -project-calendar-history=false
       run_projection_refresh process_integrity go run ./cmd/process-integrity-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
     done
   ) >>"$projection_log" 2>&1 &
