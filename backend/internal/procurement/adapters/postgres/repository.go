@@ -1239,12 +1239,12 @@ RETURNING review_goat_id::text, tenant_id::text, review_id::text, load_id::text,
 UPDATE procurement_load_goats plg
 SET current_state = CASE
       WHEN plg.goat_id = ANY($4::uuid[]) THEN
-        (ARRAY[$5::text])[array_position($4::uuid[], plg.goat_id)]
+        ($5::text[])[array_position($4::uuid[], plg.goat_id)]
       ELSE plg.current_state
     END,
     selection_state = CASE
       WHEN plg.goat_id = ANY($4::uuid[]) AND
-           (ARRAY[$5::text])[array_position($4::uuid[], plg.goat_id)] = 'arrival_rejected'
+           ($5::text[])[array_position($4::uuid[], plg.goat_id)] = 'arrival_rejected'
       THEN 'arrival_rejected'
       ELSE plg.selection_state
     END,
@@ -1258,7 +1258,7 @@ WHERE plg.tenant_id = $1::uuid
   AND plg.load_id = $2::uuid
   AND plg.goat_id = ANY($4::uuid[])
   AND (
-    (ARRAY[$5::text])[array_position($4::uuid[], plg.goat_id)] <> 'arrival_accepted'
+    ($5::text[])[array_position($4::uuid[], plg.goat_id)] <> 'arrival_accepted'
     OR (
       plg.current_state IN ('loaded', 'in_transit', 'arrival_review_pending')
       AND plg.loaded_at IS NOT NULL
@@ -1479,7 +1479,7 @@ INSERT INTO goat_location_history (
   tenant_id, goat_id, to_location_id, reason, occurred_at, actor_id, source_record_id
 )
 SELECT $1::uuid, v.goat_id::uuid, $2::uuid, 'procurement_accepted_intake', $3::timestamptz,
-       nullif($4::text, '')::uuid, concat('procurement_load:', $5)
+       nullif($4::text, '')::uuid, concat('procurement_load:', $5::text)
 FROM UNNEST($6::text[]) v(goat_id)`,
 		in.TenantID, in.ShedLocationID, in.AcceptedAt, stringPtrValue(in.ActorID), in.LoadID, goatIDs)
 	if err != nil {
@@ -1494,7 +1494,7 @@ INSERT INTO procurement_pc_handoffs (
   entry_date, trusted_vaccination_history, intake_health_signal, idempotency_key
 )
 SELECT $1::uuid, $2::uuid, v.goat_id::uuid, $3::timestamptz, $4::uuid, $5::uuid,
-       $6::date, $7::jsonb, nullif($8::text, ''), concat($9, ':', v.goat_id)
+       $6::date, $7::jsonb, nullif($8::text, ''), concat($9::text, ':', v.goat_id)
 FROM UNNEST($10::text[]) v(goat_id)
 ON CONFLICT (tenant_id, load_id, goat_id) DO UPDATE
 SET accepted_at = EXCLUDED.accepted_at,
@@ -1524,14 +1524,20 @@ RETURNING handoff_id::text, tenant_id::text, load_id::text, goat_id::text,
 		if handoffErr != nil {
 			return nil, fmt.Errorf("procurement: scan PC handoff: %w", handoffErr)
 		}
-		if err := r.emitAcceptedIntakeGoatCreated(ctx, tx, in, handoff); err != nil {
-			return nil, err
-		}
-		handoff.EventStatus = "emitted"
 		out = append(out, handoff)
 	}
 	if err := handoffRows.Err(); err != nil {
 		return nil, err
+	}
+	// Close the RETURNING cursor before issuing further statements on tx: pgx cannot
+	// run a query while another result set is still open on the same connection.
+	handoffRows.Close()
+	// Emit goat.created per accepted handoff now that the cursor is closed.
+	for i := range out {
+		if err := r.emitAcceptedIntakeGoatCreated(ctx, tx, in, out[i]); err != nil {
+			return nil, err
+		}
+		out[i].EventStatus = "emitted"
 	}
 	if _, err = tx.Exec(ctx, `
 UPDATE procurement_loads
