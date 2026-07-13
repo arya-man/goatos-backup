@@ -53,4 +53,36 @@ class DriveCardMetricsTest {
     fun legacyRowsPreservedWhenDriveSummaryAbsent() {
         assertTrue(legacyDriveRowsVisible(null))
     }
+
+    // CDR-R1: a Room cache written before total_animals/completed_animals shipped decodes those
+    // fields as null. driveCoverage must fall back to the obligation (dose) counts instead of
+    // rendering a false "0 / 0 animals" over the valid legacy dose counts.
+    @Test
+    fun coverageUsesAnimalGrainWhenBothAnimalCountsPresent() {
+        val c = driveCoverage(completedAnimals = 42, totalAnimals = 77, completedDoses = 46, totalDoses = 88)
+        assertEquals(42, c.completed)
+        assertEquals(77, c.total)
+        assertTrue(c.usesAnimals)
+    }
+
+    @Test
+    fun coverageFallsBackToDosesWhenAnimalCountsAbsent() {
+        val c = driveCoverage(completedAnimals = null, totalAnimals = null, completedDoses = 46, totalDoses = 77)
+        assertEquals(46, c.completed)
+        assertEquals(77, c.total)
+        assertFalse(c.usesAnimals)
+        assertEquals(60, driveCoveragePct(c.completed, c.total))
+    }
+
+    @Test
+    fun coverageFallsBackToDosesWhenOnlyOneAnimalCountPresent() {
+        assertFalse(driveCoverage(10, null, 20, 30).usesAnimals)
+        assertFalse(driveCoverage(null, 30, 20, 30).usesAnimals)
+    }
+
+    @Test
+    fun coverageKeepsGenuineZeroAnimalsAsAnimalGrain() {
+        // A real 0 distinct animals (present, not absent) stays animal-grain -- only null is legacy.
+        assertTrue(driveCoverage(0, 0, 4, 8).usesAnimals)
+    }
 }

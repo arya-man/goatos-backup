@@ -56,8 +56,9 @@ data class CalendarDriveSummary(
     val completedCount: Int = 0,
     // Distinct-animal coverage (grain differs from the obligation counts above): a goat due for
     // several vaccines the same day is one animal, completed only when all its drive obligations are.
-    val totalAnimals: Int = 0,
-    val completedAnimals: Int = 0,
+    // Nullable: absent on legacy cache / mixed-version responses -> card falls back to doses (CDR-R1).
+    val totalAnimals: Int? = null,
+    val completedAnimals: Int? = null,
     val remainingCount: Int = 0,
     val dueCount: Int = 0,
     val overdueCount: Int = 0,

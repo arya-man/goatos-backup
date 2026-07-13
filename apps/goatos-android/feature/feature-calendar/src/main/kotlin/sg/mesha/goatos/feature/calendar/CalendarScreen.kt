@@ -522,10 +522,12 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
             )
             Spacer(Modifier.size(10.dp))
         }
-        // Coverage ring + headline use the DISTINCT-ANIMAL grain (a goat due for several vaccines the
-        // same day is one animal, completed only when all its drive obligations are). Round (not
-        // truncate) to match the web card's Math.round. The due/overdue/deferred chips stay dose-grain.
-        val pct = driveCoveragePct(summary.completedAnimals, summary.totalAnimals)
+        // Coverage ring + headline prefer the DISTINCT-ANIMAL grain (a goat due for several vaccines
+        // the same day is one animal, completed only when all its drive obligations are), but fall back
+        // to the dose counts when a legacy cache / mixed-version response lacks animal counts (CDR-R1),
+        // labelled accordingly. Round (not truncate) to match web. due/overdue/deferred chips stay doses.
+        val coverage = driveCoverage(summary.completedAnimals, summary.totalAnimals, summary.completedCount, summary.totalCount)
+        val pct = driveCoveragePct(coverage.completed, coverage.total)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -534,13 +536,13 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
             Column {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        text = summary.completedAnimals.toString(),
+                        text = coverage.completed.toString(),
                         color = MeshaColors.Ink,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.W800,
                     )
                     Text(
-                        text = " / ${summary.totalAnimals} ${stringResource(R.string.calendar_drive_animals)}",
+                        text = " / ${coverage.total} ${stringResource(if (coverage.usesAnimals) R.string.calendar_drive_animals else R.string.calendar_drive_doses)}",
                         color = MeshaColors.Muted,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.W600,

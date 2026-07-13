@@ -8,7 +8,7 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { driveSummaryOf, type CalendarDriveSummary, type CalendarEvent } from "./calendar-contract";
-import { driveCoveragePct } from "./drive-card-metrics";
+import { driveCoverage, driveCoveragePct } from "./drive-card-metrics";
 
 type RemainingKey = "due" | "overdue" | "deferred";
 
@@ -60,11 +60,13 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
     );
   }
 
-  // Coverage ring + the "N/N animals" headline use the DISTINCT-ANIMAL grain (total_animals /
+  // Coverage ring + the "N/N" headline prefer the DISTINCT-ANIMAL grain (total_animals /
   // completed_animals): a goat due for several vaccines the same day is ONE animal, and is only
-  // "completed" once all its drive obligations are done. The due/overdue/deferred chips below stay
-  // obligation-grain (dose work items) — see CalendarDriveSummary in the contract.
-  const pct = driveCoveragePct(summary.completed_animals, summary.total_animals);
+  // "completed" once all its drive obligations are done. If a mixed-version response omits those
+  // fields (CDR-R1) they fall back to the obligation/dose counts, labelled accordingly. The
+  // due/overdue/deferred chips below always stay obligation-grain (dose work items).
+  const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
+  const pct = driveCoveragePct(coverage.completed, coverage.total);
   const headline = headlineStatus(summary, pageContract);
   const remaining = remainingChips(summary);
   // Option A · completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
@@ -105,9 +107,9 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
         </svg>
         <div className="drivecard-progress-txt">
           <div>
-            <b>{summary.completed_animals}</b>{" "}
+            <b>{coverage.completed}</b>{" "}
             <span className="muted">
-              / {summary.total_animals} {copy(pageContract, "calendar.drive.animals")}
+              / {coverage.total} {copy(pageContract, coverage.usesAnimals ? "calendar.drive.animals" : "calendar.drive.doses")}
             </span>
           </div>
           <div className="muted small">

@@ -9,3 +9,26 @@ export function driveCoveragePct(completedAnimals: number, totalAnimals: number)
   if (totalAnimals <= 0) return 0;
   return Math.round((completedAnimals / totalAnimals) * 100);
 }
+
+export interface DriveCoverage {
+  completed: number;
+  total: number;
+  usesAnimals: boolean;
+}
+
+// Distinct-animal counts are authoritative for the ring, BUT a mixed-version API response mid-rollout
+// (an older backend instance that predates the total_animals/completed_animals fields) can omit them --
+// they arrive as undefined, NOT 0. Rendering "0 / 0 animals" over a drive with valid dose counts is a
+// false empty state (CDR-R1). When either animal count is missing, fall back to the obligation (dose)
+// counts that ARE present, labelled accordingly; a later response repopulates the animal grain.
+export function driveCoverage(
+  completedAnimals: number | null | undefined,
+  totalAnimals: number | null | undefined,
+  completedDoses: number,
+  totalDoses: number,
+): DriveCoverage {
+  if (typeof completedAnimals === "number" && typeof totalAnimals === "number") {
+    return { completed: completedAnimals, total: totalAnimals, usesAnimals: true };
+  }
+  return { completed: completedDoses, total: totalDoses, usesAnimals: false };
+}

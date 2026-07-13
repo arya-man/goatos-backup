@@ -76,8 +76,11 @@ data class DriveSummaryDto(
     @SerialName("vaccine_labels") val vaccineLabels: List<String> = emptyList(),
     @SerialName("total_count") val totalCount: Int = 0,
     @SerialName("completed_count") val completedCount: Int = 0,
-    @SerialName("total_animals") val totalAnimals: Int = 0,
-    @SerialName("completed_animals") val completedAnimals: Int = 0,
+    // Nullable, NOT defaulted to 0: a cache row / mixed-version response predating these fields must
+    // decode as null (absent), distinguishable from a real 0, so the card can fall back to dose
+    // counts instead of showing a false "0 / 0 animals" (CDR-R1).
+    @SerialName("total_animals") val totalAnimals: Int? = null,
+    @SerialName("completed_animals") val completedAnimals: Int? = null,
     @SerialName("remaining_count") val remainingCount: Int = 0,
     @SerialName("due_count") val dueCount: Int = 0,
     @SerialName("overdue_count") val overdueCount: Int = 0,

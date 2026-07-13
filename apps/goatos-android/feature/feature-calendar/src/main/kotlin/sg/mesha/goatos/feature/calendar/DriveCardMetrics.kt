@@ -15,3 +15,24 @@ internal fun driveCoveragePct(completedAnimals: Int, totalAnimals: Int): Int =
 // vaccines/dose totals, so the flat rows would duplicate them (CDR-003). Returns true when
 // the legacy rows should show (summary absent) and false when they must be hidden (present).
 internal fun legacyDriveRowsVisible(drive: CalendarDriveSummary?): Boolean = drive == null
+
+// The coverage ring's numerator/denominator + which grain it represents.
+internal data class DriveCoverage(val completed: Int, val total: Int, val usesAnimals: Boolean)
+
+// Distinct-animal counts are authoritative for the ring, BUT a Room cache written before the
+// total_animals/completed_animals fields shipped -- or a mixed-version API response mid-rollout --
+// has NO animal counts. They decode as null (not 0). Rendering them as "0 / 0 animals" over a drive
+// with valid legacy dose counts is a false empty state (CDR-R1). When either animal count is absent,
+// fall back to the obligation (dose) counts that ARE present, honestly labelled; a background refresh
+// then repopulates the animal grain.
+internal fun driveCoverage(
+    completedAnimals: Int?,
+    totalAnimals: Int?,
+    completedDoses: Int,
+    totalDoses: Int,
+): DriveCoverage =
+    if (completedAnimals != null && totalAnimals != null) {
+        DriveCoverage(completedAnimals, totalAnimals, usesAnimals = true)
+    } else {
+        DriveCoverage(completedDoses, totalDoses, usesAnimals = false)
+    }
