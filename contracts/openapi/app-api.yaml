@@ -5558,6 +5558,12 @@ components:
     DriveSummary:
       type: object
       additionalProperties: false
+      description: >-
+        Park-level drive progress. Invariant: total_count = completed_count + due_count +
+        overdue_count + deferred_count (4 disjoint buckets); remaining_count = total_count -
+        completed_count. Stock/execution "blocked" visibility is deliberately out of scope -- stock
+        is not a built product feature yet (owner decision 2026-07-14); revisit when the stock
+        module ships.
       required:
         - park_name
         - due_date
@@ -5570,7 +5576,6 @@ components:
         - due_count
         - overdue_count
         - deferred_count
-        - blocked_count
         - owner_label
       properties:
         park_name:
@@ -5596,7 +5601,7 @@ components:
         total_count:
           type: integer
           minimum: 0
-          description: Total obligations in the drive
+          description: Total obligations in the drive (completed + due + overdue + deferred)
         completed_count:
           type: integer
           minimum: 0
@@ -5617,10 +5622,6 @@ components:
           type: integer
           minimum: 0
           description: Deferred obligations
-        blocked_count:
-          type: integer
-          minimum: 0
-          description: Blocked obligations
         owner_label:
           type: string
           description: Owner/team label

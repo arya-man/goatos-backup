@@ -81,7 +81,6 @@ class CalendarViewModelTest {
                 dueCount = 40,
                 overdueCount = 12,
                 deferredCount = 3,
-                blockedCount = 2,
                 ownerLabel = "Arun Kumar",
             ),
         ).toCalendarItem()
@@ -98,7 +97,6 @@ class CalendarViewModelTest {
         assertEquals(40, summary.dueCount)
         assertEquals(12, summary.overdueCount)
         assertEquals(3, summary.deferredCount)
-        assertEquals(2, summary.blockedCount)
         assertEquals("Arun Kumar", summary.ownerLabel)
     }
 
@@ -119,7 +117,6 @@ class CalendarViewModelTest {
                 dueCount = 40,
                 overdueCount = 12,
                 deferredCount = 3,
-                blockedCount = 2,
                 ownerLabel = "Arun Kumar",
             ),
         ).toCalendarItem()

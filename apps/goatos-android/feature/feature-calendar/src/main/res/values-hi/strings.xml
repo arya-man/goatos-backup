@@ -38,5 +38,4 @@
     <string name="calendar_drive_due">%1$d देय</string>
     <string name="calendar_drive_overdue">%1$d अतिदेय</string>
     <string name="calendar_drive_deferred">%1$d टाला गया</string>
-    <string name="calendar_drive_blocked">%1$d अवरुद्ध</string>
 </resources>

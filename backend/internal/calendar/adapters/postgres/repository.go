@@ -2531,7 +2531,7 @@ LIMIT $5`
 // the projection-review marker below calendarVaccinationProjectionRefreshSQL's obligation_drive_summary stub.
 const calendarVaccinationDriveSummaryMaterializeSQL = `
 CREATE TEMP TABLE calendar_drive_summary_tmp ON COMMIT DROP AS
--- projection-review: membership=oi.batch_id (batched -> obligation_batches window/scope/context, unbatched -> obligation's own due_at/scope); group_key=(park_id, due_date) via member.membership_at in Asia/Kolkata; join_cardinality=one row per obligation_id, is_blocked resolved 1:1 from the single LEFT JOIN obligation_batches ob already on this row (no fan-out); pagination=materialized EXACTLY ONCE per RefreshVaccinationProjection call before the keyset page loop; scope=explicit park/shed/cohort location matrix (scope_loc/scope_parent/scope_grand), batch scope for batched obligations and obligation scope for unbatched
+-- projection-review: membership=oi.batch_id (batched -> obligation_batches window/scope/context, unbatched -> obligation's own due_at/scope); group_key=(park_id, due_date) via member.membership_at in Asia/Kolkata; join_cardinality=one row per obligation_id; pagination=materialized EXACTLY ONCE per RefreshVaccinationProjection call before the keyset page loop; scope=explicit park/shed/cohort location matrix (scope_loc/scope_parent/scope_grand), batch scope for batched obligations and obligation scope for unbatched
 WITH obligation_drive_membership AS (
   SELECT
     oi.obligation_id,
@@ -2541,13 +2541,9 @@ WITH obligation_drive_membership AS (
     loc.park_id,
     loc.park_code,
     loc.shed_id,
-    (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date,
-    -- DRV-REV-001: an obligation is blocked when ITS OWN batch carries an active stock_block
-    -- context (the canonical source written by MarkBatchStockBlocked/MarkBatchStockBlocks and
-    -- read the same way by ListPlannedBatchesNeedingFinalization above via context ? 'stock_block').
-    -- Unbatched catch-up obligations have no batch to block on, so is_blocked is always false for them.
-    (oi.batch_id IS NOT NULL
-      AND COALESCE(ob.context #>> '{stock_block,state}', '') = 'blocked') AS is_blocked
+    (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date
+    -- Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
+    -- product feature yet (owner decision 2026-07-14); revisit when the stock module ships.
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
@@ -2631,18 +2627,17 @@ obligation_drive_shed_complete AS (
   ) done_sheds
   GROUP BY park_id, due_date
 ),
--- projection-review: membership=obligation_drive_membership (one row per obligation_id, is_blocked from the batch's obligation_batches.context stock_block); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>deferred>blocked>overdue>due) so total_count=completed+due+overdue+deferred+blocked with no double-counting; pagination=materialized EXACTLY ONCE per RefreshVaccinationProjection call into calendar_drive_summary_tmp before the keyset page loop; scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation
+-- projection-review: membership=obligation_drive_membership (one row per obligation_id); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>deferred>overdue>due) so total_count=completed+due+overdue+deferred with no double-counting; pagination=materialized EXACTLY ONCE per RefreshVaccinationProjection call into calendar_drive_summary_tmp before the keyset page loop; scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation
 obligation_drive_summary AS (
-  -- DRV-REV-001: bucket precedence is mutually exclusive and total_count-complete. 'blocked' is not a
-  -- stored obligation_instances.status value (see 000097's CHECK: scheduled/due/in_progress/deferred/
-  -- completed/missed/waived/canceled/superseded) -- blocked_count is derived from is_blocked
-  -- (obligation_drive_membership.is_blocked, sourced from the batch's obligation_batches.context
-  -- stock_block, canonical writer MarkBatchStockBlocked/MarkBatchStockBlocks), never from m.status.
+  -- Bucket precedence is mutually exclusive and total_count-complete. Invariant:
+  --   total_count = completed_count + due_count + overdue_count + deferred_count
+  -- Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
+  -- product feature yet (owner decision 2026-07-14); an obligation on a stock-blocked batch is
+  -- bucketed purely by its own status. Revisit when the stock module ships.
   -- Precedence (each obligation counted in EXACTLY ONE bucket):
   --   completed = status='completed'
-  --   deferred  = NOT completed AND status='deferred' (a clinical/anchor hold stays deferred regardless of stock)
-  --   blocked   = NOT completed AND NOT deferred AND is_blocked (open obligation whose batch is stock-blocked)
-  --   overdue   = NOT completed AND NOT deferred AND NOT is_blocked AND status IN ('overdue','missed')
+  --   deferred  = NOT completed AND status='deferred' (a clinical/anchor hold stays deferred)
+  --   overdue   = NOT completed AND NOT deferred AND status IN ('overdue','missed')
   --   due       = everything else open, not already bucketed
   SELECT
     m.park_id,
@@ -2655,21 +2650,14 @@ obligation_drive_summary AS (
     count(DISTINCT m.obligation_id) FILTER (
       WHERE m.status <> 'completed'
         AND m.status <> 'deferred'
-        AND NOT m.is_blocked
         AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
     )::int AS due_count,
     count(DISTINCT m.obligation_id) FILTER (
       WHERE m.status <> 'completed'
         AND m.status <> 'deferred'
-        AND NOT m.is_blocked
         AND m.status IN ('overdue', 'missed')
     )::int AS overdue_count,
     count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'deferred')::int AS deferred_count,
-    count(DISTINCT m.obligation_id) FILTER (
-      WHERE m.status <> 'completed'
-        AND m.status <> 'deferred'
-        AND m.is_blocked
-    )::int AS blocked_count,
     count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
     COALESCE(max(sc.sheds_completed), 0)::int AS sheds_completed,
     COALESCE(max(vl.vaccine_labels), ARRAY[]::text[]) AS vaccine_labels,
@@ -3202,7 +3190,9 @@ park_drive_groups AS (
 -- never the aggregation semantics. Proof: TestRefreshVaccinationProjectionMaterializesDriveSummaryOnce
 -- (query-count + EXPLAIN evidence) in repository_integration_test.go.
 --
--- projection-review: membership=oi.batch_id (batched -> obligation_batches window/scope, unbatched -> obligation's own due_at/scope, mirroring catchup_drive_events), is_blocked (DRV-REV-001) sourced from obligation_batches.context stock_block (COALESCE(ob.context #>> '{stock_block,state}','')='blocked'), the canonical marker written by MarkBatchStockBlocked/MarkBatchStockBlocks and cleared by ClearBatchStockBlock(s) in backend/internal/obligation/adapters/postgres/repository.go, never a stored obligation_instances.status value (000097's CHECK has no 'blocked' status); group_key=(park_id, due_date) derived from that same membership source, matching park_drive_groups' (park_id, due_day) key in Asia/Kolkata; join_cardinality=count(DISTINCT obligation_id) FILTER per bucket over a one-row-per-obligation membership CTE with mutually-exclusive precedence completed > deferred > blocked(is_blocked) > overdue > due so total_count = completed+due+overdue+deferred+blocked with no double-counting, dimension fan-out isolated to a separate DISTINCT array_agg for vaccine_labels, one summary row per (park_id, due_date) LEFT JOINed 1:1 into park_drive_events; pagination=whole-result AND bounded-execution -- obligation_drive_summary is materialized EXACTLY ONCE per RefreshVaccinationProjection call (calendarVaccinationDriveSummaryMaterializeSQL, executed before the keyset page loop) into the indexed temp table calendar_drive_summary_tmp(park_id, due_date), never re-derived per UI list page (reads are indexed lookups over the materialized calendar_event_projections.detail) nor re-scanned per keyset refresh page (each page reads the small indexed temp table, not obligation_instances/obligation_batches again); scope=explicit park/shed/cohort location matrix (scope_loc/scope_parent/scope_grand), batch scope for batched obligations and obligation scope for unbatched, never COALESCE(parent_id, self_id)
+-- projection-review: membership=oi.batch_id (batched -> obligation_batches window/scope, unbatched -> obligation's own due_at/scope, mirroring catchup_drive_events); group_key=(park_id, due_date) derived from that same membership source, matching park_drive_groups' (park_id, due_day) key in Asia/Kolkata; join_cardinality=count(DISTINCT obligation_id) FILTER per bucket over a one-row-per-obligation membership CTE with mutually-exclusive precedence completed > deferred > overdue > due so total_count = completed+due+overdue+deferred with no double-counting, dimension fan-out isolated to a separate DISTINCT array_agg for vaccine_labels, one summary row per (park_id, due_date) LEFT JOINed 1:1 into park_drive_events; pagination=whole-result AND bounded-execution -- obligation_drive_summary is materialized EXACTLY ONCE per RefreshVaccinationProjection call (calendarVaccinationDriveSummaryMaterializeSQL, executed before the keyset page loop) into the indexed temp table calendar_drive_summary_tmp(park_id, due_date), never re-derived per UI list page (reads are indexed lookups over the materialized calendar_event_projections.detail) nor re-scanned per keyset refresh page (each page reads the small indexed temp table, not obligation_instances/obligation_batches again); scope=explicit park/shed/cohort location matrix (scope_loc/scope_parent/scope_grand), batch scope for batched obligations and obligation scope for unbatched, never COALESCE(parent_id, self_id)
+-- Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built product
+-- feature yet (owner decision 2026-07-14); revisit when the stock module ships.
 obligation_drive_summary AS (
   SELECT * FROM calendar_drive_summary_tmp
 ),
@@ -3322,7 +3312,6 @@ park_drive_events AS (
         'due_count', obl_summary.due_count,
         'overdue_count', obl_summary.overdue_count,
         'deferred_count', obl_summary.deferred_count,
-        'blocked_count', obl_summary.blocked_count,
         'owner_label', 'PC'
       ) ELSE NULL END
     ) AS detail

@@ -58,7 +58,6 @@ data class CalendarDriveSummary(
     val dueCount: Int = 0,
     val overdueCount: Int = 0,
     val deferredCount: Int = 0,
-    val blockedCount: Int = 0,
     val ownerLabel: String = "",
 )
 

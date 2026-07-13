@@ -51,5 +51,4 @@
     <string name="calendar_drive_due">%1$d due</string>
     <string name="calendar_drive_overdue">%1$d overdue</string>
     <string name="calendar_drive_deferred">%1$d deferred</string>
-    <string name="calendar_drive_blocked">%1$d blocked</string>
 </resources>

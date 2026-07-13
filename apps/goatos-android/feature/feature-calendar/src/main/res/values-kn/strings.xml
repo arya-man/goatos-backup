@@ -38,5 +38,4 @@
     <string name="calendar_drive_due">%1$d ಬಾಕಿ</string>
     <string name="calendar_drive_overdue">%1$d ಮೀರಿದ</string>
     <string name="calendar_drive_deferred">%1$d ಮುಂದೂಡಲಾಗಿದೆ</string>
-    <string name="calendar_drive_blocked">%1$d ತಡೆಹಿಡಿಯಲಾಗಿದೆ</string>
 </resources>

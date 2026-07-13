@@ -80,7 +80,6 @@ data class DriveSummaryDto(
     @SerialName("due_count") val dueCount: Int = 0,
     @SerialName("overdue_count") val overdueCount: Int = 0,
     @SerialName("deferred_count") val deferredCount: Int = 0,
-    @SerialName("blocked_count") val blockedCount: Int = 0,
     @SerialName("owner_label") val ownerLabel: String = "",
 )
 

@@ -72,7 +72,6 @@ type DriveSummary struct {
 	DueCount       int      `json:"due_count"`
 	OverdueCount   int      `json:"overdue_count"`
 	DeferredCount  int      `json:"deferred_count"`
-	BlockedCount   int      `json:"blocked_count"`
 	OwnerLabel     string   `json:"owner_label"`
 }
 

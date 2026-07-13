@@ -9,14 +9,11 @@ import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/a
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { driveSummaryOf, type CalendarDriveSummary, type CalendarEvent } from "./calendar-contract";
 
-type RemainingKey = "due" | "overdue" | "deferred" | "blocked";
+type RemainingKey = "due" | "overdue" | "deferred";
 
 function headlineStatus(summary: CalendarDriveSummary, pageContract: AdminUiPageContract): { label: string; tone: Tone } {
   if (summary.overdue_count > 0) {
     return { label: `${summary.overdue_count} ${optionLabel(pageContract, "calendar_status", "overdue").toLowerCase()}`, tone: optionTone(pageContract, "calendar_status", "overdue") as Tone };
-  }
-  if (summary.blocked_count > 0) {
-    return { label: `${summary.blocked_count} ${optionLabel(pageContract, "calendar_status", "blocked").toLowerCase()}`, tone: optionTone(pageContract, "calendar_status", "blocked") as Tone };
   }
   if (summary.total_count > 0 && summary.remaining_count <= 0) {
     return { label: optionLabel(pageContract, "calendar_status", "completed"), tone: optionTone(pageContract, "calendar_status", "completed") as Tone };
@@ -33,7 +30,6 @@ function remainingChips(summary: CalendarDriveSummary): { key: RemainingKey; cou
       { key: "due", count: summary.due_count },
       { key: "overdue", count: summary.overdue_count },
       { key: "deferred", count: summary.deferred_count },
-      { key: "blocked", count: summary.blocked_count },
     ] as const
   ).filter((chip) => chip.count > 0);
 }

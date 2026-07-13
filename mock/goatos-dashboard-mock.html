@@ -3598,7 +3598,7 @@ const CAL=[
  {day:'Tue',t:'09:00',ti:'Book vaccines (cold chain) + order stock',c:'var(--info)',d:'inventory',m:'logistics day · verify 2-week buffer',rem:'',mod:'Cold Chain'},
  {day:'Tue',t:'14:00',ti:'Feed panel cleaning — all sheds',c:'var(--brand)',d:'parks',m:'weekly · logs chemical · video',rem:'',mod:'Sanitation'},
  {day:'Thu',t:'06:00',ti:'Enterotoxaemia K1 drive — K3 + F2',c:'var(--info)',d:'pc',m:'source-backed ET baseline · shed-grouped by due work',rem:'remind −1d',mod:'Vaccination',
-  drive:{parkName:'CBE',dueDate:'2026-06-18',shedCount:12,shedsCompleted:7,vaccineLabels:['Enterotoxaemia','ET'],totalCount:340,completedCount:210,remainingCount:130,dueCount:80,overdueCount:30,deferredCount:15,blockedCount:5,ownerLabel:'PC'}},
+  drive:{parkName:'CBE',dueDate:'2026-06-18',shedCount:12,shedsCompleted:7,vaccineLabels:['Enterotoxaemia','ET'],totalCount:340,completedCount:210,remainingCount:130,dueCount:80,overdueCount:30,deferredCount:15,ownerLabel:'PC'}},
  {day:'Fri',t:'07:00',ti:'Lucerne cut — Plot L1',c:'var(--teal)',d:'farmer_network',m:'fodder · non-shed · → supply_planning',rem:'',mod:'Harvest'},
  {day:'Fri',t:'09:00',ti:'Shed deep sanitization',c:'var(--brand)',d:'parks',m:'weekly fixed day · Infra + Park Head',rem:'today',mod:'Sanitation'},
  {day:'Fri',t:'18:00',ti:'EOD reports — all managers',c:'var(--purple)',d:'hr_people',m:'daily · planned vs executed',rem:'',cross_cutting:true,mod:'Reporting'},
@@ -3629,7 +3629,6 @@ var calMod='';
    vaccine chips, Sheds n/m + Animals n/m·pct% tiles, progress bar, remaining state chips, owner + tap. */
 function calDriveHeadline(d){
   if(d.overdueCount>0)return['t-dng',d.overdueCount+' overdue'];
-  if(d.blockedCount>0)return['t-dng',d.blockedCount+' blocked'];
   if(d.totalCount>0&&d.remainingCount<=0)return['t-ok','Completed'];
   if(d.deferredCount>0&&d.dueCount===0)return['t-pur','deferred'];
   return['t-warn',d.dueCount+' due'];
@@ -3637,7 +3636,7 @@ function calDriveHeadline(d){
 function driveCardHtml(d){
   var pct=d.totalCount>0?Math.round(d.completedCount/d.totalCount*100):0;
   var hl=calDriveHeadline(d);
-  var chips=[['due',d.dueCount,'t-warn'],['overdue',d.overdueCount,'t-dng'],['deferred',d.deferredCount,'t-pur'],['blocked',d.blockedCount,'t-dng']].filter(function(c){return c[1]>0;});
+  var chips=[['due',d.dueCount,'t-warn'],['overdue',d.overdueCount,'t-dng'],['deferred',d.deferredCount,'t-pur']].filter(function(c){return c[1]>0;});
   return '<div class="drivecard" style="margin-top:10px">'+
     '<div class="drivecard-hd"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg><b>Vaccination drive · '+d.parkName+'</b><span class="muted small">'+d.dueDate+'</span><span class="sp"></span><span class="tag '+hl[0]+'">'+hl[1]+'</span></div>'+
     (d.vaccineLabels.length?'<div class="drivecard-chips" style="margin-top:8px">'+d.vaccineLabels.map(function(v){return '<span class="tag t-mut">'+v+'</span>';}).join('')+'</div>':'')+

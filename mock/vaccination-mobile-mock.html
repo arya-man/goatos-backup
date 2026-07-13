@@ -914,7 +914,6 @@
     remleft:{en:'left',hi:'शेष',kn:'ಬಾಕಿ',te:'మిగిలి'},
     removerdue:{en:'overdue',hi:'अतिदेय',kn:'ಮೀರಿದ',te:'గడువు మీరిన'},
     remdeferred:{en:'deferred',hi:'टाला गया',kn:'ಮುಂದೂಡಲಾಗಿದೆ',te:'వాయిదా'},
-    remblocked:{en:'blocked',hi:'अवरुद्ध',kn:'ತಡೆಹಿಡಿಯಲಾಗಿದೆ',te:'నిలిపివేయబడింది'},
     synch:{en:'Sync status',hi:'सिंक स्थिति',kn:'ಸಿಂಕ್ ಸ್ಥಿತಿ',te:'సింక్ స్థితి'},
     syncsub:{en:'Records save on the phone first, then sync when online',hi:'रिकॉर्ड पहले फ़ोन पर सहेजे जाते हैं, फिर ऑनलाइन होने पर सिंक',kn:'ದಾಖಲೆಗಳು ಮೊದಲು ಫೋನ್‌ನಲ್ಲಿ ಉಳಿಯುತ್ತವೆ, ನಂತರ ಆನ್‌ಲೈನ್ ಆದಾಗ ಸಿಂಕ್',te:'రికార్డులు ముందు ఫోన్‌లో సేవ్ అవుతాయి, ఆన్‌లైన్‌లో ఉన్నప్పుడు సింక్'},
     syncmore:{en:'Offline-first: a full drive records with no signal. The outbox uploads video proof then the shed record, retries with backoff, and never creates a duplicate.',hi:'ऑफ़लाइन-फर्स्ट: बिना सिग्नल पूरी ड्राइव रिकॉर्ड होती है। आउटबॉक्स वीडियो प्रूफ़ फिर शेड रिकॉर्ड अपलोड करता है, बैकऑफ़ से पुनः प्रयास, कोई डुप्लिकेट नहीं।',kn:'ಆಫ್‌ಲೈನ್-ಫಸ್ಟ್: ಸಿಗ್ನಲ್ ಇಲ್ಲದೆ ಪೂರ್ಣ ಡ್ರೈವ್ ದಾಖಲಾಗುತ್ತದೆ. ಔಟ್‌ಬಾಕ್ಸ್ ವಿಡಿಯೊ ಪ್ರೂಫ್ ನಂತರ ಶೆಡ್ ದಾಖಲೆ ಅಪ್‌ಲೋಡ್ ಮಾಡುತ್ತದೆ, ಬ್ಯಾಕ್‌ಆಫ್‌ನೊಂದಿಗೆ ಮರುಪ್ರಯತ್ನ, ನಕಲು ಇಲ್ಲ.',te:'ఆఫ్‌లైన్-ఫస్ట్: సిగ్నల్ లేకుండా పూర్తి డ్రైవ్ రికార్డ్ అవుతుంది. అవుట్‌బాక్స్ వీడియో ప్రూఫ్ తర్వాత షెడ్ రికార్డ్ అప్‌లోడ్ చేస్తుంది, బ్యాకాఫ్‌తో మళ్లీ ప్రయత్నిస్తుంది, డూప్లికేట్ ఉండదు.'}
@@ -1078,10 +1077,10 @@
   // backend drive_summary shape the Android DriveProgressCard renders 1:1.
   var DR={
     6:[],
-    7:[{park:'CBE',duedate:'Tue 7 Jul',pill:'ok',pl:'Due now',vaccines:['FMD','HS'],shedCount:4,shedsDone:1,total:77,completed:20,remaining:57,due_n:40,overdue_n:12,deferred_n:3,blocked_n:2,owner:'Arun Kumar',go:1}],
-    8:[{park:'CBE',duedate:'Wed 8 Jul',pill:'mut',pl:'Scheduled',vaccines:['Goat Pox'],shedCount:3,shedsDone:0,total:76,completed:0,remaining:76,due_n:76,overdue_n:0,deferred_n:0,blocked_n:0,owner:'Arun Kumar'}],
+    7:[{park:'CBE',duedate:'Tue 7 Jul',pill:'ok',pl:'Due now',vaccines:['FMD','HS'],shedCount:4,shedsDone:1,total:77,completed:20,remaining:57,due_n:40,overdue_n:12,deferred_n:3,owner:'Arun Kumar',go:1}],
+    8:[{park:'CBE',duedate:'Wed 8 Jul',pill:'mut',pl:'Scheduled',vaccines:['Goat Pox'],shedCount:3,shedsDone:0,total:76,completed:0,remaining:76,due_n:76,overdue_n:0,deferred_n:0,owner:'Arun Kumar'}],
     9:[],
-    10:[{park:'CBE',duedate:'Fri 10 Jul',pill:'mut',pl:'Scheduled',vaccines:['PPR'],shedCount:2,shedsDone:0,total:54,completed:0,remaining:54,due_n:54,overdue_n:0,deferred_n:0,blocked_n:0,owner:'Indradev Kumar'}],
+    10:[{park:'CBE',duedate:'Fri 10 Jul',pill:'mut',pl:'Scheduled',vaccines:['PPR'],shedCount:2,shedsDone:0,total:54,completed:0,remaining:54,due_n:54,overdue_n:0,deferred_n:0,owner:'Indradev Kumar'}],
     11:[],12:[]
   };
   var WD={6:'Mon',7:'Tue',8:'Wed',9:'Thu',10:'Fri',11:'Sat',12:'Sun'};
@@ -1113,7 +1112,7 @@
   // v4 park-level drive progress card — mirrors the backend drive_summary shape the
   // Android DriveProgressCard renders 1:1: header (title · park + due date + headline
   // pill), vaccine chips, sheds/animals stats, a progress bar, and a remaining-work
-  // breakdown (due/overdue/deferred/blocked, nonzero only), footer = owner + CTA.
+  // breakdown (due/overdue/deferred, nonzero only), footer = owner + CTA.
   function evtCard(dr){
     var TX=function(k,d){return TXT[k]?(TXT[k][curLang]||TXT[k].en):d;};
     var head='<div class="t"><span class="pill '+dr.pill+'">'+dr.pl+'</span><span style="flex:1"></span>'+(dr.duedate?'<span class="pill mut">'+dr.duedate+'</span>':'')+'</div>';
@@ -1127,7 +1126,6 @@
     if(dr.due_n)rem.push('<span class="pill warn">'+dr.due_n+' '+TX('due2','due')+'</span>');
     if(dr.overdue_n)rem.push('<span class="pill dng">'+dr.overdue_n+' '+TX('removerdue','overdue')+'</span>');
     if(dr.deferred_n)rem.push('<span class="pill mut">'+dr.deferred_n+' '+TX('remdeferred','deferred')+'</span>');
-    if(dr.blocked_n)rem.push('<span class="pill dng">'+dr.blocked_n+' '+TX('remblocked','blocked')+'</span>');
     var remRow=rem.length?('<div class="t" style="margin-top:9px">'+rem.join('')+'</div>'):'';
     var body=head+title+vax+nums+bar+remRow;
     var clkKey=(role==='operator')?'opendrive':'viewstatus';
@@ -1149,7 +1147,7 @@
     var shedsDone=day.filter(function(s){return shedStatus(s)==='done';}).length;
     var vax=[];day.forEach(function(s){s.groups.forEach(function(g){if(vax.indexOf(g.v)<0)vax.push(g.v);});});
     var label=parks.length>1?'All parks':parks[0];
-    return {park:label,duedate:'Today',pill:'ok',pl:'Due now',vaccines:vax,shedCount:day.length,shedsDone:shedsDone,total:total,completed:completed,remaining:total-completed,due_n:total-completed,overdue_n:0,deferred_n:0,blocked_n:0,owner:'Arun Kumar',go:1};
+    return {park:label,duedate:'Today',pill:'ok',pl:'Due now',vaccines:vax,shedCount:day.length,shedsDone:shedsDone,total:total,completed:completed,remaining:total-completed,due_n:total-completed,overdue_n:0,deferred_n:0,owner:'Arun Kumar',go:1};
   }
   function renderWeek(){
     var strip=$('#weekStrip'); if(strip)strip.innerHTML=[6,7,8,9,10,11,12].map(function(d){var cls='d'+(d===sel?' today':'')+((DR[d]&&DR[d].length&&d!==sel)?' has':'');return '<div class="'+cls+'" data-day="'+d+'"><div class="dn">'+WD[d][0]+'</div><div class="dd">'+d+'</div></div>';}).join('');

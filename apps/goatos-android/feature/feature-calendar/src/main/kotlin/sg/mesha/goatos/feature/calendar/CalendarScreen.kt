@@ -537,9 +537,6 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
             if (summary.deferredCount > 0) {
                 add(stringResource(R.string.calendar_drive_deferred, summary.deferredCount) to CalendarTone.Neutral)
             }
-            if (summary.blockedCount > 0) {
-                add(stringResource(R.string.calendar_drive_blocked, summary.blockedCount) to CalendarTone.Danger)
-            }
         }
         if (remaining.isNotEmpty()) {
             Spacer(Modifier.size(9.dp))
@@ -1050,7 +1047,6 @@ private fun previewState(): CalendarUiState = CalendarUiState(
                 dueCount = 40,
                 overdueCount = 12,
                 deferredCount = 3,
-                blockedCount = 2,
                 ownerLabel = "Arun Kumar",
             ),
             ctaLabel = "Open drive",

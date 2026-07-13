@@ -2026,6 +2026,7 @@ export interface components {
             links: components["schemas"]["CalendarEventLinks"];
             drive_summary?: components["schemas"]["DriveSummary"] | null;
         };
+        /** @description Park-level drive progress. Invariant: total_count = completed_count + due_count + overdue_count + deferred_count (4 disjoint buckets); remaining_count = total_count - completed_count. Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built product feature yet (owner decision 2026-07-14); revisit when the stock module ships. */
         DriveSummary: {
             /** @description Park name or code */
             park_name: string;
@@ -2040,7 +2041,7 @@ export interface components {
             sheds_completed: number;
             /** @description List of vaccine names involved in the drive */
             vaccine_labels: string[];
-            /** @description Total obligations in the drive */
+            /** @description Total obligations in the drive (completed + due + overdue + deferred) */
             total_count: number;
             /** @description Completed obligations */
             completed_count: number;
@@ -2052,8 +2053,6 @@ export interface components {
             overdue_count: number;
             /** @description Deferred obligations */
             deferred_count: number;
-            /** @description Blocked obligations */
-            blocked_count: number;
             /** @description Owner/team label */
             owner_label: string;
         };
