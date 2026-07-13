@@ -5,9 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
@@ -45,15 +46,22 @@ class RecordViewModel @Inject constructor(
     private val _state = MutableStateFlow(recordPlaceholder("Loading record…"))
     val state: StateFlow<RecordUiState> = _state.asStateFlow()
 
+    // Lifecycle-aware StateFlow: automatically cancel when viewModelScope clears
+    private val shedFlow: StateFlow<Resource<VaccinationExecutionShedDrilldownDto>> =
+        if (!shedId.isNullOrBlank()) {
+            repo.observeShed(shedId)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource.loading())
+        } else {
+            MutableStateFlow(Resource.loading())
+        }
+
     init {
         // Cache-first OFFLINE-FIRST FIX (C35-019): observe directly from the shedId
         // route parameter. Do NOT call repo.rows() to derive the ID — that duplicates
         // the network read and breaks a cold offline launch when the cache is empty.
         // Room is the single source of truth; refresh upserts Room in the background.
         viewModelScope.launch {
-            shedId?.let {
-                repo.observeShed(it).collectLatest { resource -> applyResource(resource) }
-            }
+            shedFlow.collect { resource -> applyResource(resource) }
         }
         refresh()
     }

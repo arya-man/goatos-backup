@@ -4,9 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
@@ -50,11 +51,15 @@ class ShedsViewModel @Inject constructor(
     private val _state = MutableStateFlow(shedsPlaceholder("Loading today's sheds…"))
     val state: StateFlow<ShedsUiState> = _state.asStateFlow()
 
+    // Lifecycle-aware StateFlow: automatically cancel when viewModelScope clears
+    private val rowsFlow = repo.observeRows(limit = PAGE_LIMIT)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource.loading())
+
     init {
         // Cache-first: renders whatever Room already has (possibly nothing, on a cold
         // install) immediately, then re-renders after every successful refresh below.
         viewModelScope.launch {
-            repo.observeRows(limit = PAGE_LIMIT).collectLatest { resource -> applyResource(resource) }
+            rowsFlow.collect { resource -> applyResource(resource) }
         }
         refresh()
     }

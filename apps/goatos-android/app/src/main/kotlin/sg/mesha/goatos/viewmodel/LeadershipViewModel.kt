@@ -4,9 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
@@ -63,11 +64,19 @@ class LeadershipViewModel @Inject constructor(
     private val _dosesState = MutableStateFlow(OverlayLoadState<GivenRow>())
     val dosesState: StateFlow<OverlayLoadState<GivenRow>> = _dosesState.asStateFlow()
 
+    // Lifecycle-aware StateFlows: automatically cancel when viewModelScope clears
+    private val summaryFlow = controlTower.observeSummary()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource.loading())
+    private val gapsFlow = insights.observeGaps(limit = GAPS_LIMIT)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource.loading())
+    private val coverageFlow = insights.observeCoverage(limit = COVERAGE_LIMIT)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource.loading())
+
     init {
         // Cache-first: renders whatever Room already has immediately, then re-renders
         // after every successful refresh below.
         viewModelScope.launch {
-            controlTower.observeSummary().collectLatest { summaryResource ->
+            summaryFlow.collect { summaryResource ->
                 applyResource(summaryResource)
             }
         }
@@ -76,12 +85,12 @@ class LeadershipViewModel @Inject constructor(
         // loadDosesGiven when the sheet actually opens). Args match refreshGaps/refreshCoverage
         // below so the observe + refresh share the same cache key.
         viewModelScope.launch {
-            insights.observeGaps(limit = GAPS_LIMIT).collectLatest { gapsResource ->
+            gapsFlow.collect { gapsResource ->
                 applyGapsResource(gapsResource)
             }
         }
         viewModelScope.launch {
-            insights.observeCoverage(limit = COVERAGE_LIMIT).collectLatest { coverageResource ->
+            coverageFlow.collect { coverageResource ->
                 applyCoverageResource(coverageResource)
             }
         }

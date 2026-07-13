@@ -144,6 +144,16 @@ func TestCalendarBootstrapPublishesHistoryAwareCopy(t *testing.T) {
 	if page.Copy["calendar.month.cell_note"] != "Each cell shows that day's due-work and completion markers. Tap an event for its rich detail." {
 		t.Fatalf("calendar month cell note = %q", page.Copy["calendar.month.cell_note"])
 	}
+	for _, key := range []string{
+		"calendar.drawer.eligible_animals",
+		"calendar.drawer.deferred_animals",
+		"calendar.drawer.blocked_animals",
+		"calendar.drawer.linked_animals",
+	} {
+		if page.Copy[key] == "" {
+			t.Fatalf("calendar drawer target copy %q missing", key)
+		}
+	}
 }
 
 func TestSourceLoadContractPublishesProcurementSexSelector(t *testing.T) {
