@@ -9,20 +9,67 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
-// seedOpenVaccinationObligation inserts one additional open (scheduled) vaccination obligation for
-// testGoatID at the seeded protocol version, so the cancel paths exercise the bulk UNNEST insert
-// with more than one row (len(ids) > 1).
-func seedOpenVaccinationObligation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repo *Repository, idemKey string, seq int) string {
+// vaxCancelFixture is a goat whose vaccination protocol carries TWO draft versions, each with a
+// rule. The second version is load-bearing: a single-version setup cannot tell a correct selector
+// apart from a broken one that cancels the wrong version or ignores the effective-version list, so
+// every selectivity assertion below leans on version v2 obligations staying untouched.
+type vaxCancelFixture struct {
+	v1, r1, v2, r2 string
+}
+
+func seedVaxCancelFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) vaxCancelFixture {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)`,
+		testGoatID, tenantID, meshaParty, cbePark); err != nil {
+		t.Fatalf("seed goat: %v", err)
+	}
+	proto := protocolpg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protocoldomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.test", Name: "Test", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("seed definition: %v", err)
+	}
+	mkVersion := func(v int) (versionID, ruleID string) {
+		versionID, err := proto.CreateVersion(ctx, protocoldomain.NewVersion{
+			TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: int32(v), Status: "draft",
+			EffectiveFrom: time.Date(2026, 6, v, 0, 0, 0, 0, time.UTC),
+			RuleDsl:       []byte(`{}`), ProofPolicy: []byte(`{}`),
+		})
+		if err != nil {
+			t.Fatalf("seed version %d: %v", v, err)
+		}
+		ruleID, err = proto.CreateRule(ctx, protocoldomain.NewRule{
+			TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+			TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
+			EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		})
+		if err != nil {
+			t.Fatalf("seed rule %d: %v", v, err)
+		}
+		return versionID, ruleID
+	}
+	f := vaxCancelFixture{}
+	f.v1, f.r1 = mkVersion(1)
+	f.v2, f.r2 = mkVersion(2)
+	return f
+}
+
+func insertOpenObl(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repo *Repository, versionID, ruleID, idem string, seq int) string {
 	t.Helper()
 	id, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
-		TenantID: tenantID, ProtocolVersionID: mustVersionOf(t, ctx, pool), RuleID: mustRuleOf(t, ctx, pool),
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
 		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
-		DueAt: time.Date(2026, 9, seq, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: idemKey, Sequence: int32(seq),
+		DueAt: time.Date(2026, 9, seq, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: idem, Sequence: int32(seq),
 	})
 	if err != nil || !applied {
-		t.Fatalf("insert %s: applied=%v err=%v", idemKey, applied, err)
+		t.Fatalf("insert %s: applied=%v err=%v", idem, applied, err)
 	}
 	return id
 }
@@ -34,91 +81,130 @@ func canceledEventCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, o
 		tenantID, obligationID)
 }
 
+// canceledOutboxCount counts the lifecycle outbox rows emitted for one obligation's cancellation.
+// insertObligationLifecycleOutbox keys each row idempotency_key = "goat.obligations_canceled:<id>",
+// exactly one per aggregate, so this proves per-obligation cardinality rather than a bulk >= 1.
+func canceledOutboxCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, obligationID string) int {
+	t.Helper()
+	return countRows(t, ctx, pool,
+		`SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND idempotency_key=$2`,
+		tenantID, "goat.obligations_canceled:"+obligationID)
+}
+
+// assertCanceledOnce asserts an obligation is canceled with exactly one status-event and one outbox
+// row — the invariant that the bulk status-event insert and the per-obligation outbox loop must hold.
+func assertCanceledOnce(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label, id string) {
+	t.Helper()
+	if got := scanStatus(t, ctx, pool, id); got != "canceled" {
+		t.Fatalf("%s: want canceled, got %s", label, got)
+	}
+	if got := canceledEventCount(t, ctx, pool, id); got != 1 {
+		t.Fatalf("%s: want exactly 1 canceled status-event, got %d", label, got)
+	}
+	if got := canceledOutboxCount(t, ctx, pool, id); got != 1 {
+		t.Fatalf("%s: want exactly 1 canceled outbox row, got %d", label, got)
+	}
+}
+
+// assertUntouched asserts an obligation on a preserved version was not cancelled and emitted no
+// cancellation side effects — the selectivity half that a single-version fixture cannot express.
+func assertUntouched(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label, id string) {
+	t.Helper()
+	if got := scanStatus(t, ctx, pool, id); got != "scheduled" {
+		t.Fatalf("%s: want scheduled (preserved), got %s", label, got)
+	}
+	if got := canceledEventCount(t, ctx, pool, id); got != 0 {
+		t.Fatalf("%s: preserved obligation must have 0 canceled events, got %d", label, got)
+	}
+	if got := canceledOutboxCount(t, ctx, pool, id); got != 0 {
+		t.Fatalf("%s: preserved obligation must have 0 canceled outbox rows, got %d", label, got)
+	}
+}
+
 // TestCancelOpenVaccinationObligationsForGoatVersion covers the bulk cancel path in
-// recordCanceledObligationRows via CancelOpenVaccinationObligationsForGoatVersion. It is the
-// real-Postgres regression that the sibling TestSM3CancelOpenForGoat did NOT provide: SM3 exercises
-// CancelOpenForGoat, a different method that does not reach the bulk status-event insert. The bug
-// (a status-event INSERT ... ON CONFLICT (idempotency_key) with no matching unique index) rolls the
-// whole transaction back with SQLSTATE 42P10 whenever there is at least one obligation to cancel, so
-// this test fails on the pre-fix code and passes once the invalid conflict target is removed.
+// recordCanceledObligationRows via CancelOpenVaccinationObligationsForGoatVersion. It asserts three
+// distinct properties the sibling TestSM3CancelOpenForGoat (which hits CancelOpenForGoat, a
+// different method) never touches:
+//
+//   - liveness: the multi-row bulk status-event insert executes (regression guard for the invalid
+//     ON CONFLICT (idempotency_key) target that raised SQLSTATE 42P10 on a partitioned table);
+//   - selectivity: only obligations on the named version are cancelled — an obligation on another
+//     version of the same vaccination protocol is preserved;
+//   - idempotent replay: a second call cancels nothing and writes no duplicate status-event/outbox.
 func TestCancelOpenVaccinationObligationsForGoatVersion(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	obA := seed(t, ctx, pool) // 'obl-1' scheduled for testGoatID at the vaccination version
+	f := seedVaxCancelFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
-	versionID := mustVersionOf(t, ctx, pool)
-	obB := seedOpenVaccinationObligation(t, ctx, pool, repo, "obl-vax-2", 1)
+	a1 := insertOpenObl(t, ctx, pool, repo, f.v1, f.r1, "obl-v1-a", 1)
+	a2 := insertOpenObl(t, ctx, pool, repo, f.v1, f.r1, "obl-v1-b", 2) // second v1 row => multi-row bulk insert
+	keep := insertOpenObl(t, ctx, pool, repo, f.v2, f.r2, "obl-v2", 3) // other version => must survive
 
-	n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, testGoatID, versionID, "ineligible_after_recheck", time.Now().UTC())
+	n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, testGoatID, f.v1, "ineligible_after_recheck", time.Now().UTC())
 	if err != nil {
 		t.Fatalf("cancel by version: %v", err)
 	}
 	if n != 2 {
-		t.Fatalf("expected 2 cancelled (obl-1 + obl-vax-2), got %d", n)
+		t.Fatalf("expected 2 cancelled (both v1 obligations), got %d", n)
 	}
+	assertCanceledOnce(t, ctx, pool, "obl-v1-a", a1)
+	assertCanceledOnce(t, ctx, pool, "obl-v1-b", a2)
+	assertUntouched(t, ctx, pool, "obl-v2", keep)
 
-	for _, id := range []string{obA, obB} {
-		if got := scanStatus(t, ctx, pool, id); got != "canceled" {
-			t.Fatalf("obligation %s: want canceled, got %s", id, got)
-		}
-		if got := canceledEventCount(t, ctx, pool, id); got != 1 {
-			t.Fatalf("obligation %s: want 1 canceled status-event, got %d", id, got)
-		}
-	}
-
-	// The cancellation durably enqueues its lifecycle outbox event in the same transaction.
-	if got := countRows(t, ctx, pool,
-		`SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND event_type='goat.obligations_canceled'`,
-		tenantID); got < 1 {
-		t.Fatalf("expected canceled obligations outbox event, got %d", got)
-	}
-
-	// Replay is idempotent: the rows are already canceled, so the UPDATE ... RETURNING selects
-	// nothing, the bulk insert is skipped, and no duplicate status-event/outbox row is written.
-	n2, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, testGoatID, versionID, "ineligible_after_recheck", time.Now().UTC())
+	// Replay: rows are already canceled so the UPDATE ... RETURNING selects nothing, the bulk insert
+	// and outbox loop are skipped, and the earlier side-effect counts are unchanged.
+	n2, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, testGoatID, f.v1, "ineligible_after_recheck", time.Now().UTC())
 	if err != nil {
 		t.Fatalf("replay cancel by version: %v", err)
 	}
 	if n2 != 0 {
 		t.Fatalf("replay should cancel 0, got %d", n2)
 	}
-	for _, id := range []string{obA, obB} {
-		if got := canceledEventCount(t, ctx, pool, id); got != 1 {
-			t.Fatalf("obligation %s: replay must not duplicate events, got %d", id, got)
-		}
-	}
+	assertCanceledOnce(t, ctx, pool, "obl-v1-a (post-replay)", a1)
+	assertCanceledOnce(t, ctx, pool, "obl-v1-b (post-replay)", a2)
+	assertUntouched(t, ctx, pool, "obl-v2 (post-replay)", keep)
 }
 
 // TestCancelOpenVaccinationObligationsForGoatExceptVersions covers the same bulk path via the
-// except-versions method. Passing an empty effective-version set cancels every open vaccination
-// obligation for the goat, again exercising the multi-row UNNEST insert and the 42P10 regression.
+// except-versions method, with the same liveness + selectivity + replay guarantees. Here selectivity
+// means: passing the effective-version set {v2} cancels only the non-effective v1 obligations and
+// preserves the v2 obligation — a broken filter that ignores the effective list would cancel keep.
 func TestCancelOpenVaccinationObligationsForGoatExceptVersions(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	obA := seed(t, ctx, pool)
+	f := seedVaxCancelFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
-	obB := seedOpenVaccinationObligation(t, ctx, pool, repo, "obl-vax-2", 1)
+	a1 := insertOpenObl(t, ctx, pool, repo, f.v1, f.r1, "obl-v1-a", 1)
+	a2 := insertOpenObl(t, ctx, pool, repo, f.v1, f.r1, "obl-v1-b", 2)
+	keep := insertOpenObl(t, ctx, pool, repo, f.v2, f.r2, "obl-v2", 3)
 
-	// No effective versions => every open vaccination obligation for the goat is non-effective.
-	n, err := repo.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, testGoatID, nil, "version_no_longer_effective", time.Now().UTC())
+	// v2 is effective; every open obligation NOT on v2 (both v1 rows) must be cancelled.
+	n, err := repo.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, testGoatID, []string{f.v2}, "version_no_longer_effective", time.Now().UTC())
 	if err != nil {
 		t.Fatalf("cancel except-versions: %v", err)
 	}
 	if n != 2 {
-		t.Fatalf("expected 2 cancelled, got %d", n)
+		t.Fatalf("expected 2 cancelled (both v1 obligations), got %d", n)
 	}
-	for _, id := range []string{obA, obB} {
-		if got := scanStatus(t, ctx, pool, id); got != "canceled" {
-			t.Fatalf("obligation %s: want canceled, got %s", id, got)
-		}
-		if got := canceledEventCount(t, ctx, pool, id); got != 1 {
-			t.Fatalf("obligation %s: want 1 canceled status-event, got %d", id, got)
-		}
+	assertCanceledOnce(t, ctx, pool, "obl-v1-a", a1)
+	assertCanceledOnce(t, ctx, pool, "obl-v1-b", a2)
+	assertUntouched(t, ctx, pool, "obl-v2 (effective)", keep)
+
+	// Replay is idempotent and touches no side-effect counts.
+	n2, err := repo.CancelOpenVaccinationObligationsForGoatExceptVersions(ctx, tenantID, testGoatID, []string{f.v2}, "version_no_longer_effective", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("replay cancel except-versions: %v", err)
 	}
+	if n2 != 0 {
+		t.Fatalf("replay should cancel 0, got %d", n2)
+	}
+	assertCanceledOnce(t, ctx, pool, "obl-v1-a (post-replay)", a1)
+	assertCanceledOnce(t, ctx, pool, "obl-v1-b (post-replay)", a2)
+	assertUntouched(t, ctx, pool, "obl-v2 (post-replay)", keep)
 }
