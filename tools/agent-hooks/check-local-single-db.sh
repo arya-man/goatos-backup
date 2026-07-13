@@ -89,15 +89,44 @@ for file in "${e2e_rule_files[@]}"; do
   reject_pattern "$file" "GOATOS_E2E_ALLOW_APP_DB_MUTATION" "normal-app-DB mutation override"
 done
 
-if DATABASE_URL="postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable" \
-  GOATOS_E2E_ALLOW_APP_DB_MUTATION=1 \
-  bash -c ". '$repo/tools/dev/e2e-db-env.sh'; goatos_e2e_require_isolated_database local-single-db-guard-test" \
-  >/tmp/goatos-local-single-db-guard.out 2>/tmp/goatos-local-single-db-guard.err; then
-  mark_fail "mutating E2E guard allowed normal app DB on :5433"
-fi
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/goatos-local-single-db-guard.XXXXXX")"
+trap 'rm -rf "$tmp_dir"' EXIT
 
-if ! grep -Fq "There is no override for this." /tmp/goatos-local-single-db-guard.err 2>/dev/null; then
+expect_e2e_refused() {
+  local label="$1"
+  local dsn="$2"
+  if DATABASE_URL="$dsn" GOATOS_E2E_ALLOW_APP_DB_MUTATION=1 \
+    bash -c ". '$repo/tools/dev/e2e-db-env.sh'; goatos_e2e_require_isolated_database local-single-db-guard-test" \
+    >"$tmp_dir/$label.out" 2>"$tmp_dir/$label.err"; then
+    mark_fail "mutating E2E guard allowed $label"
+  fi
+}
+
+expect_e2e_allowed() {
+  local label="$1"
+  local dsn="$2"
+  if ! DATABASE_URL="$dsn" \
+    bash -c ". '$repo/tools/dev/e2e-db-env.sh'; goatos_e2e_require_isolated_database local-single-db-guard-test" \
+    >"$tmp_dir/$label.out" 2>"$tmp_dir/$label.err"; then
+    mark_fail "mutating E2E guard rejected $label"
+  fi
+}
+
+expect_e2e_refused "postgres-url-ipv4" "postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable"
+expect_e2e_refused "postgresql-url-localhost" "postgresql://postgres:goatos@localhost:5433/goatos?sslmode=disable"
+expect_e2e_refused "keyword-dsn-ipv4" "host=127.0.0.1 port=5433 dbname=goatos user=postgres password=goatos sslmode=disable"
+expect_e2e_refused "keyword-dsn-localhost" "host=localhost port=5433 dbname=goatos user=postgres"
+expect_e2e_refused "postgres-url-ipv6" "postgres://postgres:goatos@[::1]:5433/goatos?sslmode=disable"
+expect_e2e_refused "keyword-dsn-hostaddr" "host=db.example.test hostaddr=127.0.0.1 port=5433 dbname=goatos user=postgres"
+expect_e2e_refused "missing-port-dsn" "host=127.0.0.1 dbname=goatos user=postgres"
+expect_e2e_refused "unclassifiable-dsn" "goatos-local-current"
+expect_e2e_allowed "isolated-kernel-db" "postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable"
+
+if ! grep -Fq "There is no override for this." "$tmp_dir/postgres-url-ipv4.err" 2>/dev/null; then
   mark_fail "mutating E2E guard did not explain that :5433 has no override"
+fi
+if ! grep -Fq "fail closed" "$tmp_dir/unclassifiable-dsn.err" 2>/dev/null; then
+  mark_fail "mutating E2E guard did not explain its fail-closed DSN behavior"
 fi
 
 if command -v docker >/dev/null 2>&1 && docker ps >/dev/null 2>&1; then

@@ -160,6 +160,22 @@ func TestDeriveSeedSpeciesUsesExplicitSpeciesHint(t *testing.T) {
 	}
 }
 
+func TestSourceSeedNeverRetiresCanonicalShedsBySourceAbsence(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read source seeder: %v", err)
+	}
+	for _, forbidden := range []string{
+		"retireActiveShedsOutsideSource",
+		"active shed not present in canonical goat source",
+		"pruned_non_source_active_sheds",
+	} {
+		if strings.Contains(string(source), forbidden) {
+			t.Fatalf("source seed must not retire canonical sheds by source absence; found %q", forbidden)
+		}
+	}
+}
+
 func TestSeedGenerationErrorRejectsPartialFailureByDefault(t *testing.T) {
 	err := seedGenerationError(vaccinationdomain.GenerateResult{
 		Generated:        8,
