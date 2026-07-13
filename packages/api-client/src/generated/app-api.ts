@@ -4504,6 +4504,7 @@ export interface operations {
         parameters: {
             query?: {
                 park_id?: string;
+                /** @description Current-view scope only (top-bar date). Defaults to now; future values clamp to now. A past instant is rejected with 400 historical_as_of_unsupported — this read keeps only the current serving projection, so historical point-in-time reconstruction is not supported. */
                 as_of?: string;
                 due_before?: string;
                 limit?: number;
@@ -5311,6 +5312,7 @@ export interface operations {
         parameters: {
             query?: {
                 park_id?: string;
+                /** @description Current-view scope only (top-bar date). Defaults to now; future values clamp to now. A past instant is rejected with 400 historical_as_of_unsupported — this read keeps only the current serving projection, so historical point-in-time reconstruction is not supported. */
                 as_of?: string;
                 due_before?: string;
                 limit?: number;

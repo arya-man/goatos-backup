@@ -1346,6 +1346,10 @@ paths:
         - name: as_of
           in: query
           required: false
+          description: >-
+            Current-view scope only (top-bar date). Defaults to now; future values clamp to now. A past
+            instant is rejected with 400 historical_as_of_unsupported — this read keeps only the current
+            serving projection, so historical point-in-time reconstruction is not supported.
           schema:
             type: string
             format: date-time
@@ -2475,6 +2479,10 @@ paths:
         - name: as_of
           in: query
           required: false
+          description: >-
+            Current-view scope only (top-bar date). Defaults to now; future values clamp to now. A past
+            instant is rejected with 400 historical_as_of_unsupported — this read keeps only the current
+            serving projection, so historical point-in-time reconstruction is not supported.
           schema:
             type: string
             format: date-time

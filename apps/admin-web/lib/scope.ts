@@ -63,10 +63,13 @@ export function rangeDays(range: RangeKey): number {
 // What each backend actually HONORS today (do not overstate — agents copy comments as truth):
 //   - park_id: honored by ALL scope-aware reads (Control Tower, Action Center, Protocol Adherence,
 //     Workflows, /vaccination operations, execution, verification queue).
-//   - as_of: honored by GET /vaccination/operations, the process-integrity reads (Control Tower, Action
-//     Center, Protocol Adherence, Workflows) and /vaccination/execution + shed detail. Each reconstructs
-//     completion/dose state and the obligation bucket as-of that instant. The verification queue does NOT
-//     yet consume as_of.
+//   - as_of: honored as a top-bar DATE scope, with two different semantics. The process-integrity reads
+//     (Control Tower, Action Center, Protocol Adherence, Workflows) reconstruct completion/dose state and
+//     the obligation bucket as-of that instant from versioned snapshots — historical is supported. The
+//     vaccination reads (GET /vaccination/operations, /vaccination/execution + shed summary/detail, and
+//     /app/vaccination/coverage) are CURRENT-VIEW-ONLY: they keep a single serving snapshot at ~now and
+//     reject a past as_of with 400 historical_as_of_unsupported (future clamps to now). The verification
+//     queue does NOT yet consume as_of.
 //   - range / date_from (lower bound): parsed + carried in the URL but NOT consumed by ANY query yet —
 //     "Last 7 vs Last 30" does not change results until the range backend pass lands. Do not pretend it
 //     filters. backendScope therefore returns only park_id + as_of (the genuinely-honored params).
