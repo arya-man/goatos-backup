@@ -1970,6 +1970,17 @@ INSERT INTO vaccination_completions (
 		t.Fatalf("seed accepted vaccination history: %v", err)
 	}
 
+	// History is served from the calendar_history_projection_rows/calendar_history_date_markers
+	// projection (migration 000178 + history_projection.go), not a live join, so the projector must
+	// run once against the canonical facts seeded above before ListEvents/GetEventDetail can see them.
+	if _, err := repo.RecomputeVaccinationHistoryProjection(ctx, ports.RefreshVaccinationHistoryProjection{
+		TenantID: testTenantID,
+		DateFrom: administeredAt.Add(-24 * time.Hour),
+		DateTo:   administeredAt.Add(24 * time.Hour),
+	}); err != nil {
+		t.Fatalf("RecomputeVaccinationHistoryProjection: %v", err)
+	}
+
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID:           testTenantID,
 		OwnerKey:           domain.OwnerAll,

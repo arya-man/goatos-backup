@@ -127,6 +127,17 @@ type RefreshVaccinationProjection struct {
 	Limit    int
 }
 
+// RefreshVaccinationHistoryProjection asks the projector to rebuild the tenant's completed-history
+// projection (calendar_history_projection_rows / calendar_history_date_markers) from the same
+// vaccination_completions/obligation_instances/protocol_* canonical tables the request path used to
+// join on read before this projection existed. See history_projection.go.
+type RefreshVaccinationHistoryProjection struct {
+	TenantID string
+	DateFrom time.Time
+	DateTo   time.Time
+	Limit    int
+}
+
 type SweepEscalations struct {
 	TenantID     string
 	ObligationID string

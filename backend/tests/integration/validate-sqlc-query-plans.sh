@@ -1243,6 +1243,58 @@ ORDER BY
 LIMIT 50 OFFSET 0;"
 }
 
+validate_vaccination_execution_projection_read_plan() {
+  explain_must_use_index "VaccinationExecutionProjectionRead" 'Seq Scan on vaccination_execution_projection_rows' "EXPLAIN (COSTS OFF)
+SELECT sort_row_key FROM vaccination_execution_projection_rows
+WHERE tenant_id='00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version=1::bigint AND work_state='overdue'
+  AND (sort_rank,sort_due_micros,sort_row_key) > (0,0,'')
+ORDER BY sort_rank,sort_due_micros,sort_row_key LIMIT 201;"
+}
+
+validate_vaccination_operations_projection_read_plan() {
+  explain_must_use_index "VaccinationOperationsProjectionRead" 'Seq Scan on vaccination_operations_projection_rows' "EXPLAIN (COSTS OFF)
+SELECT protocol_id FROM vaccination_operations_projection_rows
+WHERE tenant_id='00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version=1::bigint AND shed_id='70000000-0000-4000-8000-000000000002'
+ORDER BY stage,protocol_id LIMIT 501;"
+}
+
+validate_calendar_history_projection_plans() {
+  # Calendar completed-history + date-marker projection (migration 000178 +
+  # history_projection.go): calendarListSQL's completed_history CTE and
+  # calendarDateMarkersSQL's marker branch-2 now read these two projector-owned tables by
+  # tenant + serving projection_version + business_date window instead of joining
+  # vaccination_completions/obligation_instances/protocol_* on every request.
+  explain_must_use_index "CalendarHistoryProjectionRowsHotList" 'Seq Scan on calendar_history_projection_rows' "EXPLAIN (COSTS OFF)
+SELECT event_id, title, subtitle, target_count, window_start, window_end
+FROM calendar_history_projection_rows
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version = 1::bigint
+  AND business_date >= DATE '2026-06-01'
+  AND business_date < DATE '2026-07-01'
+ORDER BY business_date, event_id;"
+
+  explain_must_use_index "CalendarHistoryProjectionRowsScoped" 'Seq Scan on calendar_history_projection_rows' "EXPLAIN (COSTS OFF)
+SELECT event_id
+FROM calendar_history_projection_rows
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version = 1::bigint
+  AND park_id = '86000000-0000-4000-8000-000000000701'::uuid
+  AND shed_id = '86000000-0000-4000-8000-000000000711'::uuid
+  AND business_date >= DATE '2026-06-01'
+  AND business_date < DATE '2026-07-01'
+ORDER BY business_date, event_id;"
+
+  explain_must_use_index "CalendarHistoryDateMarkersRead" 'Seq Scan on calendar_history_date_markers' "EXPLAIN (COSTS OFF)
+SELECT business_date, SUM(completion_count)
+FROM calendar_history_date_markers
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND projection_version = 1::bigint
+  AND business_date >= DATE '2026-06-01'
+  AND business_date < DATE '2026-07-01'
+GROUP BY business_date;"
+}
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -1281,5 +1333,8 @@ validate_calendar_vaccination_plans
 validate_herd_register_summary_plan
 validate_vaccination_shed_projection_plan
 validate_verification_queue_plan
+validate_vaccination_execution_projection_read_plan
+validate_vaccination_operations_projection_read_plan
+validate_calendar_history_projection_plans
 
 echo "Validated current hot-path query plans"

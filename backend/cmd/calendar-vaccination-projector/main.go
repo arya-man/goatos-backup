@@ -26,6 +26,9 @@ type config struct {
 	PruneLimit      int
 	ClosedRetention time.Duration
 	Timeout         time.Duration
+	ProjectHistory  bool
+	HistoryDateFrom time.Time
+	HistoryDateTo   time.Time
 }
 
 func main() {
@@ -54,7 +57,8 @@ func run(args []string) error {
 		return err
 	}
 	defer pool.Close()
-	service := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Timeout))
+	repo := calendarpg.NewRepository(pool, cfg.Timeout)
+	service := calendarapp.NewService(repo)
 	count, err := service.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
 		TenantID: cfg.TenantID,
 		DateFrom: cfg.DateFrom,
@@ -73,6 +77,24 @@ func run(args []string) error {
 	}
 	fmt.Printf("calendar vaccination projection refreshed=%d pruned_closed=%d tenant=%s from=%s to=%s\n",
 		count, pruned, cfg.TenantID, cfg.DateFrom.Format(time.RFC3339), cfg.DateTo.Format(time.RFC3339))
+
+	if cfg.ProjectHistory {
+		// RecomputeVaccinationHistoryProjection is called directly on the concrete repository (not
+		// through calendarapp.Service/ports.Repository), mirroring how
+		// vaccination-shed-projection-recompute calls vaccinationexecution's RecomputeShedProjection
+		// directly. Bootstrap/repair remains a full recompute of the requested window; zero-value
+		// dates let the projector derive its own now-400d..now+1d default window.
+		historyRows, historyErr := repo.RecomputeVaccinationHistoryProjection(ctx, ports.RefreshVaccinationHistoryProjection{
+			TenantID: cfg.TenantID,
+			DateFrom: cfg.HistoryDateFrom,
+			DateTo:   cfg.HistoryDateTo,
+			Limit:    cfg.Limit,
+		})
+		if historyErr != nil {
+			return historyErr
+		}
+		fmt.Printf("calendar history projection refreshed_rows=%d tenant=%s\n", historyRows, cfg.TenantID)
+	}
 	return nil
 }
 
@@ -87,6 +109,9 @@ func parseFlags(args []string) (config, error) {
 	fs.IntVar(&cfg.PruneLimit, "prune-limit", intEnv("GOATOS_CALENDAR_PROJECTOR_PRUNE_LIMIT", 1000), "max old closed projection rows to prune")
 	fs.DurationVar(&cfg.ClosedRetention, "closed-retention", durationEnv("GOATOS_CALENDAR_PROJECTOR_CLOSED_RETENTION", 90*24*time.Hour), "closed projection row retention window")
 	fs.DurationVar(&cfg.Timeout, "timeout", durationEnv("GOATOS_CALENDAR_PROJECTOR_TIMEOUT", 60*time.Second), "projector timeout")
+	fs.BoolVar(&cfg.ProjectHistory, "project-calendar-history", boolEnv("GOATOS_CALENDAR_PROJECTOR_PROJECT_HISTORY", true), "recompute the completed-history + date-marker projection (calendar_history_projection_rows/calendar_history_date_markers) after refreshing the upcoming vaccination projection")
+	historyDateFrom := fs.String("history-date-from", getenv("GOATOS_CALENDAR_HISTORY_PROJECTOR_DATE_FROM"), "RFC3339 lower bound for the history projection; default now minus 400d")
+	historyDateTo := fs.String("history-date-to", getenv("GOATOS_CALENDAR_HISTORY_PROJECTOR_DATE_TO"), "RFC3339 exclusive upper bound for the history projection; default now plus 1d")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -110,6 +135,20 @@ func parseFlags(args []string) (config, error) {
 			return config{}, errors.New("date-to must be RFC3339")
 		}
 		cfg.DateTo = cfg.DateTo.In(biztime.DefaultLocation())
+	}
+	if strings.TrimSpace(*historyDateFrom) != "" {
+		cfg.HistoryDateFrom, err = time.Parse(time.RFC3339, strings.TrimSpace(*historyDateFrom))
+		if err != nil {
+			return config{}, errors.New("history-date-from must be RFC3339")
+		}
+		cfg.HistoryDateFrom = cfg.HistoryDateFrom.In(biztime.DefaultLocation())
+	}
+	if strings.TrimSpace(*historyDateTo) != "" {
+		cfg.HistoryDateTo, err = time.Parse(time.RFC3339, strings.TrimSpace(*historyDateTo))
+		if err != nil {
+			return config{}, errors.New("history-date-to must be RFC3339")
+		}
+		cfg.HistoryDateTo = cfg.HistoryDateTo.In(biztime.DefaultLocation())
 	}
 	if cfg.Timeout <= 0 {
 		return config{}, errors.New("timeout must be positive")

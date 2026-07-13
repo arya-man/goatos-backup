@@ -31,7 +31,7 @@ case "$mode" in
       run_worker obligation-sweeper /app/bin/obligation-sweeper -timeout=45s -project-calendar=false -project-vaccination-read-models=true
       run_worker calendar-reminder-sweeper /app/bin/calendar-reminder-sweeper -timeout=30s -limit=100
       run_worker calendar-escalation-sweeper /app/bin/calendar-escalation-sweeper -timeout=30s -limit=100
-      run_worker calendar-projector /app/bin/calendar-vaccination-projector -timeout=45s
+      run_worker calendar-projector /app/bin/calendar-vaccination-projector -timeout=45s -project-calendar-history=true
       run_worker process-integrity-projector /app/bin/process-integrity-projection-recompute -timeout=45s
       run_worker notification-dispatcher /app/bin/notification-dispatcher -timeout=30s -limit=100 -dry-run
       sleep "$interval"

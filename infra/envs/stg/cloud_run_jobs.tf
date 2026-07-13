@@ -106,8 +106,8 @@ locals {
       name                = "goatos-stg-calendar-projector"
       service_account_key = "calendar_projector"
       command             = ["/app/bin/calendar-vaccination-projector"]
-      args                = ["-timeout=60s"]
-      timeout             = "120s"
+      args                = ["-timeout=90s", "-project-calendar-history=true"]
+      timeout             = "180s"
       memory              = "512Mi"
       cpu                 = "1"
       schedule            = "*/5 * * * *"

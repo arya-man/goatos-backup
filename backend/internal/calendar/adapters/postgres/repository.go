@@ -174,9 +174,13 @@ func (r *Repository) GetEventDetail(ctx context.Context, q domain.EventQuery) (d
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	event, err := scanCalendarEventWithDetail(r.pool.QueryRow(ctx, calendarDetailSQL, q.TenantID, q.EventID, tenantWide, parkIDs, shedIDs), &detailRaw, &linksRaw)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if history, ok := completedHistoryEventKey(q.EventID); ok {
+		if _, ok := completedHistoryEventKey(q.EventID); ok {
+			// History detail now serves from the calendar_history_projection_rows projector output
+			// (migration 000178 + history_projection.go) keyed directly by event_id, replacing the
+			// canonical vaccination_completions/obligation_instances/protocol_* join that used to run
+			// on every request.
 			event, err = scanCalendarEventWithDetail(
-				r.pool.QueryRow(ctx, calendarCompletedHistoryDetailSQL, q.TenantID, history.Day, history.ParkID, history.ShedID, history.RuleID, q.EventID, tenantWide, parkIDs, shedIDs),
+				r.pool.QueryRow(ctx, calendarHistoryProjectionDetailSQL, q.TenantID, q.EventID, tenantWide, parkIDs, shedIDs),
 				&detailRaw,
 				&linksRaw,
 			)
@@ -1623,17 +1627,9 @@ RETURNING notification_request_id`,
 func (r *Repository) eventExists(ctx context.Context, tenantID, eventID string, scope domain.ScopeFilter) error {
 	var exists bool
 	tenantWide, parkIDs, shedIDs := scopeArgs(scope)
-	history, historyID := completedHistoryEventKey(eventID)
-	historyRuleID := "00000000-0000-0000-0000-000000000000"
-	historyDay := "1970-01-01"
-	historyParkID := "none"
-	historyShedID := "none"
-	if historyID {
-		historyRuleID = history.RuleID
-		historyDay = history.Day
-		historyParkID = history.ParkID
-		historyShedID = history.ShedID
-	}
+	// The history branch now checks the calendar_history_projection_rows projector output directly by
+	// event_id + serving version, replacing the canonical obligation_instances/vaccination_completions
+	// join that used to run on every request.
 	if err := r.pool.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM calendar_event_projections
@@ -1642,41 +1638,13 @@ SELECT EXISTS (
     AND ($3::bool OR park_id::text = ANY($4::text[]) OR shed_id::text = ANY($5::text[]))
   UNION ALL
   SELECT 1
-  FROM obligation_instances oi
-  JOIN vaccination_completions c
-    ON c.tenant_id = oi.tenant_id AND c.obligation_id = oi.obligation_id AND c.status = 'accepted'
-  LEFT JOIN locations scope_loc
-    ON scope_loc.tenant_id = oi.tenant_id
-   AND scope_loc.location_id = oi.scope_id
-   AND oi.scope_type IN ('park', 'shed', 'cohort')
-  LEFT JOIN locations scope_parent
-    ON scope_parent.tenant_id = oi.tenant_id
-   AND scope_parent.location_id = scope_loc.parent_location_id
-  LEFT JOIN locations scope_grand
-    ON scope_grand.tenant_id = oi.tenant_id
-   AND scope_grand.location_id = scope_parent.parent_location_id
-  LEFT JOIN LATERAL (
-    SELECT
-      CASE
-        WHEN oi.scope_type = 'park' THEN scope_loc.location_id
-        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
-        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
-      END AS park_id,
-      CASE
-        WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
-        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
-      END AS shed_id
-  ) history_scope ON true
-  WHERE $6::bool
-    AND oi.tenant_id = $1::uuid
-    AND oi.rule_id = $7::uuid
-    AND oi.status = 'completed'
-    AND oi.target_type = 'goat'
-    AND (c.administered_at AT TIME ZONE 'Asia/Kolkata')::date = $8::date
-    AND history_scope.park_id::text IS NOT DISTINCT FROM nullif($9::text, 'none')
-    AND history_scope.shed_id::text IS NOT DISTINCT FROM nullif($10::text, 'none')
-    AND ($3::bool OR history_scope.park_id::text = ANY($4::text[]) OR history_scope.shed_id::text = ANY($5::text[]))
-)`, tenantID, eventID, tenantWide, parkIDs, shedIDs, historyID, historyRuleID, historyDay, historyParkID, historyShedID).Scan(&exists); err != nil {
+  FROM calendar_history_projection_rows r
+  JOIN calendar_history_projection_state s
+    ON s.tenant_id = r.tenant_id
+   AND s.serving_projection_version = r.projection_version
+  WHERE r.tenant_id = $1::uuid AND r.event_id = $2
+    AND ($3::bool OR r.park_id::text = ANY($4::text[]) OR r.shed_id::text = ANY($5::text[]))
+)`, tenantID, eventID, tenantWide, parkIDs, shedIDs).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -1914,42 +1882,45 @@ func calendarOutboxEnvelope(tenantID, eventID, eventType, schemaRef, aggregateTy
 }
 
 const calendarListSQL = `
-WITH completed_history AS (
+WITH history_serving AS (
+  SELECT serving_projection_version
+  FROM calendar_history_projection_state
+  WHERE tenant_id = $1::uuid
+    AND serving_projection_version IS NOT NULL
+),
+completed_history AS (
+  -- Bounded, indexed read of the calendar_history_projection_rows projector output (migration
+  -- 000178 + history_projection.go). This used to be a live join over
+  -- vaccination_completions/obligation_instances/protocol_* on every request; that canonical replay
+  -- is now the projector's job (RecomputeVaccinationHistoryProjection), off the request path.
+  -- Missing/never-synced projection state (history_serving empty) yields zero rows here, not an
+  -- error -- history bootstraps empty rather than 500ing.
   SELECT
-    'history:' || ((vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date)::text || ':' ||
-      COALESCE(loc.park_id::text, 'none') || ':' ||
-      COALESCE(loc.shed_id::text, 'none') || ':' ||
-      pr.rule_id::text AS event_id,
+    r.event_id,
     'vaccination_history'::text AS event_type,
     'pc'::text AS owner_key,
-    COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name) || ' · ' ||
-      CASE
-        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%_first' THEN 'First dose'
-        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%_booster' THEN 'Booster'
-        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%adult_revac%' THEN 'Revaccination'
-        ELSE COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code)
-      END || ' completed' AS title,
-    COALESCE(loc.shed_name, loc.park_code, 'Accepted vaccination history') AS subtitle,
+    r.title,
+    r.subtitle,
     'completed'::text AS status,
     'info'::text AS severity,
-    min(vc.administered_at) AS due_at,
-    min(vc.administered_at) AS window_start,
-    max(vc.administered_at) AS window_end,
+    r.window_start AS due_at,
+    r.window_start,
+    r.window_end,
     'Asia/Kolkata'::text AS timezone,
     'india_only'::text AS timezone_source,
-    loc.park_id::text AS park_id,
-    loc.park_code AS park_code,
-    loc.shed_id::text AS shed_id,
-    loc.shed_name AS shed_name,
+    r.park_id::text AS park_id,
+    r.park_code,
+    r.shed_id::text AS shed_id,
+    r.shed_name,
     NULL::text AS cohort_id,
     NULL::text AS cohort_name,
     'goat'::text AS target_type,
-    count(*)::int AS target_count,
-    pd.protocol_id::text AS protocol_id,
-    pv.protocol_version_id::text AS protocol_version_id,
-    pr.rule_id::text AS rule_id,
-    COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name) AS vaccine_name,
-    pr.dose_code,
+    r.target_count,
+    r.protocol_id::text AS protocol_id,
+    r.protocol_version_id::text AS protocol_version_id,
+    r.rule_id::text AS rule_id,
+    r.vaccine_name,
+    r.dose_code,
     true AS source_backed,
     'Accepted vaccination administration history'::text AS source_label,
     'Completed history'::text AS assignee_label,
@@ -1961,60 +1932,11 @@ WITH completed_history AS (
     false AS system,
     false AS cross_cutting,
     jsonb_build_object('vaccination', '/vaccination') AS links
-	FROM vaccination_completions vc
-	JOIN obligation_instances oi
-	  ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
-  JOIN protocol_versions pv
-    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
-  JOIN protocol_definitions pd
-    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-	JOIN protocol_rules pr
-	  ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
-  LEFT JOIN protocol_rule_dimensions prd
-    ON prd.tenant_id = pr.tenant_id AND prd.rule_id = pr.rule_id
-  LEFT JOIN locations scope_loc
-    ON scope_loc.tenant_id = oi.tenant_id
-   AND scope_loc.location_id = oi.scope_id
-   AND oi.scope_type IN ('park', 'shed', 'cohort')
-  LEFT JOIN locations scope_parent
-    ON scope_parent.tenant_id = oi.tenant_id
-   AND scope_parent.location_id = scope_loc.parent_location_id
-  LEFT JOIN locations scope_grand
-    ON scope_grand.tenant_id = oi.tenant_id
-   AND scope_grand.location_id = scope_parent.parent_location_id
-  LEFT JOIN LATERAL (
-    SELECT
-      CASE
-        WHEN oi.scope_type = 'park' THEN scope_loc.location_id
-        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
-        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
-      END AS park_id,
-      CASE
-        WHEN oi.scope_type = 'park' THEN scope_loc.location_code
-        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code
-        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_code
-      END AS park_code,
-      CASE
-        WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
-        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
-      END AS shed_id,
-      CASE
-        WHEN oi.scope_type = 'shed' THEN scope_loc.name
-        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.name
-      END AS shed_name
-  ) loc ON true
-  WHERE vc.tenant_id = $1::uuid
-    AND vc.status = 'accepted'
-    AND oi.status = 'completed'
-    AND oi.target_type = 'goat'
-    AND pd.category = 'vaccination'
-    AND vc.administered_at >= $6::timestamptz
-    AND vc.administered_at < $7::timestamptz
-  GROUP BY
-    loc.park_id, loc.park_code, loc.shed_id, loc.shed_name,
-    pd.protocol_id, pv.protocol_version_id, pr.rule_id, pd.name, pr.dose_code,
-    prd.vaccine_json, prd.source_dose_code,
-    (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date
+  FROM calendar_history_projection_rows r
+  JOIN history_serving hs ON hs.serving_projection_version = r.projection_version
+  WHERE r.tenant_id = $1::uuid
+    AND r.business_date >= ($6::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    AND r.business_date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
 ),
 candidates AS (
   (
@@ -2137,7 +2059,13 @@ ORDER BY due_at ASC, event_id ASC
 LIMIT $10`
 
 const calendarDateMarkersSQL = `
-WITH marker_rows AS (
+WITH history_serving AS (
+  SELECT serving_projection_version
+  FROM calendar_history_projection_state
+  WHERE tenant_id = $1::uuid
+    AND serving_projection_version IS NOT NULL
+),
+marker_rows AS (
   SELECT
     ((due_at AT TIME ZONE 'Asia/Kolkata')::date)::text AS marker_date,
     count(*)::bigint AS event_count,
@@ -2161,54 +2089,26 @@ WITH marker_rows AS (
 
   UNION ALL
 
+  -- Bounded, indexed read of the calendar_history_date_markers projector output (migration 000178 +
+  -- history_projection.go), replacing the vaccination_completions aggregate that used to run on every
+  -- request. Missing/never-synced projection state yields zero marker rows here, not an error.
   SELECT
-    ((vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date)::text AS marker_date,
-    count(*)::bigint AS event_count,
-    count(*)::bigint AS completed_count,
+    (m.business_date)::text AS marker_date,
+    SUM(m.completion_count)::bigint AS event_count,
+    SUM(m.completion_count)::bigint AS completed_count,
     0::bigint AS open_count,
     0::bigint AS drive_count
-  FROM vaccination_completions vc
-  JOIN obligation_instances oi
-    ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
-  JOIN protocol_versions pv
-    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
-  JOIN protocol_definitions pd
-    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-  LEFT JOIN locations scope_loc
-    ON scope_loc.tenant_id = oi.tenant_id
-   AND scope_loc.location_id = oi.scope_id
-   AND oi.scope_type IN ('park', 'shed', 'cohort')
-  LEFT JOIN locations scope_parent
-    ON scope_parent.tenant_id = oi.tenant_id
-   AND scope_parent.location_id = scope_loc.parent_location_id
-  LEFT JOIN locations scope_grand
-    ON scope_grand.tenant_id = oi.tenant_id
-   AND scope_grand.location_id = scope_parent.parent_location_id
-  LEFT JOIN LATERAL (
-    SELECT
-      CASE
-        WHEN oi.scope_type = 'park' THEN scope_loc.location_id
-        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
-        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
-      END AS park_id,
-      CASE
-        WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
-        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
-      END AS shed_id
-  ) loc ON true
-  WHERE vc.tenant_id = $1::uuid
-    AND vc.status = 'accepted'
-    AND oi.status = 'completed'
-    AND oi.target_type = 'goat'
-    AND pd.category = 'vaccination'
+  FROM calendar_history_date_markers m
+  JOIN history_serving hs ON hs.serving_projection_version = m.projection_version
+  WHERE m.tenant_id = $1::uuid
     AND ($2::text = '' OR $2::text = 'pc')
     AND ($3::text = '' OR $3::text = 'completed')
-    AND ($4::text = '' OR loc.park_id = nullif($4::text, '')::uuid)
-    AND ($5::text = '' OR loc.shed_id = nullif($5::text, '')::uuid)
-    AND vc.administered_at >= $6::timestamptz
-    AND vc.administered_at < $7::timestamptz
-    AND ($8::bool OR loc.park_id::text = ANY($9::text[]) OR loc.shed_id::text = ANY($10::text[]))
-  GROUP BY (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date
+    AND ($4::text = '' OR m.park_id = nullif($4::text, '')::uuid)
+    AND ($5::text = '' OR m.shed_id = nullif($5::text, '')::uuid)
+    AND m.business_date >= ($6::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    AND m.business_date < ($7::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    AND ($8::bool OR m.park_id::text = ANY($9::text[]) OR m.shed_id::text = ANY($10::text[]))
+  GROUP BY m.business_date
 )
 SELECT marker_date,
        sum(event_count)::int,
@@ -2246,144 +2146,46 @@ WHERE tenant_id = $1::uuid AND event_id = $2 AND slice_key = 'vaccination'
   AND system = false
   AND ($3::bool OR park_id::text = ANY($4::text[]) OR shed_id::text = ANY($5::text[]))`
 
-const calendarCompletedHistoryDetailSQL = `
-WITH members AS (
-  SELECT
-    oi.*,
-    vc.administered_at,
-    loc.park_id,
-    loc.park_code,
-    loc.shed_id,
-    loc.shed_name
-  FROM vaccination_completions vc
-  JOIN obligation_instances oi
-    ON oi.tenant_id = vc.tenant_id
-   AND oi.obligation_id = vc.obligation_id
-   AND oi.rule_id = $5::uuid
-   AND oi.status = 'completed'
-   AND oi.target_type = 'goat'
-  LEFT JOIN locations scope_loc
-    ON scope_loc.tenant_id = oi.tenant_id
-   AND scope_loc.location_id = oi.scope_id
-   AND oi.scope_type IN ('park', 'shed', 'cohort')
-  LEFT JOIN locations scope_parent
-    ON scope_parent.tenant_id = oi.tenant_id
-   AND scope_parent.location_id = scope_loc.parent_location_id
-  LEFT JOIN locations scope_grand
-    ON scope_grand.tenant_id = oi.tenant_id
-   AND scope_grand.location_id = scope_parent.parent_location_id
-  LEFT JOIN LATERAL (
-    SELECT
-      CASE
-        WHEN oi.scope_type = 'park' THEN scope_loc.location_id
-        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
-        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
-      END AS park_id,
-      CASE
-        WHEN oi.scope_type = 'park' THEN scope_loc.location_code
-        WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code
-        WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_code
-      END AS park_code,
-      CASE
-        WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
-        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
-      END AS shed_id,
-      CASE
-        WHEN oi.scope_type = 'shed' THEN scope_loc.name
-        WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.name
-      END AS shed_name
-  ) loc ON true
-  WHERE vc.tenant_id = $1::uuid
-    AND vc.status = 'accepted'
-    AND (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date = $2::date
-    AND loc.park_id::text IS NOT DISTINCT FROM nullif($3::text, 'none')
-    AND loc.shed_id::text IS NOT DISTINCT FROM nullif($4::text, 'none')
-),
-grouped AS (
-  SELECT
-    $6::text AS event_id,
-    'vaccination_history'::text AS event_type,
-    'pc'::text AS owner_key,
-    COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name) || ' · ' ||
-      CASE
-        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%_first' THEN 'First dose'
-        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%_booster' THEN 'Booster'
-        WHEN COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code) LIKE '%adult_revac%' THEN 'Revaccination'
-        ELSE COALESCE(NULLIF(prd.source_dose_code, ''), pr.dose_code)
-      END || ' completed' AS title,
-    COALESCE(m.shed_name, m.park_code, 'Accepted vaccination history') AS subtitle,
-    'completed'::text AS status,
-    'info'::text AS severity,
-    min(m.administered_at) AS due_at,
-    min(m.administered_at) AS window_start,
-    max(m.administered_at) AS window_end,
-    'Asia/Kolkata'::text AS timezone,
-    'india_only'::text AS timezone_source,
-    m.park_id::text AS park_id,
-    m.park_code AS park_code,
-    m.shed_id::text AS shed_id,
-    m.shed_name AS shed_name,
-    NULL::text AS cohort_id,
-    NULL::text AS cohort_name,
-    'goat'::text AS target_type,
-    count(*)::int AS target_count,
-    pd.protocol_id::text AS protocol_id,
-    pv.protocol_version_id::text AS protocol_version_id,
-    pr.rule_id::text AS rule_id,
-    COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name) AS vaccine_name,
-    pr.dose_code,
-    true AS source_backed,
-    'Accepted vaccination administration history'::text AS source_label,
-    'Completed history'::text AS assignee_label,
-    'pc_vaccinator'::text AS executor_role,
-    'Accepted at source cutover'::text AS verifier_label,
-    'not_scheduled'::text AS reminder_state,
-    ''::text AS primary_notification_channel,
-    'none'::text AS escalation_state,
-    false AS system,
-    false AS cross_cutting,
-    jsonb_build_object('vaccination', '/vaccination') AS links,
-    jsonb_build_object(
-      'summary', jsonb_build_object('owner', 'PC', 'target_count', count(*), 'history', true),
-      'source_and_rule', jsonb_build_object('protocol_version_id', pv.protocol_version_id, 'rule_id', pr.rule_id, 'source_backed', true),
-      'execution', jsonb_build_object('work_state', 'completed', 'completed_count', count(*)),
-      'stock', jsonb_build_object(),
-      'proof', jsonb_build_object('state', 'accepted'),
-      'verification', jsonb_build_object('state', 'accepted'),
-      'notification_channels', jsonb_build_array(),
-      'notification_policy', jsonb_build_object('nudge_allowed', false),
-      'links', jsonb_build_object('vaccination', '/vaccination')
-    ) AS detail
-  FROM members m
-  JOIN protocol_versions pv
-    ON pv.tenant_id = m.tenant_id AND pv.protocol_version_id = m.protocol_version_id
-  JOIN protocol_definitions pd
-    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-  JOIN protocol_rules pr
-    ON pr.tenant_id = m.tenant_id AND pr.rule_id = m.rule_id
-  LEFT JOIN protocol_rule_dimensions prd
-    ON prd.tenant_id = pr.tenant_id AND prd.rule_id = pr.rule_id
-  GROUP BY m.park_id, m.park_code, m.shed_id, m.shed_name,
-    pd.protocol_id, pv.protocol_version_id, pr.rule_id, pd.name, pr.dose_code,
-    prd.vaccine_json, prd.source_dose_code
+const calendarHistoryProjectionDetailSQL = `
+WITH history_serving AS (
+  SELECT serving_projection_version
+  FROM calendar_history_projection_state
+  WHERE tenant_id = $1::uuid
+    AND serving_projection_version IS NOT NULL
 )
-SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
-       window_end, timezone, timezone_source, park_id, park_code, shed_id, shed_name,
-       cohort_id, cohort_name, target_type, target_count, protocol_id,
-       protocol_version_id, rule_id, vaccine_name, dose_code, source_backed,
-       source_label, assignee_label, executor_role, verifier_label, reminder_state,
-       primary_notification_channel, escalation_state, system, cross_cutting, links,
-       false AS aggregated, false AS all_day,
-       ''::text AS summary_primary, ''::text AS summary_secondary, ''::text AS summary_tertiary,
-       CASE WHEN shed_id IS NULL THEN 0 ELSE 1 END AS shed_count,
-       CASE WHEN vaccine_name IS NULL THEN 0 ELSE 1 END AS vaccine_count,
-       0::int AS drive_count, 0::int AS catch_up_count, 0::int AS scheduled_count,
-       0::int AS deferred_count, 0::int AS review_count,
-       CASE WHEN shed_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[shed_name] END AS shed_labels,
-       CASE WHEN vaccine_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[vaccine_name] END AS vaccine_labels,
-       detail
-FROM grouped
-WHERE ($7::bool OR park_id = ANY($8::text[]) OR shed_id = ANY($9::text[]))`
+SELECT
+  r.event_id, 'vaccination_history'::text AS event_type, 'pc'::text AS owner_key,
+  r.title, r.subtitle, 'completed'::text AS status, 'info'::text AS severity,
+  r.window_start AS due_at, r.window_start, r.window_end,
+  'Asia/Kolkata'::text AS timezone, 'india_only'::text AS timezone_source,
+  r.park_id::text AS park_id, r.park_code, r.shed_id::text AS shed_id, r.shed_name,
+  NULL::text AS cohort_id, NULL::text AS cohort_name,
+  'goat'::text AS target_type, r.target_count,
+  r.protocol_id::text AS protocol_id, r.protocol_version_id::text AS protocol_version_id, r.rule_id::text AS rule_id,
+  r.vaccine_name, r.dose_code,
+  true AS source_backed,
+  'Accepted vaccination administration history'::text AS source_label,
+  'Completed history'::text AS assignee_label,
+  'pc_vaccinator'::text AS executor_role,
+  'Accepted at source cutover'::text AS verifier_label,
+  'not_scheduled'::text AS reminder_state,
+  ''::text AS primary_notification_channel,
+  'none'::text AS escalation_state,
+  false AS system, false AS cross_cutting,
+  jsonb_build_object('vaccination', '/vaccination') AS links,
+  false AS aggregated, false AS all_day,
+  ''::text AS summary_primary, ''::text AS summary_secondary, ''::text AS summary_tertiary,
+  CASE WHEN r.shed_id IS NULL THEN 0 ELSE 1 END AS shed_count,
+  CASE WHEN r.vaccine_name IS NULL THEN 0 ELSE 1 END AS vaccine_count,
+  0::int AS drive_count, 0::int AS catch_up_count, 0::int AS scheduled_count,
+  0::int AS deferred_count, 0::int AS review_count,
+  CASE WHEN r.shed_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[r.shed_name] END AS shed_labels,
+  CASE WHEN r.vaccine_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[r.vaccine_name] END AS vaccine_labels,
+  r.detail
+FROM calendar_history_projection_rows r
+JOIN history_serving hs ON hs.serving_projection_version = r.projection_version
+WHERE r.tenant_id = $1::uuid AND r.event_id = $2
+  AND ($3::bool OR r.park_id::text = ANY($4::text[]) OR r.shed_id::text = ANY($5::text[]))`
 
 const calendarHistorySQL = `
 WITH history AS (
