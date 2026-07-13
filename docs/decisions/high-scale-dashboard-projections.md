@@ -385,13 +385,17 @@ each rule below was a real production-shaped defect.
    exclusive bound fails closed. Tests (and fixtures) that use **fixed historical
    dates must seed the projected window around those dates**, not `now ± N`.
 
-3. **Last-known-good during rebuild.** A rebuild on a tenant that already has a
-   serving version keeps serving that version — its state row stays `fresh`/
-   `green`, it is **not** flipped to `rebuilding`. A failed replacement build never
-   clobbers the prior serving snapshot; it expires only by normal freshness
-   policy. Only a first-ever build (no serving pointer), a failed build with no
-   prior serving version, an explicitly stale/failed state, or an over-TTL
-   projection fails closed with a typed `503`. Publish new serving metadata only
+3. **Last-known-good is the serving contract, not only a rebuild courtesy.** A
+   projection-backed operator page must distinguish "no usable projection exists"
+   from "the last usable projection is stale". A first-ever build with no serving
+   version/rows fails closed with a typed retryable error. A query whose requested
+   date/window is outside the projected coverage also fails closed, because the
+   rows needed for that request may not exist. But once a serving projection
+   exists and covers the request, `stale`, `rebuilding`, `failed`, `yellow`, or
+   over-TTL freshness is not a page-down condition: serve the last-known-good
+   rows, expose `stale=true` plus freshness/serving metadata, and let the owning
+   projector/closeout repair freshness asynchronously. A failed replacement build
+   never clobbers the prior serving snapshot; publish new serving metadata only
    after the atomic version swap commits.
 
 4. **Canonical/history reads bypass the hot (UPCOMING) projection gate, but the
@@ -456,7 +460,8 @@ each rule below was a real production-shaped defect.
 
 Before building a large dashboard feature, confirm:
 
-- Freshness TTL exceeds the refresh schedule; date-window coverage honors the
+- Freshness TTL exceeds the refresh schedule; stale last-known-good rows serve
+  with metadata instead of taking the page down; date-window coverage honors the
   inclusive-query/exclusive-bound rule; canonical/history reads are not gated on
   the hot projection; prune re-derives the serving version. (Serving-Read
   Freshness Contract above.)

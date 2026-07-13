@@ -38,7 +38,7 @@ func testCalendarActorGrants() []ports.ActorGrant {
 	return []ports.ActorGrant{{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: testTenantID}}
 }
 
-func TestCalendarListRequiresFreshProjectionAndExposesVersion(t *testing.T) {
+func TestCalendarListServesLastKnownGoodProjectionAndExposesVersion(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -80,8 +80,12 @@ SET projected_at = now() - interval '6 minutes', freshness_status = 'yellow', se
 WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, testTenantID); err != nil {
 		t.Fatalf("mark calendar projection stale: %v", err)
 	}
-	if _, err := repo.ListEvents(ctx, q); !errors.Is(err, ports.ErrProjectionStale) {
-		t.Fatalf("stale projection error=%v, want ErrProjectionStale", err)
+	got, err = repo.ListEvents(ctx, q)
+	if err != nil {
+		t.Fatalf("stale last-known-good projection list: %v", err)
+	}
+	if !got.Projection.Stale || got.Projection.FreshnessStatus != "yellow" || got.Projection.ServingState != "stale" {
+		t.Fatalf("stale projection metadata=%+v, want stale yellow/stale served", got.Projection)
 	}
 }
 

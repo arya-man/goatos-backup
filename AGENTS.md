@@ -294,6 +294,12 @@ Do:
   canonical data through `make seed-closeout` / `tools/dev/seed-closeout.sh`.
   New projection tables also need access-pattern indexes, freshness/version
   state, and an explicit partitioning decision.
+- Projection-backed operator pages must follow the last-known-good serving
+  contract. No first projection, no serving rows, or a requested window outside
+  projected coverage may fail closed. A stale/yellow/rebuilding/failed/over-TTL
+  projection that still has serving rows covering the request must serve those
+  rows with freshness metadata instead of taking the page down. See
+  `docs/decisions/high-scale-dashboard-projections.md`.
 - Source-backed vaccination seed means the whole executable setup, not goats
   alone: founder grants, HRMS roster, attendance/leave, timetable-backed
   positions, strict shed manager/backup mapping, position duties, published
@@ -481,9 +487,11 @@ Do:
   TTL to mask a date-coverage bug; (2) date coverage is inclusive-query vs
   exclusive projection `date_to` — project one day beyond the max query range
   (45d ⇒ 46d), and fixed-date tests seed the window around their fixed dates, not
-  `now±N`; (3) a rebuild keeps serving last-known-good and a failed rebuild never
-  clobbers it; (4) reads served entirely from a bounded canonical index
-  (completed/accepted history) are NOT gated on the hot projection; (5) a prune of
+  `now±N`; (3) stale last-known-good rows serve with freshness metadata while
+  no first projection or an uncovered date/window fails closed; (4) a rebuild
+  keeps serving last-known-good and a failed rebuild never clobbers it; (5) reads
+  served entirely from a bounded canonical index (completed/accepted history)
+  are NOT gated on the hot projection; (6) a prune of
   non-serving versions re-derives `serving_projection_version` inside the DELETE,
   never a version captured before the txn/advisory-lock released.
 - Treat every Android READ screen as offline-first with Room as the single source

@@ -277,15 +277,18 @@ WHERE tenant_id = $1::uuid AND slice_key = 'vaccination'`, tenantID).Scan(
 	if err != nil {
 		return domain.ProjectionMetadata{}, fmt.Errorf("calendar: read projection state: %w", err)
 	}
-	meta.Stale = meta.ProjectionVersion <= 0 || meta.ServingState != "fresh" || meta.FreshnessStatus != "green" ||
-		time.Since(meta.ProjectedAt) > defaultProjectionFresh || meta.ProjectedAt.After(time.Now().Add(time.Minute))
+	if meta.ProjectionVersion <= 0 || meta.ServingState == "never_synced" {
+		meta.Stale = true
+		return meta, ports.ErrProjectionUnavailable
+	}
+	now := time.Now()
+	meta.Stale = meta.ServingState != "fresh" || meta.FreshnessStatus != "green" ||
+		now.Sub(meta.ProjectedAt) > defaultProjectionFresh || meta.ProjectedAt.After(now.Add(time.Minute))
 	requestedToExclusive := dateTo.Add(24 * time.Hour)
 	// Handler/business-date normalization can move equivalent boundaries by a
 	// few milliseconds. Keep strict coverage while tolerating clock-call skew.
 	if dateFrom.Before(projectedFrom.Add(-time.Minute)) || requestedToExclusive.After(projectedTo.Add(time.Minute)) {
 		meta.Stale = true
-	}
-	if meta.Stale {
 		return meta, ports.ErrProjectionStale
 	}
 	return meta, nil

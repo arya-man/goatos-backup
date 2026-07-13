@@ -166,6 +166,12 @@ one product; this skill is the navigation layer.
   model, static catalog/config, or operational/audit/event. Derived app-visible
   tables are filled by deterministic projectors registered in
   `tools/dev/seed-closeout.sh`, not by hand-written seed rows.
+- Projection-backed operator pages must follow the last-known-good serving
+  contract in `docs/decisions/high-scale-dashboard-projections.md`: no first
+  projection/no serving rows or uncovered date/window may fail closed, but stale
+  yellow/rebuilding/failed/over-TTL projections with serving rows covering the
+  request must return those rows plus freshness metadata instead of taking the
+  page down.
 - Source-backed vaccination seed means the whole executable setup: founder
   grants, HRMS roster, attendance/leave, timetable-backed positions, strict
   shed-manager/backup mapping, position duties, published

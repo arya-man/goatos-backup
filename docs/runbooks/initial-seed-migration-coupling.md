@@ -73,6 +73,21 @@ For an already-seeded database where a later migration adds a derived table,
 apply migrations, run `make seed-closeout`, then verify the affected APIs. Do
 not reseed source rows just to fill a derived table.
 
+After the first successful closeout, a projection going stale must not make an
+operator page unavailable when a usable serving projection still covers the
+request. The runtime contract is:
+
+- no first projection/no serving rows: fail closed and run closeout/projector;
+- requested date/window outside projected coverage: fail closed because rows may
+  be missing;
+- stale, yellow, rebuilding, failed, or over-TTL state with serving rows covering
+  the request: serve last-known-good rows and expose freshness metadata while
+  the projector repairs freshness.
+
+This is part of the seed/migration contract, not a UI preference. Future
+app-visible projection migrations must include a regression test or reviewed
+runtime evidence for that behavior in addition to the closeout step.
+
 For a destructive clean-slate seed or any bulk import/backfill, the seed/import
 must run `ANALYZE` on the canonical tables it bulk-loaded before read-model
 projectors or latency gates run. Freshly truncated/empty tables can leave
@@ -138,7 +153,8 @@ seed flow to include:
 
 1. the projector/recompute command or worker that fills the table;
 2. the API or SQL green gate proving non-empty/current state for the tenant;
-3. the failure mode if the projection is stale or empty;
+3. the runtime serving behavior for never-synced, stale last-known-good, and
+   date/window coverage gaps;
 4. the E2E/report category that owns the proof, when an E2E is run.
 
 Also prove the projection is scale-shaped before it lands:

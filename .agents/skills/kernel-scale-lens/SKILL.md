@@ -56,9 +56,11 @@ code anchors: `docs/decisions/high-scale-dashboard-projections.md` →
   stored `date_to` is that exclusive bound; provision the projector 1 day beyond
   the max query range (45d ⇒ 46d). FIXED-date tests seed the window around their
   fixed dates, not `now±N`.
-- **LKG.** A rebuild on an already-serving tenant keeps serving the prior version
-  (stays fresh/green, not `rebuilding`); a failed rebuild never clobbers LKG. Only
-  first-ever / no-serving-version / over-TTL / explicitly-stale fails closed 503.
+- **LKG.** A rebuild on an already-serving tenant keeps serving the prior version;
+  a failed rebuild never clobbers LKG. Only first-ever/no-serving-version or an
+  uncovered requested date/window fails closed. Stale/yellow/rebuilding/failed/
+  over-TTL projections that still have serving rows covering the request must
+  return LKG rows with freshness metadata, not a page-down 503.
 - **Canonical-history bypass.** A read served ENTIRELY from a bounded canonical
   index (completed/accepted history) must NOT be gated on hot-projection freshness;
   gate on the exact query shape (`status=completed` only), not the endpoint.

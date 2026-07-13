@@ -109,6 +109,13 @@ const SEED_COMPANION_PATTERNS = [
   /^context\/execution\/.*seed.*\.md$/,
 ];
 
+const PROJECTION_RUNTIME_COMPANION_PATTERNS = [
+  /^backend\/internal\/.*_test\.go$/,
+  /^backend\/cmd\/[^/]+\/.*_test\.go$/,
+  /^backend\/tests\/e2e(?:-[^/]+)?\/.+/,
+  /^tools\/perf\/.*(?:test|evidence).*/,
+];
+
 const MIGRATION_RE = /^backend\/migrations\/postgres\/\d+_[^/]+\.sql$/;
 const IGNORE_RE =
   /seed-migration-guard:ignore\s+owner=\S+\s+issue=\S+\s+reason=\S+.*\s+expiry=\d{4}-\d{2}-\d{2}/;
@@ -247,6 +254,27 @@ function hasSeedCompanion(files) {
   return files.filter((rel) => SEED_COMPANION_PATTERNS.some((re) => re.test(rel)));
 }
 
+function isProjectionRuntimeFinding(finding) {
+  const reason = finding.reason.toLowerCase();
+  return (
+    reason.includes("projection") ||
+    reason.includes("read-model") ||
+    reason.includes("rollup") ||
+    SEED_SENSITIVE_PATTERNS.some(({ re }) => re.test(finding.table))
+  );
+}
+
+function hasProjectionRuntimeCompanion(files) {
+  return files.filter((rel) => PROJECTION_RUNTIME_COMPANION_PATTERNS.some((re) => re.test(rel)));
+}
+
+function couplingPasses(affected, files) {
+  if (affected.length === 0) return true;
+  if (hasSeedCompanion(files).length === 0) return false;
+  const projectionAffected = affected.filter(isProjectionRuntimeFinding);
+  return projectionAffected.length === 0 || hasProjectionRuntimeCompanion(files).length > 0;
+}
+
 function runSelfTest() {
   const cases = [
     {
@@ -264,9 +292,19 @@ function runSelfTest() {
       wantPass: true,
     },
     {
-      name: "derived table with closeout registry companion passes",
+      name: "derived projection table with closeout but no runtime companion fails",
       sql: "CREATE TABLE vaccination_new_projection_rows (tenant_id uuid);",
       companions: ["tools/dev/seed-closeout.sh"],
+      wantAffected: ["vaccination_new_projection_rows"],
+      wantPass: false,
+    },
+    {
+      name: "derived projection table with closeout and stale-serving test passes",
+      sql: "CREATE TABLE vaccination_new_projection_rows (tenant_id uuid);",
+      companions: [
+        "tools/dev/seed-closeout.sh",
+        "backend/internal/calendar/adapters/postgres/repository_integration_test.go",
+      ],
       wantAffected: ["vaccination_new_projection_rows"],
       wantPass: true,
     },
@@ -316,7 +354,7 @@ function runSelfTest() {
         `self-test ${tc.name}: affected=${JSON.stringify(tables)}, want=${JSON.stringify(wantTables)}`
       );
     }
-    const pass = affected.length === 0 || hasSeedCompanion(tc.companions).length > 0;
+    const pass = couplingPasses(affected, tc.companions);
     if (pass !== tc.wantPass) {
       throw new Error(`self-test ${tc.name}: pass=${pass}, want=${tc.wantPass}`);
     }
@@ -348,29 +386,52 @@ function runScan() {
   }
 
   const companions = hasSeedCompanion(files);
+  if (companions.length === 0) {
+    console.error("seed-migration-coupling: seed-sensitive migration changed without seed-path update");
+    console.error("");
+    console.error("Affected migration operations:");
+    for (const f of affected) {
+      console.error(`- ${f.file}:${f.line}: ${f.op} ${f.table} (${f.reason})`);
+    }
+    console.error("");
+    console.error("Update at least one seed companion in the same patch:");
+    console.error("- backend/cmd/seed-* or a seed/projection recompute command");
+    console.error("- backend/tests/e2e* or a focused seed/projection regression test");
+    console.error("- docs/runbooks/*seed* / *clean-slate* with the new seed closeout step");
+    console.error("");
+    console.error(
+      "For a reviewed no-seed-impact migration only, add: seed-migration-guard:ignore owner=<name> issue=<id> reason=<text> expiry=<YYYY-MM-DD>"
+    );
+    process.exit(1);
+  }
+
+  const projectionAffected = affected.filter(isProjectionRuntimeFinding);
+  const runtimeCompanions = hasProjectionRuntimeCompanion(files);
+  if (projectionAffected.length > 0 && runtimeCompanions.length === 0) {
+    console.error("seed-migration-coupling: projection migration changed without runtime stale-serving coverage");
+    console.error("");
+    console.error("Affected projection/read-model operations:");
+    for (const f of projectionAffected) {
+      console.error(`- ${f.file}:${f.line}: ${f.op} ${f.table} (${f.reason})`);
+    }
+    console.error("");
+    console.error("Projection table migrations must prove the runtime contract in the same patch:");
+    console.error("- no first projection/no serving rows fails closed;");
+    console.error("- uncovered requested date/window fails closed;");
+    console.error("- stale/rebuilding/failed last-known-good rows serve with freshness metadata.");
+    console.error("");
+    console.error("Add a focused repository/service test, projection recompute test, E2E proof, or perf evidence.");
+    process.exit(1);
+  }
+
   if (companions.length > 0) {
     console.log(
-      `seed-migration-coupling: ok (${affected.length} seed-sensitive migration touch(es); seed companion updated: ${companions.join(", ")})`
+      `seed-migration-coupling: ok (${affected.length} seed-sensitive migration touch(es); seed companion updated: ${companions.join(", ")}${
+        runtimeCompanions.length > 0 ? `; projection runtime companion updated: ${runtimeCompanions.join(", ")}` : ""
+      })`
     );
     return;
   }
-
-  console.error("seed-migration-coupling: seed-sensitive migration changed without seed-path update");
-  console.error("");
-  console.error("Affected migration operations:");
-  for (const f of affected) {
-    console.error(`- ${f.file}:${f.line}: ${f.op} ${f.table} (${f.reason})`);
-  }
-  console.error("");
-  console.error("Update at least one seed companion in the same patch:");
-  console.error("- backend/cmd/seed-* or a seed/projection recompute command");
-  console.error("- backend/tests/e2e* or a focused seed/projection regression test");
-  console.error("- docs/runbooks/*seed* / *clean-slate* with the new seed closeout step");
-  console.error("");
-  console.error(
-    "For a reviewed no-seed-impact migration only, add: seed-migration-guard:ignore owner=<name> issue=<id> reason=<text> expiry=<YYYY-MM-DD>"
-  );
-  process.exit(1);
 }
 
 if (process.argv.includes("--self-test")) {
