@@ -21,6 +21,7 @@ const { resolveBoundRefreshToken, refreshCookieState } = await import(
 const { firebaseUidFromToken } = await import(
   path.join(authDir, "session-cookie.ts")
 );
+const { planSessionUpdate } = await import(path.join(authDir, "session-update.ts"));
 
 let failures = 0;
 function check(name, cond) {
@@ -124,6 +125,56 @@ const LONG = 60 * 60 * 24 * 14;
   applyRoute(skip);
   const after = jar.get(REFRESH_COOKIE);
   check("switch A->B (exchange fail): A refresh cookie is cleared", after.value === "" && after.maxAge === 0);
+}
+
+// --- planSessionUpdate: the audit event must be written ONLY for an accepted
+//     session. A tampered pair (binding reject) must 401 with NO event recorded;
+//     otherwise a rejected sign-in leaves a successful auth record in the trail. ---
+function trackedEvent(result) {
+  const wrapped = async () => {
+    wrapped.calls += 1;
+    return result;
+  };
+  wrapped.calls = 0;
+  return wrapped;
+}
+
+{
+  // Tampered A-id / B-refresh pair -> binding reject.
+  const exchange = tracked(async () => ({ idToken: jwt({ sub: "uidB", exp: future }), refreshToken: "rotatedB" }));
+  const recordEvent = trackedEvent({ ok: true });
+  const plan = await planSessionUpdate({
+    resolveBinding: () => resolveBoundRefreshToken("uidA", "B-refresh", exchange, firebaseUidFromToken),
+    recordEvent,
+  });
+  check("tampered pair -> reject with 401", plan.outcome === "reject" && plan.status === 401 && plan.error === "refresh_token_user_mismatch");
+  check("tampered pair -> NO audit event written", recordEvent.calls === 0 && plan.eventRecorded === false);
+}
+
+{
+  // Verified pair -> event recorded, session commits with the bound token.
+  const exchange = tracked(async () => ({ idToken: jwt({ sub: "uidA", exp: future }), refreshToken: "rotatedA" }));
+  const recordEvent = trackedEvent({ ok: true });
+  const plan = await planSessionUpdate({
+    resolveBinding: () => resolveBoundRefreshToken("uidA", "A-refresh", exchange, firebaseUidFromToken),
+    recordEvent,
+  });
+  check("verified pair -> commit", plan.outcome === "commit" && plan.eventRecorded === true);
+  check("verified pair -> audit event recorded once", recordEvent.calls === 1);
+  check("verified pair -> binding decision carried through", plan.outcome === "commit" && plan.binding.decision === "store" && plan.binding.refreshToken === "rotatedA");
+}
+
+{
+  // Trustworthy pair but the backend audit endpoint fails -> propagate its
+  // status; still no false success. (Event was ATTEMPTED after binding passed.)
+  const exchange = tracked(async () => ({ idToken: jwt({ sub: "uidA", exp: future }), refreshToken: "rotatedA" }));
+  const recordEvent = trackedEvent({ ok: false, status: 502, error: "auth_audit_unreachable" });
+  const plan = await planSessionUpdate({
+    resolveBinding: () => resolveBoundRefreshToken("uidA", "A-refresh", exchange, firebaseUidFromToken),
+    recordEvent,
+  });
+  check("audit failure -> outcome audit_failed, status propagated", plan.outcome === "audit_failed" && plan.status === 502 && plan.error === "auth_audit_unreachable");
+  check("audit failure -> not reported as recorded", plan.eventRecorded === false);
 }
 
 if (failures > 0) {

@@ -11,6 +11,7 @@ import {
 } from "@/lib/auth/session-cookie";
 import { exchangeRefreshTokenForIdToken } from "@/lib/auth/firebase-refresh";
 import { refreshCookieState, resolveBoundRefreshToken } from "@/lib/auth/refresh-binding";
+import { planSessionUpdate } from "@/lib/auth/session-update";
 
 export const dynamic = "force-dynamic";
 
@@ -33,28 +34,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_or_expired_id_token" }, { status: 401 });
   }
 
-  const audit = await recordBackendAuthEvent(request, idToken, eventType);
-  if (!audit.ok) {
-    return NextResponse.json({ error: audit.error }, { status: audit.status });
+  // Bind the refresh token BEFORE recording the audit event. The refresh token —
+  // the durable 14-day credential SSR mints fresh id tokens from — must be proven
+  // to belong to the same user the id token authenticated; an unbound token could
+  // pair account A's id token with account B's refresh token, silently turning
+  // the session into B once the id token expires. A verified uid mismatch is a
+  // tampered pair and must fail with NO cookies set AND NO audit event written —
+  // recording a successful sign_in/refresh for a rejected pair would corrupt the
+  // security/audit trail. So binding (the non-mutating rejection gate) runs
+  // first; the event is recorded only once the pair is trustworthy.
+  const plan = await planSessionUpdate({
+    resolveBinding: () =>
+      resolveBoundRefreshToken(
+        firebaseUidFromToken(idToken),
+        refreshToken,
+        exchangeRefreshTokenForIdToken,
+        firebaseUidFromToken,
+      ),
+    recordEvent: () => recordBackendAuthEvent(request, idToken, eventType),
+  });
+  if (plan.outcome !== "commit") {
+    return NextResponse.json({ error: plan.error }, { status: plan.status });
   }
+  const binding = plan.binding;
 
-  // Bind the refresh token to the user the (backend-verified) id token
-  // authenticated before persisting it. An unbound refresh token — the durable
-  // 14-day credential SSR mints fresh id tokens from — could pair account A's id
-  // token with account B's refresh token, silently turning the session into B
-  // once the id token expires. A verified uid mismatch is a tampered pair and
-  // fails the whole request with no cookies set.
-  const binding = await resolveBoundRefreshToken(
-    firebaseUidFromToken(idToken),
-    refreshToken,
-    exchangeRefreshTokenForIdToken,
-    firebaseUidFromToken,
-  );
-  if (binding.decision === "reject") {
-    return NextResponse.json({ error: "refresh_token_user_mismatch" }, { status: 401 });
-  }
-
-  const response = NextResponse.json({ ok: true, maxAge, audit_recorded: audit.ok });
+  const response = NextResponse.json({ ok: true, maxAge, audit_recorded: plan.eventRecorded });
   response.cookies.set({
     name: FIREBASE_ID_TOKEN_COOKIE,
     value: idToken,
