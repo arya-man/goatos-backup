@@ -1,6 +1,6 @@
 SQLC ?= $(shell command -v sqlc 2>/dev/null || if command -v go >/dev/null 2>&1; then gopath=$$(go env GOPATH 2>/dev/null); if [ -x "$$gopath/bin/sqlc" ]; then printf '%s/bin/sqlc' "$$gopath"; fi; fi)
 GOATOS_LOCAL_TENANT_ID ?= 00000000-0000-4000-8000-000000000001
-GOATOS_VACCINATION_SOURCE_DIR ?= /Users/ravi/mesha/source-material/vgoats-seed
+GOATOS_VACCINATION_SOURCE_DIR ?= $(abspath $(REPO_ROOT)/../source-material/vgoats-seed)
 GOATOS_SHED_MANAGER_MAPPING ?= $(GOATOS_VACCINATION_SOURCE_DIR)/shed-manager-mapping.jul11-vaccination.csv
 GOATOS_DEV_DASHBOARD_ADMIN_EMAILS ?= abhishek@mesha.sg aryaman@mesha.sg manju@mesha.sg manohark@mesha.sg ravi@mesha.sg
 GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)

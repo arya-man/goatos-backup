@@ -78,7 +78,7 @@ Google Cloud Trace (goatos-stg project)
 
 ```bash
 # 1a. Build Alloy image (includes config)
-cd /Users/ravi/mesha/goatos-obs-wt/infra/observability
+cd "$(git rev-parse --show-toplevel)/infra/observability"
 docker buildx build --platform linux/amd64 \
   -t asia-south1-docker.pkg.dev/goatos-stg/goatos/grafana-alloy:obs-<SHA> \
   --push .
@@ -107,7 +107,7 @@ echo "Alloy URL: $ALLOY_URL"
 
 ```bash
 # 2a. Build admin-web with Faro collector URL
-cd /Users/ravi/mesha/goatos-obs-wt
+cd "$(git rev-parse --show-toplevel)"
 FARO_URL="$ALLOY_URL"
 docker buildx build --platform linux/amd64 \
   -t asia-south1-docker.pkg.dev/goatos-stg/goatos/admin-web:obs-<SHA> \

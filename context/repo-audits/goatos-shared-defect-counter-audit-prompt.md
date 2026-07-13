@@ -15,7 +15,7 @@ on one shared counter-reviewed bug ledger. Do not produce separate final
 Claude/Codex lists.
 
 CANONICAL OUTPUT FILE
-/Users/ravi/mesha/goatos/context/repo-audits/last-35-commits-consolidated-bug-ledger.md
+context/repo-audits/last-35-commits-consolidated-bug-ledger.md
 
 The filename is historical. Do not shrink the review to 35 commits because of
 the filename. The required audit scope is the pinned C35 closure range plus the
@@ -142,7 +142,7 @@ SOURCE OF TRUTH
 Use filesystem and git, not memory.
 
 Current repo:
-/Users/ravi/mesha/goatos
+the repository root returned by `git rev-parse --show-toplevel`
 
 PINNED HISTORICAL CLOSURE RANGE RULE
 Do not use a rolling `HEAD~35..HEAD` window. That window has drifted and no
