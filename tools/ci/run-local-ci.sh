@@ -80,6 +80,7 @@ run_admin_web() {
   fi
   step "admin-web lint"          npm --prefix apps/admin-web run lint
   step "admin-web typecheck"     npm --prefix apps/admin-web run typecheck
+  step "admin-web unit tests"    npm --prefix apps/admin-web run test
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan
   step "admin-web production build + token leak" env GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build

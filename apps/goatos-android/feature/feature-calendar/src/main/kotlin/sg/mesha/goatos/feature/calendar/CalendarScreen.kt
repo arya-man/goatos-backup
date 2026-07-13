@@ -398,7 +398,7 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
         // For drive rows the backend populates subtitle/summaryPrimary/summarySecondary with the
         // same sheds/vaccines/scheduled-dose metrics the option-A ring card now shows, so suppress
         // them when drive_summary is present (drive != null) to avoid rendering the numbers twice.
-        if (drive == null && item.subtitle.isNotEmpty()) {
+        if (legacyDriveRowsVisible(drive) && item.subtitle.isNotEmpty()) {
             Text(
                 text = item.subtitle,
                 color = MeshaColors.Muted,
@@ -407,7 +407,7 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 modifier = Modifier.padding(top = 7.dp),
             )
         }
-        if (drive == null && item.summaryPrimary.isNotEmpty()) {
+        if (legacyDriveRowsVisible(drive) && item.summaryPrimary.isNotEmpty()) {
             Text(
                 text = item.summaryPrimary,
                 color = MeshaColors.Ink,
@@ -416,7 +416,7 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
-        if (drive == null && item.summarySecondary.isNotEmpty()) {
+        if (legacyDriveRowsVisible(drive) && item.summarySecondary.isNotEmpty()) {
             Text(
                 text = item.summarySecondary,
                 color = MeshaColors.Muted,
@@ -525,11 +525,7 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
         // Coverage ring + headline use the DISTINCT-ANIMAL grain (a goat due for several vaccines the
         // same day is one animal, completed only when all its drive obligations are). Round (not
         // truncate) to match the web card's Math.round. The due/overdue/deferred chips stay dose-grain.
-        val pct = if (summary.totalAnimals > 0) {
-            Math.round(summary.completedAnimals * 100f / summary.totalAnimals)
-        } else {
-            0
-        }
+        val pct = driveCoveragePct(summary.completedAnimals, summary.totalAnimals)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),

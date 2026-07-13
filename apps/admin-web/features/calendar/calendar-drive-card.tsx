@@ -8,6 +8,7 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { driveSummaryOf, type CalendarDriveSummary, type CalendarEvent } from "./calendar-contract";
+import { driveCoveragePct } from "./drive-card-metrics";
 
 type RemainingKey = "due" | "overdue" | "deferred";
 
@@ -63,7 +64,7 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
   // completed_animals): a goat due for several vaccines the same day is ONE animal, and is only
   // "completed" once all its drive obligations are done. The due/overdue/deferred chips below stay
   // obligation-grain (dose work items) — see CalendarDriveSummary in the contract.
-  const pct = summary.total_animals > 0 ? Math.round((summary.completed_animals / summary.total_animals) * 100) : 0;
+  const pct = driveCoveragePct(summary.completed_animals, summary.total_animals);
   const headline = headlineStatus(summary, pageContract);
   const remaining = remainingChips(summary);
   // Option A · completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
