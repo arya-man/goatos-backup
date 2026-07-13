@@ -47,36 +47,33 @@ Local Docker DNS is allowed only by the explicit
 `GOATOS_LOCAL_DOCKER_DATABASE_HOSTS=postgres` safety opt-in and only under
 `GOATOS_ENV=local`; it does not weaken dev/staging/prod target guards.
 
-## Run the behavior proof
+## Run the parity stack
+
+Bring up the production-shaped kernel stack (same built binaries, Postgres +
+same migrations, official Pub/Sub emulator, outbox relay, domain-event
+consumer, bounded workers, maintenance):
 
 ```bash
-make dev-local-kernel-smoke
+make dev-local-kernel-up
+make dev-local-kernel-status
+make dev-local-kernel-logs
 ```
 
-The smoke performs this production-shaped chain:
+The stack exercises the full production-shaped chain — source/input goat
+fixture -> production backfill-goat-created command -> canonical identity event
++ outbox row -> production outbox relay -> official Pub/Sub emulator ->
+production domain-event consumer + durable event-id record -> vaccination
+obligation -> obligation batch + Calendar/process-integrity/shed projections.
+Idempotent replay is proven by the consumer's `domain_event_duplicate_skipped`
+path (`backend/internal/domainconsumer/app/service.go`).
 
-```text
-source/input goat fixture
-  -> production backfill-goat-created command
-  -> canonical identity event + outbox row
-  -> production outbox relay
-  -> official Pub/Sub emulator
-  -> production domain-event consumer + durable event-id record
-  -> vaccination obligation
-  -> obligation batch + Calendar/process-integrity/shed projections
-  -> notification dispatcher dry-run
-```
+> The standalone scripted smoke (`make dev-local-kernel-smoke` /
+> `tools/dev/local-gcp-kernel-parity-smoke.sh`) was retired in `208f6b39` to keep
+> the `e2e-kernel-integrity` guard green; the durable-kernel behavior it asserted
+> is covered by the consumer path above and the `make high-scale-kernel-e2e-*`
+> gates.
 
-It republishes the same outbox event and requires the consumer log to report
-`domain_event_duplicate_skipped`; the obligation count must remain unchanged.
-It fails if any required worker logs a nonzero exit. The generated local-only
-report is under:
-
-```text
-.codex-goatos-render/local-gcp-kernel-parity/<run-id>/report.md
-```
-
-Run the config guard without booting services:
+Run the config parity guard without booting services:
 
 ```bash
 make local-gcp-kernel-parity-guard
