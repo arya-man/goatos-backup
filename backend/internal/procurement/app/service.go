@@ -614,6 +614,18 @@ func (s *Service) RecordArrivalReview(ctx context.Context, in ports.ArrivalRevie
 			return domain.ArrivalReview{}, BadRequest("missing_arrival_goat_id", "accepted or matched arrival rows require goat_id")
 		}
 	}
+	// Reject duplicate rows for the same animal in a single review. The batch upsert
+	// conflicts on (tenant_id, review_id, item_key); a repeat would fail with
+	// "cannot affect row a second time", and the batched state mapping would apply
+	// the first row's state to every repeat. Dedup by the same item_key the adapter uses.
+	seenItems := make(map[string]struct{}, len(in.Goats))
+	for i := range in.Goats {
+		key := ports.ArrivalItemKey(in.Goats[i])
+		if _, dup := seenItems[key]; dup {
+			return domain.ArrivalReview{}, BadRequest("duplicate_arrival_item", "goats[] contains duplicate rows for the same animal; each animal may appear at most once per arrival review")
+		}
+		seenItems[key] = struct{}{}
+	}
 	review, err := s.repo.RecordArrivalReview(ctx, in)
 	if err != nil {
 		if errors.Is(err, ports.ErrInvalidTransition) {
@@ -650,10 +662,18 @@ func (s *Service) AcceptIntake(ctx context.Context, in ports.AcceptIntake) ([]do
 	if err := requireUUID("shed_location_id", in.ShedLocationID); err != nil {
 		return nil, err
 	}
+	seenGoats := make(map[string]struct{}, len(in.GoatIDs))
 	for _, goatID := range in.GoatIDs {
 		if err := requireUUID("goat_id", goatID); err != nil {
 			return nil, err
 		}
+		if _, dup := seenGoats[goatID]; dup {
+			// The pc_handoffs upsert conflicts on (tenant_id, load_id, goat_id) and
+			// goat_location_history/goats are batched by goat id; a duplicate would fail
+			// with "cannot affect row a second time".
+			return nil, BadRequest("duplicate_goat_id", "goat_ids contains duplicate entries; each animal may appear at most once")
+		}
+		seenGoats[goatID] = struct{}{}
 	}
 	if err := requireIdempotency(in.IdempotencyKey); err != nil {
 		return nil, err

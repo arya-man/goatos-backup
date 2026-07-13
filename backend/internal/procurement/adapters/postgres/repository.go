@@ -2615,16 +2615,7 @@ func mapArrivalState(state string) string {
 }
 
 func arrivalItemKey(item ports.ArrivalGoat) string {
-	switch {
-	case item.GoatID != nil && strings.TrimSpace(*item.GoatID) != "":
-		return "goat:" + strings.TrimSpace(*item.GoatID)
-	case item.AnimalIdentifier1 != nil && strings.TrimSpace(*item.AnimalIdentifier1) != "":
-		return "animal_identifier_1:" + normalizeIdentifier(*item.AnimalIdentifier1)
-	case item.AnimalIdentifier2 != nil && strings.TrimSpace(*item.AnimalIdentifier2) != "":
-		return "animal_identifier_2:" + normalizeIdentifier(*item.AnimalIdentifier2)
-	default:
-		return "state:" + item.ArrivalState
-	}
+	return ports.ArrivalItemKey(item)
 }
 
 func warmupState(days *int, purpose string) string {
@@ -2737,5 +2728,5 @@ func rawJSON(v []byte, fallback string) json.RawMessage {
 }
 
 func normalizeIdentifier(v string) string {
-	return strings.ToUpper(strings.Join(strings.Fields(strings.TrimSpace(v)), " "))
+	return ports.NormalizeIdentifier(v)
 }

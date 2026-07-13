@@ -5,10 +5,35 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/procurement/domain"
 )
+
+// NormalizeIdentifier canonicalizes an animal identifier for stable matching
+// (upper-cased, whitespace-collapsed, trimmed).
+func NormalizeIdentifier(v string) string {
+	return strings.ToUpper(strings.Join(strings.Fields(strings.TrimSpace(v)), " "))
+}
+
+// ArrivalItemKey derives the stable per-row identity for an arrival-review goat.
+// It mirrors the ON CONFLICT (tenant_id, review_id, item_key) target used by the
+// arrival-review upsert, so callers can reject duplicate rows before the batch
+// write hits "cannot affect row a second time" (and the array_position state
+// mapping picks the wrong state for a repeated goat_id).
+func ArrivalItemKey(item ArrivalGoat) string {
+	switch {
+	case item.GoatID != nil && strings.TrimSpace(*item.GoatID) != "":
+		return "goat:" + strings.TrimSpace(*item.GoatID)
+	case item.AnimalIdentifier1 != nil && strings.TrimSpace(*item.AnimalIdentifier1) != "":
+		return "animal_identifier_1:" + NormalizeIdentifier(*item.AnimalIdentifier1)
+	case item.AnimalIdentifier2 != nil && strings.TrimSpace(*item.AnimalIdentifier2) != "":
+		return "animal_identifier_2:" + NormalizeIdentifier(*item.AnimalIdentifier2)
+	default:
+		return "state:" + item.ArrivalState
+	}
+}
 
 var (
 	ErrNotFound          = errors.New("procurement: not found")
