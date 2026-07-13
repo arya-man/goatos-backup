@@ -40,6 +40,55 @@ func (staleCalendarService) ResolveEscalation(context.Context, ports.ResolveEsca
 	return domain.CalendarActionResponse{}, nil
 }
 
+// historyFlaggedCalendarService returns a completed-history list whose serving history projection is
+// stale AND partially covers the requested window, so the response must carry those flags on the wire.
+type historyFlaggedCalendarService struct{ staleCalendarService }
+
+func (historyFlaggedCalendarService) ListEvents(context.Context, domain.Query) (domain.CalendarEventListResponse, error) {
+	return domain.CalendarEventListResponse{
+		Source: domain.SourceAPI,
+		Items:  []domain.CalendarEvent{},
+		HistoryProjection: &domain.ProjectionMetadata{
+			ProjectionVersion: 42,
+			FreshnessStatus:   "yellow",
+			ServingState:      "stale",
+			Stale:             true,
+			PartialCoverage:   true,
+		},
+	}, nil
+}
+
+// C5-002: the stale/partial-coverage history safety signal must be in the API CONTRACT, not just the
+// Go domain type. Consumers act on `history_projection.stale` / `.partial_coverage` in the JSON body;
+// prove they are actually serialized on the wire (they were absent from OpenAPI + never asserted).
+func TestCalendarHistoryProjectionMetadataOnWire(t *testing.T) {
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(historyFlaggedCalendarService{}))
+	req := httptest.NewRequest(http.MethodGet, "/calendar/vaccination/events?status=completed", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		HistoryProjection *struct {
+			Stale           bool   `json:"stale"`
+			PartialCoverage bool   `json:"partial_coverage"`
+			ServingState    string `json:"serving_state"`
+		} `json:"history_projection"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.HistoryProjection == nil {
+		t.Fatalf("history_projection missing from response body: %s", rec.Body.String())
+	}
+	if !body.HistoryProjection.Stale || !body.HistoryProjection.PartialCoverage || body.HistoryProjection.ServingState != "stale" {
+		t.Fatalf("history_projection=%+v, want stale=true partial_coverage=true serving_state=stale", *body.HistoryProjection)
+	}
+}
+
 func TestCalendarProjectionStaleReturnsTyped503(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(staleCalendarService{}))

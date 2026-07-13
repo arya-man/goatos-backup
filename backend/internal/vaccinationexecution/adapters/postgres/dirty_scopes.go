@@ -108,15 +108,28 @@ func (r *Repository) ClaimDirtyScopes(ctx context.Context, owner, tenantID strin
 		}
 	}()
 
-	rows, err := tx.Query(ctx, `
+	// A single-tenant deployment job (GOATOS_TENANT_ID set) MUST use a SARGable, tenant-leading
+	// predicate so the claim seeks vaccination_projection_dirty_scopes_tenant_claim_idx
+	// (tenant_id, status, next_attempt_at, dirty_scope_id) directly instead of walking the global
+	// (status, next_attempt_at, dirty_scope_id) index and discarding foreign tenants as a residual
+	// Filter -- a `($3='' OR tenant_id=$3)` OR-form defeats the index and lets a noisy tenant cause
+	// large scans/timeouts (C5-003). An unscoped shared worker (empty tenantID) keeps the global
+	// claim on the global index.
+	const claimSelect = `
 SELECT dirty_scope_id, tenant_id::text, projection_kind, shed_id, reason, status, attempt_count, max_attempts, enqueued_at
 FROM vaccination_projection_dirty_scopes
 WHERE status = 'pending'
-  AND next_attempt_at <= $1
-  AND ($3::text = '' OR tenant_id = $3::uuid)
+  AND next_attempt_at <= $1`
+	const claimOrderLimit = `
 ORDER BY next_attempt_at, dirty_scope_id
 LIMIT $2
-FOR UPDATE SKIP LOCKED`, now, limit, tenantID)
+FOR UPDATE SKIP LOCKED`
+	var rows pgx.Rows
+	if tenantID != "" {
+		rows, err = tx.Query(ctx, claimSelect+"\n  AND tenant_id = $3::uuid"+claimOrderLimit, now, limit, tenantID)
+	} else {
+		rows, err = tx.Query(ctx, claimSelect+claimOrderLimit, now, limit)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: claim dirty scopes: select: %w", err)
 	}

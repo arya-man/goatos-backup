@@ -59,6 +59,28 @@ explain_must_use_index() {
   echo "Indexed plan observed: $label"
 }
 
+# explain_must_use_named_index asserts a SPECIFIC index is chosen (not just "some index"). Needed
+# where "no Seq Scan" is too weak -- e.g. a tenant-scoped claim could ride the global claim index
+# and residual-Filter the tenant, which is exactly the inefficiency we are gating against.
+explain_must_use_named_index() {
+  local label="$1"
+  local required_index="$2"
+  local sql="$3"
+  local plan
+  plan="$(printf '%s\n' "$sql" | run_psql)"
+  if ! grep -E "$required_index" <<<"$plan" >/dev/null; then
+    echo "$plan"
+    echo "Expected $label to use index $required_index (tenant-leading), got the plan above" >&2
+    exit 1
+  fi
+  if grep -E 'Seq Scan on vaccination_projection_dirty_scopes' <<<"$plan" >/dev/null; then
+    echo "$plan"
+    echo "Unexpected sequential scan in $label" >&2
+    exit 1
+  fi
+  echo "Named-index plan observed: $label -> $required_index"
+}
+
 validate_identity_lookup_plans() {
   explain_must_use_index "GoatByID" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
 SELECT goat_id
@@ -1314,14 +1336,17 @@ LIMIT 200
 FOR UPDATE SKIP LOCKED;"
 
   # C5-003: the tenant-scoped claim (the normal single-tenant deployment-job shape, GOATOS_TENANT_ID
-  # set) stays index-backed on the same claim index even with the tenant filter applied -- the filter
-  # is a Filter clause evaluated during the ordered index scan, not a second Seq Scan.
-  explain_must_use_index "ClaimDirtyScopesLeaseTenantScoped" 'Seq Scan on vaccination_projection_dirty_scopes' "EXPLAIN (COSTS OFF)
+  # set) MUST seek the tenant-leading vaccination_projection_dirty_scopes_tenant_claim_idx via a
+  # SARGable `tenant_id = $` predicate -- NOT ride the global (status,next_attempt_at,id) index and
+  # residual-Filter foreign tenants (which a noisy tenant could turn into a large scan/timeout).
+  # This asserts the specific index by name (COSTS OFF, no enable_seqscan override so the planner's
+  # real choice is exercised).
+  explain_must_use_named_index "ClaimDirtyScopesLeaseTenantScoped" 'vaccination_projection_dirty_scopes_tenant_claim_idx' "EXPLAIN (COSTS OFF)
 SELECT dirty_scope_id, tenant_id::text, projection_kind, shed_id, reason, status, attempt_count, max_attempts, enqueued_at
 FROM vaccination_projection_dirty_scopes
 WHERE status = 'pending'
   AND next_attempt_at <= now()
-  AND ('00000000-0000-4000-8000-000000000001'::text = '' OR tenant_id = '00000000-0000-4000-8000-000000000001'::uuid)
+  AND tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY next_attempt_at, dirty_scope_id
 LIMIT 200
 FOR UPDATE SKIP LOCKED;"
