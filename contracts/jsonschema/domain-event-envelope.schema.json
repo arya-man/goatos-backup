@@ -57,6 +57,7 @@
         "calendar.escalation.acknowledged",
         "calendar.escalation.resolved",
         "notification.exhausted",
+        "notification.sent",
         "obligation.missed",
         "vaccination.verify.accepted",
         "vaccination.verify.rejected",

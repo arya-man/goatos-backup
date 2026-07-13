@@ -25,6 +25,15 @@ const (
 	notificationExhaustedSchemaRef       = "contracts/jsonschema/domain-event-envelope.schema.json#notification.exhausted"
 	notificationExhaustedTopic           = "calendar.notifications"
 	notificationExhaustedProducerService = "goatos-notification-dispatcher"
+
+	notificationSentEventType       = "notification.sent"
+	notificationSentSchemaVersion   = "1.0.0"
+	notificationSentSchemaRef       = "contracts/jsonschema/domain-event-envelope.schema.json#notification.sent"
+	notificationSentTopic           = "calendar.notifications"
+	notificationSentProducerService = "goatos-notification-dispatcher"
+
+	deliveryAttemptResultSent   = "sent"
+	deliveryAttemptResultFailed = "failed"
 )
 
 type Repository struct {
@@ -151,10 +160,26 @@ ORDER BY requested_at, notification_request_id`, params.TenantID, params.Now, pa
 	return requests, nil
 }
 
+// MarkSent transitions a claimed request to 'sent'. In the same transaction it
+// (1) appends an immutable notification_delivery_attempts row for this attempt
+// (attempt_no = the request's delivery_attempts at claim time) and (2) emits a
+// durable notification.sent outbox event, so the status flip, the per-attempt
+// ledger, and the durable success event are all atomic: never one without the
+// others. MarkSent is lease-guarded (WHERE lease_token = $3 AND status =
+// 'sending'), so a replay of an already-sent request affects zero rows, returns
+// an error, and never re-inserts an attempt row or a second event.
 func (r *Repository) MarkSent(ctx context.Context, tenantID, notificationRequestID, leaseToken, deliveredBy string, now time.Time) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var row sentNotificationRow
+	err = tx.QueryRow(ctx, `
 UPDATE notification_requests
 SET status = 'sent',
     sent_at = $4::timestamptz,
@@ -167,22 +192,67 @@ SET status = 'sent',
 WHERE tenant_id = $1::uuid
   AND notification_request_id = $2::uuid
   AND lease_token = $3::uuid
-  AND status = 'sending'`, tenantID, notificationRequestID, leaseToken, now, deliveredBy)
+  AND status = 'sending'
+RETURNING
+  channel,
+  delivery_attempts,
+  COALESCE(trace_id, '')`, tenantID, notificationRequestID, leaseToken, now, deliveredBy).Scan(
+		&row.Channel,
+		&row.DeliveryAttempts,
+		&row.TraceID,
+	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("notification: mark sent claim missing")
+		}
 		return fmt.Errorf("notification: mark sent: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("notification: mark sent claim missing")
+
+	// provider_message_id is left NULL: ports.Gateway.Send returns only an error today, so no
+	// channel adapter (webhook/slack/email/incident/push_fcm) surfaces a provider-assigned
+	// message id back to the dispatcher. Threading it through would require widening the
+	// Gateway interface (Send returning (providerMessageID string, err error)) and updating
+	// every adapter implementation and both fakes in service_test.go / gateway_test.go -- out of
+	// scope for the audit-ledger change. Documented here per the ledger design; the column is
+	// nullable specifically to allow this.
+	if err := insertDeliveryAttempt(ctx, tx, tenantID, notificationRequestID, row.DeliveryAttempts, row.Channel, deliveryAttemptResultSent, now, nil, nil); err != nil {
+		return err
+	}
+	if err := insertNotificationSentEvidence(ctx, tx, tenantID, notificationRequestID, now, row); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
 	}
 	return nil
 }
 
+type sentNotificationRow struct {
+	Channel          string
+	DeliveryAttempts int
+	TraceID          string
+}
+
+// MarkFailed transitions a claimed request to 'failed' (retryable, nextAttemptAt != nil) or
+// 'exhausted' (permanent, nextAttemptAt == nil). Both branches append the attempt's
+// notification_delivery_attempts row (result='failed', error=failureReason) inside the SAME
+// transaction as the status update, so the ledger and the status flip are atomic. The exhausted
+// branch additionally emits the existing durable notification.exhausted outbox event.
 func (r *Repository) MarkFailed(ctx context.Context, tenantID, notificationRequestID, leaseToken, deliveredBy, failureReason string, nextAttemptAt *time.Time, now time.Time) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if nextAttemptAt != nil {
 		next := pgtype.Timestamptz{Time: nextAttemptAt.UTC(), Valid: true}
-		tag, err := r.pool.Exec(ctx, `
+
+		tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		var channel string
+		var deliveryAttempts int
+		err = tx.QueryRow(ctx, `
 UPDATE notification_requests
 SET status = 'failed',
     failure_reason = $4,
@@ -194,12 +264,19 @@ SET status = 'failed',
 WHERE tenant_id = $1::uuid
   AND notification_request_id = $2::uuid
   AND lease_token = $3::uuid
-  AND status = 'sending'`, tenantID, notificationRequestID, leaseToken, failureReason, next, deliveredBy, now)
+  AND status = 'sending'
+RETURNING channel, delivery_attempts`, tenantID, notificationRequestID, leaseToken, failureReason, next, deliveredBy, now).Scan(&channel, &deliveryAttempts)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("notification: mark failed claim missing")
+			}
 			return fmt.Errorf("notification: mark failed: %w", err)
 		}
-		if tag.RowsAffected() == 0 {
-			return fmt.Errorf("notification: mark failed claim missing")
+		if err := insertDeliveryAttempt(ctx, tx, tenantID, notificationRequestID, deliveryAttempts, channel, deliveryAttemptResultFailed, now, &failureReason, nil); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -246,11 +323,35 @@ RETURNING
 		}
 		return fmt.Errorf("notification: mark failed: %w", err)
 	}
+	if err := insertDeliveryAttempt(ctx, tx, tenantID, notificationRequestID, row.DeliveryAttempts, row.Channel, deliveryAttemptResultFailed, now, &failureReason, nil); err != nil {
+		return err
+	}
 	if err := insertNotificationExhaustedEvidence(ctx, tx, tenantID, notificationRequestID, deliveredBy, failureReason, now, row); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
+	}
+	return nil
+}
+
+// insertDeliveryAttempt appends one immutable row to the per-attempt delivery ledger. attemptNo
+// is the request's delivery_attempts value at the moment of this attempt (set by ClaimDue's
+// `delivery_attempts = delivery_attempts + 1`), so it is stable and monotonic per request. The
+// ON CONFLICT DO NOTHING on (tenant_id, notification_request_id, attempt_no) is defense in depth:
+// MarkSent/MarkFailed are already lease + status guarded so a genuine duplicate call is rejected
+// before reaching this insert, but the guard keeps the ledger append-only-safe even so.
+func insertDeliveryAttempt(ctx context.Context, tx pgx.Tx, tenantID, notificationRequestID string, attemptNo int, channel, result string, attemptedAt time.Time, errText, providerMessageID *string) error {
+	_, err := tx.Exec(ctx, `
+INSERT INTO notification_delivery_attempts (
+  tenant_id, notification_request_id, attempt_no, channel, attempted_at, result, provider_message_id, error
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5::timestamptz, $6, $7, $8
+)
+ON CONFLICT (tenant_id, notification_request_id, attempt_no) DO NOTHING`,
+		tenantID, notificationRequestID, attemptNo, channel, attemptedAt, result, providerMessageID, errText)
+	if err != nil {
+		return fmt.Errorf("notification: insert delivery attempt: %w", err)
 	}
 	return nil
 }
@@ -391,6 +492,132 @@ INSERT INTO audit_log (
 	)
 	if err != nil {
 		return fmt.Errorf("notification: exhausted audit: %w", err)
+	}
+	return nil
+}
+
+// insertNotificationSentEvidence mirrors insertNotificationExhaustedEvidence, giving the durable
+// event stream success symmetry with notification.exhausted (docs/decisions/vaccination-
+// notification-rules.md audit section, gap 2: previously only failures emitted a durable event).
+// The idempotency key is scoped to the notification_request_id (not the attempt), matching
+// MarkSent's lease + status guard: a request can only ever transition to 'sent' once, so
+// ON CONFLICT (event_id) DO NOTHING on the deterministic event id is defense in depth, not the
+// primary guard -- the primary guard is that a replayed MarkSent call affects zero rows and never
+// reaches this function at all.
+func insertNotificationSentEvidence(ctx context.Context, tx pgx.Tx, tenantID, notificationRequestID string, now time.Time, row sentNotificationRow) error {
+	idempotencyKey := notificationSentEventType + ":" + notificationRequestID
+	eventID := platformoutbox.DeterministicUUID(notificationSentEventType + ":" + tenantID + ":" + notificationRequestID)
+	traceID := strings.TrimSpace(row.TraceID)
+	if traceID == "" {
+		traceID = idempotencyKey
+	}
+	recorded := now.UTC().Format(time.RFC3339Nano)
+	payload := map[string]any{
+		"notification_request_id": notificationRequestID,
+		"tenant_id":               tenantID,
+		"channel":                 row.Channel,
+		"delivery_attempts":       row.DeliveryAttempts,
+		"sent_at":                 recorded,
+		"trace_id":                traceID,
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"event_id":       eventID,
+		"event_type":     notificationSentEventType,
+		"schema_version": notificationSentSchemaVersion,
+		"schema_ref":     notificationSentSchemaRef,
+		"aggregate_type": "calendar_notification",
+		"aggregate_id":   notificationRequestID,
+		"occurred_at":    recorded,
+		"recorded_at":    recorded,
+		"producer": map[string]any{
+			"service": notificationSentProducerService,
+			"module":  "notification",
+			"version": nil,
+		},
+		"idempotency_key": idempotencyKey,
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_id":   nil,
+			"actor_ref":  nil,
+		},
+		"subject_type": "calendar_event",
+		"subject_id":   notificationRequestID,
+		"visibility_scope": map[string]any{
+			"tenant_id": tenantID,
+		},
+		"evidence_refs": []map[string]string{{
+			"evidence_type": "notification_request",
+			"evidence_id":   notificationRequestID + ":sent",
+		}},
+		"payload":  payload,
+		"trace_id": traceID,
+	})
+	if err != nil {
+		return fmt.Errorf("notification: sent envelope: %w", err)
+	}
+	headers, err := json.Marshal(map[string]any{
+		"producer":                "notification.MarkSent",
+		"schema_version":          notificationSentSchemaVersion,
+		"notification_request_id": notificationRequestID,
+		"idempotency_key":         idempotencyKey,
+		"trace_id":                traceID,
+	})
+	if err != nil {
+		return fmt.Errorf("notification: sent headers: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO outbox_messages (
+  tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id,
+  topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, 'calendar_notification', $5::uuid,
+  $6, $7::jsonb, $8::jsonb, $9, $10, 'pending', now()
+)
+ON CONFLICT (event_id) DO NOTHING`,
+		tenantID, eventID, notificationSentEventType, notificationSentSchemaVersion,
+		notificationRequestID, notificationSentTopic, envelope, headers, idempotencyKey, traceID)
+	if err != nil {
+		return fmt.Errorf("notification: sent outbox: %w", err)
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"domain":                  "calendar",
+		"module":                  "notification",
+		"category":                "notification_delivery",
+		"notification_request_id": notificationRequestID,
+		"channel":                 row.Channel,
+		"status":                  domain.StatusSent,
+		"result":                  domain.StatusSent,
+		"delivery_attempts":       row.DeliveryAttempts,
+		"trace_id":                traceID,
+	})
+	if err != nil {
+		return fmt.Errorf("notification: sent audit metadata: %w", err)
+	}
+	afterState, err := json.Marshal(map[string]any{
+		"status":            domain.StatusSent,
+		"delivery_attempts": row.DeliveryAttempts,
+	})
+	if err != nil {
+		return fmt.Errorf("notification: sent audit after_state: %w", err)
+	}
+	_, err = tx.Exec(ctx, `
+INSERT INTO audit_log (
+  tenant_id, actor_type, action, resource_type, resource_id, scope_type,
+  scope_id, after_state, metadata, trace_id, recorded_at
+) VALUES (
+  $1::uuid, 'system', $2, 'calendar_notification', $3::uuid, 'notification_request',
+  $3::uuid, $4::jsonb, $5::jsonb, $6, $7::timestamptz
+)`,
+		tenantID,
+		notificationSentEventType,
+		notificationRequestID,
+		afterState,
+		metadata,
+		traceID,
+		now,
+	)
+	if err != nil {
+		return fmt.Errorf("notification: sent audit: %w", err)
 	}
 	return nil
 }

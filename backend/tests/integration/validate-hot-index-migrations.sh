@@ -41,6 +41,7 @@ hot_tables = {
     "inventory_stock",
     "inventory_stock_movements",
     "movement_commands",
+    "notification_delivery_attempts",
     "notification_requests",
     "obligation_batches",
     "obligation_escalations",
