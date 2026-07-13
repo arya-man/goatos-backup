@@ -1340,9 +1340,8 @@ WHERE ob.tenant_id = $1
 		if _, err := tx.Exec(ctx, `
 INSERT INTO obligation_status_events (
   tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
-) SELECT $1, obligation_id, $2, $3, $4, idempotency_key
-FROM UNNEST($5::uuid[], $6::text[]) AS t(obligation_id, idempotency_key)
-ON CONFLICT (idempotency_key) DO NOTHING`, tenant, "canceled", pgconv.Timestamptz(occurredAt), payload, obligationIDs, idempotencyKeys); err != nil {
+	) SELECT $1, obligation_id, $2, $3, $4, idempotency_key
+	FROM UNNEST($5::uuid[], $6::text[]) AS t(obligation_id, idempotency_key)`, tenant, "canceled", pgconv.Timestamptz(occurredAt), payload, obligationIDs, idempotencyKeys); err != nil {
 			return 0, fmt.Errorf("obligation: bulk insert cancel events: %w", err)
 		}
 	}
