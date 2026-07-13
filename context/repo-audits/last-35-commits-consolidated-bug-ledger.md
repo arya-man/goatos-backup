@@ -112,17 +112,17 @@ Claude ran an independent pass (6 parallel cluster auditors over kernel/sweeper/
 
 | ID | Priority | Short title | Draft disposition |
 | --- | --- | --- | --- |
-| C35-001 | P0 | Android logout preserves prior principal's Room caches/outbox | open, confirmed |
-| C35-002 | P1 | Process Integrity and Vaccination Execution still compute large answers on read | open, confirmed |
+| C35-001 | P0 | Android logout preserves prior principal's Room caches/outbox | **FIXED WITH PROOF** — shared LogoutCoordinator full clean-slate Room/outbox wipe + device deregister |
+| C35-002 | P1 | Process Integrity and Vaccination Execution still compute large answers on read | **PARTIAL / OPEN** — read-model infra landed (mig 000167 projection tables + `_state` serving-swap, `RecomputeShedProjection` + parity test, recompute CLI/Cloud Run Job, indexed sqlc plans); REMAINDER = flip request path off the god-CTE onto the projection (scale/read-model debt, safe follow-up) |
 | C35-003 | P1 | Staging sweeper can run without SOP task creator | **FIXED WITH PROOF** |
 | C35-004 | P1 | “Bulk” sweeper task creation still performs one write call per batch | **FIXED WITH PROOF** |
-| C35-005 | P1 | Herd Register projection is unused while SSR still downloads the whole herd | open, confirmed |
+| C35-005 | P1 | Herd Register projection is unused while SSR still downloads the whole herd | **FIXED WITH PROOF** — Herd Register full-herd SSR walk replaced with a bounded summary projection |
 | C35-006 | P1 | Mobile Scan -> Submit loses task identity and fetches 1,000 goats | FIXED — c9574bdc (task identity threaded through routes/VM/DTO/outbox/Submit + 20-row keyset roster; ExecutionRouteIdentityTest/ExecutionRepositoryPaginationTest) |
 | C35-007 | P1 | Planned-batch finalization query lacks matching plan/index gate | **FIXED WITH PROOF** |
 | C35-008 | P1 | Android changes can merge without an Android compile/test gate | **FIXED WITH PROOF** |
-| C35-009 | P1 | Published scale report is prose, not current-SHA scale execution | open, confirmed |
+| C35-009 | P1 | Published scale report is prose, not current-SHA scale execution | **FIXED WITH PROOF** — SHA-bound scale badge/report; full-1M gate automation is the honest remainder (needs staging DB) |
 | C35-010 | P0 | Partial clinical defer authoring can cancel unsafe work | **FIXED WITH PROOF** (runtime union + publish reject + seed fix + CI guard) |
-| C35-011 | P1 | Mobile leadership record has no verify/rework action | open, confirmed |
+| C35-011 | P1 | Mobile leadership record has no verify/rework action | **FIXED WITH PROOF** — mobile record verify/rework action wired (closed with C35-019) |
 | C35-012 | P1 | Current release evidence is unavailable: Actions fail before any job | CLOSED — local-evidence authoritative per AGENTS.md CI rule; runbook docs/runbooks/local-release-evidence.md; org Actions billing = maintainer follow-up, NOT a closure blocker |
 | C35-013 | P2 | Action Center loads both tabs and retains OFFSET board debt | open, confirmed |
 | C35-014 | P2 | Calendar always makes an overlapping marker request | **FIXED WITH PROOF** |

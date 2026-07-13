@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 // reportRelPath is relative to this package's directory (go test's working directory is always
@@ -16,6 +18,8 @@ const reportRelPath = "report/index.html"
 // path before propagating the real test exit code.
 func TestMain(m *testing.M) {
 	code := m.Run()
+	// Tear down the shared pgtest container before report writing / os.Exit (os.Exit skips defers).
+	pgtest.Shutdown()
 
 	if err := globalReport.WriteHTML(reportRelPath); err != nil {
 		fmt.Fprintf(os.Stderr, "e2e-hrms: failed to write kernel story report: %v\n", err)

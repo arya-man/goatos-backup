@@ -144,6 +144,9 @@ Vaccination kernel closure business backlog
 Operational kernel stability closure handoff
   context/execution/operational-kernel-stability-closure-handoff.md
 
+PostgreSQL integration-test harness optimization handoff
+  context/execution/postgres-test-harness-optimization-handoff-20260713.md
+
 CEO vaccination kernel dev guide
   context/execution/ceo-vaccination-kernel-dev-guide.md
 

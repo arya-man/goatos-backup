@@ -55,6 +55,62 @@ calendar surface, but open-work pages must not turn those markers into
 aggregated operational totals, suppress pagination truth, or blur them into the
 authoritative active-work list.
 
+## Projection rebuild anti-patterns
+
+The `full (stop-the-world) MV refresh` rule above bans the delete+reinsert
+*mechanism*. This section bans the *rebuild trigger and availability* failures
+that surfaced in the Calendar/CT/AC/PA/Vaccination projection rebuild (Codex
+"Fix vaccination calendar rules", 2026-07-13). A projection that reads correctly
+at 1k rows can still take the whole surface down or lie about freshness at 1M.
+Root cause under all four: **rebuild should be read-through, dirty-scoped, and
+honest about what it actually recomputed — never take the read model offline,
+re-scan the whole tenant on a timer, rebuild twice, or blanket-stamp fresh.**
+
+1. **Rebuild-by-unavailability (availability regression).** A rebuild that flips
+   the read model to `unavailable`/stale (`ErrProjectionUnavailable`, 503, blank
+   wall) *before* recomputing, so Control Tower / Action Center / Protocol
+   Adherence / Calendar / Vaccination fail to load even though the last
+   successful projection is still valid. Rebuild must be **read-through /
+   version-swap**: the previous projection version keeps serving until the new
+   version is built and atomically swapped in. Only a genuine cold start (no
+   prior successful version for that scope) may serve `unavailable`. Never
+   degrade a warm surface to rebuild it.
+
+2. **Scheduled whole-tenant rebuild on a timer.** A cron that unconditionally
+   recomputes the *entire tenant* projection every N minutes regardless of what
+   changed (the whole-tenant `RecomputeProjection(tenantID)` shape). Cheap at 1k
+   rows, a full-herd re-read every cycle at 1M. Replace with **event/dirty-set-
+   driven incremental maintenance scoped to the changed unit** — per-shed /
+   per-park dirty projections keyed off outbox deltas. Whole-tenant recompute is
+   allowed ONLY as an explicit, off-request, manual/seed/backfill path (labeled
+   as such), never as the steady-state refresh.
+
+3. **Double / duplicate rebuild per cycle.** The same projection rebuilt more
+   than once per cycle — two schedules, or a projector AND a sweeper both
+   rebuilding the same rows. One projection = one owner = one trigger. A
+   duplicate rebuild schedule is a defect, not a safety margin.
+
+4. **False-freshness "incremental" worker.** A worker *labeled* incremental that
+   actually copies the whole tenant and stamps freshness/watermark on scopes it
+   did not recompute (e.g. marking mixed-age sheds `fresh`). The freshness
+   envelope (`as_of` / `last_success_at` / `freshness_status` / source watermark
+   / projection version) must reflect ONLY what was actually recomputed. Never
+   blanket-stamp fresh. An "incremental recovery" path that is really a
+   whole-tenant copy with a false freshness claim is a band-aid — reject and
+   remove it, do not ship another unsafe rebuild on top of it.
+
+Corollary (compute-on-read): Calendar completion-history and month/date-marker
+reads must be served from a materialized projection, not from canonical joins
+run live per request. "Measured" is not "safe" — a timed god-join is still
+compute-on-read and still 1M-unsafe. See the accepted narrow Calendar history
+exception above; it stays read-only, tenant-scoped, date-bounded, keyset, and
+truncation-honest, and it does not license live joins on the open-work path.
+
+These four are **review-caught, not statically caught** — `make scale-guard`
+blocks the delete+reinsert mechanism (`full-mv-refresh`) but cannot see rebuild
+cadence, a serving-state flip, or a false freshness stamp. Reviewers must name
+them; see `.agents/skills/goatos-code-review/references/kernel-and-scale.md`.
+
 When an E2E run, scale audit, or feature proof is generated while fixing one of
 these issues, commit the report and publish it through the GitHub Pages report
 site. Local-only proof must say that it is local-only and must not be described

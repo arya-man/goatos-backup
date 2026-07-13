@@ -5,9 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
@@ -51,13 +52,20 @@ class ScanViewModel @Inject constructor(
     private val _state = MutableStateFlow(emptyScanState())
     val state: StateFlow<ScanUiState> = _state.asStateFlow()
 
+    // Lifecycle-aware StateFlow: automatically cancel when viewModelScope clears
+    private val scanRosterFlow: StateFlow<Resource<ScanRosterResponseDto>> =
+        if (!shedId.isNullOrBlank() && !taskId.isNullOrBlank()) {
+            repo.observeScanRoster(shedId, taskId, limit = SCAN_PAGE_SIZE)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource.loading())
+        } else {
+            MutableStateFlow(Resource.loading())
+        }
+
     init {
         // Cache-first: renders whatever Room already has (possibly nothing, on a cold
         // install) immediately, then re-renders after every successful refresh below.
         viewModelScope.launch {
-            val id = shedId ?: return@launch
-            val selectedTask = taskId ?: return@launch
-            repo.observeScanRoster(id, selectedTask, limit = SCAN_PAGE_SIZE).collectLatest { resource ->
+            scanRosterFlow.collect { resource ->
                 applyResource(resource)
             }
         }
