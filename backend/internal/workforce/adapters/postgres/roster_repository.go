@@ -615,6 +615,52 @@ LIMIT 1000`, tenantID, scopeType, scopeID, positionCode, at)
 	return scanNotificationRecipients(rows)
 }
 
+// ResolvePositionRecipientsBatch is the batched form of ResolvePositionRecipients: ONE query resolves
+// active, reachable devices for every (scopeID, positionCode) pair in scopeIDs x positionCodes,
+// instead of one round trip per park (the n-plus-one-fanout a cadence sweeper looping over parks would
+// otherwise hit). Same active-seat + device filters as the single-pair form.
+// scale-guard: bounded recipient fan-out LIMIT 5000 (many parks x few position codes) prevents
+// unbounded multi-device notifications.
+func (r *Repository) ResolvePositionRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]domain.NotificationRecipient, error) {
+	out := map[string][]domain.NotificationRecipient{}
+	if len(scopeIDs) == 0 || len(positionCodes) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT p.scope_id::text, p.position_code, p.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM workforce_positions p
+JOIN workforce_member_devices d
+  ON d.tenant_id = p.tenant_id
+ AND d.workforce_member_id = p.workforce_member_id
+ AND d.status = 'active'
+ AND d.fcm_token IS NOT NULL
+WHERE p.tenant_id = $1::uuid
+  AND p.scope_type = $2
+  AND p.scope_id = ANY($3::uuid[])
+  AND p.position_code = ANY($4::text[])
+  AND p.status = 'active'
+  AND p.valid_from <= $5::timestamptz
+  AND (p.valid_to IS NULL OR p.valid_to > $5::timestamptz)
+ORDER BY 1, 2, 3, 4
+LIMIT 5000`, tenantID, scopeType, scopeIDs, positionCodes, at)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var scopeID, positionCode string
+		var item domain.NotificationRecipient
+		if err := rows.Scan(&scopeID, &positionCode, &item.WorkforceMemberID, &item.DeviceID, &item.FCMToken); err != nil {
+			return nil, err
+		}
+		key := scopeID + "|" + positionCode
+		out[key] = append(out[key], item)
+	}
+	return out, rows.Err()
+}
+
 func scanNotificationRecipients(rows pgx.Rows) ([]domain.NotificationRecipient, error) {
 	defer rows.Close()
 	items := []domain.NotificationRecipient{}

@@ -1080,6 +1080,18 @@ func (s *RosterService) ResolvePositionRecipients(ctx context.Context, tenantID,
 	return s.repo.ResolvePositionRecipients(ctx, tenantID, scopeType, scopeID, positionCode, s.now())
 }
 
+// ResolvePositionRecipientsBatch resolves active, reachable devices for MULTIPLE (scopeID,
+// positionCode) pairs in ONE set-based query -- used by cadence sweepers (e.g. the vaccination
+// reminder cadence) that need the same fixed position-code audience across many parks in a single
+// tick without a per-park N+1 fan-out. `at` is caller-supplied (rather than s.now()) so a sweeper
+// evaluating a fixed as-of instant resolves recipients as of that SAME instant.
+func (s *RosterService) ResolvePositionRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]domain.NotificationRecipient, error) {
+	if at.IsZero() {
+		at = s.now()
+	}
+	return s.repo.ResolvePositionRecipientsBatch(ctx, tenantID, scopeType, scopeIDs, positionCodes, at)
+}
+
 func validRosterScope(tenantID, scopeType, scopeID string) bool {
 	switch scopeType {
 	case "tenant":

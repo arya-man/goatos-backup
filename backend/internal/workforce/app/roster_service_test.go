@@ -454,6 +454,10 @@ func (f *fakeRosterRepo) ResolvePositionRecipients(_ context.Context, _, _, _, _
 	return nil, nil
 }
 
+func (f *fakeRosterRepo) ResolvePositionRecipientsBatch(_ context.Context, _, _ string, _, _ []string, _ time.Time) (map[string][]domain.NotificationRecipient, error) {
+	return nil, nil
+}
+
 // fakeCapabilityGranter is an in-memory fake of ports.CapabilityGranter
 // (workforce_member_capabilities reuse, design doc S4.6).
 type fakeCapabilityGranter struct {

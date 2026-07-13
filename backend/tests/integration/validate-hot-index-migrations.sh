@@ -87,14 +87,23 @@ reviewed_applied_debt = {
     "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct DROP CONSTRAINT in goose Down section",
     "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct VALIDATE CONSTRAINT",
     "000166_domain_event_processed_effects_committed_status.sql: domain_event_processed_events_status_check on hot table domain_event_processed_events uses direct VALIDATE CONSTRAINT in goose Down section",
-    # 000171 relaxes the notification_requests notification_type CHECK to add
-    # 'verification_pending' and 'rework' (the vaccination verification/rework notification kernel).
-    # Same shape as 000166: the DROP is catalog-only (brief ACCESS EXCLUSIVE, no scan) and the re-add
-    # is NOT VALID + VALIDATE (concurrent). Explicitly reviewed as acceptable hot-table debt.
+    # 000179 (originally authored as 000171, renumbered during the notification-lane version
+    # collision fix -- see git history around commit b3a74f20) relaxes the notification_requests
+    # notification_type CHECK to add 'verification_pending' and 'rework' (the vaccination
+    # verification/rework notification kernel). Same shape as 000166: the DROP is catalog-only
+    # (brief ACCESS EXCLUSIVE, no scan) and the re-add is NOT VALID + VALIDATE (concurrent).
+    # Explicitly reviewed as acceptable hot-table debt.
     "000179_vaccination_verification_notification_kernel.sql: notification_requests_type_check on hot table notification_requests uses direct DROP CONSTRAINT",
     "000179_vaccination_verification_notification_kernel.sql: notification_requests_type_check on hot table notification_requests uses direct DROP CONSTRAINT in goose Down section",
     "000179_vaccination_verification_notification_kernel.sql: notification_requests_type_check on hot table notification_requests uses direct VALIDATE CONSTRAINT",
     "000179_vaccination_verification_notification_kernel.sql: notification_requests_type_check on hot table notification_requests uses direct VALIDATE CONSTRAINT in goose Down section",
+    # 000181 relaxes the same CHECK further to add 'advance_notice' and 'due_today' (the vaccination
+    # reminder cadence ladder, docs/decisions/vaccination-notification-rules.md §3). Identical
+    # lock-safe shape to 000166/000179: catalog-only DROP + NOT VALID re-add + concurrent VALIDATE.
+    "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct DROP CONSTRAINT",
+    "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct DROP CONSTRAINT in goose Down section",
+    "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct VALIDATE CONSTRAINT",
+    "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct VALIDATE CONSTRAINT in goose Down section",
 }
 
 create_table_re = re.compile(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)

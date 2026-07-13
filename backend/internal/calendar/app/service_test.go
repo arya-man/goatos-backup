@@ -288,3 +288,11 @@ func (f *fakeRepo) PruneClosedVaccinationProjection(context.Context, string, tim
 func (f *fakeRepo) QueueRoleNotifications(context.Context, ports.QueueRoleNotifications) (int, error) {
 	return 0, nil
 }
+
+func (f *fakeRepo) SweepReminderCadence(context.Context, ports.ReminderCadenceQuery) ([]ports.ReminderCadenceFire, error) {
+	return nil, nil
+}
+
+func (f *fakeRepo) QueueReminderCadenceBatch(context.Context, ports.QueueReminderCadenceBatch) (int, error) {
+	return 0, nil
+}

@@ -376,6 +376,53 @@ func (s *Service) QueueRoleNotifications(ctx context.Context, in ports.QueueRole
 	return n, nil
 }
 
+// SweepReminderCadence validates and defaults the cadence sweep envelope and returns the fires due to
+// be queued as of in.Now (see ports.ReminderCadenceQuery / vaccination-notification-rules.md §3). The
+// caller (cmd/calendar-reminder-sweeper) resolves each fire's audience and calls
+// QueueReminderCadenceBatch to actually write the notification rows.
+func (s *Service) SweepReminderCadence(ctx context.Context, in ports.ReminderCadenceQuery) ([]ports.ReminderCadenceFire, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	if !uuidutil.IsUUIDString(in.TenantID) {
+		return nil, BadRequest("invalid_tenant", "tenant id is required")
+	}
+	if in.Now.IsZero() {
+		in.Now = s.now()
+	}
+	if in.Limit <= 0 {
+		in.Limit = 200
+	}
+	if in.Limit > 2000 {
+		in.Limit = 2000
+	}
+	fires, err := s.repo.SweepReminderCadence(ctx, in)
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+	return fires, nil
+}
+
+// QueueReminderCadenceBatch validates the envelope and passes already-collapsed, already-audienced
+// cadence fires straight through to the repository's set-based batch insert. No fires is a legitimate
+// no-op (e.g. a tick with nothing currently due, or everything deferred by quiet hours).
+func (s *Service) QueueReminderCadenceBatch(ctx context.Context, in ports.QueueReminderCadenceBatch) (int, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	if !uuidutil.IsUUIDString(in.TenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant id is required")
+	}
+	in.Channel = strings.TrimSpace(in.Channel)
+	if in.Channel == "" {
+		in.Channel = "push_fcm"
+	}
+	if len(in.Fires) == 0 {
+		return 0, nil
+	}
+	n, err := s.repo.QueueReminderCadenceBatch(ctx, in)
+	if err != nil {
+		return 0, mapRepoError(err)
+	}
+	return n, nil
+}
+
 func validateActionEnvelope(tenantID, actorID, eventID, idempotencyKey string) error {
 	if !uuidutil.IsUUIDString(tenantID) {
 		return BadRequest("invalid_tenant", "tenant id is required")

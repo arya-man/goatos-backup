@@ -41,6 +41,24 @@ type Repository interface {
 	// rows actually inserted (0 on an exact replay of every recipient, or when Recipients is empty).
 	QueueRoleNotifications(ctx context.Context, in QueueRoleNotifications) (int, error)
 
+	// SweepReminderCadence computes the vaccination reminder cadence ladder fires
+	// (vaccination-notification-rules.md §3) due as of in.Now, already collapsed per (park, fire
+	// day, notification type, slot) so multiple obligations due the same park the same fire day
+	// batch into ONE fire, and already excluding fires that already exist (idempotency) or that fall
+	// inside quiet hours. Two bounded, indexed, set-based reads (candidate events, then already-fired
+	// keys) -- no N+1. Returns the fires ready to have their audience resolved and be queued via
+	// QueueReminderCadenceBatch.
+	SweepReminderCadence(ctx context.Context, in ReminderCadenceQuery) ([]ReminderCadenceFire, error)
+
+	// QueueReminderCadenceBatch writes ALL recipient rows for MULTIPLE already-collapsed cadence
+	// fires (from SweepReminderCadence) in one set-based pass: it first claims each fire atomically
+	// (INSERT ... ON CONFLICT DO NOTHING against the fire-marker table, so two concurrent sweeper
+	// runs never double-fire), then bulk-inserts one notification_requests row per (won fire,
+	// recipient) via unnest -- no per-fire loop calling an injected recipient-resolution dependency
+	// (the caller resolves audience once, in a single batched call, before invoking this). Returns
+	// the number of notification_requests rows actually inserted.
+	QueueReminderCadenceBatch(ctx context.Context, in QueueReminderCadenceBatch) (int, error)
+
 	// ResolveVaccinationCompletionContext resolves a vaccination completion_id to the obligation_id,
 	// park_id (scope_id), sop_task_id, and recorded_by (executor) it was recorded against. Used by
 	// the notification layer to resolve completion IDs from vaccination.verify.rejected events into
@@ -169,4 +187,71 @@ type VaccinationCompletionContext struct {
 	ScopeType    string // obligation_instances.scope_type (should be 'center' for parks)
 	SOPTaskID    string // obligation_instances.sop_task_id
 	ExecutedBy   string // vaccination_completions.recorded_by (workforce_member_id, may be empty)
+}
+
+// ReminderCadenceQuery is the input to SweepReminderCadence.
+type ReminderCadenceQuery struct {
+	TenantID string
+	// Now is the as-of instant the cadence is evaluated at (any timezone; converted to IST
+	// internally). Defaults to the server's current time when zero.
+	Now time.Time
+	// Ladder is the reminder cadence ladder (offsets/slots/type/priority). Defaults to
+	// domain.DefaultReminderLadder() when empty.
+	Ladder []domain.ReminderLadderStep
+	// QuietHoursStartIST/QuietHoursEndIST are "HH:MM" IST bounds of the no-push window. Default to
+	// domain.DefaultQuietHoursStartIST/EndIST when empty.
+	QuietHoursStartIST string
+	QuietHoursEndIST   string
+	// Limit bounds how many candidate obligations/events are scanned in one sweep tick.
+	Limit int
+}
+
+// ReminderCadenceFire is one collapsed, ready-to-queue cadence fire: a batch across every open
+// vaccination obligation in the SAME park whose ladder lands a fire on the SAME calendar day,
+// notification type, and slot, so one recipient device gets one push, not N
+// (vaccination-notification-rules.md §3 "Dedup/collapse").
+type ReminderCadenceFire struct {
+	ParkID string
+	// RepresentativeCalendarEventID/RepresentativeObligationID identify ONE of the collapsed
+	// obligations (deterministically the earliest due_at, then lowest event_id) -- used only to
+	// satisfy notification_requests' FK to calendar_event_projections and to carry a concrete
+	// obligation_id in the FCM deep-link context; the push itself represents the whole batch.
+	RepresentativeCalendarEventID string
+	RepresentativeObligationID    string
+	FireDayIST                    string // "YYYY-MM-DD", the calendar day this fire is scheduled on (IST)
+	NotificationType              string // advance_notice | reminder | due_today
+	Priority                      string // normal | high
+	Slot                          string // "HH:MM" IST
+	ReminderNumber                int    // 1-based position within a multi-day ladder step; 0 for single-day steps
+	ObligationCount               int    // how many obligations collapsed into this one fire
+	// FireKey is the batch/collapse + idempotency identity: "<park_id>:<FireDayIST>:<type>:<slot>".
+	// Claimed exactly once via the fire-marker table inside QueueReminderCadenceBatch.
+	FireKey string
+	// ClaimKeys is every ladder fire-day key (same "<park_id>:<date>:<type>:<slot>" shape as FireKey,
+	// ALWAYS including FireKey itself) that was due as of Now for the obligations collapsed into this
+	// fire, INCLUDING ones an earlier/skipped slot the sweeper never got to queue because a later
+	// slot for the same obligation had already become due by the time it ran (e.g. the sweeper missed
+	// several daily ticks). All of them are claimed in the fire-marker table alongside FireKey so a
+	// later sweep does NOT "catch up" on the superseded slots and burst multiple stale reminders --
+	// only the single latest (FireKey) ever produces a notification.
+	ClaimKeys []string
+}
+
+// ReminderCadenceFireInput pairs an already-collapsed ReminderCadenceFire with its rendered
+// title/body/context and its already-resolved audience (from workforce's recipient-resolution
+// queries), ready for QueueReminderCadenceBatch.
+type ReminderCadenceFireInput struct {
+	Fire       ReminderCadenceFire
+	Title      string
+	Body       string
+	Context    map[string]string
+	Recipients []NotificationRecipient
+}
+
+// QueueReminderCadenceBatch is the input to Repository.QueueReminderCadenceBatch.
+type QueueReminderCadenceBatch struct {
+	TenantID string
+	Channel  string // push_fcm
+	TraceID  string
+	Fires    []ReminderCadenceFireInput
 }

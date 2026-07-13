@@ -242,6 +242,15 @@ type RosterRepository interface {
 	// ResolvePositionRecipients returns active, reachable devices for whoever actively holds
 	// positionCode at (scopeType, scopeID) `at` -- e.g. the park head.
 	ResolvePositionRecipients(ctx context.Context, tenantID, scopeType, scopeID, positionCode string, at time.Time) ([]domain.NotificationRecipient, error)
+
+	// ResolvePositionRecipientsBatch resolves active, reachable devices for MULTIPLE (scopeID,
+	// positionCode) pairs in ONE set-based query -- the batched form of ResolvePositionRecipients.
+	// Used by cadence sweepers (e.g. the vaccination reminder cadence,
+	// vaccination-notification-rules.md §3/§4a) that need the same fixed position-code audience
+	// (operator, park_head, phc_manager) across many parks in a single tick, so recipient resolution
+	// never becomes a per-park N+1 fan-out. Returns a map keyed by "<scopeID>|<positionCode>"; a pair
+	// with no active holder or no reachable device is simply absent from the map.
+	ResolvePositionRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]domain.NotificationRecipient, error)
 }
 
 // CapabilityGranter is the slice of the existing ports.Repository the roster
