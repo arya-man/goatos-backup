@@ -395,9 +395,9 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 fontWeight = FontWeight.W700,
             )
         }
-        // Suppress the flat subtitle/summary rows when a park-level drive_summary is present:
-        // the DriveProgressCard below already renders sheds/vaccines/dose totals, so these would
-        // duplicate them above the ring (CDR-003). They still render for non-drive-summary rows.
+        // For drive rows the backend populates subtitle/summaryPrimary/summarySecondary with the
+        // same sheds/vaccines/scheduled-dose metrics the option-A ring card now shows, so suppress
+        // them when drive_summary is present (drive != null) to avoid rendering the numbers twice.
         if (drive == null && item.subtitle.isNotEmpty()) {
             Text(
                 text = item.subtitle,
@@ -522,7 +522,14 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
             )
             Spacer(Modifier.size(10.dp))
         }
-        val pct = if (summary.totalCount > 0) Math.round(summary.completedCount * 100.0 / summary.totalCount).toInt() else 0
+        // Coverage ring + headline use the DISTINCT-ANIMAL grain (a goat due for several vaccines the
+        // same day is one animal, completed only when all its drive obligations are). Round (not
+        // truncate) to match the web card's Math.round. The due/overdue/deferred chips stay dose-grain.
+        val pct = if (summary.totalAnimals > 0) {
+            Math.round(summary.completedAnimals * 100f / summary.totalAnimals)
+        } else {
+            0
+        }
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -531,13 +538,13 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
             Column {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        text = summary.completedCount.toString(),
+                        text = summary.completedAnimals.toString(),
                         color = MeshaColors.Ink,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.W800,
                     )
                     Text(
-                        text = " / ${summary.totalCount} ${stringResource(R.string.calendar_drive_doses)}",
+                        text = " / ${summary.totalAnimals} ${stringResource(R.string.calendar_drive_animals)}",
                         color = MeshaColors.Muted,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.W600,

@@ -76,6 +76,8 @@ data class DriveSummaryDto(
     @SerialName("vaccine_labels") val vaccineLabels: List<String> = emptyList(),
     @SerialName("total_count") val totalCount: Int = 0,
     @SerialName("completed_count") val completedCount: Int = 0,
+    @SerialName("total_animals") val totalAnimals: Int = 0,
+    @SerialName("completed_animals") val completedAnimals: Int = 0,
     @SerialName("remaining_count") val remainingCount: Int = 0,
     @SerialName("due_count") val dueCount: Int = 0,
     @SerialName("overdue_count") val overdueCount: Int = 0,

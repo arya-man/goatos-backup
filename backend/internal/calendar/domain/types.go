@@ -61,18 +61,20 @@ const (
 
 // DriveSummary holds park-level drive progress data for vaccination drive events.
 type DriveSummary struct {
-	ParkName       string   `json:"park_name"`
-	DueDate        string   `json:"due_date"`
-	ShedCount      int      `json:"shed_count"`
-	ShedsCompleted int      `json:"sheds_completed"`
-	VaccineLabels  []string `json:"vaccine_labels"`
-	TotalCount     int      `json:"total_count"`
-	CompletedCount int      `json:"completed_count"`
-	RemainingCount int      `json:"remaining_count"`
-	DueCount       int      `json:"due_count"`
-	OverdueCount   int      `json:"overdue_count"`
-	DeferredCount  int      `json:"deferred_count"`
-	OwnerLabel     string   `json:"owner_label"`
+	ParkName         string   `json:"park_name"`
+	DueDate          string   `json:"due_date"`
+	ShedCount        int      `json:"shed_count"`
+	ShedsCompleted   int      `json:"sheds_completed"`
+	VaccineLabels    []string `json:"vaccine_labels"`
+	TotalCount       int      `json:"total_count"`
+	CompletedCount   int      `json:"completed_count"`
+	RemainingCount   int      `json:"remaining_count"`
+	DueCount         int      `json:"due_count"`
+	OverdueCount     int      `json:"overdue_count"`
+	DeferredCount    int      `json:"deferred_count"`
+	TotalAnimals     int      `json:"total_animals"`
+	CompletedAnimals int      `json:"completed_animals"`
+	OwnerLabel       string   `json:"owner_label"`
 }
 
 // CalendarEvent is the generic hot-list/month payload. It intentionally stays source-agnostic.

@@ -28,6 +28,7 @@
     <string name="calendar_all_day">ಇಡೀ ದಿನ</string>
     <string name="calendar_drive_sheds">ಶೆಡ್‌ಗಳು</string>
     <string name="calendar_drive_vaccines">ಲಸಿಕೆಗಳು</string>
+    <string name="calendar_drive_animals">ಪ್ರಾಣಿಗಳು</string>
     <string name="calendar_drive_doses">ಡೋಸ್‌ಗಳು</string>
 
     <!-- v4 park-level drive progress card -->

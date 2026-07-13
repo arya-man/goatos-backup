@@ -2883,6 +2883,173 @@ func TestDriveSummaryComputesCountsAndInvariants(t *testing.T) {
 	if len(s.VaccineLabels) == 0 || s.VaccineLabels[0] != "FMD" {
 		t.Errorf("vaccine_labels = %v, want [FMD]", s.VaccineLabels)
 	}
+	// Invariant: distinct animal counts never exceed obligation counts.
+	// This test has no multi-obligation animals (one obligation per goat/status bucket),
+	// so animal counts should track total/completed counts.
+	if s.TotalAnimals > s.TotalCount {
+		t.Errorf("invariant violated: total_animals %d > total_count %d", s.TotalAnimals, s.TotalCount)
+	}
+	if s.CompletedAnimals > s.CompletedCount {
+		t.Errorf("invariant violated: completed_animals %d > completed_count %d", s.CompletedAnimals, s.CompletedCount)
+	}
+}
+
+// TestDriveSummaryDistinctAnimalCoverageOneToMany proves CDR-001: distinct-animal coverage
+// is a separate grain from obligation counts. A single goat with two vaccination obligations in the same
+// drive (two rule_ids / two vaccines due the same day) should increment total_count by 2 (obligation grain)
+// but total_animals by 1 (animal grain). completed_animals reflects goats where ALL their drive obligations
+// are completed (bool_and(status='completed') per goat). This is the one-to-many (one animal, many obligations)
+// adversarial test for the animal-coverage dimension.
+func TestDriveSummaryDistinctAnimalCoverageOneToMany(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Fixed business-day window so the projection state (seeded around these dates) covers the drive.
+	driveDate := biztime.BusinessDayStart(time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC))
+	seedCalendarProjectionStateWindow(t, ctx, pool, driveDate.Add(-24*time.Hour), driveDate.Add(48*time.Hour))
+
+	protocolID := "cd000000-0000-4000-8000-000000000001"
+	versionID1 := "cd000000-0000-4000-8000-000000000002"
+	versionID2 := "cd000000-0000-4000-8000-000000000003"
+	ruleID1 := "cd000000-0000-4000-8000-000000000004"
+	ruleID2 := "cd000000-0000-4000-8000-000000000005"
+
+	parkID := testParkA
+	shedID := testShedA
+	goatID := "cd000000-0000-4000-8000-000000000100"
+
+	// One goat, TWO obligations (two different versions/rule_ids) in the same drive:
+	//   Obligation 1 (version1, rule1): vaccine A
+	//   Obligation 2 (version2, rule2): vaccine B
+	obl1 := "cd000000-0000-4000-8000-000000000201"
+	obl2 := "cd000000-0000-4000-8000-000000000202"
+
+	// First obligation: protocol/version(1)/rule(1).
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID1, ruleID1, obl1, driveDate)
+	// Attach the first obligation to our test goat and shed.
+	attachObligationToGoatScope(t, ctx, pool, obl1, goatID, "shed", shedID)
+	seedProtocolRuleDimension(t, ctx, pool, versionID1, ruleID1, ruleID1, "FMD")
+
+	// Second obligation: protocol/version(2)/rule(2) (same protocol, different version).
+	seedVaccinationProtocolVersionAndRule(t, ctx, pool, protocolID, versionID2, ruleID2, driveDate)
+	seedCalendarGoat(t, ctx, pool, goatID)
+	seedVaccinationObligationForGoatAndRule(t, ctx, pool, versionID2, ruleID2, obl2, goatID, shedID, parkID, driveDate)
+	seedProtocolRuleDimension(t, ctx, pool, versionID2, ruleID2, ruleID2, "Brucella")
+
+	// One batch per obligation, both for the same goat in the same shed+drive.
+	seedVaccinationBatchForShed(t, ctx, pool, "cd000000-0000-4000-8000-000000000301", versionID1, parkID, shedID, driveDate, obl1)
+	seedVaccinationBatchForShed(t, ctx, pool, "cd000000-0000-4000-8000-000000000302", versionID2, parkID, shedID, driveDate, obl2)
+
+	// Scenario 1: One obligation completed, one open (goat is NOT fully covered).
+	setDriveObligationStatus(t, ctx, pool, obl1, "completed")
+	setDriveObligationStatus(t, ctx, pool, obl2, "scheduled")
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection (CDR-001 scenario 1): %v", err)
+	}
+
+	q := domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(24 * time.Hour),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	}
+	resp, err := repo.ListEvents(ctx, q)
+	if err != nil {
+		t.Fatalf("list events (CDR-001 scenario 1): %v", err)
+	}
+
+	var drive *domain.CalendarEvent
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+			break
+		}
+	}
+	if drive == nil {
+		t.Fatalf("no vaccination_drive event found")
+	}
+	if drive.DriveSummary == nil {
+		t.Fatalf("drive_summary is nil")
+	}
+	s := drive.DriveSummary
+
+	// Obligation grain: 1 completed, 1 due (open/scheduled).
+	if s.TotalCount != 2 {
+		t.Errorf("(CDR-001 scenario 1) total_count = %d, want 2 (dose grain)", s.TotalCount)
+	}
+	if s.CompletedCount != 1 {
+		t.Errorf("(CDR-001 scenario 1) completed_count = %d, want 1", s.CompletedCount)
+	}
+
+	// Animal grain: 1 goat, but NOT fully covered (one obligation still open).
+	if s.TotalAnimals != 1 {
+		t.Errorf("(CDR-001 scenario 1) total_animals = %d, want 1 (one goat)", s.TotalAnimals)
+	}
+	if s.CompletedAnimals != 0 {
+		t.Errorf("(CDR-001 scenario 1) completed_animals = %d, want 0 (one obligation still open, goat not fully covered)", s.CompletedAnimals)
+	}
+
+	// Scenario 2: Both obligations completed (goat IS fully covered).
+	setDriveObligationStatus(t, ctx, pool, obl2, "completed")
+
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID,
+		DateFrom: driveDate.Add(-24 * time.Hour),
+		DateTo:   driveDate.Add(48 * time.Hour),
+		Limit:    1000,
+	}); err != nil {
+		t.Fatalf("refresh projection (CDR-001 scenario 2): %v", err)
+	}
+
+	resp, err = repo.ListEvents(ctx, q)
+	if err != nil {
+		t.Fatalf("list events (CDR-001 scenario 2): %v", err)
+	}
+
+	drive = nil
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+			break
+		}
+	}
+	if drive == nil || drive.DriveSummary == nil {
+		t.Fatalf("drive/drive_summary missing in scenario 2")
+	}
+	s = drive.DriveSummary
+
+	// Obligation grain: 2 completed.
+	if s.CompletedCount != 2 {
+		t.Errorf("(CDR-001 scenario 2) completed_count = %d, want 2", s.CompletedCount)
+	}
+
+	// Animal grain: 1 goat, NOW fully covered.
+	if s.TotalAnimals != 1 {
+		t.Errorf("(CDR-001 scenario 2) total_animals = %d, want 1", s.TotalAnimals)
+	}
+	if s.CompletedAnimals != 1 {
+		t.Errorf("(CDR-001 scenario 2) completed_animals = %d, want 1 (all obligations completed, goat fully covered)", s.CompletedAnimals)
+	}
+
+	// Invariant: total_animals <= total_count (always true when same animal has multiple obligations).
+	if s.TotalAnimals > s.TotalCount {
+		t.Errorf("invariant violated: total_animals %d > total_count %d", s.TotalAnimals, s.TotalCount)
+	}
+	// Invariant: completed_animals <= completed_count (always true).
+	if s.CompletedAnimals > s.CompletedCount {
+		t.Errorf("invariant violated: completed_animals %d > completed_count %d", s.CompletedAnimals, s.CompletedCount)
+	}
 }
 
 // setDriveObligationStatus flips an obligation to a target status, keeping completed_at consistent
@@ -2896,6 +3063,74 @@ SET status = $3,
     updated_at = now()
 WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligationID, status); err != nil {
 		t.Fatalf("set obligation %s status=%s: %v", obligationID, status, err)
+	}
+}
+
+// seedVaccinationProtocolVersionAndRule creates a second version for an existing protocol, with one rule.
+func seedVaccinationProtocolVersionAndRule(t *testing.T, ctx context.Context, pool *pgxpool.Pool, protocolID, versionID, ruleID string, dueAt time.Time) {
+	t.Helper()
+	_, err := pool.Exec(ctx, `
+INSERT INTO protocol_versions (
+  protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+  version_label, status, effective_from, effective_to, rule_dsl, proof_policy, published_at
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'tenant', NULL, 2,
+  'Projection secondary version test', 'draft', DATE '2028-01-02', DATE '2030-01-01',
+  '{"source":{"review_status":"approved","source_ref":"docs/preventive-care-vaccination/PRD.md","source_system":"pc","approved_by":"test","approved_at":"2026-06-27T00:00:00Z"}}'::jsonb,
+  '{"required_proofs":["administration"]}'::jsonb, NULL
+)
+ON CONFLICT (protocol_version_id) DO NOTHING`, versionID, testTenantID, protocolID)
+	if err != nil {
+		t.Fatalf("seed protocol version 2: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+INSERT INTO protocol_rules (
+  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
+  offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
+  proof_policy, sort_order
+)
+SELECT
+  $1::uuid, $2::uuid, $3::uuid, 'PROJ-SECONDARY', 1, 'calendar',
+  0, 1, 0, 'none', 'immediate', '{}'::jsonb, '{"required_proofs":["administration"]}'::jsonb, 10
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM protocol_rules
+  WHERE tenant_id = $2::uuid AND rule_id = $1::uuid
+)`, ruleID, testTenantID, versionID)
+	if err != nil {
+		t.Fatalf("seed protocol rule v2: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+UPDATE protocol_versions
+SET status = 'published',
+    published_at = COALESCE(published_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND protocol_version_id = $2::uuid`,
+		testTenantID, versionID)
+	if err != nil {
+		t.Fatalf("publish protocol version 2: %v", err)
+	}
+}
+
+// seedVaccinationObligationForGoatAndRule inserts a goat-targeted vaccination obligation for a specific rule and shed scope.
+func seedVaccinationObligationForGoatAndRule(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID, ruleID, obligationID, goatID, shedID, parkID string, dueAt time.Time) {
+	t.Helper()
+	seedCalendarLocations(t, ctx, pool, parkID, shedID)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO obligation_instances (
+  obligation_id, tenant_id, protocol_version_id, rule_id, target_type, target_id,
+  scope_type, scope_id, due_at, window_start, window_end, status, idempotency_key
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'goat', $5::uuid,
+  'shed', $6::uuid, $7::timestamptz, $7::timestamptz, $7::timestamptz + interval '1 day',
+  'scheduled', 'calendar-projection-test-' || ($1::uuid)::text
+)
+ON CONFLICT (obligation_id) DO UPDATE
+SET due_at = EXCLUDED.due_at,
+    status = 'scheduled',
+    batch_id = NULL,
+    updated_at = now()`, obligationID, testTenantID, versionID, ruleID, goatID, shedID, dueAt); err != nil {
+		t.Fatalf("seed goat vaccination obligation for rule: %v", err)
 	}
 }
 
@@ -3036,6 +3271,11 @@ func TestDriveSummaryDateShiftAttachesToBatchWindow(t *testing.T) {
 	}
 	if drive.DriveSummary.TotalCount != 1 {
 		t.Errorf("total_count = %d, want 1", drive.DriveSummary.TotalCount)
+	}
+	// DateShift: the additive total_animals coverage attaches to the same batch-window-basis event,
+	// bounded by the obligation count (a separate goat grain, never larger than the doses).
+	if drive.DriveSummary.TotalAnimals > drive.DriveSummary.TotalCount {
+		t.Errorf("total_animals %d must not exceed total_count %d", drive.DriveSummary.TotalAnimals, drive.DriveSummary.TotalCount)
 	}
 }
 
@@ -3189,6 +3429,11 @@ func TestDriveSummaryParkScopeAttachesToCorrectPark(t *testing.T) {
 	}
 	if drive.DriveSummary.TotalCount != 1 {
 		t.Errorf("total_count = %d, want 1", drive.DriveSummary.TotalCount)
+	}
+	// ParkScope: the additive total_animals coverage resolves under the same park scope matrix,
+	// bounded by the obligation count.
+	if drive.DriveSummary.TotalAnimals > drive.DriveSummary.TotalCount {
+		t.Errorf("total_animals %d must not exceed total_count %d", drive.DriveSummary.TotalAnimals, drive.DriveSummary.TotalCount)
 	}
 }
 
@@ -3441,6 +3686,14 @@ func TestDriveSummaryStatusBucketsCoverLiveStatusSet(t *testing.T) {
 	if sum != s.TotalCount {
 		t.Errorf("invariant violated: buckets sum %d != total_count %d", sum, s.TotalCount)
 	}
+	// The additive distinct-animal coverage columns must not perturb the obligation StatusBuckets:
+	// they are a separate grain (goats, not doses), always bounded by the obligation counts.
+	if s.TotalAnimals > s.TotalCount {
+		t.Errorf("total_animals %d must not exceed total_count %d", s.TotalAnimals, s.TotalCount)
+	}
+	if s.CompletedAnimals > s.CompletedCount {
+		t.Errorf("completed_animals %d must not exceed completed_count %d", s.CompletedAnimals, s.CompletedCount)
+	}
 }
 
 // TestDriveSummaryMultiPageListingKeepsWholeResultTotals proves drive_summary is a whole-result
@@ -3562,6 +3815,11 @@ func TestDriveSummaryMultiPageListingKeepsWholeResultTotals(t *testing.T) {
 	}
 	if narrowDrive.DriveSummary.TotalCount != wideDrive.DriveSummary.TotalCount {
 		t.Errorf("narrow-page total_count = %d, want %d (page size must not change the aggregate)", narrowDrive.DriveSummary.TotalCount, wideDrive.DriveSummary.TotalCount)
+	}
+	// MultiPage: the additive total_animals coverage is a whole-result aggregate too -- a tiny page
+	// size must not change it either.
+	if narrowDrive.DriveSummary.TotalAnimals != wideDrive.DriveSummary.TotalAnimals {
+		t.Errorf("narrow-page total_animals = %d, want %d (page size must not change the aggregate)", narrowDrive.DriveSummary.TotalAnimals, wideDrive.DriveSummary.TotalAnimals)
 	}
 }
 

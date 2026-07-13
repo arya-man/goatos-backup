@@ -59,7 +59,11 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
     );
   }
 
-  const pct = summary.total_count > 0 ? Math.round((summary.completed_count / summary.total_count) * 100) : 0;
+  // Coverage ring + the "N/N animals" headline use the DISTINCT-ANIMAL grain (total_animals /
+  // completed_animals): a goat due for several vaccines the same day is ONE animal, and is only
+  // "completed" once all its drive obligations are done. The due/overdue/deferred chips below stay
+  // obligation-grain (dose work items) — see CalendarDriveSummary in the contract.
+  const pct = summary.total_animals > 0 ? Math.round((summary.completed_animals / summary.total_animals) * 100) : 0;
   const headline = headlineStatus(summary, pageContract);
   const remaining = remainingChips(summary);
   // Option A · completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
@@ -69,7 +73,7 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
   const ringOffset = ringCircumference * (1 - pct / 100);
 
   return (
-    <div className="drivecard" style={{ marginTop: 10 }}>
+    <div className="drivecard">
       <div className="drivecard-hd">
         <Syringe className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
         <b>
@@ -100,9 +104,9 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
         </svg>
         <div className="drivecard-progress-txt">
           <div>
-            <b>{summary.completed_count}</b>{" "}
+            <b>{summary.completed_animals}</b>{" "}
             <span className="muted">
-              / {summary.total_count} {copy(pageContract, "calendar.drive.doses")}
+              / {summary.total_animals} {copy(pageContract, "calendar.drive.animals")}
             </span>
           </div>
           <div className="muted small">

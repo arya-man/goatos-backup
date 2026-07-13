@@ -54,6 +54,10 @@ data class CalendarDriveSummary(
     val vaccineLabels: List<String> = emptyList(),
     val totalCount: Int = 0,
     val completedCount: Int = 0,
+    // Distinct-animal coverage (grain differs from the obligation counts above): a goat due for
+    // several vaccines the same day is one animal, completed only when all its drive obligations are.
+    val totalAnimals: Int = 0,
+    val completedAnimals: Int = 0,
     val remainingCount: Int = 0,
     val dueCount: Int = 0,
     val overdueCount: Int = 0,

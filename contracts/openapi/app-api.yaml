@@ -5560,10 +5560,11 @@ components:
       additionalProperties: false
       description: >-
         Park-level drive progress. Invariant: total_count = completed_count + due_count +
-        overdue_count + deferred_count (4 disjoint buckets); remaining_count = total_count -
-        completed_count. Stock/execution "blocked" visibility is deliberately out of scope -- stock
-        is not a built product feature yet (owner decision 2026-07-14); revisit when the stock
-        module ships.
+        overdue_count + deferred_count (4 disjoint obligation buckets); remaining_count = total_count -
+        completed_count. Distinct-animal coverage: total_animals = distinct goats in this drive;
+        completed_animals = goats where ALL drive obligations are completed (fully covered).
+        Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
+        product feature yet (owner decision 2026-07-14); revisit when the stock module ships.
       required:
         - park_name
         - due_date
@@ -5576,6 +5577,8 @@ components:
         - due_count
         - overdue_count
         - deferred_count
+        - total_animals
+        - completed_animals
         - owner_label
       properties:
         park_name:
@@ -5622,6 +5625,14 @@ components:
           type: integer
           minimum: 0
           description: Deferred obligations
+        total_animals:
+          type: integer
+          minimum: 0
+          description: Total distinct animals in the drive
+        completed_animals:
+          type: integer
+          minimum: 0
+          description: Distinct animals where all drive obligations are completed
         owner_label:
           type: string
           description: Owner/team label

@@ -493,11 +493,12 @@
   .agenda .dh{font-weight:700;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px;margin:14px 2px 8px}
   .ev{display:flex;gap:11px;align-items:flex-start;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:10px;padding:10px 12px;margin-bottom:8px;box-shadow:var(--shadow);cursor:pointer;transition:.12s}
   .ev:hover{border-color:var(--brand);transform:translateX(2px)}
+  .ev.drive-ev{max-width:600px}
   .ev .et{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);width:52px;flex:none;padding-top:1px}
   .ev .eb{flex:1;min-width:0}.ev .eb b{font-size:13.5px}.ev .em{color:var(--muted);font-size:12px;margin-top:2px}
   .ev .erem{font-size:10px;font-weight:800;color:var(--amber);background:var(--warnx);padding:2px 7px;border-radius:6px;white-space:nowrap;flex:none}
   /* park-level vaccination drive progress card (aggregated calendar events) */
-  .drivecard{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .drivecard{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;max-width:480px}
   .drivecard-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .drivecard-hd b{font-size:13px}
   .drivecard-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
@@ -3604,7 +3605,7 @@ const CAL=[
  {day:'Tue',t:'09:00',ti:'Book vaccines (cold chain) + order stock',c:'var(--info)',d:'inventory',m:'logistics day · verify 2-week buffer',rem:'',mod:'Cold Chain'},
  {day:'Tue',t:'14:00',ti:'Feed panel cleaning — all sheds',c:'var(--brand)',d:'parks',m:'weekly · logs chemical · video',rem:'',mod:'Sanitation'},
  {day:'Thu',t:'06:00',ti:'Enterotoxaemia K1 drive — K3 + F2',c:'var(--info)',d:'pc',m:'source-backed ET baseline · shed-grouped by due work',rem:'remind −1d',mod:'Vaccination',
-  drive:{parkName:'CBE',dueDate:'2026-06-18',shedCount:12,shedsCompleted:7,vaccineLabels:['Enterotoxaemia','ET'],totalCount:340,completedCount:210,remainingCount:130,dueCount:80,overdueCount:30,deferredCount:15,ownerLabel:'PC'}},
+  drive:{parkName:'CBE',dueDate:'2026-06-18',shedCount:12,shedsCompleted:7,vaccineLabels:['Enterotoxaemia','ET'],totalCount:340,completedCount:210,totalAnimals:300,completedAnimals:170,remainingCount:130,dueCount:80,overdueCount:30,deferredCount:15,ownerLabel:'PC'}},
  {day:'Fri',t:'07:00',ti:'Lucerne cut — Plot L1',c:'var(--teal)',d:'farmer_network',m:'fodder · non-shed · → supply_planning',rem:'',mod:'Harvest'},
  {day:'Fri',t:'09:00',ti:'Shed deep sanitization',c:'var(--brand)',d:'parks',m:'weekly fixed day · Infra + Park Head',rem:'today',mod:'Sanitation'},
  {day:'Fri',t:'18:00',ti:'EOD reports — all managers',c:'var(--purple)',d:'hr_people',m:'daily · planned vs executed',rem:'',cross_cutting:true,mod:'Reporting'},
@@ -3641,13 +3642,13 @@ function calDriveHeadline(d){
   return['t-warn',d.dueCount+' due'];
 }
 function driveCardHtml(d){
-  var pct=d.totalCount>0?Math.round(d.completedCount/d.totalCount*100):0;
+  var pct=d.totalAnimals>0?Math.round(d.completedAnimals/d.totalAnimals*100):0;
   var hl=calDriveHeadline(d);
   var chips=[['due',d.dueCount,'t-warn'],['overdue',d.overdueCount,'t-dng'],['deferred',d.deferredCount,'t-pur']].filter(function(c){return c[1]>0;});
   // Option A · completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
   // rotated -90deg so the arc starts at 12 o'clock. circumference = 2*pi*r ≈ 182.2.
   var ringR=29,ringCirc=2*Math.PI*ringR,ringOff=ringCirc*(1-pct/100);
-  return '<div class="drivecard" style="margin-top:10px">'+
+  return '<div class="drivecard">'+
     '<div class="drivecard-hd"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg><b>Vaccination drive · '+d.parkName+'</b><span class="muted small">'+d.dueDate+'</span><span class="sp"></span><span class="tag '+hl[0]+'">'+hl[1]+'</span></div>'+
     '<div class="muted small" style="margin-top:6px">'+d.vaccineLabels.length+' vaccines</div>'+
     '<div class="drivecard-progress" style="margin-top:10px">'+
@@ -3657,7 +3658,7 @@ function driveCardHtml(d){
         '<text x="35" y="35" class="ring-pct" text-anchor="middle" dominant-baseline="central">'+pct+'%</text>'+
       '</svg>'+
       '<div class="drivecard-progress-txt">'+
-        '<div><b>'+d.completedCount+'</b> <span class="muted">/ '+d.totalCount+' animals</span></div>'+
+        '<div><b>'+d.completedAnimals+'</b> <span class="muted">/ '+d.totalAnimals+' animals</span></div>'+
         '<div class="muted small">'+d.shedsCompleted+' of '+d.shedCount+' sheds done</div>'+
       '</div>'+
     '</div>'+
@@ -3676,7 +3677,7 @@ function renderCal(){
   if(calDayFilter)html+=`<div class="note" style="margin-bottom:10px">Showing <b>${calDayFilter}</b> only. <span class="lenslink" onclick="filterCalDay('${calDayFilter}')">↺ whole week</span></div>`;
   let shown=0;
   days.forEach(dy=>{if(calDayFilter&&dy!==calDayFilter)return;const evs=CAL.map((e,i)=>[e,i]).filter(([e])=>(e.day===dy||e.day==='*')&&inDom(e));if(!evs.length)return;shown++;
-    html+=`<div class="dh">${dy}${dy==='Fri'?' · today':''}</div>`+evs.map(([e,i])=>`<div class="ev" style="border-left-color:${e.c}" onclick="openEvent(${i})"><div class="et">${e.t==='next'?'+wk':e.t}</div><div class="eb"><b>${e.ti}</b><div class="em">${e.m}</div>${e.drive?driveCardHtml(e.drive):''}</div>${e.rem?`<span class="erem">${e.rem}</span>`:''}</div>`).join('');});
+    html+=`<div class="dh">${dy}${dy==='Fri'?' · today':''}</div>`+evs.map(([e,i])=>`<div class="ev${e.drive?' drive-ev':''}" style="border-left-color:${e.c}" onclick="openEvent(${i})"><div class="et">${e.t==='next'?'+wk':e.t}</div><div class="eb">${e.drive?driveCardHtml(e.drive):`<b>${e.ti}</b><div class="em">${e.m}</div>`}</div>${e.rem?`<span class="erem">${e.rem}</span>`:''}</div>`).join('');});
   if(!shown)html+=`<div class="note">No scheduled events${calDayFilter?' on '+calDayFilter:' this week'}. <span class="muted">Add one with “New event”.</span></div>`;
   document.getElementById('agenda').innerHTML=html;
 }

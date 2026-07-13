@@ -2544,7 +2544,8 @@ WITH obligation_drive_membership AS (
     loc.park_id,
     loc.park_code,
     loc.shed_id,
-    (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date
+    (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date,
+    CASE WHEN oi.target_type = 'goat' THEN oi.target_id END AS animal_id
     -- Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
     -- product feature yet (owner decision 2026-07-14); revisit when the stock module ships.
   FROM obligation_instances oi
@@ -2630,7 +2631,20 @@ obligation_drive_shed_complete AS (
   ) done_sheds
   GROUP BY park_id, due_date
 ),
--- projection-review: membership=obligation_drive_membership (one row per obligation_id); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>deferred>overdue>due) so total_count=completed+due+overdue+deferred with no double-counting; pagination=materialized EXACTLY ONCE per RefreshVaccinationProjection call into calendar_drive_summary_tmp before the keyset page loop; scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation
+obligation_drive_animal_coverage AS (
+  SELECT park_id, due_date,
+         count(*)::int AS total_animals,
+         count(*) FILTER (WHERE fully_completed)::int AS completed_animals
+  FROM (
+    SELECT park_id, due_date, animal_id,
+           bool_and(status = 'completed') AS fully_completed
+    FROM obligation_drive_membership
+    WHERE animal_id IS NOT NULL
+    GROUP BY park_id, due_date, animal_id
+  ) per_animal
+  GROUP BY park_id, due_date
+),
+-- projection-review: membership=obligation_drive_membership (one row per obligation_id); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>deferred>overdue>due) so total_count=completed+due+overdue+deferred with no double-counting, PLUS new animal_grain aggregation (count DISTINCT target_id where target_type='goat') rolled up per animal's bool_and(status='completed') per (park_id, due_date); animal_coverage_cardinality=separate animal subquery 1:1 LEFT JOIN on (park_id, due_date) produces animal_total_count and animal_completed_count, no fan-out; pagination=materialized EXACTLY ONCE per RefreshVaccinationProjection call into calendar_drive_summary_tmp before the keyset page loop (unchanged by animal coverage); scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation (unchanged by animal coverage); date/status: all existing dimension semantics preserved (animal counts are independent new grain, do not affect obligation buckets or date-window/status-bucket logic)
 obligation_drive_summary AS (
   -- Bucket precedence is mutually exclusive and total_count-complete. Invariant:
   --   total_count = completed_count + due_count + overdue_count + deferred_count
@@ -2663,11 +2677,15 @@ obligation_drive_summary AS (
     count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'deferred')::int AS deferred_count,
     count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
     COALESCE(max(sc.sheds_completed), 0)::int AS sheds_completed,
+    COALESCE(max(ac.total_animals), 0)::int AS total_animals,
+    COALESCE(max(ac.completed_animals), 0)::int AS completed_animals,
     COALESCE(max(vl.vaccine_labels), ARRAY[]::text[]) AS vaccine_labels,
     max(m.park_code) AS park_code
   FROM obligation_drive_membership m
   LEFT JOIN obligation_drive_shed_complete sc
     ON sc.park_id IS NOT DISTINCT FROM m.park_id AND sc.due_date = m.due_date
+  LEFT JOIN obligation_drive_animal_coverage ac
+    ON ac.park_id IS NOT DISTINCT FROM m.park_id AND ac.due_date = m.due_date
   LEFT JOIN obligation_drive_vaccine_labels vl
     ON vl.park_id IS NOT DISTINCT FROM m.park_id AND vl.due_date = m.due_date
   GROUP BY m.park_id, m.due_date
@@ -3315,6 +3333,8 @@ park_drive_events AS (
         'due_count', obl_summary.due_count,
         'overdue_count', obl_summary.overdue_count,
         'deferred_count', obl_summary.deferred_count,
+        'total_animals', obl_summary.total_animals,
+        'completed_animals', obl_summary.completed_animals,
         'owner_label', 'PC'
       ) ELSE NULL END
     ) AS detail

@@ -86,13 +86,21 @@ function EventRow({
   // information the first `.em` line doesn't already carry.
   const showTertiary = event.summary_tertiary && event.summary_tertiary !== event.subtitle && event.summary_tertiary !== event.shed_name;
   return (
-    <Link href={href} replace scroll={false} className="ev celllink" style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
+    <Link href={href} replace scroll={false} className={`ev celllink${event.aggregated ? " drive-ev" : ""}`} style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
       <div className="et">{event.all_day ? copy(pageContract, "calendar.drive.all_day") : timeOf(event.due_at)}</div>
       <div className="eb">
-        <b>{event.title}</b>
-        <div className="em">{meta}</div>
-        {event.aggregated ? <DriveProgressCard event={event} pageContract={pageContract} /> : null}
-        {showTertiary ? <div className="em" style={{ marginTop: 7 }}>{event.summary_tertiary}</div> : null}
+        {event.aggregated ? (
+          // A drive row IS its progress card: the card's own header (drive · park), status pill,
+          // "N vaccines", ring, and footer already carry the title/status/sheds/vaccines that the
+          // generic title + meta + tertiary lines would otherwise duplicate. Render only the card.
+          <DriveProgressCard event={event} pageContract={pageContract} />
+        ) : (
+          <>
+            <b>{event.title}</b>
+            <div className="em">{meta}</div>
+            {showTertiary ? <div className="em" style={{ marginTop: 7 }}>{event.summary_tertiary}</div> : null}
+          </>
+        )}
       </div>
     </Link>
   );

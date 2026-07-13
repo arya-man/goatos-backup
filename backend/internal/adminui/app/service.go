@@ -775,6 +775,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.drive.all_day":               "All day",
 			"calendar.drive.sheds":                 "Sheds",
 			"calendar.drive.vaccines":              "Vaccines",
+			"calendar.drive.animals":               "Animals",
 			"calendar.drive.doses":                 "Doses",
 			"calendar.drive.packets":               "Drive packets",
 			"calendar.drive.vaccine_mix":           "Vaccine mix",
