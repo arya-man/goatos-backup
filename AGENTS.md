@@ -279,6 +279,21 @@ Do:
   with the owning package as an integration/read-model test and must not appear
   in an E2E report. `tools/agent-hooks/check-e2e-kernel-integrity.sh` enforces
   this rule for both Claude and Codex and in CI.
+- Couple migrations to initial seed setup. If a migration changes tenant/goat/
+  RFID/location, HRMS/ownership, founder grants, protocol/SOP/capacity,
+  obligation/completion/proof, notification/verification, or app-visible
+  projection/read-model tables, update the matching seed command,
+  seed/projection test, or seed runbook in the same patch. The
+  `seed-migration-guard` target is part of `make guardrails` and blocks
+  schema/read-model drift where source rows seed correctly but the live app reads
+  empty or missing projection tables. See
+  `docs/runbooks/initial-seed-migration-coupling.md`.
+- Do not make seed scripts hand-fill every new table. Classify setup tables as
+  source/canonical, derived/read-model, static catalog/config, or
+  operational/audit/event. Derived app-visible tables must be rebuilt from
+  canonical data through `make seed-closeout` / `tools/dev/seed-closeout.sh`.
+  New projection tables also need access-pattern indexes, freshness/version
+  state, and an explicit partitioning decision.
 - Use `.agents/skills/goatos-build/SKILL.md` as the active agent reference map.
 - Use ports/adapters for replaceable vendors and tools.
 - Use OpenAPI REST/JSON for web/mobile app APIs.

@@ -158,6 +158,14 @@ one product; this skill is the navigation layer.
   phase adds a permanent rule/module/tool/workflow.
 - After coding a phase, run the PRD/TRD/context/skill closeout sync so docs
   describe what was actually built.
+- When a migration changes an initial-seed-owned setup table or app-visible
+  projection/read-model table, update the seed command, seed/projection test, or
+  seed runbook in the same change. `make seed-migration-guard` enforces this
+  coupling; see `docs/runbooks/initial-seed-migration-coupling.md`.
+- New setup tables must declare their class: source/canonical, derived/read
+  model, static catalog/config, or operational/audit/event. Derived app-visible
+  tables are filled by deterministic projectors registered in
+  `tools/dev/seed-closeout.sh`, not by hand-written seed rows.
 - Keep AI as proposer/triage, never canonical authority.
 - Preserve module boundaries in the Go modular monolith.
 - Keep frontend/mobile behind app APIs and generated clients.

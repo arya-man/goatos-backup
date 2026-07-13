@@ -113,11 +113,28 @@ review/config gap. It must not convert uncertainty into a clean due schedule.
 For a destructive staging rebuild, also follow
 `docs/runbooks/staging-vaccination-clean-slate.md`.
 
+Before relying on a seed command after migration changes, run
+`make seed-migration-guard`. Any migration that changes initial setup,
+vaccination/protocol/SOP/HRMS/grant tables, or app-visible projection tables must
+be paired with the seed command, test/E2E, or runbook update that handles the new
+schema. See `docs/runbooks/initial-seed-migration-coupling.md`.
+
 For local/dev rehearsals, the one-command source path is:
 
 ```bash
 make seed-vaccination-source-full
 ```
+
+For an already-seeded database after additive migrations, do not rerun source
+seed just to fill derived tables. Apply the migrations, then run:
+
+```bash
+make seed-closeout
+```
+
+`seed-closeout` runs deterministic projectors/backfills from canonical source
+truth. It must never fabricate goats, owners, completion history, protocol
+facts, notifications, audit rows, or derived statuses.
 
 That target uses the source bundle at `GOATOS_VACCINATION_SOURCE_DIR` and the
 strict shed-manager mapping at `GOATOS_SHED_MANAGER_MAPPING`. Override those
@@ -139,14 +156,18 @@ bundle.
 6. Run the validated vaccination generation path to materialize only strictly
    future obligations from anchor history, DOB, entry date, stage, species, and
    current constraint state.
-7. Recompute every derived read model that the UI reads. The seed is not green
-   until these projector entry points have completed for the target tenant:
+7. Recompute every derived read model that the UI reads through `make
+   seed-closeout`. The seed is not green until these deterministic projector
+   entry points have completed for the target tenant:
    - `vaccination-eligibility-rollup-recompute`
    - `process-integrity-projection-recompute`
    - `vaccination-shed-projection-recompute`
    - `vaccination-execution-projection-recompute`
    - `vaccination-operations-projection-recompute`
-   - Calendar and counts projectors for any visible Calendar/Counts surface.
+   - `calendar-vaccination-projector`, when Calendar vaccination projection is
+     present in the checkout
+   - Calendar history/counts projectors when their owning command exists and
+     the surface is visible/configured.
 8. Verify Action Center buckets, shed status, execution rows, operations rows,
    next due dates, and capacity session splits through backend APIs using
    server-owned live time. A seed that leaves `projection_unavailable` on
@@ -159,6 +180,25 @@ bundle.
    work already satisfied by accepted history, zero schedulable open work on or
    before the business date, future-only repeat work, and zero normal active
    work for rules whose own trigger anchor is missing.
+
+## Migration And Existing Data Rule
+
+During development, existing seeded databases will receive new migrations. The
+answer is not to invent seed rows for every new table.
+
+- Source/canonical table changed: update the source importer and strict
+  preflight, then rerun the relevant seed/import path from reviewed source.
+- Derived/read-model table added or changed: add an idempotent projector/backfill
+  and register it in `tools/dev/seed-closeout.sh`.
+- Static catalog/config table added: migration may insert reviewed global rows;
+  environment-specific values must come from source-backed seed/config.
+- Operational/audit/event table added: leave it empty unless real runtime events
+  or a deterministic replay fill it.
+
+New projection tables must ship with their read-path indexes, freshness/version
+state, and an explicit partitioning decision. Partition only when the data shape
+needs it, such as append-only/time-windowed high-volume data. A small indexed
+summary table should stay a normal table with the access pattern documented.
 
 ## Test Gates
 

@@ -55,6 +55,7 @@ run_guardrails() {
   step "idempotency-writes-guard" make idempotency-writes-guard
   step "atomic-readmodel-sync-guard" make atomic-readmodel-sync-guard
   step "config-validate-guard"    make config-validate-guard
+  step "seed-migration-guard"     make seed-migration-guard
   step "india-date-guard"         make india-date-guard
   step "offline-first-guard"      make offline-first-guard
   step "mobile-guard"             make mobile-guard
