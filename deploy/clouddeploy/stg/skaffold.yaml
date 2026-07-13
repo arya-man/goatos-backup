@@ -1,0 +1,4 @@
+apiVersion: skaffold/v4beta7
+kind: Config
+metadata:
+  name: goatos-stg-cloud-deploy

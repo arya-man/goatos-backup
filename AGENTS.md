@@ -298,6 +298,13 @@ Do:
   behind that build's migrations. Apply migrations first, seed only canonical
   source truth second, run deterministic closeout/projectors third, then start
   API/admin/workers or mark the environment green.
+- Deploy `goatos-stg` through Cloud Deploy. Build systems may create images and
+  Cloud Deploy releases, but Cloud Run service/job mutations for staging belong
+  to `deploy/clouddeploy/stg/clouddeploy.yaml` and
+  `tools/deploy/stg-clouddeploy-task.sh`. Direct `gcloud run services update`,
+  `gcloud run jobs update`, or manual migration execution is break-glass only
+  and must be followed by a Cloud Deploy release from the same commit; see
+  `docs/runbooks/cloud-deploy-staging.md`.
 - Use `.agents/skills/goatos-build/SKILL.md` as the active agent reference map.
 - Use ports/adapters for replaceable vendors and tools.
 - Use OpenAPI REST/JSON for web/mobile app APIs.

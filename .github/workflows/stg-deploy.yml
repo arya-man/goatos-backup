@@ -18,25 +18,8 @@ env:
   PROJECT_NUMBER: "514832198871"
   REGION: asia-south1
   ARTIFACT_REPOSITORY: goatos
-  API_SERVICE: goatos-api-stg
-  ADMIN_WEB_SERVICE: goatos-admin-web-stg
-  MIGRATE_JOB: goatos-stg-migrate
-  STG_API_URL: https://goatos-api-stg-awtrpmn4za-el.a.run.app
-  STG_DASHBOARD_URL: https://stg.dashboard.mesha.sg
-  BACKEND_JOBS: |
-    goatos-stg-calendar-escalation-sweeper
-    goatos-stg-calendar-projector
-    goatos-stg-calendar-reminder-sweeper
-    goatos-stg-domain-event-consumer
-    goatos-stg-domain-event-processed-sweeper
-    goatos-stg-idempotency-key-sweeper
-    goatos-stg-inventory-batch-reconciler
-    goatos-stg-notification-dispatcher
-    goatos-stg-obligation-sweeper
-    goatos-stg-outbox-relay
-    goatos-stg-partition-maintainer
-    goatos-stg-sop-review-fanout-retry
-    goatos-stg-vaccination-generator
+  DELIVERY_PIPELINE: goatos-stg
+  TARGET_ID: goatos-stg
 
 jobs:
   deploy:
@@ -69,52 +52,15 @@ jobs:
         run: docker buildx build --platform linux/amd64 --push -f backend/Dockerfile.migrate -t "$MIGRATION_IMAGE" .
       - name: Build and push admin-web image
         run: docker buildx build --platform linux/amd64 --push -f apps/admin-web/Dockerfile -t "$ADMIN_WEB_IMAGE" .
-      - name: Update and run migrations
+      - name: Create Cloud Deploy release
         run: |
-          gcloud run jobs update "$MIGRATE_JOB" \
+          release_id="goatos-stg-${IMAGE_TAG}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          gcloud deploy releases create "$release_id" \
             --project="$PROJECT_ID" \
             --region="$REGION" \
-            --image="$MIGRATION_IMAGE" \
-            --quiet
-          gcloud run jobs execute "$MIGRATE_JOB" \
-            --project="$PROJECT_ID" \
-            --region="$REGION" \
-            --wait \
-            --quiet
-      - name: Deploy backend API service
-        run: |
-          gcloud run services update "$API_SERVICE" \
-            --project="$PROJECT_ID" \
-            --region="$REGION" \
-            --image="$BACKEND_IMAGE" \
-            --update-labels="commit_sha=${IMAGE_TAG},deployed_by=github-actions" \
-            --quiet
-      - name: Update backend worker jobs
-        run: |
-          while IFS= read -r job; do
-            [ -n "$job" ] || continue
-            gcloud run jobs update "$job" \
-              --project="$PROJECT_ID" \
-              --region="$REGION" \
-              --image="$BACKEND_IMAGE" \
-              --quiet
-          done <<< "$BACKEND_JOBS"
-      - name: Deploy admin-web service
-        run: |
-          gcloud run services update "$ADMIN_WEB_SERVICE" \
-            --project="$PROJECT_ID" \
-            --region="$REGION" \
-            --image="$ADMIN_WEB_IMAGE" \
-            --update-labels="commit_sha=${IMAGE_TAG},deployed_by=github-actions" \
-            --quiet
-      - name: Smoke staging API and dashboard
-        run: |
-          for path in livez readyz; do
-            code="$(curl -fsS -o /dev/null -w '%{http_code}' "${STG_API_URL}/${path}")"
-            if [ "$code" != "204" ]; then
-              echo "${STG_API_URL}/${path} returned ${code}, expected 204"
-              exit 1
-            fi
-          done
-          curl -fsSIL "${STG_DASHBOARD_URL}/login" >/dev/null
-          echo "Staging smoke passed for ${STG_API_URL} and ${STG_DASHBOARD_URL}/login"
+            --delivery-pipeline="$DELIVERY_PIPELINE" \
+            --source=. \
+            --skaffold-file=deploy/clouddeploy/stg/skaffold.yaml \
+            --to-target="$TARGET_ID" \
+            --labels="commit_sha=${IMAGE_TAG},deployed_by=cloud-deploy" \
+            --deploy-parameters="customTarget/commitSha=${IMAGE_TAG},customTarget/backendImage=${BACKEND_IMAGE},customTarget/migrationImage=${MIGRATION_IMAGE},customTarget/adminWebImage=${ADMIN_WEB_IMAGE}"

@@ -170,6 +170,11 @@ one product; this skill is the navigation layer.
   build's migrations. The setup order is always: migrate schema, seed only
   canonical source truth, run deterministic closeout/projectors, then start or
   certify API/admin/workers.
+- Staging deployment authority is Cloud Deploy. GitHub Actions, Cloud Build, or
+  local operators may build images and create releases, but `goatos-stg` Cloud
+  Run services/jobs must be updated by `tools/deploy/stg-clouddeploy-task.sh`
+  through `deploy/clouddeploy/stg/clouddeploy.yaml`. Direct Cloud Run mutation
+  is break-glass only; read `docs/runbooks/cloud-deploy-staging.md`.
 - Keep AI as proposer/triage, never canonical authority.
 - Preserve module boundaries in the Go modular monolith.
 - Keep frontend/mobile behind app APIs and generated clients.

@@ -1,0 +1,41 @@
+apiVersion: deploy.cloud.google.com/v1
+kind: DeliveryPipeline
+metadata:
+  name: goatos-stg
+description: Goat OS staging deploy authority. Builds create releases; Cloud Deploy owns rollout order and verification.
+serialPipeline:
+  stages:
+  - targetId: goatos-stg
+---
+apiVersion: deploy.cloud.google.com/v1
+kind: Target
+metadata:
+  name: goatos-stg
+  labels:
+    app: goatos
+    env: stg
+description: goatos-stg custom target that migrates first, then updates Cloud Run services and jobs from one release.
+customTarget:
+  customTargetType: goatos-stg-cloud-run
+executionConfigs:
+- usages:
+  - RENDER
+  - DEPLOY
+  serviceAccount: goatos-github-deploy-stg@goatos-stg.iam.gserviceaccount.com
+---
+apiVersion: deploy.cloud.google.com/v1
+kind: CustomTargetType
+metadata:
+  name: goatos-stg-cloud-run
+description: Scripted Cloud Run staging rollout for API, admin-web, migrate job, and backend workers.
+tasks:
+  render:
+    type: container
+    image: asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:70b7e6f97d7bf2b9def6471d000910963e25a4e42e591e4b63f49179b1755964
+    command: ["/usr/local/bin/goatos-stg-clouddeploy-task"]
+    args: ["render"]
+  deploy:
+    type: container
+    image: asia-south1-docker.pkg.dev/goatos-stg/goatos/clouddeploy-stg-runner@sha256:70b7e6f97d7bf2b9def6471d000910963e25a4e42e591e4b63f49179b1755964
+    command: ["/usr/local/bin/goatos-stg-clouddeploy-task"]
+    args: ["deploy"]

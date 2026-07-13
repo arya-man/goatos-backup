@@ -3,6 +3,7 @@ locals {
     "artifactregistry.googleapis.com",
     "bigquery.googleapis.com",
     "cloudscheduler.googleapis.com",
+    "clouddeploy.googleapis.com",
     "cloudtasks.googleapis.com",
     "cloudtrace.googleapis.com",
     "fcm.googleapis.com",
@@ -41,6 +42,15 @@ resource "google_project_service_identity" "cloudtasks" {
 
   project = var.project_id
   service = "cloudtasks.googleapis.com"
+
+  depends_on = [google_project_service.enabled]
+}
+
+resource "google_project_service_identity" "clouddeploy" {
+  provider = google-beta
+
+  project = var.project_id
+  service = "clouddeploy.googleapis.com"
 
   depends_on = [google_project_service.enabled]
 }

@@ -73,8 +73,17 @@ main -> stg pull request:
 
 push/merge to stg:
   .github/workflows/stg-deploy.yml
-  Builds backend/migrate/admin-web images, runs migrations, updates services/jobs,
+  Builds backend/migrate/admin-web images and creates a Cloud Deploy release.
+  Cloud Deploy then runs migrations, updates services/jobs, verifies image skew,
   and smokes /livez, /readyz, and https://stg.dashboard.mesha.sg/login.
+
+Cloud Deploy source:
+
+```text
+deploy/clouddeploy/stg/clouddeploy.yaml
+tools/deploy/stg-clouddeploy-task.sh
+docs/runbooks/cloud-deploy-staging.md
+```
 ```
 
 The deploy workflow skips only when the pushed commit message contains

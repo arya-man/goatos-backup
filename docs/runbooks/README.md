@@ -5,6 +5,7 @@ Operational runbooks live here.
 Current runbooks:
 
 - [GitHub workflows](github-workflows.md)
+- [Cloud Deploy staging](cloud-deploy-staging.md)
 - [Google Cloud environments](google-cloud-environments.md)
 - [Initial seed migration coupling](initial-seed-migration-coupling.md)
 - [Local full-stack rehearsal](local-full-stack-rehearsal.md)

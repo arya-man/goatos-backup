@@ -113,18 +113,35 @@ at the Cloud Run layer today; this is the authoritative staging ingress posture
 until a separate service-to-service/IAP design exists. Goat OS JWKS/RBAC remains
 the authorization boundary for protected app routes.
 
+Staging deployment authority:
+
+```text
+Cloud Deploy pipeline: deploy/clouddeploy/stg/clouddeploy.yaml
+Release helper:        tools/deploy/stg-clouddeploy-release.sh
+Detailed runbook:      docs/runbooks/cloud-deploy-staging.md
+```
+
+Staging releases are the unit of change. A release carries the backend,
+migration, and admin-web images for one commit. Cloud Deploy runs the migration
+job first, then updates API, backend worker jobs, and admin-web, then verifies
+image skew and smokes `/livez`, `/readyz`, and
+`https://stg.dashboard.mesha.sg/login`.
+
+Do not update staging Cloud Run services or jobs directly from GitHub Actions
+or a local shell except as documented break-glass. Direct updates are how staging
+ends up with API, jobs, and schema from different commits.
+
 Staging branch automation:
 
 ```text
 main -> stg PR: .github/workflows/stg-pr-gate.yml
-push to stg:    .github/workflows/stg-deploy.yml
+push to stg:    .github/workflows/stg-deploy.yml -> Cloud Deploy release
 ```
 
 The PR gate runs backend DB/API/migration tests, admin-web checks, and a real
 `stgRelease` Android APK build. The deploy workflow builds/pushes backend,
-migration, and admin-web images, executes the migration job, updates staging
-Cloud Run services/jobs, and smokes `/livez`, `/readyz`, and
-`https://stg.dashboard.mesha.sg/login`.
+migration, and admin-web images, then creates a Cloud Deploy release. Cloud
+Deploy owns all Cloud Run mutations.
 
 ## Dev Layer 1 foundation plan
 
