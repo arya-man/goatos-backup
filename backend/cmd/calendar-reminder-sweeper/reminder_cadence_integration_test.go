@@ -99,11 +99,17 @@ func TestReminderCadence_ProducesRoleScopedFiresOverTime(t *testing.T) {
 	seedMember(rcManagerMember, "RC-MGR", "RC PHC Manager", "other")
 	seedMember(rcLeadershipMember, "RC-LEAD", "RC PC Director", "other")
 
+	// valid_from is a FIXED instant well before the earliest sweep as-of (T-7 = dueD-7d = 2026-07-13
+	// 09:00 IST), NOT now()-based: ResolvePositionRecipientsBatch filters `valid_from <= $at`, and the
+	// sweep drives fixed historical as-of times. A wall-clock now() seed makes the seat invalid at the
+	// T-7 as-of whenever the test runs after ~10:30 IST on 2026-07-13, producing 0 recipients (a
+	// time-of-day-dependent failure). Seed the window around the test's fixed dates instead.
+	const rcPositionValidFrom = "2026-06-20 00:00:00+05:30"
 	seedPosition := func(memberID, positionCode, scopeType, scopeID, tier string) {
 		exec(t, ctx, pool, "workforce position "+positionCode,
 			`INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, status, valid_from)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'active', now() - interval '1 hour')`,
-			rcTenant, memberID, scopeType, scopeID, positionCode, tier)
+			 VALUES ($1, $2, $3, $4, $5, $6, 'active', $7::timestamptz)`,
+			rcTenant, memberID, scopeType, scopeID, positionCode, tier, rcPositionValidFrom)
 	}
 	seedPosition(rcOperatorMember, "operator", "center", rcPark, "assistant")
 	seedPosition(rcParkHeadMember, "park_head", "center", rcPark, "head")
