@@ -17,6 +17,7 @@ import (
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
 	inventoryapp "github.com/vgoats/goatos/backend/internal/inventory/app"
+	notificationbridge "github.com/vgoats/goatos/backend/internal/notificationbridge"
 	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
 	obligationapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
@@ -31,6 +32,10 @@ import (
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
+	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
+	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
+	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 )
 
 type cliConfig struct {
@@ -139,6 +144,10 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationCompletion := vaccinationapp.NewCompletionService(vaccinationService, obligationRepo, inventoryService)
 		vaccinationBooster := vaccinationapp.NewBoosterService(protocolRepo, obligationRepo).WithGoatReader(vaccinationRepo).WithCrossVaccineGapReader(vaccinationRepo)
 		generation := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
+		workforceRepo := workforcepg.NewRepository(pool, pgCfg.QueryTimeout)
+		rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+		calendarRepo := calendarpg.NewRepository(pool, pgCfg.QueryTimeout)
+		calendarService := calendarapp.NewService(calendarRepo)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		vaccinationapp.NewGoatCreatedHandler(generation).Register(bus)
@@ -147,6 +156,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationapp.NewManualCampaignHandler(generation).Register(bus)
 		vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
+		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)
 		logger.Info("outbox_relay_eventbus_dispatcher_ready")
 		return eventbuspublisher.New(bus), nil, nil

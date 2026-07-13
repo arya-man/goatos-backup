@@ -1,0 +1,353 @@
+package notificationbridge_test
+
+// Real-Postgres tests for the durable VerificationEventConsumer (verification_notify_consumer.go).
+// They seed only INPUT facts (workforce members/positions/verify-duty/devices + the
+// calendar_event_projections FK row) and then drive consumer.HandleEvent with the exact
+// verification.* outbox payload shape the verification repository emits, asserting the produced
+// notification_requests rows. They reuse the package-level fixture ids (vnTenant/vnPark/vn*Member/
+// vn*Device/vn*Token/vnVerifierPositionCode) and helpers (exec/countRows) defined in
+// verification_notify_integration_test.go.
+//
+// The four required behaviors, each of which was confirmed to FAIL when its production behavior is
+// broken (verified by temporarily inverting the consumer, then restoring):
+//   - TestVerificationEventConsumer_Idempotent      : same event twice -> exactly ONE row.
+//   - TestVerificationEventConsumer_ReplayAndDLQ    : retried transient failure -> no duplicate;
+//                                                     poison payload -> eventbus.PermanentError (DLQ).
+//   - TestVerificationEventConsumer_RecipientResolution : pending->verifier only; rework->operator
+//                                                     + park head; approved->ZERO rows.
+//   - TestVerificationEventConsumer_LegacyDedup     : legacy vaccination SOP item rework -> NO row.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
+	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
+	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
+	"github.com/vgoats/goatos/backend/internal/notificationbridge"
+	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
+	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
+)
+
+// Distinct verification_item ids (the consumer targets these; the sibling test uses completion ids).
+const (
+	vecItemPending  = "fa000000-0000-4000-8000-0000000000a1"
+	vecItemRework   = "fa000000-0000-4000-8000-0000000000a2"
+	vecItemApproved = "fa000000-0000-4000-8000-0000000000a3"
+	vecItemLegacy   = "fa000000-0000-4000-8000-0000000000a4"
+	vecItemIdem     = "fa000000-0000-4000-8000-0000000000a5"
+	vecItemReplay   = "fa000000-0000-4000-8000-0000000000a6"
+)
+
+// vecSetup stands up a fresh Postgres, the roster + calendar services, the consumer, and seeds the
+// recipient input facts (verifier verify-duty, park-head position, operator/park-head/verifier
+// devices). Returns the pool, the wired consumer, and a helper to seed the calendar projection FK.
+func vecSetup(t *testing.T) (*pgxpool.Pool, *notificationbridge.VerificationEventConsumer, func(itemID string)) {
+	t.Helper()
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	t.Cleanup(pool.Close)
+
+	workforceRepo := workforcepg.NewRepository(pool, 5*time.Second)
+	rosterService := workforceapp.NewRosterService(workforceRepo, workforceRepo)
+	calendarRepo := calendarpg.NewRepository(pool, 5*time.Second)
+	calendarService := calendarapp.NewService(calendarRepo)
+	consumer := notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, slog.Default())
+
+	// Workforce members.
+	seedMember := func(id, code, name, hint string) {
+		exec(t, ctx, pool, "member "+code,
+			`INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status, primary_role_hint)
+			 VALUES ($1, $2, $3, $4, 'active', $5)`, id, vnTenant, code, name, hint)
+	}
+	seedMember(vnOperatorMember, "VEC-OP", "VEC Operator", "operator")
+	seedMember(vnParkHeadMember, "VEC-PH", "VEC Park Head", "park_head")
+	seedMember(vnVerifierMember, "VEC-VER", "VEC Verifier", "verifier")
+
+	// Positions: verifier (center/park, manager) + park head (center/park, head).
+	seedPosition := func(memberID, positionCode, tier string) {
+		exec(t, ctx, pool, "position "+positionCode,
+			`INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, status, valid_from)
+			 VALUES ($1, $2, 'center', $3, $4, $5, 'active', now() - interval '1 hour')`,
+			vnTenant, memberID, vnPark, positionCode, tier)
+	}
+	seedPosition(vnVerifierMember, vnVerifierPositionCode, "manager")
+	seedPosition(vnParkHeadMember, "park_head", "head")
+
+	// Verify duty for the verifier position under pc.vaccination.
+	exec(t, ctx, pool, "verify duty",
+		`INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, status, effective_from)
+		 VALUES ($1, $2, 'pc.vaccination', 'verify', 'active', now() - interval '1 hour')`,
+		vnTenant, vnVerifierPositionCode)
+
+	// Devices + FCM tokens (the delivery address recipient resolution returns).
+	seedDevice := func(id, memberID, install, token string) {
+		exec(t, ctx, pool, "device "+install,
+			`INSERT INTO workforce_member_devices (device_id, tenant_id, workforce_member_id, platform, app_install_id, fcm_token, app_version, os_version, status, last_seen_at, registered_by)
+			 VALUES ($1, $2, $3, 'android', $4, $5, '1.0.0', '14', 'active', now(), $3)`,
+			id, vnTenant, memberID, install, token)
+	}
+	seedDevice(vnOperatorDevice, vnOperatorMember, "vec-op", vnOperatorToken)
+	seedDevice(vnParkHeadDevice, vnParkHeadMember, "vec-ph", vnParkHeadToken)
+	seedDevice(vnVerifierDevice, vnVerifierMember, "vec-ver", vnVerifierToken)
+
+	// The calendar_event_projections FK row (notification_requests.calendar_event_id -> it). In
+	// production the calendar projector materializes this; seeding stands in for that upstream.
+	seedProjection := func(itemID string) {
+		exec(t, ctx, pool, "calendar projection "+itemID,
+			`INSERT INTO calendar_event_projections (
+			   tenant_id, event_id, slice_key, event_type, owner_key, title, status, due_at,
+			   target_type, target_count, park_id, executor_role
+			 ) VALUES ($1, $2, 'vaccination', 'vaccination_proof_verification', 'pc', 'VEC proof review',
+			           'verification_pending', now(), 'verification_item', 1, $3, 'operator')`,
+			vnTenant, "verification:"+itemID, vnPark)
+	}
+	return pool, consumer, seedProjection
+}
+
+// vecPayload builds the verification.* outbox payload shape the verification repository emits
+// (verificationVerdictPayload / verificationItemPendingPayload), with an optional legacy source.
+func vecPayload(itemID, operatorID, decision, reason string, legacy bool) []byte {
+	source := map[string]any{"module": "generic", "ref_type": "capture", "ref_id": itemID}
+	if legacy {
+		source = map[string]any{
+			"module": "vaccination", "ref_type": "sop_submission",
+			"ref_id": itemID, "task_id": "fa000000-0000-4000-8000-0000000000f1",
+			"submission_id": itemID,
+		}
+	}
+	m := map[string]any{
+		"tenant_id": vnTenant, "item_id": itemID, "vertical": "preventive_care",
+		"module": "vaccination", "category": "vaccination_proof",
+		"operator_id": operatorID, "park_id": vnPark, "source": source,
+	}
+	if decision != "" {
+		m["decision"] = decision
+		m["status"] = decision
+	}
+	if reason != "" {
+		m["reason"] = reason
+	}
+	b, _ := json.Marshal(m)
+	return b
+}
+
+func vecEvent(eventType, itemID string, payload []byte) eventbus.Event {
+	return eventbus.Event{Type: eventType, TenantID: vnTenant, Key: itemID, Payload: payload}
+}
+
+// TestVerificationEventConsumer_Idempotent: the SAME pending event processed twice produces exactly
+// ONE notification_request for the verifier (ON CONFLICT DO NOTHING on the device idempotency key).
+func TestVerificationEventConsumer_Idempotent(t *testing.T) {
+	ctx := context.Background()
+	pool, consumer, seedProjection := vecSetup(t)
+	seedProjection(vecItemIdem)
+
+	ev := vecEvent(notificationbridge.EventVerificationItemPending, vecItemIdem,
+		vecPayload(vecItemIdem, vnOperatorMember, "", "", false))
+
+	if err := consumer.HandleEvent(ctx, ev); err != nil {
+		t.Fatalf("first handle: %v", err)
+	}
+	if err := consumer.HandleEvent(ctx, ev); err != nil { // exact replay
+		t.Fatalf("replay handle: %v", err)
+	}
+
+	got := countRows(t, ctx, pool,
+		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
+		vnTenant, vecItemIdem)
+	if got != 1 {
+		t.Fatalf("notification_requests after duplicate processing = %d, want 1 (idempotent)", got)
+	}
+}
+
+// TestVerificationEventConsumer_ReplayAndDLQ covers both durable-delivery failure modes:
+//   - replay: a handler whose queue write COMMITTED but then returned a transient error is retried;
+//     the retry must NOT create a second row (idempotency makes replay side-effect-free).
+//   - DLQ: a poison (unparseable) payload is returned as eventbus.PermanentError so the domain-event
+//     consumer nacks it straight to the DLQ (IsPermanentError -> nacked_for_dlq) instead of looping.
+func TestVerificationEventConsumer_ReplayAndDLQ(t *testing.T) {
+	ctx := context.Background()
+	pool, consumer, seedProjection := vecSetup(t)
+	seedProjection(vecItemReplay)
+
+	// --- replay leg: first attempt commits the row, then fails transiently; retry must not dup. ---
+	realCalendar := calendarapp.NewService(calendarpg.NewRepository(pool, 5*time.Second))
+	failing := &failOnceQueue{inner: realCalendar}
+	roster := workforceapp.NewRosterService(
+		workforcepg.NewRepository(pool, 5*time.Second),
+		workforcepg.NewRepository(pool, 5*time.Second),
+	)
+	replayConsumer := notificationbridge.NewVerificationEventConsumer(roster, failing, slog.Default())
+
+	ev := vecEvent(notificationbridge.EventVerificationItemPending, vecItemReplay,
+		vecPayload(vecItemReplay, vnOperatorMember, "", "", false))
+
+	err := replayConsumer.HandleEvent(ctx, ev)
+	if err == nil {
+		t.Fatalf("expected transient error on first (fail-once) attempt")
+	}
+	if eventbus.IsPermanentError(err) {
+		t.Fatalf("transient failure must be retryable, not permanent: %v", err)
+	}
+	// The retry (queue now healthy) reprocesses the SAME event; idempotency must prevent a duplicate.
+	if err := replayConsumer.HandleEvent(ctx, ev); err != nil {
+		t.Fatalf("retry handle: %v", err)
+	}
+	rows := countRows(t, ctx, pool,
+		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
+		vnTenant, vecItemReplay)
+	if rows != 1 {
+		t.Fatalf("notification_requests after failed-then-retried run = %d, want 1 (no duplicate side effect)", rows)
+	}
+
+	// --- DLQ leg: a poison payload can never parse -> PermanentError -> DLQ, and writes NOTHING. ---
+	poison := eventbus.Event{Type: notificationbridge.EventVerificationVerdictRework, TenantID: vnTenant, Key: "poison", Payload: []byte("{not valid json")}
+	perr := consumer.HandleEvent(ctx, poison)
+	if perr == nil {
+		t.Fatalf("expected an error for a poison payload")
+	}
+	if !eventbus.IsPermanentError(perr) {
+		t.Fatalf("poison payload must be a permanent (DLQ) error, got retryable: %v", perr)
+	}
+	poisonRows := countRows(t, ctx, pool,
+		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1`, vnTenant)
+	if poisonRows != 1 { // only the replay-leg row exists; the poison event wrote nothing
+		t.Fatalf("notification_requests after poison event = %d, want 1 (poison writes nothing)", poisonRows)
+	}
+}
+
+// TestVerificationEventConsumer_RecipientResolution proves per-event routing:
+// pending -> verifier device only; rework -> operator + park head; approved -> zero rows.
+func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
+	ctx := context.Background()
+	pool, consumer, seedProjection := vecSetup(t)
+	seedProjection(vecItemPending)
+	seedProjection(vecItemRework)
+
+	// pending -> the verifier's device only.
+	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationItemPending,
+		vecItemPending, vecPayload(vecItemPending, vnOperatorMember, "", "", false))); err != nil {
+		t.Fatalf("pending handle: %v", err)
+	}
+	pendingRefs := vecRecipientRefs(t, ctx, pool, vecItemPending)
+	if len(pendingRefs) != 1 || !pendingRefs[vnVerifierToken] {
+		t.Fatalf("pending recipients = %v, want exactly {verifier %q}", pendingRefs, vnVerifierToken)
+	}
+	if pendingRefs[vnOperatorToken] || pendingRefs[vnParkHeadToken] {
+		t.Fatalf("pending must NOT notify operator/park head: %v", pendingRefs)
+	}
+
+	// rework -> operator + park head (both), never the verifier.
+	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework,
+		vecItemRework, vecPayload(vecItemRework, vnOperatorMember, "rejected", "blurry", false))); err != nil {
+		t.Fatalf("rework handle: %v", err)
+	}
+	reworkRefs := vecRecipientRefs(t, ctx, pool, vecItemRework)
+	if len(reworkRefs) != 2 || !reworkRefs[vnOperatorToken] || !reworkRefs[vnParkHeadToken] {
+		t.Fatalf("rework recipients = %v, want {operator %q, park head %q}", reworkRefs, vnOperatorToken, vnParkHeadToken)
+	}
+	if reworkRefs[vnVerifierToken] {
+		t.Fatalf("rework must NOT notify the verifier: %v", reworkRefs)
+	}
+
+	// approved -> ZERO notification rows (digest/metrics only).
+	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictApproved,
+		vecItemApproved, vecPayload(vecItemApproved, vnOperatorMember, "approved", "", false))); err != nil {
+		t.Fatalf("approved handle: %v", err)
+	}
+	approvedRows := countRows(t, ctx, pool,
+		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
+		vnTenant, vecItemApproved)
+	if approvedRows != 0 {
+		t.Fatalf("approved verdict produced %d notification rows, want 0 (no push on approval)", approvedRows)
+	}
+}
+
+// TestVerificationEventConsumer_LegacyDedup: a generic verification_item that mirrors a legacy
+// vaccination SOP verification (source.module=vaccination, source.ref_type=sop_submission) is
+// ALREADY notified by the legacy vaccination.verify.rejected path, so the generic rework push is
+// suppressed -> NO second notification_request. A non-legacy item on the same park still notifies.
+func TestVerificationEventConsumer_LegacyDedup(t *testing.T) {
+	ctx := context.Background()
+	pool, consumer, seedProjection := vecSetup(t)
+	seedProjection(vecItemLegacy)
+	seedProjection(vecItemRework)
+
+	// Legacy-sourced rework -> suppressed (zero rows).
+	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework,
+		vecItemLegacy, vecPayload(vecItemLegacy, vnOperatorMember, "rejected", "legacy dup", true))); err != nil {
+		t.Fatalf("legacy rework handle: %v", err)
+	}
+	legacyRows := countRows(t, ctx, pool,
+		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
+		vnTenant, vecItemLegacy)
+	if legacyRows != 0 {
+		t.Fatalf("legacy vaccination rework produced %d rows, want 0 (suppressed to avoid double push)", legacyRows)
+	}
+
+	// Control: a NON-legacy (generic) rework on the same park is NOT suppressed.
+	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework,
+		vecItemRework, vecPayload(vecItemRework, vnOperatorMember, "rejected", "generic", false))); err != nil {
+		t.Fatalf("generic rework handle: %v", err)
+	}
+	genericRows := countRows(t, ctx, pool,
+		`SELECT count(*) FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
+		vnTenant, vecItemRework)
+	if genericRows == 0 {
+		t.Fatalf("non-legacy generic rework must still notify (got 0 rows); suppression is too broad")
+	}
+}
+
+// vecRecipientRefs returns the set of recipient_ref (FCM tokens) on notification_requests for an item.
+func vecRecipientRefs(t *testing.T, ctx context.Context, pool *pgxpool.Pool, itemID string) map[string]bool {
+	t.Helper()
+	rows, err := pool.Query(ctx,
+		`SELECT recipient_ref FROM notification_requests WHERE tenant_id = $1 AND target_id = $2`,
+		vnTenant, itemID)
+	if err != nil {
+		t.Fatalf("query recipients for %s: %v", itemID, err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var ref string
+		if err := rows.Scan(&ref); err != nil {
+			t.Fatalf("scan recipient: %v", err)
+		}
+		out[ref] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate recipients: %v", err)
+	}
+	return out
+}
+
+// failOnceQueue delegates the FIRST QueueRoleNotifications to the real queue (committing the row) and
+// then returns a transient error, simulating a crash/ack-loss AFTER the side effect committed. Every
+// later call delegates and returns success. Models at-least-once redelivery for the replay test.
+type failOnceQueue struct {
+	inner  notificationbridge.NotificationQueue
+	failed bool
+}
+
+func (q *failOnceQueue) QueueRoleNotifications(ctx context.Context, in calendarports.QueueRoleNotifications) (int, error) {
+	n, err := q.inner.QueueRoleNotifications(ctx, in)
+	if err != nil {
+		return n, err
+	}
+	if !q.failed {
+		q.failed = true
+		return n, errors.New("transient: simulated ack loss after commit")
+	}
+	return n, nil
+}

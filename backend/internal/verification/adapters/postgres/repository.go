@@ -29,7 +29,14 @@ const (
 	EventVerdictApproved  = "verification.verdict.approved"
 	EventVerdictRework    = "verification.verdict.rework"
 	verificationTopic     = "verification"
-	verificationSchemaVer = "1"
+	// verificationSchemaVer must be semver to satisfy the domain-event-envelope schema
+	// (schema_version pattern ^[0-9]+\.[0-9]+\.[0-9]+$) enforced by the outbox relay's
+	// EnvelopeValidator before publish. A non-semver value (was "1") fails validation, so the
+	// event is marked invalid_event_envelope and NEVER delivered to any consumer.
+	verificationSchemaVer = "1.0.0"
+	// verificationSchemaRef is the required schema_ref pointer for the envelope. Mirrors the
+	// notification.exhausted producer's "<schema file>#<event_type>" convention.
+	verificationSchemaRef = "contracts/jsonschema/domain-event-envelope.schema.json"
 )
 
 type Repository struct {
@@ -295,6 +302,7 @@ func insertOutboxEvent(ctx context.Context, tx pgx.Tx, tenantID, eventType, aggr
 		"event_id":       eventID,
 		"event_type":     eventType,
 		"schema_version": verificationSchemaVer,
+		"schema_ref":     verificationSchemaRef + "#" + eventType,
 		"aggregate_type": "verification_item",
 		"aggregate_id":   aggregateID,
 		"occurred_at":    now,
@@ -304,13 +312,20 @@ func insertOutboxEvent(ctx context.Context, tx pgx.Tx, tenantID, eventType, aggr
 			"module":  "verification",
 		},
 		"idempotency_key": idempotencyKey,
-		"subject_type":    "verification_item",
-		"subject_id":      aggregateID,
+		// A verdict/pending record is a system-rule transition (the module writes the outbox row in
+		// the same transaction as the state change), not a direct human actor keystroke.
+		"actor": map[string]any{
+			"actor_type": "system_rule",
+			"actor_ref":  "verification",
+		},
+		"subject_type": "verification_item",
+		"subject_id":   aggregateID,
 		"visibility_scope": map[string]any{
 			"tenant_id": tenantID,
 		},
-		"payload":  payload,
-		"trace_id": idempotencyKey,
+		"evidence_refs": []any{},
+		"payload":       payload,
+		"trace_id":      idempotencyKey,
 	})
 	if err != nil {
 		return fmt.Errorf("verification: outbox envelope: %w", err)

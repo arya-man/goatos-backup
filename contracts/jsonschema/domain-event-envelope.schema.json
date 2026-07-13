@@ -67,7 +67,10 @@
         "config.changed",
         "counts.base_count_anchor.recorded",
         "counts.shifting_event.recorded",
-        "counts.projection_exception.opened"
+        "counts.projection_exception.opened",
+        "verification.item.pending",
+        "verification.verdict.rework",
+        "verification.verdict.approved"
       ]
     },
     "schema_version": {
@@ -95,7 +98,8 @@
         "admin_ui_config_family",
         "count_base_anchor",
         "shifting_event",
-        "count_projection_exception"
+        "count_projection_exception",
+        "verification_item"
       ]
     },
     "aggregate_id": {
@@ -118,7 +122,8 @@
         "admin_ui_config_family",
         "count_base_anchor",
         "shifting_event",
-        "count_projection_exception"
+        "count_projection_exception",
+        "verification_item"
       ]
     },
     "subject_id": {
