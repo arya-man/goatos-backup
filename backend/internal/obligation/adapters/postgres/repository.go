@@ -1241,61 +1241,81 @@ func recordCanceledObligationRows(ctx context.Context, tx pgx.Tx, qtx *obligatio
 	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("obligation: read canceled obligations: %w", err)
 	}
-	for batchID, count := range oldBatches {
+	// Bulk update all batches using UNNEST instead of N+1 loop (scale-guard:fix)
+	if len(oldBatches) > 0 {
+		batchIDs := make([]string, 0, len(oldBatches))
+		counts := make([]int, 0, len(oldBatches))
+		for batchID, count := range oldBatches {
+			batchIDs = append(batchIDs, batchID)
+			counts = append(counts, count)
+		}
+		batchUUIDs, err := pgconv.UUIDs(batchIDs)
+		if err != nil {
+			return 0, fmt.Errorf("obligation: batch ids: %w", err)
+		}
 		if _, err := tx.Exec(ctx, `
-WITH reserved AS (
-  SELECT COALESCE(SUM(quantity), 0)::numeric AS qty
-  FROM inventory_stock_movements
-  WHERE tenant_id = $1
-    AND batch_id = $2::uuid
-    AND movement_type = 'reserve'
+WITH batch_updates AS (
+  SELECT batch_id::uuid, count
+  FROM UNNEST($2::uuid[], $3::int[]) AS t(batch_id, count)
+),
+reserved AS (
+  SELECT bu.batch_id, COALESCE(SUM(ism.quantity), 0)::numeric AS qty
+  FROM batch_updates bu
+  LEFT JOIN inventory_stock_movements ism
+    ON ism.tenant_id = $1
+   AND ism.batch_id = bu.batch_id
+   AND ism.movement_type = 'reserve'
+  GROUP BY bu.batch_id
 ),
 repair AS (
-  SELECT (
-    CASE WHEN context #>> '{defer_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{defer_repair,release_qty}', '')::numeric, 0)
+  SELECT bu.batch_id, (
+    CASE WHEN ob.context #>> '{defer_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{defer_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
-    + CASE WHEN context #>> '{shift_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{shift_repair,release_qty}', '')::numeric, 0)
+    + CASE WHEN ob.context #>> '{shift_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{shift_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
-    + CASE WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+    + CASE WHEN ob.context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
-    + CASE WHEN context #>> '{missed_repair,state}' = 'stock_reconcile_required'
-         THEN COALESCE(NULLIF(context #>> '{missed_repair,release_qty}', '')::numeric, 0)
+    + CASE WHEN ob.context #>> '{missed_repair,state}' = 'stock_reconcile_required'
+         THEN COALESCE(NULLIF(ob.context #>> '{missed_repair,release_qty}', '')::numeric, 0)
          ELSE 0 END
   )::numeric AS pending_release
-  FROM obligation_batches
-  WHERE tenant_id = $1
-    AND batch_id = $2::uuid
+  FROM batch_updates bu
+  JOIN obligation_batches ob
+    ON ob.tenant_id = $1
+   AND ob.batch_id = bu.batch_id
 )
 UPDATE obligation_batches ob
-SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
+SET estimated_targets = GREATEST(0, ob.estimated_targets - bu.count),
     context = CASE
-      WHEN reserved.qty > 0 THEN context || jsonb_build_object(
+      WHEN res.qty > 0 THEN ob.context || jsonb_build_object(
         'cancel_repair', jsonb_build_object(
           'state', 'stock_reconcile_required',
           'target_id', $4::text,
           'reason', $5::text,
           'release_qty',
             (CASE
-              WHEN context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
-              THEN COALESCE(NULLIF(context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
+              WHEN ob.context #>> '{cancel_repair,state}' = 'stock_reconcile_required'
+              THEN COALESCE(NULLIF(ob.context #>> '{cancel_repair,release_qty}', '')::numeric, 0)
               ELSE 0
             END) + LEAST(
-              GREATEST(0, reserved.qty - repair.pending_release),
-              ($3::numeric * GREATEST(0, reserved.qty - repair.pending_release)) / GREATEST(ob.estimated_targets, 1)
+              GREATEST(0, res.qty - rep.pending_release),
+              (bu.count::numeric * GREATEST(0, res.qty - rep.pending_release)) / GREATEST(ob.estimated_targets, 1)
             ),
           'recorded_at', now()
         )
       )
-      ELSE context
+      ELSE ob.context
     END,
     updated_at = now(),
     row_version = row_version + 1
-FROM reserved, repair
-WHERE tenant_id = $1
-  AND batch_id = $2::uuid`, tenant, batchID, count, goatID, reason); err != nil {
+FROM batch_updates bu
+LEFT JOIN reserved res ON res.batch_id = bu.batch_id
+LEFT JOIN repair rep ON rep.batch_id = bu.batch_id
+WHERE ob.tenant_id = $1
+  AND ob.batch_id = bu.batch_id`, tenant, batchUUIDs, counts, goatID, reason); err != nil {
 			return 0, fmt.Errorf("obligation: update ineligible cancel batch repair: %w", err)
 		}
 	}
@@ -1307,21 +1327,27 @@ WHERE tenant_id = $1
 	for key, value := range extra {
 		outboxExtra[key] = value
 	}
-	for _, id := range ids {
-		oid, err := pgconv.UUID(id)
+	// Bulk insert status events using UNNEST instead of N+1 loop (scale-guard:fix)
+	if len(ids) > 0 {
+		obligationIDs, err := pgconv.UUIDs(ids)
 		if err != nil {
-			return 0, fmt.Errorf("obligation: obligation id: %w", err)
+			return 0, fmt.Errorf("obligation: obligation ids: %w", err)
 		}
-		if _, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
-			TenantID:       tenant,
-			ObligationID:   oid,
-			EventType:      "canceled",
-			OccurredAt:     pgconv.Timestamptz(occurredAt),
-			Payload:        payload,
-			IdempotencyKey: id + ":canceled:" + reason,
-		}); err != nil {
-			return 0, fmt.Errorf("obligation: cancel event: %w", err)
+		idempotencyKeys := make([]string, len(ids))
+		for i, id := range ids {
+			idempotencyKeys[i] = id + ":canceled:" + reason
 		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO obligation_status_events (
+  tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
+) SELECT $1, obligation_id, $2, $3, $4, idempotency_key
+FROM UNNEST($5::uuid[], $6::text[]) AS t(obligation_id, idempotency_key)
+ON CONFLICT (idempotency_key) DO NOTHING`, tenant, "canceled", pgconv.Timestamptz(occurredAt), payload, obligationIDs, idempotencyKeys); err != nil {
+			return 0, fmt.Errorf("obligation: bulk insert cancel events: %w", err)
+		}
+	}
+	// Insert outbox events per obligation (separate table, kept per-record for transaction atomicity)
+	for _, id := range ids {
 		if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, id, obligationCanceledEventType, "canceled", occurredAt, outboxExtra, producer); err != nil {
 			return 0, err
 		}
