@@ -33,7 +33,6 @@
     <!-- v4 park-level drive progress card -->
     <string name="calendar_drive_title">टीकाकरण ड्राइव · %1$s</string>
     <string name="calendar_drive_sheds_done">%2$d में से %1$d शेड पूर्ण</string>
-    <string name="calendar_drive_animals">पशु</string>
     <string name="calendar_drive_vaccines_fmt">%1$d टीके</string>
     <string name="calendar_drive_open">ड्राइव खोलें</string>
     <string name="calendar_drive_due">%1$d देय</string>

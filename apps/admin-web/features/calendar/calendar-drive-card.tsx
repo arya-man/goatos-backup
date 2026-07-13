@@ -102,7 +102,7 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
           <div>
             <b>{summary.completed_count}</b>{" "}
             <span className="muted">
-              / {summary.total_count} {copy(pageContract, "calendar.drive.animals")}
+              / {summary.total_count} {copy(pageContract, "calendar.drive.doses")}
             </span>
           </div>
           <div className="muted small">

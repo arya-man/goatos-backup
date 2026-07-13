@@ -395,7 +395,10 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 fontWeight = FontWeight.W700,
             )
         }
-        if (item.subtitle.isNotEmpty()) {
+        // Suppress the flat subtitle/summary rows when a park-level drive_summary is present:
+        // the DriveProgressCard below already renders sheds/vaccines/dose totals, so these would
+        // duplicate them above the ring (CDR-003). They still render for non-drive-summary rows.
+        if (drive == null && item.subtitle.isNotEmpty()) {
             Text(
                 text = item.subtitle,
                 color = MeshaColors.Muted,
@@ -404,7 +407,7 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 modifier = Modifier.padding(top = 7.dp),
             )
         }
-        if (item.summaryPrimary.isNotEmpty()) {
+        if (drive == null && item.summaryPrimary.isNotEmpty()) {
             Text(
                 text = item.summaryPrimary,
                 color = MeshaColors.Ink,
@@ -413,7 +416,7 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
-        if (item.summarySecondary.isNotEmpty()) {
+        if (drive == null && item.summarySecondary.isNotEmpty()) {
             Text(
                 text = item.summarySecondary,
                 color = MeshaColors.Muted,
@@ -519,7 +522,7 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
             )
             Spacer(Modifier.size(10.dp))
         }
-        val pct = if (summary.totalCount > 0) summary.completedCount * 100 / summary.totalCount else 0
+        val pct = if (summary.totalCount > 0) Math.round(summary.completedCount * 100.0 / summary.totalCount).toInt() else 0
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -534,7 +537,7 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
                         fontWeight = FontWeight.W800,
                     )
                     Text(
-                        text = " / ${summary.totalCount} ${stringResource(R.string.calendar_drive_animals)}",
+                        text = " / ${summary.totalCount} ${stringResource(R.string.calendar_drive_doses)}",
                         color = MeshaColors.Muted,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.W600,

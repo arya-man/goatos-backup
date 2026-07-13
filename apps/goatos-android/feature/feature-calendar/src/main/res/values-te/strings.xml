@@ -33,7 +33,6 @@
     <!-- v4 park-level drive progress card -->
     <string name="calendar_drive_title">టీకా డ్రైవ్ · %1$s</string>
     <string name="calendar_drive_sheds_done">%2$d లో %1$d షెడ్లు పూర్తి</string>
-    <string name="calendar_drive_animals">జంతువులు</string>
     <string name="calendar_drive_vaccines_fmt">%1$d టీకాలు</string>
     <string name="calendar_drive_open">డ్రైవ్ తెరవండి</string>
     <string name="calendar_drive_due">%1$d బాకీ</string>
