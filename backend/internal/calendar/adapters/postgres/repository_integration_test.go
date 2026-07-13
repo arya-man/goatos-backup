@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
@@ -96,7 +97,7 @@ func TestCalendarProjectionCoverageUsesInclusiveQueryExclusiveBound(t *testing.T
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
 
-	base := time.Now().UTC().Truncate(24 * time.Hour)
+	base := biztime.BusinessDayStart(time.Now())
 	// Projection covers [base, base+30d) — date_to is the exclusive upper bound.
 	seedCalendarProjectionStateWindow(t, ctx, pool, base, base.Add(30*24*time.Hour))
 	q := domain.Query{TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: base, Limit: 10, Scope: domain.ScopeFilter{TenantWide: true}}

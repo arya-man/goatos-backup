@@ -28,5 +28,6 @@ if grep -Eq 'GOATOS_OUTBOX_PUBLISHER: (eventbus|logging)|GOATOS_OUTBOX_ALLOW_NON
 fi
 
 grep -Fq 'goatos-local-outbox-events-dlq' "$repo_root/tools/dev/pubsub-emulator-bootstrap.sh"
+grep -Fq 'domain_event_duplicate_skipped' "$repo_root/tools/dev/local-gcp-kernel-parity-smoke.sh"
 
 echo "local GCP kernel parity guard: PASS"

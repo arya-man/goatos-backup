@@ -2,57 +2,50 @@
 #
 # Grandfathered UTC-based business-date derivation violations from check-india-business-date.mjs
 #
-# These 77 offenders must be fixed to comply with AGENTS.md:
+# These 62 offenders must be fixed to comply with AGENTS.md:
 #   "Goat OS time semantics = India-business-calendar. UTC must never define a Goat OS business
 #    day — scheduling, due/missed buckets, reminder keys, reporting groups, audit display, UI
 #    labels must convert to Asia/Kolkata first."
 #
 # Regenerated 2026-07-13: the baseline is keyed rel:line, so any line insertion above a
-# grandfathered call reads as a "new" offender until the baseline is regenerated. Several
-# committed files drifted (calendar/vaccinationexecution) without a baseline refresh, which is
-# what left main red on this guard. This snapshot re-pins every current offender at its true
-# line; no net-new business-date logic was introduced (the drifted non-test hits are UTC
-# storage/clock instants: escalation ack/resolve/snooze writes and the reschedule clock arg).
+# grandfathered call reads as a "new" offender until the baseline is regenerated. This snapshot
+# re-pins every current offender at its true line after the India-date stabilization pass. Every
+# remaining entry is the now_utc_inline class -- UTC storage/clock instants passed inline to a
+# call (audit/ack/resolve/snooze writes, reschedule clock arg, test-setup timestamps), NOT a
+# business-day derivation. The one genuinely-new business-day offender that an earlier baseline
+# had grandfathered -- calendar repository_integration_test.go's
+# TestCalendarProjectionCoverageUsesInclusiveQueryExclusiveBound day-boundary base
+# (time.Now().UTC().Truncate(24h), a utc_truncate_day) -- was FIXED to biztime.BusinessDayStart,
+# not baselined. No utc_truncate_day / utc_format_date pattern remains in the tree.
 #
 # Burndown plan:
 # - Most are in _test.go files (test setup code using time.Now().UTC() for timestamps)
 #   -> convert to time.Now().In(biztime.DefaultLocation()) when the timestamp feeds a
 #      business-day derivation, or use biztime.BusinessDayStart/BusinessDate
 # - calendar/repository.go reminder keys -> must use IST for the date portion
-# - identity/goat_lifecycle.go breeding/delivery dates -> .In(biztime.DefaultLocation()).Format()
 # - obligation sweeper/consolidation business logic -> wrap in biztime helpers
 #
 # No new UTC-based business-date patterns are allowed by the guard (baseline-ratchet).
 # To add a temporary exception, use: india-date-guard:ignore: owner=<name> issue=<url> scope=<why> expiry=YYYY-MM-DD
 #
-backend/internal/bulkstatus/app/token.go:59
-backend/internal/calendar/adapters/postgres/repository.go:652
-backend/internal/calendar/adapters/postgres/repository.go:663
-backend/internal/calendar/adapters/postgres/repository.go:684
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:99
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:316
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:654
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:737
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:790
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:822
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:979
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1156
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1215
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1259
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1371
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1511
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1532
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1587
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1631
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1655
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1710
-backend/internal/calendar/adapters/postgres/repository_integration_test.go:1758
-backend/internal/counts/adapters/postgres/repository.go:1080
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:317
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:655
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:738
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:791
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:823
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:980
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1157
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1216
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1260
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1372
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1512
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1533
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1588
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1632
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1656
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1711
+backend/internal/calendar/adapters/postgres/repository_integration_test.go:1759
 backend/internal/identity/adapters/http/handler_test.go:531
-backend/internal/identity/adapters/postgres/goat_lifecycle.go:546
-backend/internal/identity/adapters/postgres/goat_lifecycle.go:549
-backend/internal/identity/app/admin_goat.go:879
-backend/internal/identity/app/admin_goat.go:887
 backend/internal/identity/app/service_test.go:224
 backend/internal/identity/app/service_test.go:231
 backend/internal/identity/app/service_test.go:287
@@ -78,8 +71,6 @@ backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.g
 backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:181
 backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:201
 backend/internal/obligation/adapters/postgres/recovery_cancel_integration_test.go:211
-backend/internal/obligation/adapters/postgres/repository.go:2532
-backend/internal/obligation/adapters/postgres/repository.go:2707
 backend/internal/obligation/adapters/postgres/repository_integration_test.go:381
 backend/internal/obligation/adapters/postgres/repository_integration_test.go:504
 backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:31
@@ -97,8 +88,5 @@ backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:271
 backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:320
 backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:363
 backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:373
-backend/internal/obligation/app/sweeper.go:252
 backend/internal/proof/app/service_test.go:190
 backend/internal/proof/app/service_test.go:191
-backend/internal/vaccination/app/generation.go:716
-backend/internal/vaccinationexecution/adapters/http/handler.go:494
