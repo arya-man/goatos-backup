@@ -3,12 +3,10 @@ package sg.mesha.goatos.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import sg.mesha.goatos.feature.profile.RfidConnectionState
 import sg.mesha.goatos.feature.profile.RfidDetailStatus
 import sg.mesha.goatos.feature.profile.RfidEvent
@@ -28,19 +26,22 @@ class RfidViewModel @Inject constructor(
     private val reader: RfidReaderPort,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(fromStatus(reader.status.value))
-    val state: StateFlow<RfidUiState> = _state.asStateFlow()
+    // Lifecycle-safe (MOB-010): `state` IS the WhileSubscribed projection of the hardware status
+    // stream, so `reader.status` is collected ONLY while the screen collects `state` (+5s), releasing
+    // hardware/Bluetooth polling when backgrounded. It must NOT be bridged into a separate always-on
+    // MutableStateFlow via an eager init collector — that permanent subscriber defeats WhileSubscribed
+    // and collects the hardware forever (the exact battery drain this fix targets).
+    val state: StateFlow<RfidUiState> =
+        reader.status
+            .map { fromStatus(it) }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                fromStatus(reader.status.value),
+            )
 
     init {
         reader.refreshStatus()
-        // Lifecycle-safe observer (MOB-010): stateIn(...WhileSubscribed...) stops collecting
-        // the RFID hardware status stream when unsubscribed for 5s, releasing hardware
-        // resources when the screen is backgrounded.
-        viewModelScope.launch {
-            reader.status
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), reader.status.value)
-                .collect { _state.value = fromStatus(it) }
-        }
     }
 
     fun onEvent(event: RfidEvent) {

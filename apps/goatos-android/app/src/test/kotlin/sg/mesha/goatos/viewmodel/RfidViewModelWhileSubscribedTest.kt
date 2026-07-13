@@ -1,10 +1,12 @@
 package sg.mesha.goatos.viewmodel
 
+import android.view.KeyEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
@@ -15,8 +17,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
-import sg.mesha.goatos.feature.profile.RfidDetailStatus
-import sg.mesha.goatos.feature.profile.RfidUiState
+import sg.mesha.goatos.rfid.RfidRead
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
 
@@ -71,24 +72,22 @@ class RfidViewModelWhileSubscribedTest {
         job2.cancel()
     }
 
-    /** Fake RFID reader port whose status flow tracks how many collectors are currently active. */
+    /**
+     * Fake RFID reader port. A [MutableStateFlow] natively tracks how many collectors are currently
+     * active via [MutableStateFlow.subscriptionCount] — which is exactly the signal WhileSubscribed
+     * drives — so [activeStatusCollectors] reads that instead of a hand-rolled counting Flow wrapper
+     * (the port's `status` is a `StateFlow`, so a plain wrapper Flow no longer satisfies the contract).
+     */
     private class FakeRfidReaderPort : RfidReaderPort {
         private val _status = MutableStateFlow(RfidReaderStatus.NOT_PAIRED)
-        override val status: Flow<RfidReaderStatus> = object : Flow<RfidReaderStatus> {
-            override suspend fun collect(collector: FlowCollector<RfidReaderStatus>) {
-                activeStatusCollectors++
-                try {
-                    _status.collect(collector)
-                } finally {
-                    activeStatusCollectors--
-                }
-            }
-        }
-        var activeStatusCollectors = 0
-            private set
+        override val status: StateFlow<RfidReaderStatus> = _status
+        override val reads: SharedFlow<RfidRead> = MutableSharedFlow()
+
+        val activeStatusCollectors: Int get() = _status.subscriptionCount.value
 
         override fun refreshStatus() {}
         override fun openSystemPairing() {}
-        override suspend fun read(): String? = null
+        override fun setCaptureEnabled(enabled: Boolean) {}
+        override fun onKeyEvent(event: KeyEvent): Boolean = false
     }
 }
