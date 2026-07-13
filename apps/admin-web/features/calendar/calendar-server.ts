@@ -32,7 +32,6 @@ export interface CalendarListParams {
   cursor?: string;
   limit?: number;
   includeDateMarkers?: boolean;
-  includeReminderRail?: boolean;
 }
 
 export async function getCalendarVaccinationEvents(params: CalendarListParams = {}): Promise<ApiResult<CalendarEventListResponse>> {
@@ -52,7 +51,6 @@ export async function getCalendarVaccinationEvents(params: CalendarListParams = 
         cursor: params.cursor,
         limit: Math.min(params.limit ?? DEFAULT_LIMIT, MAX_LIMIT),
         include_date_markers: params.includeDateMarkers ? true : undefined,
-        include_reminder_rail: params.includeReminderRail ? true : undefined,
       }),
     }),
   );
