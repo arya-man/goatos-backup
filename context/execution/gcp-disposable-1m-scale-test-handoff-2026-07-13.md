@@ -34,8 +34,7 @@ Google organization:  vgoats.com
 Google project:       goatos-dev
 Region:               asia-south1
 Repository:           vgoats/goatos
-Forbidden targets:    goatos-stg, goatos-prod, goatos-sheets,
-                      every Heva/Slice project and organization
+Allowed target only:  goatos-dev
 ```
 
 Before any resource creation, the controller must print and verify:
