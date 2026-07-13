@@ -5808,6 +5808,9 @@ components:
           enum: [never_synced, fresh, stale, rebuilding, failed]
         stale:
           type: boolean
+        partial_coverage:
+          type: boolean
+          description: "True when the requested date window extends beyond the projection's build window coverage."
     CalendarEventListResponse:
       type: object
       additionalProperties: false
@@ -5838,6 +5841,10 @@ components:
             - "null"
         projection:
           $ref: "#/components/schemas/CalendarProjectionMetadata"
+        history_projection:
+          $ref: "#/components/schemas/CalendarProjectionMetadata"
+          description: "Freshness and coverage metadata for the completed-history projection, populated only when this read consulted the history CTE (explicit status=completed filter or date-marker inclusion). Null otherwise."
+          nullable: true
     CalendarDateMarker:
       type: object
       additionalProperties: false
@@ -5974,6 +5981,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CalendarHistoryItem"
+        history_projection:
+          $ref: "#/components/schemas/CalendarProjectionMetadata"
+          description: "Freshness and coverage metadata for the completed-history projection, populated only when this detail was served from the history-projection fallback path. Null otherwise."
+          nullable: true
     CalendarDriveTarget:
       type: object
       additionalProperties: false

@@ -2116,6 +2116,8 @@ export interface components {
             /** @enum {string} */
             serving_state: "never_synced" | "fresh" | "stale" | "rebuilding" | "failed";
             stale: boolean;
+            /** @description True when the requested date window extends beyond the projection's build window coverage. */
+            partial_coverage?: boolean;
         };
         CalendarEventListResponse: {
             /** @constant */
@@ -2125,6 +2127,8 @@ export interface components {
             date_markers: components["schemas"]["CalendarDateMarker"][];
             next_cursor: string | null;
             projection: components["schemas"]["CalendarProjectionMetadata"];
+            /** @description Freshness and coverage metadata for the completed-history projection, populated only when this read consulted the history CTE (explicit status=completed filter or date-marker inclusion). Null otherwise. */
+            history_projection?: components["schemas"]["CalendarProjectionMetadata"];
         };
         CalendarDateMarker: {
             /** Format: date */
@@ -2167,6 +2171,8 @@ export interface components {
             notification_policy: components["schemas"]["CalendarJSONBlock"];
             links: components["schemas"]["CalendarEventLinks"];
             recent_actions: components["schemas"]["CalendarHistoryItem"][];
+            /** @description Freshness and coverage metadata for the completed-history projection, populated only when this detail was served from the history-projection fallback path. Null otherwise. */
+            history_projection?: components["schemas"]["CalendarProjectionMetadata"];
         };
         CalendarDriveTarget: {
             /** Format: uuid */

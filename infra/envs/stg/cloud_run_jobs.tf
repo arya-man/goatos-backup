@@ -124,11 +124,8 @@ locals {
       name                = "goatos-stg-calendar-projector"
       service_account_key = "calendar_projector"
       command             = ["/app/bin/calendar-vaccination-projector"]
-      # C5-001: the completed-history recompute (-project-calendar-history) is decoupled onto its own
-      # far-less-frequent calendar_history_projector job below -- history changes slowly (accepted
-      # completions never change after the fact), so full-replaying up to ~400 days of it on this
-      # every-5-min UPCOMING-projection cadence was pure waste.
-      args     = ["-timeout=90s", "-project-calendar-history=false"]
+      # Every 5 min: UPCOMING projection only. History is decoupled to the hourly calendar_history_projector job.
+      args     = ["-timeout=90s", "-project-calendar-upcoming=true", "-project-calendar-history=false"]
       timeout  = "180s"
       memory   = "512Mi"
       cpu      = "1"
@@ -141,12 +138,13 @@ locals {
       name                = "goatos-stg-calendar-history-projector"
       service_account_key = "calendar_projector"
       command             = ["/app/bin/calendar-vaccination-projector"]
-      # Hourly: the completed-history + date-marker projection (calendar_history_projection_rows/
+      # Hourly: HISTORY ONLY, no upcoming rebuild. The history projection (calendar_history_projection_rows/
       # calendar_history_date_markers) is append-mostly and does not need every-5-min freshness; the
       # read-path freshness gate (historyProjectionFreshness, defaultHistoryProjectionFresh = 90m)
-      # gives ample headroom over this cadence. Also refreshes the upcoming projection as a side
-      # effect of the shared binary entrypoint -- cheap and harmless, not the waste this decouples.
-      args     = ["-timeout=180s", "-project-calendar-history=true"]
+      # gives ample headroom over this cadence. TEMPORARY MITIGATION: full history replay every hour
+      # (not incremental maintenance), avoid redundant concurrent rebuilds of the upcoming projection
+      # (calendar_projector every 5 min handles that).
+      args     = ["-timeout=180s", "-project-calendar-upcoming=false", "-project-calendar-history=true"]
       timeout  = "300s"
       memory   = "512Mi"
       cpu      = "1"
