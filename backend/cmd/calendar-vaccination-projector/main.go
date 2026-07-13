@@ -18,18 +18,18 @@ import (
 )
 
 type config struct {
-	TenantID           string
-	DateFrom           time.Time
-	DateTo             time.Time
-	Limit              int
-	PruneClosed        bool
-	PruneLimit         int
-	ClosedRetention    time.Duration
-	Timeout            time.Duration
-	ProjectUpcoming    bool
-	ProjectHistory     bool
-	HistoryDateFrom    time.Time
-	HistoryDateTo      time.Time
+	TenantID        string
+	DateFrom        time.Time
+	DateTo          time.Time
+	Limit           int
+	PruneClosed     bool
+	PruneLimit      int
+	ClosedRetention time.Duration
+	Timeout         time.Duration
+	ProjectUpcoming bool
+	ProjectHistory  bool
+	HistoryDateFrom time.Time
+	HistoryDateTo   time.Time
 }
 
 func main() {
@@ -110,8 +110,8 @@ func parseFlags(args []string) (config, error) {
 	var cfg config
 	fs := flag.NewFlagSet("calendar-vaccination-projector", flag.ContinueOnError)
 	fs.StringVar(&cfg.TenantID, "tenant-id", getenv("GOATOS_TENANT_ID"), "tenant id")
-	dateFrom := fs.String("date-from", getenv("GOATOS_CALENDAR_PROJECTOR_DATE_FROM"), "RFC3339 lower bound; default now minus 24h")
-	dateTo := fs.String("date-to", getenv("GOATOS_CALENDAR_PROJECTOR_DATE_TO"), "RFC3339 exclusive upper bound; default now plus 46d")
+	dateFrom := fs.String("date-from", getenv("GOATOS_CALENDAR_PROJECTOR_DATE_FROM"), "RFC3339 lower bound; default previous business-day midnight")
+	dateTo := fs.String("date-to", getenv("GOATOS_CALENDAR_PROJECTOR_DATE_TO"), "RFC3339 exclusive upper bound; default today business-day midnight plus 47d")
 	fs.IntVar(&cfg.Limit, "limit", intEnv("GOATOS_CALENDAR_PROJECTOR_LIMIT", 1000), "max projection rows to upsert")
 	fs.BoolVar(&cfg.PruneClosed, "prune-closed", boolEnv("GOATOS_CALENDAR_PROJECTOR_PRUNE_CLOSED", true), "prune old closed vaccination projection rows after refresh")
 	fs.IntVar(&cfg.PruneLimit, "prune-limit", intEnv("GOATOS_CALENDAR_PROJECTOR_PRUNE_LIMIT", 1000), "max old closed projection rows to prune")
@@ -128,8 +128,8 @@ func parseFlags(args []string) (config, error) {
 		return config{}, errors.New("tenant-id is required")
 	}
 	now := time.Now().In(biztime.DefaultLocation())
-	cfg.DateFrom = now.Add(-24 * time.Hour)
-	cfg.DateTo = now.Add(46 * 24 * time.Hour)
+	cfg.DateFrom = biztime.BusinessDayStart(now.Add(-24 * time.Hour))
+	cfg.DateTo = biztime.BusinessDayStart(now).AddDate(0, 0, 47)
 	var err error
 	if strings.TrimSpace(*dateFrom) != "" {
 		cfg.DateFrom, err = time.Parse(time.RFC3339, strings.TrimSpace(*dateFrom))

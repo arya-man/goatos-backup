@@ -384,6 +384,10 @@ each rule below was a real production-shaped defect.
    inclusive last day sits on the projected coverage serves; one day past the
    exclusive bound fails closed. Tests (and fixtures) that use **fixed historical
    dates must seed the projected window around those dates**, not `now ± N`.
+   Calendar/day-based projectors must also align default windows to business-day
+   midnight boundaries. A default such as "now minus 24 hours" is not equivalent:
+   after midnight it omits the first part of the previous business day and can
+   make a valid week/day query fail coverage.
 
 3. **Last-known-good is the serving contract, not only a rebuild courtesy.** A
    projection-backed operator page must distinguish "no usable projection exists"

@@ -55,7 +55,9 @@ code anchors: `docs/decisions/high-scale-dashboard-projections.md` →
   inclusive query `date_to` by +1 day must be covered by a projected window whose
   stored `date_to` is that exclusive bound; provision the projector 1 day beyond
   the max query range (45d ⇒ 46d). FIXED-date tests seed the window around their
-  fixed dates, not `now±N`.
+  fixed dates, not `now±N`. Calendar/day-based projectors must default to
+  business-day midnight windows; `now-24h` leaves a midnight gap after the clock
+  passes midnight.
 - **LKG.** A rebuild on an already-serving tenant keeps serving the prior version;
   a failed rebuild never clobbers LKG. Only first-ever/no-serving-version or an
   uncovered requested date/window fails closed. Stale/yellow/rebuilding/failed/

@@ -3,6 +3,9 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 func TestParseFlagsRequiresTenantID(t *testing.T) {
@@ -44,5 +47,22 @@ func TestParseFlagsCanDisableClosedProjectionPrune(t *testing.T) {
 	}
 	if cfg.ClosedRetention.String() != "720h0m0s" {
 		t.Fatalf("ClosedRetention = %s, want 720h", cfg.ClosedRetention)
+	}
+}
+
+func TestParseFlagsDefaultsCoverWholeBusinessDays(t *testing.T) {
+	t.Setenv("GOATOS_TENANT_ID", "00000000-0000-4000-8000-000000000001")
+	cfg, err := parseFlags([]string{"-timeout", "1s"})
+	if err != nil {
+		t.Fatalf("parseFlags: %v", err)
+	}
+	if !cfg.DateFrom.Equal(biztime.BusinessDayStart(cfg.DateFrom)) {
+		t.Fatalf("DateFrom = %s, want business-day midnight", cfg.DateFrom.Format(time.RFC3339))
+	}
+	if !cfg.DateTo.Equal(biztime.BusinessDayStart(cfg.DateTo)) {
+		t.Fatalf("DateTo = %s, want business-day midnight", cfg.DateTo.Format(time.RFC3339))
+	}
+	if cfg.DateTo.Sub(cfg.DateFrom) < 47*24*time.Hour {
+		t.Fatalf("projection window = %s, want at least 47d", cfg.DateTo.Sub(cfg.DateFrom))
 	}
 }

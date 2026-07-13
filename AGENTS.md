@@ -491,8 +491,9 @@ Do:
   projector refresh schedule (jitter headroom) and is AGE-based — never widen the
   TTL to mask a date-coverage bug; (2) date coverage is inclusive-query vs
   exclusive projection `date_to` — project one day beyond the max query range
-  (45d ⇒ 46d), and fixed-date tests seed the window around their fixed dates, not
-  `now±N`; (3) stale last-known-good rows serve with freshness metadata while
+  (45d ⇒ 46d), calendar/day-based projectors must align default windows to
+  business-day boundaries rather than `now±N` clock instants, and fixed-date
+  tests seed the window around their fixed dates; (3) stale last-known-good rows serve with freshness metadata while
   no first projection or an uncovered date/window fails closed; (4) a rebuild
   keeps serving last-known-good and a failed rebuild never clobbers it; (5) reads
   served entirely from a bounded canonical index (completed/accepted history)
