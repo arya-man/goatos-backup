@@ -95,6 +95,19 @@ locals {
         GOATOS_PG_QUERY_TIMEOUT = "30s"
       }
     }
+    vaccination_projection_worker = {
+      name                = "goatos-dev-vaccination-projection-worker"
+      service_account_key = "vaccination_generator"
+      command             = ["/app/bin/vaccination-projection-worker"]
+      args                = ["-timeout=90s", "-limit=200", "-enqueue-due-transitions=true", "-due-transitions-limit=200"]
+      timeout             = "120s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/2 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.dev_tenant_id
+      }
+    }
     calendar_projector = {
       name                = "goatos-dev-calendar-projector"
       service_account_key = "calendar_projector"

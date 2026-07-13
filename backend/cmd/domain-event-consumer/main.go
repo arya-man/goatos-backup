@@ -34,6 +34,8 @@ import (
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
+	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
@@ -130,6 +132,15 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
+
+	// Bounded incremental vaccination-shed projector (P0-B): dirty the affected shed(s) instead of
+	// waiting for the full-tenant scheduled rebuild. See
+	// backend/internal/vaccinationexecution/app/dirty_shed_handlers.go.
+	vaccExecRepo := vaccexecpg.NewRepository(pool, pgCfg.QueryTimeout)
+	vaccexecapp.NewGoatShiftedDirtyShedHandler(vaccExecRepo).Register(bus)
+	vaccexecapp.NewGoatExitedDirtyShedHandler(vaccExecRepo).Register(bus)
+	vaccexecapp.NewVaccinationCompletedDirtyShedHandler(vaccExecRepo, vaccExecRepo).Register(bus)
+
 	if logger != nil {
 		logger.Info("domain_event_handlers_registered")
 	}

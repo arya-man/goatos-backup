@@ -93,6 +93,31 @@ WHERE tenant_id = $1::uuid
 		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: count rows: %w", err)
 	}
 
+	// Seed/refresh PER-SHED shard freshness state for every shed this full rebuild just touched,
+	// in the same set-based statement (bounded by shed cardinality, same as the row insert above --
+	// never a per-shed loop). This keeps vaccination_shed_shard_state coherent even for tenants not
+	// yet using the incremental worker (RebuildShedShard, incremental_shed_projection.go): the
+	// read-time freshness gate (AnyShedShardStale) only ever sees a shed as stale relative to the
+	// last time IT was rebuilt, whether that rebuild was this full recompute or a later incremental
+	// shard rebuild.
+	if _, err := tx.Exec(ctx, `
+INSERT INTO vaccination_shed_shard_state (
+  tenant_id, shed_id, projected_at, as_of, next_transition_at, source_watermark, row_present, serving_state, updated_at
+)
+SELECT $1::uuid, rows.shed_id, $2::timestamptz, $3::timestamptz, NULL, NULL, true, 'fresh', now()
+FROM vaccination_shed_projection_rows rows
+WHERE rows.tenant_id = $1::uuid
+  AND rows.projection_version = $4::bigint
+ON CONFLICT (tenant_id, shed_id) DO UPDATE SET
+  projected_at = EXCLUDED.projected_at,
+  as_of = EXCLUDED.as_of,
+  row_present = true,
+  serving_state = 'fresh',
+  updated_at = now()`,
+		req.TenantID, projectedAt, asOf, projectionVersion); err != nil {
+		return domain.ShedProjectionRecomputeResult{}, fmt.Errorf("vaccination execution: recompute shed projection: upsert shard state: %w", err)
+	}
+
 	if _, err := tx.Exec(ctx, `
 INSERT INTO vaccination_shed_projection_state (
   tenant_id, projection_version, serving_projection_version, projected_at, as_of, due_before, row_count,
@@ -323,6 +348,21 @@ func (r *Repository) listShedProjection(ctx context.Context, q domain.ShedSummar
 	version, freshness, ok := r.compatibleShedProjection(ctx, q.TenantID, asOf, dueBefore, q.HistoricalAsOf)
 	if !ok {
 		return nil, domain.ErrProjectionUnavailable
+	}
+	// Serving-Read Freshness Contract (docs/decisions/high-scale-dashboard-projections.md): the
+	// tenant-wide serving_projection_version can be green while ONE incrementally-maintained shed
+	// has fallen behind (e.g. its dirty-scope rebuild is failing/dead-lettered). Gate on the
+	// per-shed shard state too -- a single indexed EXISTS check, never a per-row scan -- so a stale
+	// shed fails the whole read closed instead of silently serving green with missed
+	// scheduled->due->overdue transitions for that shed. Historical as_of reads are unaffected by
+	// live shard staleness (they already require an exact compatible snapshot above).
+	if !q.HistoricalAsOf {
+		stale, err := r.AnyShedShardStale(ctx, q.TenantID, defaultShedShardStaleTTL)
+		if err != nil {
+			slog.Default().WarnContext(ctx, "vaccination execution: shed shard staleness check failed; serving without the per-shed gate", "tenant_id", q.TenantID, "error", err)
+		} else if stale {
+			return nil, domain.ErrProjectionUnavailable
+		}
 	}
 	status, capacity := "", ""
 	if q.Status != nil {
