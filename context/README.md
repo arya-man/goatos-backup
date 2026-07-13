@@ -101,6 +101,9 @@ Goat OS agent skill bundle and reference map
 Environment, load testing, and doc hygiene
   context/execution/env-load-test-and-doc-hygiene.md
 
+Disposable GCP one-million scale test setup, evidence, cleanup, and publication handoff
+  context/execution/gcp-disposable-1m-scale-test-handoff-2026-07-13.md
+
 SOP + vaccination backend handoff
   context/execution/sop-vaccination-backend-handoff.md
 
