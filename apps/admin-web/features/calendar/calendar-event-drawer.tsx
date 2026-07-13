@@ -6,6 +6,7 @@ import { dateTime, fmtDateTime } from "@/lib/format";
 import { scopeHref, type Scope } from "@/lib/scope";
 import {
   copy,
+  optionalCopy,
   optionalOption,
   optionLabel,
   optionTone,
@@ -79,6 +80,46 @@ function contractStateLabel(
     return copy(pageContract, noneKey);
   return (
     optionalOption(pageContract, groupId, key)?.label ?? key.replace(/_/g, " ")
+  );
+}
+
+function allTargetsHaveStatus(
+  targets: CalendarDriveTarget[] | null,
+  status: string,
+): boolean {
+  return Boolean(
+    targets?.length && targets.every((target) => target.status === status),
+  );
+}
+
+function hasHeldTargets(targets: CalendarDriveTarget[] | null): boolean {
+  return Boolean(
+    targets?.some(
+      (target) => target.status === "deferred" || target.status === "blocked",
+    ),
+  );
+}
+
+function driveTargetHeadingKey(
+  event: CalendarEventDetail["event"],
+  targets: CalendarDriveTarget[] | null,
+): string {
+  if (event.status === "deferred" || allTargetsHaveStatus(targets, "deferred"))
+    return "calendar.drawer.deferred_animals";
+  if (event.status === "blocked" || allTargetsHaveStatus(targets, "blocked"))
+    return "calendar.drawer.blocked_animals";
+  if (hasHeldTargets(targets)) return "calendar.drawer.linked_animals";
+  return "calendar.drawer.eligible_animals";
+}
+
+function driveTargetHeading(
+  pageContract: AdminUiPageContract,
+  event: CalendarEventDetail["event"],
+  targets: CalendarDriveTarget[] | null,
+): string {
+  return (
+    optionalCopy(pageContract, driveTargetHeadingKey(event, targets)) ??
+    copy(pageContract, "calendar.drawer.eligible_animals")
   );
 }
 
@@ -325,7 +366,7 @@ export function CalendarEventDrawer({
           {event.event_type === "vaccination_drive" ? (
             <div style={{ marginTop: 16 }}>
               <div className="b700" style={{ margin: "2px 0 8px" }}>
-                {copy(pageContract, "calendar.drawer.eligible_animals")}
+                {driveTargetHeading(pageContract, event, targets)}
               </div>
               {targetsError ? (
                 <div className="alert" style={{ marginBottom: 10 }}>
