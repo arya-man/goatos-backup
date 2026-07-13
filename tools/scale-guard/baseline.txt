@@ -28,12 +28,11 @@ non-sargable-like backend/internal/locations/adapters/postgres/repository.go 1 #
 non-sargable-like backend/internal/workforce/adapters/postgres/repository.go 1 # owner=workforce-platform issue=C35-020 expires=2026-09-30 reason=roster search needs normalized or trigram index
 
 # --- n-plus-one: DB call inside a loop; batch or hoist ---
-# procurement intake/arrival (P2): real N+1 but bounded by load size (dozens-hundreds/load), not 1M-per-call
-n-plus-one backend/internal/procurement/adapters/postgres/repository.go 6 # owner=procurement-platform issue=C35-020 expires=2026-09-30 reason=bounded load intake writes require set-based replacement
+# procurement intake/arrival: FIXED — all 6 load intake writes converted to set-based batch statements.
 # outbox relay (P2): per-message Mark* updates; batch with a CASE / multi-row update
 n-plus-one backend/internal/outbox/adapters/postgres/repository.go 3 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=relay outcome writes require batch CASE update
-# obligation sweep write loops (P1/P2): batch idempotency+event inserts via UNNEST
-n-plus-one backend/internal/obligation/adapters/postgres/repository.go 3 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=remaining bounded obligation write loops need UNNEST
+# obligation sweep write loops (P1/P2): cancellation repair + status-event inserts now UNNEST-batched; remaining loops need UNNEST
+n-plus-one backend/internal/obligation/adapters/postgres/repository.go 2 # owner=kernel-platform issue=C35-020 expires=2026-09-30 reason=remaining bounded obligation write loops need UNNEST
 # processintegrity projector write loop (tracked with the P0 projector rework)
 n-plus-one backend/internal/processintegrity/adapters/postgres/repository.go 1 # owner=process-integrity issue=C35-020 expires=2026-09-30 reason=off-request projector batch write remains bounded but not set-based
 # sop / inventory / locations-write / bulkstatus: bounded chunk/write loops, verify-then-burn
