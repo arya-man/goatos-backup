@@ -675,19 +675,40 @@ function CalendarDatePicker({
   }
   const previous = new Date(year, month - 1, 1);
   const next = new Date(year, month + 1, 1);
+  const todayAnchor = new Date(`${today}T00:00:00+05:30`);
+  const todayYear = Number.isNaN(todayAnchor.getTime()) ? year : todayAnchor.getFullYear();
+  const todayMonth = Number.isNaN(todayAnchor.getTime()) ? month : todayAnchor.getMonth();
+  const minMonth = new Date(todayYear, todayMonth - 1, 1);
+  const maxMonth = new Date(todayYear, todayMonth + 1, 1);
+  const previousAllowed = previous >= minMonth;
+  const nextAllowed = next <= maxMonth;
   const previousMonth = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}-01`;
   const nextMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`;
+  const previousLabel = copy(pageContract, "calendar.picker.previous_month");
+  const nextLabel = copy(pageContract, "calendar.picker.next_month");
 
   return (
     <div className="calpicker-popover">
       <div className="calpicker-head">
-        <Link href={monthHref(previousMonth)} replace scroll={false} className="btn icon" aria-label={copy(pageContract, "calendar.picker.previous_month")}>
-          <ChevronLeft className="ic" aria-hidden="true" />
-        </Link>
+        {previousAllowed ? (
+          <Link href={monthHref(previousMonth)} replace scroll={false} className="btn icon" aria-label={previousLabel}>
+            <ChevronLeft className="ic" aria-hidden="true" />
+          </Link>
+        ) : (
+          <span className="btn icon disabled" aria-disabled="true" aria-label={previousLabel}>
+            <ChevronLeft className="ic" aria-hidden="true" />
+          </span>
+        )}
         <b>{`${optionLabel(pageContract, "calendar_months", String(month))} ${year}`}</b>
-        <Link href={monthHref(nextMonth)} replace scroll={false} className="btn icon" aria-label={copy(pageContract, "calendar.picker.next_month")}>
-          <ChevronRight className="ic" aria-hidden="true" />
-        </Link>
+        {nextAllowed ? (
+          <Link href={monthHref(nextMonth)} replace scroll={false} className="btn icon" aria-label={nextLabel}>
+            <ChevronRight className="ic" aria-hidden="true" />
+          </Link>
+        ) : (
+          <span className="btn icon disabled" aria-disabled="true" aria-label={nextLabel}>
+            <ChevronRight className="ic" aria-hidden="true" />
+          </span>
+        )}
       </div>
       <div className="calpicker-grid">
         {weekdays.map((weekday) => (

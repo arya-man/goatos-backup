@@ -169,8 +169,10 @@ one product; this skill is the navigation layer.
 - Projection closeout is output-specific. If a projector command has more than
   one visible output, call it with explicit flags for each read model. A
   default-false `-project-*` flag must be present as `-project-...=true` in
-  `tools/dev/seed-closeout.sh` on the owning command invocation; a generic
-  command invocation or commented example is not enough.
+  `tools/dev/seed-closeout.sh` on the owning command invocation. Guard evidence
+  must come from `tools/dev/seed-closeout.sh --dry-run`, not raw shell source; a
+  generic command, commented example, disabled branch, or uncalled helper is not
+  enough.
 - Projection-backed operator pages must follow the last-known-good serving
   contract in `docs/decisions/high-scale-dashboard-projections.md`: no first
   projection/no serving rows or uncovered date/window may fail closed, but stale

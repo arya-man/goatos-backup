@@ -298,8 +298,10 @@ Do:
   name. If one projector command owns multiple read models, `seed-closeout`
   must pass explicit flags for each output. Any default-false `-project-*` flag
   for a visible read model must appear as `-project-...=true` on the owning
-  command invocation in closeout, or the seed can claim the projector ran while
-  leaving that table empty.
+  command invocation in closeout, and the guard must verify the executed
+  `tools/dev/seed-closeout.sh --dry-run` output rather than raw shell text. A
+  commented, disabled, or uncalled invocation does not count, or the seed can
+  claim the projector ran while leaving that table empty.
 - Projection-backed operator pages must follow the last-known-good serving
   contract. No first projection, no serving rows, or a requested window outside
   projected coverage may fail closed. A stale/yellow/rebuilding/failed/over-TTL
@@ -494,7 +496,8 @@ Do:
   exclusive projection `date_to` — project one day beyond the max query range
   (45d ⇒ 46d), calendar/day-based projectors must align default windows to
   business-day boundaries and cover the UI's supported week/month query windows
-  (for example Monday-start weeks and first-to-last-day month picker requests)
+  (for example Monday-start weeks and previous/current/next first-to-last-day
+  month picker requests)
   rather than `now±N` clock instants, and fixed-date tests seed the window
   around their fixed dates; (3) stale last-known-good rows serve with freshness metadata while
   no first projection or an uncovered date/window fails closed; (4) a rebuild

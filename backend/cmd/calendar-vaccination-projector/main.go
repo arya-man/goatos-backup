@@ -181,15 +181,17 @@ func defaultUpcomingProjectionWindow(now time.Time) (time.Time, time.Time) {
 	dayStart := biztime.BusinessDayStart(now.In(biztime.DefaultLocation()))
 	weekStart := dayStart.AddDate(0, 0, -mondayOffset(dayStart))
 	monthStart := time.Date(dayStart.Year(), dayStart.Month(), 1, 0, 0, 0, 0, dayStart.Location())
-	dateFrom := earlierTime(weekStart, monthStart)
+	previousMonthStart := monthStart.AddDate(0, -1, 0)
+	dateFrom := earlierTime(weekStart, previousMonthStart)
 
 	// Calendar list reads allow an inclusive 45-day range; the repository
-	// coverage gate checks an exclusive upper bound, so keep 47 whole business
-	// days from today and also cover the visible current-month picker window.
+	// coverage gate checks an exclusive upper bound. The month picker supports
+	// one adjacent month in either direction, so cover previous/current/next
+	// month plus the forward list horizon.
 	dateTo := dayStart.AddDate(0, 0, 47)
-	monthEndExclusive := monthStart.AddDate(0, 1, 0)
-	if monthEndExclusive.After(dateTo) {
-		dateTo = monthEndExclusive
+	nextMonthEndExclusive := monthStart.AddDate(0, 2, 0)
+	if nextMonthEndExclusive.After(dateTo) {
+		dateTo = nextMonthEndExclusive
 	}
 	return dateFrom, dateTo
 }

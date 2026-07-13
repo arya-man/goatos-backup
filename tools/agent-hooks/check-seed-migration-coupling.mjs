@@ -435,28 +435,6 @@ function findDefaultFalseProjectorFlags(source, rel = "") {
   return flags;
 }
 
-function shellLogicalCommands(source) {
-  const commands = [];
-  let current = "";
-  let startLine = 1;
-  const lines = source.split("\n");
-  for (let i = 0; i < lines.length; i += 1) {
-    let line = stripCommentOutsideQuotes(lines[i], "#").trimEnd();
-    if (!line.trim() && !current) continue;
-    if (!current) startLine = i + 1;
-    if (line.endsWith("\\")) {
-      current += `${line.slice(0, -1)} `;
-      continue;
-    }
-    current += line;
-    const trimmed = current.trim();
-    if (trimmed) commands.push({ command: trimmed, line: startLine });
-    current = "";
-  }
-  if (current.trim()) commands.push({ command: current.trim(), line: startLine });
-  return commands;
-}
-
 function shellTokens(source) {
   const tokens = [];
   let current = "";
@@ -498,11 +476,19 @@ function shellTokens(source) {
   return tokens;
 }
 
-function parseSeedCloseoutInvocations(source) {
-  return shellLogicalCommands(source)
-    .map(({ command, line }) => ({ tokens: shellTokens(command), line }))
-    .filter(({ tokens }) => tokens[0] === "run_go_cmd" && tokens[1])
-    .map(({ tokens, line }) => ({ command: tokens[1], args: tokens.slice(2), line }));
+function parseSeedCloseoutDryRunInvocations(output) {
+  return output
+    .split("\n")
+    .map((line, index) => ({ tokens: shellTokens(line.trim()), line: index + 1 }))
+    .map(({ tokens, line }) => {
+      const goIndex = tokens.findIndex((token, index) => token === "go" && tokens[index + 1] === "run");
+      if (goIndex < 0) return null;
+      const target = tokens[goIndex + 2] ?? "";
+      const match = /^\.\/cmd\/([^/\s]+)$/.exec(target);
+      if (!match) return null;
+      return { command: match[1], args: tokens.slice(goIndex + 3), line };
+    })
+    .filter(Boolean);
 }
 
 function invocationEnablesFlag(invocation, flag) {
@@ -518,8 +504,8 @@ function invocationEnablesFlag(invocation, flag) {
   return false;
 }
 
-function seedCloseoutFlagFailures(flags, closeoutSource) {
-  const invocations = parseSeedCloseoutInvocations(closeoutSource);
+function seedCloseoutFlagFailures(flags, closeoutDryRunOutput) {
+  const invocations = parseSeedCloseoutDryRunInvocations(closeoutDryRunOutput);
   const failures = [];
   for (const { file, command, flag, line } of flags) {
     const ownerInvocations = invocations.filter((invocation) => invocation.command === command);
@@ -534,8 +520,20 @@ function projectorFiles() {
   return splitLines(gitMaybe(["ls-files", "backend/cmd/*/main.go"])).filter(isProjectionCommandMain);
 }
 
+function seedCloseoutDryRunOutput() {
+  return execFileSync("bash", ["tools/dev/seed-closeout.sh", "--dry-run"], {
+    cwd: repo,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      GOATOS_TENANT_ID: process.env.GOATOS_TENANT_ID || "00000000-0000-4000-8000-000000000001",
+    },
+  });
+}
+
 function currentProjectionRegistryFailures() {
-  const closeout = readChangedFile("tools/dev/seed-closeout.sh");
+  const closeout = seedCloseoutDryRunOutput();
   const flags = [];
   for (const rel of projectorFiles()) {
     flags.push(...findDefaultFalseProjectorFlags(readChangedFile(rel), rel));
@@ -551,6 +549,7 @@ function couplingPasses(affected, files) {
 }
 
 function runSelfTest() {
+  const dryRunLine = (command, args) => `==> seed-closeout: ${command}\n    cd backend && go run ./cmd/${command} ${args}`;
   const cases = [
     {
       name: "seed table without companion fails",
@@ -642,11 +641,17 @@ function runSelfTest() {
   if (flags.length !== 1 || flags[0].flag !== "project-calendar-history") {
     throw new Error(`self-test default-false projector flag detection failed: ${JSON.stringify(flags)}`);
   }
-  const missing = seedCloseoutFlagFailures(flags, "run_go_cmd calendar-vaccination-projector -project-calendar-upcoming=true");
+  const missing = seedCloseoutFlagFailures(
+    flags,
+    dryRunLine("calendar-vaccination-projector", "-project-calendar-upcoming=true")
+  );
   if (missing.length !== 1) {
     throw new Error("self-test default-false projector flag missing closeout failure was not detected");
   }
-  const present = seedCloseoutFlagFailures(flags, "run_go_cmd calendar-vaccination-projector -project-calendar-history=true");
+  const present = seedCloseoutFlagFailures(
+    flags,
+    dryRunLine("calendar-vaccination-projector", "-project-calendar-history=true")
+  );
   if (present.length !== 0) {
     throw new Error("self-test default-false projector flag explicit closeout was rejected");
   }
@@ -666,23 +671,37 @@ function runSelfTest() {
   }
   const wrongOwner = seedCloseoutFlagFailures(
     [{ ...flags[0], command: "calendar-vaccination-projector" }],
-    "run_go_cmd other-projection-recompute -project-calendar-history=true"
+    dryRunLine("other-projection-recompute", "-project-calendar-history=true")
   );
   if (wrongOwner.length !== 1) {
     throw new Error("self-test same flag under wrong command was incorrectly accepted");
   }
   const explicitFalse = seedCloseoutFlagFailures(
     flags,
-    "run_go_cmd calendar-vaccination-projector -project-calendar-history false"
+    dryRunLine("calendar-vaccination-projector", "-project-calendar-history false")
   );
   if (explicitFalse.length !== 1) {
     throw new Error("self-test explicit false flag value was incorrectly accepted");
+  }
+  const uncalledFunction = seedCloseoutFlagFailures(
+    flags,
+    "project_calendar_history() { run_go_cmd calendar-vaccination-projector -project-calendar-history=true; }"
+  );
+  if (uncalledFunction.length !== 1) {
+    throw new Error("self-test uncalled shell function was incorrectly accepted");
+  }
+  const disabledBranch = seedCloseoutFlagFailures(
+    flags,
+    "if false; then run_go_cmd calendar-vaccination-projector -project-calendar-history=true; fi"
+  );
+  if (disabledBranch.length !== 1) {
+    throw new Error("self-test disabled shell branch was incorrectly accepted");
   }
   if (!isProjectionCommandMain("backend/cmd/new-projection-recompute/main.go")) {
     throw new Error("self-test projection/recompute command file was not scanned");
   }
 
-  console.log(`seed-migration-coupling: all ${cases.length + 8} self-tests passed`);
+  console.log(`seed-migration-coupling: all ${cases.length + 10} self-tests passed`);
 }
 
 function runScan() {

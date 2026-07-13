@@ -93,6 +93,18 @@ func TestParseFlagsDefaultWindowCoversCalendarUIWeekAndMonth(t *testing.T) {
 			windowFrom: mustISTDate(t, "2026-07-01"),
 			windowTo:   mustISTDate(t, "2026-07-31"),
 		},
+		{
+			name:       "previous_month_picker_requests_first_to_last_day",
+			now:        "2026-07-15T13:00:00+05:30",
+			windowFrom: mustISTDate(t, "2026-06-01"),
+			windowTo:   mustISTDate(t, "2026-06-30"),
+		},
+		{
+			name:       "next_month_picker_requests_inclusive_last_day",
+			now:        "2026-07-15T13:00:00+05:30",
+			windowFrom: mustISTDate(t, "2026-08-01"),
+			windowTo:   mustISTDate(t, "2026-08-31"),
+		},
 	}
 
 	for _, tc := range cases {
@@ -111,6 +123,16 @@ func TestParseFlagsDefaultWindowCoversCalendarUIWeekAndMonth(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestDefaultUpcomingProjectionWindowExactAdjacentMonthHorizon(t *testing.T) {
+	from, to := defaultUpcomingProjectionWindow(mustISTInstant(t, "2026-07-15T13:00:00+05:30"))
+	if !from.Equal(mustISTDate(t, "2026-06-01")) {
+		t.Fatalf("from=%s, want previous month start", from.Format(time.RFC3339))
+	}
+	if !to.Equal(mustISTDate(t, "2026-09-01")) {
+		t.Fatalf("to=%s, want exclusive bound after next month", to.Format(time.RFC3339))
 	}
 }
 

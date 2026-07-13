@@ -216,8 +216,9 @@ The current reviewed bundle must include:
    Do not rely on a projector command's defaults for multi-output commands. If
    a command exposes a default-false `-project-*` flag for an app-visible read
    model, `seed-closeout` must pass the flag explicitly as `true` on that
-   command's invocation; otherwise a seed can log that the command ran while
-   leaving that projection empty.
+   command's invocation, and `seed-migration-guard` must prove that through
+   `tools/dev/seed-closeout.sh --dry-run` output; otherwise a seed can log that
+   the command ran while leaving that projection empty.
 11. Verify Action Center buckets, shed status, execution rows, operations rows,
    next due dates, and capacity session splits through backend APIs using
    server-owned live time. A seed that leaves `projection_unavailable` on

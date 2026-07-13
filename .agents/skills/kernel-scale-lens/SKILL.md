@@ -57,7 +57,7 @@ code anchors: `docs/decisions/high-scale-dashboard-projections.md` →
   the max query range (45d ⇒ 46d). FIXED-date tests seed the window around their
   fixed dates, not `now±N`. Calendar/day-based projectors must default to
   business-day midnight windows that cover the supported UI windows (Monday-start
-  weeks and first-to-last-day month picker requests); `now-24h` leaves a
+  weeks and previous/current/next first-to-last-day month picker requests); `now-24h` leaves a
   midnight gap and usually misses valid week/month reads.
 - **LKG.** A rebuild on an already-serving tenant keeps serving the prior version;
   a failed rebuild never clobbers LKG. Only first-ever/no-serving-version or an

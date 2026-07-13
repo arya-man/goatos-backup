@@ -128,34 +128,51 @@ func TestCalendarProjectionDefaultWindowCoversUIWeekAndMonthWindows(t *testing.T
 
 	cases := []struct {
 		name        string
-		anchor      time.Time
+		projectFrom time.Time
+		projectTo   time.Time
 		requestFrom time.Time
 		requestTo   time.Time
 	}{
 		{
 			name:        "wednesday_week_starts_monday",
-			anchor:      mustBusinessDate(t, "2026-07-15"),
+			projectFrom: mustBusinessDate(t, "2026-06-01"),
+			projectTo:   mustBusinessDate(t, "2026-09-01"),
 			requestFrom: mustBusinessDate(t, "2026-07-13"),
 			requestTo:   mustBusinessDate(t, "2026-07-19"),
 		},
 		{
 			name:        "sunday_week_starts_previous_month",
-			anchor:      mustBusinessDate(t, "2026-08-02"),
+			projectFrom: mustBusinessDate(t, "2026-07-01"),
+			projectTo:   mustBusinessDate(t, "2026-10-01"),
 			requestFrom: mustBusinessDate(t, "2026-07-27"),
 			requestTo:   mustBusinessDate(t, "2026-08-02"),
 		},
 		{
 			name:        "mid_month_picker_requests_whole_month",
-			anchor:      mustBusinessDate(t, "2026-07-15"),
+			projectFrom: mustBusinessDate(t, "2026-06-01"),
+			projectTo:   mustBusinessDate(t, "2026-09-01"),
 			requestFrom: mustBusinessDate(t, "2026-07-01"),
 			requestTo:   mustBusinessDate(t, "2026-07-31"),
+		},
+		{
+			name:        "previous_month_picker_requests_whole_month",
+			projectFrom: mustBusinessDate(t, "2026-06-01"),
+			projectTo:   mustBusinessDate(t, "2026-09-01"),
+			requestFrom: mustBusinessDate(t, "2026-06-01"),
+			requestTo:   mustBusinessDate(t, "2026-06-30"),
+		},
+		{
+			name:        "next_month_picker_requests_inclusive_last_day",
+			projectFrom: mustBusinessDate(t, "2026-06-01"),
+			projectTo:   mustBusinessDate(t, "2026-09-01"),
+			requestFrom: mustBusinessDate(t, "2026-08-01"),
+			requestTo:   mustBusinessDate(t, "2026-08-31"),
 		},
 	}
 
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			projectedFrom, projectedTo := calendarDefaultProjectionWindowForTest(tc.anchor)
-			seedCalendarProjectionStateWindow(t, ctx, pool, projectedFrom, projectedTo)
+			seedCalendarProjectionStateWindow(t, ctx, pool, tc.projectFrom, tc.projectTo)
 			q := domain.Query{
 				TenantID: testTenantID,
 				OwnerKey: domain.OwnerAll,
@@ -167,8 +184,8 @@ func TestCalendarProjectionDefaultWindowCoversUIWeekAndMonthWindows(t *testing.T
 			if _, err := repo.ListEvents(ctx, q); err != nil {
 				t.Fatalf("case %d: projected [%s,%s) must cover UI request [%s,%s], got %v",
 					i,
-					projectedFrom.Format(time.RFC3339),
-					projectedTo.Format(time.RFC3339),
+					tc.projectFrom.Format(time.RFC3339),
+					tc.projectTo.Format(time.RFC3339),
 					tc.requestFrom.Format("2006-01-02"),
 					tc.requestTo.Format("2006-01-02"),
 					err,
@@ -176,22 +193,6 @@ func TestCalendarProjectionDefaultWindowCoversUIWeekAndMonthWindows(t *testing.T
 			}
 		})
 	}
-}
-
-func calendarDefaultProjectionWindowForTest(anchor time.Time) (time.Time, time.Time) {
-	dayStart := biztime.BusinessDayStart(anchor.In(biztime.DefaultLocation()))
-	weekStart := dayStart.AddDate(0, 0, -((int(dayStart.Weekday()) + 6) % 7))
-	monthStart := time.Date(dayStart.Year(), dayStart.Month(), 1, 0, 0, 0, 0, dayStart.Location())
-	dateFrom := monthStart
-	if weekStart.Before(monthStart) {
-		dateFrom = weekStart
-	}
-	dateTo := dayStart.AddDate(0, 0, 47)
-	monthEndExclusive := monthStart.AddDate(0, 1, 0)
-	if monthEndExclusive.After(dateTo) {
-		dateTo = monthEndExclusive
-	}
-	return dateFrom, dateTo
 }
 
 func mustBusinessDate(t *testing.T, raw string) time.Time {

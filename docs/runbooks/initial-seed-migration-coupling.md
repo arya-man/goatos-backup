@@ -73,8 +73,10 @@ Projector registration must be output-specific. A command that can build more
 than one app-visible read model must be called with explicit flags for each
 output. In particular, any `-project-*` flag that defaults to false must appear
 in `tools/dev/seed-closeout.sh` as `-project-...=true` on the command invocation
-that owns that read model. A generic command invocation or commented example is
-not enough proof: it can leave a default-off projection empty while the seed log
+that owns that read model. The guard must verify the executed
+`tools/dev/seed-closeout.sh --dry-run` output rather than raw shell source. A
+generic command, commented example, disabled branch, or uncalled helper is not
+enough proof: it can leave a default-off projection empty while the seed log
 still says the projector ran.
 
 For an already-seeded database where a later migration adds a derived table,
