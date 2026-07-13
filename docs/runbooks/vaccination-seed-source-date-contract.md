@@ -252,25 +252,25 @@ If more than one Goat OS app Postgres container is running, normal local
 launchers must fail and ask the operator to stop the extra container or provide
 an explicit `DATABASE_URL`. E2E/proof/load scripts must not silently use the
 normal app DB or an old hidden DB. They must fail closed unless
-`GOATOS_E2E_DATABASE_URL` or `DATABASE_URL` is explicitly passed. If a proof is
-meant to run against the normal local app DB, the `5433` URL must still appear
-explicitly in the command/evidence. Mutating proof/load scripts that create
-goats/proofs, replay outbox, insert history, or run migrations refuse `5433`
-unless `GOATOS_E2E_ALLOW_APP_DB_MUTATION=1` is also present. Destructive/load
-tests should use an isolated DB with its own seed/cleanup, such as the explicit
-GCP-kernel parity stack on `55432`. Separate E2E/load-test databases must never
-become the default DB for laptop API/admin-web/mobile runtime.
+`GOATOS_E2E_DATABASE_URL` or `DATABASE_URL` is explicitly passed. Read-only
+checks may target the normal local app DB, and the `5433` URL must appear
+explicitly in the command/evidence when they do. Mutating proof/load scripts
+that create goats/proofs, replay outbox, insert history, or run migrations must
+always refuse `5433`; there is no override for mutating the normal app DB from
+E2E. Destructive/load tests must use an isolated DB with its own seed/cleanup,
+such as the explicit GCP-kernel parity stack on `55432`. Separate E2E/load-test
+databases must never become the default DB for laptop API/admin-web/mobile
+runtime.
 
 For E2E/proof/load scripts, choose the DB mode explicitly:
 
 ```bash
-# Intentional mutating proof against the normal seeded local app DB.
-# This can create goats/proofs, outbox rows, history rows, and projections.
-GOATOS_E2E_ALLOW_APP_DB_MUTATION=1 \
-DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' \
-tools/dev/vaccination-chain-proof.sh
+# Read-only check against the normal seeded local app DB.
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable'
+psql "$DATABASE_URL" -c 'select count(*) from goats'
 
-# Isolated production-shaped kernel stack; start it first, then target its DB.
+# Mutating proof/load run: isolated production-shaped kernel stack only.
+# Start it first, then target its DB.
 make dev-local-kernel-up
 GOATOS_E2E_DATABASE_URL='postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable' \
 tools/dev/high-scale-kernel-e2e-all.sh
@@ -278,9 +278,10 @@ tools/dev/high-scale-kernel-e2e-all.sh
 
 The proof/load scripts source `tools/dev/e2e-db-env.sh` and fail if neither
 `GOATOS_E2E_DATABASE_URL` nor `DATABASE_URL` is present. Mutating scripts also
-fail on `5433` unless `GOATOS_E2E_ALLOW_APP_DB_MUTATION=1` is present. The port
-must come from the chosen runtime: `5433` for the single normal local app DB, or
-`55432` for the explicit local GCP-kernel parity stack.
+fail on `5433` with no override. The port must come from the chosen runtime:
+`5433` only for read-only checks against the single normal local app DB, or
+`55432` for mutating proof/load work against the explicit local GCP-kernel
+parity stack.
 
 ## Test Gates
 

@@ -316,13 +316,13 @@ Do:
   Docker DB or the `127.0.0.1:5433/goatos` fallback; if multiple Goat OS app
   Postgres containers are running, local launchers must fail instead of
   guessing. E2E/proof/load scripts must fail closed unless
-  `GOATOS_E2E_DATABASE_URL` or `DATABASE_URL` is explicitly passed. Mutating
-  proof/load scripts that create goats/proofs, replay outbox, insert history, or
-  run migrations must refuse the normal `5433` app DB unless
-  `GOATOS_E2E_ALLOW_APP_DB_MUTATION=1` is also present. Destructive/load tests
-  should use an isolated DB with its own seed/cleanup, such as the explicit
-  local GCP-kernel stack on `55432`; that stack must never become the default
-  laptop runtime DB.
+  `GOATOS_E2E_DATABASE_URL` or `DATABASE_URL` is explicitly passed. Read-only
+  E2E checks may target the normal `5433` app DB, but mutating proof/load
+  scripts that create goats/proofs, replay outbox, insert history, or run
+  migrations must always refuse `5433`. There is no override for mutating the
+  normal app DB from E2E. Destructive/load tests must use an isolated DB with
+  its own seed/cleanup, such as the explicit local GCP-kernel stack on `55432`;
+  that stack must never become the default laptop runtime DB.
 - Deploy `goatos-stg` through Cloud Deploy. Build systems may create images and
   Cloud Deploy releases, but Cloud Run service/job mutations for staging belong
   to `deploy/clouddeploy/stg/clouddeploy.yaml` and

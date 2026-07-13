@@ -19,6 +19,13 @@ e2e_runtime_files=(
   "tools/dev/vaccination-trusted-history-proof.sh"
 )
 
+e2e_rule_files=(
+  "AGENTS.md"
+  ".agents/skills/goatos-build/SKILL.md"
+  "docs/runbooks/initial-seed-migration-coupling.md"
+  "docs/runbooks/vaccination-seed-source-date-contract.md"
+)
+
 mark_fail() {
   fail=1
   printf 'local-single-db-guard: FAIL: %s\n' "$*" >&2
@@ -69,9 +76,29 @@ for file in "${e2e_runtime_files[@]}"; do
 done
 
 require_pattern "tools/dev/e2e-db-env.sh" "GOATOS_E2E_DATABASE_URL" "explicit E2E DB override"
-require_pattern "tools/dev/e2e-db-env.sh" "GOATOS_E2E_ALLOW_APP_DB_MUTATION" "explicit normal-app-DB mutation override"
+reject_pattern "tools/dev/e2e-db-env.sh" "GOATOS_E2E_ALLOW_APP_DB_MUTATION" "normal-app-DB mutation override"
+require_pattern "tools/dev/e2e-db-env.sh" "There is no override for this." "no normal-app-DB mutation override"
 require_pattern "tools/dev/e2e-db-env.sh" "E2E/proof/load scripts require an explicit" "fail-closed E2E DB resolver"
 reject_pattern "tools/dev/e2e-db-env.sh" "printf 'postgres://postgres:goatos@127.0.0.1:5433/goatos" "silent normal app DB default in E2E resolver"
+
+for file in "${e2e_rule_files[@]}"; do
+  if [ ! -f "$repo/$file" ]; then
+    mark_fail "$file is missing"
+    continue
+  fi
+  reject_pattern "$file" "GOATOS_E2E_ALLOW_APP_DB_MUTATION" "normal-app-DB mutation override"
+done
+
+if DATABASE_URL="postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable" \
+  GOATOS_E2E_ALLOW_APP_DB_MUTATION=1 \
+  bash -c ". '$repo/tools/dev/e2e-db-env.sh'; goatos_e2e_require_isolated_database local-single-db-guard-test" \
+  >/tmp/goatos-local-single-db-guard.out 2>/tmp/goatos-local-single-db-guard.err; then
+  mark_fail "mutating E2E guard allowed normal app DB on :5433"
+fi
+
+if ! grep -Fq "There is no override for this." /tmp/goatos-local-single-db-guard.err 2>/dev/null; then
+  mark_fail "mutating E2E guard did not explain that :5433 has no override"
+fi
 
 if command -v docker >/dev/null 2>&1 && docker ps >/dev/null 2>&1; then
   candidates="$(

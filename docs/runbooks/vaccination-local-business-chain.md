@@ -34,15 +34,18 @@ API helper path, then the admin-web E2E smoke verifies the local acceptance UI
 routes read that same Postgres truth. Operator-mobile field execution remains out
 of the admin-web slice; admin-web must not show fake field-app buttons.
 
-## Repeatable Command (one script)
+## Repeatable Command (isolated DB only)
 
 The whole chain is captured by one repeatable, no-browser script that drives the
-real local stack (admin-web `:3300`, api `:8080`, one shared `DATABASE_URL`) and
-prints concrete IDs plus a per-surface read-model check:
+local API/admin surfaces against an isolated E2E database and prints concrete
+IDs plus a per-surface read-model check. It must not run against the normal
+laptop app DB on `5433`, because it creates goats/proofs/outbox/history rows.
 
 ```bash
 cd /path/to/goatos
-bash tools/dev/vaccination-chain-proof.sh
+make dev-local-kernel-up
+GOATOS_E2E_DATABASE_URL='postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable' \
+  bash tools/dev/vaccination-chain-proof.sh
 ```
 
 It uses the default local user (`ceo_internal`, which holds every permission the
@@ -56,21 +59,21 @@ Passport read models. It ends in a `## CLOSED …` line with all IDs.
 ### Prerequisites (and the migration gap this run hit)
 
 ```bash
-make dev-local        # one local Goat OS DB, api (:8080), admin-web (:3300)
-# make dev-local applies migrations before local API/admin-web start.
+make dev-local-kernel-up # isolated E2E DB/services; normal laptop DB stays untouched.
+# The isolated DB must be migrated/seeded before the proof mutates it.
 # The DB must be at migration head. The historical run found 000082
 # (sop_task_review_fanouts / sop_task_submission_fanouts) UNAPPLIED on the local
 # docker DB; SOP submission then 500s with:
 #   relation "sop_task_submission_fanouts" does not exist (SQLSTATE 42P01)
 # Fix is the approved goose/psql path (the migration file already exists, it was
 # just not applied locally):
+export DATABASE_URL='postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable'
 awk '/-- \+goose Up/{u=1} /-- \+goose Down/{u=0} u' \
   backend/migrations/postgres/000082_vaccination_rework_and_sop_review_fanout.sql \
   | psql "$DATABASE_URL" -v ON_ERROR_STOP=1
 # Seed (idempotent): actor grant + source-derived ET dev baseline.
 cd backend
 export GOATOS_ENV=local
-export DATABASE_URL="${DATABASE_URL:-postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable}"
 go run ./cmd/seed-dev-grant -tenant-id <tenant> -user-id <user> -role ceo_internal
 go run ./cmd/seed-vaccination-trigger              # protocol/inventory/SOP/lot fixtures
 ```

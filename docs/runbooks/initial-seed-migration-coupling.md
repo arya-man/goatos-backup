@@ -93,13 +93,13 @@ If multiple Goat OS app Postgres containers are visible, local launchers must
 fail instead of guessing. E2E, proof, and load harnesses must not silently use
 the normal `5433` app DB or an old hidden port. They source
 `tools/dev/e2e-db-env.sh`, which fails closed unless `GOATOS_E2E_DATABASE_URL`
-or `DATABASE_URL` is explicitly passed. If a proof intentionally targets the
-normal app DB, the `5433` URL must still be visible in the command/evidence.
-Mutating proof/load scripts that create goats/proofs, replay outbox, insert
-history, or run migrations additionally refuse `5433` unless
-`GOATOS_E2E_ALLOW_APP_DB_MUTATION=1` is present. Destructive/load tests should
-use an isolated DB with owned seed/cleanup, such as the explicit GCP-kernel
-parity stack on `55432`. That stack is not the normal laptop runtime DB.
+or `DATABASE_URL` is explicitly passed. Read-only checks may target the normal
+app DB, and the `5433` URL must still be visible in the command/evidence when
+they do. Mutating proof/load scripts that create goats/proofs, replay outbox,
+insert history, or run migrations always refuse `5433`; there is no override for
+mutating the normal app DB from E2E. Destructive/load tests must use an isolated
+DB with owned seed/cleanup, such as the explicit GCP-kernel parity stack on
+`55432`. That stack is not the normal laptop runtime DB.
 
 Examples:
 
@@ -107,11 +107,9 @@ Examples:
 # Normal local API/admin/mobile database.
 DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable'
 
-# Intentional mutating proof against the normal local DB. This can create goats,
-# proofs, outbox rows, trusted-history rows, and projection changes.
-GOATOS_E2E_ALLOW_APP_DB_MUTATION=1 \
-DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable' \
-tools/dev/vaccination-chain-proof.sh
+# Read-only check against the normal local DB.
+DATABASE_URL='postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable'
+psql "$DATABASE_URL" -c 'select count(*) from goats'
 
 # Explicit isolated local GCP-kernel parity database.
 make dev-local-kernel-up

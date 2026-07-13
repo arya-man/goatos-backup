@@ -2,9 +2,8 @@
 # Shared DB resolver for local E2E/proof/load scripts.
 #
 # E2E must never silently touch the normal laptop app database. The caller must
-# pass an explicit DB URL. That URL may intentionally target the normal local DB
-# for a read/proof run, or an isolated throwaway DB for destructive/load runs,
-# but it must be visible in the command/env.
+# pass an explicit DB URL. Read-only checks may target the normal local DB, but
+# mutating proof/load scripts must use an isolated throwaway DB.
 
 goatos_resolve_e2e_database_url() {
   if [ -n "${GOATOS_E2E_DATABASE_URL:-}" ]; then
@@ -18,9 +17,10 @@ goatos_resolve_e2e_database_url() {
   cat >&2 <<'MSG'
 E2E/proof/load scripts require an explicit GOATOS_E2E_DATABASE_URL or DATABASE_URL.
 This prevents test harnesses from silently touching the normal local app DB.
-If you intentionally want the normal local DB, pass:
+Read-only checks may target the normal local DB by passing:
   DATABASE_URL=postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable
-For the isolated local GCP-kernel stack, start it first, then pass:
+Mutating E2E/proof/load scripts must use an isolated DB. For the local
+GCP-kernel stack, start it first, then pass:
   GOATOS_E2E_DATABASE_URL=postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable
 MSG
   return 2
@@ -48,17 +48,12 @@ goatos_e2e_require_isolated_database() {
   if ! goatos_e2e_database_url_is_normal_app_db "$DATABASE_URL"; then
     return 0
   fi
-  if [ "${GOATOS_E2E_ALLOW_APP_DB_MUTATION:-0}" = "1" ]; then
-    return 0
-  fi
   cat >&2 <<MSG
 $label refuses to mutate the normal local app DB on 5433.
-Use an isolated DB for destructive/proof/load runs, for example:
+There is no override for this. Use an isolated DB for destructive/proof/load
+runs, for example:
   make dev-local-kernel-up
   GOATOS_E2E_DATABASE_URL=postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmode=disable $label
-If you intentionally want this script to write into the normal seeded local DB,
-make the risk explicit:
-  GOATOS_E2E_ALLOW_APP_DB_MUTATION=1 DATABASE_URL=postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable $label
 MSG
   exit 2
 }
