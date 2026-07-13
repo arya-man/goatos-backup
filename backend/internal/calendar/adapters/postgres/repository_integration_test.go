@@ -657,7 +657,7 @@ func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDa
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
-	dueAt := stableSameLocalDayDueAt(time.Now().UTC())
+	dueAt := stableSameLocalDayDueAt(time.Now().In(biztime.DefaultLocation()))
 	const (
 		protocolA   = "86000000-0000-4000-8000-00000000c101"
 		versionA    = "86000000-0000-4000-8000-00000000c102"
@@ -740,7 +740,7 @@ func TestCalendarVaccinationProjectionDoesNotReclassifyDeferredCatchupAsOverdue(
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
-	dueAt := stableSameLocalDayDueAt(time.Now().UTC()).Add(-2 * time.Hour)
+	dueAt := stableSameLocalDayDueAt(time.Now().In(biztime.DefaultLocation())).Add(-2 * time.Hour)
 	const (
 		protocolID   = "86000000-0000-4000-8000-00000000c301"
 		versionID    = "86000000-0000-4000-8000-00000000c302"
@@ -793,7 +793,7 @@ func TestCalendarVaccinationProjectionCollapsesMultipleRulesIntoSingleCatchupDri
 		"86000000-0000-4000-8000-000000000a25",
 		"86000000-0000-4000-8000-000000000a26",
 	}
-	dueAt := stableSameLocalDayDueAt(time.Now().UTC())
+	dueAt := stableSameLocalDayDueAt(time.Now().In(biztime.DefaultLocation()))
 	seedVaccinationObligation(t, ctx, pool, protocolIDs[0], versionIDs[0], ruleIDs[0], obligationIDs[0], dueAt)
 	seedVaccinationObligation(t, ctx, pool, protocolIDs[1], versionIDs[1], ruleIDs[1], obligationIDs[1], dueAt.Add(15*time.Minute))
 	for _, obligationID := range obligationIDs {
@@ -825,7 +825,7 @@ func TestCalendarCatchupDriveTargetsUseVaccinationAnimalAndQueueSemantics(t *tes
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
-	dueAt := stableSameLocalDayDueAt(time.Now().UTC())
+	dueAt := stableSameLocalDayDueAt(time.Now().In(biztime.DefaultLocation()))
 	vaccinatedGoatID := "86000000-0000-4000-8000-000000000b01"
 	feedGoatID := "86000000-0000-4000-8000-000000000b02"
 	obligationIDs := []string{
@@ -982,7 +982,7 @@ func TestCalendarVaccinationProjectionCollapsesMultipleRulesInBatchIntoSingleDri
 		"86000000-0000-4000-8000-000000000a36",
 		"86000000-0000-4000-8000-000000000a37",
 	}
-	dueAt := stableSameLocalDayDueAt(time.Now().UTC())
+	dueAt := stableSameLocalDayDueAt(time.Now().In(biztime.DefaultLocation()))
 	seedVaccinationObligation(t, ctx, pool, protocolIDs[0], versionIDs[0], ruleIDs[0], obligationIDs[0], dueAt)
 	seedVaccinationObligation(t, ctx, pool, protocolIDs[1], versionIDs[1], ruleIDs[1], obligationIDs[1], dueAt.Add(15*time.Minute))
 	seedVaccinationBatch(t, ctx, pool, batchID, versionIDs[0], dueAt, obligationIDs...)
@@ -1159,7 +1159,7 @@ func TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation(t *tes
 	queued, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
 		TenantID:    testTenantID,
 		Limit:       10,
-		Now:         time.Now().UTC(),
+		Now:         time.Now().In(biztime.DefaultLocation()),
 		Level1After: 0,
 		Level2After: 4 * time.Hour,
 		Level3After: 24 * time.Hour,
@@ -1218,7 +1218,7 @@ WHERE tenant_id=$1::uuid AND event_id=$2`, testTenantID, eventID).Scan(&status, 
 	again, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
 		TenantID:    testTenantID,
 		Limit:       10,
-		Now:         time.Now().UTC(),
+		Now:         time.Now().In(biztime.DefaultLocation()),
 		Level1After: 0,
 		Level2After: 4 * time.Hour,
 		Level3After: 24 * time.Hour,
@@ -1262,7 +1262,7 @@ WHERE tenant_id=$1::uuid AND event_id IN ($2, $3)`, testTenantID, deferredEventI
 	escalations, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
 		TenantID:    testTenantID,
 		Limit:       10,
-		Now:         time.Now().UTC(),
+		Now:         time.Now().In(biztime.DefaultLocation()),
 		Level1After: 0,
 	})
 	if err != nil {
@@ -1374,7 +1374,7 @@ func TestCalendarEscalationAcknowledgeAndResolveWorkflow(t *testing.T) {
 		TenantID:     testTenantID,
 		ObligationID: obligationID,
 		Limit:        10,
-		Now:          time.Now().UTC(),
+		Now:          time.Now().In(biztime.DefaultLocation()),
 		Level1After:  0,
 		Level2After:  4 * time.Hour,
 		Level3After:  24 * time.Hour,
@@ -1514,7 +1514,7 @@ func TestCalendarEscalationResolveClosesActiveLadder(t *testing.T) {
 		TenantID:     testTenantID,
 		ObligationID: obligationID,
 		Limit:        10,
-		Now:          time.Now().UTC(),
+		Now:          time.Now().In(biztime.DefaultLocation()),
 		Level1After:  0,
 		Level2After:  12 * time.Hour,
 		Level3After:  24 * time.Hour,
@@ -1535,7 +1535,7 @@ func TestCalendarEscalationResolveClosesActiveLadder(t *testing.T) {
 		TenantID:     testTenantID,
 		ObligationID: obligationID,
 		Limit:        10,
-		Now:          time.Now().UTC(),
+		Now:          time.Now().In(biztime.DefaultLocation()),
 		Level1After:  0,
 		Level2After:  4 * time.Hour,
 		Level3After:  24 * time.Hour,
@@ -1590,7 +1590,7 @@ WHERE tenant_id=$1::uuid AND event_id=$2 AND escalation_state='resolved'`, 1, te
 		TenantID:     testTenantID,
 		ObligationID: obligationID,
 		Limit:        10,
-		Now:          time.Now().UTC(),
+		Now:          time.Now().In(biztime.DefaultLocation()),
 		Level1After:  0,
 		Level2After:  4 * time.Hour,
 		Level3After:  24 * time.Hour,
@@ -1634,7 +1634,7 @@ func TestCalendarEscalationResolveDoesNotSilenceNextLevel(t *testing.T) {
 		TenantID:     testTenantID,
 		ObligationID: obligationID,
 		Limit:        10,
-		Now:          time.Now().UTC(),
+		Now:          time.Now().In(biztime.DefaultLocation()),
 		Level1After:  0,
 		Level2After:  12 * time.Hour,
 		Level3After:  24 * time.Hour,
@@ -1658,7 +1658,7 @@ func TestCalendarEscalationResolveDoesNotSilenceNextLevel(t *testing.T) {
 		TenantID:     testTenantID,
 		ObligationID: obligationID,
 		Limit:        10,
-		Now:          time.Now().UTC(),
+		Now:          time.Now().In(biztime.DefaultLocation()),
 		Level1After:  0,
 		Level2After:  4 * time.Hour,
 		Level3After:  24 * time.Hour,
@@ -1713,7 +1713,7 @@ func TestCalendarEscalationSweepRoutesLevel3ToPCDirector(t *testing.T) {
 		TenantID:     testTenantID,
 		ObligationID: obligationID,
 		Limit:        10,
-		Now:          time.Now().UTC(),
+		Now:          time.Now().In(biztime.DefaultLocation()),
 		Level1After:  0,
 		Level2After:  4 * time.Hour,
 		Level3After:  24 * time.Hour,
@@ -1761,7 +1761,7 @@ func TestCalendarVaccinationProjectionRefreshPaginatesAndTombstonesStaleSource(t
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
-	dueAt := stableSameLocalDayDueAt(time.Now().UTC())
+	dueAt := stableSameLocalDayDueAt(time.Now().In(biztime.DefaultLocation()))
 	protocolID := "86000000-0000-4000-8000-000000000810"
 	versionID := "86000000-0000-4000-8000-000000000820"
 	sharedRuleID := "86000000-0000-4000-8000-000000000830"
