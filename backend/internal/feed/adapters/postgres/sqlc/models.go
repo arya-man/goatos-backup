@@ -45,6 +45,63 @@ type AdminUiConfigFamilyRevision struct {
 	Metadata    []byte
 }
 
+type AnalyticsCrashDaily struct {
+	TenantID             pgtype.UUID
+	EventDate            pgtype.Date
+	AppVersion           string
+	CrashFreeUsersPct    pgtype.Numeric
+	CrashFreeSessionsPct pgtype.Numeric
+	FatalCount           int64
+	NonfatalCount        int64
+	TopIssues            []byte
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type AnalyticsEngagementDaily struct {
+	TenantID     pgtype.UUID
+	EventDate    pgtype.Date
+	Dau          int64
+	WauApprox    int64
+	Sessions     int64
+	AvgSessionMs int64
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type AnalyticsFunnelDaily struct {
+	TenantID    pgtype.UUID
+	EventDate   pgtype.Date
+	FunnelKey   string
+	StepKey     string
+	StepIndex   int32
+	Users       int64
+	Sessions    int64
+	Conversions int64
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type AnalyticsJourneyDaily struct {
+	TenantID    pgtype.UUID
+	EventDate   pgtype.Date
+	JourneyKey  string
+	P50Ms       int64
+	P90Ms       int64
+	P99Ms       int64
+	Completions int64
+	DropOffs    int64
+	UpdatedAt   pgtype.Timestamptz
+}
+
+type AnalyticsRollupRun struct {
+	RunID       int64
+	SourceDate  pgtype.Date
+	StartedAt   pgtype.Timestamptz
+	FinishedAt  pgtype.Timestamptz
+	RowsWritten int64
+	BytesBilled int64
+	Status      string
+	Error       pgtype.Text
+}
+
 type AnimalStageLookup struct {
 	AnimalStageID pgtype.UUID
 	TenantID      pgtype.UUID
@@ -343,6 +400,68 @@ type CalendarEventProjection struct {
 	Detail                     []byte
 	CreatedAt                  pgtype.Timestamptz
 	UpdatedAt                  pgtype.Timestamptz
+}
+
+type CalendarHistoryDateMarker struct {
+	TenantID          pgtype.UUID
+	ProjectionVersion int64
+	BusinessDate      pgtype.Date
+	ParkKey           string
+	ShedKey           string
+	ParkID            pgtype.UUID
+	ShedID            pgtype.UUID
+	CompletionCount   int64
+	ProjectedAt       pgtype.Timestamptz
+}
+
+type CalendarHistoryProjectionRow struct {
+	TenantID          pgtype.UUID
+	EventID           string
+	BusinessDate      pgtype.Date
+	ParkID            pgtype.UUID
+	ParkCode          pgtype.Text
+	ShedID            pgtype.UUID
+	ShedName          pgtype.Text
+	ProtocolID        pgtype.UUID
+	ProtocolVersionID pgtype.UUID
+	RuleID            pgtype.UUID
+	VaccineName       pgtype.Text
+	DoseCode          pgtype.Text
+	Title             string
+	Subtitle          string
+	TargetCount       int32
+	WindowStart       pgtype.Timestamptz
+	WindowEnd         pgtype.Timestamptz
+	Detail            []byte
+	ProjectionVersion int64
+	ProjectedAt       pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+}
+
+type CalendarHistoryProjectionState struct {
+	TenantID                 pgtype.UUID
+	ProjectionVersion        int64
+	ServingProjectionVersion pgtype.Int8
+	ProjectedAt              pgtype.Timestamptz
+	DateFrom                 pgtype.Timestamptz
+	DateTo                   pgtype.Timestamptz
+	FreshnessStatus          string
+	ServingState             string
+	LastError                pgtype.Text
+	UpdatedAt                pgtype.Timestamptz
+}
+
+type CalendarProjectionState struct {
+	TenantID          pgtype.UUID
+	SliceKey          string
+	ProjectionVersion int64
+	ProjectedAt       pgtype.Timestamptz
+	DateFrom          pgtype.Timestamptz
+	DateTo            pgtype.Timestamptz
+	FreshnessStatus   string
+	ServingState      string
+	LastError         pgtype.Text
+	UpdatedAt         pgtype.Timestamptz
 }
 
 type CalendarSnooze struct {
@@ -1198,6 +1317,19 @@ type MovementCommand struct {
 	CreatedAt    pgtype.Timestamptz
 }
 
+type NotificationDeliveryAttempt struct {
+	AttemptID             pgtype.UUID
+	TenantID              pgtype.UUID
+	NotificationRequestID pgtype.UUID
+	AttemptNo             int32
+	Channel               string
+	AttemptedAt           pgtype.Timestamptz
+	Result                string
+	ProviderMessageID     pgtype.Text
+	Error                 pgtype.Text
+	CreatedAt             pgtype.Timestamptz
+}
+
 type NotificationRequest struct {
 	NotificationRequestID pgtype.UUID
 	TenantID              pgtype.UUID
@@ -1425,6 +1557,27 @@ type Org struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
+type OrgRoleCatalog struct {
+	RoleKey      string
+	TierCode     string
+	VerticalCode pgtype.Text
+	IsLegacy     bool
+	Label        string
+	CreatedAt    pgtype.Timestamptz
+}
+
+type OrgTier struct {
+	TierCode string
+	Label    string
+	Rank     int16
+}
+
+type OrgVertical struct {
+	VerticalCode string
+	Label        string
+	SortOrder    int16
+}
+
 type OutboxDlqAction struct {
 	ActionID       pgtype.UUID
 	TenantID       pgtype.UUID
@@ -1581,6 +1734,25 @@ type ProcessIntegrityProjectionState struct {
 	ServingProjectionVersion pgtype.Int8
 }
 
+type ProcessIntegrityProjectionSummary struct {
+	TenantID          pgtype.UUID
+	ProjectionVersion int64
+	Category          string
+	ParkID            string
+	ShedID            string
+	OwnerID           string
+	ProtocolVersionID string
+	DueBusinessDate   pgtype.Date
+	WorkState         string
+	Severity          string
+	ProcessIntact     bool
+	RowCount          int64
+	ExpectedCount     int64
+	CompletedCount    int64
+	DeferredCount     int64
+	ProjectedAt       pgtype.Timestamptz
+}
+
 type ProcurementHfVaccinationEvidence struct {
 	EvidenceID        pgtype.UUID
 	TenantID          pgtype.UUID
@@ -1688,26 +1860,28 @@ type ProcurementSourceHealthCheck struct {
 }
 
 type ProofArtifact struct {
-	ProofID         pgtype.UUID
-	TenantID        pgtype.UUID
-	StorageProvider string
-	ObjectKey       string
-	ContentHash     string
-	MimeType        string
-	SizeBytes       int64
-	DurationMs      pgtype.Int8
-	UploadState     string
-	ScopeType       string
-	ScopeID         pgtype.UUID
-	SubjectType     string
-	SubjectID       pgtype.UUID
-	ProofType       string
-	UploadedBy      pgtype.UUID
-	Metadata        []byte
-	CreatedAt       pgtype.Timestamptz
-	UploadedAt      pgtype.Timestamptz
-	UpdatedAt       pgtype.Timestamptz
-	RowVersion      int32
+	ProofID            pgtype.UUID
+	TenantID           pgtype.UUID
+	StorageProvider    string
+	ObjectKey          string
+	ContentHash        string
+	MimeType           string
+	SizeBytes          int64
+	DurationMs         pgtype.Int8
+	UploadState        string
+	ScopeType          string
+	ScopeID            pgtype.UUID
+	SubjectType        string
+	SubjectID          pgtype.UUID
+	ProofType          string
+	UploadedBy         pgtype.UUID
+	Metadata           []byte
+	CreatedAt          pgtype.Timestamptz
+	UploadedAt         pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	RowVersion         int32
+	IdempotencyKey     pgtype.Text
+	RequestFingerprint string
 }
 
 type ProtocolDefinition struct {
@@ -2154,6 +2328,67 @@ type VaccinationEligibilityRollup struct {
 	UpdatedAt            pgtype.Timestamptz
 }
 
+type VaccinationExecutionProjectionRow struct {
+	TenantID             pgtype.UUID
+	ProjectionVersion    int64
+	ParkID               string
+	ParkName             string
+	ShedID               string
+	ShedName             string
+	AnimalStage          string
+	BatchID              pgtype.Text
+	ProtocolName         string
+	DoseCode             string
+	DueAt                pgtype.Timestamptz
+	ObligationCount      int64
+	ScheduledCount       int64
+	DueCount             int64
+	InProgressCount      int64
+	CompletedCount       int64
+	MissedCount          int64
+	DeferredCount        int64
+	CanceledCount        int64
+	CompletionRecorded   int64
+	CompletionAccepted   int64
+	CompletionRejected   int64
+	CompletionReversed   int64
+	BatchStatus          pgtype.Text
+	TaskState            pgtype.Text
+	OperatorName         pgtype.Text
+	ParkHeadName         pgtype.Text
+	VerifierName         pgtype.Text
+	UsableForVaccination bool
+	IsQuarantine         bool
+	IsIcu                bool
+	HealthDeferredCount  int64
+	ObligationID         pgtype.Text
+	SopTaskID            pgtype.Text
+	SopVersionID         pgtype.Text
+	SopTaskRowVersion    pgtype.Int4
+	CompletionID         pgtype.Text
+	WorkState            string
+	Severity             string
+	SortRank             int32
+	SortDueMicros        int64
+	SortRowKey           string
+	ProjectedAt          pgtype.Timestamptz
+}
+
+type VaccinationExecutionProjectionState struct {
+	TenantID                 pgtype.UUID
+	ProjectionVersion        int64
+	ServingProjectionVersion pgtype.Int8
+	ProjectedAt              pgtype.Timestamptz
+	AsOf                     pgtype.Timestamptz
+	DueBefore                pgtype.Timestamptz
+	ClosedAfter              pgtype.Timestamptz
+	RowCount                 int64
+	FreshnessStatus          string
+	ServingState             string
+	LastError                pgtype.Text
+	UpdatedAt                pgtype.Timestamptz
+}
+
 type VaccinationGenerationRun struct {
 	RunID                         pgtype.UUID
 	TenantID                      pgtype.UUID
@@ -2178,6 +2413,124 @@ type VaccinationGenerationRun struct {
 	FailedGoatCount               int32
 }
 
+type VaccinationOperationsProjectionRow struct {
+	TenantID          pgtype.UUID
+	ProjectionVersion int64
+	ParkID            string
+	ParkName          string
+	ShedID            string
+	ShedName          string
+	Stage             string
+	AgeBand           pgtype.Text
+	ProtocolID        string
+	ProtocolName      string
+	Animals           int64
+	NextDue           pgtype.Timestamptz
+	LastDose          pgtype.Timestamptz
+	OverdueCount      int64
+	DueCount          int64
+	InProgressCount   int64
+	ScheduledCount    int64
+	MissedCount       int64
+	DeferredCount     int64
+	AcceptedCount     int64
+	ProofPendingCount int64
+	RejectedCount     int64
+	TotalCount        int64
+	ProjectedAt       pgtype.Timestamptz
+}
+
+type VaccinationOperationsProjectionState struct {
+	TenantID                 pgtype.UUID
+	ProjectionVersion        int64
+	ServingProjectionVersion pgtype.Int8
+	ProjectedAt              pgtype.Timestamptz
+	AsOf                     pgtype.Timestamptz
+	DueBefore                pgtype.Timestamptz
+	RowCount                 int64
+	FreshnessStatus          string
+	ServingState             string
+	LastError                pgtype.Text
+	UpdatedAt                pgtype.Timestamptz
+}
+
+type VaccinationProjectionDirtyScope struct {
+	DirtyScopeID   int64
+	TenantID       pgtype.UUID
+	ProjectionKind string
+	ShedID         string
+	Reason         string
+	Status         string
+	LeaseOwner     pgtype.Text
+	LeasedAt       pgtype.Timestamptz
+	LeaseExpiresAt pgtype.Timestamptz
+	AttemptCount   int32
+	MaxAttempts    int32
+	NextAttemptAt  pgtype.Timestamptz
+	LastError      pgtype.Text
+	EnqueuedAt     pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type VaccinationReminderCadenceFire struct {
+	TenantID                      pgtype.UUID
+	FireKey                       string
+	ParkID                        pgtype.UUID
+	FireDay                       pgtype.Date
+	NotificationType              string
+	Slot                          string
+	ReminderNumber                int32
+	ObligationCount               int32
+	RepresentativeCalendarEventID string
+	QueuedAt                      pgtype.Timestamptz
+}
+
+type VaccinationShedProjectionRow struct {
+	VaccinationShedProjectionRowID int64
+	TenantID                       pgtype.UUID
+	ParkID                         string
+	ParkName                       string
+	ShedID                         string
+	ShedName                       string
+	Animals                        int32
+	DueAnimals                     int32
+	OpenCells                      int32
+	Sessions                       int32
+	CapacityStatus                 string
+	ShedStatus                     string
+	LastDone                       pgtype.Timestamptz
+	NextDue                        pgtype.Timestamptz
+	ProjectionVersion              int64
+	ProjectedAt                    pgtype.Timestamptz
+	UpdatedAt                      pgtype.Timestamptz
+}
+
+type VaccinationShedProjectionState struct {
+	TenantID                 pgtype.UUID
+	ProjectionVersion        int64
+	ServingProjectionVersion pgtype.Int8
+	ProjectedAt              pgtype.Timestamptz
+	AsOf                     pgtype.Timestamptz
+	RowCount                 int64
+	FreshnessStatus          string
+	ServingState             string
+	LastError                pgtype.Text
+	UpdatedAt                pgtype.Timestamptz
+	DueBefore                pgtype.Timestamptz
+}
+
+type VaccinationShedShardState struct {
+	TenantID         pgtype.UUID
+	ShedID           string
+	ProjectedAt      pgtype.Timestamptz
+	AsOf             pgtype.Timestamptz
+	NextTransitionAt pgtype.Timestamptz
+	SourceWatermark  pgtype.Timestamptz
+	RowPresent       bool
+	ServingState     string
+	UpdatedAt        pgtype.Timestamptz
+}
+
 type Vaccine struct {
 	VaccineID      pgtype.UUID
 	TenantID       pgtype.UUID
@@ -2189,6 +2542,32 @@ type Vaccine struct {
 	Context        []byte
 	CreatedAt      pgtype.Timestamptz
 	UpdatedAt      pgtype.Timestamptz
+}
+
+type VerificationItem struct {
+	ItemID             pgtype.UUID
+	TenantID           pgtype.UUID
+	Vertical           string
+	Module             string
+	Category           string
+	SourceModule       string
+	SourceTaskID       pgtype.UUID
+	SourceSubmissionID pgtype.UUID
+	SourceRefType      string
+	SourceRefID        pgtype.UUID
+	MediaRefs          []byte
+	Status             string
+	VerdictReason      pgtype.Text
+	OperatorID         pgtype.UUID
+	ShedID             pgtype.UUID
+	ParkID             pgtype.UUID
+	CapturedAt         pgtype.Timestamptz
+	VerifiedBy         pgtype.UUID
+	VerifiedAt         pgtype.Timestamptz
+	IdempotencyKey     string
+	RowVersion         int32
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
 }
 
 type VwGoatTagging struct {
@@ -2329,6 +2708,7 @@ type WorkforceMemberDevice struct {
 	RevokedAt           pgtype.Timestamptz
 	Metadata            []byte
 	RowVersion          int32
+	FcmToken            pgtype.Text
 }
 
 type WorkforcePosition struct {

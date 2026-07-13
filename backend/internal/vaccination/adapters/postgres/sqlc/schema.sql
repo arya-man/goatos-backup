@@ -17,6 +17,13 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: analytics; Type: SCHEMA; Schema: -; Owner: -
+--
+
+CREATE SCHEMA analytics;
+
+
+--
 -- Name: btree_gist; Type: EXTENSION; Schema: -; Owner: -
 --
 
@@ -1638,6 +1645,20 @@ CREATE FUNCTION public.validate_outbox_event_tenant() RETURNS trigger
 DECLARE
   config_family_key text;
 BEGIN
+  IF NEW.aggregate_type = 'verification_item' THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM verification_items
+      WHERE tenant_id = NEW.tenant_id
+        AND item_id = NEW.aggregate_id
+    ) THEN
+      RAISE EXCEPTION 'verification item outbox aggregate % does not exist for tenant %', NEW.aggregate_id, NEW.tenant_id
+        USING ERRCODE = '23503';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
   IF NEW.aggregate_type = 'count_base_anchor' THEN
     IF NOT EXISTS (
       SELECT 1
@@ -1876,9 +1897,129 @@ END;
 $$;
 
 
+--
+-- Name: verification_items_touch_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.verification_items_touch_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: crash_daily; Type: TABLE; Schema: analytics; Owner: -
+--
+
+CREATE TABLE analytics.crash_daily (
+    tenant_id uuid NOT NULL,
+    event_date date NOT NULL,
+    app_version text DEFAULT ''::text NOT NULL,
+    crash_free_users_pct numeric(6,3) DEFAULT 100 NOT NULL,
+    crash_free_sessions_pct numeric(6,3) DEFAULT 100 NOT NULL,
+    fatal_count bigint DEFAULT 0 NOT NULL,
+    nonfatal_count bigint DEFAULT 0 NOT NULL,
+    top_issues jsonb DEFAULT '[]'::jsonb NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT crash_daily_counts_check CHECK (((fatal_count >= 0) AND (nonfatal_count >= 0))),
+    CONSTRAINT crash_daily_pct_check CHECK ((((crash_free_users_pct >= (0)::numeric) AND (crash_free_users_pct <= (100)::numeric)) AND ((crash_free_sessions_pct >= (0)::numeric) AND (crash_free_sessions_pct <= (100)::numeric))))
+);
+
+
+--
+-- Name: engagement_daily; Type: TABLE; Schema: analytics; Owner: -
+--
+
+CREATE TABLE analytics.engagement_daily (
+    tenant_id uuid NOT NULL,
+    event_date date NOT NULL,
+    dau bigint DEFAULT 0 NOT NULL,
+    wau_approx bigint DEFAULT 0 NOT NULL,
+    sessions bigint DEFAULT 0 NOT NULL,
+    avg_session_ms bigint DEFAULT 0 NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT engagement_daily_counts_check CHECK (((dau >= 0) AND (wau_approx >= 0) AND (sessions >= 0) AND (avg_session_ms >= 0)))
+);
+
+
+--
+-- Name: funnel_daily; Type: TABLE; Schema: analytics; Owner: -
+--
+
+CREATE TABLE analytics.funnel_daily (
+    tenant_id uuid NOT NULL,
+    event_date date NOT NULL,
+    funnel_key text NOT NULL,
+    step_key text NOT NULL,
+    step_index integer NOT NULL,
+    users bigint DEFAULT 0 NOT NULL,
+    sessions bigint DEFAULT 0 NOT NULL,
+    conversions bigint DEFAULT 0 NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT funnel_daily_counts_check CHECK (((users >= 0) AND (sessions >= 0) AND (conversions >= 0))),
+    CONSTRAINT funnel_daily_step_index_check CHECK ((step_index >= 0))
+);
+
+
+--
+-- Name: journey_daily; Type: TABLE; Schema: analytics; Owner: -
+--
+
+CREATE TABLE analytics.journey_daily (
+    tenant_id uuid NOT NULL,
+    event_date date NOT NULL,
+    journey_key text NOT NULL,
+    p50_ms bigint DEFAULT 0 NOT NULL,
+    p90_ms bigint DEFAULT 0 NOT NULL,
+    p99_ms bigint DEFAULT 0 NOT NULL,
+    completions bigint DEFAULT 0 NOT NULL,
+    drop_offs bigint DEFAULT 0 NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT journey_daily_counts_check CHECK (((completions >= 0) AND (drop_offs >= 0))),
+    CONSTRAINT journey_daily_latency_check CHECK (((p50_ms >= 0) AND (p90_ms >= 0) AND (p99_ms >= 0)))
+);
+
+
+--
+-- Name: rollup_run; Type: TABLE; Schema: analytics; Owner: -
+--
+
+CREATE TABLE analytics.rollup_run (
+    run_id bigint NOT NULL,
+    source_date date NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    finished_at timestamp with time zone,
+    rows_written bigint DEFAULT 0 NOT NULL,
+    bytes_billed bigint DEFAULT 0 NOT NULL,
+    status text DEFAULT 'running'::text NOT NULL,
+    error text,
+    CONSTRAINT rollup_run_bytes_billed_check CHECK ((bytes_billed >= 0)),
+    CONSTRAINT rollup_run_rows_written_check CHECK ((rows_written >= 0)),
+    CONSTRAINT rollup_run_status_check CHECK ((status = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'skipped'::text])))
+);
+
+
+--
+-- Name: rollup_run_run_id_seq; Type: SEQUENCE; Schema: analytics; Owner: -
+--
+
+ALTER TABLE analytics.rollup_run ALTER COLUMN run_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME analytics.rollup_run_run_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
 
 --
 -- Name: admin_ui_config_entries; Type: TABLE; Schema: public; Owner: -
@@ -2193,7 +2334,6 @@ CREATE TABLE public.auth_pending_email_grants (
     claim_count bigint DEFAULT 0 NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT auth_pending_email_grants_email_check CHECK (((normalized_email = lower(btrim(email))) AND (normalized_email <> ''::text) AND (normalized_email !~~ '%,%'::text) AND (normalized_email !~~ '% %'::text) AND (POSITION(('@'::text) IN (normalized_email)) > 1))),
-    CONSTRAINT auth_pending_email_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
     CONSTRAINT auth_pending_email_grants_scope_check CHECK (((scope_type = 'tenant'::text) AND (scope_id = tenant_id))),
     CONSTRAINT auth_pending_email_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text]))),
     CONSTRAINT auth_pending_email_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
@@ -2354,6 +2494,99 @@ CREATE TABLE public.calendar_event_projections (
     CONSTRAINT calendar_event_target_count_check CHECK ((target_count >= 0)),
     CONSTRAINT calendar_event_type_check CHECK ((event_type = ANY (ARRAY['vaccination_dose_due'::text, 'vaccination_drive'::text, 'vaccination_campaign'::text, 'vaccination_booster_due'::text, 'vaccination_defer_review'::text, 'vaccination_evidence_review'::text, 'vaccination_proof_verification'::text, 'vaccination_rework_due'::text, 'vaccine_stock_readiness'::text, 'vaccine_cold_chain_check'::text, 'vaccine_reorder_expiry_grn'::text, 'pc_stock_anti_misuse'::text, 'vaccination_config_activation_review'::text]))),
     CONSTRAINT calendar_event_window_check CHECK (((window_end IS NULL) OR (window_start IS NULL) OR (window_end >= window_start)))
+);
+
+
+--
+-- Name: calendar_history_date_markers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.calendar_history_date_markers (
+    tenant_id uuid NOT NULL,
+    projection_version bigint NOT NULL,
+    business_date date NOT NULL,
+    park_key text NOT NULL,
+    shed_key text NOT NULL,
+    park_id uuid,
+    shed_id uuid,
+    completion_count bigint NOT NULL,
+    projected_at timestamp with time zone NOT NULL,
+    CONSTRAINT calendar_history_date_markers_completion_count_check CHECK ((completion_count >= 0))
+);
+
+
+--
+-- Name: calendar_history_projection_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.calendar_history_projection_rows (
+    tenant_id uuid NOT NULL,
+    event_id text NOT NULL,
+    business_date date NOT NULL,
+    park_id uuid,
+    park_code text,
+    shed_id uuid,
+    shed_name text,
+    protocol_id uuid,
+    protocol_version_id uuid,
+    rule_id uuid,
+    vaccine_name text,
+    dose_code text,
+    title text NOT NULL,
+    subtitle text DEFAULT ''::text NOT NULL,
+    target_count integer NOT NULL,
+    window_start timestamp with time zone,
+    window_end timestamp with time zone,
+    detail jsonb DEFAULT '{}'::jsonb NOT NULL,
+    projection_version bigint NOT NULL,
+    projected_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT calendar_history_projection_rows_detail_object_check CHECK ((jsonb_typeof(detail) = 'object'::text)),
+    CONSTRAINT calendar_history_projection_rows_target_count_check CHECK ((target_count >= 0)),
+    CONSTRAINT calendar_history_projection_rows_window_check CHECK (((window_end IS NULL) OR (window_start IS NULL) OR (window_end >= window_start)))
+);
+
+
+--
+-- Name: calendar_history_projection_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.calendar_history_projection_state (
+    tenant_id uuid NOT NULL,
+    projection_version bigint NOT NULL,
+    serving_projection_version bigint,
+    projected_at timestamp with time zone NOT NULL,
+    date_from timestamp with time zone NOT NULL,
+    date_to timestamp with time zone NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    serving_state text DEFAULT 'never_synced'::text NOT NULL,
+    last_error text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT calendar_history_projection_state_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT calendar_history_projection_state_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text]))),
+    CONSTRAINT calendar_history_projection_state_window_check CHECK ((date_to >= date_from))
+);
+
+
+--
+-- Name: calendar_projection_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.calendar_projection_state (
+    tenant_id uuid NOT NULL,
+    slice_key text NOT NULL,
+    projection_version bigint NOT NULL,
+    projected_at timestamp with time zone NOT NULL,
+    date_from timestamp with time zone NOT NULL,
+    date_to timestamp with time zone NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    serving_state text DEFAULT 'never_synced'::text NOT NULL,
+    last_error text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT calendar_projection_state_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT calendar_projection_state_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text]))),
+    CONSTRAINT calendar_projection_state_slice_check CHECK ((slice_key = 'vaccination'::text)),
+    CONSTRAINT calendar_projection_state_window_check CHECK ((date_to >= date_from))
 );
 
 
@@ -2764,7 +2997,7 @@ CREATE TABLE public.domain_event_processed_events (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT domain_event_processed_events_attempt_check CHECK ((attempt_count >= 1)),
     CONSTRAINT domain_event_processed_events_delivery_attempt_check CHECK ((delivery_attempt >= 0)),
-    CONSTRAINT domain_event_processed_events_status_check CHECK ((status = ANY (ARRAY['processing'::text, 'processed'::text, 'failed'::text])))
+    CONSTRAINT domain_event_processed_events_status_check CHECK ((status = ANY (ARRAY['processing'::text, 'effects_committed'::text, 'processed'::text, 'failed'::text])))
 );
 
 
@@ -3654,6 +3887,26 @@ CREATE TABLE public.movement_commands (
 
 
 --
+-- Name: notification_delivery_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.notification_delivery_attempts (
+    attempt_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    notification_request_id uuid NOT NULL,
+    attempt_no integer NOT NULL,
+    channel text NOT NULL,
+    attempted_at timestamp with time zone NOT NULL,
+    result text NOT NULL,
+    provider_message_id text,
+    error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT notification_delivery_attempts_attempt_no_check CHECK ((attempt_no > 0)),
+    CONSTRAINT notification_delivery_attempts_result_check CHECK ((result = ANY (ARRAY['sent'::text, 'failed'::text])))
+);
+
+
+--
 -- Name: notification_requests; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3689,7 +3942,7 @@ CREATE TABLE public.notification_requests (
     CONSTRAINT notification_requests_context_object_check CHECK ((jsonb_typeof(context) = 'object'::text)),
     CONSTRAINT notification_requests_delivery_attempts_check CHECK ((delivery_attempts >= 0)),
     CONSTRAINT notification_requests_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'exhausted'::text, 'suppressed'::text, 'read'::text]))),
-    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text])))
+    CONSTRAINT notification_requests_type_check CHECK ((notification_type = ANY (ARRAY['reminder'::text, 'nudge'::text, 'escalation'::text, 'verification_pending'::text, 'rework'::text, 'advance_notice'::text, 'due_today'::text])))
 );
 
 
@@ -3970,6 +4223,44 @@ CREATE TABLE public.obligation_status_events_default (
 
 
 --
+-- Name: org_role_catalog; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_role_catalog (
+    role_key text NOT NULL,
+    tier_code text NOT NULL,
+    vertical_code text,
+    is_legacy boolean DEFAULT false NOT NULL,
+    label text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT org_role_catalog_role_key_shape_check CHECK ((role_key ~ '^[a-z][a-z0-9_]*$'::text)),
+    CONSTRAINT org_role_catalog_vertical_or_legacy_check CHECK (((vertical_code IS NOT NULL) OR is_legacy))
+);
+
+
+--
+-- Name: org_tiers; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_tiers (
+    tier_code text NOT NULL,
+    label text NOT NULL,
+    rank smallint NOT NULL
+);
+
+
+--
+-- Name: org_verticals; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.org_verticals (
+    vertical_code text NOT NULL,
+    label text NOT NULL,
+    sort_order smallint NOT NULL
+);
+
+
+--
 -- Name: orgs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4211,6 +4502,32 @@ CREATE TABLE public.process_integrity_projection_state (
 
 
 --
+-- Name: process_integrity_projection_summaries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.process_integrity_projection_summaries (
+    tenant_id uuid NOT NULL,
+    projection_version bigint NOT NULL,
+    category text NOT NULL,
+    park_id text DEFAULT ''::text NOT NULL,
+    shed_id text DEFAULT ''::text NOT NULL,
+    owner_id text DEFAULT ''::text NOT NULL,
+    protocol_version_id text DEFAULT ''::text NOT NULL,
+    due_business_date date NOT NULL,
+    work_state text NOT NULL,
+    severity text NOT NULL,
+    process_intact boolean NOT NULL,
+    row_count bigint NOT NULL,
+    expected_count bigint NOT NULL,
+    completed_count bigint NOT NULL,
+    deferred_count bigint NOT NULL,
+    projected_at timestamp with time zone NOT NULL,
+    CONSTRAINT process_integrity_projection_summary_category_check CHECK ((category = ANY (ARRAY['vaccination'::text, 'feed_direction'::text]))),
+    CONSTRAINT process_integrity_projection_summary_nonnegative_check CHECK (((row_count >= 0) AND (expected_count >= 0) AND (completed_count >= 0) AND (deferred_count >= 0)))
+);
+
+
+--
 -- Name: procurement_hf_vaccination_evidence; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4390,6 +4707,8 @@ CREATE TABLE public.proof_artifacts (
     uploaded_at timestamp with time zone,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
+    idempotency_key text,
+    request_fingerprint text DEFAULT ''::text NOT NULL,
     CONSTRAINT proof_artifacts_duration_check CHECK (((duration_ms IS NULL) OR (duration_ms >= 0))),
     CONSTRAINT proof_artifacts_metadata_object_check CHECK ((jsonb_typeof(metadata) = 'object'::text)),
     CONSTRAINT proof_artifacts_object_key_check CHECK ((btrim(object_key) <> ''::text)),
@@ -4990,7 +5309,6 @@ CREATE TABLE public.user_scope_grants (
     valid_to timestamp with time zone,
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT user_scope_grants_role_check CHECK ((role = ANY (ARRAY['admin'::text, 'park_head'::text, 'pc_director'::text, 'operator'::text, 'verifier'::text, 'ceo_internal'::text]))),
     CONSTRAINT user_scope_grants_scope_type_check CHECK ((scope_type = ANY (ARRAY['tenant'::text, 'custodian_party'::text, 'farm'::text, 'park'::text, 'shed'::text, 'cohort'::text]))),
     CONSTRAINT user_scope_grants_status_check CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text, 'revoked'::text]))),
     CONSTRAINT user_scope_grants_valid_window_check CHECK (((valid_to IS NULL) OR (valid_to > valid_from)))
@@ -5091,6 +5409,82 @@ ALTER TABLE public.vaccination_eligibility_rollups ALTER COLUMN rollup_id ADD GE
 
 
 --
+-- Name: vaccination_execution_projection_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_execution_projection_rows (
+    tenant_id uuid NOT NULL,
+    projection_version bigint NOT NULL,
+    park_id text NOT NULL,
+    park_name text NOT NULL,
+    shed_id text NOT NULL,
+    shed_name text NOT NULL,
+    animal_stage text NOT NULL,
+    batch_id text,
+    protocol_name text NOT NULL,
+    dose_code text NOT NULL,
+    due_at timestamp with time zone,
+    obligation_count bigint NOT NULL,
+    scheduled_count bigint NOT NULL,
+    due_count bigint NOT NULL,
+    in_progress_count bigint NOT NULL,
+    completed_count bigint NOT NULL,
+    missed_count bigint NOT NULL,
+    deferred_count bigint NOT NULL,
+    canceled_count bigint NOT NULL,
+    completion_recorded bigint NOT NULL,
+    completion_accepted bigint NOT NULL,
+    completion_rejected bigint NOT NULL,
+    completion_reversed bigint NOT NULL,
+    batch_status text,
+    task_state text,
+    operator_name text,
+    park_head_name text,
+    verifier_name text,
+    usable_for_vaccination boolean NOT NULL,
+    is_quarantine boolean NOT NULL,
+    is_icu boolean NOT NULL,
+    health_deferred_count bigint NOT NULL,
+    obligation_id text,
+    sop_task_id text,
+    sop_version_id text,
+    sop_task_row_version integer,
+    completion_id text,
+    work_state text NOT NULL,
+    severity text NOT NULL,
+    sort_rank integer NOT NULL,
+    sort_due_micros bigint NOT NULL,
+    sort_row_key text NOT NULL,
+    projected_at timestamp with time zone NOT NULL,
+    CONSTRAINT vaccination_execution_projection_severity_check CHECK ((severity = ANY (ARRAY['ok'::text, 'watch'::text, 'at_risk'::text, 'broken'::text]))),
+    CONSTRAINT vaccination_execution_projection_work_state_check CHECK ((work_state = ANY (ARRAY['due'::text, 'overdue'::text, 'scheduled'::text, 'in_progress'::text, 'proof_pending'::text, 'verification_pending'::text, 'rejected'::text, 'deferred'::text, 'missed'::text, 'blocked'::text, 'completed'::text])))
+);
+
+
+--
+-- Name: vaccination_execution_projection_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_execution_projection_state (
+    tenant_id uuid NOT NULL,
+    projection_version bigint NOT NULL,
+    serving_projection_version bigint,
+    projected_at timestamp with time zone NOT NULL,
+    as_of timestamp with time zone NOT NULL,
+    due_before timestamp with time zone NOT NULL,
+    closed_after timestamp with time zone NOT NULL,
+    row_count bigint DEFAULT 0 NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    serving_state text DEFAULT 'never_synced'::text NOT NULL,
+    last_error text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_execution_projection_state_freshness_status_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT vaccination_execution_projection_state_row_count_check CHECK ((row_count >= 0)),
+    CONSTRAINT vaccination_execution_projection_state_serving_state_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text])))
+);
+
+
+--
 -- Name: vaccination_generation_runs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5124,6 +5518,201 @@ CREATE TABLE public.vaccination_generation_runs (
 
 
 --
+-- Name: vaccination_operations_projection_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_operations_projection_rows (
+    tenant_id uuid NOT NULL,
+    projection_version bigint NOT NULL,
+    park_id text NOT NULL,
+    park_name text NOT NULL,
+    shed_id text NOT NULL,
+    shed_name text NOT NULL,
+    stage text NOT NULL,
+    age_band text,
+    protocol_id text NOT NULL,
+    protocol_name text NOT NULL,
+    animals bigint NOT NULL,
+    next_due timestamp with time zone,
+    last_dose timestamp with time zone,
+    overdue_count bigint NOT NULL,
+    due_count bigint NOT NULL,
+    in_progress_count bigint NOT NULL,
+    scheduled_count bigint NOT NULL,
+    missed_count bigint NOT NULL,
+    deferred_count bigint NOT NULL,
+    accepted_count bigint NOT NULL,
+    proof_pending_count bigint NOT NULL,
+    rejected_count bigint NOT NULL,
+    total_count bigint NOT NULL,
+    projected_at timestamp with time zone NOT NULL
+);
+
+
+--
+-- Name: vaccination_operations_projection_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_operations_projection_state (
+    tenant_id uuid NOT NULL,
+    projection_version bigint NOT NULL,
+    serving_projection_version bigint,
+    projected_at timestamp with time zone NOT NULL,
+    as_of timestamp with time zone NOT NULL,
+    due_before timestamp with time zone NOT NULL,
+    row_count bigint DEFAULT 0 NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    serving_state text DEFAULT 'never_synced'::text NOT NULL,
+    last_error text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_operations_projection_state_freshness_status_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT vaccination_operations_projection_state_row_count_check CHECK ((row_count >= 0)),
+    CONSTRAINT vaccination_operations_projection_state_serving_state_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text])))
+);
+
+
+--
+-- Name: vaccination_projection_dirty_scopes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_projection_dirty_scopes (
+    dirty_scope_id bigint NOT NULL,
+    tenant_id uuid NOT NULL,
+    projection_kind text NOT NULL,
+    shed_id text NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    lease_owner text,
+    leased_at timestamp with time zone,
+    lease_expires_at timestamp with time zone,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    max_attempts integer DEFAULT 8 NOT NULL,
+    next_attempt_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_error text,
+    enqueued_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_projection_dirty_scopes_attempt_check CHECK (((attempt_count >= 0) AND (max_attempts > 0))),
+    CONSTRAINT vaccination_projection_dirty_scopes_kind_check CHECK ((projection_kind = 'shed'::text)),
+    CONSTRAINT vaccination_projection_dirty_scopes_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'leased'::text, 'done'::text, 'failed'::text, 'dead_letter'::text])))
+);
+
+
+--
+-- Name: vaccination_projection_dirty_scopes_dirty_scope_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.vaccination_projection_dirty_scopes ALTER COLUMN dirty_scope_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.vaccination_projection_dirty_scopes_dirty_scope_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: vaccination_reminder_cadence_fires; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_reminder_cadence_fires (
+    tenant_id uuid NOT NULL,
+    fire_key text NOT NULL,
+    park_id uuid NOT NULL,
+    fire_day date NOT NULL,
+    notification_type text NOT NULL,
+    slot text NOT NULL,
+    reminder_number integer DEFAULT 0 NOT NULL,
+    obligation_count integer DEFAULT 0 NOT NULL,
+    representative_calendar_event_id text NOT NULL,
+    queued_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_reminder_cadence_fires_type_check CHECK ((notification_type = ANY (ARRAY['advance_notice'::text, 'reminder'::text, 'due_today'::text])))
+);
+
+
+--
+-- Name: vaccination_shed_projection_rows; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_shed_projection_rows (
+    vaccination_shed_projection_row_id bigint NOT NULL,
+    tenant_id uuid NOT NULL,
+    park_id text NOT NULL,
+    park_name text NOT NULL,
+    shed_id text NOT NULL,
+    shed_name text NOT NULL,
+    animals integer DEFAULT 0 NOT NULL,
+    due_animals integer DEFAULT 0 NOT NULL,
+    open_cells integer DEFAULT 0 NOT NULL,
+    sessions integer DEFAULT 0 NOT NULL,
+    capacity_status text NOT NULL,
+    shed_status text NOT NULL,
+    last_done timestamp with time zone,
+    next_due timestamp with time zone,
+    projection_version bigint NOT NULL,
+    projected_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_shed_projection_capacity_status_check CHECK ((capacity_status = ANY (ARRAY['within_cap'::text, 'over_cap'::text, 'capacity_breach'::text]))),
+    CONSTRAINT vaccination_shed_projection_nonnegative_check CHECK (((animals >= 0) AND (due_animals >= 0) AND (due_animals <= animals) AND (open_cells >= 0) AND (sessions >= 0))),
+    CONSTRAINT vaccination_shed_projection_shed_status_check CHECK ((shed_status = ANY (ARRAY['overdue'::text, 'needs_review'::text, 'split'::text, 'due'::text, 'scheduled'::text, 'on_track'::text])))
+);
+
+
+--
+-- Name: vaccination_shed_projection_r_vaccination_shed_projection_r_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.vaccination_shed_projection_rows ALTER COLUMN vaccination_shed_projection_row_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.vaccination_shed_projection_r_vaccination_shed_projection_r_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: vaccination_shed_projection_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_shed_projection_state (
+    tenant_id uuid NOT NULL,
+    projection_version bigint NOT NULL,
+    serving_projection_version bigint,
+    projected_at timestamp with time zone NOT NULL,
+    as_of timestamp with time zone NOT NULL,
+    row_count bigint DEFAULT 0 NOT NULL,
+    freshness_status text DEFAULT 'unknown'::text NOT NULL,
+    serving_state text DEFAULT 'never_synced'::text NOT NULL,
+    last_error text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    due_before timestamp with time zone NOT NULL,
+    CONSTRAINT vaccination_shed_projection_state_freshness_check CHECK ((freshness_status = ANY (ARRAY['green'::text, 'yellow'::text, 'red'::text, 'unknown'::text]))),
+    CONSTRAINT vaccination_shed_projection_state_row_count_check CHECK ((row_count >= 0)),
+    CONSTRAINT vaccination_shed_projection_state_serving_check CHECK ((serving_state = ANY (ARRAY['never_synced'::text, 'fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text])))
+);
+
+
+--
+-- Name: vaccination_shed_shard_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_shed_shard_state (
+    tenant_id uuid NOT NULL,
+    shed_id text NOT NULL,
+    projected_at timestamp with time zone NOT NULL,
+    as_of timestamp with time zone NOT NULL,
+    next_transition_at timestamp with time zone,
+    source_watermark timestamp with time zone,
+    row_present boolean DEFAULT true NOT NULL,
+    serving_state text DEFAULT 'fresh'::text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_shed_shard_state_serving_check CHECK ((serving_state = ANY (ARRAY['fresh'::text, 'stale'::text, 'rebuilding'::text, 'failed'::text])))
+);
+
+
+--
 -- Name: vaccines; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5140,6 +5729,42 @@ CREATE TABLE public.vaccines (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT vaccines_doses_check CHECK (((doses_per_vial IS NULL) OR (doses_per_vial > 0))),
     CONSTRAINT vaccines_withdrawal_check CHECK (((withdrawal_days IS NULL) OR (withdrawal_days >= 0)))
+);
+
+
+--
+-- Name: verification_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.verification_items (
+    item_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    vertical text NOT NULL,
+    module text NOT NULL,
+    category text NOT NULL,
+    source_module text NOT NULL,
+    source_task_id uuid,
+    source_submission_id uuid,
+    source_ref_type text NOT NULL,
+    source_ref_id uuid NOT NULL,
+    media_refs jsonb DEFAULT '[]'::jsonb NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    verdict_reason text,
+    operator_id uuid,
+    shed_id uuid,
+    park_id uuid,
+    captured_at timestamp with time zone NOT NULL,
+    verified_by uuid,
+    verified_at timestamp with time zone,
+    idempotency_key text NOT NULL,
+    row_version integer DEFAULT 1 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT verification_items_idempotency_key_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT verification_items_media_refs_array_check CHECK ((jsonb_typeof(media_refs) = 'array'::text)),
+    CONSTRAINT verification_items_reject_reason_check CHECK (((status <> 'rejected'::text) OR ((verdict_reason IS NOT NULL) AND (btrim(verdict_reason) <> ''::text)))),
+    CONSTRAINT verification_items_row_version_check CHECK ((row_version >= 1)),
+    CONSTRAINT verification_items_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])))
 );
 
 
@@ -5331,6 +5956,7 @@ CREATE TABLE public.workforce_member_devices (
     revoked_at timestamp with time zone,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     row_version integer DEFAULT 1 NOT NULL,
+    fcm_token text,
     CONSTRAINT workforce_member_devices_app_install_check CHECK ((btrim(app_install_id) <> ''::text)),
     CONSTRAINT workforce_member_devices_app_version_check CHECK ((btrim(app_version) <> ''::text)),
     CONSTRAINT workforce_member_devices_platform_check CHECK ((platform = 'android'::text)),
@@ -5556,6 +6182,46 @@ ALTER TABLE ONLY public.obligation_status_events ATTACH PARTITION public.obligat
 
 
 --
+-- Name: crash_daily crash_daily_pkey; Type: CONSTRAINT; Schema: analytics; Owner: -
+--
+
+ALTER TABLE ONLY analytics.crash_daily
+    ADD CONSTRAINT crash_daily_pkey PRIMARY KEY (tenant_id, event_date, app_version);
+
+
+--
+-- Name: engagement_daily engagement_daily_pkey; Type: CONSTRAINT; Schema: analytics; Owner: -
+--
+
+ALTER TABLE ONLY analytics.engagement_daily
+    ADD CONSTRAINT engagement_daily_pkey PRIMARY KEY (tenant_id, event_date);
+
+
+--
+-- Name: funnel_daily funnel_daily_pkey; Type: CONSTRAINT; Schema: analytics; Owner: -
+--
+
+ALTER TABLE ONLY analytics.funnel_daily
+    ADD CONSTRAINT funnel_daily_pkey PRIMARY KEY (tenant_id, event_date, funnel_key, step_key);
+
+
+--
+-- Name: journey_daily journey_daily_pkey; Type: CONSTRAINT; Schema: analytics; Owner: -
+--
+
+ALTER TABLE ONLY analytics.journey_daily
+    ADD CONSTRAINT journey_daily_pkey PRIMARY KEY (tenant_id, event_date, journey_key);
+
+
+--
+-- Name: rollup_run rollup_run_pkey; Type: CONSTRAINT; Schema: analytics; Owner: -
+--
+
+ALTER TABLE ONLY analytics.rollup_run
+    ADD CONSTRAINT rollup_run_pkey PRIMARY KEY (run_id);
+
+
+--
 -- Name: admin_ui_config_entries admin_ui_config_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -5769,6 +6435,38 @@ ALTER TABLE ONLY public.calendar_event_identities
 
 ALTER TABLE ONLY public.calendar_event_projections
     ADD CONSTRAINT calendar_event_projections_pkey PRIMARY KEY (tenant_id, event_id);
+
+
+--
+-- Name: calendar_history_date_markers calendar_history_date_markers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_history_date_markers
+    ADD CONSTRAINT calendar_history_date_markers_pkey PRIMARY KEY (tenant_id, projection_version, business_date, park_key, shed_key);
+
+
+--
+-- Name: calendar_history_projection_rows calendar_history_projection_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_history_projection_rows
+    ADD CONSTRAINT calendar_history_projection_rows_pkey PRIMARY KEY (tenant_id, projection_version, event_id);
+
+
+--
+-- Name: calendar_history_projection_state calendar_history_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_history_projection_state
+    ADD CONSTRAINT calendar_history_projection_state_pkey PRIMARY KEY (tenant_id);
+
+
+--
+-- Name: calendar_projection_state calendar_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_projection_state
+    ADD CONSTRAINT calendar_projection_state_pkey PRIMARY KEY (tenant_id, slice_key);
 
 
 --
@@ -6396,6 +7094,22 @@ ALTER TABLE ONLY public.movement_commands
 
 
 --
+-- Name: notification_delivery_attempts notification_delivery_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_delivery_attempts
+    ADD CONSTRAINT notification_delivery_attempts_pkey PRIMARY KEY (attempt_id);
+
+
+--
+-- Name: notification_delivery_attempts notification_delivery_attempts_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_delivery_attempts
+    ADD CONSTRAINT notification_delivery_attempts_unique UNIQUE (tenant_id, notification_request_id, attempt_no);
+
+
+--
 -- Name: notification_requests notification_requests_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6548,6 +7262,46 @@ ALTER TABLE ONLY public.obligation_status_events_default
 
 
 --
+-- Name: org_role_catalog org_role_catalog_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_role_catalog
+    ADD CONSTRAINT org_role_catalog_pkey PRIMARY KEY (role_key);
+
+
+--
+-- Name: org_tiers org_tiers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_tiers
+    ADD CONSTRAINT org_tiers_pkey PRIMARY KEY (tier_code);
+
+
+--
+-- Name: org_tiers org_tiers_rank_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_tiers
+    ADD CONSTRAINT org_tiers_rank_unique UNIQUE (rank);
+
+
+--
+-- Name: org_verticals org_verticals_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_verticals
+    ADD CONSTRAINT org_verticals_pkey PRIMARY KEY (vertical_code);
+
+
+--
+-- Name: org_verticals org_verticals_sort_order_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_verticals
+    ADD CONSTRAINT org_verticals_sort_order_unique UNIQUE (sort_order);
+
+
+--
 -- Name: orgs orgs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6625,6 +7379,14 @@ ALTER TABLE ONLY public.process_integrity_projection_rows
 
 ALTER TABLE ONLY public.process_integrity_projection_state
     ADD CONSTRAINT process_integrity_projection_state_pkey PRIMARY KEY (tenant_id);
+
+
+--
+-- Name: process_integrity_projection_summaries process_integrity_projection_summaries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.process_integrity_projection_summaries
+    ADD CONSTRAINT process_integrity_projection_summaries_pkey PRIMARY KEY (tenant_id, projection_version, category, park_id, shed_id, owner_id, protocol_version_id, due_business_date, work_state, severity, process_intact);
 
 
 --
@@ -7092,6 +7854,22 @@ ALTER TABLE ONLY public.vaccination_eligibility_rollups
 
 
 --
+-- Name: vaccination_execution_projection_rows vaccination_execution_projection_rows_pk; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_execution_projection_rows
+    ADD CONSTRAINT vaccination_execution_projection_rows_pk PRIMARY KEY (tenant_id, projection_version, sort_row_key);
+
+
+--
+-- Name: vaccination_execution_projection_state vaccination_execution_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_execution_projection_state
+    ADD CONSTRAINT vaccination_execution_projection_state_pkey PRIMARY KEY (tenant_id);
+
+
+--
 -- Name: vaccination_generation_runs vaccination_generation_runs_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7108,6 +7886,62 @@ ALTER TABLE ONLY public.vaccination_generation_runs
 
 
 --
+-- Name: vaccination_operations_projection_rows vaccination_operations_projection_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operations_projection_rows
+    ADD CONSTRAINT vaccination_operations_projection_rows_pkey PRIMARY KEY (tenant_id, projection_version, park_id, shed_id, stage, protocol_id);
+
+
+--
+-- Name: vaccination_operations_projection_state vaccination_operations_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operations_projection_state
+    ADD CONSTRAINT vaccination_operations_projection_state_pkey PRIMARY KEY (tenant_id);
+
+
+--
+-- Name: vaccination_projection_dirty_scopes vaccination_projection_dirty_scopes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_projection_dirty_scopes
+    ADD CONSTRAINT vaccination_projection_dirty_scopes_pkey PRIMARY KEY (dirty_scope_id);
+
+
+--
+-- Name: vaccination_reminder_cadence_fires vaccination_reminder_cadence_fires_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_reminder_cadence_fires
+    ADD CONSTRAINT vaccination_reminder_cadence_fires_pkey PRIMARY KEY (tenant_id, fire_key);
+
+
+--
+-- Name: vaccination_shed_projection_rows vaccination_shed_projection_rows_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_shed_projection_rows
+    ADD CONSTRAINT vaccination_shed_projection_rows_pkey PRIMARY KEY (vaccination_shed_projection_row_id);
+
+
+--
+-- Name: vaccination_shed_projection_state vaccination_shed_projection_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_shed_projection_state
+    ADD CONSTRAINT vaccination_shed_projection_state_pkey PRIMARY KEY (tenant_id);
+
+
+--
+-- Name: vaccination_shed_shard_state vaccination_shed_shard_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_shed_shard_state
+    ADD CONSTRAINT vaccination_shed_shard_state_pkey PRIMARY KEY (tenant_id, shed_id);
+
+
+--
 -- Name: vaccines vaccines_item_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7121,6 +7955,22 @@ ALTER TABLE ONLY public.vaccines
 
 ALTER TABLE ONLY public.vaccines
     ADD CONSTRAINT vaccines_pkey PRIMARY KEY (vaccine_id);
+
+
+--
+-- Name: verification_items verification_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_items
+    ADD CONSTRAINT verification_items_pkey PRIMARY KEY (item_id);
+
+
+--
+-- Name: verification_items verification_items_tenant_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_items
+    ADD CONSTRAINT verification_items_tenant_idempotency_unique UNIQUE (tenant_id, idempotency_key);
 
 
 --
@@ -7193,6 +8043,41 @@ ALTER TABLE ONLY public.workforce_positions
 
 ALTER TABLE ONLY public.workforce_roster_assignments
     ADD CONSTRAINT workforce_roster_assignments_pkey PRIMARY KEY (roster_assignment_id);
+
+
+--
+-- Name: crash_daily_tenant_event_date_idx; Type: INDEX; Schema: analytics; Owner: -
+--
+
+CREATE INDEX crash_daily_tenant_event_date_idx ON analytics.crash_daily USING btree (tenant_id, event_date);
+
+
+--
+-- Name: engagement_daily_tenant_event_date_idx; Type: INDEX; Schema: analytics; Owner: -
+--
+
+CREATE INDEX engagement_daily_tenant_event_date_idx ON analytics.engagement_daily USING btree (tenant_id, event_date);
+
+
+--
+-- Name: funnel_daily_tenant_event_date_idx; Type: INDEX; Schema: analytics; Owner: -
+--
+
+CREATE INDEX funnel_daily_tenant_event_date_idx ON analytics.funnel_daily USING btree (tenant_id, event_date);
+
+
+--
+-- Name: journey_daily_tenant_event_date_idx; Type: INDEX; Schema: analytics; Owner: -
+--
+
+CREATE INDEX journey_daily_tenant_event_date_idx ON analytics.journey_daily USING btree (tenant_id, event_date);
+
+
+--
+-- Name: rollup_run_source_date_idx; Type: INDEX; Schema: analytics; Owner: -
+--
+
+CREATE INDEX rollup_run_source_date_idx ON analytics.rollup_run USING btree (source_date, started_at DESC);
 
 
 --
@@ -7809,6 +8694,34 @@ CREATE INDEX calendar_event_projections_scope_window_idx ON public.calendar_even
 --
 
 CREATE INDEX calendar_event_projections_status_window_idx ON public.calendar_event_projections USING btree (tenant_id, slice_key, status, due_at, event_id) WHERE ((system = false) AND (due_at IS NOT NULL));
+
+
+--
+-- Name: calendar_history_date_markers_hot_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_history_date_markers_hot_idx ON public.calendar_history_date_markers USING btree (tenant_id, projection_version, business_date);
+
+
+--
+-- Name: calendar_history_projection_rows_hot_list_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_history_projection_rows_hot_list_idx ON public.calendar_history_projection_rows USING btree (tenant_id, projection_version, business_date, event_id);
+
+
+--
+-- Name: calendar_history_projection_rows_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_history_projection_rows_scope_idx ON public.calendar_history_projection_rows USING btree (tenant_id, projection_version, park_id, shed_id, business_date, event_id);
+
+
+--
+-- Name: calendar_projection_state_freshness_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX calendar_projection_state_freshness_idx ON public.calendar_projection_state USING btree (tenant_id, slice_key, serving_state, projected_at DESC);
 
 
 --
@@ -8890,6 +9803,13 @@ CREATE INDEX movement_commands_task_idx ON public.movement_commands USING btree 
 
 
 --
+-- Name: notification_delivery_attempts_request_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_delivery_attempts_request_idx ON public.notification_delivery_attempts USING btree (tenant_id, notification_request_id, attempt_no);
+
+
+--
 -- Name: notification_requests_event_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -8901,6 +9821,13 @@ CREATE INDEX notification_requests_event_idx ON public.notification_requests USI
 --
 
 CREATE INDEX notification_requests_queue_idx ON public.notification_requests USING btree (tenant_id, status, COALESCE(next_attempt_at, requested_at), notification_request_id) WHERE (status = ANY (ARRAY['queued'::text, 'failed'::text]));
+
+
+--
+-- Name: notification_requests_recipient_ref_pending_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_recipient_ref_pending_idx ON public.notification_requests USING btree (tenant_id, recipient_ref, status) WHERE ((recipient_ref IS NOT NULL) AND (status = ANY (ARRAY['queued'::text, 'failed'::text])));
 
 
 --
@@ -9198,6 +10125,20 @@ CREATE INDEX obligation_status_events_default_tenant_id_idempotency_key_idx ON p
 
 
 --
+-- Name: org_role_catalog_tier_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX org_role_catalog_tier_idx ON public.org_role_catalog USING btree (tier_code);
+
+
+--
+-- Name: org_role_catalog_vertical_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX org_role_catalog_vertical_idx ON public.org_role_catalog USING btree (vertical_code);
+
+
+--
 -- Name: outbox_dlq_actions_tenant_created_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9331,6 +10272,13 @@ CREATE UNIQUE INDEX outbox_messages_vaccination_completed_idempotency_idx ON pub
 
 
 --
+-- Name: outbox_messages_verification_idempotency_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX outbox_messages_verification_idempotency_idx ON public.outbox_messages USING btree (tenant_id, idempotency_key) WHERE (event_type = ANY (ARRAY['verification.item.pending'::text, 'verification.verdict.approved'::text, 'verification.verdict.rework'::text]));
+
+
+--
 -- Name: planned_batch_finalization_keyset_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9461,6 +10409,34 @@ CREATE INDEX process_integrity_projection_rows_work_idx ON public.process_integr
 --
 
 CREATE INDEX process_integrity_projection_state_updated_idx ON public.process_integrity_projection_state USING btree (updated_at DESC);
+
+
+--
+-- Name: process_integrity_projection_summaries_hot_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_summaries_hot_idx ON public.process_integrity_projection_summaries USING btree (tenant_id, projection_version, category, due_business_date, work_state) INCLUDE (row_count, expected_count, completed_count, deferred_count, severity, process_intact);
+
+
+--
+-- Name: process_integrity_projection_summaries_owner_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_summaries_owner_idx ON public.process_integrity_projection_summaries USING btree (tenant_id, projection_version, category, owner_id, due_business_date, work_state) INCLUDE (row_count, expected_count, completed_count, deferred_count, severity, process_intact) WHERE (owner_id <> ''::text);
+
+
+--
+-- Name: process_integrity_projection_summaries_protocol_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_summaries_protocol_idx ON public.process_integrity_projection_summaries USING btree (tenant_id, projection_version, category, protocol_version_id, due_business_date, work_state) INCLUDE (row_count, expected_count, completed_count, deferred_count, severity, process_intact);
+
+
+--
+-- Name: process_integrity_projection_summaries_scope_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX process_integrity_projection_summaries_scope_idx ON public.process_integrity_projection_summaries USING btree (tenant_id, projection_version, category, park_id, shed_id, due_business_date, work_state) INCLUDE (row_count, expected_count, completed_count, deferred_count, severity, process_intact);
 
 
 --
@@ -9601,6 +10577,13 @@ CREATE INDEX proof_artifacts_scope_idx ON public.proof_artifacts USING btree (te
 --
 
 CREATE INDEX proof_artifacts_subject_idx ON public.proof_artifacts USING btree (tenant_id, subject_type, subject_id, created_at DESC) WHERE (subject_id IS NOT NULL);
+
+
+--
+-- Name: proof_artifacts_tenant_idempotency_key_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX proof_artifacts_tenant_idempotency_key_unique_idx ON public.proof_artifacts USING btree (tenant_id, idempotency_key) WHERE (idempotency_key IS NOT NULL);
 
 
 --
@@ -10003,6 +10986,34 @@ CREATE INDEX vaccination_eligibility_rollups_preview_idx ON public.vaccination_e
 
 
 --
+-- Name: vaccination_execution_projection_page_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_execution_projection_page_idx ON public.vaccination_execution_projection_rows USING btree (tenant_id, projection_version, sort_rank, sort_due_micros, sort_row_key);
+
+
+--
+-- Name: vaccination_execution_projection_park_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_execution_projection_park_idx ON public.vaccination_execution_projection_rows USING btree (tenant_id, projection_version, park_id, sort_rank, sort_due_micros, sort_row_key);
+
+
+--
+-- Name: vaccination_execution_projection_shed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_execution_projection_shed_idx ON public.vaccination_execution_projection_rows USING btree (tenant_id, projection_version, shed_id, sort_rank, sort_due_micros, sort_row_key);
+
+
+--
+-- Name: vaccination_execution_projection_state_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_execution_projection_state_idx ON public.vaccination_execution_projection_rows USING btree (tenant_id, projection_version, work_state, severity, sort_rank, sort_due_micros, sort_row_key);
+
+
+--
 -- Name: vaccination_generation_runs_status_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10014,6 +11025,139 @@ CREATE INDEX vaccination_generation_runs_status_idx ON public.vaccination_genera
 --
 
 CREATE INDEX vaccination_generation_runs_version_idx ON public.vaccination_generation_runs USING btree (tenant_id, protocol_version_id, started_at DESC);
+
+
+--
+-- Name: vaccination_operations_projection_page_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_operations_projection_page_idx ON public.vaccination_operations_projection_rows USING btree (tenant_id, projection_version, lower(park_name) COLLATE "C", park_name COLLATE "C", park_id, lower(shed_name) COLLATE "C", shed_name COLLATE "C", shed_id, stage COLLATE "C", protocol_name COLLATE "C", protocol_id);
+
+
+--
+-- Name: vaccination_operations_projection_shed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_operations_projection_shed_idx ON public.vaccination_operations_projection_rows USING btree (tenant_id, projection_version, shed_id, stage, protocol_id);
+
+
+--
+-- Name: vaccination_projection_dirty_scopes_claim_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_projection_dirty_scopes_claim_idx ON public.vaccination_projection_dirty_scopes USING btree (status, next_attempt_at, dirty_scope_id);
+
+
+--
+-- Name: vaccination_projection_dirty_scopes_coalesce_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX vaccination_projection_dirty_scopes_coalesce_uidx ON public.vaccination_projection_dirty_scopes USING btree (tenant_id, projection_kind, shed_id) WHERE (status = ANY (ARRAY['pending'::text, 'leased'::text]));
+
+
+--
+-- Name: vaccination_projection_dirty_scopes_tenant_claim_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_projection_dirty_scopes_tenant_claim_idx ON public.vaccination_projection_dirty_scopes USING btree (tenant_id, status, next_attempt_at, dirty_scope_id);
+
+
+--
+-- Name: vaccination_reminder_cadence_fires_park_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_reminder_cadence_fires_park_day_idx ON public.vaccination_reminder_cadence_fires USING btree (tenant_id, park_id, fire_day);
+
+
+--
+-- Name: vaccination_shed_projection_rows_capacity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_shed_projection_rows_capacity_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, capacity_status, park_name, shed_name);
+
+
+--
+-- Name: vaccination_shed_projection_rows_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_shed_projection_rows_due_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, due_animals DESC, park_name, shed_name);
+
+
+--
+-- Name: vaccination_shed_projection_rows_hot_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_shed_projection_rows_hot_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, park_name, shed_name);
+
+
+--
+-- Name: vaccination_shed_projection_rows_next_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_shed_projection_rows_next_due_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, next_due, park_name, shed_name);
+
+
+--
+-- Name: vaccination_shed_projection_rows_park_shed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_shed_projection_rows_park_shed_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, park_id, shed_id);
+
+
+--
+-- Name: vaccination_shed_projection_rows_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_shed_projection_rows_status_idx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, shed_status, park_name, shed_name);
+
+
+--
+-- Name: vaccination_shed_projection_rows_version_row_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX vaccination_shed_projection_rows_version_row_uidx ON public.vaccination_shed_projection_rows USING btree (tenant_id, projection_version, shed_id);
+
+
+--
+-- Name: vaccination_shed_projection_state_updated_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_shed_projection_state_updated_idx ON public.vaccination_shed_projection_state USING btree (updated_at DESC);
+
+
+--
+-- Name: vaccination_shed_shard_state_next_transition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_shed_shard_state_next_transition_idx ON public.vaccination_shed_shard_state USING btree (tenant_id, next_transition_at);
+
+
+--
+-- Name: vaccination_shed_shard_state_projected_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_shed_shard_state_projected_idx ON public.vaccination_shed_shard_state USING btree (tenant_id, projected_at);
+
+
+--
+-- Name: verification_items_queue_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_queue_idx ON public.verification_items USING btree (tenant_id, status, category, captured_at, item_id);
+
+
+--
+-- Name: verification_items_source_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_source_idx ON public.verification_items USING btree (tenant_id, source_module, source_ref_type, source_ref_id);
+
+
+--
+-- Name: verification_items_source_submission_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_source_submission_idx ON public.verification_items USING btree (tenant_id, source_submission_id) WHERE (source_submission_id IS NOT NULL);
 
 
 --
@@ -11487,6 +12631,13 @@ CREATE TRIGGER user_scope_grants_validate_scope_trg BEFORE INSERT OR UPDATE OF t
 
 
 --
+-- Name: verification_items verification_items_touch_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER verification_items_touch_updated_at BEFORE UPDATE ON public.verification_items FOR EACH ROW EXECUTE FUNCTION public.verification_items_touch_updated_at();
+
+
+--
 -- Name: admin_ui_config_entries admin_ui_config_entries_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11615,6 +12766,14 @@ ALTER TABLE public.audit_log
 
 
 --
+-- Name: auth_pending_email_grants auth_pending_email_grants_role_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.auth_pending_email_grants
+    ADD CONSTRAINT auth_pending_email_grants_role_fk FOREIGN KEY (role) REFERENCES public.org_role_catalog(role_key);
+
+
+--
 -- Name: auth_pending_email_grants auth_pending_email_grants_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11692,6 +12851,38 @@ ALTER TABLE ONLY public.calendar_event_projections
 
 ALTER TABLE ONLY public.calendar_event_projections
     ADD CONSTRAINT calendar_event_version_fk FOREIGN KEY (tenant_id, protocol_version_id) REFERENCES public.protocol_versions(tenant_id, protocol_version_id);
+
+
+--
+-- Name: calendar_history_date_markers calendar_history_date_markers_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_history_date_markers
+    ADD CONSTRAINT calendar_history_date_markers_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: calendar_history_projection_rows calendar_history_projection_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_history_projection_rows
+    ADD CONSTRAINT calendar_history_projection_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: calendar_history_projection_state calendar_history_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_history_projection_state
+    ADD CONSTRAINT calendar_history_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: calendar_projection_state calendar_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_projection_state
+    ADD CONSTRAINT calendar_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -13135,6 +14326,22 @@ ALTER TABLE ONLY public.movement_commands
 
 
 --
+-- Name: notification_delivery_attempts notification_delivery_attempts_notification_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_delivery_attempts
+    ADD CONSTRAINT notification_delivery_attempts_notification_request_id_fkey FOREIGN KEY (notification_request_id) REFERENCES public.notification_requests(notification_request_id);
+
+
+--
+-- Name: notification_delivery_attempts notification_delivery_attempts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.notification_delivery_attempts
+    ADD CONSTRAINT notification_delivery_attempts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: notification_requests notification_requests_event_identity_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13287,6 +14494,22 @@ ALTER TABLE public.obligation_status_events
 
 
 --
+-- Name: org_role_catalog org_role_catalog_tier_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_role_catalog
+    ADD CONSTRAINT org_role_catalog_tier_code_fkey FOREIGN KEY (tier_code) REFERENCES public.org_tiers(tier_code);
+
+
+--
+-- Name: org_role_catalog org_role_catalog_vertical_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.org_role_catalog
+    ADD CONSTRAINT org_role_catalog_vertical_code_fkey FOREIGN KEY (vertical_code) REFERENCES public.org_verticals(vertical_code);
+
+
+--
 -- Name: orgs orgs_party_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13348,6 +14571,14 @@ ALTER TABLE ONLY public.process_integrity_projection_rows
 
 ALTER TABLE ONLY public.process_integrity_projection_state
     ADD CONSTRAINT process_integrity_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: process_integrity_projection_summaries process_integrity_projection_summaries_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.process_integrity_projection_summaries
+    ADD CONSTRAINT process_integrity_projection_summaries_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
@@ -14063,6 +15294,14 @@ ALTER TABLE ONLY public.transit_handoffs
 
 
 --
+-- Name: user_scope_grants user_scope_grants_role_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.user_scope_grants
+    ADD CONSTRAINT user_scope_grants_role_fk FOREIGN KEY (role) REFERENCES public.org_role_catalog(role_key);
+
+
+--
 -- Name: user_scope_grants user_scope_grants_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -14135,6 +15374,22 @@ ALTER TABLE ONLY public.vaccination_eligibility_rollups
 
 
 --
+-- Name: vaccination_execution_projection_rows vaccination_execution_projection_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_execution_projection_rows
+    ADD CONSTRAINT vaccination_execution_projection_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_execution_projection_state vaccination_execution_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_execution_projection_state
+    ADD CONSTRAINT vaccination_execution_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: vaccination_generation_runs vaccination_generation_runs_cursor_goat_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -14159,6 +15414,70 @@ ALTER TABLE ONLY public.vaccination_generation_runs
 
 
 --
+-- Name: vaccination_operations_projection_rows vaccination_operations_projection_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operations_projection_rows
+    ADD CONSTRAINT vaccination_operations_projection_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_operations_projection_state vaccination_operations_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_operations_projection_state
+    ADD CONSTRAINT vaccination_operations_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_projection_dirty_scopes vaccination_projection_dirty_scopes_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_projection_dirty_scopes
+    ADD CONSTRAINT vaccination_projection_dirty_scopes_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_reminder_cadence_fires vaccination_reminder_cadence_fires_location_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_reminder_cadence_fires
+    ADD CONSTRAINT vaccination_reminder_cadence_fires_location_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id);
+
+
+--
+-- Name: vaccination_reminder_cadence_fires vaccination_reminder_cadence_fires_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_reminder_cadence_fires
+    ADD CONSTRAINT vaccination_reminder_cadence_fires_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_shed_projection_rows vaccination_shed_projection_rows_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_shed_projection_rows
+    ADD CONSTRAINT vaccination_shed_projection_rows_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_shed_projection_state vaccination_shed_projection_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_shed_projection_state
+    ADD CONSTRAINT vaccination_shed_projection_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: vaccination_shed_shard_state vaccination_shed_shard_state_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_shed_shard_state
+    ADD CONSTRAINT vaccination_shed_shard_state_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: vaccines vaccines_item_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -14172,6 +15491,14 @@ ALTER TABLE ONLY public.vaccines
 
 ALTER TABLE ONLY public.vaccines
     ADD CONSTRAINT vaccines_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: verification_items verification_items_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_items
+    ADD CONSTRAINT verification_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
