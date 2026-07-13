@@ -204,10 +204,19 @@ The current reviewed bundle must include:
    - `vaccination-shed-projection-recompute`
    - `vaccination-execution-projection-recompute`
    - `vaccination-operations-projection-recompute`
-   - `calendar-vaccination-projector`, when Calendar vaccination projection is
+   - `calendar-vaccination-projector -project-calendar-upcoming=true
+     -project-calendar-history=false`, when Calendar vaccination projection is
      present in the checkout
-   - Calendar history/counts projectors when their owning command exists and
-     the surface is visible/configured.
+   - `calendar-vaccination-projector -project-calendar-upcoming=false
+     -project-calendar-history=true`, when Calendar completed-history/date
+     markers are present in the checkout
+   - counts projectors when their owning command exists and the surface is
+     visible/configured.
+
+   Do not rely on a projector command's defaults for multi-output commands. If
+   a command exposes a default-false `-project-*` flag for an app-visible read
+   model, `seed-closeout` must pass the flag explicitly as `true`; otherwise a
+   seed can log that the command ran while leaving that projection empty.
 11. Verify Action Center buckets, shed status, execution rows, operations rows,
    next due dates, and capacity session splits through backend APIs using
    server-owned live time. A seed that leaves `projection_unavailable` on

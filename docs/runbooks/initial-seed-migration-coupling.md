@@ -69,6 +69,13 @@ deployments must apply that build's migrations first, then seed only canonical
 source truth, then run the deterministic closeout/projectors. A deployment that
 cannot prove this order is not green.
 
+Projector registration must be output-specific. A command that can build more
+than one app-visible read model must be called with explicit flags for each
+output. In particular, any `-project-*` flag that defaults to false must appear
+in `tools/dev/seed-closeout.sh` as `-project-...=true` for the read model it
+owns. A generic command invocation is not enough proof: it can leave a
+default-off projection empty while the seed log still says the projector ran.
+
 For an already-seeded database where a later migration adds a derived table,
 apply migrations, run `make seed-closeout`, then verify the affected APIs. Do
 not reseed source rows just to fill a derived table.

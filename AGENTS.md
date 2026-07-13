@@ -294,6 +294,11 @@ Do:
   canonical data through `make seed-closeout` / `tools/dev/seed-closeout.sh`.
   New projection tables also need access-pattern indexes, freshness/version
   state, and an explicit partitioning decision.
+- Register projection closeout by app-visible output, not just by executable
+  name. If one projector command owns multiple read models, `seed-closeout`
+  must pass explicit flags for each output. Any default-false `-project-*` flag
+  for a visible read model must appear as `-project-...=true` in closeout, or
+  the seed can claim the projector ran while leaving that table empty.
 - Projection-backed operator pages must follow the last-known-good serving
   contract. No first projection, no serving rows, or a requested window outside
   projected coverage may fail closed. A stale/yellow/rebuilding/failed/over-TTL

@@ -117,11 +117,14 @@ const PROJECTION_RUNTIME_COMPANION_PATTERNS = [
 ];
 
 const MIGRATION_RE = /^backend\/migrations\/postgres\/\d+_[^/]+\.sql$/;
+const PROJECTOR_MAIN_RE = /^backend\/cmd\/[^/]*projector[^/]*\/main\.go$/;
 const IGNORE_RE =
   /seed-migration-guard:ignore\s+owner=\S+\s+issue=\S+\s+reason=\S+.*\s+expiry=\d{4}-\d{2}-\d{2}/;
 
 const SQL_OP_RE =
   /\b(CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?|ALTER\s+TABLE(?:\s+IF\s+EXISTS)?|DROP\s+TABLE(?:\s+IF\s+EXISTS)?|TRUNCATE(?:\s+TABLE)?|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:ONLY\s+)?(?:(?:"?[a-zA-Z_][\w]*"?|\*)\.)?"?([a-zA-Z_][\w]*)"?/gi;
+const PROJECTOR_FLAG_RE =
+  /fs\.BoolVar\([^,]+,\s*"([^"]*project[^"]*)",\s*boolEnv\([^,]+,\s*false\s*\)/g;
 
 function git(args, options = {}) {
   return execFileSync("git", args, {
@@ -268,6 +271,41 @@ function hasProjectionRuntimeCompanion(files) {
   return files.filter((rel) => PROJECTION_RUNTIME_COMPANION_PATTERNS.some((re) => re.test(rel)));
 }
 
+function findDefaultFalseProjectorFlags(source, rel = "") {
+  const flags = [];
+  PROJECTOR_FLAG_RE.lastIndex = 0;
+  let match;
+  while ((match = PROJECTOR_FLAG_RE.exec(source)) !== null) {
+    flags.push({ file: rel, flag: match[1], line: lineOfIndex(source, match.index) });
+  }
+  return flags;
+}
+
+function seedCloseoutFlagFailures(flags, closeoutSource) {
+  const failures = [];
+  for (const { file, flag, line } of flags) {
+    if (!closeoutSource.includes(`-${flag}=true`)) {
+      failures.push({ file, flag, line });
+    }
+  }
+  return failures;
+}
+
+function projectorFiles() {
+  return splitLines(gitMaybe(["ls-files", "backend/cmd/*projector*/main.go"])).filter((rel) =>
+    PROJECTOR_MAIN_RE.test(rel)
+  );
+}
+
+function currentProjectionRegistryFailures() {
+  const closeout = readChangedFile("tools/dev/seed-closeout.sh");
+  const flags = [];
+  for (const rel of projectorFiles()) {
+    flags.push(...findDefaultFalseProjectorFlags(readChangedFile(rel), rel));
+  }
+  return seedCloseoutFlagFailures(flags, closeout);
+}
+
 function couplingPasses(affected, files) {
   if (affected.length === 0) return true;
   if (hasSeedCompanion(files).length === 0) return false;
@@ -359,10 +397,41 @@ function runSelfTest() {
       throw new Error(`self-test ${tc.name}: pass=${pass}, want=${tc.wantPass}`);
     }
   }
-  console.log(`seed-migration-coupling: all ${cases.length} self-tests passed`);
+
+  const flags = findDefaultFalseProjectorFlags(
+    `fs.BoolVar(&cfg.ProjectHistory, "project-calendar-history", boolEnv("X", false), "history")\n`,
+    "backend/cmd/calendar-vaccination-projector/main.go"
+  );
+  if (flags.length !== 1 || flags[0].flag !== "project-calendar-history") {
+    throw new Error(`self-test default-false projector flag detection failed: ${JSON.stringify(flags)}`);
+  }
+  const missing = seedCloseoutFlagFailures(flags, "run_go_cmd calendar-vaccination-projector -project-calendar-upcoming=true");
+  if (missing.length !== 1) {
+    throw new Error("self-test default-false projector flag missing closeout failure was not detected");
+  }
+  const present = seedCloseoutFlagFailures(flags, "run_go_cmd calendar-vaccination-projector -project-calendar-history=true");
+  if (present.length !== 0) {
+    throw new Error("self-test default-false projector flag explicit closeout was rejected");
+  }
+
+  console.log(`seed-migration-coupling: all ${cases.length + 3} self-tests passed`);
 }
 
 function runScan() {
+  const registryFailures = currentProjectionRegistryFailures();
+  if (registryFailures.length > 0) {
+    console.error("seed-migration-coupling: default-off projector projection is not registered in seed-closeout");
+    console.error("");
+    console.error("A projector command exposes a default-false app-visible projection flag, but");
+    console.error("tools/dev/seed-closeout.sh does not pass that flag as true. This means a seed");
+    console.error("can log that the projector ran while leaving a projection table empty.");
+    console.error("");
+    for (const f of registryFailures) {
+      console.error(`- ${f.file}:${f.line}: -${f.flag} defaults false; add -${f.flag}=true to seed-closeout`);
+    }
+    process.exit(1);
+  }
+
   const files = changedFiles();
   const migrations = files.filter((rel) => MIGRATION_RE.test(rel));
   if (migrations.length === 0) {

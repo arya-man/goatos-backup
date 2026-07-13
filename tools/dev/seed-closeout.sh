@@ -57,11 +57,17 @@ run_calendar_projectors() {
     echo "==> seed-closeout: skip calendar projectors (GOATOS_SEED_CLOSEOUT_RUN_CALENDAR=0)"
     return
   fi
-  run_go_cmd calendar-vaccination-projector -tenant-id "$tenant_id"
-
-  # Future projection hook: when a dedicated calendar history projector lands,
-  # the closeout will run it without changing every seed runbook again.
-  run_go_cmd calendar-history-projection-recompute -tenant-id "$tenant_id"
+  # The calendar command owns two independent app-visible projections. Keep the
+  # flags explicit so a default-false projection cannot hide behind a generic
+  # "calendar projector ran" log line.
+  run_go_cmd calendar-vaccination-projector \
+    -tenant-id "$tenant_id" \
+    -project-calendar-upcoming=true \
+    -project-calendar-history=false
+  run_go_cmd calendar-vaccination-projector \
+    -tenant-id "$tenant_id" \
+    -project-calendar-upcoming=false \
+    -project-calendar-history=true
 }
 
 run_counts_projectors() {

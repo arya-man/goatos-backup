@@ -166,6 +166,10 @@ one product; this skill is the navigation layer.
   model, static catalog/config, or operational/audit/event. Derived app-visible
   tables are filled by deterministic projectors registered in
   `tools/dev/seed-closeout.sh`, not by hand-written seed rows.
+- Projection closeout is output-specific. If a projector command has more than
+  one visible output, call it with explicit flags for each read model. A
+  default-false `-project-*` flag must be present as `-project-...=true` in
+  `tools/dev/seed-closeout.sh`; a generic command invocation is not enough.
 - Projection-backed operator pages must follow the last-known-good serving
   contract in `docs/decisions/high-scale-dashboard-projections.md`: no first
   projection/no serving rows or uncovered date/window may fail closed, but stale
