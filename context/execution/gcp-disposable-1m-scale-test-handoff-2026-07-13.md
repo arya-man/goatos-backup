@@ -1,10 +1,10 @@
-# Disposable GCP 1M Scale Test Handoff
+# Disposable GCP 1M Scale Rehearsal Handoff
 
 Date: 2026-07-13 (Asia/Kolkata)
 
-Status: setup and implementation handoff. This document does not claim that a
-GCP run has happened, that the open projection defects are fixed, or that Goat
-OS is 1M-certified.
+Status: setup and implementation handoff for a non-certifying `goatos-dev` VM
+rehearsal. This document does not claim that a GCP run has happened, that the
+open projection defects are fixed, or that Goat OS is 1M-certified.
 
 ## Outcome
 
@@ -20,9 +20,13 @@ Build a disposable, current-SHA scale runner in Google Cloud that:
    `/scale-audit-e2e-report/` GitHub Pages category and commits its summary to
    `main`.
 
-The runner is proof infrastructure. It does not replace the production code
-changes required for Calendar history materialization, bounded incremental
-projectors, historical `as_of` snapshots, or bounded pagination.
+The runner is rehearsal proof infrastructure. It does not replace the
+production code changes required for Calendar history materialization, bounded
+incremental projectors, historical `as_of` snapshots, or bounded pagination.
+It also does not replace the `goatos-stg-1m-benchmark-v1` Cloud SQL run required
+by `docs/protocol-engine/high-scale-kernel-validation-plan.md`. A passing VM
+verdict is behavior/performance evidence only, never staging, Cloud SQL, or
+full-chain certification.
 
 ## Organization and Environment Lock
 
@@ -69,16 +73,19 @@ There are three separate deliverables:
 | --- | --- | --- |
 | Static guard/lint | Rejects known code shapes such as N+1 fanout or `COUNT(*) OVER()` before a bounded page | No |
 | Production implementation | Materializes/scopes the read model and removes the unsafe runtime path | Yes, after proof |
-| Disposable GCP 1M run | Proves the current implementation and prevents unsupported certification claims | No; it validates the implementation |
+| Disposable GCP 1M rehearsal | Exercises the current implementation against one-million-row synthetic data and prevents unsupported certification claims | No; it produces rehearsal evidence only |
+| `goatos-stg-1m-benchmark-v1` Cloud SQL run | Exercises the committed staging shape, Cloud Run pools, connection reserves, alerts, and full evidence contract | Only after every required threshold and review gate passes |
 
 Required order:
 
 ```text
-implement -> static guards -> targeted tests -> GCP 1M proof -> report -> review -> main
+implement -> static guards -> targeted tests -> disposable VM rehearsal
+  -> goatos-stg Cloud SQL certification -> report -> review -> main
 ```
 
-A green runner with an unfixed code path is not closure. A code fix without the
-runner evidence is also not closure.
+A green rehearsal with an unfixed code path is not closure. A code fix without
+the required staging evidence is also not closure. The VM rehearsal may fail
+fast before the more expensive staging run, but it can never substitute for it.
 
 ## Current Scale-Guard Debt: `47 -> 23` Is Not on Main
 
@@ -103,11 +110,11 @@ remediation commits are not ancestors of current `main`. Therefore:
   without removing the real finding is not a fix; and
 - treat 23 as an intermediate burn-down result, not the certification target.
 
-This remediation is Phase 2 work before the GCP proof. The GCP runner records
-and validates the resulting guard count but cannot reduce it by itself. Full
-certification requires zero unresolved P0/P1 request-path offenders and an
-explicit owner, issue, expiry and boundedness proof for any remaining lower-risk
-exception.
+This remediation is Phase 2 work before the VM rehearsal and staging proof. The
+VM runner records and validates the resulting guard count but cannot reduce it
+by itself. Full certification requires the committed staging Cloud SQL profile,
+zero unresolved P0/P1 request-path offenders, and an explicit owner, issue,
+expiry and boundedness proof for any remaining lower-risk exception.
 
 ## Recommended Disposable Resources
 
@@ -131,18 +138,19 @@ Expected life: 45-90 minutes including setup
 Budget:        USD 2.00 per run
 ```
 
-Use an ordinary on-demand VM for certification. Spot VMs may be used for
-non-certifying rehearsals only because preemption makes a failed run ambiguous.
-Do not create a temporary Cloud SQL instance for the default runner: PostgreSQL
-inside the disposable VM is cheaper, faster to provision, and matches the
-repository's Docker-based test shape. A later Cloud SQL parity run is a
-separate certification boundary.
+Use an ordinary on-demand VM for a reproducible rehearsal. Spot VMs may be used
+for exploratory runs only because preemption makes a failed run ambiguous. Do
+not create a temporary Cloud SQL instance for this runner: PostgreSQL inside
+the disposable VM is cheaper, faster to provision, and matches the repository's
+Docker-based test shape. The separate certifying run uses the committed
+`goatos-stg-1m-benchmark-v1` Cloud SQL profile; this VM workflow never closes
+that boundary.
 
 The controller must attach these labels:
 
 ```text
 app=goatos
-purpose=scale-certification
+purpose=scale-rehearsal
 environment=dev
 ephemeral=true
 commit_sha=<full SHA>
@@ -205,8 +213,8 @@ results from a branch name alone.
 ## Dataset Contract
 
 The fixture must be synthetic, deterministic, tenant-scoped, and production
-shaped. It must not be a uniform `generate_series` dataset presented as final
-certification.
+shaped. It must not be a uniform `generate_series` dataset presented as
+certification evidence.
 
 Record exact cardinalities for at least:
 
@@ -451,7 +459,8 @@ The published page must show:
 
 - exact commit SHA and run ID;
 - GCP project/region and synthetic dataset profile;
-- certification boundary (`projection_reads` or `full_kernel`);
+- rehearsal scope (`projection_reads` or `full_kernel`), visibly labeled
+  `non_certifying`;
 - overall `PASSED`, `FAILED`, `NOT RUN`, or `NOT IMPLEMENTED` status;
 - endpoint latency table;
 - query-plan verdict table;
@@ -461,8 +470,8 @@ The published page must show:
 - links to raw immutable artifacts and checksums;
 - every known exclusion and unresolved finding.
 
-After an independently reviewed successful run, commit a bounded result summary
-and machine-readable verdict under:
+After an independently reviewed successful rehearsal, commit a bounded result
+summary and machine-readable verdict under:
 
 ```text
 context/execution/scale-runs/<run_id>/summary.md
@@ -472,6 +481,11 @@ context/execution/scale-runs/<run_id>/verdict.json
 Do not commit database dumps, raw unbounded logs, media, secrets, or enormous
 plan bundles to Git. Store those as compressed immutable artifacts and link them
 by checksum.
+
+The summary and Pages report must state that `PASSED` means the VM rehearsal
+passed. It must not use `certified`, `staging passed`, `Cloud SQL passed`, or
+`production ready`; only the separate `goatos-stg-1m-benchmark-v1` evidence can
+make those claims.
 
 Before pushing the result commit to `main`:
 

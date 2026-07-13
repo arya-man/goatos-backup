@@ -43,7 +43,7 @@ not proof that the one-million gate passes.
 | Projection refresh | The shed vaccination projection has a bounded dirty-scope worker. Process-integrity, vaccination execution, and vaccination operations still have scheduled full recompute paths. Calendar history explicitly uses a temporary hourly full replay. | The dirty-scope worker is the model to extend. Repeated whole-tenant rebuilds are not the normal certified steady-state design. |
 | Projection limits | Vaccination execution recompute has a hard `1_000_000` build-row budget and fails when exhausted. | A defensive limit is useful, but it cannot become an accidental certification ceiling. The rebuild must be bounded by cursor/shard or replaced by incremental maintenance. |
 | Monitoring | Staging alerts on Cloud SQL CPU, but the committed monitoring does not alert on database connection pressure or application pool wait. | Pool exhaustion could hurt API traffic before the existing alert explains the cause. |
-| Scale proof | The disposable GCP one-million test document is an implementation handoff and states that no run has occurred. | Goat OS is not yet one-million certified. |
+| Scale proof | The disposable `goatos-dev` VM document is an implementation/rehearsal handoff and states that no run has occurred. It uses PostgreSQL inside the VM, not the committed staging Cloud SQL profile. | The VM run can provide one-million-row behavior and query evidence, but it cannot close Cloud SQL or full-chain certification. Goat OS is not yet one-million certified. |
 
 ## Required Connection Model
 
@@ -174,7 +174,7 @@ freshness envelope.
 | P0 | Commit the per-environment global connection budget and workload allocations. | Calculated worst-case API/job/repair connections remain below the safe ceiling with reserves intact. |
 | P0 | Stagger heavy schedules and prevent overlapping same-tenant rebuilds. | Terraform/job configuration plus an overlap/lock test. |
 | P0 | Export pool-pressure metrics and add connection/pool-wait alerts. | Dashboard and alert-policy evidence under induced pressure. |
-| P0 | Run the disposable GCP one-million certification against an exact commit and benchmark profile. | Published measured values for every hard threshold, real plans, resource pressure, reconciliation, and cleanup evidence. |
+| P0 | Run one-million certification on the committed `goatos-stg-1m-benchmark-v1` Cloud SQL profile against an exact commit. | Published measured values for every hard threshold, Cloud SQL and application-pool pressure, real plans, reconciliation, and the complete environment/profile manifest. |
 | P1 | Reconcile partition/retention decisions for obligations, batches, completions, idempotency, and run ledgers. | Migration or an explicit measured decision to retain indexed non-partitioned storage, plus lifecycle policy. |
 | P1 | Replace steady-state whole-tenant projectors with incremental dirty-scope/event maintenance or bounded sharded rebuilds. | Backlog, freshness, repair, and canonical-parity proof. |
 | P1 | Remove the execution projector's fixed one-million-row ceiling as a scale boundary. | Cursor/shard/incremental design and a rebuild over the certification dataset. |
@@ -187,9 +187,14 @@ requires the hard thresholds in the
 [High-Scale Kernel Validation Plan](../protocol-engine/high-scale-kernel-validation-plan.md),
 including the skewed multi-tenant seed, scaled planner proof, API latency,
 database pressure, projection freshness/rebuild, tenant fairness, replay, and
-canonical/projection reconciliation. The executable environment and evidence
-workflow are defined in the
-[Disposable GCP One-Million Scale Test Handoff](../../context/execution/gcp-disposable-1m-scale-test-handoff-2026-07-13.md).
+canonical/projection reconciliation. The certifying environment is the committed
+`goatos-stg-1m-benchmark-v1` Cloud SQL profile in the
+[Google Cloud Environments Runbook](../runbooks/google-cloud-environments.md),
+executed through the staging command and evidence contract in the validation
+plan. The
+[Disposable GCP One-Million Scale Test Handoff](../../context/execution/gcp-disposable-1m-scale-test-handoff-2026-07-13.md)
+defines a `goatos-dev` VM rehearsal and cleanup workflow only. Even a passing
+one-million-row VM run is not Cloud SQL, staging, or full-chain certification.
 
 ## Non-Goals
 

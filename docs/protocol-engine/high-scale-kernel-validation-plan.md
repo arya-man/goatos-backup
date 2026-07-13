@@ -211,6 +211,14 @@ on a different or larger shape, schema head, seed generator, fixture set, or
 loaded dataset is a stress exploration unless a new benchmark profile is
 committed first.
 
+The disposable `goatos-dev` Compute Engine workflow in
+`context/execution/gcp-disposable-1m-scale-test-handoff-2026-07-13.md` is a
+rehearsal environment. It may prove one-million-row behavior, plans, projector
+shape, and cleanup against PostgreSQL inside the VM, but it does not exercise
+the committed Cloud SQL tier, Cloud Run pools, workload connection reserves, or
+staging alert policies. Its verdict cannot satisfy this staging certification
+floor, regardless of row count or whether every rehearsal phase passes.
+
 The canonical vaccination-slice command target to add before certifying the
 current Preventive Care (PC) vaccination slice is:
 
