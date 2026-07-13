@@ -4527,7 +4527,7 @@ export interface operations {
         parameters: {
             query?: {
                 park_id?: string;
-                /** @description Reconstruct execution state as of this instant (top-bar date scope). Defaults to now. */
+                /** @description Current-view scope only (top-bar date). Defaults to now; future values clamp to now. A past instant is rejected with 400 historical_as_of_unsupported — these reads keep only the current serving projection, so historical point-in-time reconstruction is not supported. */
                 as_of?: string;
                 work_state?: components["schemas"]["VaccinationExecutionWorkState"];
                 due_before?: string;
@@ -4557,7 +4557,7 @@ export interface operations {
     getVaccinationExecutionShedDrilldown: {
         parameters: {
             query?: {
-                /** @description Reconstruct execution state as of this instant (top-bar date scope). Defaults to now. */
+                /** @description Current-view scope only (top-bar date). Defaults to now; future values clamp to now. A past instant is rejected with 400 historical_as_of_unsupported — these reads keep only the current serving projection, so historical point-in-time reconstruction is not supported. */
                 as_of?: string;
                 due_before?: string;
                 limit?: number;
@@ -4600,7 +4600,7 @@ export interface operations {
                 limit?: number;
                 offset?: number;
                 page?: number;
-                /** @description Reconstruct shed state as of this instant. Defaults to now. */
+                /** @description Current-view scope only. Defaults to now; future values clamp to now. A past instant is rejected with 400 historical_as_of_unsupported — these reads keep only the current serving projection, so historical point-in-time reconstruction is not supported. */
                 as_of?: string;
             };
             header?: never;
@@ -4627,7 +4627,7 @@ export interface operations {
     getVaccinationShedDetail: {
         parameters: {
             query?: {
-                /** @description Reconstruct shed state as of this instant. Defaults to now. */
+                /** @description Current-view scope only. Defaults to now; future values clamp to now. A past instant is rejected with 400 historical_as_of_unsupported — these reads keep only the current serving projection, so historical point-in-time reconstruction is not supported. */
                 as_of?: string;
             };
             header?: never;
