@@ -488,21 +488,37 @@ func TestShedDetailAndAnimalsRejectScopedParkMismatch(t *testing.T) {
 }
 
 func TestExecutionParsesAsOf(t *testing.T) {
+	serverNow := time.Date(2026, 7, 11, 18, 15, 0, 0, biztime.DefaultLocation())
 	reader := &fakeReader{rows: []domain.ExecutionRow{sampleRow()}}
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(reader, &fakeWriter{}))
+	Register(mux, NewHandler(reader, &fakeWriter{}).WithClock(func() time.Time { return serverNow }))
 
-	// Valid as_of flows into the query (so the top-bar date actually scopes execution/shed reads).
-	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-06-24T12:00:00Z", nil)
+	// A same-India-business-day as_of flows into the query (so the top-bar date scopes execution/shed
+	// reads). 06:00Z on 2026-07-11 is 11:30 IST that same business day (Z avoids the URL '+'->space decode).
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-07-11T06:00:00Z", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	want := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	want := time.Date(2026, 7, 11, 6, 0, 0, 0, time.UTC)
 	if !reader.last.AsOf.Equal(want) {
 		t.Fatalf("as_of not parsed into query: got %v want %v", reader.last.AsOf, want)
+	}
+
+	// A prior-day (historical) as_of is not supported: an honest 400, never a misleading
+	// projection_unavailable 503 (production only builds the current snapshot). 06:00Z on 2026-07-10
+	// is 11:30 IST the prior business day.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/vaccination/execution?as_of=2026-07-10T06:00:00Z", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("historical as_of status = %d want 400 body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "historical_as_of_unsupported") {
+		t.Fatalf("historical as_of body = %s, want historical_as_of_unsupported", rec.Body.String())
 	}
 
 	// Malformed as_of is a 400.

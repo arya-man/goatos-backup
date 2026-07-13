@@ -141,7 +141,9 @@ func (h *Handler) VaccinationOperations(w http.ResponseWriter, r *http.Request) 
 		}
 		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
-		q.HistoricalAsOf = parsed.Before(asOf)
+		if h.rejectHistoricalAsOf(w, r, parsed, asOf) {
+			return
+		}
 	}
 	if dueBefore := query.Get("due_before"); dueBefore != "" {
 		parsed, err := time.Parse(time.RFC3339, dueBefore)
@@ -273,7 +275,9 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		q.AsOf = parsed
 		// Re-anchor the default horizon to as_of; an explicit due_before below still wins.
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
-		q.HistoricalAsOf = parsed.Before(asOf)
+		if h.rejectHistoricalAsOf(w, r, parsed, asOf) {
+			return vaccexecd.ExecutionQuery{}, false
+		}
 	}
 	if parkID := query.Get("park_id"); parkID != "" {
 		if !uuidutil.IsUUIDString(parkID) {
@@ -580,7 +584,9 @@ func (h *Handler) VaccinationCoverage(w http.ResponseWriter, r *http.Request) {
 		}
 		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
-		q.HistoricalAsOf = parsed.Before(asOf)
+		if h.rejectHistoricalAsOf(w, r, parsed, asOf) {
+			return
+		}
 	}
 	if dueBefore := query.Get("due_before"); dueBefore != "" {
 		parsed, err := time.Parse(time.RFC3339, dueBefore)
@@ -661,7 +667,9 @@ func (h *Handler) ListShedSummary(w http.ResponseWriter, r *http.Request) {
 		}
 		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
-		q.HistoricalAsOf = parsed.Before(asOf)
+		if h.rejectHistoricalAsOf(w, r, parsed, asOf) {
+			return
+		}
 	}
 	if parkID := query.Get("park_id"); parkID != "" {
 		if !uuidutil.IsUUIDString(parkID) {
@@ -769,7 +777,9 @@ func (h *Handler) GetShedDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		q.AsOf = parsed
 		q.DueBefore = q.AsOf.Add(defaultExecutionHorizonDays * 24 * time.Hour)
-		q.HistoricalAsOf = parsed.Before(asOf)
+		if h.rejectHistoricalAsOf(w, r, parsed, asOf) {
+			return
+		}
 	}
 	detail, found, err := h.reader.ShedDetail(r.Context(), shedID, q)
 	if err != nil {
@@ -883,6 +893,32 @@ func (h *Handler) writeReadError(w http.ResponseWriter, r *http.Request, err err
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {
 	httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
 		errorEnvelope{Code: code, Message: msg, TraceID: traceID(r)}, nil)
+}
+
+// isHistoricalAsOf reports whether the requested as_of falls on an India business day before now's.
+// as_of is a business DATE ("compute state as of <date>"; admin-web sends the inclusive IST
+// end-of-day instant and future values are clamped to now), so any prior-day as_of is a historical
+// point-in-time request. The serving projections only ever build the CURRENT snapshot (the sweeper
+// recomputes at now), so a historical as_of cannot be answered from a live read.
+func isHistoricalAsOf(parsed, now time.Time) bool {
+	loc := biztime.DefaultLocation()
+	py, pm, pd := parsed.In(loc).Date()
+	ny, nm, nd := now.In(loc).Date()
+	return time.Date(py, pm, pd, 0, 0, 0, 0, loc).Before(time.Date(ny, nm, nd, 0, 0, 0, 0, loc))
+}
+
+// rejectHistoricalAsOf writes a 400 and returns true when as_of is a prior India business day.
+// Historical point-in-time reads are not supported: there is no per-as_of snapshot store, so
+// advertising them only produced a misleading projection_unavailable 503 when the exact historical
+// projection was absent (the normal production case). Persisting immutable historical snapshots is
+// the follow-up that would re-enable this cleanly.
+func (h *Handler) rejectHistoricalAsOf(w http.ResponseWriter, r *http.Request, parsed, now time.Time) bool {
+	if isHistoricalAsOf(parsed, now) {
+		h.badRequest(w, r, "historical_as_of_unsupported",
+			"historical as_of is not supported; omit as_of or select today for the current view")
+		return true
+	}
+	return false
 }
 
 // readShedError maps a shed-summary/shed-detail read-path error to HTTP. A projection-unavailable
