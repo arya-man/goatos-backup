@@ -59,10 +59,21 @@ func TestKernelStoryAG_RecurringCalendarLifecycle(t *testing.T) {
 
 	story.Step("Project and read past history plus the future cycle through Calendar",
 		"Calendar reads accepted history from canonical completion state and projects only the live future obligation. Date markers distinguish completed history from open work.")
+	// Drive BOTH real calendar projectors the reads are gated on: the UPCOMING projection
+	// (RefreshVaccinationProjection / calendar_projection_state) for the future recurrence, and the
+	// HISTORY projection (RecomputeVaccinationHistoryProjection / calendar_history_projection_state)
+	// for the completed dose. Each refresh window projects one day BEYOND the read's inclusive DateTo,
+	// because the freshness gate compares the projection's date_to against the read's EXCLUSIVE upper
+	// bound (read DateTo + 24h); a window that only reaches the inclusive DateTo reads back as stale.
 	if _, err := fx.Calendar.RefreshVaccinationProjection(fx.Ctx, calendarports.RefreshVaccinationProjection{
-		TenantID: fxTenant, DateFrom: wantNextDue.AddDate(0, 0, -1), DateTo: wantNextDue.AddDate(0, 0, 1), Limit: 100,
+		TenantID: fxTenant, DateFrom: wantNextDue.AddDate(0, 0, -2), DateTo: wantNextDue.AddDate(0, 0, 3), Limit: 100,
 	}); err != nil {
 		t.Fatalf("refresh future Calendar projection: %v", err)
+	}
+	if _, err := fx.CalendarRepo.RecomputeVaccinationHistoryProjection(fx.Ctx, calendarports.RefreshVaccinationHistoryProjection{
+		TenantID: fxTenant, DateFrom: administeredAt.AddDate(0, 0, -2), DateTo: administeredAt.AddDate(0, 0, 3), Limit: 100,
+	}); err != nil {
+		t.Fatalf("refresh history Calendar projection: %v", err)
 	}
 	completed := calendardomain.StatusCompleted
 	history, err := fx.Calendar.ListEvents(fx.Ctx, calendardomain.Query{
@@ -104,9 +115,16 @@ func TestKernelStoryAG_RecurringCalendarLifecycle(t *testing.T) {
 		"The production culled exit emits goat.exited and SM-3 cancels the next obligation. Refresh tombstones it from Calendar while accepted history remains queryable.")
 	fx.ExitGoat(goatID, "culled", "story-ag-culled", time.Date(2025, 7, 1, 0, 0, 0, 0, time.UTC))
 	if _, err := fx.Calendar.RefreshVaccinationProjection(fx.Ctx, calendarports.RefreshVaccinationProjection{
-		TenantID: fxTenant, DateFrom: wantNextDue.AddDate(0, 0, -1), DateTo: wantNextDue.AddDate(0, 0, 1), Limit: 100,
+		TenantID: fxTenant, DateFrom: wantNextDue.AddDate(0, 0, -2), DateTo: wantNextDue.AddDate(0, 0, 3), Limit: 100,
 	}); err != nil {
 		t.Fatalf("refresh Calendar after exit: %v", err)
+	}
+	// Accepted history is unchanged by the exit, but re-drive the history projector too so the
+	// post-exit history read is served by a freshly-rebuilt (not just still-within-TTL) projection.
+	if _, err := fx.CalendarRepo.RecomputeVaccinationHistoryProjection(fx.Ctx, calendarports.RefreshVaccinationHistoryProjection{
+		TenantID: fxTenant, DateFrom: administeredAt.AddDate(0, 0, -2), DateTo: administeredAt.AddDate(0, 0, 3), Limit: 100,
+	}); err != nil {
+		t.Fatalf("refresh history Calendar after exit: %v", err)
 	}
 	futureAfterExit, err := fx.Calendar.ListEvents(fx.Ctx, calendardomain.Query{
 		TenantID: fxTenant, OwnerKey: calendardomain.OwnerAll,

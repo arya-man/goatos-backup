@@ -73,7 +73,11 @@ type Fixture struct {
 	PI       *pipg.Repository
 	Inv      *invapp.Service
 	Calendar *calendarapp.Service
-	Consumer *domainconsumerapp.Service
+	// CalendarRepo is the concrete calendar repository. The history projection is refreshed directly
+	// on the repo in production (cmd/calendar-vaccination-projector), not through the app Service, so
+	// stories that drive the history read-model use it the same way.
+	CalendarRepo *calendarpg.Repository
+	Consumer     *domainconsumerapp.Service
 	Relay    *outboxapp.Service
 }
 
@@ -109,6 +113,7 @@ func NewFixture(t *testing.T) *Fixture {
 	obl := oblpg.NewRepository(pool, timeout)
 	outboxRepo := outboxpg.NewRepository(pool, timeout)
 	vacc := vaccpg.NewRepository(pool, timeout)
+	calendarRepo := calendarpg.NewRepository(pool, timeout)
 	bus := domainconsumerwiring.BuildDomainBus(pool, timeout, nil)
 	validator, err := outboxapp.NewEnvelopeValidator(filepath.Join("..", "..", "..", "contracts", "jsonschema", "domain-event-envelope.schema.json"))
 	if err != nil {
@@ -132,9 +137,10 @@ func NewFixture(t *testing.T) *Fixture {
 		VaccExec: vaccexecpg.NewRepository(pool, timeout),
 		Proof:    proofpg.NewRepository(pool, timeout),
 		PI:       pipg.NewRepository(pool, timeout),
-		Inv:      invapp.NewService(invpg.NewRepository(pool, timeout)),
-		Calendar: calendarapp.NewService(calendarpg.NewRepository(pool, timeout)),
-		Consumer: consumer,
+		Inv:          invapp.NewService(invpg.NewRepository(pool, timeout)),
+		Calendar:     calendarapp.NewService(calendarRepo),
+		CalendarRepo: calendarRepo,
+		Consumer:     consumer,
 		Relay:    relay,
 	}
 }

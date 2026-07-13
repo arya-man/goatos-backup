@@ -153,7 +153,11 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 		"Before the verifier reviews anything, the process-integrity control tower must show this "+
 			"shed/rule row as verification_pending and NOT process-intact -- the real open gap a "+
 			"director would see on Control Tower.")
-	preAsOf := time.Now().UTC().Add(2 * time.Hour)
+	// Live control-tower read: as-of a small margin past "now" (skew-safe, after every seeded write)
+	// but inside the projection freshness TTL. now()+hours would exceed the AGE-based buildAge gate
+	// (a future as-of is clamped to now on the real HTTP path via ClampFutureAsOf, so it never reaches
+	// the repo below the clamp); this test drives the repo directly, so it must honor the live contract.
+	preAsOf := time.Now().UTC().Add(2 * time.Minute)
 	_, err = fx.PI.RecomputeProjection(fx.Ctx, pidomain.ProjectionRecomputeRequest{TenantID: fxTenant, AsOf: preAsOf})
 	story.Assert("production process-integrity projector refreshed the serving version", err == nil, "err=%v", err)
 	if err != nil {
@@ -173,6 +177,10 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 	story.Step("Per-shed execution rollup also shows both doses awaiting verification",
 		"The vaccination-execution read model (the per-shed drilldown behind /vaccination/execution/sheds/{shed_id}) "+
 			"must show both obligations recorded and none yet completed.")
+	// Drive the real per-shed execution projector before reading it (parity with the PI projector
+	// recompute above); without a serving version the read model is honestly "unavailable".
+	_, err = fx.VaccExec.RecomputeExecutionProjection(fx.Ctx, vaccexecdomain.ExecutionProjectionRecomputeRequest{TenantID: fxTenant, AsOf: preAsOf, DueBefore: now.AddDate(0, 0, 1)})
+	story.Assert("production vaccination-execution projector refreshed the serving version", err == nil, "err=%v", err)
 	execRows, err := fx.VaccExec.ListVaccinationExecution(fx.Ctx, vaccexecdomain.ExecutionQuery{
 		TenantID: fxTenant, AsOf: preAsOf, DueBefore: now.AddDate(0, 0, 1), Limit: 10,
 	})
@@ -223,7 +231,7 @@ func TestKernelStoryC_BatchDriveVerifyControlTower(t *testing.T) {
 	story.Step("Control tower alert clears",
 		"After both doses are verified, the same control-tower row must now read as completed and "+
 			"process-intact -- the alert has cleared with no manual dismissal.")
-	postAsOf := time.Now().UTC().Add(2 * time.Hour)
+	postAsOf := time.Now().UTC().Add(2 * time.Minute)
 	_, err = fx.PI.RecomputeProjection(fx.Ctx, pidomain.ProjectionRecomputeRequest{TenantID: fxTenant, AsOf: postAsOf})
 	story.Assert("production projector refreshed the accepted completion state", err == nil, "err=%v", err)
 	if err != nil {

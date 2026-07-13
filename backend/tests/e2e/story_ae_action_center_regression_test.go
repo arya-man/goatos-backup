@@ -80,8 +80,12 @@ func TestKernelStoryAE_ActionCenterRegression(t *testing.T) {
 	recomputed, err := fx.PI.RecomputeProjection(fx.Ctx, pidomain.ProjectionRecomputeRequest{TenantID: fxTenant, AsOf: asOf})
 	story.Assert("projection recompute ran without error", err == nil, "err=%v", err)
 	story.Assert("projection produced bounded rows", err == nil && recomputed.Rows > 0 && recomputed.Rows < 10, "rows=%d", recomputed.Rows)
+	// Pinned as-of read: asOf is a fixed simulated instant 120 days ahead of the build's wall clock
+	// (proving completed-row retention expiry), so read in explicit as-of mode. The live-freshness
+	// buildAge gate (build-vs-now age) does not apply to a pinned instant; correctness is instead the
+	// exact projection-as_of == query-as_of match, which this recompute guarantees.
 	nextBoard, err := fx.PI.ListRows(fx.Ctx, pidomain.Query{
-		TenantID: fxTenant, Category: &category, AsOf: asOf,
+		TenantID: fxTenant, Category: &category, AsOf: asOf, HistoricalAsOf: true,
 		DueBefore: wantNextDue.AddDate(0, 0, 1), Limit: 20,
 	})
 	story.Assert("projected Action Center read ran without error", err == nil, "err=%v", err)

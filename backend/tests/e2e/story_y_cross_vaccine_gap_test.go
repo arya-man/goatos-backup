@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
@@ -24,7 +25,16 @@ func TestKernelStoryY_CrossVaccineGap(t *testing.T) {
 		goatID  = "ea000000-0000-4000-8000-000000000010"
 	)
 	fx.SeedShed(shedID, "E2E-Y", stageID)
-	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	// One now-relative clock for every instant in this story. Acceptance stamps verified_at = now()
+	// (SQL, uncontrollable), so DOB/administration/regeneration must be derived from the same wall
+	// clock, not fixed calendar dates: with fixed dates the Goat Pox due window eventually falls into
+	// the past, and applyMissedDosePolicy (asOf past businessDayStart(due)+DueWindowDays) would replace
+	// the compatibility floor with a catch-up date. Anchoring keeps both pox due windows ~10-14 days in
+	// the future on every run. Offsets preserve the original relationships: PPR administered 14d ago
+	// (pprAt = dob+116, 4d past its dob+112 raw due, inside the 14d window); Goat Pox raw due = dob+140
+	// = anchor+10; compatibility floor = pprAt+28 = anchor+14, which wins and stays future.
+	anchor := biztime.BusinessDayStart(time.Now())
+	dob := anchor.AddDate(0, 0, -130)
 	fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedID, DOB: &dob})
 
 	pprEligibility := `{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1"}}`
@@ -34,8 +44,8 @@ func TestKernelStoryY_CrossVaccineGap(t *testing.T) {
 	}})
 
 	story.Step("Generate and accept PPR through the kernel",
-		"goat.created runs SM-1. SM-5 accepts the resulting obligation on June 25 and writes canonical completion history.")
-	pprAt := time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC)
+		"goat.created runs SM-1. SM-5 accepts the resulting obligation (administered 14 days ago) and writes canonical completion history.")
+	pprAt := dob.AddDate(0, 0, 116)
 	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, pprAt.AddDate(0, 0, -1))
 	pprID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND rule_id=$3`, fxTenant, goatID, pprRules["ppr"])
 	completeVaccinationObligationThroughSOP(t, fx, pprVersionID, pprID, shedID, []string{goatID}, pprAt, "story-y-ppr")
@@ -48,8 +58,14 @@ func TestKernelStoryY_CrossVaccineGap(t *testing.T) {
 		}})
 
 	story.Step("Publish Goat Pox and regenerate from accepted history",
-		"After the accepted completion's verification timestamp, a second goat.created delivery is idempotent for PPR and generates Goat Pox. Compatibility moves the raw July 19 date to PPR+28 days, July 23.")
-	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, time.Date(2026, 7, 13, 0, 0, 0, 0, time.UTC))
+		"After the accepted completion's verification timestamp, a second goat.created delivery is idempotent for PPR and generates Goat Pox. Compatibility moves the raw birth-age date (dob+140) up to the live-to-live floor, PPR administration + 28 days.")
+	// Regenerate strictly AFTER the PPR acceptance's verification instant. Acceptance stamps
+	// vaccination_completions.verified_at = now() (wall clock), and the cross-vaccine history query
+	// filters verified_at <= as_of; an as_of before that wall-clock verified_at would hide the accepted
+	// PPR, so the live-to-live floor would never be applied. time.Now() is after the completion above
+	// and, because DOB/pprAt are anchored to now, still comfortably before both Goat Pox due windows
+	// (raw dob+140 = anchor+10, floor pprAt+28 = anchor+14), so missed-dose catch-up never triggers.
+	fx.PublishGoatEvent(vaccapp.EventGoatCreated, goatID, time.Now().UTC())
 	wantDue := pprAt.AddDate(0, 0, 28)
 	gotDue := fx.scanTime(`SELECT due_at FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND rule_id=$3`, fxTenant, goatID, poxRules["goat_pox"])
 	story.Assert("Goat Pox due date honors the live-to-live floor", sameDay(gotDue, wantDue),

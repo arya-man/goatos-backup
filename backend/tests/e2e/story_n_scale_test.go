@@ -107,7 +107,9 @@ func TestKernelStoryN_Scale(t *testing.T) {
 			"page size, report the true total, and hand back a cursor -- proving the read is bounded and "+
 			"paginated over an index, not a full scan of every goat/obligation.")
 	const pageSize = 3
-	asOf := time.Now().UTC().Add(2 * time.Hour)
+	// Live as-of a small margin past now (skew-safe, inside the freshness TTL); now()+hours would trip
+	// the AGE-based buildAge gate the real HTTP path avoids via ClampFutureAsOf.
+	asOf := time.Now().UTC().Add(2 * time.Minute)
 	dueBefore := now.AddDate(0, 0, 1)
 	_, err = fx.PI.RecomputeProjection(fx.Ctx, pidomain.ProjectionRecomputeRequest{TenantID: fxTenant, AsOf: asOf})
 	story.Assert("the production projector built the serving scale snapshot", err == nil, "err=%v", err)
@@ -196,7 +198,7 @@ func TestKernelStoryN_Scale(t *testing.T) {
 			"still return at most the page size -- the read model does not need a full-herd rescan just "+
 			"because some goats deferred or exited.",
 	)
-	finalAsOf := time.Now().UTC().Add(2 * time.Hour)
+	finalAsOf := time.Now().UTC().Add(2 * time.Minute)
 	_, err = fx.PI.RecomputeProjection(fx.Ctx, pidomain.ProjectionRecomputeRequest{TenantID: fxTenant, AsOf: finalAsOf})
 	story.Assert("the production projector refreshed after mixed dynamic events", err == nil, "err=%v", err)
 	if err != nil {
