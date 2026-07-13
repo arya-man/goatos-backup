@@ -64,6 +64,16 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.GoatOs">
+        <!-- Firebase Performance Monitoring auto-init calls FirebaseInstallations.getId(), which
+             HARD-THROWS (IllegalArgumentException "valid API key required") when the Firebase API
+             key isn't real. dev/prod ship a structurally-valid PLACEHOLDER google-services.json (a
+             real one is injected at build for stg/prod), so firebase-perf crashes the whole process
+             on launch — unlike Analytics/Crashlytics/Messaging, which degrade gracefully. Disable
+             perf auto-collection so the app survives launch on every flavor regardless of whether a
+             real Firebase config is present. Proven on-device (Infinix X6873): app launches clean +
+             FCM token registers after this. -->
+        <meta-data android:name="firebase_performance_collection_enabled" android:value="false" />
+        <meta-data android:name="firebase_performance_collection_deactivated" android:value="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
