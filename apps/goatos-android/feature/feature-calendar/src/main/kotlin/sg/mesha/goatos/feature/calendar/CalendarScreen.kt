@@ -1,5 +1,6 @@
 package sg.mesha.goatos.feature.calendar
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,8 +28,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
@@ -352,7 +356,10 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusPill(item.statusLabel, item.statusTone)
             Spacer(Modifier.weight(1f))
-            if (item.allDay || item.timeLabel.isNotEmpty()) {
+            // Drive cards (v4) carry their own due-date badge below; the generic
+            // all-day/time pill would otherwise double up with it (e.g. "Due now" +
+            // "Today" + "Today"), so it only renders for non-drive items.
+            if ((item.allDay || item.timeLabel.isNotEmpty()) && drive == null) {
                 StatusPill(if (item.allDay) stringResource(R.string.calendar_all_day) else item.timeLabel, CalendarTone.Neutral)
                 Spacer(Modifier.size(6.dp))
             }
@@ -472,9 +479,15 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                 }
                 item.ctaLabel?.let {
                     // ctaLabel non-null = drillable; the verb itself is fixed chrome, localized
-                    // here (the VM's English "Open" is ignored so it follows the app locale).
+                    // here (the VM's English "Open"/"Open drive" is ignored so it follows the
+                    // app locale). Drive cards (v4) get the more specific "Open drive →".
+                    val (ctaText, ctaGlyph) = if (drive != null) {
+                        stringResource(R.string.calendar_drive_open) to "→"
+                    } else {
+                        stringResource(R.string.calendar_cta_open) to "›"
+                    }
                     Text(
-                        text = "${stringResource(R.string.calendar_cta_open)}  ›",
+                        text = "$ctaText  $ctaGlyph",
                         color = MeshaColors.Brand2,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.W700,
@@ -486,48 +499,61 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
 }
 
 /**
- * v4 park-level drive progress card — replaces the old sheds/vaccines/doses tile trio.
+ * v4 park-level drive progress card — option A (completion ring), owner-approved.
  * Every value here is a straight [CalendarDriveSummary] field read; nothing is fetched,
  * paginated, or aggregated client-side (mobile-guard: card = summary, not a rollup).
+ * Anatomy: a muted "{n} vaccines" subtitle (the full vaccine list lives in the drill
+ * target, not the card) + a completion ring/count pair + non-zero due/overdue/deferred
+ * chips. The old vaccine-chip FlowRow and two-stat-box + linear-bar layout are gone.
  */
 @Composable
 // telemetry:exempt DriveProgressCard is a presentational render of the backend drive_summary read model; it adds no new user action or funnel step (the card's tap-to-drill navigation is the pre-existing EventCard onClick, already instrumented at the navigation layer).
 private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth()) {
         if (summary.vaccineLabels.isNotEmpty()) {
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                summary.vaccineLabels.forEach { DriveVaccineChip(it) }
-            }
+            Text(
+                text = stringResource(R.string.calendar_drive_vaccines_fmt, summary.vaccineLabels.size),
+                color = MeshaColors.Muted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.W600,
+            )
             Spacer(Modifier.size(10.dp))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            DriveMetric(
-                label = stringResource(R.string.calendar_drive_sheds_done),
-                value = "${summary.shedsCompleted}/${summary.shedCount}",
-                modifier = Modifier.weight(1f),
-            )
-            val pct = if (summary.totalCount > 0) summary.completedCount * 100 / summary.totalCount else 0
-            DriveMetric(
-                label = stringResource(R.string.calendar_drive_animals),
-                value = "${summary.completedCount}/${summary.totalCount} · $pct%",
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Spacer(Modifier.size(10.dp))
-        val fraction = if (summary.totalCount > 0) {
-            summary.completedCount.toFloat() / summary.totalCount.toFloat()
-        } else {
-            0f
-        }
-        DriveProgressBar(fraction)
-        val remaining = buildList {
-            if (summary.remainingCount > 0) {
-                add(stringResource(R.string.calendar_drive_remaining_left, summary.remainingCount) to CalendarTone.Muted)
+        val pct = if (summary.totalCount > 0) summary.completedCount * 100 / summary.totalCount else 0
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            DriveProgressRing(pct = pct)
+            Column {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        text = summary.completedCount.toString(),
+                        color = MeshaColors.Ink,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.W800,
+                    )
+                    Text(
+                        text = " / ${summary.totalCount} ${stringResource(R.string.calendar_drive_animals)}",
+                        color = MeshaColors.Muted,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.W600,
+                    )
+                }
+                Text(
+                    text = stringResource(
+                        R.string.calendar_drive_sheds_done,
+                        summary.shedsCompleted,
+                        summary.shedCount,
+                    ),
+                    color = MeshaColors.Muted,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.W600,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
             }
+        }
+        val remaining = buildList {
             if (summary.dueCount > 0) {
                 add(stringResource(R.string.calendar_drive_due, summary.dueCount) to CalendarTone.Warn)
             }
@@ -539,7 +565,7 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
             }
         }
         if (remaining.isNotEmpty()) {
-            Spacer(Modifier.size(9.dp))
+            Spacer(Modifier.size(12.dp))
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -550,42 +576,46 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
     }
 }
 
+/**
+ * Completion ring (option A): a faint track arc + a brand-green progress arc drawn with
+ * [Canvas], centered percentage text. Mirrors the SVG ring in the mobile mock
+ * (`mock/vaccination-mobile-mock.html` `#ringwrap`/`#ring` and the shed-row `.miniring`).
+ */
 @Composable
-private fun DriveVaccineChip(label: String) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(9.dp))
-            .background(MeshaColors.Surf2)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(9.dp))
-            .padding(horizontal = 9.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(
-            imageVector = MeshaIcons.Syringe,
-            contentDescription = null,
-            tint = MeshaColors.Brand,
-            modifier = Modifier.size(12.dp),
-        )
-        Text(text = label, color = MeshaColors.Ink, fontSize = 11.sp, fontWeight = FontWeight.W800, maxLines = 1)
-    }
-}
-
-@Composable
-private fun DriveProgressBar(fraction: Float, modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .fillMaxWidth()
-            .height(7.dp)
-            .clip(RoundedCornerShape(4.dp))
-            .background(MeshaColors.Surf3),
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                .height(7.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(MeshaColors.BrandGradient),
+private fun DriveProgressRing(pct: Int, modifier: Modifier = Modifier) {
+    val trackColor = MeshaColors.Surf3
+    val progressColor = MeshaColors.Brand
+    val clampedPct = pct.coerceIn(0, 100)
+    Box(modifier.size(68.dp), contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val strokeWidthPx = 7.dp.toPx()
+            val diameter = size.minDimension - strokeWidthPx
+            val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
+            val arcSize = Size(diameter, diameter)
+            drawArc(
+                color = trackColor,
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round),
+            )
+            drawArc(
+                color = progressColor,
+                startAngle = -90f,
+                sweepAngle = 360f * clampedPct / 100f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round),
+            )
+        }
+        Text(
+            text = "$clampedPct%",
+            color = MeshaColors.Ink,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.W800,
         )
     }
 }

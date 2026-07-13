@@ -804,6 +804,13 @@
   .drivecard-hd b{font-size:13px}
   .drivecard-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
   .drivecard-ft{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;padding-top:8px;border-top:1px solid var(--line2)}
+  /* option A · completion ring (replaces the old sheds/animals metagrid + linear bar) */
+  .drivecard-progress{display:flex;align-items:center;gap:12px}
+  .drivecard-progress-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .ring{flex:none}
+  .ring-track{fill:none;stroke:var(--line2);stroke-width:7}
+  .ring-arc{fill:none;stroke:var(--brand);stroke-width:7;stroke-linecap:round;transition:stroke-dashoffset .25s ease}
+  .ring-pct{font-size:13px;font-weight:700;fill:var(--ink)}
   /* ownership matrix */
   .owncard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px;box-shadow:var(--shadow)}
   .owncard .oh{display:flex;align-items:center;gap:9px;margin-bottom:9px}

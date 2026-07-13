@@ -502,6 +502,13 @@
   .drivecard-hd b{font-size:13px}
   .drivecard-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
   .drivecard-ft{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;padding-top:8px;border-top:1px solid var(--line2)}
+  /* option A · completion ring (replaces the old sheds/animals metagrid + linear bar) */
+  .drivecard-progress{display:flex;align-items:center;gap:12px}
+  .drivecard-progress-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .ring{flex:none}
+  .ring-track{fill:none;stroke:var(--line2);stroke-width:7}
+  .ring-arc{fill:none;stroke:var(--brand);stroke-width:7;stroke-linecap:round;transition:stroke-dashoffset .25s ease}
+  .ring-pct{font-size:13px;font-weight:700;fill:var(--ink)}
   /* ownership matrix */
   .owncard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px;box-shadow:var(--shadow)}
   .owncard .oh{display:flex;align-items:center;gap:9px;margin-bottom:9px}
@@ -3626,7 +3633,8 @@ const CAL_DOM_LABEL={counts:'Counts / Identity',pc:'Preventive Care (PC)',feed:'
 var calMod='';
 /* park-level vaccination drive progress card — same anatomy the app renders from the backend
    drive_summary field (features/calendar/calendar-drive-card.tsx): header + due + status pill,
-   vaccine chips, Sheds n/m + Animals n/m·pct% tiles, progress bar, remaining state chips, owner + tap. */
+   "N vaccines" subtitle, completion ring (option A) + animals/sheds text, remaining state chips
+   (nonzero only), owner + "Open drive →" footer. */
 function calDriveHeadline(d){
   if(d.overdueCount>0)return['t-dng',d.overdueCount+' overdue'];
   if(d.totalCount>0&&d.remainingCount<=0)return['t-ok','Completed'];
@@ -3637,13 +3645,25 @@ function driveCardHtml(d){
   var pct=d.totalCount>0?Math.round(d.completedCount/d.totalCount*100):0;
   var hl=calDriveHeadline(d);
   var chips=[['due',d.dueCount,'t-warn'],['overdue',d.overdueCount,'t-dng'],['deferred',d.deferredCount,'t-pur']].filter(function(c){return c[1]>0;});
+  // Option A · completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
+  // rotated -90deg so the arc starts at 12 o'clock. circumference = 2*pi*r ≈ 182.2.
+  var ringR=29,ringCirc=2*Math.PI*ringR,ringOff=ringCirc*(1-pct/100);
   return '<div class="drivecard" style="margin-top:10px">'+
     '<div class="drivecard-hd"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg><b>Vaccination drive · '+d.parkName+'</b><span class="muted small">'+d.dueDate+'</span><span class="sp"></span><span class="tag '+hl[0]+'">'+hl[1]+'</span></div>'+
-    (d.vaccineLabels.length?'<div class="drivecard-chips" style="margin-top:8px">'+d.vaccineLabels.map(function(v){return '<span class="tag t-mut">'+v+'</span>';}).join('')+'</div>':'')+
-    '<div class="metagrid" style="margin-top:8px"><div><div class="k">Sheds</div><div class="v">'+d.shedsCompleted+'/'+d.shedCount+' done</div></div><div><div class="k">Animals</div><div class="v">'+d.completedCount+'/'+d.totalCount+' · '+pct+'%</div></div></div>'+
-    '<div class="bar" style="margin-top:8px"><i style="width:'+pct+'%"></i></div>'+
-    (chips.length?'<div class="drivecard-chips" style="margin-top:8px"><span class="muted small">'+d.remainingCount+' left:</span>'+chips.map(function(c){return '<span class="tag '+c[2]+'">'+c[1]+' '+c[0]+'</span>';}).join('')+'</div>':'')+
-    '<div class="drivecard-ft"><span class="muted small">'+d.ownerLabel+' · '+d.parkName+'</span><span class="lenslink mutedlink">→ '+d.shedCount+' sheds</span></div>'+
+    '<div class="muted small" style="margin-top:6px">'+d.vaccineLabels.length+' vaccines</div>'+
+    '<div class="drivecard-progress" style="margin-top:10px">'+
+      '<svg class="ring" viewBox="0 0 70 70" width="68" height="68" aria-hidden="true">'+
+        '<circle class="ring-track" cx="35" cy="35" r="'+ringR+'"/>'+
+        '<circle class="ring-arc" cx="35" cy="35" r="'+ringR+'" stroke-dasharray="'+ringCirc.toFixed(1)+'" stroke-dashoffset="'+ringOff.toFixed(1)+'" transform="rotate(-90 35 35)"/>'+
+        '<text x="35" y="35" class="ring-pct" text-anchor="middle" dominant-baseline="central">'+pct+'%</text>'+
+      '</svg>'+
+      '<div class="drivecard-progress-txt">'+
+        '<div><b>'+d.completedCount+'</b> <span class="muted">/ '+d.totalCount+' animals</span></div>'+
+        '<div class="muted small">'+d.shedsCompleted+' of '+d.shedCount+' sheds done</div>'+
+      '</div>'+
+    '</div>'+
+    (chips.length?'<div class="drivecard-chips" style="margin-top:8px">'+chips.map(function(c){return '<span class="tag '+c[2]+'">'+c[1]+' '+c[0]+'</span>';}).join('')+'</div>':'')+
+    '<div class="drivecard-ft"><span class="muted small">'+d.ownerLabel+'</span><span class="lenslink mutedlink">Open drive →</span></div>'+
   '</div>';
 }
 function renderCal(){

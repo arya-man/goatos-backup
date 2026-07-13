@@ -32,9 +32,10 @@
 
     <!-- v4 park-level drive progress card -->
     <string name="calendar_drive_title">ಲಸಿಕೆ ಡ್ರೈವ್ · %1$s</string>
-    <string name="calendar_drive_sheds_done">ಶೆಡ್ ಪೂರ್ಣ</string>
-    <string name="calendar_drive_animals">ಡೋಸ್‌ಗಳು</string>
-    <string name="calendar_drive_remaining_left">%1$d ಬಾಕಿ</string>
+    <string name="calendar_drive_sheds_done">%2$d ರಲ್ಲಿ %1$d ಶೆಡ್ ಪೂರ್ಣ</string>
+    <string name="calendar_drive_animals">ಪ್ರಾಣಿಗಳು</string>
+    <string name="calendar_drive_vaccines_fmt">%1$d ಲಸಿಕೆಗಳು</string>
+    <string name="calendar_drive_open">ಡ್ರೈವ್ ತೆರೆಯಿರಿ</string>
     <string name="calendar_drive_due">%1$d ಬಾಕಿ</string>
     <string name="calendar_drive_overdue">%1$d ಮೀರಿದ</string>
     <string name="calendar_drive_deferred">%1$d ಮುಂದೂಡಲಾಗಿದೆ</string>

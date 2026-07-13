@@ -779,12 +779,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.drive.packets":               "Drive packets",
 			"calendar.drive.vaccine_mix":           "Vaccine mix",
 			"calendar.drive.shed_coverage":         "Shed coverage",
-			// DRV-006: these 4 keys replace hardcoded fallback strings that lived in
+			// DRV-006: these keys replace hardcoded fallback strings that lived in
 			// apps/admin-web/lib/admin-ui-contract.ts (calendar-drive-card.tsx metagrid labels/suffixes).
-			"calendar.drive.animals":             "Doses",
-			"calendar.drive.done_suffix":         "done",
-			"calendar.drive.left_suffix":         "left:",
-			"calendar.drive.summary_pending":     "Drive progress detail not available yet.",
+			"calendar.drive.animals":         "Animals",
+			"calendar.drive.done_suffix":     "done",
+			"calendar.drive.summary_pending": "Drive progress detail not available yet.",
+			// DRV-007: option-A completion-ring drive card copy — subtitle vaccine count, ring
+			// caption text, and the footer CTA (calendar-drive-card.tsx).
+			"calendar.drive.vaccines_suffix":     "vaccines",
+			"calendar.drive.of":                  "of",
+			"calendar.drive.sheds_done_suffix":   "sheds done",
+			"calendar.drive.open":                "Open drive",
 			"calendar.picker.other_hint":         "other due work",
 			"calendar.picker.history_hint":       "completed history",
 			"calendar.new_event.label":           "New event",

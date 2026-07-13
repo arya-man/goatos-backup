@@ -62,6 +62,11 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
   const pct = summary.total_count > 0 ? Math.round((summary.completed_count / summary.total_count) * 100) : 0;
   const headline = headlineStatus(summary, pageContract);
   const remaining = remainingChips(summary);
+  // Option A · completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
+  // rotated -90deg so the arc starts at 12 o'clock. circumference = 2*pi*r ≈ 182.2.
+  const ringRadius = 29;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+  const ringOffset = ringCircumference * (1 - pct / 100);
 
   return (
     <div className="drivecard" style={{ marginTop: 10 }}>
@@ -74,37 +79,40 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
         <span className="sp" />
         <Tag tone={headline.tone}>{headline.label}</Tag>
       </div>
-      {summary.vaccine_labels.length ? (
-        <div className="drivecard-chips">
-          {summary.vaccine_labels.map((label) => (
-            <Tag key={label} tone="mut">
-              {label}
-            </Tag>
-          ))}
-        </div>
-      ) : null}
-      <div className="metagrid" style={{ marginTop: 8 }}>
-        <div>
-          <div className="k">{copy(pageContract, "calendar.drive.sheds")}</div>
-          <div className="v">
-            {summary.sheds_completed}/{summary.shed_count} {copy(pageContract, "calendar.drive.done_suffix")}
-          </div>
-        </div>
-        <div>
-          <div className="k">{copy(pageContract, "calendar.drive.animals")}</div>
-          <div className="v">
-            {summary.completed_count}/{summary.total_count} · {pct}%
-          </div>
-        </div>
+      <div className="muted small" style={{ marginTop: 6 }}>
+        {summary.vaccine_labels.length} {copy(pageContract, "calendar.drive.vaccines_suffix")}
       </div>
-      <div className="bar" style={{ marginTop: 8 }}>
-        <i style={{ width: `${pct}%` }} />
+      <div className="drivecard-progress" style={{ marginTop: 10 }}>
+        <svg className="ring" viewBox="0 0 70 70" width="68" height="68" aria-hidden="true">
+          <circle className="ring-track" cx="35" cy="35" r={ringRadius} />
+          <circle
+            className="ring-arc"
+            cx="35"
+            cy="35"
+            r={ringRadius}
+            strokeDasharray={ringCircumference.toFixed(1)}
+            strokeDashoffset={ringOffset.toFixed(1)}
+            transform="rotate(-90 35 35)"
+          />
+          <text x="35" y="35" className="ring-pct" textAnchor="middle" dominantBaseline="central">
+            {pct}%
+          </text>
+        </svg>
+        <div className="drivecard-progress-txt">
+          <div>
+            <b>{summary.completed_count}</b>{" "}
+            <span className="muted">
+              / {summary.total_count} {copy(pageContract, "calendar.drive.animals")}
+            </span>
+          </div>
+          <div className="muted small">
+            {summary.sheds_completed} {copy(pageContract, "calendar.drive.of")} {summary.shed_count}{" "}
+            {copy(pageContract, "calendar.drive.sheds_done_suffix")}
+          </div>
+        </div>
       </div>
       {remaining.length ? (
         <div className="drivecard-chips" style={{ marginTop: 8 }}>
-          <span className="muted small">
-            {summary.remaining_count} {copy(pageContract, "calendar.drive.left_suffix")}
-          </span>
           {remaining.map((chip) => (
             <Tag key={chip.key} tone={optionTone(pageContract, "calendar_status", chip.key) as Tone}>
               {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
@@ -113,12 +121,8 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
         </div>
       ) : null}
       <div className="drivecard-ft">
-        <span className="muted small">
-          {summary.owner_label} · {summary.park_name}
-        </span>
-        <span className="lenslink mutedlink">
-          → {summary.shed_count} {copy(pageContract, "calendar.drive.sheds").toLowerCase()}
-        </span>
+        <span className="muted small">{summary.owner_label}</span>
+        <span className="lenslink mutedlink">{copy(pageContract, "calendar.drive.open")} →</span>
       </div>
     </div>
   );

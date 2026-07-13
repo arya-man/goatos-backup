@@ -118,6 +118,18 @@
   .vgchips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:2px 16px 10px}
   .vgchip{display:inline-flex;align-items:center;gap:6px;background:var(--surf2);border:1px solid var(--hair);border-radius:999px;padding:5px 11px;font-size:11px;font-weight:750;cursor:pointer} .vgchip.on{background:var(--grad-soft);border-color:transparent;color:var(--brand-d)} .vgchip .c{font-family:var(--mono);font-weight:800}
   .barp{height:7px;border-radius:4px;background:var(--surf3);margin-top:13px;overflow:hidden}.barp i{display:block;height:100%;background:var(--grad);border-radius:4px;transition:width .3s}
+  /* v4 drive-card completion ring (option A) — replaces the vaccine-chip FlowRow +
+     two-stat-box + linear .barp anatomy. Mirrors the Android Canvas ring 1:1. */
+  .driversub{font-size:12px;color:var(--muted);font-weight:600;margin-top:10px}
+  .driverow{display:flex;align-items:center;gap:14px;margin-top:12px}
+  .driverring{position:relative;width:68px;height:68px;flex:none}
+  .driverring svg{width:100%;height:100%;transform:rotate(-90deg)}
+  .driverring .rbg{fill:none;stroke:var(--surf3);stroke-width:7}
+  .driverring .rfg{fill:none;stroke:var(--brand);stroke-width:7;stroke-linecap:round;transition:stroke-dashoffset .4s ease}
+  .driverpct{position:absolute;inset:0;display:grid;place-items:center;font-size:13px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .driverstats .l1{font-size:17px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+  .driverstats .l1 span{font-size:12.5px;font-weight:600;color:var(--muted)}
+  .driverstats .l2{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:3px}
   .drivemeta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 16px 6px;padding:10px 13px;background:var(--surf2);border-radius:12px;font-size:11.5px;color:var(--muted);font-weight:600} .drivemeta .ic{width:14px;height:14px;opacity:.8;color:var(--brand)} .drivemeta b{color:var(--ink);font-weight:750} .drivemeta .dot{opacity:.45}
   .drivetot{margin:0 16px 6px;padding:13px 15px;background:var(--surf);border:1px solid var(--hair);border-radius:14px} .drivetot .dt-h{display:flex;align-items:center;font-size:13px} .drivetot .dt-h b{font-weight:750} .drivetot .dt-n{font-family:var(--mono);font-weight:800;font-size:14px;color:var(--brand-d)} .drivetot .dt-s{font-size:10.5px;color:var(--muted);margin-top:7px}
   .chgcard{margin:0 16px;background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:2px 14px}
@@ -909,9 +921,13 @@
     shedsfollow:{en:'Tap a shed for its live status · red = delayed, chase the team',hi:'लाइव स्थिति के लिए शेड टैप करें · लाल = देरी, टीम से संपर्क करें',kn:'ಲೈವ್ ಸ್ಥಿತಿಗೆ ಶೆಡ್ ಟ್ಯಾಪ್ · ಕೆಂಪು = ವಿಳಂಬ, ತಂಡವನ್ನು ಸಂಪರ್ಕಿಸಿ',te:'లైవ్ స్థితి కోసం షెడ్ ట్యాప్ · ఎరుపు = ఆలస్యం, బృందాన్ని సంప్రదించండి'},
     viewstatus:{en:'View drive status',hi:'ड्राइव स्थिति देखें',kn:'ಡ್ರೈವ್ ಸ್ಥಿತಿ ನೋಡಿ',te:'డ్రైవ్ స్థితి చూడండి'},
     drivehdr:{en:'Vaccination drive',hi:'टीकाकरण ड्राइव',kn:'ಲಸಿಕೆ ಡ್ರೈವ್',te:'టీకా డ్రైవ్'},
-    shedsdonelbl:{en:'Sheds done',hi:'शेड पूर्ण',kn:'ಶೆಡ್ ಪೂರ್ಣ',te:'షెడ్లు పూర్తి'},
     animalslbl:{en:'Animals',hi:'पशु',kn:'ಪ್ರಾಣಿಗಳು',te:'జంతువులు'},
-    remleft:{en:'left',hi:'शेष',kn:'ಬಾಕಿ',te:'మిగిలి'},
+    vaccineslbl:{en:'vaccines',hi:'टीके',kn:'ಲಸಿಕೆಗಳು',te:'టీకాలు'},
+    // "{0} of {1} sheds done" — a full per-language template (not word-substitution)
+    // because Hindi/Kannada/Telugu place the total before the completed count
+    // ("4 में से 1", not "1 में से 4"); mirrors the Android calendar_drive_sheds_done
+    // format string exactly.
+    shedsdonefmt:{en:'{0} of {1} sheds done',hi:'{1} में से {0} शेड पूर्ण',kn:'{1} ರಲ್ಲಿ {0} ಶೆಡ್ ಪೂರ್ಣ',te:'{1} లో {0} షెడ్లు పూర్తి'},
     removerdue:{en:'overdue',hi:'अतिदेय',kn:'ಮೀರಿದ',te:'గడువు మీరిన'},
     remdeferred:{en:'deferred',hi:'टाला गया',kn:'ಮುಂದೂಡಲಾಗಿದೆ',te:'వాయిదా'},
     synch:{en:'Sync status',hi:'सिंक स्थिति',kn:'ಸಿಂಕ್ ಸ್ಥಿತಿ',te:'సింక్ స్థితి'},
@@ -1109,25 +1125,32 @@
     {v:'Blue Tongue',iv:'every 1 year · sheep',next:'03 Oct 2027'},
     {v:'PPR',iv:'every 3 years',next:'10 Jul 2029'}
   ];
-  // v4 park-level drive progress card — mirrors the backend drive_summary shape the
-  // Android DriveProgressCard renders 1:1: header (title · park + due date + headline
-  // pill), vaccine chips, sheds/animals stats, a progress bar, and a remaining-work
-  // breakdown (due/overdue/deferred, nonzero only), footer = owner + CTA.
+  // v4 park-level drive progress card (option A · completion ring, owner-approved) —
+  // mirrors the backend drive_summary shape the Android DriveProgressCard renders 1:1:
+  // header (title · park + due date + headline pill), a muted "{n} vaccines" subtitle
+  // (the full vaccine list lives in the sheds drill, not the card), a completion ring +
+  // animals/sheds text, and a remaining-work breakdown (due/overdue/deferred, nonzero
+  // only), footer = owner + CTA. The old vaccine-chip FlowRow + two-stat-box + linear
+  // .barp anatomy is gone (see .driverow/.driverring CSS).
   function evtCard(dr){
     var TX=function(k,d){return TXT[k]?(TXT[k][curLang]||TXT[k].en):d;};
+    var TXF=function(k,d,a,b){return TX(k,d).replace('{0}',a).replace('{1}',b);};
     var head='<div class="t"><span class="pill '+dr.pill+'">'+dr.pl+'</span><span style="flex:1"></span>'+(dr.duedate?'<span class="pill mut">'+dr.duedate+'</span>':'')+'</div>';
     var title='<div class="nm"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg>'+TX('drivehdr','Vaccination drive')+' · '+dr.park+'</div>';
-    var vax=(dr.vaccines&&dr.vaccines.length)?('<div class="vgroups" style="margin-top:10px">'+dr.vaccines.map(function(v){return '<span class="vchip"><svg class="ic vg-syr"><use href="#i-syringe"/></svg><b>'+v+'</b></span>';}).join('')+'</div>'):'';
+    var vax=(dr.vaccines&&dr.vaccines.length)?('<div class="driversub">'+dr.vaccines.length+' '+TX('vaccineslbl','vaccines')+'</div>'):'';
     var pct=dr.total?Math.round(100*dr.completed/dr.total):0;
-    var nums='<div class="nums" style="margin-top:12px"><div><b>'+dr.shedsDone+'/'+dr.shedCount+'</b><span>'+TX('shedsdonelbl','Sheds done')+'</span></div><div><b>'+dr.completed+'/'+dr.total+' · '+pct+'%</b><span>'+TX('animalslbl','Animals')+'</span></div></div>';
-    var bar='<div class="barp"><i style="width:'+pct+'%"></i></div>';
+    var C_RING=2*Math.PI*30;
+    var ringOff=(C_RING*(1-Math.min(1,pct/100))).toFixed(2);
+    var ring='<div class="driverring"><svg viewBox="0 0 70 70"><circle class="rbg" cx="35" cy="35" r="30"/><circle class="rfg" cx="35" cy="35" r="30" stroke-dasharray="'+C_RING.toFixed(2)+'" stroke-dashoffset="'+ringOff+'"/></svg><div class="driverpct">'+pct+'%</div></div>';
+    var shedsLine=TXF('shedsdonefmt','{0} of {1} sheds done',dr.shedsDone,dr.shedCount);
+    var stats='<div class="driverstats"><div class="l1"><b>'+dr.completed+'</b><span> / '+dr.total+' '+TX('animalslbl','Animals')+'</span></div><div class="l2">'+shedsLine+'</div></div>';
+    var nums='<div class="driverow">'+ring+stats+'</div>';
     var rem=[];
-    if(dr.remaining)rem.push('<span class="pill mut">'+dr.remaining+' '+TX('remleft','left')+'</span>');
     if(dr.due_n)rem.push('<span class="pill warn">'+dr.due_n+' '+TX('due2','due')+'</span>');
     if(dr.overdue_n)rem.push('<span class="pill dng">'+dr.overdue_n+' '+TX('removerdue','overdue')+'</span>');
     if(dr.deferred_n)rem.push('<span class="pill mut">'+dr.deferred_n+' '+TX('remdeferred','deferred')+'</span>');
     var remRow=rem.length?('<div class="t" style="margin-top:9px">'+rem.join('')+'</div>'):'';
-    var body=head+title+vax+nums+bar+remRow;
+    var body=head+title+vax+nums+remRow;
     var clkKey=(role==='operator')?'opendrive':'viewstatus';
     var clkTxt=TX(clkKey,role==='operator'?'Open drive':'View drive status');
     if(dr.go){
