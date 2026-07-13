@@ -45,6 +45,7 @@ Reference docs inside (progressive disclosure — load only what the change touc
 .agents/skills/goatos-code-review/references/toolchain.md         # CRG/Graphify/RTK/repowise operator manual
 .agents/skills/goatos-code-review/references/kernel-and-scale.md  # operational kernel + 1-5M scale + idempotency
 .agents/skills/goatos-code-review/references/backend.md           # Go hexagonal layering, pgx/sqlc, observability
+.agents/skills/goatos-code-review/references/aggregates-and-projections.md # membership, group keys, join grain, paging
 .agents/skills/goatos-code-review/references/frontend.md          # admin-web contract fidelity, mock, IA guardrails
 .agents/skills/goatos-code-review/references/business-rules.md    # vaccination/obligation/feed/org rule fidelity
 ```

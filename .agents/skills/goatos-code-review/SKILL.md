@@ -1,6 +1,6 @@
 ---
 name: goatos-code-review
-description: Review or audit a Goat OS change (diff, branch, PR, or path) for kernel correctness, 1-5M-animal scale safety, hexagonal boundaries, backend + frontend + Android-mobile architecture (Room SSOT / offline / pagination / memory), DB-schema/migration lock-safety, and vaccination/obligation business-rule fidelity — applying root-cause-vs-band-aid, anti-pattern, and blast-radius lenses and returning a bug list (or approval). Orchestrates CRG, Graphify, RTK, and repowise. Use when reviewing code, auditing a diff, or gating a change before push.
+description: Review or audit a Goat OS change (diff, branch, PR, or path) for kernel correctness, aggregate/projection grain and key correctness, 1-5M-animal scale safety, hexagonal boundaries, backend + frontend + Android-mobile architecture (Room SSOT / offline / pagination / memory), DB-schema/migration lock-safety, and vaccination/obligation business-rule fidelity — applying root-cause-vs-band-aid, anti-pattern, and blast-radius lenses and returning a bug list (or approval). Orchestrates CRG, Graphify, RTK, and repowise. Use when reviewing code, auditing a diff, or gating a change before push.
 version: 0.1.0
 user-invocable: true
 argument-hint: "[target: diff | branch | PR | path — what to review]"
@@ -66,6 +66,7 @@ regardless of which layer changed.
 | `apps/admin-web/**`, `packages/ui`, `packages/rbac`, `packages/forms-dsl`, `packages/api-client` | `references/frontend.md` |
 | `apps/goatos-android/**` (Kotlin/Compose app) | `references/mobile.md` |
 | `backend/internal/**`, `backend/cmd/**`, `backend/migrations/**` | `references/backend.md` **+** `references/kernel-and-scale.md` |
+| Projection/read model/card/summary/calendar/reminder code, or a query combining `JOIN` with aggregation/pagination | `references/aggregates-and-projections.md` **+ producer and consumer lenses** |
 | `contracts/openapi`, event-payload / JSON-schema contracts | `references/backend.md` **+** `references/business-rules.md` **+ every consumer lens the contract reaches** (see consumer auto-pull below) |
 | `docs/**`, `rule_dsl` / protocol config, vaccination/feed rules | `references/business-rules.md` |
 | Any change (toolchain / tool-driving) | `references/toolchain.md` (always) |
@@ -147,6 +148,9 @@ clean the rest is:
 2. **Scale & idempotency (1-5M)** — bounded sweepers, tenant/date-filtered
    indexed queries, keyset pagination, bounded goroutines, idempotency key + DB
    unique constraint, atomic state+audit+outbox. (`references/kernel-and-scale.md`)
+   Any aggregate/projection also proves canonical membership, stable group key,
+   join cardinality, hierarchy mapping, and page-independent totals using
+   `references/aggregates-and-projections.md`.
 3. **Security / privacy / tenant isolation** — every scoped query filters
    `tenant_id`; no secrets/tokens/service-account JSON in logs; input validated
    at boundaries. (Goat identifiers are livestock data, NOT PII — log them.)
@@ -335,6 +339,7 @@ disclosure. (Multi-layer changes load multiple; see Scope detection above.)
 | Go backend: modules, layering, pgx/sqlc, migrations, observability, tests | `references/backend.md` |
 | admin-web / Next.js: contracts, mock fidelity, IA, data access | `references/frontend.md` |
 | Goat OS Android (Kotlin/Compose): Room SSOT, pagination, offline, memory, lifecycle | `references/mobile.md` |
+| Aggregate/projection/read-model/card/calendar/reminder summary or paged rail | `references/aggregates-and-projections.md` plus every reached producer/consumer lens |
 | A contract/DTO/list-endpoint consumed by a mobile or admin-web client | consumer lens (`references/mobile.md` / `references/frontend.md`) — see Proportionality & blast radius |
 | Vaccination / obligation / feed / calendar / SOP / org / species rules | `references/business-rules.md` |
 | Which tool to run, how to run it, in what order | `references/toolchain.md` |

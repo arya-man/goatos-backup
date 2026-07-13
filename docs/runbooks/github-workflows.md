@@ -178,6 +178,11 @@ Make sure OpenAPI/JSON Schema/contracts/examples still validate.
 Make sure generated OpenAPI TypeScript clients are regenerated.
 Make sure admin-web does not reintroduce direct BigQuery, Google Sheets,
 Apps Script, direct Sheet CSV export, or XLSX live-data access.
+Block a changed SQL aggregate/projection unless it records canonical membership,
+stable group identity, join-cardinality, pagination, and scope evidence and adds
+the applicable fan-out/date/scope/status/page-boundary regression tests. The
+aggregate-projection guard inspects committed, staged, unstaged, and untracked
+work so a dirty checkout cannot report a false no-change pass.
 Make sure rendered/admin-web-facing code uses Mesha visible branding instead of
 old or internal product labels.
 ```
@@ -421,10 +426,11 @@ feature directory.
 
 ### Step 4c: Contract-integrity guardrails
 
-Five machine guards enforce previously prose-only AGENTS.md "Do:" rules whose
+Six machine guards enforce previously prose-only AGENTS.md "Do:" rules whose
 violations shipped as real ledger bugs. Each is a zero-dependency Node guard with
-an embedded `--self-test` and a `*-baseline.txt` ratchet — it fails only on NEW
-offenders beyond the grandfathered baseline, which is burned down over time.
+an embedded `--self-test`. Five use a `*-baseline.txt` ratchet for existing debt;
+the aggregate/projection evidence guard is diff-scoped and has no grandfathered
+waiver.
 
 ```text
 idempotency-writes-guard     -> mutating write paths must not rely on the
@@ -442,6 +448,10 @@ india-date-guard             -> UTC must never define a Goat OS business day;
 offline-first-guard          -> Android screen-facing read repositories must be
                                 Room-backed offline-first, not network-only
                                 api.xxx() pass-throughs (C35-001/019, MOB-007).
+aggregate-projection-guard   -> changed JOIN + aggregate projections must state
+                                membership/key/cardinality/page/scope proof and
+                                add applicable fan-out, date-shift, hierarchy,
+                                status-matrix, and page-boundary tests.
 ```
 
 Each runs in `make guardrails` (so `make ci-local JOB=guardrails` and the `ci`
@@ -935,7 +945,8 @@ Jobs:
 
 ```text
 route                verifies this is a main -> stg PR
-backend-db-api       runs guardrails, scale guard, go test ./..., sqlc,
+backend-db-api       runs guardrails, aggregate/projection evidence, scale guard,
+                     go test ./..., sqlc,
                      query plans, hot-index migration validation, migration
                      validation, vaccination kernel E2E, and HRMS roster/RBAC
                      E2E against disposable Postgres

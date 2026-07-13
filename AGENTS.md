@@ -377,6 +377,19 @@ Do:
   `make admin-web-request-reads-guard`
   (`tools/agent-hooks/check-admin-web-request-reads.mjs`); read a projection/summary
   endpoint instead. Rule + rationale in `docs/decisions/scale-anti-patterns.md`.
+- Treat every aggregate/projection/card/summary as a grain-and-identity proof,
+  not an arithmetic exercise. Before writing or approving a query that combines
+  `JOIN` with `COUNT`/`SUM`/`GROUP BY`, identify the canonical membership source,
+  use the same stable group key on producer and consumer, prove every join is
+  1:1 or deduplicate/pre-aggregate the many side, map farm/park/shed/cohort with
+  an explicit scope matrix, and keep totals/reminders independent of UI page
+  size. Tests must adversarially cover one-to-many fan-out, shifted
+  due-vs-execution dates, every supported scope depth, page boundaries, and the
+  live DB status matrix when status buckets exist. Add the nearby
+  `projection-review:` evidence marker defined in
+  `.agents/skills/goatos-code-review/references/aggregates-and-projections.md`
+  and run `make aggregate-projection-guard`; the required CI guard includes
+  committed, staged, unstaged, and untracked changes.
 - E2E publishing rule for Codex, Claude, and every feature agent: any generated
   E2E result for a feature, fix, audit, or scale gate must be committed inside
   this repo and surfaced on the GitHub Pages CI report site before handoff. The
