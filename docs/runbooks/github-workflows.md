@@ -940,6 +940,9 @@ vgoats/goatos main -> stg
 ```
 
 This workflow does not run for feature branches into `main`.
+No local ref may be pushed directly to remote `stg`; `make ai-setup` installs a
+pre-push block for humans and agents, and the committed agent hooks reject the
+same command before shell execution.
 
 Jobs:
 
@@ -990,6 +993,20 @@ push to stg
 workflow_dispatch
 ```
 
+Before cloud authentication, image builds, or release creation, the workflow
+queries GitHub and fails closed unless all of these are true:
+
+```text
+ref is exactly refs/heads/stg
+SHA is exactly the merge commit of a closed, merged pull request
+PR base is vgoats/goatos:stg
+PR head is vgoats/goatos:main
+```
+
+A direct push from `HEAD`, local `stg`, `main`, or an agent branch therefore
+cannot deploy. `workflow_dispatch` is not a bypass: it can only rerun the exact
+current `stg` SHA that GitHub already produced by merging `main -> stg`.
+
 Authentication uses GitHub OIDC with repo variables:
 
 ```text
@@ -1005,16 +1022,13 @@ runtime service accounts. There is no committed service-account key.
 Deploy flow:
 
 ```text
-1. Build and push backend:<git-sha-12>
-2. Build and push migrate:<git-sha-12>
-3. Build and push admin-web:<git-sha-12>
-4. Update goatos-stg-migrate and execute it with --wait
-5. Update goatos-api-stg
-6. Update scheduled backend Cloud Run jobs
-7. Update goatos-admin-web-stg
-8. Smoke https://goatos-api-stg-awtrpmn4za-el.a.run.app/livez -> 204
-9. Smoke https://goatos-api-stg-awtrpmn4za-el.a.run.app/readyz -> 204
-10. Smoke https://stg.dashboard.mesha.sg/login
+1. Verify the exact SHA came from a merged same-repo main -> stg PR
+2. Build and push backend:<git-sha-12>
+3. Build and push migrate:<git-sha-12>
+4. Build and push admin-web:<git-sha-12>
+5. Create the Cloud Deploy release
+6. Cloud Deploy updates migration/API/jobs/admin-web in the documented order
+7. Cloud Deploy verifies image skew and smokes the API/dashboard
 ```
 
 The workflow skips a push only when the head commit message contains:
@@ -1023,8 +1037,19 @@ The workflow skips a push only when the head commit message contains:
 [skip stg deploy]
 ```
 
-Use that only for branch bootstrapping or workflow-only seeding. Normal
+Use that only for a merged `main -> stg` commit that intentionally should not
+deploy. It does not authorize a direct branch push or arbitrary SHA. Normal
 `main -> stg` PR merges must deploy automatically.
+
+Local and CI guard test:
+
+```bash
+make stg-promotion-guard
+make stg-promotion-guard-install
+```
+
+The first command validates command/ref rejection and committed workflow/hook
+wiring. The second idempotently installs the machine-local pre-push block.
 
 ## Maintenance Rule
 

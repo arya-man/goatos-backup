@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
   id-token: write
 
 concurrency:
@@ -28,6 +29,13 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v7
+      - name: Require merged main to stg promotion
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GOATOS_PROMOTION_REPOSITORY: ${{ github.repository }}
+          GOATOS_PROMOTION_SHA: ${{ github.sha }}
+          GOATOS_PROMOTION_REF: ${{ github.ref_name }}
+        run: node tools/ci/check-stg-promotion.mjs --github
       - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GOATOS_STG_WIF_PROVIDER }}

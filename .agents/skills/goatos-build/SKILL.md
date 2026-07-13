@@ -132,6 +132,12 @@ one product; this skill is the navigation layer.
 ## Must
 
 - Read wide, write narrow.
+- **Promote staging only through GitHub's PR merge.** Never push any local ref,
+  `HEAD`, `main`, local `stg`, agent branch, or refspec directly to remote
+  `stg`. Open the same-repository `vgoats/goatos main -> stg` PR, wait for
+  `stg-pr-gate`, and merge it in GitHub. Manual workflow dispatch is only a
+  rerun of the exact current `stg` SHA already produced by such a merge. Never
+  use `--no-verify` to bypass the installed pre-push guard.
 - For any consolidated-ledger fix, read
   `context/repo-audits/last-35-commits-consolidated-bug-ledger.md` and obey
   `context/repo-audits/consolidated-ledger-defect-closure-program.md`. Work one

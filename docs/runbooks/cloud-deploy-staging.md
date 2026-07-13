@@ -58,7 +58,12 @@ The rollout task must keep this order:
 Do not move migration after service deploy. Do not hand-maintain a stale worker
 job list; the rollout discovers existing backend-image jobs and updates them.
 
-## Create A Release Locally
+## Create A Release Locally (Break Glass Only)
+
+Normal staging releases must originate from GitHub merging the same-repository
+`main -> stg` pull request. Do not use this helper as an alternative staging
+promotion path. It exists only for an explicitly-authorized break-glass repair
+after the operator verifies the exact already-approved commit and cloud target.
 
 Run from a clean repo checkout that points at the intended commit:
 
@@ -76,8 +81,14 @@ staging handoff.
 `.github/workflows/stg-deploy.yml` is now a release producer:
 
 ```text
-push/dispatch -> build images -> push images -> gcloud deploy releases create
+merged main -> stg SHA verification -> build images -> push images ->
+gcloud deploy releases create
 ```
+
+The SHA verification happens before OIDC authentication. It requires the exact
+current `stg` SHA to be the merge commit of a closed, merged, same-repository
+`main -> stg` PR. Direct pushes and dispatches from `main` or agent branches
+fail before any cloud write.
 
 It must not call `gcloud run services update`, `gcloud run jobs update`, or
 `gcloud run jobs execute` directly. Those commands belong inside the Cloud

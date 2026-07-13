@@ -55,6 +55,7 @@ jobs:
       - name: Boundary and contract guards
         run: |
           make ai-doctor
+          make stg-promotion-guard
           make scale-guard
           make aggregate-projection-guard
           make clinical-defer-guard

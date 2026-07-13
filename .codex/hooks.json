@@ -40,6 +40,15 @@
         "hooks": [
           {
             "type": "command",
+            "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; if [ -z \"$repo\" ] || [ ! -f \"$repo/tools/ci/check-stg-promotion.mjs\" ]; then repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; fi; script=\"$repo/tools/ci/check-stg-promotion.mjs\"; if [ -f \"$script\" ]; then node \"$script\" --agent-hook; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|exec_command|functions.exec_command|functions\\.exec_command|unified_exec",
+        "hooks": [
+          {
+            "type": "command",
             "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; if [ -z \"$repo\" ] || [ ! -f \"$repo/tools/agent-hooks/pre-search-guard.sh\" ]; then repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; fi; script=\"$repo/tools/agent-hooks/pre-search-guard.sh\"; if [ -f \"$script\" ]; then bash \"$script\"; fi"
           }
         ]

@@ -44,8 +44,11 @@ stack before doing the actual work:
   `.code-review-graph/` exists, or after one setup attempt on the clone
   (marker `<git-dir>/goatos-ai-setup-attempted`), so an offline machine cannot
   deadlock. Disable with `GOATOS_AI_SETUP_GUARD=0`.
-- Human devs working without an agent are not blocked by anything; they run the
-  commands below by hand.
+- `make ai-setup` also installs a machine-local Git `pre-push` hook scoped to
+  `vgoats/goatos`. It blocks every direct update to remote `stg`, including
+  `HEAD:stg`, `main:stg`, local `stg`, deletions, and forced updates. Human and
+  agent pushes are both covered. The only staging promotion path is a merged
+  same-repository `main -> stg` pull request in GitHub.
 
 Run from the repository root:
 
@@ -60,6 +63,8 @@ make ai-doctor
 - `code-review-graph` for code structure.
 - `graphify` for local docs graph generation/querying.
 - `rtk` when Homebrew is available, otherwise it prints the install instruction.
+- the Goat OS direct-`stg` pre-push guard without replacing an existing
+  machine hook.
 
 `ai-rebuild` creates local generated artifacts:
 

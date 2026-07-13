@@ -135,13 +135,16 @@ Staging branch automation:
 
 ```text
 main -> stg PR: .github/workflows/stg-pr-gate.yml
-push to stg:    .github/workflows/stg-deploy.yml -> Cloud Deploy release
+GitHub PR merge: updates stg
+verified stg SHA: .github/workflows/stg-deploy.yml -> Cloud Deploy release
 ```
 
 The PR gate runs backend DB/API/migration tests, admin-web checks, and a real
 `stgRelease` Android APK build. The deploy workflow builds/pushes backend,
 migration, and admin-web images, then creates a Cloud Deploy release. Cloud
-Deploy owns all Cloud Run mutations.
+Deploy owns all Cloud Run mutations. Never push a local branch, `HEAD`, `main`,
+or refspec directly to remote `stg`; local/agent hooks block it, and the deploy
+workflow rejects any SHA without the matching merged same-repo PR.
 
 ## Dev Layer 1 foundation plan
 
@@ -337,7 +340,7 @@ For staging, the normal release path is now:
 ```text
 open main -> stg PR
 wait for stg-pr-gate
-merge PR
+merge PR in GitHub (the only authorized update to remote stg)
 stg-deploy runs automatically on the stg branch push
 ```
 

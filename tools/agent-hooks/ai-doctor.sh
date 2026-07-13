@@ -45,6 +45,8 @@ EXEC_FILES=(
     tools/agent-hooks/ai-doctor.sh
     tools/agent-hooks/repowise-setup.sh
     tools/agent-hooks/repowise-coverage.sh
+    tools/agent-hooks/install-stg-push-guard.sh
+    tools/ci/check-stg-promotion.mjs
     tools/agent-hooks/check-mock.sh
     tools/agent-hooks/check-mock-clicks.mjs
     tools/agent-hooks/push-mock.sh

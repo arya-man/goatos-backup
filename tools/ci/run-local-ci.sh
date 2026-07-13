@@ -41,6 +41,7 @@ step() { # name, command...
 
 run_guardrails() {
   step "agent: ai-doctor"          make ai-doctor
+  step "agent: stg-promotion"      make stg-promotion-guard
   step "agent: boundaries self-test" bash tools/agent-hooks/check-boundaries.sh --self-test
   step "agent: boundaries"        bash tools/agent-hooks/check-boundaries.sh
   step "agent: refresh-binding"   node tools/agent-hooks/check-refresh-binding.mjs

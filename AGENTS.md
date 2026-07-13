@@ -261,6 +261,14 @@ Organization boundaries:
   remote URL for direct remote/CI verification. Do not rely on whatever `gh`
   account is active; this workspace may also have Heva and Slice GitHub
   accounts configured, and those must not be used for Goat OS repo authority.
+- **Staging promotion is PR-only (always on).** Never push any local ref, local
+  `stg`, `main`, `HEAD`, agent branch, or refspec directly to remote `stg`.
+  The only authorized staging branch update is GitHub merging a same-repository
+  `vgoats/goatos main -> stg` pull request after `stg-pr-gate` passes. A manual
+  `stg-deploy` dispatch may rerun that already-merged `stg` SHA; it may not
+  deploy `main`, an agent branch, or any SHA without the matching merged PR.
+  Run `make ai-setup` (or `make stg-promotion-guard-install`) to install the
+  machine-local pre-push block. Do not bypass it with `--no-verify`.
 - Create Goat OS cloud resources under `vgoats.com`, preferably in a `goat-os`
   folder, or directly under the org if folder creation is not available. Do not
   create Goat OS resources inside `system-gsuite` or `apps-script`.
