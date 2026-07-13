@@ -504,6 +504,14 @@
   .main table.source-loads-table{min-width:1480px}
   .main table.source-loads-table th:nth-child(3),.main table.source-loads-table td:nth-child(3){min-width:120px}
   .main table.source-loads-table th:nth-child(5),.main table.source-loads-table td:nth-child(5){min-width:170px}
+  /* Calendar drawer eligible-animals table (6 cols incl. two 15-digit RFID tags) does not fit the
+     ~570px drawer. Its wrapper scrolls horizontally; give the table a min-width and single-line cells
+     so STATUS/When aren't clipped and the "Deferred" pill renders in full. */
+  .drawer table.eligible-animals-table{width:100%;min-width:620px;border-collapse:collapse}
+  .drawer table.eligible-animals-table th,.drawer table.eligible-animals-table td{white-space:nowrap}
+  .drawer table.eligible-animals-table th{text-align:left;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
+  .drawer table.eligible-animals-table td{padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
+  .drawer table.eligible-animals-table tr:last-child td{border-bottom:0}
   .screen th{text-align:left;font-size:11px;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
   .screen td{padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   .cliptext{display:block;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

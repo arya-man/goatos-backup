@@ -380,10 +380,11 @@ export function CalendarEventDrawer({
                     padding: 0,
                     border: "1px solid var(--line2)",
                     borderRadius: 10,
-                    overflow: "hidden",
+                    overflowX: "auto",
+                    overflowY: "hidden",
                   }}
                 >
-                  <table>
+                  <table className="eligible-animals-table">
                     <thead>
                       <tr>
                         <th>{copy(pageContract, "label.display_id")}</th>
