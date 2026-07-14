@@ -177,6 +177,7 @@ Load and reconcile:
 - context/architecture/operational-kernel.md
 - context/architecture/operational-kernel-system-design.md
 - docs/phases/README.md
+- docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 - docs/decisions/scale-anti-patterns.md
 - docs/decisions/high-scale-dashboard-projections.md
 - docs/decisions/mobile-data-fetch-anti-patterns.md
@@ -230,6 +231,8 @@ Extract patterns around:
 - no batching / fake batching
 - slow API responses
 - missing CQRS/read-model/projection
+- overbuilt 1-5M topology treated as a present-release blocker despite the
+  accepted 5k-50k envelope
 - compute-on-read CTEs
 - missing or unsafe cache strategy
 - Redis used incorrectly or missing only where a real transient cache/lock/rate
@@ -393,8 +396,7 @@ The runtime this bar reviews against is the ADR's target topology: ONE modular
 kernel worker beside the API and Postgres (not the retired 17-job Cloud Run
 fleet); the Calendar / process-integrity / vaccination shed / execution /
 operations screens served by bounded, keyset/indexed canonical SQL (0 of those 5
-screen projections survive as runtime infrastructure except Calendar's, which is
-kept as a surviving projection); and the scoped
+screen projections survive as active runtime infrastructure); and the scoped
 `// scale-guard:ignore: 5k-50k-envelope` exemption on exactly those canonical
 screen reads. Do NOT flag those sanctioned canonical indexed reads as a
 "missing projection" / "compute-on-read" defect — they are the approved envelope
@@ -451,7 +453,8 @@ Technical scale:
   or per-row DB calls.
 - Migrations must avoid long locks, full-table rewrites, and non-concurrent
   indexes on large tables.
-- Read models/projections must have query-plan proof.
+- Canonical reads and any earned read models/projections must have query-plan
+  proof.
 - Guardrails must fail on new scale debt, not only report baseline debt.
 
 Operational scale means (present envelope, then future bar):
@@ -459,7 +462,8 @@ Operational scale means (present envelope, then future bar):
   them (present bar); one-million to 1-5M animals is the FUTURE certification
   scenario, not the present target — but neither is merely rows sitting idle
 - repeated daily/weekly commands, reminders, proof uploads, SOP tasks, status
-  transitions, projection refreshes, mobile syncs, repairs, and replays
+  transitions, earned projection refreshes if/when introduced, mobile syncs,
+  repairs, and replays
 - tenant/park/shed/date scoped throughput with fairness and backpressure, not a
   single happy-path benchmark
 
@@ -541,9 +545,12 @@ For the operational kernel and every major capability, check these categories:
 - replay/versioning: event schemas are versioned; replay checkpoints,
   poison-event quarantine, deterministic rebuilds, and schema migration behavior
   are defined
-- incremental projections: update impacted tenant/park/shed/date aggregates;
-  recurring full-tenant rebuilds are repair tools, not normal request flow
-- freshness contracts: read models expose version/projected_at/as_of/serving
+- earned projections only when measured: if a direct canonical read fails the
+  envelope after query/index repair, introduce one narrowly owned projection that
+  updates impacted tenant/park/shed/date aggregates; recurring full-tenant
+  rebuilds are repair tools, not normal request flow
+- freshness contracts: canonical reads expose server-computed as_of/business_date
+  where useful; any earned read model exposes version/projected_at/as_of/serving
   state; stale data is visibly degraded, rejected, or policy-accepted
 - pre-aggregated / bounded summary reads: badges, Control Tower, Action Center,
   Protocol Adherence, calendar markers, and summary counts must be bounded,
@@ -554,9 +561,10 @@ For the operational kernel and every major capability, check these categories:
   summary DTOs / day-markers, not row dumps. A GROUP BY over an unbounded/growing
   projection on every screen remains banned and is the shape the future 1-5M bar
   will force onto a pre-aggregated counter.
-- partitioning and retention: histories, outbox/inbox, projections, audit logs,
-  and mobile sync cursors have tenant/time partitions, bounded indexes, archival,
-  and chunked pruning
+- retention and future partitioning: for 5k-50k, ordinary indexed
+  event/history/audit tables are valid when query-plan tested; retention,
+  archival, and chunked pruning still apply. Tenant/time partitioning is a future
+  extraction step for a measured hotspot, not a default present requirement.
 - backpressure: bounded worker pages, concurrency limits, retry budgets, DLQs,
   rate limits, and load shedding prevent replay/repair from crushing Postgres
 - workflow orchestration: verification, stock consumption, completion, boosters,
@@ -567,15 +575,16 @@ For the operational kernel and every major capability, check these categories:
 - API discipline: keyset pagination, summary DTOs, byte budgets, strict filters,
   deadlines, cancellation, per-tenant rate limits, and no unbounded export path
   posing as a screen API
-- cache above truth: Redis/local caches may cache hot projection responses or
-  coordination tokens, but must use versioned keys and never become correctness
-  source
-- observability: per-stage lag, queue depth, projection age, retry count, DLQ
-  count, query latency, cardinality, and trace correlation from command -> outbox
-  -> event -> worker -> projection -> API
-- disaster/replay operations: checkpointed rebuilds, shadow projection versions,
-  atomic version swap, parity checks, rollback to last-known-good, and operator
-  runbooks
+- cache above truth: Redis/local caches may cache hot canonical summary responses,
+  earned projection responses, or coordination tokens, but must use versioned keys
+  and never become correctness source
+- observability: per-stage lag, queue depth, retry count, DLQ count, query
+  latency, cardinality, projection age when a projection exists, and trace
+  correlation from command -> outbox -> event -> worker -> canonical read or
+  earned projection -> API
+- disaster/replay operations: checkpointed rebuilds, rollback to
+  last-known-good, operator runbooks, and shadow projection/version swap only when
+  an earned projection exists
 - mobile offline synchronization: cursor/checkpoint sync, conflict rules, bounded
   local storage, mutation idempotency, cache purge, and stale/offline labels
 
@@ -593,12 +602,13 @@ Audit the operational kernel as a common platform:
 - Domain-specific rules live behind small ports/interfaces/configuration, not
   hardcoded switches scattered through shared kernel code.
 - Shared infrastructure owns outbox, inbox, idempotency, leases, retry policy,
-  DLQ, replay, repair, projection refresh, freshness metadata, and observability.
+  DLQ, replay, repair, freshness metadata, observability, and projection refresh
+  only where a projection is explicitly earned.
 - New domains should register commands/events/projectors/workers/repair actions
   through explicit contracts, not fork the kernel.
 - Apply SOLID pragmatically:
-  - single responsibility: command handling, event transport, projection writes,
-    retry, and repair are not tangled together.
+  - single responsibility: command handling, event transport, retry, repair, and
+    any earned projection writes are not tangled together.
   - open/closed: adding a new domain should add a module/registration, not edit
     many central switch statements.
   - dependency inversion: domain logic depends on kernel ports/contracts, not
@@ -612,7 +622,8 @@ Audit the operational kernel as a common platform:
 Flag findings when:
 - vaccination fixes special-case the kernel in a way future domains cannot reuse
 - retry/DLQ/replay/repair exists only as ad hoc feature code
-- adding a new domain requires duplicating outbox/consumer/projection plumbing
+- adding a new domain requires duplicating outbox/consumer plumbing or projection
+  plumbing when a projection is earned
 - shared kernel code imports or assumes one business domain unnecessarily
 - platform behavior is configurable but has no validation, defaults, or fail-closed
   behavior
@@ -708,7 +719,9 @@ Explicitly hunt for:
   cross-user, not invalidated, or not source-of-truth safe.
 - Redis misuse/missing strategy:
   - Redis is not source of truth.
-  - Postgres projections/read models are preferred for business truth.
+  - Postgres canonical indexed reads are the current-envelope default for
+    business truth; projections/read models are introduced only for measured hot
+    reads per the ADR scale-out ladder.
   - Redis may be valid for ephemeral cache, locks, rate limiting, or hot
     transient lookup only when invalidation/TTL/fallback is explicit.
   - If a hot path has no Redis/cache, decide whether that is safe because
@@ -728,13 +741,14 @@ Core architecture constraints:
   stores are execution/read/transport layers, not canonical truth.
 - Event-driven flow is expected for hot operational surfaces. At the current
   5k-50k envelope, CQRS projections are NOT mandatory for the five named screens:
-  bounded keyset/indexed canonical SQL (Calendar kept as a surviving projection)
+  bounded keyset/indexed canonical SQL
   is the sanctioned default. What stays suspect by default is UNBOUNDED
   request-time reconstruction (god-CTE, full/herd scan, capped read-time rollup) —
   not a plan-proven bounded canonical read. The future 1-5M bar may add
   projections per the ADR scale-out ladder.
-- Outbox/inbox/retry/DLQ/replay/projection plumbing should be reusable kernel
-  infrastructure, with domain-specific policy injected through contracts.
+- Outbox/inbox/retry/DLQ/replay plumbing should be reusable kernel
+  infrastructure, with domain-specific policy injected through contracts; add
+  projection plumbing only when a read path earns it.
 - Do not add complexity blindly. Every async component must have a clear reason:
   latency isolation, retry safety, fanout, scheduling, backpressure, or read
   model freshness.
@@ -757,12 +771,13 @@ Explicitly audit:
   queue-lag observability
 - sagas/workflows: multi-step business processes have compensating or repair
   paths; partial completion cannot strand invisible work
-- projection ownership: exactly one writer owns each read model, or multi-writer
-  rules are explicit and conflict-safe
-- projection freshness: APIs expose freshness/as_of/version metadata where stale
-  reads matter
-- projection rebuild: rebuild/prune is version-swapped or otherwise avoids
-  stop-the-world gaps and serving empty/partial business truth
+- earned projection ownership: if a read model/projection exists, exactly one
+  writer owns it, or multi-writer rules are explicit and conflict-safe
+- earned projection freshness: if a projection exists, APIs expose
+  freshness/as_of/version metadata where stale reads matter
+- earned projection rebuild: if a projection exists, rebuild/prune is
+  version-swapped or otherwise avoids stop-the-world gaps and serving
+  empty/partial business truth
 - fanout: notification/proof/SOP/read-model fanout is bounded, idempotent, and
   observable
 - scheduler/worker deployment: local and deployed worker config must fail closed
@@ -780,7 +795,7 @@ For each major capability, record the architecture pattern:
 - Pub/Sub/event consumer
 - scheduled worker/sweeper
 - Cloud Tasks/job queue
-- CQRS projection/read model
+- earned CQRS projection/read model
 - Redis/cache/local Room cache
 - manual repair/DLQ path
 
@@ -801,7 +816,7 @@ Hot paths that require special scrutiny:
 - mobile calendar/day/detail/scan/tasks/review queue
 - obligation sweeper
 - domain consumer
-- projection recompute/prune
+- earned projection recompute/prune
 - outbox relay and DLQ repair
 
 For each hot path, record:
@@ -831,7 +846,8 @@ Specifically verify this closure gap:
   /vaccination/operations are also proven bounded — via the sanctioned 5k-50k
   bounded keyset/indexed canonical SQL read, or a surviving/earned projection —
   with query-plan proof at the ~500k-row upper bound.
-- A shed projection alone does not certify execution and operations endpoints.
+- A bounded shed read path alone does not certify execution and operations
+  endpoints.
 - A latency CI commit is a gate, not an optimization by itself.
 - Bootstrap cold-load caching and frontend SOP request cleanup must be present
   and proven locally.
@@ -862,8 +878,9 @@ where you ran it):
 E2E acceptance:
 - Boot the stack and drive one event end to end through the real transport:
   mutation -> transactional outbox -> relay -> Pub/Sub emulator -> domain
-  consumer -> projection/read model -> Calendar/PI/notification effect.
-- No seeded readback. Obligations, projections, notifications, and DLQ entries
+  consumer -> canonical read or earned projection -> Calendar/PI/notification
+  effect.
+- No seeded readback. Obligations, any earned projections, notifications, and DLQ entries
   must be produced by the same services production uses. The repo enforces this
   with `tools/agent-hooks/check-e2e-kernel-integrity.sh` / `make
   e2e-integrity-guard`; a finding that leans on seeded derived state is not
@@ -1127,15 +1144,17 @@ For each changed capability, actively search:
 - slow API / missing p95/p99 proof
 - missing operational-kernel architecture category (reviewed at the 5k-50k
   envelope; 1-5M future): outbox, idempotency, ordering,
-  replay/versioning, incremental projection, freshness, pre-aggregated counter,
-  partition/retention, backpressure, workflow orchestration, concurrency, API
-  discipline, cache-above-truth, observability, disaster/replay, or mobile sync
-- missing CQRS projection/read model
+  replay/versioning, earned projection, freshness, bounded summary/counter,
+  retention/future partition trigger, backpressure, workflow orchestration,
+  concurrency, API discipline, cache-above-truth, observability,
+  disaster/replay, or mobile sync
+- missing bounded indexed canonical read; missing CQRS projection/read model only
+  when the canonical path fails the envelope and has earned a projection
 - missing or unsafe event-driven boundary
 - missing outbox/inbox/DLQ/replay semantics
 - feature-specific retry/DLQ/replay code that should be shared kernel behavior
 - missing platform extension point for tomorrow's domain
-- projection ownership/freshness/rebuild gap
+- earned projection ownership/freshness/rebuild gap
 - Pub/Sub/worker/scheduler config drift
 - unsafe or absent cache strategy
 - false-green latency or E2E test
@@ -1148,7 +1167,7 @@ For each changed capability, actively search:
 - missing local validation gate
 - missing E2E story
 - mobile over-fetch/offline leak
-- projection fallback
+- unsafe projection fallback or unbounded canonical fallback
 - worker retry/idempotency failure
 - unbounded retry/backoff, invisible poison messages, missing repair console, or
   replay path that can double-apply side effects
@@ -1232,9 +1251,10 @@ For each finding, check:
 - process-integrity latency gate
 - operational-kernel architecture category tests/checks (reviewed at the 5k-50k
   envelope; 1-5M future) for outbox, idempotency,
-  ordering, replay/versioning, incremental projections, freshness, counters,
-  partitioning, backpressure, workflow orchestration, concurrency, API discipline,
-  cache-above-truth, observability, disaster/replay, and mobile sync
+  ordering, replay/versioning, earned projections, freshness, bounded summaries/
+  counters, retention/future partition triggers, backpressure, workflow
+  orchestration, concurrency, API discipline, cache-above-truth, observability,
+  disaster/replay, and mobile sync
 - outbox/inbox/retry/DLQ/replay/repair tests
 - real local Docker Compose kernel stack boot + end-to-end event flow: make
   high-scale-kernel-e2e-all/-certification/-data, make scale-kernel-gate,
@@ -1270,7 +1290,8 @@ Scale verdict: envelope-safe (5k-50k, query-plan proof to ~500k obligation rows)
 envelope-unsafe/not proven; future 1-5M: safe/unsafe/not-yet-certified
 Operational-kernel architecture verdict: invariant-safe/category-gap/
 vendor-only-proof/not proven
-Performance verdict: bounded/projection-backed/cache-safe/slow-risk/not proven
+Performance verdict: bounded-canonical/projection-backed/cache-safe/slow-risk/
+not proven
 Architecture verdict: sync-safe/event-driven-safe/projection-safe/over-simple/
 over-complex/not proven
 Kernel/platform verdict: reusable/extensible/feature-coupled/retry-unsafe/
