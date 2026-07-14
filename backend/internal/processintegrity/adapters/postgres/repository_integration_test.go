@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -13,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 )
@@ -225,7 +223,11 @@ func TestListRowsProjectsFeedDirectionProjectionExceptionWork(t *testing.T) {
 	}
 }
 
-func TestProcessIntegrityProductionQueryPlanUsesIndexes(t *testing.T) {
+// TestProcessIntegrityCanonicalListQueryPlanUsesIndexes proves the 5k-50k canonical LIST read
+// (processIntegrityCanonicalRowsSQL) lands on the tenant+due_at indexes of the canonical base tables, not a
+// sequential scan of obligation_instances/goats/etc. The aggregate/summary plan is proven separately, at
+// scale, by TestProcessIntegrityCanonicalAggregateQueryPlanUsesIndexesAtScale.
+func TestProcessIntegrityCanonicalListQueryPlanUsesIndexes(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -250,26 +252,139 @@ func TestProcessIntegrityProductionQueryPlanUsesIndexes(t *testing.T) {
 		Limit:     200,
 	})
 	args := queryArgs(q)
-	// C35-002: the request path is projection-only. Validate the bounded projection read plan (indexed
-	// lookup on the serving read model), NOT the canonical god-CTE — the canonical SQL now exists solely
-	// for the off-request projector recompute.
-	plan := explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityProjectionRowsSQL, args...)
-	plan += "\n" + explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityProjectionCountsSQL, countQueryArgs(args)...)
+	plan := explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityCanonicalRowsSQL, args...)
 
 	for _, forbidden := range []string{
-		"Seq Scan on process_integrity_projection_rows",
-		"Seq Scan on process_integrity_projection_summaries",
-		"Seq Scan on process_integrity_projection_state",
+		"Seq Scan on obligation_instances",
+		"Seq Scan on protocol_versions",
+		"Seq Scan on protocol_definitions",
+		"Seq Scan on protocol_rules",
+		"Seq Scan on goats",
+		"Seq Scan on obligation_batches",
+		"Seq Scan on sop_tasks",
+		"Seq Scan on sop_submissions",
+		"Seq Scan on vaccination_completions",
+		"Seq Scan on locations",
+		"Seq Scan on workforce_members",
 	} {
 		if strings.Contains(plan, forbidden) {
-			t.Fatalf("process integrity projection plan used %q:\n%s", forbidden, plan)
+			t.Fatalf("canonical list plan used %q:\n%s", forbidden, plan)
 		}
 	}
 	if !strings.Contains(plan, "Index Scan") &&
 		!strings.Contains(plan, "Index Only Scan") &&
 		!strings.Contains(plan, "Bitmap Index Scan") {
-		t.Fatalf("process integrity projection plan did not use an index scan:\n%s", plan)
+		t.Fatalf("canonical list plan did not use an index scan:\n%s", plan)
 	}
+}
+
+// TestProcessIntegrityCanonicalAggregateQueryPlanUsesIndexesAtScale is the non-keyset AGGREGATE proof at the
+// ADR upper bound (~500k obligation rows, operational-kernel-5k-50k-scale-envelope.md step 4). A green plan
+// at the 5k regression fixture is NOT proof for an aggregate that scans the whole tenant window: the risk is
+// a plan that is fine small and catastrophic large. We load ~500k canonical obligations, ANALYZE so the
+// planner uses real statistics, then EXPLAIN the counts aggregate WITHOUT forcing enable_seqscan off — the
+// planner must still choose an index path on the driving obligation_instances scan (tenant+due_at), proving
+// the aggregate stays index-bound at scale rather than falling to a full sequential scan.
+func TestProcessIntegrityCanonicalAggregateQueryPlanUsesIndexesAtScale(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+	seedProcessIntegrityLargeObligationFixture(t, ctx, pool, 500_000)
+
+	// Refresh planner statistics after the bulk load so the plan reflects the ~500k-row reality, not the
+	// stale near-empty estimate. This mirrors the mandatory post-seed ANALYZE contract in AGENTS.md.
+	execPI(t, ctx, pool, "analyze canonical tables at scale",
+		`ANALYZE obligation_instances, obligation_batches, vaccination_completions, sop_tasks, sop_submissions, goats, locations, workforce_members, protocol_versions, protocol_rules, protocol_definitions`)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// A real operator window is a bounded date range, not the whole tenant history. Anchoring due_after +
+	// due_before to a narrow window makes the tenant+due_at index genuinely selective over the ~500k-row
+	// table (a single-tenant fixture makes the tenant column alone non-selective), which is exactly the
+	// access pattern the aggregate must ride at scale.
+	dueAfter := time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC)
+	scaleQuery := domain.Query{
+		TenantID:  piTenant,
+		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+		DueAfter:  &dueAfter,
+		DueBefore: time.Date(2026, 6, 25, 0, 0, 0, 0, time.UTC),
+		Limit:     1,
+	}
+	countArgs := countQueryArgs(queryArgs(normalizeQuery(scaleQuery)))
+	// No SET enable_seqscan = off here: at ~500k rows a genuinely index-bound aggregate must be the
+	// planner's own choice, not a forced one.
+	plan := explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityCanonicalCountsSQL, countArgs...)
+
+	if strings.Contains(plan, "Seq Scan on obligation_instances") {
+		t.Fatalf("canonical aggregate fell to a sequential scan of obligation_instances at ~500k rows:\n%s", plan)
+	}
+	if !strings.Contains(plan, "Index Scan") &&
+		!strings.Contains(plan, "Index Only Scan") &&
+		!strings.Contains(plan, "Bitmap Index Scan") {
+		t.Fatalf("canonical aggregate did not use an index scan at ~500k rows:\n%s", plan)
+	}
+
+	// The aggregate must also RUN within the request budget at scale and stay a bounded, page-independent
+	// window total (one count per work_state), not a per-row fan-out.
+	repo := NewRepository(pool, 10*time.Second)
+	counts, err := repo.CountByWorkState(ctx, scaleQuery)
+	if err != nil {
+		t.Fatalf("CountByWorkState at scale: %v", err)
+	}
+	var total int64
+	for _, c := range counts {
+		total += c.Count
+	}
+	if total == 0 {
+		t.Fatalf("aggregate returned zero rows at scale: %+v", counts)
+	}
+}
+
+// seedProcessIntegrityLargeObligationFixture bulk-loads count distinct canonical obligations via one
+// set-based INSERT ... SELECT generate_series. They target a dedicated scale goat (its own target_id) so the
+// UNIQUE(tenant, protocol_version, rule, target_type, target, due_at) dup guard never collides with the
+// hand-seeded rows, and each row gets a distinct due_at + id/idempotency_key/sequence. The join tables stay
+// tiny, so the fixture stresses the obligation_instances index path specifically — the dominant cost of the
+// aggregate at scale.
+func seedProcessIntegrityLargeObligationFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, count int) {
+	t.Helper()
+	const piScaleGoat = "71000000-0000-4000-8000-000000000090"
+	execPI(t, ctx, pool, "scale goat",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+		   current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
+		piScaleGoat, piTenant, piParty, piShed, piPark)
+	// due_at = 2026-06-14 00:00:00+00 + g minutes gives each obligation a unique due_at; the first ~44k land
+	// inside the aggregate's due window (through 2026-07-15) and the tail sits beyond it, so the plan must
+	// prune the ~500k-row table to the window on the tenant+due_at index. sequence starts above the
+	// hand-seeded rows.
+	execPI(t, ctx, pool, "bulk canonical obligations at scale", `
+INSERT INTO obligation_instances (
+  obligation_id, tenant_id, protocol_version_id, rule_id,
+  target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence
+)
+SELECT
+  gen_random_uuid(),
+  $1::uuid,
+  $2::uuid,
+  $3::uuid,
+  'goat',
+  $4::uuid,
+  'shed',
+  $5::uuid,
+  TIMESTAMPTZ '2026-06-14 00:00:00+00' + (g || ' minutes')::interval,
+  'scheduled',
+  'pi-scale-' || g::text,
+  1000 + g
+FROM generate_series(1, $6::int) AS g`,
+		piTenant, piVersion, piRule, piScaleGoat, piShed, count)
 }
 
 func TestProcessIntegrityProjectionRecomputeServesHotReadsWithParity(t *testing.T) {
@@ -571,271 +686,58 @@ func TestProcessIntegrityProjectionPruneReturnsDatabaseAndCancellationErrors(t *
 	}
 }
 
-func TestProcessIntegrityBuildPreservesFreshLastKnownGood(t *testing.T) {
+// TestProcessIntegrityRequestPathReadsCanonicalWithoutProjection is the 5k-50k envelope contract: the
+// request path serves directly from the canonical obligation/SOP/proof/completion tables. With canonical
+// source data present but NO projection ever recomputed (no serving version, projection tables empty), every
+// request-path read must SUCCEED and return the reconstructed rows — a canonical read cannot be stale
+// relative to the canonical write, so there is no projection-unavailable/stale gate to trip.
+func TestProcessIntegrityRequestPathReadsCanonicalWithoutProjection(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	seedProcessIntegrityProjection(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
-	asOf := time.Now().In(biztime.DefaultLocation()).Truncate(time.Millisecond)
-	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
-		t.Fatalf("RecomputeProjection: %v", err)
-	}
-	q := normalizeQuery(domain.Query{TenantID: piTenant, AsOf: asOf, DueBefore: asOf.Add(24 * time.Hour), Limit: 10})
-	if _, err := repo.ListRows(ctx, q); err != nil {
-		t.Fatalf("fresh serving projection: %v", err)
-	}
-	if err := repo.markProjectionRebuilding(ctx, piTenant, 999, time.Now(), asOf); err != nil {
-		t.Fatalf("markProjectionRebuilding: %v", err)
-	}
-	if _, err := repo.ListRows(ctx, q); err != nil {
-		t.Fatalf("last-known-good unavailable during rebuild: %v", err)
-	}
-	repo.markProjectionFailed(piTenant, errors.New("replacement build failed"))
-	if _, err := repo.ListRows(ctx, q); err != nil {
-		t.Fatalf("last-known-good unavailable after replacement failure: %v", err)
-	}
-	// A last-known-good projection a little older than one 5-minute refresh cycle (here 6
-	// minutes) must still serve: the freshness TTL (7m) sits above the refresh schedule so a
-	// single jittered/slow build cycle does not open a 503 gap (handoff P0-B mitigation).
-	execPI(t, ctx, pool, "late-but-within-ttl last-known-good", `
-UPDATE process_integrity_projection_state
-SET projected_at=$2::timestamptz,as_of=$2::timestamptz
-WHERE tenant_id=$1::uuid`, piTenant, asOf.Add(-6*time.Minute))
-	if _, err := repo.ListRows(ctx, q); err != nil {
-		t.Fatalf("last-known-good within TTL after a late cycle: %v", err)
-	}
-	// Beyond the TTL the projection is genuinely stale and must fail closed.
-	execPI(t, ctx, pool, "expire last-known-good", `
-UPDATE process_integrity_projection_state
-SET projected_at=$2::timestamptz,as_of=$2::timestamptz
-WHERE tenant_id=$1::uuid`, piTenant, asOf.Add(-8*time.Minute))
-	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
-		t.Fatalf("expired last-known-good error=%v, want ErrProjectionStale", err)
-	}
-	execPI(t, ctx, pool, "remove serving state", `DELETE FROM process_integrity_projection_state WHERE tenant_id=$1::uuid`, piTenant)
-	if err := repo.markProjectionRebuilding(ctx, piTenant, 1000, time.Now(), asOf); err != nil {
-		t.Fatalf("mark first bootstrap rebuilding: %v", err)
-	}
-	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionUnavailable) {
-		t.Fatalf("bootstrap without serving pointer error=%v, want ErrProjectionUnavailable", err)
-	}
-}
-
-func TestProcessIntegrityProjectionRefusesStaleAndRebuildStates(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
+	// Seeds canonical source rows only; deliberately never calls RecomputeProjection.
 	seedProcessIntegrityProjection(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
-	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
-		t.Fatalf("RecomputeProjection: %v", err)
-	}
-	q := normalizeQuery(domain.Query{TenantID: piTenant, AsOf: asOf, DueBefore: asOf.Add(24 * time.Hour), Limit: 10})
-	execPI(t, ctx, pool, "mark projection stale", `
-UPDATE process_integrity_projection_state
-SET serving_state = 'stale',
-    freshness_status = 'yellow',
-    as_of = $2::timestamptz
-WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-24*time.Hour))
-	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
-		t.Fatalf("stale projection error=%v, want ErrProjectionStale", err)
-	}
-	execPI(t, ctx, pool, "mark projection rebuilding", `
-UPDATE process_integrity_projection_state
-SET serving_state = 'rebuilding',
-    freshness_status = 'yellow',
-    as_of = $2::timestamptz,
-    row_count = (SELECT COUNT(*) FROM process_integrity_projection_rows WHERE tenant_id = $1::uuid)
-WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-10*time.Minute))
-	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
-		t.Fatalf("rebuilding projection error=%v, want ErrProjectionStale", err)
-	}
-	execPI(t, ctx, pool, "mark projection failed", `
-UPDATE process_integrity_projection_state
-SET serving_state = 'failed',
-    freshness_status = 'red'
-WHERE tenant_id = $1::uuid`, piTenant)
-	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
-		t.Fatalf("failed projection error=%v, want ErrProjectionStale", err)
-	}
-	execPI(t, ctx, pool, "clear serving projection while rebuilding", `
-UPDATE process_integrity_projection_state
-SET serving_state = 'rebuilding',
-    freshness_status = 'unknown',
-    serving_projection_version = NULL
-WHERE tenant_id = $1::uuid`, piTenant)
-	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionUnavailable) {
-		t.Fatalf("no serving projection error=%v, want ErrProjectionUnavailable", err)
-	}
-}
+	q := domain.Query{TenantID: piTenant, AsOf: asOf, DueBefore: asOf.Add(7 * 24 * time.Hour), Limit: 10}
 
-// TestProcessIntegrityRequestPathRefusesCanonicalReplayWhenProjectionUnavailable is the C35-002
-// regression: canonical obligation/SOP/proof/completion data is present (seedProcessIntegrityProjection),
-// but no projection has been recomputed, so there is no serving version. Every request-path read MUST
-// return domain.ErrProjectionUnavailable — never silently reconstruct the answer from the raw tables via
-// the god-CTE. Before the fix, ListRows/CountByWorkState fell through to listRowsCanonical and returned
-// rows; after it they surface the honest typed error and do exactly ONE bounded lookup against the
-// projection-state table.
-func TestProcessIntegrityRequestPathRefusesCanonicalReplayWhenProjectionUnavailable(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	// Seeds canonical source rows only; no RecomputeProjection => no serving projection version.
-	seedProcessIntegrityProjection(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
-	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
-	q := domain.Query{TenantID: piTenant, AsOf: asOf, DueBefore: asOf.Add(24 * time.Hour), Limit: 10}
-
-	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionUnavailable) {
-		t.Fatalf("ListRows without serving projection: err = %v, want ErrProjectionUnavailable (no canonical replay)", err)
+	list, err := repo.ListRows(ctx, q)
+	if err != nil {
+		t.Fatalf("ListRows without any projection: unexpected err %v", err)
 	}
-	if _, err := repo.CountByWorkState(ctx, q); !errors.Is(err, domain.ErrProjectionUnavailable) {
-		t.Fatalf("CountByWorkState without serving projection: err = %v, want ErrProjectionUnavailable", err)
+	if len(list.Rows) == 0 {
+		t.Fatalf("canonical ListRows returned no rows without a projection: %#v", list)
 	}
-	// Adherence (IncludeCompleted) and single-row drilldown must also refuse canonical replay.
+	if list.Projection.ServingState != "canonical" || list.Projection.Stale {
+		t.Fatalf("canonical read must report a live-canonical, non-stale projection marker: %+v", list.Projection)
+	}
+
+	counts, err := repo.CountByWorkState(ctx, q)
+	if err != nil {
+		t.Fatalf("CountByWorkState without any projection: unexpected err %v", err)
+	}
+	if len(counts) == 0 {
+		t.Fatalf("canonical CountByWorkState returned no counts without a projection")
+	}
+
+	// Adherence (summary) and single-row drilldown also serve canonically with no projection.
 	adherenceQ := q
 	adherenceQ.IncludeCompleted = true
 	adherenceQ.IncludeAdherenceSummary = true
-	if _, err := repo.ListRows(ctx, adherenceQ); !errors.Is(err, domain.ErrProjectionUnavailable) {
-		t.Fatalf("adherence ListRows without serving projection: err = %v, want ErrProjectionUnavailable", err)
-	}
-	if _, _, err := repo.GetRow(ctx, q, "obligation:"+piObligation); !errors.Is(err, domain.ErrProjectionUnavailable) {
-		t.Fatalf("GetRow without serving projection: err = %v, want ErrProjectionUnavailable", err)
-	}
-
-	// After a recompute publishes a serving version, the same read is served from the projection.
-	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
-		t.Fatalf("RecomputeProjection: %v", err)
-	}
-	if _, err := repo.ListRows(ctx, q); err != nil {
-		t.Fatalf("ListRows after recompute: unexpected err %v", err)
-	}
-}
-
-func TestProcessIntegrityProjectionFailsClosedWhenOverAge(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	seedProcessIntegrityProjection(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
-	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
-	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
-		t.Fatalf("RecomputeProjection: %v", err)
-	}
-	execPI(t, ctx, pool, "mark projection stale", `
-UPDATE process_integrity_projection_state
-SET serving_state = 'stale',
-    freshness_status = 'yellow',
-    as_of = $2::timestamptz
-WHERE tenant_id = $1::uuid`, piTenant, asOf.Add(-24*time.Hour))
-	_, err := repo.ListRows(ctx, domain.Query{
-		TenantID:  piTenant,
-		AsOf:      asOf,
-		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-		Limit:     1,
-	})
-	if !errors.Is(err, domain.ErrProjectionStale) {
-		t.Fatalf("ListRows stale projection error=%v, want ErrProjectionStale", err)
-	}
-}
-
-func TestProcessIntegrityHistoricalReadRequiresExactSnapshot(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	seedProcessIntegrityProjection(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
-	requestedAsOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
-	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: requestedAsOf.Add(30 * time.Second)}); err != nil {
-		t.Fatalf("RecomputeProjection(newer): %v", err)
-	}
-	q := domain.Query{
-		TenantID:       piTenant,
-		AsOf:           requestedAsOf,
-		HistoricalAsOf: true,
-		DueBefore:      requestedAsOf.Add(24 * time.Hour),
-		Limit:          10,
-	}
-	if _, err := repo.ListRows(ctx, q); !errors.Is(err, domain.ErrProjectionStale) {
-		t.Fatalf("newer snapshot historical read error=%v, want ErrProjectionStale", err)
-	}
-	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: requestedAsOf}); err != nil {
-		t.Fatalf("RecomputeProjection(exact): %v", err)
-	}
-	if _, err := repo.ListRows(ctx, q); err != nil {
-		t.Fatalf("exact historical snapshot read: %v", err)
-	}
-}
-
-func TestProcessIntegrityProjectionReadPlanDoesNotReplayCanonicalTables(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	seedProcessIntegrityProjection(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
-	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
-	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: piTenant, AsOf: asOf}); err != nil {
-		t.Fatalf("RecomputeProjection: %v", err)
-	}
-
-	tx, err := pool.Begin(ctx)
+	adherence, err := repo.ListRows(ctx, adherenceQ)
 	if err != nil {
-		t.Fatalf("begin tx: %v", err)
+		t.Fatalf("adherence ListRows without any projection: unexpected err %v", err)
 	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
-		t.Fatalf("set enable_seqscan: %v", err)
+	if adherence.AdherenceSummary.ExpectedCount == 0 {
+		t.Fatalf("canonical adherence summary must be populated without a projection: %+v", adherence.AdherenceSummary)
 	}
-
-	q := normalizeQuery(domain.Query{
-		TenantID:  piTenant,
-		AsOf:      asOf,
-		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
-		Limit:     200,
-	})
-	args := queryArgs(q)
-	plan := explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityProjectionRowsSQL, args...)
-	plan += "\n" + explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityProjectionCountsSQL, countQueryArgs(args)...)
-	lowerPlan := strings.ToLower(plan)
-	if !strings.Contains(lowerPlan, "process_integrity_projection_rows") {
-		t.Fatalf("projection hot read plan must read process_integrity_projection_rows:\n%s", plan)
-	}
-	if !strings.Contains(lowerPlan, "process_integrity_projection_summaries") {
-		t.Fatalf("summary/count hot read must use preaggregated summary rows:\n%s", plan)
-	}
-	for _, forbidden := range []string{
-		"obligation_instances",
-		"obligation_status_events",
-		"vaccination_completions",
-		"sop_tasks",
-		"sop_submissions",
-		"goats",
-		"protocol_versions",
-		"protocol_rules",
-		"workforce_members",
-	} {
-		if strings.Contains(lowerPlan, forbidden) {
-			t.Fatalf("projection hot read plan replays %s:\n%s", forbidden, plan)
-		}
-	}
-	if !strings.Contains(plan, "Index Scan") &&
-		!strings.Contains(plan, "Bitmap Index Scan") &&
-		!strings.Contains(plan, "Index Only Scan") {
-		t.Fatalf("projection hot read plan did not use an index:\n%s", plan)
+	// Single-row drilldown resolves an existing row id straight from canonical data (the seeded rows are
+	// batch-grained, so use a real row id from the list rather than an assumed obligation-grained id).
+	drilldownID := list.Rows[0].RowID
+	if _, found, err := repo.GetRow(ctx, q, drilldownID); err != nil || !found {
+		t.Fatalf("GetRow(%q) without any projection: found=%v err=%v, want found with no error", drilldownID, found, err)
 	}
 }
 
@@ -846,9 +748,11 @@ func TestProcessIntegrityProjectionInsertSQLUpsertsRows(t *testing.T) {
 }
 
 func TestProcessIntegrityHotRowsDoNotComputeWindowTotalAndSummariesUseBusinessDayGrain(t *testing.T) {
-	upperRows := strings.ToUpper(processIntegrityProjectionRowsSQL)
-	if strings.Contains(upperRows, "COUNT(*) OVER") || strings.Contains(upperRows, "COUNT(1) OVER") {
-		t.Fatal("hot row page must not force a full filtered scan for a window total")
+	// The canonical LIST page must not force a full filtered scan for a window total; the total comes from
+	// the separate bounded aggregate, never a COUNT(*) OVER on the page.
+	upperCanonical := strings.ToUpper(processIntegrityCanonicalRowsSQL)
+	if strings.Contains(upperCanonical, "COUNT(*) OVER") || strings.Contains(upperCanonical, "COUNT(1) OVER") {
+		t.Fatal("canonical hot row page must not force a full filtered scan for a window total")
 	}
 	if !strings.Contains(processIntegrityProjectionSummaryInsertSQL, "due_business_date") ||
 		!strings.Contains(processIntegrityProjectionSummaryInsertSQL, "AT TIME ZONE 'Asia/Kolkata'") {
@@ -885,13 +789,17 @@ func TestQueryArgsShapeMatchesRowsAndCountQueries(t *testing.T) {
 	if len(args) != rowsQueryArgCount {
 		t.Fatalf("rows args = %d, want %d", len(args), rowsQueryArgCount)
 	}
-	// C35-002: request reads are projection-only, so the arg contract is validated against the projection
-	// SQL the request path actually executes.
-	if rowsPlaceholders := maxPlaceholder(processIntegrityProjectionRowsSQL); rowsPlaceholders != rowsQueryArgCount {
-		t.Fatalf("projection rows query placeholders = %d, want rows arg count %d", rowsPlaceholders, rowsQueryArgCount)
+	// 5k-50k envelope: the request path executes the canonical LIST/AGGREGATE SQL, so the arg contract is
+	// validated against the SQL that actually runs. The canonical LIST uses the full 19-arg keyset contract;
+	// the counts and adherence aggregates use the 15-arg (countQueryArgs) prefix with no keyset args.
+	if rowsPlaceholders := maxPlaceholder(processIntegrityCanonicalRowsSQL); rowsPlaceholders != rowsQueryArgCount {
+		t.Fatalf("canonical rows query placeholders = %d, want rows arg count %d", rowsPlaceholders, rowsQueryArgCount)
 	}
-	if countPlaceholders := maxPlaceholder(processIntegrityProjectionCountsSQL); countPlaceholders != countQueryArgCount {
-		t.Fatalf("projection count query placeholders = %d, want count arg count %d", countPlaceholders, countQueryArgCount)
+	if countPlaceholders := maxPlaceholder(processIntegrityCanonicalCountsSQL); countPlaceholders != countQueryArgCount {
+		t.Fatalf("canonical count query placeholders = %d, want count arg count %d", countPlaceholders, countQueryArgCount)
+	}
+	if summaryPlaceholders := maxPlaceholder(processIntegrityCanonicalAdherenceSummarySQL); summaryPlaceholders != countQueryArgCount {
+		t.Fatalf("canonical adherence summary placeholders = %d, want count arg count %d", summaryPlaceholders, countQueryArgCount)
 	}
 	if len(countQueryArgs(args)) != countQueryArgCount {
 		t.Fatalf("count args = %d, want %d", len(countQueryArgs(args)), countQueryArgCount)
@@ -1273,15 +1181,11 @@ func TestProcessIntegrityAsOfTerminalEventReconstruction(t *testing.T) {
 	mustState(piTeBatchChurn, domain.WorkStateMissed)
 }
 
-// listAtAsOf recomputes the tenant projection at q.AsOf (compute-on-write) and then reads it back. After
-// C35-002 request reads no longer reconstruct point-in-time state from canonical tables; the as_of
-// reconstruction lives in the projector (same base CTE). Point-in-time tests therefore prove the
-// behaviour THROUGH the projector + projection read path that production uses.
+// listAtAsOf reads the canonical request path directly at q.AsOf. Under the 5k-50k envelope the request
+// path reconstructs point-in-time state inline from the canonical tables (same base CTE the projector uses),
+// so point-in-time tests exercise exactly the production read — no projection recompute in between.
 func listAtAsOf(t *testing.T, ctx context.Context, repo *Repository, q domain.Query) (domain.ListResult, error) {
 	t.Helper()
-	if _, err := repo.RecomputeProjection(ctx, domain.ProjectionRecomputeRequest{TenantID: q.TenantID, AsOf: q.AsOf}); err != nil {
-		t.Fatalf("RecomputeProjection(asOf=%s): %v", q.AsOf, err)
-	}
 	return repo.ListRows(ctx, q)
 }
 
@@ -1457,4 +1361,160 @@ func countFor(counts []domain.CountByWorkState, state domain.WorkState) int64 {
 		}
 	}
 	return 0
+}
+
+// TestProcessIntegrityCanonicalAggregateGrainAdversarial proves the canonical AGGREGATE
+// (CountByWorkState / adherence summary over processIntegrityCanonicalCountsSQL and
+// processIntegrityCanonicalAdherenceSummarySQL) keeps a correct grain and identity under the
+// aggregate-projection review cases: one-to-many fan-out, page boundaries, due-vs-execution date shift,
+// scope hierarchy, and the full status matrix. The invariant: the aggregate counts the same park/shed/
+// business-date grain the LIST renders — exactly once per grain, independent of underlying obligation
+// fan-out and independent of the LIST page size.
+func TestProcessIntegrityCanonicalAggregateGrainAdversarial(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedProcessIntegrityProjection(t, ctx, pool)
+
+	const (
+		piAdvGoatB   = "71000000-0000-4000-8000-000000000080"
+		piAdvGoatC   = "71000000-0000-4000-8000-000000000081"
+		piAdvOblA    = "71000000-0000-4000-8000-000000000082" // same-day scheduled, goat piGoat
+		piAdvOblB    = "71000000-0000-4000-8000-000000000083" // same-day scheduled, goat piAdvGoatB -> same grain
+		piAdvOblDate = "71000000-0000-4000-8000-000000000084" // completed-after-as_of -> re-buckets to overdue
+	)
+	// Two more goats in the same shed for the fan-out and date-shift grains.
+	for _, g := range []string{piAdvGoatB, piAdvGoatC} {
+		execPI(t, ctx, pool, "adversarial goat",
+			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex,
+			   current_location_id, park_id, shed_id, management_stage, health_status)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
+			g, piTenant, piParty, piShed, piPark)
+	}
+	// OneToMany fan-out: two unbatched scheduled obligations, same shed, same IST business day (2026-06-28),
+	// different goats -> ONE scheduled grain with expected_count 2. The aggregate must count the grain once.
+	execPI(t, ctx, pool, "same-day scheduled A",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, 'goat', $5, 'shed', $6, TIMESTAMPTZ '2026-06-28 04:00:00+00', 'scheduled', 'pi-adv-a', 40)`,
+		piAdvOblA, piTenant, piVersion, piRule, piGoat, piShed)
+	execPI(t, ctx, pool, "same-day scheduled B",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, 'goat', $5, 'shed', $6, TIMESTAMPTZ '2026-06-28 09:00:00+00', 'scheduled', 'pi-adv-b', 41)`,
+		piAdvOblB, piTenant, piVersion, piRule, piAdvGoatB, piShed)
+	// DateShift: due 2026-06-20 but completed_at 2026-06-30 (AFTER as_of 2026-06-24) -> the as_of-effective
+	// status re-buckets to overdue even though the stored status is completed. It must count once under
+	// overdue, keyed by its execution/completion recency, not its due date.
+	execPI(t, ctx, pool, "date-shift completed-after-asof",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id,
+		   target_type, target_id, scope_type, scope_id, due_at, status, completed_at, idempotency_key, sequence)
+		 VALUES ($1, $2, $3, $4, 'goat', $5, 'shed', $6, TIMESTAMPTZ '2026-06-20 00:00:00+00', 'completed', TIMESTAMPTZ '2026-06-30 10:00:00+00', 'pi-adv-date', 42)`,
+		piAdvOblDate, piTenant, piVersion, piRule, piAdvGoatC, piShed)
+
+	repo := NewRepository(pool, 5*time.Second)
+	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	dueBefore := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	baseQuery := func(limit int) domain.Query {
+		return domain.Query{TenantID: piTenant, AsOf: asOf, DueBefore: dueBefore, Limit: limit}
+	}
+
+	list, err := repo.ListRows(ctx, baseQuery(100))
+	if err != nil {
+		t.Fatalf("ListRows: %v", err)
+	}
+	counts, err := repo.CountByWorkState(ctx, baseQuery(1))
+	if err != nil {
+		t.Fatalf("CountByWorkState: %v", err)
+	}
+	grainsByState := map[domain.WorkState]int64{}
+	for _, row := range list.Rows {
+		grainsByState[row.WorkState]++
+	}
+
+	t.Run("OneToMany fan-out grain counted once", func(t *testing.T) {
+		// The two same-day scheduled obligations must render as ONE grain with expected_count 2.
+		var fanoutGrain *domain.Row
+		for i := range list.Rows {
+			if list.Rows[i].WorkState == domain.WorkStateScheduled && list.Rows[i].ExpectedCount == 2 {
+				fanoutGrain = &list.Rows[i]
+				break
+			}
+		}
+		if fanoutGrain == nil {
+			t.Fatalf("same-day scheduled obligations did not fan into one grain of expected_count 2: %#v", list.Rows)
+		}
+		// The aggregate scheduled bucket must equal the number of scheduled GRAINS in the list, not the
+		// number of underlying obligations (which would double-count the fan-out).
+		if got := countFor(counts, domain.WorkStateScheduled); got != grainsByState[domain.WorkStateScheduled] {
+			t.Fatalf("scheduled aggregate double-counted fan-out: aggregate=%d list grains=%d", got, grainsByState[domain.WorkStateScheduled])
+		}
+	})
+
+	t.Run("PageBoundary total independent of page size", func(t *testing.T) {
+		countsSmall, err := repo.CountByWorkState(ctx, baseQuery(1))
+		if err != nil {
+			t.Fatalf("CountByWorkState(limit 1): %v", err)
+		}
+		countsLarge, err := repo.CountByWorkState(ctx, baseQuery(100))
+		if err != nil {
+			t.Fatalf("CountByWorkState(limit 100): %v", err)
+		}
+		if !reflect.DeepEqual(countSignature(countsSmall), countSignature(countsLarge)) {
+			t.Fatalf("aggregate window total changed with page size: limit1=%v limit100=%v", countsSmall, countsLarge)
+		}
+		var total int64
+		for _, c := range countsLarge {
+			total += c.Count
+		}
+		if total != int64(len(list.Rows)) {
+			t.Fatalf("aggregate total %d != rendered grain count %d", total, len(list.Rows))
+		}
+	})
+
+	t.Run("DateShift execution-date re-bucket counted once", func(t *testing.T) {
+		var overdueGrains int
+		for _, row := range list.Rows {
+			if row.WorkState == domain.WorkStateOverdue && row.ObligationID == piAdvOblDate {
+				overdueGrains++
+			}
+		}
+		if overdueGrains != 1 {
+			t.Fatalf("completed-after-as_of obligation must re-bucket to exactly one overdue grain, got %d", overdueGrains)
+		}
+		if countFor(counts, domain.WorkStateOverdue) < 1 {
+			t.Fatalf("aggregate overdue bucket missing the re-bucketed row: %+v", counts)
+		}
+	})
+
+	t.Run("ScopeHierarchy ParkScope and shed scope match membership", func(t *testing.T) {
+		park := piPark
+		parkScoped, err := repo.CountByWorkState(ctx, func() domain.Query { q := baseQuery(1); q.ParkID = &park; return q }())
+		if err != nil {
+			t.Fatalf("park-scoped CountByWorkState: %v", err)
+		}
+		// Single park in the fixture: park scope must equal the unscoped total.
+		if !reflect.DeepEqual(countSignature(parkScoped), countSignature(counts)) {
+			t.Fatalf("park scope changed the total for a single-park fixture: park=%v all=%v", parkScoped, counts)
+		}
+		shed := piShed
+		shedScoped, err := repo.CountByWorkState(ctx, func() domain.Query { q := baseQuery(1); q.ShedID = &shed; return q }())
+		if err != nil {
+			t.Fatalf("shed-scoped CountByWorkState: %v", err)
+		}
+		if !reflect.DeepEqual(countSignature(shedScoped), countSignature(counts)) {
+			t.Fatalf("shed scope changed the total for a single-shed fixture: shed=%v all=%v", shedScoped, counts)
+		}
+	})
+
+	t.Run("StatusMatrix every rendered bucket appears in the aggregate", func(t *testing.T) {
+		aggregate := countSignature(counts)
+		for state, grains := range grainsByState {
+			if aggregate[state] != grains {
+				t.Fatalf("status matrix mismatch for %s: aggregate=%d rendered grains=%d", state, aggregate[state], grains)
+			}
+		}
+	})
 }

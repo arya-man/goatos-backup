@@ -1652,7 +1652,14 @@ func projectedOperations(t *testing.T, ctx context.Context, repo *Repository, q 
 	return repo.VaccinationOperations(ctx, q)
 }
 
-func TestVaccinationProjectionReadsRejectNonGreenServingState(t *testing.T) {
+// TestVaccinationCanonicalReadsIgnoreProjectionServingState proves the 5k-50k-envelope flip: the three
+// vaccination reads (shed / execution / operations) now serve directly from canonical tables and are no
+// longer gated on the projection serving_state/freshness_status. A stale, red, or rebuilding projection
+// state row -- and even an outright replacement-build failure -- must NOT take the read down; the
+// canonical read cannot be stale relative to the canonical write, so ErrProjectionUnavailable is never
+// returned for a projection-freshness reason. This is the deletion of the read-through-vs-503 failure
+// class described in docs/decisions/operational-kernel-5k-50k-scale-envelope.md.
+func TestVaccinationCanonicalReadsIgnoreProjectionServingState(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -1706,14 +1713,15 @@ func TestVaccinationProjectionReadsRejectNonGreenServingState(t *testing.T) {
 				}
 			}
 
-			if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); !errors.Is(err, domain.ErrProjectionUnavailable) {
-				t.Fatalf("ShedSummary error = %v, want ErrProjectionUnavailable", err)
+			// A non-green / stale / rebuilding projection state must NOT gate the canonical reads.
+			if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
+				t.Fatalf("ShedSummary error = %v, want success (canonical read ignores projection serving state)", err)
 			}
-			if _, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); !errors.Is(err, domain.ErrProjectionUnavailable) {
-				t.Fatalf("ListVaccinationExecution error = %v, want ErrProjectionUnavailable", err)
+			if _, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
+				t.Fatalf("ListVaccinationExecution error = %v, want success (canonical read ignores projection serving state)", err)
 			}
-			if _, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); !errors.Is(err, domain.ErrProjectionUnavailable) {
-				t.Fatalf("VaccinationOperations error = %v, want ErrProjectionUnavailable", err)
+			if _, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
+				t.Fatalf("VaccinationOperations error = %v, want success (canonical read ignores projection serving state)", err)
 			}
 		})
 	}

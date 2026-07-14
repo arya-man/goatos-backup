@@ -7,3 +7,6 @@
 
 # local-only media store written by the dev stack — never commit
 .goatos-local-media/
+/kernel-worker
+*.test
+worker.test

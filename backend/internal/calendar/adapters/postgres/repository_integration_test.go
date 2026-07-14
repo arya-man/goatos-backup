@@ -45,8 +45,14 @@ func TestCalendarListServesLastKnownGoodProjectionAndExposesVersion(t *testing.T
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
 	q := domain.Query{TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: time.Now().Add(-time.Hour), DateTo: time.Now().Add(time.Hour), Limit: 10, Scope: domain.ScopeFilter{TenantWide: true}}
-	if _, err := repo.ListEvents(ctx, q); !errors.Is(err, ports.ErrProjectionUnavailable) {
-		t.Fatalf("missing projection error=%v, want ErrProjectionUnavailable", err)
+	// U4a: a never-synced upcoming projection no longer fails closed; ListEvents reads through to
+	// canonical tables. With no canonical obligations seeded that is an empty success, not a 503.
+	if got, err := repo.ListEvents(ctx, q); err != nil {
+		t.Fatalf("missing projection must read through to canonical, got %v", err)
+	} else if len(got.Items) != 0 {
+		t.Fatalf("canonical read-through with no seeded canonical rows must be empty, got %d", len(got.Items))
+	} else if got.Projection.ServingState != "canonical_read_through" {
+		t.Fatalf("missing projection must surface canonical read-through, projection=%+v", got.Projection)
 	}
 	seedCalendarProjectionState(t, ctx, pool)
 	got, err := repo.ListEvents(ctx, q)
@@ -71,8 +77,11 @@ func TestCalendarListServesLastKnownGoodProjectionAndExposesVersion(t *testing.T
 	outsideWindow := q
 	outsideWindow.DateFrom = time.Now().Add(46 * 24 * time.Hour)
 	outsideWindow.DateTo = time.Now().Add(47 * 24 * time.Hour)
-	if _, err := repo.ListEvents(ctx, outsideWindow); !errors.Is(err, ports.ErrProjectionStale) {
-		t.Fatalf("outside projection window error=%v, want ErrProjectionStale", err)
+	// U4a: a request window outside projected coverage reads through to canonical instead of 503ing.
+	if got, err := repo.ListEvents(ctx, outsideWindow); err != nil {
+		t.Fatalf("outside projection window must read through to canonical, got %v", err)
+	} else if got.Projection.ServingState != "canonical_read_through" {
+		t.Fatalf("outside window must serve canonical read-through, projection=%+v", got.Projection)
 	}
 	if _, err := pool.Exec(ctx, `
 UPDATE calendar_projection_state
@@ -112,10 +121,13 @@ func TestCalendarProjectionCoverageUsesInclusiveQueryExclusiveBound(t *testing.T
 	if _, err := repo.ListEvents(ctx, q); err != nil {
 		t.Fatalf("inclusive last covered day must serve, got %v", err)
 	}
-	// One inclusive day past the exclusive bound: requestedExclusive exceeds date_to -> stale.
+	// One inclusive day past the exclusive bound: requestedExclusive exceeds date_to. U4a drops the
+	// fail-closed freshness gate, so this now reads through to canonical instead of ErrProjectionStale.
 	q.DateTo = base.Add(30 * 24 * time.Hour)
-	if _, err := repo.ListEvents(ctx, q); !errors.Is(err, ports.ErrProjectionStale) {
-		t.Fatalf("inclusive day past exclusive bound must be stale, got %v", err)
+	if got, err := repo.ListEvents(ctx, q); err != nil {
+		t.Fatalf("inclusive day past exclusive bound must read through to canonical, got %v", err)
+	} else if got.Projection.ServingState != "canonical_read_through" {
+		t.Fatalf("past exclusive bound must serve canonical read-through, projection=%+v", got.Projection)
 	}
 }
 

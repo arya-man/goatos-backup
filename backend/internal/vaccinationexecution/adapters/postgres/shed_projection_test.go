@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -39,13 +38,12 @@ func TestRecomputeShedProjectionMatchesLiveShedSummary(t *testing.T) {
 	asOf := time.Date(2026, 7, 11, 18, 0, 0, 0, time.UTC)
 	dueBefore := asOf.Add(30 * 24 * time.Hour)
 
-	// Before any recompute, the tenant has no serving projection version yet, and the flipped
-	// ShedSummary must refuse a canonical compute-on-read fallback (C35-002).
+	// Before any recompute, the tenant has no serving projection version yet. Under the 5k-50k-envelope
+	// flip, ShedSummary serves directly from canonical tables, so it returns the full rollup with no
+	// projection present at all (no ErrProjectionUnavailable gate); the serving-version helper still
+	// reports no serving projection, the read simply no longer depends on it.
 	if _, ok := repo.shedProjectionServingVersion(ctx, testTenant); ok {
 		t.Fatalf("expected no serving shed projection version before the first recompute")
-	}
-	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 200}); !errors.Is(err, domain.ErrProjectionUnavailable) {
-		t.Fatalf("ShedSummary before first recompute: err = %v, want ErrProjectionUnavailable (no canonical fallback)", err)
 	}
 
 	// canonicalMaxPerDay/canonicalMaxBufferDays mirror seedShedProjectionParityFixture's tight
@@ -54,6 +52,28 @@ func TestRecomputeShedProjectionMatchesLiveShedSummary(t *testing.T) {
 	canonical := queryCanonicalShedSummaryForParity(t, ctx, pool, testTenant, asOf, dueBefore, 2, 1)
 	if len(canonical) < 2 {
 		t.Fatalf("fixture setup failed: got %d canonical shed rows, want >= 2 (testShed + testShedB)", len(canonical))
+	}
+
+	// The canonical request-path read serves the same rows with no projection present at all.
+	canonicalByShedPre := make(map[string]domain.ShedSummaryProjection, len(canonical))
+	for _, row := range canonical {
+		canonicalByShedPre[row.ShedID] = row
+	}
+	preRecompute, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 200})
+	if err != nil {
+		t.Fatalf("ShedSummary before first recompute (canonical serve-through): %v", err)
+	}
+	if len(preRecompute) != len(canonical) {
+		t.Fatalf("ShedSummary before recompute rows = %d, want %d (canonical parity, no projection)", len(preRecompute), len(canonical))
+	}
+	for _, l := range preRecompute {
+		c, ok := canonicalByShedPre[l.ShedID]
+		if !ok {
+			t.Fatalf("pre-recompute ShedSummary has shed %s not present in canonical shed summary output", l.ShedID)
+		}
+		if !shedProjectionRowsEqual(l, c) {
+			t.Fatalf("pre-recompute ShedSummary row for shed %s does not match canonical shed summary row:\n  canonical: %#v\n  live:      %#v", l.ShedID, c, l)
+		}
 	}
 
 	result, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{

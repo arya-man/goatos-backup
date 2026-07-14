@@ -1,0 +1,260 @@
+package worker
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
+)
+
+// StageRunner is the interface a work stage must implement to be orchestrated
+// by the Supervisor. Each stage performs one unit of bounded work with its own
+// timeout and advisory lock.
+type StageRunner interface {
+	// Run executes the stage work until completion or context cancellation.
+	// The stage is responsible for honoring the context deadline and returning
+	// promptly on cancellation.
+	Run(ctx context.Context) error
+
+	// Name returns a human-readable name for logging and lock identification.
+	Name() string
+}
+
+// CadenceStage pairs a stage with its lock salt (for advisory lock uniqueness).
+type CadenceStage struct {
+	stage    StageRunner
+	lockSalt int64
+}
+
+// Supervisor orchestrates work stages across multiple cadence classes
+// (continuous, fast, operational, generation, housekeeping). Each stage
+// claims a Postgres advisory lock before running, ensuring at most one
+// instance runs the stage at a time across multiple Supervisor processes.
+// A panic or timeout in one stage does not affect siblings.
+type Supervisor struct {
+	logger       *slog.Logger
+	pool         *pgxpool.Pool
+	queryTimeout time.Duration
+
+	mu                    sync.Mutex
+	continuous            []CadenceStage
+	cadences              map[string]CadenceDefinition // cadence name -> definition
+	nextAvailableLockSalt int64
+}
+
+// CadenceDefinition holds the refresh interval and stages for a named cadence.
+type CadenceDefinition struct {
+	Interval time.Duration
+	Stages   []CadenceStage
+}
+
+// NewSupervisor constructs a Supervisor with a shared pgxpool and observability logger.
+// Lock salts are auto-assigned starting from 90000 to avoid collisions with reserved
+// salts (86171 calendar-upcoming, 86172 process-integrity, 86173 calendar-history).
+func NewSupervisor(logger *slog.Logger, pool *pgxpool.Pool, queryTimeout time.Duration) *Supervisor {
+	return &Supervisor{
+		logger:                logger,
+		pool:                  pool,
+		queryTimeout:          queryTimeout,
+		cadences:              make(map[string]CadenceDefinition),
+		nextAvailableLockSalt: 90000, // Start above reserved salts
+	}
+}
+
+// RegisterContinuous registers stages that run continuously (e.g., event consumer).
+func (s *Supervisor) RegisterContinuous(name string, stages ...StageRunner) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, stage := range stages {
+		s.continuous = append(s.continuous, CadenceStage{
+			stage:    stage,
+			lockSalt: s.nextAvailableLockSalt,
+		})
+		s.nextAvailableLockSalt++
+	}
+}
+
+// RegisterCadence registers stages that run at a specific interval (e.g., every 15 minutes).
+func (s *Supervisor) RegisterCadence(name string, interval time.Duration, stages ...StageRunner) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.cadences[name]; exists {
+		s.logger.Warn("cadence_already_registered", "cadence", name)
+		return
+	}
+	var cadenceStages []CadenceStage
+	for _, stage := range stages {
+		cadenceStages = append(cadenceStages, CadenceStage{
+			stage:    stage,
+			lockSalt: s.nextAvailableLockSalt,
+		})
+		s.nextAvailableLockSalt++
+	}
+	s.cadences[name] = CadenceDefinition{
+		Interval: interval,
+		Stages:   cadenceStages,
+	}
+}
+
+// Run starts the supervisor, orchestrating all registered stages and cadences
+// until ctx is canceled or an error occurs. Each cadence runs its stages at
+// the configured interval, and each stage performs an immediate startup
+// catch-up run before the first interval tick.
+func (s *Supervisor) Run(ctx context.Context) error {
+	eg, egCtx := errgroup.WithContext(ctx)
+
+	// Start continuous stages (e.g., event consumer).
+	for _, cadenceStage := range s.continuous {
+		cs := cadenceStage
+		eg.Go(func() error {
+			return s.runStageOnce(egCtx, cs)
+		})
+	}
+
+	// Start cadence tickers and stage runners.
+	for cadenceName, def := range s.cadences {
+		cadence := cadenceName
+		definition := def
+		eg.Go(func() error {
+			return s.runCadence(egCtx, cadence, definition)
+		})
+	}
+
+	return eg.Wait()
+}
+
+// runCadence runs a single cadence class (fast, operational, etc.) which
+// performs a startup catch-up run, then waits for each interval tick to
+// run the stages again.
+func (s *Supervisor) runCadence(ctx context.Context, cadenceName string, def CadenceDefinition) error {
+	s.logger.Info("cadence_starting", "cadence", cadenceName, "interval", def.Interval.String())
+
+	// Immediate startup catch-up run for each stage.
+	for _, cadenceStage := range def.Stages {
+		cs := cadenceStage
+		if err := s.runStageOnce(ctx, cs); err != nil {
+			// Log but continue to the next stage; a catch-up failure does not
+			// stop the entire cadence.
+			s.logger.Error("startup_catch_up_failed", "cadence", cadenceName, "stage", cs.stage.Name(), "err", err)
+		}
+	}
+
+	// Then run at each interval tick.
+	ticker := time.NewTicker(def.Interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Info("cadence_stopping", "cadence", cadenceName)
+			return ctx.Err()
+		case <-ticker.C:
+			// Run all stages in the cadence serially (each stage claims an
+			// advisory lock, so if multiple instances are running, only one
+			// will hold the lock at a time).
+			for _, cadenceStage := range def.Stages {
+				cs := cadenceStage
+				if err := s.runStageOnce(ctx, cs); err != nil {
+					s.logger.Error("cadence_stage_failed", "cadence", cadenceName, "stage", cs.stage.Name(), "err", err)
+					// Continue to the next stage; do not stop the cadence.
+				}
+			}
+		}
+	}
+}
+
+// runStageOnce runs a single stage with advisory lock, per-stage timeout,
+// and panic recovery. Returns an error if the lock cannot be acquired,
+// context is canceled, or the stage fails.
+func (s *Supervisor) runStageOnce(ctx context.Context, cs CadenceStage) (retErr error) {
+	stage := cs.stage
+	lockSalt := cs.lockSalt
+
+	// Stage timeout: derive from the query timeout and add headroom.
+	// In a real implementation, cadences may have different timeout targets.
+	stageTimeout := s.queryTimeout * 2
+	if stageTimeout < 5*time.Minute {
+		stageTimeout = 5 * time.Minute
+	}
+
+	stageCtx, cancel := context.WithTimeout(ctx, stageTimeout)
+	defer cancel()
+
+	// Try to acquire the advisory lock. If another instance holds it,
+	// this will return immediately with locked=false, and we skip the stage.
+	locked, err := AcquireStageLock(stageCtx, s.pool, lockSalt, stage.Name())
+	if err != nil {
+		s.logger.Error("stage_lock_acquire_failed", "stage", stage.Name(), "err", err)
+		return fmt.Errorf("acquire lock for stage %q: %w", stage.Name(), err)
+	}
+	if !locked {
+		s.logger.Debug("stage_lock_already_held", "stage", stage.Name())
+		return nil // Another instance holds the lock; skip.
+	}
+
+	// Lock was acquired; the lock is held on a dedicated connection and will
+	// be released in defer by ReleaseStageLock.
+
+	// Run the stage with panic recovery.
+	s.logger.Info("stage_starting", "stage", stage.Name())
+	startTime := time.Now()
+	defer func() {
+		if r := recover(); r != nil {
+			s.logger.Error("stage_panic", "stage", stage.Name(), "panic", r)
+			// Named return: propagate the recovered panic as an error so a
+			// continuous stage does not exit its errgroup goroutine cleanly
+			// (which would silently stop it) — the panic surfaces to Run.
+			retErr = fmt.Errorf("stage %q panicked: %v", stage.Name(), r)
+		}
+
+		duration := time.Since(startTime)
+		if retErr != nil {
+			s.logger.Error("stage_failed", "stage", stage.Name(), "duration", duration.String(), "err", retErr)
+		} else {
+			s.logger.Info("stage_completed", "stage", stage.Name(), "duration", duration.String())
+		}
+
+		// Always release the lock, even if the stage failed or panicked.
+		if err := ReleaseStageLock(context.Background(), s.pool, stage.Name()); err != nil {
+			s.logger.Error("stage_lock_release_failed", "stage", stage.Name(), "err", err)
+		}
+	}()
+
+	retErr = stage.Run(stageCtx)
+	if retErr != nil && errors.Is(retErr, context.DeadlineExceeded) {
+		return fmt.Errorf("stage %q timeout (%v): %w", stage.Name(), stageTimeout, retErr)
+	}
+	return retErr
+}
+
+// NoOpStage is a placeholder stage that does nothing; used for testing
+// the supervisor shell before real stages are wired in (U3).
+type NoOpStage struct {
+	logger *slog.Logger
+	name   string
+}
+
+// NewNoOpStage creates a no-op stage with the given name.
+func NewNoOpStage(logger *slog.Logger, name string) *NoOpStage {
+	return &NoOpStage{logger: logger, name: name}
+}
+
+// Run does nothing and returns nil.
+func (n *NoOpStage) Run(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	return nil
+}
+
+// Name returns the stage name.
+func (n *NoOpStage) Name() string {
+	return n.name
+}

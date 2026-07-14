@@ -1155,6 +1155,24 @@ ORDER BY recorded_at DESC, audit_id DESC
 LIMIT 50;"
 }
 
+validate_calendar_canonical_read_plan() {
+  # U4a (ADR operational-kernel-5k-50k-scale-envelope): the Calendar API reads through to canonical
+  # tables (calendarCanonicalListSQL) when the calendar_event_projections freshness gate would
+  # otherwise fail closed. That read is a compute-on-read multi-CTE reconstruction whose scale-
+  # critical scan is the tenant+due-window keyset page over obligation_instances. Prove that driving
+  # scan is index-backed, never a sequential scan. The Go sibling
+  # TestCalendarCanonicalListKeysetPlanUsesIndex additionally EXPLAINs the full assembled read.
+  explain_must_use_index "CalendarCanonicalReadKeysetDriver" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
+SELECT obligation_id
+FROM obligation_instances
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND batch_id IS NULL
+  AND due_at >= TIMESTAMPTZ '2026-06-27 00:00:00+00'
+  AND due_at < TIMESTAMPTZ '2026-08-12 00:00:00+00'
+ORDER BY due_at ASC, obligation_id ASC
+LIMIT 21;"
+}
+
 validate_calendar_vaccination_plans() {
   explain_must_use_index "CalendarVaccinationWidestList" 'Seq Scan on calendar_event_projections' "EXPLAIN (COSTS OFF)
 SELECT event_id, event_type, owner_key, title, status, severity, due_at
@@ -1448,6 +1466,7 @@ validate_feed_shed_history_plan
 validate_procurement_source_entry_plans
 validate_operations_audit_plans
 validate_calendar_vaccination_plans
+validate_calendar_canonical_read_plan
 validate_herd_register_summary_plan
 validate_vaccination_shed_projection_plan
 validate_vaccination_projection_dirty_scopes_plans

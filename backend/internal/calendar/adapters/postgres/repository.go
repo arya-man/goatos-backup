@@ -45,15 +45,25 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	defer cancel()
 	completedOnly := q.Status != nil && *q.Status == domain.StatusCompleted
 	projection, err := r.servingProjection(ctx, q.TenantID, q.DateFrom, q.DateTo)
+	// serveCanonical: U4a (ADR operational-kernel-5k-50k-scale-envelope) drops the
+	// calendar_projection_state freshness gate as a fail-closed. A never-synced projection or a
+	// requested window outside projected coverage no longer 503s; the non-completed (upcoming) slice
+	// reads through to canonical tables via listEventsCanonical instead. A completed/accepted-history
+	// list is unaffected: it is served by calendarListSQL's completed_history CTE
+	// (vaccination_completions) under its own history-projection gate, independent of the upcoming
+	// projection. Any error other than the two freshness signals still propagates.
+	serveCanonical := false
 	if err != nil {
-		// A pure completed/accepted-history list is served entirely from the canonical
-		// completed_history CTE (vaccination_completions), independent of the hot calendar
-		// projection, so it must serve even when that projection is absent or stale — this is
-		// the bounded canonical-history exception. Every other status is backed by
-		// calendar_event_projections and stays fail-closed. GetEventDetail already reads history
-		// canonically without this gate; this keeps ListEvents consistent with it.
-		if !completedOnly || (!errors.Is(err, ports.ErrProjectionStale) && !errors.Is(err, ports.ErrProjectionUnavailable)) {
+		if !errors.Is(err, ports.ErrProjectionStale) && !errors.Is(err, ports.ErrProjectionUnavailable) {
 			return domain.CalendarEventListResponse{}, err
+		}
+		if !completedOnly {
+			serveCanonical = true
+			projection = domain.ProjectionMetadata{
+				Stale:           true,
+				ServingState:    "canonical_read_through",
+				FreshnessStatus: "canonical",
+			}
 		}
 		// servingProjection returns best-effort metadata alongside ErrProjectionStale and a zero
 		// value for ErrProjectionUnavailable; either is fine to surface for a canonical read.
@@ -102,25 +112,36 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 		cursorEventID = q.Cursor.EventID
 	}
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
-	rows, err := r.pool.Query(ctx, calendarListSQL,
-		q.TenantID, ownerKey, status, parkID, shedID, q.DateFrom, requestedToExclusive, cursorDue, cursorEventID, fetchLimit,
-		tenantWide, parkIDs, shedIDs)
-	if err != nil {
-		return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: list events: %w", err)
-	}
-	defer rows.Close()
-	items := []domain.CalendarEvent{}
-	for rows.Next() {
-		event, err := scanCalendarEvent(rows)
+	var items []domain.CalendarEvent
+	if serveCanonical {
+		// Read-through: the upcoming projection is unavailable/out-of-window, so serve the
+		// non-completed slice directly from canonical tables rather than failing closed.
+		items, err = r.listEventsCanonical(ctx, q.TenantID, q.DateFrom, requestedToExclusive,
+			ownerKey, status, parkID, shedID, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs)
 		if err != nil {
 			return domain.CalendarEventListResponse{}, err
 		}
-		items = append(items, event)
+	} else {
+		rows, err := r.pool.Query(ctx, calendarListSQL,
+			q.TenantID, ownerKey, status, parkID, shedID, q.DateFrom, requestedToExclusive, cursorDue, cursorEventID, fetchLimit,
+			tenantWide, parkIDs, shedIDs)
+		if err != nil {
+			return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: list events: %w", err)
+		}
+		defer rows.Close()
+		items = []domain.CalendarEvent{}
+		for rows.Next() {
+			event, err := scanCalendarEvent(rows)
+			if err != nil {
+				return domain.CalendarEventListResponse{}, err
+			}
+			items = append(items, event)
+		}
+		if err := rows.Err(); err != nil {
+			return domain.CalendarEventListResponse{}, err
+		}
+		rows.Close()
 	}
-	if err := rows.Err(); err != nil {
-		return domain.CalendarEventListResponse{}, err
-	}
-	rows.Close()
 	dateMarkers := []domain.CalendarDateMarker{}
 	if q.IncludeDateMarkers {
 		markerRows, err := r.pool.Query(ctx, calendarDateMarkersSQL,

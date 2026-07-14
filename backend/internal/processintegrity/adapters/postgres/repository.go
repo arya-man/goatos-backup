@@ -3,9 +3,7 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -43,24 +41,19 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 
 var _ ports.Repository = (*Repository)(nil)
 
-// ListRows serves the Action Center / adherence / drilldown read model exclusively from the bounded,
-// incrementally maintained process-integrity projection (indexed keyset lookup). When the tenant has no
-// serving projection version, it returns domain.ErrProjectionUnavailable rather than replaying the
-// canonical obligation/SOP/proof/completion history through a god-CTE — that compute-on-read fallback is
-// the slowest possible path at 1-5M animals and is exactly what C35-002 removes.
+// ListRows serves the Action Center / adherence / drilldown read model directly from the canonical
+// obligation/SOP/proof/completion tables through one bounded, tenant+due_at index-scoped, keyset-paginated
+// query (processIntegrityCanonicalRowsSQL). Per the 5k-to-50k operational-kernel envelope ADR
+// (docs/decisions/operational-kernel-5k-50k-scale-envelope.md) the derived process-integrity projection is
+// retired as the request-path source: a canonical read cannot be stale relative to the canonical write, so
+// the whole projection-drift/freshness-503 failure class is removed. The projection tables + projector are
+// preserved additively (later unit U7 removes them) but no longer gate a request.
 func (r *Repository) ListRows(ctx context.Context, q domain.Query) (domain.ListResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	q = normalizeQuery(q)
 	args := queryArgs(q)
-	projection, err := r.servingProjection(ctx, q)
-	if err != nil {
-		slog.Default().WarnContext(ctx,
-			"processintegrity: read model projection cannot serve current read; refusing canonical compute-on-read fallback",
-			"tenant_id", q.TenantID, "read_path", "list_rows")
-		return domain.ListResult{}, err
-	}
-	return r.listRowsProjected(ctx, q, args, projection)
+	return r.listRowsCanonical(ctx, q, args)
 }
 
 func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]domain.CountByWorkState, error) {
@@ -68,25 +61,17 @@ func (r *Repository) CountByWorkState(ctx context.Context, q domain.Query) ([]do
 	defer cancel()
 	q = normalizeQuery(q)
 	args := queryArgs(q)
-	projection, err := r.servingProjection(ctx, q)
-	if err != nil {
-		slog.Default().WarnContext(ctx,
-			"processintegrity: read model projection cannot serve current read; refusing canonical compute-on-read fallback",
-			"tenant_id", q.TenantID, "read_path", "count_by_work_state")
-		return nil, err
-	}
-	counts, _, err := r.countByWorkStateProjected(ctx, countQueryArgs(args))
+	counts, _, err := r.countByWorkStateCanonical(ctx, countQueryArgs(args))
 	if err != nil {
 		return nil, err
 	}
-	_ = projection
 	return counts, nil
 }
 
-func (r *Repository) listRowsProjected(ctx context.Context, q domain.Query, args []any, projection domain.ProjectionMetadata) (domain.ListResult, error) {
-	rows, err := r.pool.Query(ctx, processIntegrityProjectionRowsSQL, args...)
+func (r *Repository) listRowsCanonical(ctx context.Context, q domain.Query, args []any) (domain.ListResult, error) {
+	rows, err := r.pool.Query(ctx, processIntegrityCanonicalRowsSQL, args...)
 	if err != nil {
-		return domain.ListResult{}, fmt.Errorf("processintegrity: list projection rows: %w", err)
+		return domain.ListResult{}, fmt.Errorf("processintegrity: list canonical rows: %w", err)
 	}
 	defer rows.Close()
 
@@ -115,7 +100,7 @@ func (r *Repository) listRowsProjected(ctx context.Context, q domain.Query, args
 	if q.RowID != nil {
 		totalCount = int64(len(out))
 	} else if q.IncludeAdherenceSummary {
-		summaryRows := r.pool.QueryRow(ctx, processIntegrityProjectionAdherenceSummarySQL, countQueryArgs(args)...)
+		summaryRows := r.pool.QueryRow(ctx, processIntegrityCanonicalAdherenceSummarySQL, countQueryArgs(args)...)
 		if err := summaryRows.Scan(
 			&summary.ExpectedCount,
 			&summary.CompletedCount,
@@ -123,12 +108,12 @@ func (r *Repository) listRowsProjected(ctx context.Context, q domain.Query, args
 			&summary.DeferredCount,
 			&summary.ProcessIntactCount,
 		); err != nil {
-			return domain.ListResult{}, fmt.Errorf("processintegrity: projection adherence summary: %w", err)
+			return domain.ListResult{}, fmt.Errorf("processintegrity: canonical adherence summary: %w", err)
 		}
 		totalCount = int64(summary.OpenGapCount + summary.ProcessIntactCount)
 	} else {
 		var err error
-		counts, totalCount, err = r.countByWorkStateProjected(ctx, countQueryArgs(args))
+		counts, totalCount, err = r.countByWorkStateCanonical(ctx, countQueryArgs(args))
 		if err != nil {
 			return domain.ListResult{}, err
 		}
@@ -142,13 +127,27 @@ func (r *Repository) listRowsProjected(ctx context.Context, q domain.Query, args
 		}
 		next = &encoded
 	}
-	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next, Projection: projection}, nil
+	return domain.ListResult{Rows: out, CountsByWorkState: counts, TotalCount: totalCount, AdherenceSummary: summary, NextCursor: next, Projection: canonicalProjectionMetadata(q)}, nil
 }
 
-func (r *Repository) countByWorkStateProjected(ctx context.Context, args []any) ([]domain.CountByWorkState, int64, error) {
-	countRows, err := r.pool.Query(ctx, processIntegrityProjectionCountsSQL, args...)
+// canonicalProjectionMetadata reports the live-canonical serving contract on the response envelope. A
+// canonical read is by construction consistent with the canonical write (no derived projection, no
+// freshness watermark), so it is never stale; the metadata mirrors q.AsOf so downstream freshness UI keeps
+// a stable, honest signal.
+func canonicalProjectionMetadata(q domain.Query) domain.ProjectionMetadata {
+	return domain.ProjectionMetadata{
+		ProjectedAt:     q.AsOf,
+		AsOf:            q.AsOf,
+		FreshnessStatus: "green",
+		ServingState:    "canonical",
+		Stale:           false,
+	}
+}
+
+func (r *Repository) countByWorkStateCanonical(ctx context.Context, args []any) ([]domain.CountByWorkState, int64, error) {
+	countRows, err := r.pool.Query(ctx, processIntegrityCanonicalCountsSQL, args...)
 	if err != nil {
-		return nil, 0, fmt.Errorf("processintegrity: count projection rows: %w", err)
+		return nil, 0, fmt.Errorf("processintegrity: count canonical rows: %w", err)
 	}
 	defer countRows.Close()
 	counts := []domain.CountByWorkState{}
@@ -157,45 +156,15 @@ func (r *Repository) countByWorkStateProjected(ctx context.Context, args []any) 
 		var state string
 		var count int64
 		if err := countRows.Scan(&state, &count); err != nil {
-			return nil, 0, fmt.Errorf("processintegrity: scan projection count: %w", err)
+			return nil, 0, fmt.Errorf("processintegrity: scan canonical count: %w", err)
 		}
 		counts = append(counts, domain.CountByWorkState{WorkState: domain.WorkState(state), Count: count})
 		totalCount += count
 	}
 	if err := countRows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("processintegrity: iterate projection counts: %w", err)
+		return nil, 0, fmt.Errorf("processintegrity: iterate canonical counts: %w", err)
 	}
 	return counts, totalCount, nil
-}
-
-// servingProjectionVersion returns the tenant's serving process-integrity projection version and whether
-// one exists. Every request-path read requires a serving version; there is no canonical compute-on-read
-// fallback. The projection stores completed rows and honours the IncludeCompleted ($14) / adherence
-// filters, so it serves Action Center, Protocol Adherence, counts, and single-row drilldowns alike.
-func (r *Repository) servingProjection(ctx context.Context, q domain.Query) (domain.ProjectionMetadata, error) {
-	var meta domain.ProjectionMetadata
-	err := r.pool.QueryRow(ctx, `
-SELECT serving_projection_version, projected_at, as_of, freshness_status, serving_state
-FROM process_integrity_projection_state
-WHERE tenant_id = $1::uuid
-	  AND serving_projection_version IS NOT NULL`, q.TenantID).Scan(
-		&meta.ProjectionVersion, &meta.ProjectedAt, &meta.AsOf, &meta.FreshnessStatus, &meta.ServingState,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.ProjectionMetadata{}, domain.ErrProjectionUnavailable
-	}
-	if err != nil {
-		return domain.ProjectionMetadata{}, fmt.Errorf("processintegrity: read projection state: %w", err)
-	}
-	projectionAge := q.AsOf.Sub(meta.AsOf)
-	buildAge := q.AsOf.Sub(meta.ProjectedAt)
-	incompatibleAsOf := q.HistoricalAsOf && !meta.AsOf.Equal(q.AsOf)
-	meta.Stale = meta.ProjectionVersion <= 0 || meta.ServingState != "fresh" || meta.FreshnessStatus != "green" ||
-		incompatibleAsOf || (!q.HistoricalAsOf && (projectionAge > defaultProjectionFresh || projectionAge < -time.Minute || buildAge > defaultProjectionFresh))
-	if meta.Stale {
-		return meta, domain.ErrProjectionStale
-	}
-	return meta, nil
 }
 
 func (r *Repository) GetRow(ctx context.Context, q domain.Query, rowID string) (domain.Row, bool, error) {
@@ -307,25 +276,6 @@ ON CONFLICT (tenant_id) DO UPDATE SET
 		return result, fmt.Errorf("processintegrity: serving projection committed but stale-row prune failed: %w", err)
 	}
 	return result, nil
-}
-
-func (r *Repository) markProjectionRebuilding(ctx context.Context, tenantID string, projectionVersion int64, projectedAt, asOf time.Time) error {
-	if _, err := r.pool.Exec(ctx, `
-INSERT INTO process_integrity_projection_state (
-  tenant_id, projection_version, serving_projection_version, projected_at, as_of, row_count,
-  freshness_status, serving_state, last_error, updated_at
-) VALUES (
-  $1::uuid, $2::bigint, NULL, $3::timestamptz, $4::timestamptz, 0,
-  'unknown', 'rebuilding', NULL, now()
-)
-ON CONFLICT (tenant_id) DO UPDATE SET
-  -- A new version is built beside the serving version. Keep last-known-good
-  -- serving metadata untouched so reads do not 503 during every scheduled build.
-  last_error = NULL,
-  updated_at = now()`, tenantID, projectionVersion, projectedAt, asOf); err != nil {
-		return fmt.Errorf("processintegrity: mark projection rebuilding: %w", err)
-	}
-	return nil
 }
 
 func (r *Repository) markProjectionFailed(tenantID string, cause error) {
@@ -741,7 +691,8 @@ func splitCSV(v string) []string {
 // exactly): (a) sop_tasks.state and obligation_batches.status remain current-state, so a task/batch
 // transition recorded after as_of is trusted as-is; (b) a missed->reschedule->missed churn is not reopen-
 // aware. Full task/batch + reopen event-history replay is a later pass.
-// scale-guard:ignore: off-request projector recompute only (RecomputeProjection -> processIntegrityProjectionInsertSQL); no request path uses this CTE after C35-002.
+// scale-guard:ignore: 5k-50k operational-kernel envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md). This base join is the canonical request-path read AND the off-request projector recompute source. It is tenant-scoped, bounded by the $4/$5 due window on the tenant+due_at index, keyset-paginated ($16-$19) at the LIST wrapper, and its aggregate wrappers pre-group in the DB — not an unbounded compute-on-read. The projection tables it also feeds are retained additively and removed in unit U7.
+// projection-review: membership=obligation_instances rows for the tenant in the $4/$5 due window (one obligation per goat/rule/dose), collapsed in the grouped CTE to one grain per park/shed/batch/rule/protocol/business-date; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_id, protocol_version_id, protocol_name, dose_code, unbatched-business-date); join_cardinality=completions/asof_terminal deduplicated to 1:1 via DISTINCT ON / ARRAY_AGG-[1] before the join and the goat/sop/batch joins are keyed 1:1, so the COUNT/SUM in the grouped and aggregate wrappers cannot fan-out double-count; pagination=aggregate wrappers (counts/adherence) produce full-window totals independent of the LIST keyset/limit; scope=park/shed via located.park_uuid/shed_uuid + $2/$3, protocol via $9, owner via $8, category via $15, with the every-status buckets driven by the as_of-effective eff_status/work_state.
 const processIntegrityBaseSQL = `
 WITH completions AS (
   -- One effective completion per obligation, as_of-bounded. Migration 000082 keeps rejected/reversed
@@ -1532,12 +1483,132 @@ all_rows AS (
 )
 `
 
-// NOTE: the former request-path canonical SQL (processIntegrityRowsSQL / processIntegrityCountsSQL /
-// processIntegrityAdherenceSummarySQL) was removed in C35-002. Request reads are projection-only; the
-// base CTE (processIntegrityBaseSQL) now survives solely for the off-request projector recompute
-// (processIntegrityProjectionInsertSQL, called by RecomputeProjection), which is allowed to replay
-// canonical state because it runs off the request path and publishes one indexed serving table.
+// Canonical request-path reads (5k-50k operational-kernel envelope,
+// docs/decisions/operational-kernel-5k-50k-scale-envelope.md). ListRows/CountByWorkState/GetRow serve
+// Action Center, Control Tower, Protocol Adherence, and Workflow drilldowns directly from these canonical
+// wrappers over processIntegrityAllRowsSQL — no derived projection, no freshness gate. The same base CTE
+// still feeds the (additively retained, removed in U7) projector via processIntegrityProjectionInsertSQL.
 
+// processIntegrityCanonicalRowsSQL is the LIST read: the canonical all_rows reconstruction, keyset-paginated
+// on (sort_priority, due_at, row_id) with LIMIT $19. The base joins are tenant+due_at index-bound and all
+// scope/state/owner/category filters ($2-$15) are applied inside all_rows, so the outer read only advances
+// the cursor and bounds the page.
+// scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed keyset read (base joins index-bound + LIMIT $19), projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
+const processIntegrityCanonicalRowsSQL = processIntegrityAllRowsSQL + `
+SELECT
+  sort_priority,
+  row_id,
+  process_key,
+  category,
+  obligation_id,
+  batch_id,
+  sop_task_id,
+  sop_task_row_version,
+  sop_submission_id,
+  completion_id,
+  park_id,
+  park_name,
+  shed_id,
+  shed_name,
+  cohort_id,
+  goat_id,
+  animal_stage,
+  protocol_id,
+  protocol_version_id,
+  rule_id,
+  protocol_name,
+  dose_code,
+  drive_name,
+  sop_version_id,
+  proof_policy,
+  due_at,
+  window_start,
+  window_end,
+  expected_count,
+  obligation_status,
+  batch_status,
+  sop_state,
+  submission_state,
+  proof_state,
+  verification_state,
+  completion_state,
+  completed_count,
+  proof_count,
+  rejected_count,
+  deferred_count,
+  work_state,
+  gap_type,
+  severity,
+  blocker_reason,
+  owner_state,
+  next_action,
+  process_intact,
+  operator_id,
+  operator_name,
+  park_head_id,
+  park_head_name,
+  verifier_id,
+  verifier_name,
+  escalation_owner_id,
+  escalation_owner_name,
+  proof_ids,
+  evidence_count,
+  latest_evidence_at,
+  latest_rejection_reason,
+  audit_ref
+FROM all_rows
+WHERE (
+  $16::int < 0
+  OR (sort_priority, due_at, row_id) > ($16::int, $17::timestamptz, $18::text)
+)
+  -- When IncludeCompleted is off ($14 false), a row that reads 'completed' at as_of but is due before the
+  -- closed-history floor ($11 = as_of - closed-history age) is genuine closed history and must not appear in
+  -- the default Action Center. The base CTE still PULLS it (by completion recency) so it can re-bucket for a
+  -- past as_of probe; this outer clause hides it once it is settled closed history — matching the retired
+  -- projection read filter exactly.
+  AND ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
+ORDER BY sort_priority ASC, due_at ASC, row_id ASC
+LIMIT $19;
+`
+
+// processIntegrityCanonicalCountsSQL is the NON-keyset indexed AGGREGATE: it collapses the whole canonical
+// filtered set into one count per work_state. Membership is one all_rows grain (already GROUP BY'd in the
+// base to park/shed/batch/rule/protocol/business-date), so COUNT(*) here is 1:1 with the LIST rows and the
+// window total never depends on the LIST page size ($19 is not referenced). Args are countQueryArgs (the
+// first 15 = $1..$15); the keyset args $16-$19 are intentionally absent.
+// projection-review: membership=all_rows grouped grains (one row per park/shed/batch/rule/protocol/business-date); group_key=work_state; join_cardinality=base joins pre-aggregated to grains in processIntegrityBaseSQL grouped/all_rows before this COUNT so no fan-out; pagination=full-tenant aggregate independent of the LIST keyset/limit; scope=park/shed/protocol/owner/category filters applied inside all_rows ($2/$3/$9/$8/$15).
+// scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed aggregate over the tenant+due_at bounded base joins, projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
+const processIntegrityCanonicalCountsSQL = processIntegrityAllRowsSQL + `
+SELECT work_state, COUNT(*)::bigint AS row_count
+FROM all_rows
+WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz)
+GROUP BY work_state
+ORDER BY work_state;
+`
+
+// processIntegrityCanonicalAdherenceSummarySQL is the Protocol Adherence AGGREGATE over the same canonical
+// grains: expected/completed sums plus the process-intact split, all independent of the LIST page. The
+// deferred total mirrors the projector grain (GREATEST(deferred_count, 1) on deferred-state grains) so a
+// canonical read and a projector-built summary agree.
+// projection-review: membership=all_rows grouped grains (one row per park/shed/batch/rule/protocol/business-date); group_key=none (single tenant summary row); join_cardinality=base joins pre-aggregated to grains before this SUM so no fan-out double-count; pagination=window totals independent of the LIST keyset/limit; scope=park/shed/protocol/owner/category filters applied inside all_rows ($2/$3/$9/$8/$15).
+// scale-guard:ignore: 5k-50k operational-kernel envelope; canonical indexed aggregate over the tenant+due_at bounded base joins, projection retired as request-path source per operational-kernel-5k-50k-scale-envelope.md.
+const processIntegrityCanonicalAdherenceSummarySQL = processIntegrityAllRowsSQL + `
+SELECT
+  COALESCE(SUM(expected_count), 0)::integer AS expected_count,
+  COALESCE(SUM(completed_count), 0)::integer AS completed_count,
+  COUNT(*) FILTER (WHERE NOT process_intact)::integer AS open_gap_count,
+  COALESCE(SUM(CASE WHEN work_state = 'deferred' THEN GREATEST(deferred_count, 1) ELSE 0 END), 0)::integer AS deferred_count,
+  COUNT(*) FILTER (WHERE process_intact)::integer AS process_intact_count
+FROM all_rows
+WHERE ($14::boolean OR work_state <> 'completed' OR due_at >= $11::timestamptz);
+`
+
+// The projection READ SQL below (processIntegrityProjectionFilterSQL / processIntegrityProjectionRowsSQL /
+// processIntegrityProjectionCountsSQL / processIntegrityProjectionAdherenceSummarySQL /
+// processIntegrityProjectionSummaryFilterSQL) is no longer on the request path — ListRows/CountByWorkState
+// read canonically. It is retained additively alongside the projection tables and the projector build SQL
+// (processIntegrityProjectionInsertSQL / processIntegrityProjectionSummaryInsertSQL) and is removed together
+// with them in unit U7.
 const processIntegrityProjectionFilterSQL = `
 FROM process_integrity_projection_rows
 WHERE tenant_id = $1::uuid

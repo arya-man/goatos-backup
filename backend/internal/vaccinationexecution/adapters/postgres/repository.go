@@ -100,20 +100,25 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 		cursorDueMicros = q.Cursor.SortDueMicros
 		cursorRowKey = q.Cursor.SortRowKey
 	}
-	servingVersion, freshness, ok := r.servingExecutionProjectionVersion(ctx, q.TenantID, asOf, q.DueBefore, q.HistoricalAsOf)
-	if !ok {
-		return domain.ExecutionProjectionPage{}, domain.ErrProjectionUnavailable
+	dueBefore := q.DueBefore
+	if dueBefore.IsZero() {
+		dueBefore = asOf.Add(defaultExecutionHorizon)
 	}
-	rows, err := r.pool.Query(ctx, vaccinationExecutionProjectionReadSQL,
-		q.TenantID, servingVersion, parkID, shedID, workState, severity,
-		cursorPresent, cursorRank, cursorDueMicros, cursorRowKey, q.Limit)
+	closedAfter := asOf.Add(-defaultClosedHistoryAge)
+	// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): serve the execution
+	// list directly from the canonical obligation/completion/SOP tables via the keyset-paginated
+	// vaccinationExecutionSQL instead of the vaccination_execution_projection_rows read model. A canonical
+	// read cannot be stale relative to the canonical write, so the serving-projection freshness gate (and
+	// its read-through-vs-503 failure mode) is removed. The projection table + projector stay in the tree
+	// as additive read-through infrastructure for a later scale-out step. Freshness is nil (always current).
+	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL,
+		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
+		cursorPresent, cursorRank, cursorDueMicros, cursorRowKey)
 	if err != nil {
 		return domain.ExecutionProjectionPage{}, fmt.Errorf("vaccination execution: list vaccination execution: %w", err)
 	}
 	defer rows.Close()
-	page, err := scanExecutionProjectionPage(rows, q.Limit)
-	page.Freshness = freshness
-	return page, err
+	return scanExecutionProjectionPage(rows, q.Limit)
 }
 
 func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProjectionPage, error) {
@@ -413,17 +418,19 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 		cursorShedName = q.Cursor.ShedName
 		cursorStage = q.Cursor.Stage
 	}
-	version, freshness, ok := r.servingOperationsProjection(ctx, q.TenantID, asOf, dueBefore, q.HistoricalAsOf)
-	if !ok {
-		return nil, domain.ErrProjectionUnavailable
-	}
-	rows, err := r.pool.Query(ctx, vaccinationOperationsProjectionReadSQL,
-		q.TenantID, version, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName)
+	// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): serve operations
+	// directly from the canonical obligation/completion tables via the keyset-paginated
+	// vaccinationOperationsSQL instead of vaccination_operations_projection_rows. Canonical reads are never
+	// stale relative to the canonical write, so the serving-projection freshness gate is removed. The
+	// projection table + projector remain as additive read-through infrastructure for a later scale-out
+	// step. Freshness is nil (always current).
+	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL,
+		q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: list operations: %w", err)
 	}
 	defer rows.Close()
-	return scanOperationsRows(rows, freshness)
+	return scanOperationsRows(rows, nil)
 }
 
 func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([]domain.OperationsRow, error) {
@@ -762,6 +769,9 @@ LIMIT ($11::int+1);`
 // missed/waived/deferred via the obligation_status_events log; scheduled/due/overdue from due_at/window) rather than
 // read off the current obligation_instances.status. Documented residual (no event history to reconstruct):
 // sop_tasks.state / obligation_batches.status stay current-state.
+//
+// This is now the request-path serving read (ListVaccinationExecutionPage), not only the projector replay.
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — keyset-paginated (~20 rows) canonical execution list, query-plan-tested (canonical_read_plan_test.go).
 const vaccinationExecutionSQL = `
 WITH asof_terminal AS (
   -- Latest TERMINAL transition (missed/waived/deferred; no timestamp column on obligation_instances) AT OR BEFORE
@@ -1234,6 +1244,9 @@ ORDER BY lower(rows.park_name) COLLATE "C",rows.park_name COLLATE "C",rows.park_
 // completion sub-state (recorded/accepted/rejected) uses vaccination_completions.status, which is the
 // current verification status. A dose administered before as_of but accepted after as_of is bounded out of
 // "completed" via completed_at, but its as_of verification sub-state is not yet reconstructed.
+//
+// This is now the request-path serving read (VaccinationOperations), not only the projector replay.
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — keyset-paginated (~20 cohorts) canonical operations list, query-plan-tested (canonical_read_plan_test.go).
 const vaccinationOperationsSQL = `
 WITH cursor_location AS (
   -- Cursors emitted before the human-order fix carry IDs/stage only. Resolve
@@ -1855,47 +1868,276 @@ func (r *Repository) CapacityConfig(ctx context.Context, tenantID string) (domai
 // outputs (Sessions, Capacity, merged Status), filtered + offset-paginated, each row carrying the window
 // total. Manager/Backup are attached later by the service.
 //
-// C35-002 request-path flip: this reads EXCLUSIVELY from the incrementally maintained
-// vaccination_shed_projection_rows read model (migration 000167) via an indexed tenant+
-// projection_version lookup (shedSummaryProjectedSQL) -- never the canonical compute-on-read god-CTE
-// that used to live here. RecomputeShedProjection (shed_projection.go) is the only writer, refreshed
-// off the request path by the vaccination-shed-projection-recompute job (mirrors
-// process-integrity-projection-recompute). When the tenant has no serving projection version yet, this
-// returns domain.ErrProjectionUnavailable instead of silently replaying the raw obligation/goat/
-// capacity-config history -- that fallback is the slowest possible path at 1-5M animals and is exactly
-// what C35-002 removes (mirrors processintegrity.ListRows / CountByWorkState, C35-002's other half).
-// q.AsOf/q.DueBefore are accepted for API compatibility but are NOT used to reconstruct historical
-// status here: the projection always serves its most recent successful recompute (effectively "now",
-// refreshed every few minutes), the same simplification processintegrity already made. A stale/future
-// as_of is clamped to server-now by the HTTP handler before it ever reaches this method (see
-// biztime.ParseLiveAsOfRFC3339), so live reads are unaffected; true point-in-time historical
-// reconstruction is out of scope for this rollup (obligation_status_events remains the audit trail).
+// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): this serves
+// GET /vaccination/sheds directly from the canonical obligation/goat/capacity-config tables
+// (shedSummaryCanonicalReadSQL) reconstructed point-in-time as of q.AsOf. A canonical read cannot be
+// stale relative to the canonical write, so the serving-projection freshness gate and per-shed shard
+// staleness gate (and their read-through-vs-503 failure mode) are removed. The
+// vaccination_shed_projection_rows read model + RecomputeShedProjection projector remain in the tree as
+// additive read-through infrastructure for a later scale-out step (they no longer gate this read).
+// Shed rows are bounded (a tenant has at most a few hundred sheds), so the god-CTE + COUNT(*) OVER() +
+// LIMIT/OFFSET stays scale-safe within this envelope; the driving obligation_instances scan is
+// tenant/status/due-indexed and query-plan-tested (canonical_read_plan_test.go). Freshness is nil.
 func (r *Repository) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
-	return r.listShedProjection(ctx, q)
+	return r.listShedCanonical(ctx, q)
 }
 
-// shedSummaryProjectedSQL is the C35-002 flipped read: an indexed (tenant_id, projection_version)
-// lookup into vaccination_shed_projection_rows, with the same park/shed/search/status/capacity filters
-// and sort/offset-pagination shape the old god-CTE served, but zero raw-table joins or aggregation --
-// every column here is precomputed by RecomputeShedProjection (shed_projection.go). Shed rows are
-// bounded (a tenant has at most a few hundred sheds), so COUNT(*) OVER() + LIMIT/OFFSET stays scale-safe.
-// __ORDER_BY__ is substituted from a closed whitelist in Go (shedSummaryOrderBy).
-const shedSummaryProjectedSQL = `
+// listShedCanonical runs the shed-wise rollup straight from canonical tables (no projection read model),
+// reconstructing each shed's Due/Done/session-split state as of q.AsOf via shedSummaryCanonicalReadSQL.
+// It mirrors listShedProjection's limit/offset clamps and scan shape; the difference is the data source
+// (canonical obligation/goat/capacity history rather than vaccination_shed_projection_rows).
+func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	limit := q.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	asOf := q.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	dueBefore := q.DueBefore
+	if dueBefore.IsZero() {
+		dueBefore = asOf.Add(defaultExecutionHorizon)
+	}
+	cfg, err := r.CapacityConfig(ctx, q.TenantID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: shed summary capacity config: %w", err)
+	}
+	status, capacity := "", ""
+	if q.Status != nil {
+		status = string(*q.Status)
+	}
+	if q.Capacity != nil {
+		capacity = string(*q.Capacity)
+	}
+	query := strings.Replace(shedSummaryCanonicalReadSQL, "__ORDER_BY__", shedSummaryOrderBy(q.Sort), 1)
+	rows, err := r.pool.Query(ctx, query,
+		q.TenantID, asOf, dueBefore, cfg.MaxPerDay, cfg.MaxBufferDays,
+		optStr(q.ParkID), optStr(q.ShedID), optStr(q.Search), status, capacity, limit, q.Offset)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination execution: shed summary canonical read: %w", err)
+	}
+	defer rows.Close()
+	out := []domain.ShedSummaryProjection{}
+	for rows.Next() {
+		var row domain.ShedSummaryProjection
+		var lastDone, nextDue pgtype.Timestamptz
+		var capacityStatus, shedStatus string
+		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &row.TotalCount); err != nil {
+			return nil, fmt.Errorf("vaccination execution: scan shed summary: %w", err)
+		}
+		row.Capacity, row.Status = domain.CapacityStatus(capacityStatus), domain.ShedStatus(shedStatus)
+		row.LastDone, row.NextDue = timePtr(lastDone), timePtr(nextDue)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// shedSummaryCanonicalReadSQL is the 5k-50k-envelope request-path read for GET /vaccination/sheds. It
+// reconstructs each shed's animal-level Due/Done rollup and the session-split planner outputs
+// (Sessions/Capacity/merged Status) straight from canonical obligation/goat/capacity history AS OF $2
+// (as_of), then applies the request's park/shed/search/status/capacity filters and sort/offset page. It
+// replays the SAME alive/completions/asof_terminal/raw/effective/due_agg/shed_rows/scored/classified
+// chain as vaccinationShedProjectionInsertSQL (the projector) and canonicalShedSummarySQLForParity (the
+// parity test), so the direct read, the projector, and the independent parity query all agree row for
+// row. Params: $1 tenant, $2 as_of, $3 due_before, $4 max_per_day, $5 max_buffer_days, then $6 park_id,
+// $7 shed_id, $8 search, $9 shed_status, $10 capacity_status, $11 limit, $12 offset. __ORDER_BY__ is
+// substituted from a closed whitelist in Go (shedSummaryOrderBy).
+//
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — shed rows are bounded (a few hundred sheds/tenant), driving obligation_instances scan is tenant/status/due-indexed and query-plan-tested (canonical_read_plan_test.go). Keyset replacement for the offset page is tracked as C35-020.
+const shedSummaryCanonicalReadSQL = `
+WITH alive AS (
+  SELECT g.shed_id AS shed_uuid, COUNT(*)::bigint AS animals
+  FROM goats g
+  WHERE g.tenant_id = $1::uuid
+    AND g.lifecycle_status = 'alive'
+    AND g.merged_into_goat_id IS NULL
+    AND g.shed_id IS NOT NULL
+  GROUP BY g.shed_id
+),
+completions AS (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(asof_status ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+      administered_at DESC,
+      created_at DESC))[1] AS effective_status,
+    MAX(administered_at) FILTER (WHERE asof_status = 'accepted') AS last_accepted_at
+  FROM (
+    SELECT
+      obligation_id, administered_at, created_at,
+      CASE
+        WHEN status IN ('accepted', 'rejected') AND verified_at IS NOT NULL AND verified_at > $2::timestamptz THEN 'recorded'
+        ELSE status
+      END AS asof_status
+    FROM vaccination_completions
+    WHERE tenant_id = $1::uuid
+      AND COALESCE(administered_at, created_at) <= $2::timestamptz
+  ) c
+  GROUP BY obligation_id
+),
+asof_terminal AS (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
+       FILTER (WHERE occurred_at <= $2::timestamptz))[1] AS asof_terminal_type,
+    true AS has_terminal_event
+  FROM obligation_status_events
+  WHERE tenant_id = $1::uuid
+    AND event_type IN ('missed', 'waived', 'deferred')
+  GROUP BY obligation_id
+),
+raw AS (
+  SELECT
+    oi.obligation_id,
+    oi.due_at,
+    oi.window_start,
+    oi.completed_at,
+    oi.status AS stored_status,
+    te.asof_terminal_type,
+    te.has_terminal_event,
+    oi.target_id AS goat_id,
+    g.shed_id AS shed_uuid,
+    c.effective_status AS completion_status,
+    c.last_accepted_at
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  JOIN goats g
+    ON oi.target_type = 'goat'
+   AND g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.merged_into_goat_id IS NULL
+   AND g.lifecycle_status = 'alive'
+  LEFT JOIN completions c
+    ON c.obligation_id = oi.obligation_id
+  LEFT JOIN asof_terminal te
+    ON te.obligation_id = oi.obligation_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
+    AND oi.due_at <= $3::timestamptz
+    AND g.shed_id IS NOT NULL
+),
+effective AS (
+  SELECT
+    raw.goat_id,
+    raw.shed_uuid,
+    raw.due_at,
+    raw.last_accepted_at,
+    raw.completion_status,
+    CASE
+      WHEN raw.stored_status = 'completed' THEN
+        CASE
+          WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $2::timestamptz THEN 'completed'
+          WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
+          ELSE (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+        END
+      WHEN raw.stored_status IN ('missed', 'waived', 'deferred') THEN
+        CASE
+          WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
+          WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE raw.stored_status
+        END
+      WHEN raw.stored_status = 'in_progress' THEN 'in_progress'
+      ELSE (CASE WHEN raw.due_at < $2::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due' ELSE 'scheduled' END)
+    END AS eff_status
+  FROM raw
+),
+due_agg AS (
+  SELECT
+    effective.shed_uuid,
+    COUNT(DISTINCT effective.goat_id) FILTER (
+      WHERE effective.eff_status IN ('overdue', 'due', 'in_progress')
+         OR effective.completion_status IN ('recorded', 'rejected')
+    )::bigint AS due_animals,
+    COUNT(DISTINCT effective.goat_id) FILTER (WHERE effective.eff_status = 'overdue')::bigint AS overdue_animals,
+    COUNT(DISTINCT effective.goat_id) FILTER (WHERE effective.eff_status = 'scheduled')::bigint AS scheduled_animals,
+    COUNT(*) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress'))::bigint AS open_cells,
+    MAX(effective.last_accepted_at) AS last_done,
+    MIN(effective.due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due
+  FROM effective
+  GROUP BY effective.shed_uuid
+),
+shed_rows AS (
+  SELECT
+    park.location_id::text AS park_id,
+    park.name AS park_name,
+    shed.location_id::text AS shed_id,
+    shed.name AS shed_name,
+    alive.animals,
+    COALESCE(due_agg.due_animals, 0) AS due_animals,
+    COALESCE(due_agg.overdue_animals, 0) AS overdue_animals,
+    COALESCE(due_agg.scheduled_animals, 0) AS scheduled_animals,
+    COALESCE(due_agg.open_cells, 0) AS open_cells,
+    due_agg.last_done,
+    due_agg.next_due
+  FROM alive
+  JOIN locations shed
+    ON shed.tenant_id = $1::uuid
+   AND shed.location_id = alive.shed_uuid
+   AND shed.location_type = 'shed'
+   AND shed.status = 'active'
+  JOIN locations park
+    ON park.tenant_id = $1::uuid
+   AND park.location_id = shed.parent_location_id
+   AND park.location_type = 'park'
+   AND park.status = 'active'
+  LEFT JOIN due_agg ON due_agg.shed_uuid = alive.shed_uuid
+),
+scored AS (
+  SELECT
+    shed_rows.*,
+    CASE WHEN open_cells <= 0 THEN 0 ELSE CEIL(open_cells::numeric / GREATEST($4::numeric, 1))::int END AS sessions
+  FROM shed_rows
+),
+classified AS (
+  SELECT
+    scored.*,
+    CASE
+      WHEN sessions <= 1 THEN 'within_cap'
+      WHEN sessions <= ($5::int + 1) THEN 'over_cap'
+      ELSE 'capacity_breach'
+    END AS capacity_status,
+    CASE
+      WHEN overdue_animals > 0 THEN 'overdue'
+      WHEN sessions > ($5::int + 1) THEN 'needs_review'
+      WHEN sessions > 1 THEN 'split'
+      WHEN due_animals > 0 THEN 'due'
+      WHEN scheduled_animals > 0 THEN 'scheduled'
+      ELSE 'on_track'
+    END AS shed_status
+  FROM scored
+)
 SELECT
   park_id, park_name, shed_id, shed_name,
   animals, due_animals, open_cells, sessions, capacity_status, shed_status,
   last_done, next_due,
   COUNT(*) OVER()::bigint AS total_count
-FROM vaccination_shed_projection_rows
-WHERE tenant_id = $1::uuid
-  AND projection_version = $2::bigint
-  AND ($3::text = '' OR park_id = $3)
-  AND ($4::text = '' OR shed_id = $4)
-  AND ($5::text = '' OR shed_name ILIKE '%' || $5 || '%' OR park_name ILIKE '%' || $5 || '%')
-  AND ($6::text = '' OR shed_status = $6)
-  AND ($7::text = '' OR capacity_status = $7)
+FROM classified
+WHERE ($6::text = '' OR park_id = $6)
+  AND ($7::text = '' OR shed_id = $7)
+  AND ($8::text = '' OR shed_name ILIKE '%' || $8 || '%' OR park_name ILIKE '%' || $8 || '%')
+  AND ($9::text = '' OR shed_status = $9)
+  AND ($10::text = '' OR capacity_status = $10)
 ORDER BY __ORDER_BY__
-LIMIT $8 OFFSET $9;
+LIMIT $11 OFFSET $12;
 `
 
 // ShedAnimals returns the shed's alive animals (Display ID + the two tag identities + a lightweight

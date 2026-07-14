@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -637,14 +636,14 @@ func TestReclaimExpiredDirtyScopeLeasesRetriesThenDeadLetters(t *testing.T) {
 	}
 }
 
-// TestShedSummaryStalenessGateIsScopedPerShed is the P1 regression test for the scoped freshness
-// gate (AnyShedShardStaleInScope, wired into listShedProjection). Before the fix, listShedProjection
-// gated EVERY shed read (including a single ShedDetail) on AnyShedShardStale -- tenant-wide -- so one
-// stale/dead-lettered shed 503'd every OTHER shed's read too. This proves: with shed A stale and shed
-// B fresh, GetShedDetail(B) (ShedSummary scoped to shed B) still serves, GetShedDetail(A) fails
-// closed, and an unfiltered tenant-wide read still fails closed (the tenant-wide fallback is
-// preserved when no shed/park scope is given).
-func TestShedSummaryStalenessGateIsScopedPerShed(t *testing.T) {
+// TestShedSummaryCanonicalReadIgnoresShardStaleness proves the 5k-50k-envelope flip: ShedSummary now
+// serves directly from canonical tables and is no longer gated on projection shard freshness at all, so
+// a stale/backdated (or dead-lettered) shard_state row for one shed must NOT take down that shed's read,
+// any other shed's read, or the unfiltered tenant-wide read. The projection shard-staleness machinery
+// (AnyShedShardStaleInScope) is retained as projector infrastructure and still unit-tested directly, but
+// it no longer wires into the request path. See
+// docs/decisions/operational-kernel-5k-50k-scale-envelope.md.
+func TestShedSummaryCanonicalReadIgnoresShardStaleness(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -681,13 +680,15 @@ func TestShedSummaryStalenessGateIsScopedPerShed(t *testing.T) {
 	shedA, shedB := testShedIncA, testShedIncB
 
 	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, ShedID: &shedB, AsOf: asOf, DueBefore: dueBefore, Limit: 1}); err != nil {
-		t.Fatalf("ShedSummary(shed B) = %v, want success -- shed A's staleness must not affect shed B's scoped read", err)
+		t.Fatalf("ShedSummary(shed B) = %v, want success", err)
 	}
-	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, ShedID: &shedA, AsOf: asOf, DueBefore: dueBefore, Limit: 1}); !errors.Is(err, domain.ErrProjectionUnavailable) {
-		t.Fatalf("ShedSummary(shed A) err = %v, want ErrProjectionUnavailable (shed A is stale)", err)
+	// Shed A's shard_state is backdated past the staleness TTL, but the canonical read is not gated on
+	// shard freshness, so it still serves.
+	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, ShedID: &shedA, AsOf: asOf, DueBefore: dueBefore, Limit: 1}); err != nil {
+		t.Fatalf("ShedSummary(shed A) err = %v, want success (canonical read ignores shard staleness)", err)
 	}
-	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 200}); !errors.Is(err, domain.ErrProjectionUnavailable) {
-		t.Fatalf("unfiltered ShedSummary err = %v, want ErrProjectionUnavailable (tenant-wide fallback when no shed/park scope is given)", err)
+	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 200}); err != nil {
+		t.Fatalf("unfiltered ShedSummary err = %v, want success (canonical read ignores shard staleness)", err)
 	}
 }
 
