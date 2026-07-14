@@ -281,12 +281,22 @@ Do:
   start the scenario (for example tenant, herd animal, location, workforce,
   inventory, or authored configuration). Obligations, batches, completions,
   verification outcomes, SOP tasks/submissions, notifications/escalations,
-  cancellations, and Calendar/process-integrity projections must be produced by
-  the same service, API, durable event consumer, sweeper, or projector used in
-  production. A narrower test that intentionally seeds derived state must live
-  with the owning package as an integration/read-model test and must not appear
-  in an E2E report. `tools/agent-hooks/check-e2e-kernel-integrity.sh` enforces
-  this rule for both Claude and Codex and in CI.
+  cancellations, and Calendar/process-integrity screen output must be produced
+  by the same service, API, durable event consumer, sweeper, canonical-read
+  query path, or projector used in production. Per
+  `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, the Calendar,
+  process-integrity, and vaccination shed/execution/operations screens are
+  served at the current 5k-50k envelope directly from canonical indexed SQL —
+  the `calendar_event_projections`, `process_integrity_projection_rows`, and
+  `vaccination_shed/execution/operations_projection_rows` projection tables are
+  retired, not replaced by a seeded stand-in. E2E for those screens must still
+  drive the real canonical-read path end to end; if a screen later earns its
+  own projection under that ADR's scale-out ladder, this same production-path
+  requirement carries over to that projector. A narrower test that
+  intentionally seeds derived state must live with the owning package as an
+  integration/read-model test and must not appear in an E2E report.
+  `tools/agent-hooks/check-e2e-kernel-integrity.sh` enforces this rule for both
+  Claude and Codex and in CI.
 - Couple migrations to initial seed setup. If a migration changes tenant/goat/
   RFID/location, HRMS/ownership, founder grants, protocol/SOP/capacity,
   obligation/completion/proof, notification/verification, or app-visible
@@ -298,10 +308,18 @@ Do:
   `docs/runbooks/initial-seed-migration-coupling.md`.
 - Do not make seed scripts hand-fill every new table. Classify setup tables as
   source/canonical, derived/read-model, static catalog/config, or
-  operational/audit/event. Derived app-visible tables must be rebuilt from
-  canonical data through `make seed-closeout` / `tools/dev/seed-closeout.sh`.
-  New projection tables also need access-pattern indexes, freshness/version
-  state, and an explicit partitioning decision.
+  operational/audit/event. Per
+  `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, the default at
+  the current 5k-50k envelope is that a new app-visible surface is served by a
+  canonical indexed SQL read — no new projection table, and no closeout wiring,
+  for that default case. A derived/read-model table exists only where it
+  survives this envelope (the vaccination eligibility rollup and counts
+  summaries) or where the ADR's scale-out ladder later adds one for a specific
+  measured hot read. Any such surviving or newly-added projection table must
+  still be rebuilt from canonical data through `make seed-closeout` /
+  `tools/dev/seed-closeout.sh`, and still needs access-pattern indexes,
+  freshness/version state, and an explicit partitioning decision at the point
+  it is introduced.
 - Register projection closeout by app-visible output, not just by executable
   name. If one projector command owns multiple read models, `seed-closeout`
   must pass explicit flags for each output. Any default-false `-project-*` flag
@@ -401,17 +419,31 @@ Do:
   review result in the handoff before pushing. Build passing means only that the
   code compiles; it does not mean the UI ships.
 - Read wide, write narrow: agents may inspect the whole tree, but edits must stay within declared task scope.
-- Treat million-animal scale as a hard requirement on every design, prompt, and
-  code change. Before accepting any new query, worker, import path, reporting
-  path, or UI data flow, check the scale shape: tenant/run scoped, indexed,
-  chunked or paginated, bounded in memory/goroutines, idempotent for retries,
-  and covered by query-plan validation when it touches large tables.
+- Treat scale-safe design as a hard requirement on every design, prompt, and
+  code change, sized to the current release scale target. Per
+  `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, the present
+  release envelope is 5,000-50,000 animals, with query-plan proof required at
+  the envelope's upper bound (up to ~500k obligation rows); one-million to
+  1-5M-animal deployment is the future certification bar, not a present
+  release requirement. Regardless of that target, before accepting any new query,
+  worker, import path, reporting path, or UI data flow, check the scale shape:
+  tenant/run scoped, indexed, chunked or paginated, bounded in memory/
+  goroutines, idempotent for retries, and covered by query-plan validation when
+  it touches large tables.
 - NEVER write these scale anti-patterns in `backend/internal/**` (request paths,
   app services, worker repo methods). They are fast at ~1k rows and fatal at 1M.
   Each is machine-blocked by `make scale-guard` (CI `guardrails` job); named,
   explained, and given its approved alternative in
   `docs/decisions/scale-anti-patterns.md`. The rule underneath all of them:
-  **compute-on-write (projections), never compute-on-read.**
+  **compute-on-write (projections), never compute-on-read** — with one scoped
+  exemption: per
+  `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, the five named
+  Calendar/process-integrity/vaccination-shed/execution/operations screen reads
+  carry a scoped `// scale-guard:ignore: 5k-50k-envelope` annotation and serve
+  canonical indexed SQL directly at the current 5k-50k release envelope. The
+  guard is NOT globally disabled: compute-on-read stays banned for every other
+  path in `backend/internal/**`, and the exemption is removed from a screen the
+  moment it earns its own projection under that ADR's scale-out ladder.
   - **compute-on-read / god-CTE** — reconstructing derived state from raw
     event/instance tables per request via a big multi-CTE query. Use a
     materialized read model updated on write; the request does an indexed lookup.
