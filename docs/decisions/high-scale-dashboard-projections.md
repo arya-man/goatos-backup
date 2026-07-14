@@ -10,9 +10,33 @@ Examples include mortality, births, counts, feed, sales, procurement, health,
 vaccination, fattening, shifting, MIS, promise risk, and future CEO/investor
 charts.
 
+## Scale Envelope And When Projections Apply
+
+This document is reconciled with and subordinate to
+[`operational-kernel-5k-50k-scale-envelope.md`](./operational-kernel-5k-50k-scale-envelope.md),
+which is the authority for operational-kernel deployment scale and worker
+topology. That ADR narrows one-million-animal deployment topology to future
+work and makes the 5,000-to-50,000-animal population the current release target.
+
+At the current 5k-to-50k envelope, a projection is the scale-out TOOL, not the
+day-one default. Dashboards read canonical tables directly through
+keyset-paginated list reads plus indexed summary aggregates. A projection table
+is added only per measured hot read path, following the scale-out ladder in the
+ADR: repair query plans and indexes first, then add one narrowly owned
+projection table when a specific canonical read cannot meet its latency or
+DB-pressure target after query repair.
+
+Everything below this section is the projection design guidance for when a hot
+read path has earned a projection. It remains the required blueprint at that
+point, and it stays the reference for one-million-animal scale as future scale
+work and regression material. Read the absolute "every dashboard / one million
+goats" statements below as that future-scale research target, not as a present
+release requirement that every screen must ship a projection on day one.
+
 ## Product Requirements
 
-Dashboards must feel as responsive at one million goats as they do during dev.
+Dashboards must stay responsive across the current 5k-to-50k envelope and remain
+designed so they can scale toward one million goats without re-architecture.
 Users should be able to open a dashboard, switch tabs, change periods, and
 compare categories without causing full-herd scans or expensive warehouse
 queries on every page load.
@@ -33,11 +57,17 @@ inputs only.
 
 ## Global Rule
 
-Do not build large dashboard charts by calculating from raw facts on every
-request.
+Do not build large dashboard charts by re-deriving expensive per-request
+aggregates from raw facts through unbounded scans. At the 5k-to-50k envelope the
+default serving shape is canonical tables read through keyset-paginated list
+reads plus indexed, bounded, plan-tested summary aggregates (see the
+scale-envelope ADR and the `compute-on-read` guidance in
+`docs/decisions/scale-anti-patterns.md`). The projection pipeline below is the
+scale-out tool added per measured hot read path — not a day-one requirement for
+every screen.
 
-For any feature with time/category/date/breed/farm/load/status charts, design
-the feature as:
+Once a hot read path has earned a projection, or when designing ahead for the
+future one-million-animal scale, design that feature as:
 
 ```text
 canonical facts/events
@@ -301,6 +331,16 @@ WHERE tenant_id = $1
 GROUP BY breed;
 ```
 
+At the 5k-to-50k envelope, an indexed, tenant/date/section-scoped summary
+aggregate over canonical tables with a bounded row estimate is acceptable on the
+request path even without a projection, provided it is query-plan-tested for both
+the list and aggregate shapes and carries the sanctioned
+`// scale-guard:ignore: 5k-50k-envelope` annotation described in the
+scale-envelope ADR. The unacceptable case above is the unbounded full-scan
+`GROUP BY`, not every per-request aggregate. As a read path grows past that
+envelope or misses its latency target, promote it to a projection using the
+design below.
+
 Raw fact scans are allowed inside controlled rebuild jobs, replay harnesses,
 debug tools, and migration validation, not inside dashboard request handlers.
 
@@ -365,6 +405,16 @@ Status: accepted global rule. Applies to every projection-backed serving read
 that carries a freshness/coverage gate (Vaccination execution/operations/shed,
 CT/AC/PA process-integrity, Calendar). Learned from the API-projection recovery;
 each rule below was a real production-shaped defect.
+
+Envelope note: under the scale-envelope ADR
+([`operational-kernel-5k-50k-scale-envelope.md`](./operational-kernel-5k-50k-scale-envelope.md)),
+the named screens above (Calendar, process-integrity, and the vaccination
+execution/operations/shed reads) are currently served directly from canonical
+indexed tables and therefore carry no projection freshness gate at the 5k-to-50k
+envelope. This contract applies to a read once it has earned a projection on the
+scale-out ladder. The example screen names are retained because they are the
+paths most likely to earn one first, and the rules below stay valid for any
+projection reintroduced for a measured hotspot.
 
 1. **Freshness TTL must exceed the projector refresh schedule.** The serving TTL
    is an *age* bound. If TTL equals the refresh cadence, scheduler jitter plus any
@@ -485,15 +535,20 @@ Before building a large dashboard feature, confirm:
 - Cutover/blend-mode and cross-source dedup gates are defined where BQ/Sheets
   are temporary upstreams.
 - Query-plan validation is added for hot paths that can touch large tables.
-- One-million-goat scale is proven or credibly simulated for hot reads and any
-  rebuild path that can touch goat/fact tables. A large dashboard is not
+- Scale is proven or credibly simulated for hot reads and any rebuild path that
+  can touch goat/fact tables. At the current release envelope the proof target is
+  the 5k-to-50k population (up to the upper-bound obligation-row counts in the
+  scale-envelope ADR); one-million-goat scale is the future-scale proof target
+  for a path being designed ahead of that envelope. A large dashboard is not
   production-complete if the proof still depends on request-time full-herd scans
-  or unbounded aggregations.
+  or unbounded aggregations at its target scale.
 
 Credible simulation means more than a small dev-data smoke test. Use one of:
 
-- a local/staging synthetic fixture at the relevant table scale, such as
-  one-million goat/current-fact rows or equivalent projection rows
+- a local/staging synthetic fixture at the relevant table scale — the 5k-to-50k
+  population (up to the ADR's upper-bound obligation-row counts) for the current
+  envelope, or one-million goat/current-fact rows or equivalent projection rows
+  for future-scale design
 - an `EXPLAIN`/`EXPLAIN ANALYZE` plan fixture showing tenant/date/section scoped
   index access with bounded row estimates, plus chunked worker access for large
   rebuilds

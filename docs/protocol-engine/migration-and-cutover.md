@@ -1,7 +1,7 @@
 # Goat OS — Legacy → Canonical Migration & Preventive Care (PC) Cutover
 
 **Status:** Draft v1 · **Date:** 2026-06-23
-**Companion:** [obligation-engine.md](./obligation-engine.md) · [state-machines.md](./state-machines.md) · [Preventive Care (PC) TRD](../preventive-care-vaccination/TRD.md)
+**Companion:** [obligation-engine.md](./obligation-engine.md) · [state-machines.md](./state-machines.md) · [Preventive Care (PC) TRD](../preventive-care-vaccination/TRD.md) · [Operational-kernel 5k–50k scale-envelope ADR](../decisions/operational-kernel-5k-50k-scale-envelope.md)
 **Context:** local/dev/test may use verified source files or prior snapshots as
 seed evidence, but the V1 base is clean slate. This doc says how to seed clean
 canonical state for Preventive Care (PC) / Feed without carrying old dashboard,
@@ -14,6 +14,29 @@ BQ, Sheets, import-review, or sync-runtime tables forward.
 `goats`, `goat_id`, `goat_identifiers`, or `goat.*` events are legacy/current
 implementation names that must be migrated to the animal model before the base
 is considered clean.
+
+**Runtime-topology note (2026-07-14):** the runtime this cutover seeds into is
+the 5k-to-50k operational-kernel envelope accepted in
+[operational-kernel-5k-50k-scale-envelope.md](../decisions/operational-kernel-5k-50k-scale-envelope.md).
+Under that envelope the vaccination execution/operations/shed and
+Calendar/process-integrity screens are served from canonical indexed SQL rather
+than separate projection tables, one modular kernel worker replaces the fleet of
+independently scheduled Cloud Run Jobs, and the three event/history parents
+(`goat_identity_events`, `audit_log`, `obligation_status_events`) are ordinary
+indexed tables. The dropped projection schemas, projectors, and monthly
+partitioning stay recoverable from the `kernel-split-workers-v1` tag if a
+measured hotspot later needs them. This changes only the deployment shape and
+how a healthy read is verified — a completed cutover means the canonical-read
+APIs (for example `/vaccination/sheds`, `/vaccination/execution`,
+`/vaccination/operations`) return 200 from canonical indexed SQL, not that a set
+of projectors finished. Small indexed summaries that are **not** on the ADR's
+removal list (for example `vaccination_eligibility_rollups` and Counts
+summaries) may still be recomputed at closeout. The vaccination date/anchor
+business semantics below — trusted completed history as the base anchor, future
+recurrence calculated strictly after the backend business date, blank/NA/Pending
+never backfilling synthetic late work, HRMS roster/manager/backup ownership, the
+constraint model, and idempotency — are orthogonal to projections and are
+unchanged.
 
 ---
 
@@ -62,7 +85,7 @@ The report is the cutover artifact Preventive Care (PC) reviews — counts per c
 
 ## 4. Vaccination triggers from canonical state — NOT legacy import events
 
-Do **not** replay old rows as `animal.created`. Run a **one-time Preventive Care (PC) backfill generator** (a bounded, resumable Cloud Run Job, chunked by park/date — same scale rules as the sweeper):
+Do **not** replay old rows as `animal.created`. Run a **one-time Preventive Care (PC) backfill generator** (a bounded, resumable one-shot backfill command — one of the non-projection one-shot commands the kernel worker retains for backfill/repair under the 5k-to-50k envelope — chunked by park/date, same scale rules as the operational sweep stage):
 
 ```
 for each canonical ACTIVE herd animal (paged, chunked by park):

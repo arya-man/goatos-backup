@@ -5,6 +5,20 @@ This runbook is the handoff between the pre-Google correctness goal and the
 the pre-Google code gates below are green and the active GitHub/GCP boundaries
 have been verified as Mesha/VGoats.
 
+Runtime topology and read-model authority for the seed target follow the
+accepted ADR
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. At the 5k-to-50k
+envelope Goat OS runs **one kernel worker** (cadence classes, no independently
+scheduled projector jobs, no partition maintainer), and the five named screen
+projections (`calendar_event_projections`, `process_integrity_projection_rows`,
+`vaccination_shed_projection_rows`, `vaccination_execution_projection_rows`,
+`vaccination_operations_projection_rows`) are dropped in favor of canonical,
+indexed SQL reads. The split-worker/projector topology remains recoverable from
+the `kernel-split-workers-v1` tag. The seed, boundary, ledger, and vaccination
+business semantics in this runbook are unchanged by that decision; only the
+worker-enable and projection-green verification steps are reframed to the ADR
+topology.
+
 ## Clear Call
 
 `goatos-dev` starts as a clean-slate environment. It is not a legacy data
@@ -21,7 +35,9 @@ animal/shed source -> animal.created / shed config
   -> proof submission
   -> verification / rework
   -> stock reserve and consume
-  -> Calendar / Action Center / Protocol Adherence read models
+  -> Calendar / Action Center / Protocol Adherence operator screens
+     (served from canonical indexed SQL; eligibility-rollup / Counts
+      summaries recomputed where they survive)
 ```
 
 ## Pre-Google Code Gates
@@ -131,22 +147,39 @@ Before enabling the new dev environment, snapshot the old dashboard state:
 4. Configure real JWKS auth for dev.
 5. Seed only approved grants and representative sample data.
 6. Deploy API and admin-web first.
-7. Enable workers in controlled order after API/admin smoke passes:
-   outbox relay, domain consumer, obligation sweeper, calendar projector,
-   process-integrity projector, vaccination shed projection worker,
-   vaccination execution/operations projectors, reminder/escalation sweepers,
-   notification dispatcher in
-   dev-safe mode, inventory batch reconciler, partition maintainer, and the domain
-   processed-event retention sweeper.
-8. Verify Cloud Monitoring baseline policies before enabling unattended worker
-   schedules: Cloud Run errors, outbox relay dead letters, Pub/Sub DLQ backlog,
-   and Cloud SQL CPU pressure. Configure approved recipients through private
-   Terraform `monitoring_alert_email_addresses` and keep personal addresses out
-   of committed files.
-9. Prove `partition-maintainer` once before unattended worker schedules stay on:
-   it must create or confirm monthly partitions for `animal_identity_events`,
-   `audit_log`, and `obligation_status_events` through at least 12 months from
-   the run date.
+7. Enable the single kernel worker after API/admin smoke passes. Per the ADR
+   (`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`), this is ONE
+   worker process running cadence classes, not a fleet of independently
+   scheduled projector jobs:
+   - **Event consumer** (continuous): domain-event consume/dedupe/dispatch.
+   - **Fast delivery** (every minute + startup run): outbox relay and
+     notification dispatch (dispatcher in dev-safe mode).
+   - **Operational** (every 15 minutes + startup catch-up): obligation sweep
+     (due/missed), batch/SOP creation, inventory batch reconciliation, reminders
+     and escalations selected directly from canonical state, and SOP review
+     fanout retry. No per-screen projector calls run here.
+   - **Obligation generation** (hourly + event-triggered): idempotent
+     vaccination obligation generation/recheck.
+   - **Housekeeping** (daily): domain processed-event retention and expired
+     idempotency-key cleanup.
+   There are no separate calendar / process-integrity / shed / execution /
+   operations projector schedules and no partition-maintainer schedule at this
+   envelope; those screens read canonical indexed SQL, and the projector /
+   partition topology stays recoverable from the `kernel-split-workers-v1` tag.
+   Where the surviving indexed summaries are used (eligibility rollup, Counts),
+   recompute them through the normal seed closeout path, not a standalone
+   projector schedule.
+8. Verify Cloud Monitoring baseline policies before leaving the kernel worker
+   running unattended: Cloud Run errors, outbox relay dead letters, Pub/Sub DLQ
+   backlog, and Cloud SQL CPU pressure. Configure approved recipients through
+   private Terraform `monitoring_alert_email_addresses` and keep personal
+   addresses out of committed files.
+9. No partition-maintainer proof is required at this envelope. Per the ADR, the
+   `goat_identity_events`, `audit_log`, and `obligation_status_events` parents
+   are ordinary indexed tables here, not monthly partitions; monthly
+   partitioning and its maintenance command remain recoverable from the
+   `kernel-split-workers-v1` tag and are reintroduced only for a measured
+   history/event-table hotspot.
 
 ## Seed Ledger
 
@@ -214,11 +247,14 @@ Run the validation through both UI creation and sheet import:
 9. Confirm missed, blocked, deferred, rework, proof-pending, and completed states
    appear correctly in Calendar, Action Center, Protocol Adherence, and
    vaccination execution.
-10. Confirm the read-model projectors are green: eligibility rollup,
-    process-integrity, vaccination shed, vaccination execution, vaccination
-    operations, Calendar, and Counts if enabled. `/vaccination/sheds`,
-    `/vaccination/execution`, and `/vaccination/operations` must return `200`,
-    not `projection_unavailable`.
+10. Confirm the operator screens serve. Per the ADR, the five named screen
+    projections are dropped and served from canonical indexed SQL, so "seed
+    green" for these is a canonical-read `200`, not a projector-completed /
+    no-`projection_unavailable` check: `/vaccination/sheds`,
+    `/vaccination/execution`, and `/vaccination/operations` must return `200`
+    from canonical indexed SQL, and Calendar / process-integrity read paths must
+    return their canonical rows. Separately confirm the surviving indexed
+    summaries recompute cleanly where enabled: eligibility rollup and Counts.
 11. Confirm DLQ/retry visibility for forced worker failures.
 
 ## Google Readiness Gates
@@ -246,8 +282,13 @@ Do not call the dev deploy complete until there is evidence for:
   cleanup
 - outbox DLQ operator job list-mode output
 - Pub/Sub DLQ inspect subscription pull/ack proof in dev-safe mode
-- sweeper and projector logs
-- vaccination shed/execution/operations projection state and API evidence
+- kernel worker stage logs (event consumer, fast delivery, operational,
+  obligation generation, housekeeping); no separate projector-schedule logs are
+  expected at this envelope
+- vaccination shed/execution/operations canonical-read evidence:
+  `/vaccination/sheds`, `/vaccination/execution`, and `/vaccination/operations`
+  returning `200` from canonical indexed SQL (plus eligibility-rollup / Counts
+  summary recompute evidence where those survive)
 - notification/DLQ dev-safe visibility
 - screenshots for the vaccination slice and command surfaces
 - seed ledger and rollback notes
@@ -271,9 +312,14 @@ The expected future order is:
 5. Reconcile counts against legacy dashboards and source ledgers.
 6. Promote clean rows into canonical tables through the same app/domain paths
    used by normal writes when feasible.
-7. Generate obligations/read models through the operational kernel. After any
-   bulk seed/import/backfill, run the required projection rebuilds before UI
-   verification: eligibility rollup, process-integrity, vaccination shed,
-   vaccination execution, vaccination operations, Calendar, and visible Counts
-   projections.
+7. Generate obligations through the operational kernel. After any bulk
+   seed/import/backfill, refresh planner statistics and recompute the surviving
+   indexed summaries before UI verification: eligibility rollup and visible
+   Counts. Per the ADR
+   (`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`), the Calendar,
+   process-integrity, vaccination shed, vaccination execution, and vaccination
+   operations screens are served from canonical indexed SQL at this envelope, so
+   they need no projection rebuild — verify them by canonical-read `200` instead.
+   (If a future measured hotspot reintroduces a screen-specific projection via
+   the ADR scale-out ladder, add its rebuild here at that time.)
 8. Produce a signed migration evidence pack before any production cutover.

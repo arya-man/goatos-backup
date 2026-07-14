@@ -55,11 +55,44 @@ For the concrete backend, frontend, infra, DLQ, SLA waterfall, and vertical
 plug-in system design, read
 `context/architecture/operational-kernel-system-design.md`.
 
-For the scale, retry, Pub/Sub/outbox, bounded-worker, Docker-validation, and
-1M-operation proof plan, read
+For the retry, Pub/Sub/outbox, bounded-worker, Docker-validation, and
+future one-million-operation proof plan, read
 `docs/protocol-engine/high-scale-kernel-validation-plan.md` before changing
 generation, sweepers, projections, notification delivery, or protocol publish
-fanout.
+fanout. That plan is one-million-scale future/regression material; the active
+release target and worker topology are set by the ADR
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`.
+
+## Current Release Scale Target
+
+The active release target is the **5,000-to-50,000-animal envelope**, per the
+accepted ADR `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. That
+ADR is the authority for operational-kernel deployment scale and worker
+topology, and it narrows the one-million-animal framing elsewhere in this
+document to future scale work rather than a present release invariant.
+
+For this envelope the kernel runs as:
+
+- **one modular kernel worker** process next to the API and Postgres, not a
+  fleet of independently scheduled Cloud Run Jobs;
+- **0 Cloud Scheduler cron jobs and 0 scheduled Cloud Run Jobs** in the normal
+  topology — one continuous event-consumer loop plus four logical cadence
+  classes (fast delivery, operational, hourly obligation generation, daily
+  housekeeping) live inside the single worker;
+- **0 operational-kernel projection tables** in the active runtime — Calendar,
+  process-integrity, and the vaccination screens read canonical obligation/
+  batch/SOP/proof tables through bounded, indexed SQL; and
+- canonical Postgres as the only source of operational truth, with idempotent,
+  replay-safe writes and the transactional outbox unchanged.
+
+The one-million-animal topology, its projection fleet, and monthly partitioning
+remain valid future-scale research and regression material. They are
+reintroduced per measured hotspot along the scale-out ladder in the ADR, not as
+day-one requirements. Serving five screens from canonical tables at this
+envelope also deletes the projection-drift bug class (stale watermarks,
+dual-writer races, rebuild-availability failures); the ADR reconciles this with
+the `make scale-guard` CI gate through scoped, plan-tested annotations rather
+than disabling the guard.
 
 ## Kernel Responsibilities
 
@@ -75,7 +108,7 @@ must not rebuild local versions.
 | Reminder and notification | Reminder/nudge/escalation requests are durable rows/events behind `NotificationGateway` style ports. Slack, FCM, email, webhook, Opsgenie/PagerDuty-style adapters are replaceable. |
 | Deadline crossing | Missed SLA/deadline state creates visible process exceptions, not just logs. Control Tower, Action Center, Calendar, Protocol Adherence, and Workflow must be able to show the break. |
 | Proof and verification | SOP execution, media proof, verifier decisions, rework, and completion are shared platform engines. |
-| Read models / CQRS | Command writes stay canonical. Read models/projections feed dashboards, Calendar, Action Center, Protocol Adherence, Workflow, analytics, and AI context. |
+| Read models / CQRS | Command writes stay canonical. Read models/projections feed dashboards, Calendar, Action Center, Protocol Adherence, Workflow, analytics, and AI context. At the 5k-to-50k envelope these operator reads come from canonical tables via indexed SQL, and a screen-specific projection is added only per measured hotspot (see Current Release Scale Target). |
 | Audit and history | Every important transition has actor, scope, source, idempotency key, before/after or payload, and trace identifiers. |
 | Observability | API, worker, queue, DB, projection, notification, and deadline-lag metrics exist before claiming production readiness. |
 
@@ -117,9 +150,9 @@ replaced later if needed.
 | --- | --- |
 | Kafka / SQS event bus | Transactional Postgres outbox -> outbox relay -> Pub/Sub topic/subscription with DLQ. |
 | Delayed queue / near-term timers | Cloud Tasks for near-term retries/reminders, backed by durable Postgres state. |
-| Cron / scheduled sweeper | Cloud Scheduler -> Cloud Run Job/worker; local Docker runs the same binary manually or through dev scripts. |
-| CQRS read side | Postgres canonical tables + projection/read-model tables + generated API clients. |
-| Time-series analytics | Partitioned Postgres operational history for product truth; BigQuery/Tinybird/Cube only through analytics boundaries. |
+| Cron / scheduled sweeper | Managed-primitive menu behind ports/adapters. At the active 5k-to-50k envelope the sweeper cadences run as logical stages inside the **single kernel worker** (0 Cloud Scheduler crons, 0 scheduled Cloud Run Jobs) per `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`; Cloud Scheduler -> Cloud Run Job is the future per-hotspot extraction shape, not the day-one topology. Local Docker runs the same binary manually or through dev scripts. |
+| CQRS read side | Postgres canonical tables + generated API clients, with projection/read-model tables added per measured hotspot. At the active 5k-to-50k envelope the operator screens read canonical tables directly through indexed SQL and carry **0 operational-kernel projection tables**; a screen-specific projection/read-model table is added only per measured hot read along the scale-out ladder in `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, not as the day-one read-side shape. |
+| Time-series analytics | Partition-ready Postgres operational history for product truth; BigQuery/Tinybird/Cube only through analytics boundaries. At the active 5k-to-50k envelope the event/audit/history/time-series-like tables run as **ordinary indexed tables** (not partitioned), with monthly Postgres partitioning reintroduced only for the first measured history/event hotspot per `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. |
 | Redis cache / locks | Memorystore/Redis only for cache, rate limit, short leases, or acceleration. It is never canonical truth. |
 | Incident alerting | Cloud Monitoring/Error Reporting plus notification adapters; Opsgenie/PagerDuty-style webhooks behind an alert gateway. |
 | Object/media storage | GCS signed upload/download through storage ports. API does not proxy video bytes. |
@@ -131,7 +164,14 @@ the source of operational truth.
 
 ## Scale Non-Negotiables
 
-The kernel must be safe for more than one million goat operations.
+The kernel's design must stay *safe to scale* toward more than one million goat
+operations, but the active release target is the 5k-to-50k envelope in
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. At that envelope
+the properties below are met with canonical indexed SQL and one worker;
+one-million-scale mechanisms (a projection fleet, monthly partitioning, extra
+services/queues) are added per measured hotspot along the ADR's scale-out
+ladder, not switched on by default. These properties are cheap correctness
+invariants and remain non-negotiable at every scale:
 
 - Tenant, park, shed, cohort, date, status, and owner scope are first-class query
   dimensions.
@@ -139,7 +179,9 @@ The kernel must be safe for more than one million goat operations.
 - Workers use bounded batch sizes, retry cursors, leases or idempotent claims,
   bounded goroutines, and DLQ/error visibility.
 - High-volume event, audit, history, and time-series-like tables are
-  partition-aware.
+  partition-*ready*: at the 5k-to-50k envelope they run as ordinary indexed
+  tables, and partitioning is reintroduced for the first measured
+  history/event hotspot (see the ADR).
 - Far-future due state lives in Postgres, not in Cloud Tasks.
 - Near-term reminders/retries can use Cloud Tasks but must be reconstructable
   from Postgres if messages are lost.
@@ -148,6 +190,17 @@ The kernel must be safe for more than one million goat operations.
 - Query-plan validation is required for hot paths and widest allowed list
   requests.
 - Load proof uses realistic skew, not uniform fantasy data.
+
+Projections are compute-on-write when they exist, never compute-on-read — but at
+the 5k-to-50k envelope the operator screens read canonical tables directly and
+carry **no** operational-kernel projection tables. A screen-specific projection
+is added only when a measured hot read cannot meet its latency/DB-pressure
+target after query and index repair, per the scale-out ladder in the ADR.
+Projections are a per-hotspot response to measurement, not a day-one invariant.
+Summary aggregates (Control Tower gaps, adherence rollups, process-integrity
+counts) are the first projection candidates because, unlike keyset list reads,
+their cost grows with open-obligation count; query-plan validation must cover
+them at the upper-bound row count, not only the 5k list case.
 
 ## Feature Design Checklist
 
@@ -230,24 +283,40 @@ A feature is blocked before E2E when any of these are true:
 Local development uses `compose.local-kernel.yml` to keep the same command and
 contract boundaries. The parity stack is a behavior proof, not a claim that a
 Google emulator certifies Google IAM, quotas, regional behavior, or managed
-service operations:
+service operations.
+
+The `local`/`cloud` columns below record the **pre-cutover split-worker
+topology** — independently scheduled Cloud Run Jobs, Cloud Scheduler crons, and
+standalone projector binaries. That topology is being retired per
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. In the active
+5k-to-50k target the same command and contract boundaries are exercised by **one
+modular kernel worker** with **0 scheduled Cloud Run Jobs, 0 Cloud Scheduler
+cron jobs, and 0 projector binaries / projection tables**: the continuous
+event-consumer loop plus the four cadence classes (fast delivery, operational,
+hourly obligation generation, daily housekeeping) run inside that worker, and
+operator screens read canonical tables through indexed SQL instead of
+projections. The columns are kept as the recoverable pre-cutover inventory, not
+the day-one runtime.
+
+With that framing the parity stack still proves the same command/contract
+boundaries:
 
 ```text
-local:
+local (pre-cutover parity; the 5k-to-50k target folds these stages into one kernel worker):
   Docker Postgres 16
   official Google Pub/Sub emulator + source topic/subscription/DLQ bootstrap
   API with local filesystem proof-storage adapter
   outbox-relay configured to Pub/Sub (never eventbus/logging in parity mode)
   domain-event-consumer using the production Google Pub/Sub client
-  the same generator/sweeper/projector/notification binaries as Cloud Run Jobs
+  the same generator/sweeper/projector/notification binaries as Cloud Run Jobs (projector = pre-cutover only; retired per the ADR above, no projector in the 5k-to-50k target)
   durable Postgres notification rows + periodic dry-run dispatcher
   local parity smoke and duplicate-delivery proof
 
-cloud:
+cloud (pre-cutover split-worker topology, retired per the ADR above):
   Cloud SQL
   Cloud Run API/services
-  Cloud Run Jobs
-  Cloud Scheduler
+  Cloud Run Jobs            (retired: replaced by one long-running kernel worker)
+  Cloud Scheduler           (retired: 0 cron jobs in the 5k-to-50k target)
   Pub/Sub + DLQ
   Cloud Tasks
   GCS
@@ -258,8 +327,11 @@ cloud:
 Logging an outbox row is not delivery. The canonical local parity smoke must
 exercise Postgres -> outbox relay -> official Pub/Sub emulator -> durable domain
 consumer -> domain effect, then replay the event and prove idempotent duplicate
-handling. It also runs the real sweeper/projector/notification binaries and
-checks their materialized effects.
+handling. It also runs the real generator/sweeper/notification stages and
+checks their materialized canonical effects. The standalone projector binary in
+that smoke belonged to the pre-cutover topology retired per
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`; at the 5k-to-50k
+envelope those effects are canonical rows read directly, not projection rows.
 
 Cloud Tasks has no supported local API emulator. Goat OS therefore does not
 fake Cloud Tasks semantics. Local runs prove the durable Postgres notification

@@ -17,6 +17,23 @@ defines the canonical identity-quality classes (`accepted`, `estimated`,
 idempotent backfill boundary. If this runbook and the protocol-engine contract
 ever disagree, stop the seed and resolve the contract first.
 
+This runbook assumes the 5k-to-50k operational-kernel envelope accepted in
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. That ADR drops the
+five screen projection tables (`calendar_event_projections`,
+`process_integrity_projection_rows`, `vaccination_shed_projection_rows`,
+`vaccination_execution_projection_rows`, and
+`vaccination_operations_projection_rows`), retires the separately scheduled
+projectors and partition maintenance in favor of one kernel worker, and serves
+the vaccination shed/execution/operations, process-integrity, and Calendar
+screens from canonical indexed SQL per request. Dropping those projection tables
+in a destructive staging rebuild is therefore expected, not a defect: the current
+rows are test data, and the old split-worker/projection topology is recoverable
+from the `kernel-split-workers-v1` tag. The vaccination date/anchor business
+semantics below are orthogonal to projections and are unchanged; only the
+projection-backed verification and enable steps differ. Small indexed summaries
+that are not in the ADR's removal list — `vaccination_eligibility_rollups` and
+the Counts summary — still survive and are still recomputed here.
+
 ## Non-Negotiable Seed Rules
 
 1. A source date on or before the backend business date is a base schedule
@@ -48,8 +65,11 @@ ever disagree, stop the seed and resolve the contract first.
    leave zero schedulable open work on or before the backend business date.
 8. Never use partial generation for a shared environment. A timeout, failed
    goat, stuck generation run, or failed reconciliation aborts the seed.
-9. Process-integrity and Calendar are projections, not seed sources. Rebuild
-   both after the final obligation write and before restoring scheduled writers.
+9. Process-integrity and Calendar are derived views, not seed sources. Under the
+   5k-to-50k envelope they are served on demand from canonical indexed SQL, so
+   there is no projection table to rebuild after the final obligation write.
+   Confirm their canonical-read APIs answer once the obligation write is final,
+   rather than materializing and reconciling a projection.
 
 ## Required Inputs
 
@@ -73,9 +93,14 @@ source shed.
    `goatos-stg-core-db`, tenant `00000000-0000-4000-8000-000000000001`, and
    repository `vgoats/goatos`.
 2. Deploy a backend artifact containing the current migrations, seed command,
-   generator, and projection commands. Record the immutable image digest.
-3. Pause every staging Scheduler job that can write to Postgres, Pub/Sub, Cloud
-   Tasks, or projections. Confirm no Cloud Run job execution remains active.
+   generator, the kernel worker, and the surviving summary recompute/closeout
+   commands (`vaccination_eligibility_rollups` and Counts). Record the immutable
+   image digest.
+3. Pause every staging writer that can touch Postgres, Pub/Sub, or Cloud Tasks.
+   Under the 5k-to-50k envelope that is the single kernel worker; on an
+   environment still on the legacy split-worker topology it is every scheduled
+   Cloud Run job. Confirm no kernel-worker stage or Cloud Run job execution
+   remains active.
 4. Take an on-demand Cloud SQL backup and wait for it to reach `SUCCESSFUL`.
    Record the backup identifier. Do not proceed on a pending or failed backup.
 5. Through the authenticated staging Cloud SQL path, drop and recreate only the
@@ -94,18 +119,25 @@ source shed.
    manager and backup ownership before any shed can be considered routable.
 8. The vaccination seed must run its embedded reconciliation and exit non-zero
    if any invariant below is violated. Do not bypass it or hand-edit its rows.
-9. Recompute every read model the UI serves using the deployed artifact. These
-   projections are the million-scale serving path; staging is not green while
-   the app would need to replay canonical obligations live:
-   vaccination eligibility rollups, process-integrity projection, vaccination
-   shed projection, vaccination execution projection, vaccination operations
-   projection, Calendar vaccination projection, and counts projection if Counts
-   is visible.
-10. Run the obligation sweeper only after the seed and projections are clean,
-    then recompute affected projections once more.
-11. Validate DB, API, and UI evidence. Restore Scheduler jobs only after all
-    checks are green. Trigger each restored critical job once and verify a
-    successful execution before handoff.
+9. Recompute the small indexed summaries the UI still serves using the deployed
+   artifact: `vaccination_eligibility_rollups`, and the Counts summary if Counts
+   is visible. Under the 5k-to-50k envelope the five screen projection tables
+   (`calendar_event_projections`, `process_integrity_projection_rows`,
+   `vaccination_shed_projection_rows`, `vaccination_execution_projection_rows`,
+   and `vaccination_operations_projection_rows`) are dropped, not repopulated;
+   the vaccination shed, execution, operations, process-integrity, and Calendar
+   screens read canonical indexed SQL per request, so there is no projector
+   recompute step for them. Staging is green for those screens when their
+   canonical-read APIs return `200`, not when a projector reports complete.
+10. Run the obligation sweeper's operational stage only after the seed and the
+    surviving summaries are clean. It remains the backstop for time-derived
+    due/missed state; it no longer refreshes any screen projection, and the
+    canonical-read screens need no recompute afterward.
+11. Validate DB, API, and UI evidence. Restore the kernel worker (and any writer
+    paused in step 3) only after all checks are green. Under this envelope that
+    is one consolidated worker rather than the old scheduled-job fleet; start it,
+    then verify its operational and generation stages each run once successfully
+    before handoff.
 
 ## Mandatory Postflight Invariants
 
@@ -134,12 +166,14 @@ postflight must also record the surrounding counts.
   shared-staging test/story/dummy/local protocol or obligation data.
 - Every imported vaccination shed has reviewed manager and backup ownership.
 - `vaccination_eligibility_rollups` is populated and capacity buffer is 7 days.
-- Process-integrity, vaccination shed, vaccination execution, vaccination
-  operations, and Calendar projection build times are after the final obligation
-  update; their grouped counts reconcile to canonical obligation counts.
+- The vaccination shed, execution, operations, process-integrity, and Calendar
+  screens have no projection tables to reconcile under this envelope; their
+  correctness is proven by canonical-read APIs, not by a projector build time.
 - `GET /vaccination/sheds`, `GET /vaccination/execution`, and
-  `GET /vaccination/operations` return `200` from projection rows. Any
-  `projection_unavailable` response means the seed is not complete.
+  `GET /vaccination/operations` return `200` served from canonical indexed SQL,
+  and their grouped counts reconcile to canonical obligation counts. There is no
+  `projection_unavailable` state to wait out; a non-`200` here means the seed or
+  the canonical read path is not complete.
 - Historical source dates appear as base-anchor history. Open cards are
   explainable only from legitimate future cycles strictly after the backend
   business date or from explicit review blockers; they must not be historical
@@ -154,10 +188,12 @@ the dashboard look clean.
 
 - `goatos-stg-vaccination-generator` must have enough command and Cloud Run
   timeout for a full tenant pass and must fail the execution on partial work.
-- Process-integrity plus vaccination execution/operations projectors run at
-  least every five minutes, and the bounded shed projection worker drains dirty
-  shed scopes. A partial or newly completed writer must not leave an
-  indefinitely stale green projection.
+- The kernel worker's operational stage runs on its configured cadence to keep
+  time-derived due/missed state current; under this envelope there are no
+  separate process-integrity, execution, operations, or shed projectors to
+  schedule. Because those five screens read canonical tables per request, a
+  canonical read cannot be stale relative to the canonical write, so there is no
+  projection freshness watermark to guard.
 - A successful seed is never inferred from a UI screenshot. Preserve the source
   manifest, backup ID, deployed image digest, seed reconciliation output, DB
   invariant query output, job execution status, and final API/UI evidence.

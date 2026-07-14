@@ -77,7 +77,18 @@ No app reads or writes databases directly. Apps call APIs. APIs can compose read
 
 Every feature plugs into the shared operational kernel described in
 `context/architecture/operational-kernel.md`, with the concrete system design
-and diagram in `context/architecture/operational-kernel-system-design.md`.
+and diagram in `context/architecture/operational-kernel-system-design.md`. The
+kernel's **current deployment scale and worker topology** are governed by the
+accepted ADR
+[`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../../docs/decisions/operational-kernel-5k-50k-scale-envelope.md):
+the current 5k-to-50k release envelope runs one modular kernel worker beside the
+API and Postgres (not a fleet of independently scheduled jobs) and serves screens
+from canonical, indexed, bounded SQL rather than derived projection tables.
+Million-animal topology — separate services, queues, schedules, partitions, and
+projectors — is deferred to future scale work and added one measured hotspot at a
+time. That ADR is the authority for operational-kernel deployment scale and worker
+topology; where this document's later rules imply a present-day split-worker or
+projection-heavy shape, apply the ADR's narrowing.
 
 ```text
 business event
@@ -98,8 +109,24 @@ queue, or own canonical process state.
 
 ## Million-Goat Engineering Hard Rules
 
-Goat OS must be designed for 50k goats now and 1M+ goats later. Scale is a
-design constraint from the first table, worker, API, and dashboard.
+**Current release envelope vs. future scale.** The accepted ADR
+[`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../../docs/decisions/operational-kernel-5k-50k-scale-envelope.md)
+sets the current deployment target at approximately 5,000 animals today and up to
+50,000 within the year, served by one modular kernel worker reading canonical
+indexed tables. One-million-animal topology is a **future scale / research
+invariant**, not a present release requirement: it is the horizon the design must
+not foreclose, and existing one-million-scale documents remain useful research and
+regression material — but separate services, queues, schedules, partitions, or
+projectors are added only when measured workload requires them, not up front.
+
+The engineering rules below are written to hold at both scales and stay
+mandatory now, because they are cheap correctness properties — bounded memory,
+pagination, indexing, idempotency, transactional writes, and strict module
+boundaries — that the ADR preserves regardless of envelope. Read "1M" in these
+rules as the scale ceiling the code must never architecturally exclude; read the
+concrete runtime (worker count, partitioning, projections) through the ADR's
+current 5k-to-50k envelope. Scale is a design constraint from the first table,
+worker, API, and dashboard.
 
 Backend rules:
 

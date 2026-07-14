@@ -2,9 +2,25 @@
 
 Status: active guardrail.
 
-Goat OS treats million-animal scale as a release invariant. New request paths,
-workers, importers, projectors, dashboards, and reporting paths must be tenant
-scoped, indexed, bounded, resumable, and measurable.
+> **Current release target: the 5k-to-50k operational-kernel envelope.** The
+> accepted ADR `docs/decisions/operational-kernel-5k-50k-scale-envelope.md` is
+> the authority for operational-kernel deployment scale and worker topology. It
+> makes the 5,000-to-50,000-animal envelope the current release target and
+> narrows one-million-animal deployment topology to future scale work and
+> regression/research material. The anti-patterns below apply in full at the
+> current envelope EXCEPT the five explicitly exempted, plan-tested envelope
+> reads defined in the "5k-to-50k envelope: exempted canonical read paths"
+> section below (Calendar, process-integrity, vaccination shed, execution, and
+> operations): they are cheap compute-on-write correctness discipline, not a
+> million-animal-only concern, so they hold whether the target is 50k today or a
+> future 1M. Where this document still reasons about "1M" it is
+> naming the future scale ceiling the shape must survive, not a present
+> deployment requirement.
+
+Goat OS keeps future million-animal scale as a design horizon, not a present
+release invariant. New request paths, workers, importers, projectors,
+dashboards, and reporting paths must be tenant scoped, indexed, bounded,
+resumable, and measurable.
 
 `make scale-guard` blocks new static offenders for the highest-risk patterns:
 
@@ -55,6 +71,40 @@ calendar surface, but open-work pages must not turn those markers into
 aggregated operational totals, suppress pagination truth, or blur them into the
 authoritative active-work list.
 
+## 5k-to-50k envelope: exempted canonical read paths
+
+The accepted ADR `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`
+serves five operator screens directly from canonical tables through bounded,
+indexed SQL for the 5,000-to-50,000-animal release envelope: **Calendar,
+process-integrity, vaccination shed, vaccination execution, and vaccination
+operations**. That per-request canonical read is the `compute-on-read` / god-CTE
+shape this document bans and that `make scale-guard` blocks mechanically.
+Narrowing the deployment scale target does NOT disable the guard, so these five
+paths are reconciled with the guard explicitly rather than by weakening it:
+
+- Each of the five named reads carries a scoped, sanctioned annotation on the
+  exempted read:
+  `// scale-guard:ignore: 5k-50k-envelope; see operational-kernel-5k-50k-scale-envelope.md`
+  with a matching `tools/scale-guard/baseline.txt` entry where the guard
+  requires one. The guard is **NOT** globally disabled: it stays fully active for
+  every other path in `backend/internal/**`, and compute-on-read remains banned
+  everywhere else. Only these five specific, named reads are exempted, and only
+  under this envelope.
+- The exemption is valid ONLY for a read that is query-plan-tested per the ADR —
+  both the keyset-paginated list shape and the indexed summary-aggregate shape,
+  the aggregate proven against the upper-bound obligation-row count (up to ~500k
+  obligation rows at 50k animals), not just the 5k list case. An exempted read
+  with no query-plan test is a defect, not an exemption.
+- The annotation is **removed** when a screen later earns its own projection (the
+  ADR scale-out ladder): that read then returns under full guard enforcement. The
+  exemption is a measured, temporary envelope allowance, never a standing licence
+  to compute-on-read.
+
+This keeps the machine gate honest: the anti-pattern rule is suspended only for
+these specific, measured, plan-tested envelope reads, never blanket-disabled.
+This document backs `make scale-guard`; the guard code itself is unchanged by
+this reconciliation note.
+
 ## Projection rebuild anti-patterns
 
 The `full (stop-the-world) MV refresh` rule above bans the delete+reinsert
@@ -99,12 +149,25 @@ re-scan the whole tenant on a timer, rebuild twice, or blanket-stamp fresh.**
    whole-tenant copy with a false freshness claim is a band-aid — reject and
    remove it, do not ship another unsafe rebuild on top of it.
 
-Corollary (compute-on-read): Calendar completion-history and month/date-marker
-reads must be served from a materialized projection, not from canonical joins
-run live per request. "Measured" is not "safe" — a timed god-join is still
-compute-on-read and still 1M-unsafe. See the accepted narrow Calendar history
-exception above; it stays read-only, tenant-scoped, date-bounded, keyset, and
-truncation-honest, and it does not license live joins on the open-work path.
+Corollary (compute-on-read), scoped by scale target: under the 5k-to-50k
+envelope the Calendar day/month-marker and completion-history read is served
+directly from canonical obligations/batches/SOP/proof through bounded, indexed
+SQL under the scoped `// scale-guard:ignore: 5k-50k-envelope` exemption — see the
+"5k-to-50k envelope: exempted canonical read paths" section above and the
+accepted ADR `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, which
+removes `calendar_event_projections` and frames serving Calendar from canonical
+tables as the correct choice that "deletes the entire projection-drift bug
+class" (citing exactly the rebuild-trigger anti-patterns in this section). At
+that envelope this is the sanctioned day-1 read, not a banned one. At future/1M
+scale — or the moment this screen earns its own projection on the ADR scale-out
+ladder, at which point the annotation is removed — that same Calendar
+completion-history and month/date-marker read must instead be served from a
+materialized projection rather than from canonical joins run live per request:
+at that ceiling "measured" is not "safe" and a timed god-join is still
+compute-on-read and still 1M-unsafe. Either way the accepted narrow Calendar
+history exception above stays read-only, tenant-scoped, date-bounded, keyset,
+and truncation-honest, and outside the named envelope exemption it does not
+license live joins on the open-work path.
 
 These four are **review-caught, not statically caught** — `make scale-guard`
 blocks the delete+reinsert mechanism (`full-mv-refresh`) but cannot see rebuild

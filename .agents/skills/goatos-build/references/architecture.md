@@ -11,8 +11,24 @@ Canonical docs:
 - `context/execution/next-contracts.md`
 - `context/product/glossary.md`
 - `docs/decisions/go-backend-stack.md`
+- `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`
 - `docs/protocol-engine/IMPLEMENTATION-PLAN.md`
 - `docs/preventive-care-vaccination/TRD.md`
+
+Current deployment scale target (authority):
+
+- The accepted ADR `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`
+  is the authority for operational-kernel deployment scale and worker topology.
+  The current release envelope is **~5,000 animals today, up to ~50,000 within
+  the year**, served by **one modular kernel worker** next to the API and
+  Postgres, with **zero Cloud Scheduler crons, zero scheduled Cloud Run Jobs,
+  and zero projection tables** in the normal runtime. APIs read canonical tables
+  through bounded, indexed, keyset-paginated SQL; the scale-out ladder adds one
+  narrowly owned projection, then one extracted worker, then partitions/queues,
+  one measured hotspot at a time. One-million-animal topology is **future scale
+  / research work**, not a present release requirement. Where a rule below states
+  a one-million-animal invariant, read it as correctness guidance plus future
+  scale work for this envelope, per that ADR.
 
 Rules:
 
@@ -47,22 +63,42 @@ Rules:
   resolve the supplied animal through `merged_into_animal_id` before
   availability/uniqueness checks and enforce no-double-promise against the
   survivor `animal_id`.
-- Million-animal scale is a hard design rule: chunk by park/shed/cohort/date,
-  never full-herd scan in an API, use idempotency, bounded workers/goroutines,
-  and indexed/partition-aware tables.
+- Scale-shape correctness is a hard design rule at every envelope: chunk by
+  park/shed/cohort/date, never full-herd scan in an API, use idempotency,
+  bounded workers/goroutines, and indexed tables. These properties are cheap and
+  mandatory today at 5k-to-50k. The one-million-animal target that originally
+  motivated this rule is future scale / research work per
+  `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`; it justifies the
+  correct query/worker shape now, but it does not justify standing partitions,
+  extra queues, or separate projector services until measured workload requires
+  them. Partition-awareness in particular is a future-scale property here, not a
+  present-runtime requirement (see the partition-aware note below).
 - Google equivalents stay behind ports/adapters: Pub/Sub for event bus, Cloud
-  Tasks for near-term timers/retries, Cloud Scheduler plus Cloud Run Jobs for
-  sweepers, Cloud SQL/Postgres for canonical truth, GCS for media, Cloud
-  Monitoring/Error Reporting and alert webhooks for incident-style escalation,
-  and Redis/Memorystore only as cache/lease acceleration, never truth.
+  Tasks for near-term timers/retries, Cloud SQL/Postgres for canonical truth, GCS
+  for media, Cloud Monitoring/Error Reporting and alert webhooks for
+  incident-style escalation, and Redis/Memorystore only as cache/lease
+  acceleration, never truth. Sweeper/scheduling runtime for the current envelope
+  is **one long-running kernel worker** with in-process cadence classes (event
+  consumer, fast delivery, operational, obligation generation, housekeeping), not
+  a fleet of Cloud Scheduler crons plus scheduled Cloud Run Jobs — that split
+  topology is retired to future-scale extraction per
+  `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. Keep the
+  port/adapter seam so a single stage can later be pulled into its own worker
+  without rewriting producers.
 - Local GCP-kernel behavior parity is executable through
   `compose.local-kernel.yml` and `docs/runbooks/local-gcp-kernel-parity.md`:
   official Pub/Sub emulator with the production publisher/subscriber, Docker
   Postgres, and the same API/job binaries. Cloud Tasks/IAM/GCS managed behavior
   remains a separate staging contract proof; do not introduce third-party
   Kafka/Temporal/Cloud-Tasks fakes into the canonical kernel.
-- High-volume histories/events/audit tables are partition-aware. Idempotency
-  lives in explicit idempotency-key records, not in client hope.
+- High-volume histories/events/audit tables are designed partition-ready, but
+  for the current 5k-to-50k envelope they run as ordinary indexed tables:
+  monthly partitioning and its maintenance command are recoverable future-scale
+  work reintroduced only for the first measured history/event-table hotspot, per
+  `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. Keep the logical
+  columns/constraints partition-friendly so a hot table can be converted without
+  a schema rewrite. Idempotency lives in explicit idempotency-key records, not in
+  client hope.
 - Workforce ops is a core Goat OS engine, not payroll HRMS: every task needs
   owner, scope, due time, backup path, escalation path, absence/backfill, and
   audit history.

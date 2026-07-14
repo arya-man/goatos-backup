@@ -11,6 +11,50 @@ screens.
 
 ![Goat OS Operational Kernel System Design](../../docs/assets/operational-kernel-system-design.svg)
 
+## Current Release Target: 5k-to-50k Deployment Envelope
+
+The authoritative scale and worker topology for the first operational-kernel
+release is the accepted ADR
+[`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../../docs/decisions/operational-kernel-5k-50k-scale-envelope.md).
+Read it before treating any scale claim in this document as a present-day
+deployment requirement.
+
+For the current release the kernel runs as one consolidated worker process next
+to the API and Postgres, not as a fleet of independently scheduled jobs:
+
+```text
+Goat OS API
+    -> canonical Postgres transaction + audit + outbox
+
+One kernel worker process
+    -> continuous domain-event consumer
+    -> one-minute fast-delivery cadence (drain outbox, dispatch notifications)
+    -> fifteen-minute operational cadence (sweep obligations, batches/SOP,
+       inventory, reminders/escalations, SOP fanout retry)
+    -> hourly obligation-generation cadence
+    -> daily housekeeping cadence
+
+Postgres
+    -> canonical business tables
+    -> durable obligation/SOP/proof/notification state
+    -> keyset-paginated list reads + indexed summary aggregates for Calendar,
+       process integrity, and vaccination screens (no projection tables)
+```
+
+At this envelope (approximately 5,000 animals today, up to 50,000 within the
+year) API screens read canonical tables through bounded, indexed SQL. The
+operational-kernel projection tables and the 17-job scheduled fleet described
+later in this document are **not** the current runtime. That larger
+split-worker, heavy-projection, one-million-animal topology is future scale-out
+work, kept recoverable through the `kernel-split-workers-v1` Git tag and the ADR
+inventory, and reintroduced one measured hotspot at a time — never restored
+wholesale.
+
+The kernel contract, guardrail engine, SOLID boundaries, DLQ/replay rules, SLA
+waterfall, and vertical plug-in requirements below remain in force at this
+envelope. What narrows is only the deployment, orchestration, and derived
+read-model shape.
+
 ## Purpose
 
 The kernel exists so Goat OS can answer the same leadership and operator
@@ -149,11 +193,11 @@ domain rules.
 | Trigger engine | Convert facts/rules into expected work. | Deterministic, replay-safe rule evaluation with explicit suppression/defer reasons. |
 | Obligation engine | Hold far-future and current due work. | Store due rows in Postgres, with scope, owner, status, reason, SLA, and idempotency key. |
 | Batch/work engine | Create human work units. | Group by operational scope such as shed/cohort/date instead of creating one field task per goat when the work is a drive. |
-| Time spine | Move due work forward. | Cloud Scheduler/Cloud Run Jobs and local workers scan indexed windows; Cloud Tasks only handles near-term dispatch/retry. |
+| Time spine | Move due work forward. | In the current 5k-to-50k runtime this is the single kernel worker's operational/generation cadence classes (see the ADR); the independently scheduled Cloud Scheduler/Cloud Run Jobs fleet is future scale-out. Workers scan indexed windows; Cloud Tasks only handles near-term dispatch/retry. |
 | SOP/proof engine | Capture evidence. | SOP policy, media refs, forms, signatures, hash, retention, and verifier requirements are declared by the vertical. |
 | Verification engine | Decide completion. | Accept/reject/rework is durable, audited, idempotent, and emits completion events for downstream work such as boosters. |
 | Notification engine | Deliver reminders and escalations. | Durable notification/escalation rows feed replaceable Slack, FCM, email, webhook, and future incident adapters. |
-| Projection engine | Feed product lenses. | Calendar, Action Center, Protocol Adherence, Workflow, Control Tower, and analytics read generated/read-model data, not local UI truth. |
+| Projection engine | Feed product lenses. | Calendar, Action Center, Protocol Adherence, Workflow, Control Tower, and analytics read backend-owned data, not local UI truth. At the 5k-to-50k envelope this is canonical indexed SQL with no projection tables (see the ADR); dedicated projection/read-model tables are a future scale-out addition, introduced per measured hot read path, not a present requirement. |
 
 Domain/app packages depend on ports. They must not import Google SDKs, Slack
 SDKs, FCM SDKs, Redis clients, or analytics vendors directly. Infrastructure
@@ -192,7 +236,7 @@ execution, storage, and observability behind replaceable adapters.
 | --- | --- | --- |
 | Operational truth | Cloud SQL/Postgres | Canonical tables, audit, outbox, ledgers, and read models live here. |
 | Event fanout | Pub/Sub | At-least-once delivery; every consumer is idempotent; DLQ/error visibility and guarded replay are mandatory. |
-| Scheduled scans | Cloud Scheduler -> Cloud Run Jobs | Workers use bounded windows, cursors, leases/claims, and query-plan-checked indexes. |
+| Scheduled scans | Kernel-worker cadence classes today; Cloud Scheduler -> Cloud Run Jobs on future scale-out | Workers use bounded windows, cursors, leases/claims, and query-plan-checked indexes. At the 5k-to-50k envelope these run as cadence classes inside the single kernel worker (see the ADR); the independently scheduled job fleet is future scale-out, not the current runtime. |
 | Near-term retry/reminder | Cloud Tasks | Used only for near-term execution; durable Postgres rows can rebuild lost tasks. |
 | Media proof | GCS signed URLs | API stores metadata and never proxies video/photo bytes. |
 | Notifications | Slack, FCM, email, webhook adapters | Vendors are replaceable; product state is in durable notification/escalation rows. |
@@ -221,8 +265,14 @@ duplicate without duplicating the obligation.
 
 ## Scale Model
 
-The kernel must hold up at one million goat operations and uneven farm load. The
-design assumes skew: one park or shed may be much hotter than the average.
+The current release target is the 5k-to-50k envelope in the ADR
+([`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../../docs/decisions/operational-kernel-5k-50k-scale-envelope.md)),
+served from canonical indexed SQL by one kernel worker. The scale rules below are
+the design's forward-looking discipline for growth toward one million goat
+operations and uneven farm load: they remain correctness guidance at every size,
+but one-million-animal topology is future scale-out work, not a present release
+requirement. The design assumes skew: one park or shed may be much hotter than
+the average.
 
 Scale rules:
 

@@ -1,14 +1,56 @@
 # Goat OS High-Scale Kernel Validation Plan
 
-**Status:** Active plan
+**Status:** Future-scale (1M) certification gate. Narrowed by the accepted
+[Operational kernel 5k-to-50k scale envelope ADR](../decisions/operational-kernel-5k-50k-scale-envelope.md),
+which is the authority for operational-kernel deployment scale and worker
+topology. That ADR makes the 5,000-to-50,000-animal envelope the current release
+validation target and moves the one-million-animal topology in this plan to
+future work. This plan remains the later 1M gate; it is not a present release
+requirement.
 **Date:** 2026-07-05
 **Applies to:** Preventive Care (PC) vaccination now; every future protocol-driven domain later.
 
-This plan locks how Goat OS proves the operational kernel before calling a slice
-production-ready at 1-5 lakh animals per park and 1-5M animal operations overall.
-The kernel is generic: vaccination is the first heavy user, but the same design
-must support feed direction, breeding, procurement, parks, HR, inventory,
-critical animal actions, and future protocol-driven workflows.
+This plan locks how Goat OS proves the operational kernel at future
+one-million-animal scale — 1-5 lakh animals per park and 1-5M animal operations
+overall — before a slice is called production-ready at that scale. Per the
+accepted 5k-to-50k envelope ADR, that 1-5M target is future work, not the current
+release gate; the initial release must instead meet the "Current release
+validation target" below. The kernel is generic: vaccination is the first heavy
+user, but the same design must support feed direction, breeding, procurement,
+parks, HR, inventory, critical animal actions, and future protocol-driven
+workflows.
+
+## Current release validation target (5k-to-50k envelope)
+
+The accepted
+[Operational kernel 5k-to-50k scale envelope ADR](../decisions/operational-kernel-5k-50k-scale-envelope.md)
+narrows the one-million-animal topology in the sections below to future work and
+makes the 5,000-to-50,000-animal envelope the current release target. For the
+initial release, the validation this plan requires is scoped to that envelope:
+
+- **Query-plan tests for BOTH read shapes.** Prove index-backed plans for list
+  reads (keyset-paginated, ~20 rows, genuinely bounded regardless of herd size)
+  AND for summary-aggregate reads (Control Tower gaps, adherence rollups,
+  process-integrity counts, which cannot be keyset-paginated and whose cost grows
+  with open-obligation count). A green plan on the 5k list case is not proof for
+  the aggregate path.
+- **Aggregate path at the upper bound.** Run the summary-aggregate reads against
+  the upper-bound row count in the ADR's obligation-volume table — up to ~500,000
+  obligation rows at 50,000 animals — not just the 5k list case.
+- **Single-worker cadence and backlog validation.** Prove the one consolidated
+  kernel worker (continuous event consumer plus one-minute fast-delivery,
+  fifteen-minute operational, hourly generation, and daily housekeeping cadences)
+  keeps outbox drain, sweeper/backlog age, obligation generation, and
+  notification/escalation freshness within target under the 5k-to-50k workload —
+  advisory-lock-serialized, with min-instances >= 2 for availability. This
+  replaces the 17-job split-worker fleet the ADR retires.
+
+The 1-5M scale model, staging threshold floor, per-stage counters, and E2E
+certification in the sections below remain the authoritative FUTURE gate for the
+one-million-animal topology; they are research and later-gate material now, not a
+present release invariant. Do not read a green 5k-to-50k validation as 1M
+certification, and do not treat the 1M thresholds as blocking the initial
+5k-to-50k release.
 
 ## 1. Non-Negotiable Architecture
 
@@ -42,7 +84,12 @@ in this plan or claim that the one-million run has passed.
 
 ## 2. Scale Model
 
-The design target is not "small farm demo" scale.
+This section describes the FUTURE one-million-animal gate, not the current
+release target. Per the 5k-to-50k envelope ADR, the shape below is the later
+certification the plan drives toward; the current release proves the narrower
+5k-to-50k target in "Current release validation target" above.
+
+The future design target is not "small farm demo" scale.
 
 | Dimension | Required shape |
 | --- | --- |
@@ -98,6 +145,12 @@ regressed:
   work, then group it into operational drives/tasks.
 
 ## 4. Required Local Docker Validation Before Claiming Kernel Ready
+
+The Docker chain, staging threshold floor (Section 4.4), and per-stage counters
+here define the FUTURE 1M certification. "Kernel ready" in this section means
+ready at the one-million-animal topology, which the 5k-to-50k envelope ADR defers
+to future work. The current release is gated on the narrower 5k-to-50k target in
+"Current release validation target" above, not on the 1M staging floor below.
 
 Every high-risk kernel change must pass a local Docker chain that exercises the
 same architectural boundaries as cloud. Unit tests alone are not enough. The

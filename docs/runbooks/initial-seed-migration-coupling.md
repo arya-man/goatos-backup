@@ -1,8 +1,41 @@
 # Initial Seed Migration Coupling
 
 This rule prevents a repeat of the "seed succeeded, app is unavailable" failure.
-When schema changes affect tables owned by initial setup or projection closeout,
+When schema changes affect tables owned by initial setup or read-path closeout,
 the same patch must update the seed path.
+
+## Scale envelope (read this first)
+
+The accepted ADR
+[`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../decisions/operational-kernel-5k-50k-scale-envelope.md)
+is the authority for the current deployment scale target (approximately 5,000
+animals today, up to 50,000 within the year). Under that envelope the five named
+screen projections — `calendar_event_projections`,
+`process_integrity_projection_rows`, `vaccination_shed_projection_rows`,
+`vaccination_execution_projection_rows`, and
+`vaccination_operations_projection_rows` — are dropped, and those screens are
+served directly from canonical indexed SQL. There is no separate projector
+schedule or partition-maintenance job for them at this envelope; one kernel
+worker owns the operational cadences, and the split-worker/projection topology
+stays recoverable from the `kernel-split-workers-v1` tag.
+
+The coupling rule below is unchanged in spirit: a schema change that makes a
+fresh environment unusable must be paired with the seed/closeout path. What
+changes is the DEFAULT for a new read-model migration. Adding a derived table no
+longer automatically requires a projector; under the ADR a NEW projection is
+introduced only per measured hot read path via the scale-out ladder, and until
+then the screen reads canonical SQL. Small indexed summaries that survive the
+envelope (for example `vaccination_eligibility_rollups` and Counts summaries,
+which are NOT in the ADR's projection-removal list) still follow the
+seed/closeout recompute discipline described here.
+
+None of this changes vaccination DATE/ANCHOR business semantics — trusted
+completed history as base anchor, future recurrence calculated strictly after
+the backend business date, blank/NA/Pending never backfilling synthetic-late
+work, the V2 ET+TT course anchor plus Vaccination Plan offsets, HRMS roster/
+manager/backup ownership, the constraint model, idempotency, and all test gates.
+Those are orthogonal to how a screen is served and remain in force. Only the
+projection-backed verification/enable steps are reframed.
 
 ## Rule
 
@@ -32,14 +65,27 @@ usable:
 - founder/admin grants and org role catalog tables;
 - protocol, SOP, capacity, obligation, completion, and proof/verification
   setup tables;
-- app-visible projection tables such as vaccination shed/execution/operations,
-  process-integrity, calendar history/date markers, counts, and incremental
-  dirty-scope/shard state tables;
+- any surviving app-visible summary/read-model table (for example
+  `vaccination_eligibility_rollups`, Counts summaries, and any incremental
+  dirty-scope/shard state a surviving summary depends on);
 - notification/reminder/verification tables that make seeded work executable.
 
+Under the 5k-to-50k envelope, the calendar/process-integrity/vaccination-screen
+reads are served from canonical indexed SQL rather than from the five removed
+projection tables, so a fresh environment becomes usable once the canonical rows
+are seeded and those APIs return 200. That is why "seed green" for those screens
+means the canonical-read APIs answer (for example `/vaccination/sheds`,
+`/vaccination/execution`, `/vaccination/operations` serving from canonical
+indexed SQL), not "the five projectors completed / no `projection_unavailable`".
+
 Pure index-only migrations are allowed without a seed change. Creating or
-altering a read-model table is not index-only: if the app reads it after seed,
-the seed closeout must explain or run the projector that fills it.
+altering a read-model table is not index-only. But adding one no longer
+automatically requires a projector: under the ADR the default is that a new
+screen read is served from canonical SQL, and a projection (with its closeout
+step) is added only when a measured hot read path earns it on the scale-out
+ladder. If a migration DOES add or grow a surviving summary that the app reads
+after seed (for example an eligibility-rollup or Counts summary), the seed
+closeout must still explain or run the recompute that fills it.
 
 ## Table Ownership Classes
 
@@ -49,7 +95,7 @@ the seed command blindly fill every table.
 | Class | Owner | How it is filled |
 | --- | --- | --- |
 | Source/canonical | Reviewed source files/importers | Seed/importer writes only real source truth: goats, RFID, HRMS roster, shed ownership, protocol/SOP config, trusted vaccination history. |
-| Derived/read model | Projector/backfill | Seed never hand-writes these rows. A deterministic recompute/projector rebuilds them from canonical tables. Register the step in `tools/dev/seed-closeout.sh`. |
+| Derived/read model | Canonical SQL by default; recompute only for a surviving summary | Seed never hand-writes these rows. Under the 5k-to-50k envelope the default is to serve the screen from canonical indexed SQL and add NO projector. Only a summary that survives the envelope (for example `vaccination_eligibility_rollups`, Counts) is rebuilt by a deterministic recompute from canonical tables; register that recompute in `tools/dev/seed-closeout.sh`. A new hot-path projection added later via the scale-out ladder registers its closeout step the same way. |
 | Static catalog/config | Migration or reviewed config seed | Migration may insert safe global catalog rows; environment-specific config must come from source-backed seed/config, never guessed defaults. |
 | Operational/audit/event | Runtime workers/events | Starts empty unless replaying real events. Notification attempts, dirty scopes, outbox-derived rows, reminder fires, and audit ledgers must not be faked during seed. |
 
@@ -66,26 +112,35 @@ migrate schema
 Do not start the API, admin-web, workers, or seed closeout against a database
 whose migration head is behind the code being run. Local launchers and staging
 deployments must apply that build's migrations first, then seed only canonical
-source truth, then run the deterministic closeout/projectors. A deployment that
-cannot prove this order is not green.
+source truth, then run any deterministic closeout for surviving summaries, then
+verify that the canonical-read APIs answer. A deployment that cannot prove this
+order is not green.
 
-Projector registration must be output-specific. A command that can build more
-than one app-visible read model must be called with explicit flags for each
+Where a summary recompute or a later-added projection IS registered in closeout,
+its registration must be output-specific. A command that can build more than one
+app-visible summary/read model must be called with explicit flags for each
 output. In particular, any `-project-*` flag that defaults to false must appear
 in `tools/dev/seed-closeout.sh` as `-project-...=true` on the command invocation
 that owns that read model. The guard must verify the executed
 `tools/dev/seed-closeout.sh --dry-run` output rather than raw shell source. A
 generic command, commented example, disabled branch, or uncalled helper is not
-enough proof: it can leave a default-off projection empty while the seed log
-still says the projector ran.
+enough proof: it can leave a default-off summary empty while the seed log still
+says the recompute ran. Screens served from canonical indexed SQL under the
+envelope have no such flag to register; their "seed green" is the canonical-read
+API returning 200.
 
 For an already-seeded database where a later migration adds a derived table,
-apply migrations, run `make seed-closeout`, then verify the affected APIs. Do
-not reseed source rows just to fill a derived table.
+apply migrations, run `make seed-closeout` for any surviving summary the table
+feeds, then verify the affected APIs. Do not reseed source rows just to fill a
+derived table, and do not add a projector when the screen already reads canonical
+SQL correctly.
 
-After the first successful closeout, a projection going stale must not make an
-operator page unavailable when a usable serving projection still covers the
-request. The runtime contract is:
+Where a screen is served from a projection that survives the envelope or is added
+later via the scale-out ladder, the last-known-good serving contract still
+applies. A canonical-SQL read cannot be stale relative to the canonical write, so
+this contract governs only projection-backed reads. After the first successful
+closeout of such a projection, it going stale must not make an operator page
+unavailable when a usable serving projection still covers the request:
 
 - no first projection/no serving rows: fail closed and run closeout/projector;
 - requested date/window outside projected coverage: fail closed because rows may
@@ -94,9 +149,10 @@ request. The runtime contract is:
   the request: serve last-known-good rows and expose freshness metadata while
   the projector repairs freshness.
 
-This is part of the seed/migration contract, not a UI preference. Future
-app-visible projection migrations must include a regression test or reviewed
-runtime evidence for that behavior in addition to the closeout step.
+This is part of the seed/migration contract, not a UI preference. Any future
+projection migration added under the scale-out ladder must include a regression
+test or reviewed runtime evidence for that behavior in addition to the closeout
+step.
 
 For a destructive clean-slate seed or any bulk import/backfill, the seed/import
 must run `ANALYZE` on the canonical tables it bulk-loaded before read-model
@@ -144,30 +200,45 @@ GOATOS_E2E_DATABASE_URL='postgres://postgres:goatos@127.0.0.1:55432/goatos?sslmo
 ## Why This Matters
 
 The canonical source seed writes goats, HRMS, protocol config, completions, and
-obligations. The live app often reads derived read models instead of replaying
-canonical state. A migration can therefore be "safe" for source data but still
-break a fresh setup if the seed does not warm the new projection.
+obligations. Under the 5k-to-50k envelope the calendar/process-integrity/
+vaccination screens read that canonical state directly through indexed SQL, so a
+correctly seeded canonical environment makes those pages usable without any
+projector step. A migration can still be "safe" for source data but break a
+fresh setup if it grows a surviving summary the app reads (for example an
+eligibility-rollup or Counts summary) and the seed does not recompute it, or if
+it changes a canonical read path without the supporting index.
 
-Concrete example:
+Concrete examples:
 
-- adding `calendar_history_projection_rows` does not corrupt goat source data;
-- but Calendar will be unavailable after seed until the calendar history
-  projector creates rows and freshness state;
-- therefore the migration must be paired with the seed closeout command/test or
-  runbook change that proves the projection is filled.
+- serving Calendar/execution/operations/shed from canonical SQL: a migration that
+  adds the supporting index or column does not corrupt goat source data, and the
+  screen is green as soon as the canonical rows are seeded and the API returns
+  200 — there is no projection to warm;
+- adding or growing `vaccination_eligibility_rollups` or a Counts summary does not
+  corrupt goat source data, but the dependent view can read empty until the
+  recompute runs; therefore that migration must be paired with the seed closeout
+  command/test or runbook change that proves the summary is filled;
+- introducing a NEW projection later via the scale-out ladder brings back the
+  full projector-plus-closeout obligation for that one screen (see below).
 
-## Required Closeout For New Projection Tables
+## Required Closeout For A Surviving Summary Or A Newly Added Projection
 
-When a migration adds a projection table that powers a visible page, update the
-seed flow to include:
+The 5k-to-50k default is canonical-SQL reads with NO projector, so most new
+read-model migrations need only the canonical index plus the API-returns-200
+gate. The steps below apply when a migration adds or grows a summary that
+survives the envelope (eligibility rollups, Counts) OR introduces a new
+projection table via the scale-out ladder in
+[`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../decisions/operational-kernel-5k-50k-scale-envelope.md).
+In those cases update the seed flow to include:
 
-1. the projector/recompute command or worker that fills the table;
+1. the recompute/projector command or worker that fills the table;
 2. the API or SQL green gate proving non-empty/current state for the tenant;
 3. the runtime serving behavior for never-synced, stale last-known-good, and
-   date/window coverage gaps;
+   date/window coverage gaps (projection-backed reads only; a canonical-SQL read
+   cannot be stale);
 4. the E2E/report category that owns the proof, when an E2E is run.
 
-Also prove the projection is scale-shaped before it lands:
+Also prove the summary/projection is scale-shaped before it lands:
 
 1. document the canonical source tables it derives from;
 2. document the exact read predicates and ordering used by the API;

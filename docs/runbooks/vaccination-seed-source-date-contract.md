@@ -7,14 +7,36 @@ The identity-quality and clean-slate migration rules are defined in
 `docs/protocol-engine/migration-and-cutover.md`; this contract adds the
 vaccination-specific date/history and kernel ownership rules.
 
+Deployment scale and read-model topology are governed by the accepted ADR
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. For the current
+5k-to-50k envelope that ADR drops the five named screen projection tables
+(`calendar_event_projections`, `process_integrity_projection_rows`,
+`vaccination_shed_projection_rows`, `vaccination_execution_projection_rows`,
+`vaccination_operations_projection_rows`) and serves those screens from
+canonical indexed SQL through one kernel worker, with the old split-worker
+projection topology recoverable via the `kernel-split-workers-v1` tag. This
+contract's date/history, anchor, ownership, constraint, generation, and test
+rules are orthogonal to that change and are unchanged by it; only the
+projection-backed verification wording below is reconciled to the ADR. Small
+indexed summaries that the ADR does not list for removal — the vaccination
+eligibility rollups and Counts summaries — may still survive and keep their
+recompute step.
+
 ## Why This Flow Exists
 
-The vaccination pages are projection-backed on purpose. At million-animal scale,
-the UI must read compact read models instead of replaying every obligation,
-completion, SOP, owner, and status event on each request. A seed therefore has
-two phases: write canonical source truth, then rebuild the read models that live
-pages serve. If a seed skips the second phase, the database can contain correct
-canonical rows while the UI correctly returns `projection_unavailable`.
+A vaccination seed has two phases: write canonical source truth, then make the
+live pages able to read it. Under the accepted 5k-to-50k ADR
+(`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`), the shed,
+execution, operations, process-integrity, and Calendar screens read canonical
+obligation/batch/SOP/proof/inventory tables through bounded, indexed SQL rather
+than dedicated screen projection tables — so for those screens the second phase
+is no longer a projector rebuild but the canonical-read APIs returning `200`
+with the seeded canonical rows. The small indexed summaries the ADR does not
+retire — vaccination eligibility rollups and Counts — still have a deterministic
+recompute step. If a seed writes canonical rows but never proves the
+canonical-read APIs serve them (and never recomputes the surviving summaries),
+the database can contain correct canonical rows while the live pages are not
+demonstrably usable.
 
 HRMS is part of the same setup, not a later cosmetic step. Vaccination work is
 routed by shed manager and backup ownership; without the roster, attendance/
@@ -24,8 +46,8 @@ whether a shed is executable.
 
 The seed is also responsible for publishing the reviewed vaccination config.
 Goat/vaccination source rows without the active `vaccination.matrix`, capacity
-defaults, ownership duties, and post-seed projections are not a usable Goat OS
-environment.
+defaults, ownership duties, recomputed surviving summaries, and canonical-read
+APIs that serve the vaccination screens are not a usable Goat OS environment.
 
 ## Binding Rule
 
@@ -196,34 +218,43 @@ The current reviewed bundle must include:
    tables, obligations, status events, and vaccination completions after the
    canonical source transaction commits. This is not business data; it prevents
    Postgres from planning projection rebuilds with stale empty-table estimates.
-10. Recompute every derived read model that the UI reads through `make
-   seed-closeout`. The seed is not green until these deterministic projector
+10. Recompute the surviving derived summaries that the UI reads through `make
+   seed-closeout`. Under the accepted 5k-to-50k ADR
+   (`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`) the shed,
+   execution, operations, process-integrity, and Calendar screens are served
+   from canonical indexed SQL, so they no longer have a screen projection table
+   to rebuild — their seed-green criterion moves to the canonical-read API check
+   in step 11. What `seed-closeout` still owns is the small indexed summaries the
+   ADR does not retire. The seed is not green until these deterministic recompute
    entry points have completed for the target tenant:
    - `vaccination-eligibility-rollup-recompute`
-   - `process-integrity-projection-recompute`
-   - `vaccination-shed-projection-recompute`
-   - `vaccination-execution-projection-recompute`
-   - `vaccination-operations-projection-recompute`
-   - `calendar-vaccination-projector -project-calendar-upcoming=true
-     -project-calendar-history=false`, when Calendar vaccination projection is
-     present in the checkout
-   - `calendar-vaccination-projector -project-calendar-upcoming=false
-     -project-calendar-history=true`, when Calendar completed-history/date
-     markers are present in the checkout
    - counts projectors when their owning command exists and the surface is
      visible/configured.
 
-   Do not rely on a projector command's defaults for multi-output commands. If
-   a command exposes a default-false `-project-*` flag for an app-visible read
-   model, `seed-closeout` must pass the flag explicitly as `true` on that
-   command's invocation, and `seed-migration-guard` must prove that through
-   `tools/dev/seed-closeout.sh --dry-run` output; otherwise a seed can log that
-   the command ran while leaving that projection empty.
+   Do not rely on a recompute command's defaults for multi-output commands. If a
+   surviving summary command exposes a default-false `-project-*` flag for an
+   app-visible read model, `seed-closeout` must pass the flag explicitly as
+   `true` on that command's invocation, and `seed-migration-guard` must prove
+   that through `tools/dev/seed-closeout.sh --dry-run` output; otherwise a seed
+   can log that the command ran while leaving that summary empty.
+
+   Where a pre-cutover checkout still contains the retired screen projectors
+   (`process-integrity-projection-recompute`,
+   `vaccination-shed-projection-recompute`,
+   `vaccination-execution-projection-recompute`,
+   `vaccination-operations-projection-recompute`, and the
+   `calendar-vaccination-projector` upcoming/history passes), they may still be
+   run for that checkout, but they are no longer the seed-green criterion for
+   those screens; the canonical-read APIs in step 11 are. After the cutover in
+   the ADR they are removed from `seed-closeout` entirely.
 11. Verify Action Center buckets, shed status, execution rows, operations rows,
    next due dates, and capacity session splits through backend APIs using
-   server-owned live time. A seed that leaves `projection_unavailable` on
-   `/vaccination/sheds`, `/vaccination/execution`, or `/vaccination/operations`
-   is failed even if the canonical source tables contain rows.
+   server-owned live time. Seed-green for these screens is the canonical-read
+   APIs returning `200` with the seeded canonical rows: `/vaccination/sheds`,
+   `/vaccination/execution`, and `/vaccination/operations` must serve from
+   canonical indexed SQL, not report a missing/empty read model. A seed where any
+   of those canonical-read APIs does not return the seeded rows is failed even if
+   the canonical source tables contain rows.
 12. Run the kernel seed/generation tests before pushing or seeding a shared
    environment.
 13. Require the seed reconciliation to prove zero seed-owned Pending
@@ -239,17 +270,29 @@ answer is not to invent seed rows for every new table.
 
 - Source/canonical table changed: update the source importer and strict
   preflight, then rerun the relevant seed/import path from reviewed source.
-- Derived/read-model table added or changed: add an idempotent projector/backfill
-  and register it in `tools/dev/seed-closeout.sh`.
+- Derived/read-model table added or changed: at the 5k-to-50k envelope the
+  default is a canonical indexed-SQL read with NO projector (see the paragraph
+  below and `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`). Add an
+  idempotent recompute/backfill and register it in `tools/dev/seed-closeout.sh`
+  only for a summary that survives the envelope (for example
+  `vaccination_eligibility_rollups`, Counts) or for a new projection introduced
+  per measured hot read via the ADR scale-out ladder.
 - Static catalog/config table added: migration may insert reviewed global rows;
   environment-specific values must come from source-backed seed/config.
 - Operational/audit/event table added: leave it empty unless real runtime events
   or a deterministic replay fill it.
 
-New projection tables must ship with their read-path indexes, freshness/version
-state, and an explicit partitioning decision. Partition only when the data shape
-needs it, such as append-only/time-windowed high-volume data. A small indexed
-summary table should stay a normal table with the access pattern documented.
+At the 5k-to-50k envelope the default for a new operator screen is a canonical
+indexed-SQL read, not a new screen projection table
+(`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`). A dedicated
+projection is added only for a specific measured hot read that canonical SQL
+cannot serve within its latency/DB-pressure target, following that ADR's
+scale-out ladder. When a projection is genuinely warranted, it must still ship
+with its read-path indexes, freshness/version state, and an explicit
+partitioning decision. Partition only when the data shape needs it, such as
+append-only/time-windowed high-volume data. A small indexed summary table (the
+surviving eligibility rollups and Counts) should stay a normal table with the
+access pattern documented.
 
 ## Local Database Rule
 
