@@ -1,0 +1,113 @@
+{
+  "_readme": [
+    "This is the SINGLE authoritative manifest of every backend runtime process Goat OS",
+    "deploys or intends to deploy from the goatos-backend image: what binary it runs, the",
+    "exact arguments it is invoked with, and what kind of process it is (long-running",
+    "'service', scheduled/one-shot 'job', or a documented not-yet-deployed future target).",
+    "",
+    "Consumers (must not diverge from this file; add a new consumer here when you add one):",
+    "  1. tools/agent-hooks/check-deployed-job-flags.mjs (`make deployed-job-flags-guard`)",
+    "     cross-checks every infra/envs/{dev,stg}/cloud_run_jobs.tf job's command+args",
+    "     against the matching entry here, checks every arg here is a flag the binary's",
+    "     backend/cmd/<name>/*.go parser actually defines, and checks every binary here is",
+    "     built by backend/Dockerfile.",
+    "  2. tools/e2e/check-image-parity.mjs (`make e2e-parity`) runs every entry's exact",
+    "     binary+args against the REAL built goatos-backend:e2e image (not `go run`).",
+    "  3. deploy/e2e/docker-compose.e2e.yml wires the `kernel_worker` service entry's",
+    "     command verbatim (kept in sync manually; e2e-parity/the guard fail loudly on drift).",
+    "  4. infra/envs/{dev,stg}/cloud_run_jobs.tf and cloud_run_services.tf remain the actual",
+    "     Terraform deployment; this file documents/validates them, it does not generate them.",
+    "",
+    "KERN-001 (2026-07): obligation-sweeper's deployed job passed -project-calendar /",
+    "-project-vaccination-read-models, two flags retired from its flag parser when the",
+    "Calendar/vaccination screen projections were dropped (migration 000187). The job's",
+    "flag.Parse failed on every scheduled run and neither the sweeper's own operational work",
+    "nor its reminder/escalation sweep (-sweep-reminders/-sweep-escalations) ever ran, and",
+    "kernel-worker was never actually deployed anywhere despite existing fully built. Neither",
+    "failure mode is visible to `go build ./...` (Terraform args are plain strings) or to the",
+    "previous `go run`-based E2E (it never ran the built image with the deployed command).",
+    "This manifest plus the two checks above exist to make that class of drift a fast,",
+    "offline, deterministic failure instead of a silent production outage."
+  ],
+  "version": 1,
+
+  "images": {
+    "backend": {
+      "dockerfile": "backend/Dockerfile",
+      "e2e_tag": "goatos-backend:e2e",
+      "notes": "Default image for every entry below unless an entry sets \"image\": \"migrate\". Built by `make e2e-image-build`; this is local.backend_image in infra/envs/*/cloud_run_jobs.tf and cloud_run_services.tf."
+    },
+    "migrate": {
+      "dockerfile": "backend/Dockerfile.migrate",
+      "e2e_tag": "built inline by deploy/e2e/docker-compose.e2e.yml's migrate service (no standalone make target — it is small and only ever runs once per stack)",
+      "notes": "This is local.migration_image in Terraform: a separate, smaller image containing only /app/bin/migrate + the migrations directory. Never merged into the backend image."
+    }
+  },
+
+  "services": [
+    {
+      "name": "api",
+      "binary": "api",
+      "kind": "service",
+      "args": [],
+      "uses_dockerfile_default_entrypoint": true,
+      "health_signal": "GET /readyz (backend/internal/bootstrap/api.go) — 200 once migrations are current",
+      "deployed_environments": ["dev", "stg"],
+      "notes": "No command/args override in Terraform: infra/envs/{dev,stg}/cloud_run_services.tf (stg) and the dev API service run the image's Dockerfile ENTRYPOINT as-is."
+    },
+    {
+      "name": "kernel_worker",
+      "binary": "kernel-worker",
+      "kind": "service",
+      "args": ["-timeout=0s"],
+      "health_signal": "process stays running (no restarts); structured logs kernel_worker_starting then per-cadence stage logs (fast/operational/generation/housekeeping) and, when Pub/Sub is configured, no domain_consumer_disabled log",
+      "deployed_environments": [],
+      "deployed_to_cloud_run": false,
+      "notes": "Fully implemented (backend/cmd/kernel-worker/main.go, backend/internal/kernelstages, backend/internal/platform/worker) and built by backend/Dockerfile, per docs/decisions/operational-kernel-5k-50k-scale-envelope.md. NOT YET wired into infra/envs/*/cloud_run_jobs.tf or cloud_run_services.tf — the infra cutover that retires the scheduled-job fleet below is still pending (ADR status: 'documentation complete, implementation pending'). Exercised by deploy/e2e/docker-compose.e2e.yml and make e2e-parity/e2e-smoke NOW, ahead of that infra cutover, so kernel-worker's flags/binary/startup are proven working before the Terraform change ships — this is exactly the gap that let KERN-001 ship undetected."
+    }
+  ],
+
+  "environments": {
+    "dev": {
+      "tf_file": "infra/envs/dev/cloud_run_jobs.tf",
+      "jobs": [
+        { "name": "outbox_relay", "binary": "outbox-relay", "kind": "job", "args": ["-limit=500", "-timeout=240s"], "schedule": "* * * * *", "health_signal": "Cloud Scheduler exit code 0; outbox_messages rows transition to published/failed" },
+        { "name": "domain_event_consumer", "binary": "domain-event-consumer", "kind": "job", "args": ["-timeout=9m"], "schedule": "*/10 * * * *", "health_signal": "exit code 0; domain_event_processed_events rows marked processed" },
+        { "name": "domain_event_processed_sweeper", "binary": "domain-event-processed-sweeper", "kind": "job", "args": ["-timeout=45s", "-limit=1000", "-retention=336h"], "schedule": "37 * * * *", "health_signal": "exit code 0" },
+        { "name": "vaccination_generator", "binary": "generate-vaccination-obligations", "kind": "job", "args": ["-timeout=120s"], "schedule": "0 * * * *", "health_signal": "exit code 0; vaccination_generation_runs row recorded" },
+        { "name": "obligation_sweeper", "binary": "obligation-sweeper", "kind": "job", "args": ["-timeout=60s"], "schedule": "*/5 * * * *", "health_signal": "exit code 0; this is the KERN-001 job — args here MUST resolve against backend/cmd/obligation-sweeper's CURRENT flag set, never a retired one" },
+        { "name": "notification_dispatcher", "binary": "notification-dispatcher", "kind": "job", "args": ["-timeout=45s", "-limit=100"], "schedule": "* * * * *", "health_signal": "exit code 0" },
+        { "name": "inventory_batch_reconciler", "binary": "inventory-batch-reconciler", "kind": "job", "args": ["-timeout=60s", "-limit=100"], "schedule": "*/5 * * * *", "health_signal": "exit code 0" },
+        { "name": "idempotency_key_sweeper", "binary": "idempotency-key-sweeper", "kind": "job", "args": ["-timeout=45s", "-limit=1000"], "schedule": "17 * * * *", "health_signal": "exit code 0" },
+        { "name": "sop_review_fanout_retry", "binary": "sop-review-fanout-retry", "kind": "job", "args": ["-timeout=60s", "-limit=100"], "schedule": "*/5 * * * *", "health_signal": "exit code 0" },
+        { "name": "partition_maintainer", "binary": "partition-maintainer", "kind": "job", "args": ["-timeout=60s", "-months-ahead=12"], "schedule": "11 0 * * *", "health_signal": "exit code 0" },
+        { "name": "migrate", "binary": "migrate", "kind": "job", "image": "migrate", "args": ["-timeout=10m"], "schedule": "deploy-time (run once per release, not scheduled)", "health_signal": "exit code 0; schema_migrations at HEAD", "notes": "Deployed from local.migration_image (backend/Dockerfile.migrate), a SEPARATE image from local.backend_image/goatos-backend:e2e — see the top-level images.migrate entry. tools/agent-hooks/check-deployed-job-flags.mjs still validates its binary/flags (it unions binaries across every backend/Dockerfile*); make e2e-parity skips the goatos-backend:e2e binary-existence check for it and instead relies on deploy/e2e/docker-compose.e2e.yml's migrate service, which builds Dockerfile.migrate and actually runs this exact binary+args against real Postgres." },
+        { "name": "outbox_dlq", "binary": "outbox-dlq", "kind": "job", "args": ["-mode=list", "-status=dead_letter", "-limit=100", "-timeout=60s"], "schedule": "manual (on-demand ops command, not scheduled)", "health_signal": "exit code 0" }
+      ]
+    },
+    "stg": {
+      "tf_file": "infra/envs/stg/cloud_run_jobs.tf",
+      "jobs": [
+        { "name": "outbox_relay", "binary": "outbox-relay", "kind": "job", "args": ["-limit=500", "-timeout=240s"], "schedule": "* * * * *", "health_signal": "Cloud Scheduler exit code 0; outbox_messages rows transition to published/failed" },
+        { "name": "domain_event_consumer", "binary": "domain-event-consumer", "kind": "job", "args": ["-timeout=9m"], "schedule": "*/10 * * * *", "health_signal": "exit code 0; domain_event_processed_events rows marked processed" },
+        { "name": "domain_event_processed_sweeper", "binary": "domain-event-processed-sweeper", "kind": "job", "args": ["-timeout=45s", "-limit=1000", "-retention=336h"], "schedule": "37 * * * *", "health_signal": "exit code 0" },
+        { "name": "vaccination_generator", "binary": "generate-vaccination-obligations", "kind": "job", "args": ["-timeout=9m"], "schedule": "0 * * * *", "health_signal": "exit code 0; vaccination_generation_runs row recorded", "notes": "stg runs a longer -timeout than dev (9m vs 120s); intentional, not drift — matches infra/envs/stg/cloud_run_jobs.tf." },
+        { "name": "obligation_sweeper", "binary": "obligation-sweeper", "kind": "job", "args": ["-timeout=180s"], "schedule": "*/5 * * * *", "health_signal": "exit code 0; this is the KERN-001 job — args here MUST resolve against backend/cmd/obligation-sweeper's CURRENT flag set, never a retired one", "notes": "stg runs a longer -timeout than dev (180s vs 60s); intentional, not drift." },
+        { "name": "notification_dispatcher", "binary": "notification-dispatcher", "kind": "job", "args": ["-timeout=45s", "-limit=100"], "schedule": "* * * * *", "health_signal": "exit code 0" },
+        { "name": "inventory_batch_reconciler", "binary": "inventory-batch-reconciler", "kind": "job", "args": ["-timeout=60s", "-limit=100"], "schedule": "*/5 * * * *", "health_signal": "exit code 0" },
+        { "name": "idempotency_key_sweeper", "binary": "idempotency-key-sweeper", "kind": "job", "args": ["-timeout=45s", "-limit=1000"], "schedule": "17 * * * *", "health_signal": "exit code 0" },
+        { "name": "sop_review_fanout_retry", "binary": "sop-review-fanout-retry", "kind": "job", "args": ["-timeout=60s", "-limit=100"], "schedule": "*/5 * * * *", "health_signal": "exit code 0" },
+        { "name": "partition_maintainer", "binary": "partition-maintainer", "kind": "job", "args": ["-timeout=60s", "-months-ahead=12"], "schedule": "11 0 * * *", "health_signal": "exit code 0" },
+        { "name": "migrate", "binary": "migrate", "kind": "job", "image": "migrate", "args": ["-timeout=10m"], "schedule": "deploy-time (run once per release, not scheduled)", "health_signal": "exit code 0; schema_migrations at HEAD", "notes": "Deployed from local.migration_image (backend/Dockerfile.migrate), a SEPARATE image from local.backend_image/goatos-backend:e2e — see the top-level images.migrate entry. tools/agent-hooks/check-deployed-job-flags.mjs still validates its binary/flags (it unions binaries across every backend/Dockerfile*); make e2e-parity skips the goatos-backend:e2e binary-existence check for it and instead relies on deploy/e2e/docker-compose.e2e.yml's migrate service, which builds Dockerfile.migrate and actually runs this exact binary+args against real Postgres." },
+        { "name": "outbox_dlq", "binary": "outbox-dlq", "kind": "job", "args": ["-mode=list", "-status=dead_letter", "-limit=100", "-timeout=60s"], "schedule": "manual (on-demand ops command, not scheduled)", "health_signal": "exit code 0" }
+      ]
+    }
+  },
+
+  "e2e": {
+    "compose_file": "deploy/e2e/docker-compose.e2e.yml",
+    "image_tag": "goatos-backend:e2e",
+    "worker_service_entry": "kernel_worker",
+    "notes": "The compose stack runs the api service entry and the kernel_worker service entry from THIS manifest's services[] list, off the real built image — no `go run`, no mounted shell script. Phase-2 adds business-chain assertions (obligation -> batch -> SOP -> notification) on top of this skeleton; see the seam comment in the compose file."
+  }
+}

@@ -1,0 +1,216 @@
+name: goatos-e2e
+
+# deploy/e2e/docker-compose.e2e.yml — Phase 1 foundation of the Docker-image E2E pipeline.
+#
+# WHY THIS FILE EXISTS (KERN-001): the previous E2E ran workers via `go run` / the
+# tools/dev/local-kernel-loop.sh shell script, which invokes one-shot binaries with its
+# OWN hand-copied argument lists (see that script — it still passes
+# obligation-sweeper -project-calendar=false/-project-vaccination-read-models=true,
+# flags retired from the real flag parser, and calls a vaccination-projection-worker
+# binary that no longer exists). Because that path never builds or runs the actual
+# production image with the actual production command, it could not catch — and did not
+# catch — the deployed obligation-sweeper Cloud Run Job silently failing every 5 minutes
+# with "flag provided but not defined", nor that kernel-worker had never actually been
+# deployed anywhere. This compose stack instead runs the REAL image
+# (`goatos-backend:e2e`, built by `make e2e-image-build` from backend/Dockerfile, no
+# `go run`, no mounted script) with the EXACT command/args declared in
+# deploy/runtime/workers.json's `services` entries — the same manifest
+# tools/agent-hooks/check-deployed-job-flags.mjs cross-checks against
+# infra/envs/*/cloud_run_jobs.tf.
+#
+# Topology exercised here is the TARGET (post-cutover) topology from
+# docs/decisions/operational-kernel-5k-50k-scale-envelope.md: one API + one
+# kernel-worker, not the 10-job scheduled fleet still live in Terraform today. Running
+# kernel-worker here, now, proves it boots and its stages run correctly on real
+# Postgres + a real Pub/Sub emulator BEFORE the infra cutover in cloud_run_jobs.tf
+# happens — closing exactly the gap that let KERN-001 ship (a binary that existed,
+# built cleanly, but was never actually run end-to-end against its deployed
+# configuration).
+#
+# Ephemeral by design: every service and volume here belongs to THIS compose project
+# only. Nothing here ever points at the developer's local seeded Postgres — see
+# `postgres` below (its own container, its own named volume, torn down by
+# `docker compose down -v`).
+#
+# PHASE-2 SEAM: this file intentionally stops at "the real topology boots and the
+# fast/operational/generation/housekeeping stages start cleanly". Phase-2 agents add
+# business-chain assertions (accept an intake event -> outbox -> Pub/Sub -> domain
+# consumer -> obligation -> batch/SOP -> notification -> canonical API read) and
+# resilience/scale scenarios on top of this skeleton — see
+# tools/dev/local-gcp-kernel-parity-smoke.sh for the shape such assertions can take
+# against a compose stack, and add them as a NEW smoke driver (or extend
+# tools/dev/e2e-smoke.sh) rather than growing this file into that role.
+
+x-e2e-environment: &e2e-environment
+  DATABASE_URL: postgres://postgres:goatos@postgres:5432/goatos?sslmode=disable
+  GOATOS_ENV: local
+  GOATOS_PG_QUERY_TIMEOUT: 10s
+  GOATOS_LOCAL_DOCKER_DATABASE_HOSTS: postgres
+  GOATOS_TENANT_ID: ${GOATOS_E2E_TENANT_ID:-00000000-0000-4000-8000-000000000001}
+  GOATOS_SWEEPER_ACTOR_ID: ${GOATOS_E2E_USER_ID:-90000000-0000-4000-8000-000000000101}
+  GOATOS_AUTH_MODE: bearer
+  GOATOS_AUTH_ISSUER: goatos-e2e
+  GOATOS_AUTH_AUDIENCE: goatos-api
+  GOATOS_AUTH_HS256_SECRET: ${GOATOS_E2E_AUTH_HS256_SECRET:-goatos-e2e-dev-secret-32-bytes-min}
+  GOATOS_AUTH_MAX_TOKEN_TTL: 24h
+  GOATOS_MEDIA_STORAGE: local
+  GOATOS_LOCAL_MEDIA_DIR: /var/lib/goatos/proofs
+  GOATOS_LOCAL_MEDIA_SIGNING_SECRET: ${GOATOS_E2E_MEDIA_SIGNING_SECRET:-goatos-e2e-proof-dev}
+  GOATOS_OBS_SINK: stdout_json
+  GOOGLE_CLOUD_PROJECT: ${GOATOS_E2E_PUBSUB_PROJECT_ID:-goatos-e2e}
+  GOATOS_PUBSUB_PROJECT_ID: ${GOATOS_E2E_PUBSUB_PROJECT_ID:-goatos-e2e}
+  GOATOS_OUTBOX_PUBLISHER: pubsub
+  # NOTE: these two names are NOT e2e-specific — tools/dev/pubsub-emulator-bootstrap.sh
+  # (reused verbatim below, see the pubsub-bootstrap service) hardcodes the literal topic
+  # and subscription names "goatos-local-outbox-events" / "goatos-local-domain-events".
+  # They must match exactly or the domain-event-consumer stage fails immediately with
+  # "Subscription does not exist", which — because kernel-worker's continuous stage runs
+  # inside the same errgroup as every other stage — cancels the ENTIRE supervisor context
+  # and exits the whole process. Do not "make these more e2e-specific" without also
+  # forking or parameterizing the bootstrap script.
+  GOATOS_OUTBOX_PUBSUB_TOPIC_ID: goatos-local-outbox-events
+  GOATOS_DOMAIN_EVENTS_SUBSCRIPTION_ID: goatos-local-domain-events
+  GOATOS_DOMAIN_EVENT_SCHEMA_PATH: /app/contracts/jsonschema/domain-event-envelope.schema.json
+  PUBSUB_EMULATOR_HOST: pubsub:8085
+  PUBSUB_PROJECT_ID: ${GOATOS_E2E_PUBSUB_PROJECT_ID:-goatos-e2e}
+
+x-e2e-backend-image: &e2e-backend-image
+  # The real, already-built image — see `make e2e-image-build`. Deliberately NO
+  # `build:` block: this file must fail loudly (image not found) rather than
+  # silently falling back to building a fresh image (and thereby silently
+  # tolerating a stale/skipped e2e-image-build step).
+  image: ${GOATOS_E2E_IMAGE:-goatos-backend:e2e}
+
+x-e2e-dependencies: &e2e-dependencies
+  postgres:
+    condition: service_healthy
+  migrate:
+    condition: service_completed_successfully
+  pubsub-bootstrap:
+    condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: goatos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: goatos
+    ports:
+      - "127.0.0.1:${GOATOS_E2E_PG_PORT:-55532}:5432"
+    volumes:
+      - goatos-e2e-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d goatos"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: "no"
+
+  # Runs the SAME migration image Terraform deploys (local.migration_image in
+  # infra/envs/*/cloud_run_jobs.tf), built from backend/Dockerfile.migrate — not the
+  # api/kernel-worker image, matching the real deployed topology's own separate
+  # migration image.
+  migrate:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile.migrate
+    environment:
+      DATABASE_URL: postgres://postgres:goatos@postgres:5432/goatos?sslmode=disable
+      GOATOS_ENV: local
+      GOATOS_LOCAL_DOCKER_DATABASE_HOSTS: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # Official Pub/Sub emulator — the same image used by tools/dev's existing
+  # local-kernel-loop stack (compose.local-kernel.yml), so this is proven to work in
+  # this repo already.
+  pubsub:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command:
+      - gcloud
+      - beta
+      - emulators
+      - pubsub
+      - start
+      - --project=${GOATOS_E2E_PUBSUB_PROJECT_ID:-goatos-e2e}
+      - --host-port=0.0.0.0:8085
+    ports:
+      - "127.0.0.1:${GOATOS_E2E_PUBSUB_PORT:-8095}:8085"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8085'"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: "no"
+
+  pubsub-bootstrap:
+    image: curlimages/curl:8.12.1
+    environment:
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      PUBSUB_PROJECT_ID: ${GOATOS_E2E_PUBSUB_PROJECT_ID:-goatos-e2e}
+    volumes:
+      # Reused verbatim from the existing local-kernel stack — same topic/subscription
+      # names (goatos-local-outbox-events / goatos-local-domain-events) are hardcoded
+      # inside it, so this e2e stack's GOATOS_OUTBOX_PUBSUB_TOPIC_ID /
+      # GOATOS_DOMAIN_EVENTS_SUBSCRIPTION_ID intentionally reuse those same literal
+      # names too (see note below) rather than forking a second bootstrap script.
+      - ../../tools/dev/pubsub-emulator-bootstrap.sh:/usr/local/bin/pubsub-emulator-bootstrap:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/pubsub-emulator-bootstrap"]
+    depends_on:
+      pubsub:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *e2e-backend-image
+    environment:
+      <<: *e2e-environment
+      GOATOS_HTTP_ADDR: :8080
+    ports:
+      - "127.0.0.1:${GOATOS_E2E_API_PORT:-8090}:8080"
+    volumes:
+      - goatos-e2e-proofs:/var/lib/goatos/proofs
+    depends_on: *e2e-dependencies
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+    restart: "no"
+
+  # The target (post-cutover) worker topology: ONE process, the REAL binary, the REAL
+  # command — must match deploy/runtime/workers.json's services["kernel_worker"] entry
+  # exactly (checked statically by tools/e2e/check-image-parity.mjs's compose/manifest
+  # cross-check, not just templated from it, so drift here is a loud CI failure rather
+  # than silently "fixed" by regenerating the file).
+  kernel-worker:
+    <<: *e2e-backend-image
+    entrypoint: ["/app/bin/kernel-worker"]
+    command: ["-timeout=0s"]
+    environment:
+      <<: *e2e-environment
+    depends_on: *e2e-dependencies
+    restart: "no"
+
+    # ---------------------------------------------------------------------------
+    # PHASE-2 SEAM: no other worker service is defined here. The consolidated
+    # kernel-worker above already runs the fast/operational/generation/housekeeping
+    # cadences in-process (backend/cmd/kernel-worker/main.go), so Phase 1 needs only
+    # ONE additional container beyond api. Phase-2 adds here (not by inventing a
+    # second ad hoc container):
+    #   - a seed/fixture step (mirroring tools/dev/local-gcp-kernel-parity-smoke.sh's
+    #     seed-vaccination-trigger / seed-dev-grant / goat insert) to drive real
+    #     business events through kernel-worker's stages;
+    #   - assertions that an accepted event flows outbox -> Pub/Sub emulator ->
+    #     kernel-worker's continuous domain consumer -> canonical obligation row,
+    #     and that the operational cadence batches/SOP-tasks/reconciles/escalates it;
+    #   - resilience scenarios (kill -9 kernel-worker mid-cadence, duplicate Pub/Sub
+    #     delivery, DB restart) and the 50k-row scale-cert extension referenced in
+    #     the ADR's "Availability model" section.
+
+volumes:
+  goatos-e2e-postgres:
+  goatos-e2e-proofs:

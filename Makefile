@@ -9,6 +9,7 @@ AI_BACKEND ?= auto
 
 .PHONY: check guardrails stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard scale-certification-docs-guard scale-guard clinical-defer-guard sweeper-deployment-guard deployed-job-flags-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
+.PHONY: e2e-image-build e2e-parity e2e-smoke scale-cert
 .PHONY: vaccination-execution-projection-recompute vaccination-operations-projection-recompute
 
 setup-crg: ai-setup
@@ -173,16 +174,52 @@ sweeper-deployment-guard:
 	node tools/agent-hooks/check-sweeper-deployment.mjs --self-test
 	node tools/agent-hooks/check-sweeper-deployment.mjs
 
-# deployed-job-flags-guard: KERN-001 — every Cloud Run Job command + args declared
-# in infra/envs/*/cloud_run_jobs.tf must resolve to a binary actually built in a
-# backend/Dockerfile* image, and every flag the job passes must be defined by
-# that binary's flag parser (backend/cmd/<name>/*.go, non-test). Catches both a
-# job referencing a deleted binary (container fails to start) and a job passing
-# a retired flag ("flag provided but not defined", immediate exit 1) — neither
-# is caught by `go build ./...` because Terraform args are plain strings.
+# deployed-job-flags-guard: KERN-001 — deploy/runtime/workers.json is the single
+# authoritative manifest of every backend runtime process. This checks every Cloud Run Job
+# command+args declared in infra/envs/*/cloud_run_jobs.tf MATCHES its manifest entry, every
+# manifest arg is a flag actually defined by that binary's flag parser
+# (backend/cmd/<name>/*.go, non-test), and every manifest binary is actually built in a
+# backend/Dockerfile* image. Catches a job referencing a deleted binary (container fails to
+# start), a job passing a retired flag ("flag provided but not defined", immediate exit 1),
+# and the manifest itself drifting from either side — none of which is caught by
+# `go build ./...` because Terraform args are plain strings. See deploy/runtime/workers.json
+# for the full consumer list (this guard is static/offline; `make e2e-parity` proves the
+# same manifest against the real built image).
 deployed-job-flags-guard:
 	node tools/agent-hooks/check-deployed-job-flags.mjs --self-test
 	node tools/agent-hooks/check-deployed-job-flags.mjs
+
+# --- Docker-image E2E foundation (KERN-001 follow-up) -----------------------------------
+# e2e-image-build / e2e-parity / e2e-smoke / scale-cert: see deploy/runtime/workers.json
+# (manifest), deploy/e2e/docker-compose.e2e.yml (compose topology), and
+# docs/decisions/operational-kernel-5k-50k-scale-envelope.md (target topology). Phase 1
+# proves the REAL built image runs the REAL deployed commands; Phase 2 layers the
+# business-chain + resilience + scale assertions on top (see the compose file's seam
+# comment).
+
+# e2e-image-build: builds the real backend image the api + kernel-worker E2E services run
+# from — no `go run`, no mounted script. Stamped with GIT_SHA the same way
+# infra CI builds it (internal/platform/buildinfo.SHA / GET /version).
+e2e-image-build:
+	docker build --platform linux/amd64 --build-arg GIT_SHA="$$(git rev-parse HEAD)" \
+		-f backend/Dockerfile -t goatos-backend:e2e .
+
+# e2e-parity: proves deploy/runtime/workers.json is true of the goatos-backend:e2e image
+# just built — every manifest binary exists in the image and every manifest arg is accepted
+# by that binary's real flag parser INSIDE the image, plus a compose/manifest kernel-worker
+# drift check. This is the check `go build ./...` and deployed-job-flags-guard cannot do:
+# neither runs the actual built container.
+e2e-parity:
+	node tools/e2e/check-image-parity.mjs --self-test
+	node tools/e2e/check-image-parity.mjs --image goatos-backend:e2e
+
+# e2e-smoke: brings up deploy/e2e/docker-compose.e2e.yml (real Postgres, real Pub/Sub
+# emulator, the real image), asserts the API becomes ready, kernel-worker stays running
+# with ZERO restarts and starts every cadence cleanly, and no fatal log signature appears —
+# then tears the whole stack + its volumes down, even on failure. Skips loudly (not a
+# silent pass) if docker is unavailable; see tools/dev/e2e-smoke.sh's header.
+e2e-smoke:
+	bash tools/dev/e2e-smoke.sh
 
 # idempotency-writes-guard: block the insufficient idempotency pattern where
 # `ON CONFLICT DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key` is the
@@ -471,6 +508,17 @@ scale-kernel-gate:
 # assertion, crash/resume and throttle).
 scale-kernel-gate-smoke:
 	cd backend && GOATOS_SCALE_GATE_ROWS=$${GOATOS_SCALE_GATE_ROWS:-20000} go test -tags scale_kernel -run TestBulkStatusKernelScaleGate -count=1 -v -timeout 20m ./tests/scale/...
+
+# scale-cert: pre-push/scheduled certification gate for the 5k-50k envelope (NOT part of
+# ci-local's inner loop — this is deliberately heavier). Currently runs the canonical
+# Calendar read-plan scale test gated behind GOATOS_SCALE_CERT (see
+# backend/internal/calendar/adapters/postgres/canonical_read_plan_test.go). Phase-2 extends
+# this target with kernel-worker cadence-drain/SLO certification per
+# docs/decisions/operational-kernel-5k-50k-scale-envelope.md's "Availability model" and
+# "When the architecture may scale out" sections — add new gated tests here, do not add
+# them to ci-local.
+scale-cert:
+	cd backend && GOATOS_SCALE_CERT=1 go test -run TestCalendarCanonicalReadPlanAtScale -timeout 30m ./internal/calendar/adapters/postgres/
 
 admin-web-e2e-smoke:
 	bash tools/dev/admin-web-e2e-smoke.sh

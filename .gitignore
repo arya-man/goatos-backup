@@ -110,3 +110,6 @@ __pycache__/
 
 # compiled backend binary (never commit)
 /backend/api
+
+# make e2e-smoke's saved compose logs (regenerated every run, local diagnostics only)
+/.e2e-smoke-last-logs.txt

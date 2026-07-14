@@ -1,34 +1,37 @@
 #!/usr/bin/env node
 // check-deployed-job-flags.mjs — KERN-001 guard.
 //
-// Every Cloud Run Job command/args pair declared in infra/envs/*/cloud_run_jobs.tf
-// must resolve to (a) a binary that is actually built into a backend/Dockerfile*
-// image, AND (b) a flag parser (backend/cmd/<binary>/*.go, non-test) that defines
-// every flag the job passes. Without this guard, a job can silently reference a
-// deleted binary or a retired flag: the container either fails to start ("no such
-// file or directory") or starts and immediately exits via
-// `flag provided but not defined: -X`, and neither failure mode is caught by
-// `go build ./...` (Terraform args are plain strings, not Go, so the compiler
-// cannot see this class of bug).
+// deploy/runtime/workers.json is the single authoritative manifest of every backend
+// runtime process (see its own "_readme" for the full consumer list). This guard makes
+// that manifest load-bearing, not just documentation, by proving THREE things stay true
+// on every run, fully offline (no `terraform plan`/`apply`, no cloud calls, no `go run`,
+// no docker):
 //
-// This is exactly the class of defect found in KERN-001: obligation-sweeper's
-// deployed job passed `-project-calendar` / `-project-vaccination-read-models`,
-// two flags removed from backend/cmd/obligation-sweeper/main.go when the
-// Calendar/vaccination screen projections were dropped, so the job never ran and
-// calendar reminders + escalations (which the same binary is also responsible
-// for, via -sweep-reminders/-sweep-escalations) had no runnable owner. Separately,
-// four job blocks (process_integrity_projector, vaccination_execution_projector,
-// vaccination_operations_projector, vaccination_projection_worker) referenced
-// binaries deleted by an earlier commit (cb6fd35e, migration 000187) and were
-// never removed from Terraform.
+//   (a) every Cloud Run Job command+args declared in infra/envs/{dev,stg}/cloud_run_jobs.tf
+//       MATCHES the manifest entry for that environment/binary exactly (fails on ANY
+//       divergence — tf drifted from the manifest, or the manifest drifted from tf);
+//   (b) every arg the manifest declares for a binary is a flag that binary's
+//       backend/cmd/<name>/*.go flag parser (non-test) actually defines;
+//   (c) every binary the manifest references is actually built by backend/Dockerfile*.
 //
-// Deterministic, offline: parses Terraform + Dockerfile + Go source as text. No
-// `terraform plan`/`apply`, no cloud calls, no `go run`.
+// This is exactly the class of defect found in KERN-001: obligation-sweeper's deployed
+// job passed `-project-calendar` / `-project-vaccination-read-models`, two flags removed
+// from backend/cmd/obligation-sweeper/main.go when the Calendar/vaccination screen
+// projections were dropped, so the job never ran and calendar reminders + escalations
+// (which the same binary is also responsible for, via -sweep-reminders/-sweep-escalations)
+// had no runnable owner. Separately, four job blocks (process_integrity_projector,
+// vaccination_execution_projector, vaccination_operations_projector,
+// vaccination_projection_worker) referenced binaries deleted by an earlier commit
+// (cb6fd35e, migration 000187) and were never removed from Terraform.
+//
+// Deterministic, offline: parses the JSON manifest + Terraform + Dockerfile + Go source
+// as text. No `terraform plan`/`apply`, no cloud calls, no `go run`.
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
+const manifestPath = resolve(repo, "deploy/runtime/workers.json");
 
 // ---------------------------------------------------------------------------
 // Pure parsing helpers (unit-tested via --self-test below with fixture strings,
@@ -63,25 +66,36 @@ function buildableBinaries(dockerfileTexts) {
 }
 
 // Extracts { binary, argsRaw }[] pairs from a cloud_run_jobs.tf source: every
-// place a literal `command = ["/app/bin/NAME", ...]` is immediately followed by
-// a literal `args = [...]`. Skips `command = each.value.command` (for_each
-// interpolation) since those resolve through the kernel_jobs map, which is
-// itself scanned as separate literal blocks in the same file.
+// place a literal `command = ["/app/bin/NAME", ...]` is followed (allowing zero or
+// more full-line `#`-comments in between, e.g. the KERN-001 explanatory comment sitting
+// between obligation-sweeper's command and args blocks) by a literal `args = [...]`.
+// Skips `command = each.value.command` (for_each interpolation) since those resolve
+// through the kernel_jobs map, which is itself scanned as separate literal blocks in
+// the same file.
 function extractJobs(tfText) {
   const jobs = [];
-  const re = /command\s*=\s*\[\s*"\/app\/bin\/([a-zA-Z0-9_-]+)"[^\]]*\]\s*\n\s*args\s*=\s*\[([^\]]*)\]/g;
+  const re = /command\s*=\s*\[\s*"\/app\/bin\/([a-zA-Z0-9_-]+)"[^\]]*\]\s*(?:#[^\n]*\n\s*)*args\s*=\s*\[([^\]]*)\]/g;
   for (const m of tfText.matchAll(re)) {
     jobs.push({ binary: m[1], argsRaw: m[2] });
   }
   return jobs;
 }
 
-// Parses a Terraform `args = [...]` raw inner-string into flag names (without
-// leading dashes, without `=value`). Ignores non-flag positional strings.
-function flagNamesFromArgsRaw(argsRaw) {
+// Parses a Terraform `args = [...]` raw inner-string, or a JSON string array,
+// into a normalized array of flag tokens (e.g. `-timeout=180s`). Order-preserving.
+function argTokensFromArgsRaw(argsRaw) {
+  const tokens = [];
+  for (const m of argsRaw.matchAll(/"([^"]*)"/g)) tokens.push(m[1]);
+  return tokens;
+}
+
+// Parses a Terraform/JSON arg token list into bare flag names (without leading
+// dashes, without `=value`). Ignores non-flag positional strings.
+function flagNamesFromArgTokens(tokens) {
   const names = [];
-  for (const m of argsRaw.matchAll(/"(-{1,2}[^"=]+)(?:=[^"]*)?"/g)) {
-    names.push(m[1].replace(/^-+/, ""));
+  for (const token of tokens) {
+    const m = /^(-{1,2}[^=]+)(?:=.*)?$/.exec(token);
+    if (m) names.push(m[1].replace(/^-+/, ""));
   }
   return names;
 }
@@ -100,24 +114,24 @@ function definedFlagsFromGoSource(goText) {
   return names;
 }
 
-// Given one job {binary, argsRaw}, the set of buildable binaries, a lookup of
-// binary -> defined-flags Set (or undefined if the cmd package could not be
-// read), and whether backend/cmd/<binary> exists at all, returns a list of
-// human-readable findings (empty = job is deployable as declared).
-function findingsForJob(job, buildable, definedFlagsByBinary, cmdDirExists) {
+// Given one manifest entry {binary, args}, the set of buildable binaries, a lookup of
+// binary -> defined-flags Set (or undefined if the cmd package could not be read), and
+// whether backend/cmd/<binary> exists at all, returns a list of human-readable findings
+// (empty = entry is deployable as declared).
+function findingsForManifestEntry(entry, buildable, definedFlagsByBinary, cmdDirExists) {
   const findings = [];
   if (!cmdDirExists) {
-    findings.push(`binary "${job.binary}": no backend/cmd/${job.binary} package exists`);
+    findings.push(`binary "${entry.binary}": no backend/cmd/${entry.binary} package exists`);
     return findings; // no point checking flags against a package that isn't there
   }
-  if (!buildable.has(job.binary)) {
-    findings.push(`binary "${job.binary}": not built by any backend/Dockerfile* (job would fail to start: no such file or directory)`);
+  if (!buildable.has(entry.binary)) {
+    findings.push(`binary "${entry.binary}": not built by any backend/Dockerfile* (would fail to start: no such file or directory)`);
   }
-  const defined = definedFlagsByBinary.get(job.binary);
+  const defined = definedFlagsByBinary.get(entry.binary);
   if (defined) {
-    for (const flagName of flagNamesFromArgsRaw(job.argsRaw)) {
+    for (const flagName of flagNamesFromArgTokens(entry.args || [])) {
       if (!defined.has(flagName)) {
-        findings.push(`binary "${job.binary}": passes undefined flag "-${flagName}" (flag provided but not defined)`);
+        findings.push(`binary "${entry.binary}": manifest passes undefined flag "-${flagName}" (flag provided but not defined)`);
       }
     }
   }
@@ -129,22 +143,22 @@ function findingsForJob(job, buildable, definedFlagsByBinary, cmdDirExists) {
 // ---------------------------------------------------------------------------
 
 function selfTest() {
-  // 1) A clean job: binary built, both flags defined -> no findings.
+  // 1) A clean manifest entry: binary built, both flags defined -> no findings.
   const goodBuildable = new Set(["obligation-sweeper"]);
   const goodDefined = new Map([["obligation-sweeper", new Set(["timeout", "tenant-id"])]]);
-  const goodJob = { binary: "obligation-sweeper", argsRaw: `"-timeout=180s"` };
-  const goodFindings = findingsForJob(goodJob, goodBuildable, goodDefined, true);
+  const goodEntry = { binary: "obligation-sweeper", args: ["-timeout=180s"] };
+  const goodFindings = findingsForManifestEntry(goodEntry, goodBuildable, goodDefined, true);
   if (goodFindings.length) {
-    throw new Error(`self-test rejected a valid job: ${goodFindings.join("; ")}`);
+    throw new Error(`self-test rejected a valid manifest entry: ${goodFindings.join("; ")}`);
   }
 
-  // 2) The actual KERN-001 regression: job passes a flag the binary no longer
-  //    defines.
-  const staleJob = {
+  // 2) The actual KERN-001 regression: manifest (or tf) carries a flag the binary no
+  //    longer defines.
+  const staleEntry = {
     binary: "obligation-sweeper",
-    argsRaw: `"-timeout=180s", "-project-calendar=false", "-project-vaccination-read-models=true"`,
+    args: ["-timeout=180s", "-project-calendar=false", "-project-vaccination-read-models=true"],
   };
-  const staleFindings = findingsForJob(staleJob, goodBuildable, goodDefined, true);
+  const staleFindings = findingsForManifestEntry(staleEntry, goodBuildable, goodDefined, true);
   if (staleFindings.length !== 2) {
     throw new Error(`self-test missed the stale-flag regression: got ${JSON.stringify(staleFindings)}`);
   }
@@ -155,12 +169,12 @@ function selfTest() {
     throw new Error("self-test did not flag -project-vaccination-read-models");
   }
 
-  // 3) A job whose binary was deleted from the Dockerfile/cmd tree entirely
+  // 3) A manifest entry whose binary was deleted from the Dockerfile/cmd tree entirely
   //    (the vaccination-projection-worker class of bug).
-  const deletedJob = { binary: "vaccination-projection-worker", argsRaw: `"-timeout=90s"` };
-  const deletedFindings = findingsForJob(deletedJob, goodBuildable, new Map(), false);
+  const deletedEntry = { binary: "vaccination-projection-worker", args: ["-timeout=90s"] };
+  const deletedFindings = findingsForManifestEntry(deletedEntry, goodBuildable, new Map(), false);
   if (!deletedFindings.length) {
-    throw new Error("self-test missed a job referencing a deleted cmd package");
+    throw new Error("self-test missed a manifest entry referencing a deleted cmd package");
   }
 
   // 4) Dockerfile parsing: loop-style and literal-style.
@@ -200,8 +214,51 @@ function selfTest() {
   if (parsedJobs.length !== 2 || parsedJobs[0].binary !== "obligation-sweeper") {
     throw new Error(`self-test failed to extract jobs from tf fixture: ${JSON.stringify(parsedJobs)}`);
   }
+  const parsedTokens = argTokensFromArgsRaw(parsedJobs[0].argsRaw);
+  if (parsedTokens.join(",") !== "-timeout=180s,-project-calendar=false") {
+    throw new Error(`self-test failed to tokenize tf args: ${JSON.stringify(parsedTokens)}`);
+  }
+
+  // 6b) Regression guard: a `#`-comment block (exactly the KERN-001 explanatory comment
+  // shape) sitting between `command = [...]` and `args = [...]` must not hide the job from
+  // extraction. This is a real bug the original regex had — obligation_sweeper (the job at
+  // the center of KERN-001) was silently unextracted because of its own explanatory comment.
+  const commentedTfFixture = `
+    obligation_sweeper = {
+      command             = ["/app/bin/obligation-sweeper"]
+      # -project-calendar / -project-vaccination-read-models no longer exist in
+      # obligation-sweeper's flag parser -- passing them made every scheduled run fail.
+      args     = ["-timeout=60s"]
+    }
+  `;
+  const commentedJobs = extractJobs(commentedTfFixture);
+  if (commentedJobs.length !== 1 || commentedJobs[0].binary !== "obligation-sweeper") {
+    throw new Error(
+      `self-test regression: extractJobs must tolerate comment lines between command and args, got ${JSON.stringify(commentedJobs)}`,
+    );
+  }
+
+  // 7) tf-vs-manifest drift: same binary, different args -> a diff finding, not silently
+  //    accepted as "flags are all still defined".
+  const tfEntry = { binary: "obligation-sweeper", argTokens: ["-timeout=60s"] };
+  const manifestEntry = { binary: "obligation-sweeper", args: ["-timeout=180s"] };
+  const drift = diffTfAgainstManifest(tfEntry, manifestEntry);
+  if (!drift) {
+    throw new Error("self-test missed tf-vs-manifest arg drift");
+  }
 
   console.log("deployed-job-flags guard: self-test passed");
+}
+
+// Returns a human-readable finding string if the tf job's argTokens differ from the
+// manifest entry's args (order-sensitive, exact match required), else null.
+function diffTfAgainstManifest(tfEntry, manifestEntry) {
+  const tfArgs = tfEntry.argTokens.join(" ");
+  const manifestArgs = (manifestEntry.args || []).join(" ");
+  if (tfArgs !== manifestArgs) {
+    return `binary "${tfEntry.binary}": terraform args [${tfArgs}] do not match deploy/runtime/workers.json args [${manifestArgs}]`;
+  }
+  return null;
 }
 
 if (process.argv.includes("--self-test")) {
@@ -213,6 +270,12 @@ if (process.argv.includes("--self-test")) {
 // Real run
 // ---------------------------------------------------------------------------
 
+if (!existsSync(manifestPath)) {
+  console.error(`deployed-job-flags guard failed: manifest not found at ${manifestPath}`);
+  process.exit(1);
+}
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+
 const dockerfileNames = ["Dockerfile", "Dockerfile.migrate"];
 const dockerfileTexts = dockerfileNames
   .map((name) => join(repo, "backend", name))
@@ -221,36 +284,79 @@ const dockerfileTexts = dockerfileNames
 
 const buildable = buildableBinaries(dockerfileTexts);
 
-const tfFiles = ["infra/envs/dev/cloud_run_jobs.tf", "infra/envs/stg/cloud_run_jobs.tf"].filter((rel) =>
-  existsSync(resolve(repo, rel)),
-);
-
 const allFindings = [];
 const definedFlagsByBinary = new Map();
 const cmdDirExistsByBinary = new Map();
 
-for (const rel of tfFiles) {
-  const tfText = readFileSync(resolve(repo, rel), "utf8");
-  const jobs = extractJobs(tfText);
-  for (const job of jobs) {
-    if (!cmdDirExistsByBinary.has(job.binary)) {
-      const cmdDir = resolve(repo, "backend/cmd", job.binary);
-      cmdDirExistsByBinary.set(job.binary, existsSync(cmdDir));
+function ensureFlagsLoaded(binary) {
+  if (!cmdDirExistsByBinary.has(binary)) {
+    const cmdDir = resolve(repo, "backend/cmd", binary);
+    cmdDirExistsByBinary.set(binary, existsSync(cmdDir));
+  }
+  if (cmdDirExistsByBinary.get(binary) && !definedFlagsByBinary.has(binary)) {
+    const cmdDir = resolve(repo, "backend/cmd", binary);
+    const goFiles = readdirSync(cmdDir).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go"));
+    const combined = goFiles.map((f) => readFileSync(join(cmdDir, f), "utf8")).join("\n");
+    definedFlagsByBinary.set(binary, definedFlagsFromGoSource(combined));
+  }
+}
+
+// --- Check (b) + (c) for every manifest entry: services[] and every environment's jobs[]. ---
+const allManifestEntries = [
+  ...(manifest.services || []),
+  ...Object.values(manifest.environments || {}).flatMap((env) => env.jobs || []),
+];
+for (const entry of allManifestEntries) {
+  ensureFlagsLoaded(entry.binary);
+  const findings = findingsForManifestEntry(
+    entry,
+    buildable,
+    definedFlagsByBinary,
+    cmdDirExistsByBinary.get(entry.binary),
+  );
+  for (const finding of findings) {
+    allFindings.push(`deploy/runtime/workers.json: entry "${entry.name}": ${finding.replace(`binary "${entry.binary}": `, "")}`);
+  }
+}
+
+// --- Check (a): every tf job's command+args matches its manifest entry, in both
+// directions (tf job missing from manifest, or manifest job never deployed to tf, are
+// both reported — the latter as a lower-severity note unless it's a job kind, since
+// services[] is allowed to carry forward-looking entries like kernel_worker that are
+// explicitly marked deployed_to_cloud_run: false). ---
+for (const [envName, envDef] of Object.entries(manifest.environments || {})) {
+  const tfRelPath = envDef.tf_file;
+  const tfAbsPath = resolve(repo, tfRelPath);
+  if (!existsSync(tfAbsPath)) {
+    allFindings.push(`deploy/runtime/workers.json: environment "${envName}": tf_file "${tfRelPath}" does not exist`);
+    continue;
+  }
+  const tfText = readFileSync(tfAbsPath, "utf8");
+  const tfJobs = extractJobs(tfText);
+  const manifestJobsByBinary = new Map((envDef.jobs || []).map((j) => [j.binary, j]));
+  const seenBinaries = new Set();
+
+  for (const tfJob of tfJobs) {
+    seenBinaries.add(tfJob.binary);
+    const manifestJob = manifestJobsByBinary.get(tfJob.binary);
+    if (!manifestJob) {
+      allFindings.push(
+        `${tfRelPath}: job "${tfJob.binary}" is deployed in Terraform but has no matching entry in deploy/runtime/workers.json environments.${envName}.jobs (manifest drift)`,
+      );
+      continue;
     }
-    if (cmdDirExistsByBinary.get(job.binary) && !definedFlagsByBinary.has(job.binary)) {
-      const cmdDir = resolve(repo, "backend/cmd", job.binary);
-      const goFiles = readdirSync(cmdDir).filter((f) => f.endsWith(".go") && !f.endsWith("_test.go"));
-      const combined = goFiles.map((f) => readFileSync(join(cmdDir, f), "utf8")).join("\n");
-      definedFlagsByBinary.set(job.binary, definedFlagsFromGoSource(combined));
+    const tfArgTokens = argTokensFromArgsRaw(tfJob.argsRaw);
+    const drift = diffTfAgainstManifest({ binary: tfJob.binary, argTokens: tfArgTokens }, manifestJob);
+    if (drift) {
+      allFindings.push(`${tfRelPath}: ${drift}`);
     }
-    const findings = findingsForJob(
-      job,
-      buildable,
-      definedFlagsByBinary,
-      cmdDirExistsByBinary.get(job.binary),
-    );
-    for (const finding of findings) {
-      allFindings.push(`${rel}: job "${job.binary}": ${finding.replace(`binary "${job.binary}": `, "")}`);
+  }
+
+  for (const manifestJob of envDef.jobs || []) {
+    if (!seenBinaries.has(manifestJob.binary)) {
+      allFindings.push(
+        `deploy/runtime/workers.json: environments.${envName}.jobs entry "${manifestJob.name}" (binary "${manifestJob.binary}") is not deployed anywhere in ${tfRelPath} (stale manifest entry — remove it or redeploy the job)`,
+      );
     }
   }
 }
@@ -260,4 +366,7 @@ if (allFindings.length) {
   for (const finding of allFindings) console.error(`- ${finding}`);
   process.exit(1);
 }
-console.log(`deployed-job-flags guard: all deployed Cloud Run jobs resolve to a built binary with defined flags (${tfFiles.length} tf files checked)`);
+const envCount = Object.keys(manifest.environments || {}).length;
+console.log(
+  `deployed-job-flags guard: all deployed Cloud Run jobs match deploy/runtime/workers.json and resolve to a built binary with defined flags (${envCount} environments checked)`,
+);

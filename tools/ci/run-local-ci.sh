@@ -39,6 +39,25 @@ step() { # name, command...
   fi
 }
 
+# run_e2e_docker_chain: the Docker-image E2E foundation (KERN-001 follow-up). Builds the
+# real goatos-backend:e2e image, proves deploy/runtime/workers.json against it
+# (e2e-parity), then boots deploy/e2e/docker-compose.e2e.yml and proves the real topology
+# starts clean with zero worker restarts (e2e-smoke). Skips (exit 0, loud warning, NOT a
+# silent pass) when docker is unavailable — same posture as
+# backend/internal/platform/pgtest.SkipIfNoDocker — because ci-local must stay usable in a
+# sandboxed environment that genuinely cannot run containers. Default ON; set
+# GOATOS_E2E_SMOKE_SKIP=1 to opt the smoke stage out explicitly (image-build/parity still
+# run, since those need no long-running containers beyond `docker run`).
+run_e2e_docker_chain() {
+  if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    echo "!! e2e docker chain: SKIPPED — docker not available/reachable in this environment. This is NOT a pass." >&2
+    return 0
+  fi
+  make e2e-image-build \
+    && make e2e-parity \
+    && make e2e-smoke
+}
+
 run_guardrails() {
   step "agent: ai-doctor"          make ai-doctor
   step "agent: stg-promotion"      make stg-promotion-guard
@@ -55,6 +74,7 @@ run_guardrails() {
   step "clinical-defer-guard"     make clinical-defer-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard
+  step "e2e docker chain (image-build + parity + smoke)" run_e2e_docker_chain
   step "idempotency-writes-guard" make idempotency-writes-guard
   step "atomic-readmodel-sync-guard" make atomic-readmodel-sync-guard
   step "config-validate-guard"    make config-validate-guard
