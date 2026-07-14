@@ -19,7 +19,6 @@ supervisor_log="$log_dir/local-stack-supervisor.log"
 api_pid=""
 web_pid=""
 projection_pid=""
-history_projection_pid=""
 stop_requested="0"
 
 timestamp() {
@@ -112,11 +111,9 @@ kill_pid() {
 }
 
 cleanup() {
-  kill_pid "$history_projection_pid"
   kill_pid "$projection_pid"
   kill_pid "$web_pid"
   kill_pid "$api_pid"
-  history_projection_pid=""
   projection_pid=""
   web_pid=""
   api_pid=""
@@ -260,40 +257,10 @@ start_projection_refresher() {
       run_projection_refresh vaccination_shed go run ./cmd/vaccination-shed-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
       run_projection_refresh vaccination_execution go run ./cmd/vaccination-execution-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
       run_projection_refresh vaccination_operations go run ./cmd/vaccination-operations-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
-      run_projection_refresh calendar go run ./cmd/calendar-vaccination-projector -tenant-id "$GOATOS_TENANT_ID" -project-calendar-upcoming=true -project-calendar-history=false
       run_projection_refresh process_integrity go run ./cmd/process-integrity-projection-recompute -tenant-id "$GOATOS_TENANT_ID"
     done
   ) >>"$projection_log" 2>&1 &
   projection_pid="$!"
-}
-
-start_history_projection_refresher() {
-  if [ -n "$history_projection_pid" ] && kill -0 "$history_projection_pid" >/dev/null 2>&1; then
-    return 0
-  fi
-
-  local interval="${GOATOS_LOCAL_HISTORY_PROJECTION_REFRESH_SECONDS:-1800}"
-  log "Starting local calendar history projection refresher every ${interval}s."
-  (
-    cd "$repo_root/backend"
-    run_history_refresh() {
-      if ! "$@"; then
-        printf '%s projection refresh failed: calendar_history\n' "$(timestamp)"
-      fi
-    }
-    # Seed closeout builds history once before the stack starts. This slower loop
-    # keeps completed-history/date-marker reads fresh without tying them to the
-    # high-frequency upcoming-work projection cadence.
-    while true; do
-      sleep "$interval"
-      printf '%s refreshing local calendar history projection\n' "$(timestamp)"
-      run_history_refresh go run ./cmd/calendar-vaccination-projector \
-        -tenant-id "$GOATOS_TENANT_ID" \
-        -project-calendar-upcoming=false \
-        -project-calendar-history=true
-    done
-  ) >>"$projection_log" 2>&1 &
-  history_projection_pid="$!"
 }
 
 monitor_stack() {
@@ -312,10 +279,6 @@ monitor_stack() {
     fi
     if [ -n "$projection_pid" ] && ! kill -0 "$projection_pid" >/dev/null 2>&1; then
       log "Read-model projection refresher exited; restarting stack."
-      return 1
-    fi
-    if [ -n "$history_projection_pid" ] && ! kill -0 "$history_projection_pid" >/dev/null 2>&1; then
-      log "Calendar history projection refresher exited; restarting stack."
       return 1
     fi
 
@@ -360,7 +323,7 @@ fi
 
 while [ "$stop_requested" = "0" ]; do
   cleanup
-  if start_api && start_projection_refresher && start_history_projection_refresher && start_web && monitor_stack; then
+  if start_api && start_projection_refresher && start_web && monitor_stack; then
     break
   fi
   cleanup

@@ -82,6 +82,10 @@
   .pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:750;padding:4px 10px;border-radius:999px;white-space:nowrap;flex:none}
   .pill.ok{background:var(--okx);color:var(--brand-d)} .pill.warn{background:var(--warnx);color:var(--warn)}
   .pill.dng{background:var(--dangerx);color:var(--danger)} .pill.mut{background:var(--surf3);color:var(--muted)} .pill.teal{background:rgba(87,201,176,.16);color:var(--teal)}
+  /* Status chips (redesigned drive card): colored dot + label, all-nonzero buckets in order */
+  .sc{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600}.sc .d{width:9px;height:9px;border-radius:3px;flex:none;background:var(--surf3)}
+  .c-done{background:var(--ok)}.c-due{background:var(--warn)}.c-over{background:var(--danger)}.c-def{background:var(--purple)}
+  .sc.done{color:var(--brand-d)}.sc.due{color:var(--warn)}.sc.over{color:var(--danger)}.sc.def{color:var(--purple)}
   .conn{display:flex;align-items:center;gap:10px;background:var(--okx);border:1px solid rgba(138,212,87,.25);border-radius:14px;padding:11px 13px;font-size:12px;color:var(--ink);margin:0 16px 6px}
   .conn .bt{width:26px;height:26px;border-radius:9px;background:rgba(138,212,87,.16);color:var(--brand);display:grid;place-items:center;flex:none}
 
@@ -1145,11 +1149,14 @@
     var shedsLine=TXF('shedsdonefmt','{0} of {1} sheds done',dr.shedsDone,dr.shedCount);
     var stats='<div class="driverstats"><div class="l1"><b>'+dr.completedAnimals+'</b><span> / '+dr.totalAnimals+' '+TX('animalslbl','Animals')+'</span></div><div class="l2">'+shedsLine+'</div></div>';
     var nums='<div class="driverow">'+ring+stats+'</div>';
-    var rem=[];
-    if(dr.due_n)rem.push('<span class="pill warn">'+dr.due_n+' '+TX('due2','due')+'</span>');
-    if(dr.overdue_n)rem.push('<span class="pill dng">'+dr.overdue_n+' '+TX('removerdue','overdue')+'</span>');
-    if(dr.deferred_n)rem.push('<span class="pill mut">'+dr.deferred_n+' '+TX('remdeferred','deferred')+'</span>');
-    var remRow=rem.length?('<div class="t" style="margin-top:9px">'+rem.join('')+'</div>'):'';
+    // Redesigned status chips: show ALL nonzero buckets (done/due/overdue/deferred) in order with colored dots
+    var chips=[];
+    if(dr.completedAnimals>0)chips.push('<span class="sc done"><span class="d c-done"></span>'+dr.completedAnimals+' '+TX('done','done')+'</span>');
+    if(dr.due_n)chips.push('<span class="sc due"><span class="d c-due"></span>'+dr.due_n+' '+TX('due2','due')+'</span>');
+    if(dr.overdue_n)chips.push('<span class="sc over"><span class="d c-over"></span>'+dr.overdue_n+' '+TX('removerdue','overdue')+'</span>');
+    if(dr.deferred_n)chips.push('<span class="sc def"><span class="d c-def"></span>'+dr.deferred_n+' '+TX('remdeferred','deferred')+'</span>');
+    var chipRow=chips.length?('<div class="t" style="margin-top:9px">'+chips.join('')+'</div>'):'';
+    var remRow=chipRow;
     var body=head+title+vax+nums+remRow;
     var clkKey=(role==='operator')?'opendrive':'viewstatus';
     var clkTxt=TX(clkKey,role==='operator'?'Open drive':'View drive status');

@@ -400,3 +400,7 @@ GET /admin-web/bootstrap available through generated client
    `/admin-web/bootstrap`, then separately run visual fidelity checks against
    `mock/goatos-dashboard-mock.html`.
 5. Any temporary exception must be documented in this file before shipping.
+
+## Full-screen drive detail route (2026-07-14)
+
+`/calendar/drive/[eventId]` is a new full-screen route (owner-directed replacement for the calendar drive drawer). It has no backend page contract yet, so its structural literals (breadcrumb crumbs, roster column headers) are local, matching the `/verification` new-route exception. It is allow-listed in `apps/admin-web/scripts/check-ui-contract-literals.mjs` (`app/(admin)/calendar/drive/`). Fold into a backend page contract when the detail surface stabilizes.

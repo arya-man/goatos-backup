@@ -139,19 +139,18 @@ type CalendarEventListResponse struct {
 	DateMarkers  []CalendarDateMarker `json:"date_markers"`
 	NextCursor   *string              `json:"next_cursor"`
 	Projection   ProjectionMetadata   `json:"projection"`
-	// HistoryProjection is the freshness/coverage metadata for the completed-history projection
-	// (calendar_history_projection_state), populated ONLY when this read actually touched the
-	// completed_history CTE (an explicit status=completed filter, or date-marker inclusion when no
-	// non-completed status filter narrows the request). Distinct from Projection, which describes the
-	// fast-moving UPCOMING vaccination-execution/shed projection gate. Nil means the history
-	// projection was not consulted for this request at all (C5-002).
+	// HistoryProjection is always nil now (5k-50k envelope, migration 000189): the separate
+	// completed-history projection is retired, and completed/history rows are served by the same
+	// canonical predicate as everything else in Projection, so there is no separate freshness/
+	// coverage metadata left to report. The field is kept (rather than removed) to avoid an API
+	// contract break; a future consumer can treat non-nil as "reserved for future use."
 	HistoryProjection *ProjectionMetadata `json:"history_projection,omitempty"`
 	// ReminderRail (DRV-005) is a backend-computed, whole-filtered-week summary of ACTIVE
 	// reminder/escalation events (same owner/park/shed/date scope as Items), computed by a single
-	// bounded/indexed query over calendar_event_projections -- never derived by the frontend from
-	// whatever page of Items happens to be on screen. Populated only when q.IncludeDateMarkers is
-	// true (the week/month view request shape); nil otherwise so a plain paged list fetch does not
-	// pay for it.
+	// bounded/indexed query over the canonical source_events reconstruction (calendarReminderRailSQL)
+	// -- never derived by the frontend from whatever page of Items happens to be on screen. Populated
+	// only when q.IncludeDateMarkers is true (the week/month view request shape); nil otherwise so a
+	// plain paged list fetch does not pay for it.
 	ReminderRail *CalendarReminderRail `json:"reminder_rail,omitempty"`
 }
 

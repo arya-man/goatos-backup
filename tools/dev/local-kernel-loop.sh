@@ -29,10 +29,6 @@ case "$mode" in
     while true; do
       run_worker vaccination-generator /app/bin/generate-vaccination-obligations -timeout=45s
       run_worker obligation-sweeper /app/bin/obligation-sweeper -timeout=45s -project-calendar=false -project-vaccination-read-models=true
-      run_worker calendar-reminder-sweeper /app/bin/calendar-reminder-sweeper -timeout=30s -limit=100
-      run_worker calendar-escalation-sweeper /app/bin/calendar-escalation-sweeper -timeout=30s -limit=100
-      # Upcoming projection only. History is decoupled to maintenance loop.
-      run_worker calendar-projector /app/bin/calendar-vaccination-projector -timeout=45s -project-calendar-upcoming=true -project-calendar-history=false
       run_worker process-integrity-projector /app/bin/process-integrity-projection-recompute -timeout=45s
       run_worker vaccination-projection-worker /app/bin/vaccination-projection-worker -timeout=45s -limit=200 -enqueue-due-transitions=true -due-transitions-limit=200
       run_worker notification-dispatcher /app/bin/notification-dispatcher -timeout=30s -limit=100 -dry-run
@@ -41,11 +37,6 @@ case "$mode" in
     ;;
   maintenance)
     while true; do
-      # History projection only, no upcoming rebuild. TEMPORARY MITIGATION: full history replay on
-      # maintenance loop (hourly-scale cadence, GOATOS_LOCAL_MAINTENANCE_INTERVAL_SECONDS, default 3600s)
-      # instead of the workers loop's much tighter interval. Avoids redundant concurrent rebuilds of
-      # the upcoming projection (workers loop calendar-projector handles that).
-      run_worker calendar-history-projector /app/bin/calendar-vaccination-projector -timeout=45s -project-calendar-upcoming=false -project-calendar-history=true
       run_worker domain-event-processed-sweeper /app/bin/domain-event-processed-sweeper -timeout=30s -limit=1000
       run_worker idempotency-key-sweeper /app/bin/idempotency-key-sweeper -timeout=30s -limit=1000
       run_worker inventory-batch-reconciler /app/bin/inventory-batch-reconciler -timeout=60s -limit=1000

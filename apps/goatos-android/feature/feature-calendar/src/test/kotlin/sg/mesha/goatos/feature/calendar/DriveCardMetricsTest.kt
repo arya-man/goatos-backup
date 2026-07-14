@@ -85,4 +85,75 @@ class DriveCardMetricsTest {
         // A real 0 distinct animals (present, not absent) stays animal-grain -- only null is legacy.
         assertTrue(driveCoverage(0, 0, 4, 8).usesAnimals)
     }
+
+    // Redesigned status chips: returns ALL nonzero buckets in fixed order done/due/overdue/deferred.
+    @Test
+    fun driveStatusChipsReturnsAllNonzero() {
+        val summary = CalendarDriveSummary(
+            parkName = "CBE",
+            shedCount = 4,
+            shedsCompleted = 1,
+            totalAnimals = 77,
+            completedAnimals = 20,
+            completedCount = 20,
+            dueCount = 40,
+            overdueCount = 12,
+            deferredCount = 3,
+            totalCount = 75,
+            remainingCount = 55,
+            vaccineLabels = listOf("FMD"),
+        )
+        val chips = driveStatusChips(summary)
+        assertEquals(4, chips.size)
+        assertEquals("done", chips[0].key)
+        assertEquals(20, chips[0].count)
+        assertEquals("due", chips[1].key)
+        assertEquals(40, chips[1].count)
+        assertEquals("overdue", chips[2].key)
+        assertEquals(12, chips[2].count)
+        assertEquals("deferred", chips[3].key)
+        assertEquals(3, chips[3].count)
+    }
+
+    @Test
+    fun driveStatusChipsFiltersZeros() {
+        val summary = CalendarDriveSummary(
+            parkName = "CBE",
+            shedCount = 2,
+            shedsCompleted = 0,
+            totalAnimals = 30,
+            completedAnimals = 0,
+            completedCount = 0,
+            dueCount = 15,
+            overdueCount = 0,
+            deferredCount = 2,
+            totalCount = 17,
+            remainingCount = 17,
+        )
+        val chips = driveStatusChips(summary)
+        assertEquals(2, chips.size)
+        assertEquals("due", chips[0].key)
+        assertEquals(15, chips[0].count)
+        assertEquals("deferred", chips[1].key)
+        assertEquals(2, chips[1].count)
+    }
+
+    @Test
+    fun driveStatusChipsReturnsEmptyWhenAllZero() {
+        val summary = CalendarDriveSummary(
+            parkName = "CBE",
+            shedCount = 0,
+            shedsCompleted = 0,
+            totalAnimals = 0,
+            completedAnimals = 0,
+            completedCount = 0,
+            dueCount = 0,
+            overdueCount = 0,
+            deferredCount = 0,
+            totalCount = 0,
+            remainingCount = 0,
+        )
+        val chips = driveStatusChips(summary)
+        assertEquals(0, chips.size)
+    }
 }

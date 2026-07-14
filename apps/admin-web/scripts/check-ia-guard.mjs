@@ -27,6 +27,7 @@ const TOP_LEVEL_COMMAND_ROUTES = new Set([
   "/protocol-adherence",
   "/workflows",
   "/workflows/{param}",
+  "/calendar/drive/{param}",
   "/config",
   "/sops",
 ]);

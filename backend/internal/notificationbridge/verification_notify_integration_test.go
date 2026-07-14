@@ -15,13 +15,11 @@ package notificationbridge_test
 //
 // This test deliberately does NOT build or drive the verification state machine (that vertical is
 // owned elsewhere): it seeds only INPUT facts (tenant/park, workforce members, positions + the verify
-// duty, devices + FCM tokens, and the calendar_event_projections row the notification links to -- the
-// FK this table enforces) and then publishes the status-changed event directly, exactly as the
+// duty, devices + FCM tokens) and then publishes the status-changed event directly, exactly as the
 // coordinator's notification-layer scope requires. It lives under internal/notificationbridge (an
-// integration test, not tests/e2e) because it seeds calendar_event_projections directly, which
-// tools/agent-hooks/check-e2e-kernel-integrity.sh rightly blocks inside tests/e2e for any test that
-// claims to prove the DERIVED business state of that table -- this test claims only the notification
-// layer built on top of it.
+// integration test, not tests/e2e). calendar_event_projections is retired (5k-50k envelope,
+// docs/decisions/operational-kernel-5k-50k-scale-envelope.md); the notification write is a plain
+// INSERT keyed by the calendarEventIDForTask naming convention, not a join against calendar state.
 import (
 	"context"
 	"encoding/json"
@@ -146,18 +144,10 @@ func TestVerificationNotifier_ProducesRoleScopedNotifications(t *testing.T) {
 	seedDevice(vnVerifierDevice, vnVerifierMember, "vn-install-verifier", vnVerifierToken)
 	seedDevice(vnLeadershipDevice, vnLeadershipMember, "vn-install-leadership", vnLeadershipToken)
 
-	// The calendar_event_projections row this notification links to (notification_requests.
-	// calendar_event_id has a hard FK to it). In production this row is materialized by the real
-	// calendar vaccination projector (cmd/calendar-vaccination-projector / the obligation sweeper)
-	// right after the SOP task is created -- seeding it directly here stands in for that already-real
-	// upstream projector, which is out of this notification-layer test's scope to re-drive.
-	exec(t, ctx, pool, "calendar event projection",
-		`INSERT INTO calendar_event_projections (
-		   tenant_id, event_id, slice_key, event_type, owner_key, title, status, due_at,
-		   target_type, target_count, park_id, executor_role
-		 ) VALUES ($1, $2, 'vaccination', 'vaccination_proof_verification', 'pc', 'VN drive proof review',
-		           'verification_pending', now(), 'obligation', 1, $3, 'operator')`,
-		vnTenant, "calendar:"+vnSOPTaskID, vnPark)
+	// notification_requests.calendar_event_id no longer has an FK to satisfy (calendar_event_projections
+	// is retired; the FK was already dropped in migration 000186), so there is no projection row to
+	// seed here anymore -- the notification write is a plain INSERT keyed by the naming convention
+	// (calendarEventIDForTask), not a join against calendar state.
 
 	// Seed a real protocol definition -> version -> rule chain so the obligation_instances row
 	// below satisfies obligation_instances_version_tenant_fk (tenant_id, protocol_version_id ->

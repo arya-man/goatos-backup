@@ -19,6 +19,9 @@ internal fun legacyDriveRowsVisible(drive: CalendarDriveSummary?): Boolean = dri
 // The coverage ring's numerator/denominator + which grain it represents.
 internal data class DriveCoverage(val completed: Int, val total: Int, val usesAnimals: Boolean)
 
+// A status chip for the redesigned card: one bucket (done/due/overdue/deferred) with a count.
+internal data class StatusChip(val key: String, val count: Int, val label: String)
+
 // Distinct-animal counts are authoritative for the ring, BUT a Room cache written before the
 // total_animals/completed_animals fields shipped -- or a mixed-version API response mid-rollout --
 // has NO animal counts. They decode as null (not 0). Rendering them as "0 / 0 animals" over a drive
@@ -36,3 +39,14 @@ internal fun driveCoverage(
     } else {
         DriveCoverage(completedDoses, totalDoses, usesAnimals = false)
     }
+
+// Status chips for the redesigned drive card: returns ALL nonzero buckets (done/due/overdue/deferred)
+// in fixed order, each with a key, count, and placeholder label. Labels are localized at render time
+// via stringResource(). Returns empty list if all buckets are zero (empty card state).
+internal fun driveStatusChips(summary: CalendarDriveSummary): List<StatusChip> =
+    listOfNotNull(
+        if (summary.completedCount > 0) StatusChip("done", summary.completedCount, "Done") else null,
+        if (summary.dueCount > 0) StatusChip("due", summary.dueCount, "Due") else null,
+        if (summary.overdueCount > 0) StatusChip("overdue", summary.overdueCount, "Overdue") else null,
+        if (summary.deferredCount > 0) StatusChip("deferred", summary.deferredCount, "Deferred") else null,
+    )

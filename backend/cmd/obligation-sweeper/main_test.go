@@ -12,8 +12,12 @@ import (
 // ReadModelsWithOneAsOf) was removed with the 5k-50k projection cutover
 // (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): those three
 // screens now serve canonical indexed SQL directly, so the sweeper no longer
-// recomputes their read models. The sweeper still refreshes the surviving
-// calendar projection via calendarService.RefreshVaccinationProjection.
+// recomputes their read models. Calendar has since completed the same cutover
+// (migration 000189): the sweeper no longer refreshes any calendar projection at
+// all -- calendarService.RefreshVaccinationProjection and the --project-calendar/
+// --calendar-limit/--calendar-date-from/--calendar-date-to flags are gone; the
+// sweeper only queues reminders/escalations (--sweep-reminders/--sweep-escalations)
+// directly against canonical state.
 
 // TestActorIDAlwaysRequired verifies that the worker cannot start without its
 // audited task-creator identity. SOP bindings are normally discovered from the

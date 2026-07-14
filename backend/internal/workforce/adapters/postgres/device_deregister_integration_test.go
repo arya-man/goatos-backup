@@ -20,30 +20,15 @@ const (
 	deregisterOther  = "91000000-0000-4000-8000-000000000002"
 )
 
-// seedDeregisterCalendarEvent seeds the minimal calendar_event_projections row required to satisfy
-// notification_requests_event_identity_fk (migration 000106), mirroring
-// internal/notification/adapters/postgres/repository_integration_test.go's seedCalendarEvent.
+// seedDeregisterCalendarEvent is a deliberate no-op now: calendar_event_projections and the
+// calendar_event_identities identity table its trigger fed (and the notification_requests FK that
+// validated against calendar_event_identities) are all retired by the 5k-50k envelope cutover
+// (migration 000189, docs/decisions/operational-kernel-5k-50k-scale-envelope.md).
+// notification_requests.calendar_event_id is a plain, unconstrained text column now -- there is
+// nothing left to seed a referential fixture row for. Kept as a function (rather than deleting every
+// call site) so this test's intent at each call site stays self-documenting.
 func seedDeregisterCalendarEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string) {
 	t.Helper()
-	if _, err := pool.Exec(ctx, `
-INSERT INTO calendar_event_projections (
-  tenant_id, event_id, slice_key, event_type, owner_key, title, subtitle, status, severity,
-  due_at, window_start, window_end, timezone, timezone_source, target_type, target_count,
-  source_backed, source_label, source_target_type, source_target_id, assignee_label,
-  executor_role, reminder_state, primary_notification_channel, escalation_state,
-  system, cross_cutting, links, detail
-) VALUES (
-  $1::uuid, $2, 'vaccination', 'vaccination_dose_due', 'pc',
-  'Deregister suppress test event', 'Deregister suppress integration test', 'due', 'warning',
-  now(), now(), now() + interval '1 day', 'Asia/Kolkata', 'india_only',
-  'cohort', 1, true, 'deregister suppress source', 'calendar_event', NULL,
-  'PC test owner', 'pc_vaccinator', 'not_scheduled', 'push_fcm', 'none',
-  false, false, '{}'::jsonb,
-  '{"summary":{"owner":"PC"},"source_and_rule":{"source_backed":true},"execution":{},"stock":{},"proof":{},"verification":{},"notification_channels":["push_fcm"],"notification_policy":{},"links":{}}'::jsonb
-)
-ON CONFLICT (tenant_id, event_id) DO NOTHING`, deregisterTenant, eventID); err != nil {
-		t.Fatalf("seed calendar event: %v", err)
-	}
 }
 
 // seedDeregisterNotification inserts one notification_requests row keyed by recipient_ref (the raw

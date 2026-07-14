@@ -229,11 +229,12 @@ func (n *VerificationNotifier) notifyRework(ctx context.Context, tenantID string
 	return err
 }
 
-// calendarEventIDForTask mirrors the exact event_id the calendar vaccination projector derives for a
-// SOP task (internal/calendar/adapters/postgres/repository.go's sop_events CTE: 'calendar:' ||
-// sop_task_id) so notification_requests.calendar_event_id satisfies its FK to
-// calendar_event_projections. The projection row must already exist (production sequencing: the
-// obligation sweeper / cmd/calendar-vaccination-projector refreshes it right after task creation).
+// calendarEventIDForTask mirrors the exact event_id the canonical Calendar read reconstructs for a
+// SOP task (internal/calendar/adapters/postgres/canonical_read.go's sop_events CTE: 'calendar:' ||
+// sop_task_id). notification_requests.calendar_event_id no longer has an FK to enforce against (the
+// FK was dropped in migration 000186 ahead of retiring calendar_event_projections entirely) -- this
+// naming convention is now enforced in application code only, by every reader/writer of the key
+// consistently deriving it the same way.
 func calendarEventIDForTask(sopTaskID string) string {
 	return "calendar:" + sopTaskID
 }

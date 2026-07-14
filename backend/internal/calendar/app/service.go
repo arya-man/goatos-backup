@@ -298,53 +298,6 @@ func (s *Service) SweepEscalations(ctx context.Context, in ports.SweepEscalation
 	return n, nil
 }
 
-func (s *Service) RefreshVaccinationProjection(ctx context.Context, in ports.RefreshVaccinationProjection) (int, error) {
-	in.TenantID = strings.TrimSpace(in.TenantID)
-	if !uuidutil.IsUUIDString(in.TenantID) {
-		return 0, BadRequest("invalid_tenant", "tenant id is required")
-	}
-	if in.DateFrom.IsZero() {
-		in.DateFrom = s.now().UTC().Add(-24 * time.Hour)
-	}
-	if in.DateTo.IsZero() {
-		in.DateTo = s.now().UTC().Add(defaultDateRange)
-	}
-	if in.DateTo.Before(in.DateFrom) {
-		return 0, BadRequest("invalid_date_range", "date_to must be on or after date_from")
-	}
-	if in.Limit <= 0 {
-		in.Limit = 1000
-	}
-	if in.Limit > 5000 {
-		in.Limit = 5000
-	}
-	n, err := s.repo.RefreshVaccinationProjection(ctx, in)
-	if err != nil {
-		return 0, mapRepoError(err)
-	}
-	return n, nil
-}
-
-func (s *Service) PruneClosedVaccinationProjection(ctx context.Context, tenantID string, cutoff time.Time, limit int) (int, error) {
-	tenantID = strings.TrimSpace(tenantID)
-	if !uuidutil.IsUUIDString(tenantID) {
-		return 0, BadRequest("invalid_tenant", "tenant id is required")
-	}
-	if cutoff.IsZero() {
-		cutoff = s.now().UTC().Add(-90 * 24 * time.Hour)
-	}
-	if limit <= 0 {
-		limit = 1000
-	}
-	if limit > 5000 {
-		limit = 5000
-	}
-	n, err := s.repo.PruneClosedVaccinationProjection(ctx, tenantID, cutoff.UTC(), limit)
-	if err != nil {
-		return 0, mapRepoError(err)
-	}
-	return n, nil
-}
 
 // QueueRoleNotifications validates the envelope and passes an already-resolved recipient list
 // straight through to the repository's set-based insert. No recipients is a legitimate no-op (e.g. a

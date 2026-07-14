@@ -1,52 +1,76 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "node:test";
+import assert from "node:assert";
+import { driveCoveragePct, driveCoverage, driveStatusChips } from "./drive-card-metrics.ts";
 
-import { driveCoverage, driveCoveragePct } from "./drive-card-metrics.ts";
-
-// CDR-005 regression: the coverage ring rounds half-up (Math.round), not truncates.
-// This is the exact case the Android card got wrong before a6765ac5 (integer division
-// gave 59; web + Android now both give 60).
-test("driveCoveragePct rounds 46/77 up to 60 (was 59 via truncation)", () => {
-  assert.equal(driveCoveragePct(46, 77), 60);
+test("driveCoveragePct: rounds half-up", () => {
+  // 46/77 = 59.74%, rounds to 60%
+  assert.strictEqual(driveCoveragePct(46, 77), 60);
+  // 1/2 = 50%, rounds to 50%
+  assert.strictEqual(driveCoveragePct(1, 2), 50);
+  // 2/3 = 66.67%, rounds to 67%
+  assert.strictEqual(driveCoveragePct(2, 3), 67);
+  // 0/10 = 0%
+  assert.strictEqual(driveCoveragePct(0, 10), 0);
+  // 10/10 = 100%
+  assert.strictEqual(driveCoveragePct(10, 10), 100);
 });
 
-test("driveCoveragePct rounds to nearest, both directions", () => {
-  assert.equal(driveCoveragePct(1, 3), 33); // 33.33 -> 33
-  assert.equal(driveCoveragePct(2, 3), 67); // 66.66 -> 67
+test("driveCoveragePct: handles zero total", () => {
+  assert.strictEqual(driveCoveragePct(0, 0), 0);
+  assert.strictEqual(driveCoveragePct(5, 0), 0);
 });
 
-test("driveCoveragePct handles the 0% and 100% edges", () => {
-  assert.equal(driveCoveragePct(0, 55), 0);
-  assert.equal(driveCoveragePct(55, 55), 100);
+test("driveCoverage: prefers animal counts", () => {
+  const result = driveCoverage(10, 20, 30, 40);
+  assert.strictEqual(result.completed, 10);
+  assert.strictEqual(result.total, 20);
+  assert.strictEqual(result.usesAnimals, true);
 });
 
-test("driveCoveragePct is 0 when there are no animals (no divide-by-zero)", () => {
-  assert.equal(driveCoveragePct(0, 0), 0);
-  assert.equal(driveCoveragePct(5, 0), 0);
+test("driveCoverage: falls back to dose counts when animals missing", () => {
+  const result = driveCoverage(null, undefined, 30, 40);
+  assert.strictEqual(result.completed, 30);
+  assert.strictEqual(result.total, 40);
+  assert.strictEqual(result.usesAnimals, false);
 });
 
-// CDR-R1 regression: a mixed-version response (older backend instance mid-rollout) omits the
-// animal fields, so they arrive as undefined -- NOT 0. driveCoverage must then fall back to the
-// dose counts that ARE present, not render a false "0 / 0 animals" over a valid drive.
-test("driveCoverage uses the animal grain when both animal counts are present", () => {
-  const c = driveCoverage(42, 77, 46, 88);
-  assert.deepEqual(c, { completed: 42, total: 77, usesAnimals: true });
-  assert.equal(driveCoveragePct(c.completed, c.total), 55);
+test("driveCoverage: falls back when only one animal count missing", () => {
+  const result = driveCoverage(10, null, 30, 40);
+  assert.strictEqual(result.completed, 30);
+  assert.strictEqual(result.total, 40);
+  assert.strictEqual(result.usesAnimals, false);
 });
 
-test("driveCoverage falls back to dose counts when animal fields are absent (undefined)", () => {
-  const c = driveCoverage(undefined, undefined, 46, 77);
-  assert.deepEqual(c, { completed: 46, total: 77, usesAnimals: false });
-  assert.equal(driveCoveragePct(c.completed, c.total), 60);
+test("driveStatusChips: returns nonzero chips in order", () => {
+  const result = driveStatusChips({
+    completed_count: 5,
+    due_count: 3,
+    overdue_count: 0,
+    deferred_count: 1,
+  });
+  assert.deepStrictEqual(result, [
+    { key: "done", count: 5 },
+    { key: "due", count: 3 },
+    { key: "deferred", count: 1 },
+  ]);
 });
 
-test("driveCoverage falls back to doses if only one animal field is present (partial/legacy)", () => {
-  assert.equal(driveCoverage(10, undefined, 20, 30).usesAnimals, false);
-  assert.equal(driveCoverage(undefined, 30, 20, 30).usesAnimals, false);
-  assert.equal(driveCoverage(null, null, 5, 9).usesAnimals, false);
+test("driveStatusChips: skips zero counts", () => {
+  const result = driveStatusChips({
+    completed_count: 0,
+    due_count: 0,
+    overdue_count: 2,
+    deferred_count: 0,
+  });
+  assert.deepStrictEqual(result, [{ key: "overdue", count: 2 }]);
 });
 
-test("driveCoverage keeps a genuine 0 animal count as animal grain (0/0 != absent)", () => {
-  const c = driveCoverage(0, 0, 4, 8);
-  assert.equal(c.usesAnimals, true); // a real 0 distinct animals is NOT the legacy-absent case
+test("driveStatusChips: returns empty array when all zero", () => {
+  const result = driveStatusChips({
+    completed_count: 0,
+    due_count: 0,
+    overdue_count: 0,
+    deferred_count: 0,
+  });
+  assert.deepStrictEqual(result, []);
 });

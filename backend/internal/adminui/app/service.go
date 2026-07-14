@@ -758,6 +758,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.week.all_days_selected":         "all days selected",
 			"calendar.week.clear_day":                 "whole week",
 			"calendar.week.empty":                     "No due work scheduled",
+			"calendar.week.day_empty":                 "No drives scheduled",
+			"calendar.week.rest_day":                  "Rest day · no drives",
 			"calendar.week.reminder_title":            "Reminders & escalation",
 			"calendar.week.reminder_empty":            "No reminders scheduled in this scope.",
 			"calendar.week.reminder_note":             "Reminders, nudges, snoozes, and escalations are durable backend kernel state. Open an event to act.",

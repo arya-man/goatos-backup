@@ -1,0 +1,149 @@
+import { ChevronLeft } from "lucide-react";
+import Link from "next/link";
+import { type AdminUiPageContract, copy, optionLabel } from "@/lib/admin-ui-contract";
+import { type RouteSearchParams } from "@/lib/search-params";
+import { parseScope, scopeHref } from "@/lib/scope";
+import { fmtDate as fmtIstDate } from "@/lib/format";
+import { getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
+import { driveSummaryOf } from "./calendar-contract";
+import { driveCoverage, driveCoveragePct, driveStatusChips } from "./drive-card-metrics";
+
+// Full-screen drive detail (owner-directed replacement for the calendar drive drawer, 2026-07-14).
+// New route with no backend page contract yet, so its structural labels (breadcrumb crumbs, roster
+// column headers) are local literals — the same documented exception as /verification (see
+// context/frontend/admin-web-backend-ui-contract.md, allow-listed in check-ui-contract-literals.mjs).
+export async function VaccinationDriveDetail({
+  eventId,
+  searchParams,
+  pageContract,
+}: {
+  eventId: string;
+  searchParams?: RouteSearchParams;
+  pageContract: AdminUiPageContract;
+}) {
+  const sp = searchParams ?? {};
+  const scope = parseScope(sp);
+  const backHref = scopeHref("/calendar", scope);
+
+  const [detail, targets] = await Promise.all([
+    getCalendarVaccinationEventDetail(eventId),
+    getCalendarDriveTargets(eventId, { cursor: undefined, limit: 20 }),
+  ]);
+
+  if (!detail.ok) {
+    return (
+      <div className="screen on">
+        <div className="navback">
+          <Link href={backHref} className="nbback">
+            <ChevronLeft className="ic" /> Back
+          </Link>
+        </div>
+        <div className="alert">
+          <b>{detail.error.code ?? detail.error.kind}</b>&nbsp;{detail.error.message}
+        </div>
+      </div>
+    );
+  }
+
+  const event = detail.data.event;
+  const summary = driveSummaryOf(event);
+  const crumb = (
+    <div className="navback">
+      <Link href={backHref} className="nbback">
+        <ChevronLeft className="ic" /> Back
+      </Link>
+      <div className="nbtrail">
+        <Link href={scopeHref("/vaccination", scope)} className="nbc">Vaccination</Link>
+        <span className="nbsep">/</span>
+        <Link href={backHref} className="nbc">Calendar</Link>
+        <span className="nbsep">/</span>
+        <span className="nbc cur">{summary ? `${summary.park_name} · ${fmtIstDate(summary.due_date)}` : event.title}</span>
+      </div>
+    </div>
+  );
+
+  if (!summary) {
+    return (
+      <div className="screen on">
+        {crumb}
+        <div className="note">{copy(pageContract, "calendar.drive.summary_pending")}</div>
+      </div>
+    );
+  }
+
+  const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
+  const pct = driveCoveragePct(coverage.completed, coverage.total);
+  const chips = driveStatusChips(summary);
+  const ringRadius = 29;
+  const ringCircumference = 2 * Math.PI * ringRadius;
+  const ringOffset = ringCircumference * (1 - pct / 100);
+
+  const rosterItems = targets && targets.ok ? targets.data.items : [];
+
+  return (
+    <div className="screen on">
+      {crumb}
+      <div className="card">
+        <div className="hd"><h3>{event.title} · {summary.park_name}</h3></div>
+        <div className="bd">
+          <div className="ddhero">
+            <svg className="ring" viewBox="0 0 70 70" width="92" height="92" aria-hidden="true">
+              <circle className="rbg" cx="35" cy="35" r={ringRadius} />
+              <circle className="rfg" cx="35" cy="35" r={ringRadius} strokeDasharray={ringCircumference.toFixed(1)} strokeDashoffset={ringOffset.toFixed(1)} transform="rotate(-90 35 35)" />
+              <text x="35" y="35" className="rtx" textAnchor="middle" dominantBaseline="central">{pct}%</text>
+            </svg>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>
+                <span className="mono">{coverage.completed}</span>{" "}
+                <span style={{ fontSize: 15, color: "var(--muted)" }}>
+                  {copy(pageContract, "calendar.drive.of")} {coverage.total} {copy(pageContract, coverage.usesAnimals ? "calendar.drive.animals" : "calendar.drive.doses")}
+                </span>
+              </div>
+              <div className="metric" style={{ marginTop: 6 }}>
+                <span><b style={{ color: "var(--ink)" }}>{summary.sheds_completed}</b> {copy(pageContract, "calendar.drive.of")} {summary.shed_count} {copy(pageContract, "calendar.drive.sheds_done_suffix")} · {copy(pageContract, "calendar.drive.owner")} {summary.owner_label}</span>
+              </div>
+              {summary.vaccine_labels.length ? (
+                <div className="vchips">
+                  {summary.vaccine_labels.map((label) => (<span key={label} className="tag t-mut">{label}</span>))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+          {chips.length ? (
+            <div className="chips" style={{ marginTop: 14, gap: 14 }}>
+              {chips.map((chip) => (
+                <span key={chip.key} className={`sc ${chip.key === "overdue" ? "over" : chip.key === "deferred" ? "def" : chip.key}`}>
+                  <span className={`d c-${chip.key === "overdue" ? "over" : chip.key === "deferred" ? "def" : chip.key}`} />
+                  {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="bd">
+          <div className="lt">Animal roster</div>
+          <div style={{ overflowX: "auto" }}>
+            <table className="rostertbl">
+              <thead><tr><th>Display ID</th><th>Tag 1</th><th>Tag 2</th><th>Status</th></tr></thead>
+              <tbody className="mono">
+                {rosterItems.length ? rosterItems.map((item) => (
+                  <tr key={item.animal_id}>
+                    <td>{item.display_id || "—"}</td>
+                    <td>{item.animal_identifier_1 || "—"}</td>
+                    <td>{item.animal_identifier_2 || "—"}</td>
+                    <td>{optionLabel(pageContract, "calendar_status", item.status).toLowerCase() || item.status}</td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={4} style={{ padding: 10, textAlign: "center", color: "var(--muted)" }}>No animals in this drive</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

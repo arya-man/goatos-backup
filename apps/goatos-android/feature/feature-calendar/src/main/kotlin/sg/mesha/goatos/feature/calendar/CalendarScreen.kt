@@ -561,24 +561,16 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
                 )
             }
         }
-        val remaining = buildList {
-            if (summary.dueCount > 0) {
-                add(stringResource(R.string.calendar_drive_due, summary.dueCount) to CalendarTone.Warn)
-            }
-            if (summary.overdueCount > 0) {
-                add(stringResource(R.string.calendar_drive_overdue, summary.overdueCount) to CalendarTone.Danger)
-            }
-            if (summary.deferredCount > 0) {
-                add(stringResource(R.string.calendar_drive_deferred, summary.deferredCount) to CalendarTone.Neutral)
-            }
-        }
-        if (remaining.isNotEmpty()) {
+        val chips = driveStatusChips(summary)
+        if (chips.isNotEmpty()) {
             Spacer(Modifier.size(12.dp))
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                remaining.forEach { (label, tone) -> StatusPill(label, tone) }
+                chips.forEach { chip ->
+                    StatusChip(chip)
+                }
             }
         }
     }
@@ -972,6 +964,43 @@ private fun LoadMoreButton(label: String, loading: Boolean, onClick: () -> Unit)
             color = if (loading) MeshaColors.Muted else MeshaColors.Brand2,
             fontSize = 12.5.sp,
             fontWeight = FontWeight.W700,
+        )
+    }
+}
+
+/**
+ * Status chip for the redesigned drive card: a colored dot (9×9px, rounded) + label.
+ * Color and label are derived from the chip key (done/due/overdue/deferred).
+ */
+@Composable
+private fun StatusChip(chip: sg.mesha.goatos.feature.calendar.StatusChip) {
+    val (dotColor, labelStringRes) = when (chip.key) {
+        "done" -> MeshaColors.Brand to R.string.calendar_drive_done
+        "due" -> MeshaColors.Warn to R.string.calendar_drive_due
+        "overdue" -> MeshaColors.Danger to R.string.calendar_drive_overdue
+        "deferred" -> MeshaColors.Purple to R.string.calendar_drive_deferred
+        else -> MeshaColors.Muted to R.string.calendar_drive_due
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(MeshaColors.Surf3)
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+    ) {
+        Box(
+            Modifier
+                .size(9.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(dotColor),
+        )
+        Text(
+            text = stringResource(labelStringRes, chip.count),
+            color = dotColor,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.W600,
+            maxLines = 1,
         )
     }
 }

@@ -4,57 +4,25 @@
 // instead of raw tile counts. Source of truth is `event.drive_summary` (see the shim + field-shape
 // contract in calendar-contract.ts). Never compute these counts client-side from paginated targets.
 import { Syringe } from "lucide-react";
-import { Tag, type Tone } from "@/components/ui-primitives";
-import { copy, optionLabel, optionTone, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate as fmtIstDate } from "@/lib/format";
-import { driveSummaryOf, type CalendarDriveSummary, type CalendarEvent } from "./calendar-contract";
-import { driveCoverage, driveCoveragePct } from "./drive-card-metrics";
-
-type RemainingKey = "due" | "overdue" | "deferred";
-
-function headlineStatus(summary: CalendarDriveSummary, pageContract: AdminUiPageContract): { label: string; tone: Tone } {
-  if (summary.overdue_count > 0) {
-    return { label: `${summary.overdue_count} ${optionLabel(pageContract, "calendar_status", "overdue").toLowerCase()}`, tone: optionTone(pageContract, "calendar_status", "overdue") as Tone };
-  }
-  if (summary.total_count > 0 && summary.remaining_count <= 0) {
-    return { label: optionLabel(pageContract, "calendar_status", "completed"), tone: optionTone(pageContract, "calendar_status", "completed") as Tone };
-  }
-  if (summary.deferred_count > 0 && summary.due_count === 0) {
-    return { label: optionLabel(pageContract, "calendar_status", "deferred").toLowerCase(), tone: optionTone(pageContract, "calendar_status", "deferred") as Tone };
-  }
-  return { label: `${summary.due_count} ${optionLabel(pageContract, "calendar_status", "due").toLowerCase()}`, tone: optionTone(pageContract, "calendar_status", "due") as Tone };
-}
-
-function remainingChips(summary: CalendarDriveSummary): { key: RemainingKey; count: number }[] {
-  return (
-    [
-      { key: "due", count: summary.due_count },
-      { key: "overdue", count: summary.overdue_count },
-      { key: "deferred", count: summary.deferred_count },
-    ] as const
-  ).filter((chip) => chip.count > 0);
-}
+import { driveSummaryOf, type CalendarEvent } from "./calendar-contract";
+import { driveCoverage, driveCoveragePct, driveStatusChips } from "./drive-card-metrics";
 
 export function DriveProgressCard({ event, pageContract }: { event: CalendarEvent; pageContract: AdminUiPageContract }) {
   const summary = driveSummaryOf(event);
   if (!summary) {
     // drive_summary not present yet on this row (backend field regen in flight, or a genuinely
-    // uncovered drive shape) — stay honest with the mock-shaped card at the fields we DO have
-    // (top-level shed_count/vaccine_count are already real, non-drive-summary CalendarEvent fields)
-    // instead of either hiding the row or fabricating progress numbers.
+    // uncovered drive shape) — stay honest with a simplified card at the fields we DO have
+    // (top-level shed_count/vaccine_count are already real, non-drive-summary CalendarEvent fields).
     return (
-      <div className="metagrid" style={{ marginTop: 10 }} aria-disabled="true" title={copy(pageContract, "calendar.drive.summary_pending")}>
-        <div>
-          <div className="k">{copy(pageContract, "calendar.drive.sheds")}</div>
-          <div className="v">{event.shed_count}</div>
+      <div className="ev" aria-disabled="true" title={copy(pageContract, "calendar.drive.summary_pending")}>
+        <div className="dhd">
+          <Syringe className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+          <b>{event.title}</b>
         </div>
-        <div>
-          <div className="k">{copy(pageContract, "calendar.drive.vaccines")}</div>
-          <div className="v">{event.vaccine_count}</div>
-        </div>
-        <div style={{ gridColumn: "1/3" }}>
-          <div className="k">{copy(pageContract, "calendar.drive.packets")}</div>
-          <div className="v muted">{copy(pageContract, "calendar.drive.summary_pending")}</div>
+        <div className="prow">
+          <div className="muted" style={{ fontSize: "12px" }}>{copy(pageContract, "calendar.drive.summary_pending")}</div>
         </div>
       </div>
     );
@@ -64,36 +32,31 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
   // completed_animals): a goat due for several vaccines the same day is ONE animal, and is only
   // "completed" once all its drive obligations are done. If a mixed-version response omits those
   // fields (CDR-R1) they fall back to the obligation/dose counts, labelled accordingly. The
-  // due/overdue/deferred chips below always stay obligation-grain (dose work items).
+  // status chips below always stay obligation-grain (dose work items).
   const coverage = driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
   const pct = driveCoveragePct(coverage.completed, coverage.total);
-  const headline = headlineStatus(summary, pageContract);
-  const remaining = remainingChips(summary);
-  // Option A · completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
+  const chips = driveStatusChips(summary);
+
+  // Completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
   // rotated -90deg so the arc starts at 12 o'clock. circumference = 2*pi*r ≈ 182.2.
   const ringRadius = 29;
   const ringCircumference = 2 * Math.PI * ringRadius;
   const ringOffset = ringCircumference * (1 - pct / 100);
 
   return (
-    <div className="drivecard">
-      <div className="drivecard-hd">
+    <div className="ev">
+      <div className="dhd">
         <Syringe className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
         <b>
           {event.title} · {summary.park_name}
         </b>
-        <span className="muted small">{fmtIstDate(summary.due_date)}</span>
-        <span className="sp" />
-        <Tag tone={headline.tone}>{headline.label}</Tag>
+        <span style={{ color: "var(--muted)", fontSize: "12px" }}>{fmtIstDate(summary.due_date)}</span>
       </div>
-      <div className="muted small" style={{ marginTop: 6 }}>
-        {summary.vaccine_labels.length} {copy(pageContract, "calendar.drive.vaccines_suffix")}
-      </div>
-      <div className="drivecard-progress" style={{ marginTop: 10 }}>
-        <svg className="ring" viewBox="0 0 70 70" width="68" height="68" aria-hidden="true">
-          <circle className="ring-track" cx="35" cy="35" r={ringRadius} />
+      <div className="prow">
+        <svg className="ring" viewBox="0 0 70 70" width="64" height="64" aria-hidden="true">
+          <circle className="rbg" cx="35" cy="35" r={ringRadius} />
           <circle
-            className="ring-arc"
+            className="rfg"
             cx="35"
             cy="35"
             r={ringRadius}
@@ -101,36 +64,32 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
             strokeDashoffset={ringOffset.toFixed(1)}
             transform="rotate(-90 35 35)"
           />
-          <text x="35" y="35" className="ring-pct" textAnchor="middle" dominantBaseline="central">
+          <text x="35" y="35" className="rtx" textAnchor="middle" dominantBaseline="central">
             {pct}%
           </text>
         </svg>
-        <div className="drivecard-progress-txt">
+        <div className="ptx">
           <div>
-            <b>{coverage.completed}</b>{" "}
-            <span className="muted">
-              / {coverage.total} {copy(pageContract, coverage.usesAnimals ? "calendar.drive.animals" : "calendar.drive.doses")}
-            </span>
+            <span className="big">{coverage.completed}</span>
+            <span className="u"> / {coverage.total} {coverage.usesAnimals ? "animals" : "doses"}</span>
           </div>
-          <div className="muted small">
-            {summary.sheds_completed} {copy(pageContract, "calendar.drive.of")} {summary.shed_count}{" "}
-            {copy(pageContract, "calendar.drive.sheds_done_suffix")}
+          <div className="metric">
+            <b>{summary.sheds_completed}</b> of {summary.shed_count} sheds done
           </div>
+          <span className="pill">{summary.vaccine_labels.length} vaccines</span>
         </div>
       </div>
-      {remaining.length ? (
-        <div className="drivecard-chips" style={{ marginTop: 8 }}>
-          {remaining.map((chip) => (
-            <Tag key={chip.key} tone={optionTone(pageContract, "calendar_status", chip.key) as Tone}>
+      {chips.length > 0 ? (
+        <div className="chips">
+          {chips.map((chip) => (
+            <div key={chip.key} className={`sc ${chip.key}`}>
+              <div className={`d c-${chip.key}`} />
               {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
-            </Tag>
+            </div>
           ))}
         </div>
       ) : null}
-      <div className="drivecard-ft">
-        <span className="muted small">{summary.owner_label}</span>
-        <span className="lenslink mutedlink">{copy(pageContract, "calendar.drive.open")} →</span>
-      </div>
+      <div className="dft">Owner · {summary.owner_label}</div>
     </div>
   );
 }

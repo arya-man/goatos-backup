@@ -791,28 +791,46 @@
   .rday.today{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
   .rday .d{font-weight:700;font-size:12px}.rday .mode{font-size:9.5px;font-weight:800;letter-spacing:.5px;margin-top:3px}
   .mode.plan{color:var(--info)}.mode.log{color:var(--amber)}.mode.exec{color:var(--brand-d)}.mode.rest{color:var(--muted)}
-  .agenda .dh{font-weight:700;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;line-height:1.25;margin:18px 2px 13px}
-  .agenda .dh + .ev{margin-top:0}
-  .ev{display:flex;gap:11px;align-items:flex-start;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:10px;padding:10px 12px;margin-bottom:8px;box-shadow:var(--shadow);cursor:pointer;transition:.12s}
-  .ev:hover{border-color:var(--brand);transform:translateX(2px)}
-  /* Aggregated drive rows hug their compact progress card instead of stretching full-width (no empty rectangle). */
-  .ev.drive-ev{max-width:600px}
+  .agenda .dh{font-size:11px;font-weight:700;letter-spacing:.6px;color:var(--faint);text-transform:uppercase;margin:16px 2px 8px}
+  .agenda .dh.today{color:var(--brand-d)}
+  .agenda .cal-empty{display:inline-flex;align-items:center;gap:7px;border:1px dashed var(--line);border-radius:10px;padding:9px 14px;color:var(--faint);font-size:12px}
+  .agenda .dh + .ev,.agenda .dh + .cal-empty{margin-top:0}
+  /* Drive card: hug content, ring + animals + sheds + vaccines + status chips + owner footer, NO CTA */
+  .ev{display:inline-flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--brand);border-radius:10px;padding:10px 14px;width:fit-content;max-width:100%;cursor:pointer;margin-bottom:8px}
+  .ev:hover{border-color:var(--brand);transform:translateY(-1px)}
+  .ev.celllink{text-decoration:none;color:inherit;display:block}
+  .drivelink{display:block;width:fit-content;max-width:100%;text-decoration:none;color:inherit;margin-bottom:8px}
+  .dhd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .dhd b{font-size:14px}
+  .prow{display:flex;align-items:center;gap:14px;margin-top:11px}
+  .ring .rbg{fill:none;stroke:var(--line2);stroke-width:7}
+  .ring .rfg{fill:none;stroke:var(--brand);stroke-width:7;stroke-linecap:round}
+  .rtx{fill:var(--ink);font-size:15px;font-weight:700;font-family:ui-monospace}
+  .ptx .big{font-size:20px;font-weight:700}
+  .ptx .u{font-size:13px;color:var(--muted)}
+  .ptx .metric{font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .ptx .metric b{color:var(--ink);font-weight:600}
+  .pill{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;background:#1e2822;color:var(--muted)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  .sc{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+  .sc .d{width:9px;height:9px;border-radius:3px;flex:none}
+  .c-done{background:var(--brand)}
+  .c-due{background:var(--amber)}
+  .c-over{background:var(--danger)}
+  .c-def{background:var(--purple)}
+  .sc.done{color:var(--brand-d)}
+  .sc.due{color:var(--amber)}
+  .sc.over{color:var(--danger)}
+  .sc.def{color:var(--purple)}
+  .dft{margin-top:11px;padding-top:9px;border-top:1px solid var(--line2);font-size:12.5px;color:var(--muted)}
+  /* Old event row styles (non-drive) */
   .ev .et{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);width:52px;flex:none;padding-top:1px}
-  .ev .eb{flex:1;min-width:0}.ev .eb b{font-size:13.5px}.ev .em{color:var(--muted);font-size:12px;margin-top:2px}
+  .ev .eb{flex:1;min-width:0}
+  .ev .eb b{font-size:13.5px}
+  .ev .em{color:var(--muted);font-size:12px;margin-top:2px}
   .ev .erem{font-size:10px;font-weight:800;color:var(--amber);background:var(--warnx);padding:2px 7px;border-radius:6px;white-space:nowrap;flex:none}
-  /* park-level vaccination drive progress card (aggregated calendar events) */
-  .drivecard{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;max-width:480px}
-  .drivecard-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .drivecard-hd b{font-size:13px}
-  .drivecard-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-  .drivecard-ft{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:9px;padding-top:8px;border-top:1px solid var(--line2)}
-  /* option A · completion ring (replaces the old sheds/animals metagrid + linear bar) */
-  .drivecard-progress{display:flex;align-items:center;gap:12px}
-  .drivecard-progress-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+  /* Ring SVG classes */
   .ring{flex:none}
-  .ring-track{fill:none;stroke:var(--line2);stroke-width:7}
-  .ring-arc{fill:none;stroke:var(--brand);stroke-width:7;stroke-linecap:round;transition:stroke-dashoffset .25s ease}
-  .ring-pct{font-size:13px;font-weight:700;fill:var(--ink)}
   /* ownership matrix */
   .owncard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px;box-shadow:var(--shadow)}
   .owncard .oh{display:flex;align-items:center;gap:9px;margin-bottom:9px}

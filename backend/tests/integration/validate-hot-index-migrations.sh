@@ -121,6 +121,18 @@ reviewed_applied_debt = {
     "000186_notification_snooze_projection_fk_repoint.sql: calendar_snoozes_event_fk on hot table calendar_snoozes uses direct DROP CONSTRAINT",
     "000186_notification_snooze_projection_fk_repoint.sql: notification_requests_event_fk on hot table notification_requests uses direct CHECK/FOREIGN KEY constraint without NOT VALID in goose Down section",
     "000186_notification_snooze_projection_fk_repoint.sql: calendar_snoozes_event_fk on hot table calendar_snoozes uses direct CHECK/FOREIGN KEY constraint without NOT VALID in goose Down section",
+    # 000189 (U7 completion, docs/decisions/operational-kernel-5k-50k-scale-envelope.md) finishes
+    # the FK repoint 000186 intended but missed: migration 000106 had already renamed
+    # notification_requests_event_fk/calendar_snoozes_event_fk to
+    # notification_requests_event_identity_fk/calendar_snoozes_event_identity_fk (repointed onto
+    # calendar_event_identities), so 000186's DROP CONSTRAINT IF EXISTS against the OLD name was a
+    # silent no-op and the real identity FKs stayed live. 000189 drops the real, currently-active
+    # constraints -- same catalog-only, brief ACCESS EXCLUSIVE lock shape as 000186, immediately
+    # followed by dropping calendar_event_projections/calendar_event_identities themselves in the
+    # same migration, so there is no window where an orphaned FK could be re-added against a
+    # since-dropped table.
+    "000189_drop_calendar_projection.sql: notification_requests_event_identity_fk on hot table notification_requests uses direct DROP CONSTRAINT",
+    "000189_drop_calendar_projection.sql: calendar_snoozes_event_identity_fk on hot table calendar_snoozes uses direct DROP CONSTRAINT",
 }
 
 create_table_re = re.compile(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)

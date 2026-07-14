@@ -277,14 +277,6 @@ func (f *fakeRepo) ResolveVaccinationCompletionContext(context.Context, string, 
 	return ports.VaccinationCompletionContext{}, nil
 }
 
-func (f *fakeRepo) RefreshVaccinationProjection(context.Context, ports.RefreshVaccinationProjection) (int, error) {
-	return 0, nil
-}
-
-func (f *fakeRepo) PruneClosedVaccinationProjection(context.Context, string, time.Time, int) (int, error) {
-	return 0, nil
-}
-
 func (f *fakeRepo) QueueRoleNotifications(context.Context, ports.QueueRoleNotifications) (int, error) {
 	return 0, nil
 }

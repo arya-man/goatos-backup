@@ -225,63 +225,14 @@ WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
 ORDER BY oi.scope_type, oi.scope_id, oi.rule_id, target_species, oi.due_at, oi.obligation_id
 LIMIT 1000;"
 
-  explain_must_use_index "CalendarDueReminderSweep" 'Seq Scan on calendar_event_projections|Seq Scan on calendar_snoozes|Seq Scan on notification_requests' "EXPLAIN (COSTS OFF)
-SELECT event_id, title, target_type, COALESCE(source_target_id::text, ''), primary_notification_channel,
-       'Asia/Kolkata'
-FROM calendar_event_projections
-WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND slice_key = 'vaccination'
-  AND system = false
-  AND due_at <= TIMESTAMPTZ '2026-06-29 12:00:00+00' + interval '1 hour'
-  AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
-  AND NOT EXISTS (
-    SELECT 1
-    FROM calendar_snoozes cs
-    WHERE cs.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-      AND cs.calendar_event_id = calendar_event_projections.event_id
-      AND cs.status = 'active'
-      AND cs.snooze_until > TIMESTAMPTZ '2026-06-29 12:00:00+00'
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM notification_requests nr
-    WHERE nr.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-      AND nr.idempotency_key = '00000000-0000-4000-8000-000000000001' || ':calendar.reminder:' || calendar_event_projections.event_id || ':' || to_char((TIMESTAMPTZ '2026-06-29 12:00:00+00' AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
-  )
-ORDER BY due_at ASC, event_id ASC
-LIMIT 100;"
-
-  explain_must_use_index "CalendarEscalationSweep" 'Seq Scan on calendar_event_projections|Seq Scan on notification_requests' "EXPLAIN (COSTS OFF)
-WITH candidates AS (
-  SELECT
-    event_id,
-    due_at,
-    CASE
-      WHEN due_at <= TIMESTAMPTZ '2026-06-27 12:00:00+00' THEN 4
-      WHEN due_at <= TIMESTAMPTZ '2026-06-28 12:00:00+00' THEN 3
-      WHEN due_at <= TIMESTAMPTZ '2026-06-29 08:00:00+00' THEN 2
-      WHEN due_at <= TIMESTAMPTZ '2026-06-29 11:00:00+00' THEN 1
-      ELSE 0
-    END AS level
-  FROM calendar_event_projections
-  WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-    AND slice_key = 'vaccination'
-    AND system = false
-    AND due_at IS NOT NULL
-    AND due_at <= TIMESTAMPTZ '2026-06-29 12:00:00+00'
-    AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due', 'deferred', 'blocked')
-)
-SELECT event_id, level
-FROM candidates c
-WHERE level > 0
-  AND NOT EXISTS (
-    SELECT 1
-    FROM notification_requests nr
-    WHERE nr.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-      AND nr.idempotency_key = '00000000-0000-4000-8000-000000000001' || ':calendar.escalation:' || c.event_id || ':level:' || c.level::text
-  )
-ORDER BY due_at ASC, event_id ASC
-LIMIT 100;"
+  # CalendarDueReminderSweep / CalendarEscalationSweep (formerly direct calendar_event_projections
+  # reads) are retired along with that table (5k-50k envelope, migration 000189,
+  # docs/decisions/operational-kernel-5k-50k-scale-envelope.md). Both sweeps now read the same
+  # canonical source_events reconstruction as the list (calendarCanonicalEventsCTE,
+  # backend/internal/calendar/adapters/postgres/canonical_read.go), whose driving scan
+  # (tenant+due-window keyset over obligation_instances) is exactly what
+  # validate_calendar_canonical_read_plan's CalendarCanonicalReadKeysetDriver proves is index-backed;
+  # the full assembled query shape is proven by the Go-level canonical_read_plan_test.go.
 
   explain_must_use_index "ObligationMarkMissedBefore" 'Seq Scan on obligation_instances|Seq Scan on obligation_batches' "EXPLAIN (COSTS OFF)
 WITH candidate AS (
@@ -1174,23 +1125,13 @@ LIMIT 21;"
 }
 
 validate_calendar_vaccination_plans() {
-  explain_must_use_index "CalendarVaccinationWidestList" 'Seq Scan on calendar_event_projections' "EXPLAIN (COSTS OFF)
-SELECT event_id, event_type, owner_key, title, status, severity, due_at
-FROM calendar_event_projections
-WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND slice_key = 'vaccination'
-  AND system = false
-  AND due_at >= TIMESTAMPTZ '2026-06-27 00:00:00+00'
-  AND due_at < TIMESTAMPTZ '2026-08-12 00:00:00+00'
-  AND event_type <> 'vaccination_dose_due'
-  AND (''::text = '' OR owner_key = ''::text)
-  AND (''::text = '' OR status = ''::text)
-  AND (''::text <> '' OR status NOT IN ('completed', 'canceled'))
-  AND (''::text = '' OR park_id = nullif(''::text, '')::uuid)
-  AND (''::text = '' OR shed_id = nullif(''::text, '')::uuid)
-  AND (NULL::timestamptz IS NULL OR (due_at, event_id) > (NULL::timestamptz, ''::text))
-ORDER BY due_at ASC, event_id ASC
-LIMIT 200;"
+  # CalendarVaccinationWidestList (formerly a direct calendar_event_projections read) is retired
+  # along with that table (5k-50k envelope, migration 000189,
+  # docs/decisions/operational-kernel-5k-50k-scale-envelope.md). The widest-list scan shape is now
+  # exactly calendarCanonicalListSQL's canonical_selected read over source_events, whose driving
+  # scan is proven by validate_calendar_canonical_read_plan's CalendarCanonicalReadKeysetDriver and
+  # by the Go-level canonical_read_plan_test.go.
+  :
 }
 
 validate_herd_register_summary_plan() {
@@ -1224,48 +1165,6 @@ ORDER BY captured_at ASC, item_id ASC
 LIMIT 20;"
 }
 
-validate_calendar_history_projection_plans() {
-  # Calendar completed-history + date-marker projection (migration 000178 +
-  # history_projection.go): calendarListSQL's completed_history CTE and
-  # calendarDateMarkersSQL's marker branch-2 now read these two projector-owned tables by
-  # tenant + serving projection_version + business_date window instead of joining
-  # vaccination_completions/obligation_instances/protocol_* on every request.
-  explain_must_use_index "CalendarHistoryProjectionRowsHotList" 'Seq Scan on calendar_history_projection_rows' "EXPLAIN (COSTS OFF)
-SELECT event_id, title, subtitle, target_count, window_start, window_end
-FROM calendar_history_projection_rows
-WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND projection_version = 1::bigint
-  AND business_date >= DATE '2026-06-01'
-  AND business_date < DATE '2026-07-01'
-ORDER BY business_date, event_id;"
-
-  explain_must_use_index "CalendarHistoryProjectionRowsScoped" 'Seq Scan on calendar_history_projection_rows' "EXPLAIN (COSTS OFF)
-SELECT event_id
-FROM calendar_history_projection_rows
-WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND projection_version = 1::bigint
-  AND park_id = '86000000-0000-4000-8000-000000000701'::uuid
-  AND shed_id = '86000000-0000-4000-8000-000000000711'::uuid
-  AND business_date >= DATE '2026-06-01'
-  AND business_date < DATE '2026-07-01'
-ORDER BY business_date, event_id;"
-
-  explain_must_use_index "CalendarHistoryDateMarkersRead" 'Seq Scan on calendar_history_date_markers' "EXPLAIN (COSTS OFF)
-SELECT business_date, SUM(completion_count)
-FROM calendar_history_date_markers
-WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-  AND projection_version = 1::bigint
-  AND business_date >= DATE '2026-06-01'
-  AND business_date < DATE '2026-07-01'
-GROUP BY business_date;"
-
-  # C5-002: historyProjectionFreshness's own freshness/coverage gate read (repository.go), a single
-  # PK lookup on calendar_history_projection_state (tenant_id uuid PRIMARY KEY).
-  explain_must_use_index "CalendarHistoryProjectionStateRead" 'Seq Scan on calendar_history_projection_state' "EXPLAIN (COSTS OFF)
-SELECT serving_projection_version, projected_at, freshness_status, serving_state, date_from, date_to
-FROM calendar_history_projection_state
-WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid;"
-}
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
   -e POSTGRES_DB="$db_name" \
@@ -1304,6 +1203,5 @@ validate_calendar_vaccination_plans
 validate_calendar_canonical_read_plan
 validate_herd_register_summary_plan
 validate_verification_queue_plan
-validate_calendar_history_projection_plans
 
 echo "Validated current hot-path query plans"

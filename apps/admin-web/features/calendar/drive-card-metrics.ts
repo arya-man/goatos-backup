@@ -32,3 +32,26 @@ export function driveCoverage(
   }
   return { completed: completedDoses, total: totalDoses, usesAnimals: false };
 }
+
+export interface DriveStatusChip {
+  key: "done" | "due" | "overdue" | "deferred";
+  count: number;
+}
+
+// Returns all nonzero status buckets in fixed order: done, due, overdue, deferred.
+// Used to render the status chips row on the drive card.
+export function driveStatusChips(summary: {
+  completed_count: number;
+  due_count: number;
+  overdue_count: number;
+  deferred_count: number;
+}): DriveStatusChip[] {
+  return (
+    [
+      { key: "done" as const, count: summary.completed_count },
+      { key: "due" as const, count: summary.due_count },
+      { key: "overdue" as const, count: summary.overdue_count },
+      { key: "deferred" as const, count: summary.deferred_count },
+    ] as const
+  ).filter((chip) => chip.count > 0);
+}

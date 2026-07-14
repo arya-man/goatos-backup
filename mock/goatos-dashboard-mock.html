@@ -3643,27 +3643,24 @@ function calDriveHeadline(d){
 }
 function driveCardHtml(d){
   var pct=d.totalAnimals>0?Math.round(d.completedAnimals/d.totalAnimals*100):0;
-  var hl=calDriveHeadline(d);
-  var chips=[['due',d.dueCount,'t-warn'],['overdue',d.overdueCount,'t-dng'],['deferred',d.deferredCount,'t-pur']].filter(function(c){return c[1]>0;});
-  // Option A · completion ring. Geometry: r=29 on a 70x70 viewBox, stroke-width 7, round linecap,
-  // rotated -90deg so the arc starts at 12 o'clock. circumference = 2*pi*r ≈ 182.2.
+  var allChips=[['done',d.completedAnimals,'c-done'],['due',d.dueCount,'c-due'],['overdue',d.overdueCount,'c-over'],['deferred',d.deferredCount,'c-def']].filter(function(c){return c[1]>0;});
   var ringR=29,ringCirc=2*Math.PI*ringR,ringOff=ringCirc*(1-pct/100);
-  return '<div class="drivecard">'+
-    '<div class="drivecard-hd"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg><b>Vaccination drive · '+d.parkName+'</b><span class="muted small">'+d.dueDate+'</span><span class="sp"></span><span class="tag '+hl[0]+'">'+hl[1]+'</span></div>'+
-    '<div class="muted small" style="margin-top:6px">'+d.vaccineLabels.length+' vaccines</div>'+
-    '<div class="drivecard-progress" style="margin-top:10px">'+
-      '<svg class="ring" viewBox="0 0 70 70" width="68" height="68" aria-hidden="true">'+
-        '<circle class="ring-track" cx="35" cy="35" r="'+ringR+'"/>'+
-        '<circle class="ring-arc" cx="35" cy="35" r="'+ringR+'" stroke-dasharray="'+ringCirc.toFixed(1)+'" stroke-dashoffset="'+ringOff.toFixed(1)+'" transform="rotate(-90 35 35)"/>'+
-        '<text x="35" y="35" class="ring-pct" text-anchor="middle" dominant-baseline="central">'+pct+'%</text>'+
+  return '<div class="ev">'+
+    '<div class="dhd"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg><b>Vaccination drive · '+d.parkName+'</b><span style="color:var(--muted);font-size:12px">'+d.dueDate+'</span></div>'+
+    '<div class="prow">'+
+      '<svg class="ring" viewBox="0 0 70 70" width="64" height="64" aria-hidden="true">'+
+        '<circle class="rbg" cx="35" cy="35" r="'+ringR+'"/>'+
+        '<circle class="rfg" cx="35" cy="35" r="'+ringR+'" stroke-dasharray="'+ringCirc.toFixed(1)+'" stroke-dashoffset="'+ringOff.toFixed(1)+'" transform="rotate(-90 35 35)"/>'+
+        '<text x="35" y="35" class="rtx" text-anchor="middle" dominant-baseline="central">'+pct+'%</text>'+
       '</svg>'+
-      '<div class="drivecard-progress-txt">'+
-        '<div><b>'+d.completedAnimals+'</b> <span class="muted">/ '+d.totalAnimals+' animals</span></div>'+
-        '<div class="muted small">'+d.shedsCompleted+' of '+d.shedCount+' sheds done</div>'+
+      '<div class="ptx">'+
+        '<div><span class="big">'+d.completedAnimals+'</span> <span class="u">/ '+d.totalAnimals+' animals</span></div>'+
+        '<div class="metric"><b>'+d.shedsCompleted+'</b> of '+d.shedCount+' sheds done</div>'+
+        '<span class="pill">'+d.vaccineLabels.length+' vaccines</span>'+
       '</div>'+
     '</div>'+
-    (chips.length?'<div class="drivecard-chips" style="margin-top:8px">'+chips.map(function(c){return '<span class="tag '+c[2]+'">'+c[1]+' '+c[0]+'</span>';}).join('')+'</div>':'')+
-    '<div class="drivecard-ft"><span class="muted small">'+d.ownerLabel+'</span><span class="lenslink mutedlink">Open drive →</span></div>'+
+    (allChips.length?'<div class="chips">'+allChips.map(function(c){return '<div class="sc '+c[0]+'"><div class="d '+c[2]+'"></div>'+c[1]+' '+c[0]+'</div>';}).join('')+'</div>':'')+
+    '<div class="dft">Owner · '+d.ownerLabel+'</div>'+
   '</div>';
 }
 function renderCal(){
@@ -3673,12 +3670,13 @@ function renderCal(){
   const r=document.getElementById('rhythm');if(!r)return;
   r.innerHTML=RHYTHM.map(([d,mo,cl])=>`<div class="rday ${calDayFilter?(calDayFilter===d?'today':''):(d==='Fri'?'today':'')}" style="cursor:pointer" onclick="filterCalDay('${d}')"><div class="d">${d}</div><div class="mode ${cl}">${mo}</div></div>`).join('');
   const inDom=e=>!e.system&&(!calDom||e.d===calDom||e.d==='all')&&(!calMod||e.mod===calMod);
-  const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];let html=calDom?`<div class="note" style="margin-bottom:10px">Scoped to <b>${CAL_DOM_LABEL[calDom]||cap(calDom)}</b> (+ org-wide). <span class="lenslink" onclick="calDom='';renderCal()">↺ all areas</span></div>`:'';
-  if(calDayFilter)html+=`<div class="note" style="margin-bottom:10px">Showing <b>${calDayFilter}</b> only. <span class="lenslink" onclick="filterCalDay('${calDayFilter}')">↺ whole week</span></div>`;
-  let shown=0;
-  days.forEach(dy=>{if(calDayFilter&&dy!==calDayFilter)return;const evs=CAL.map((e,i)=>[e,i]).filter(([e])=>(e.day===dy||e.day==='*')&&inDom(e));if(!evs.length)return;shown++;
-    html+=`<div class="dh">${dy}${dy==='Fri'?' · today':''}</div>`+evs.map(([e,i])=>`<div class="ev${e.drive?' drive-ev':''}" style="border-left-color:${e.c}" onclick="openEvent(${i})"><div class="et">${e.t==='next'?'+wk':e.t}</div><div class="eb">${e.drive?driveCardHtml(e.drive):`<b>${e.ti}</b><div class="em">${e.m}</div>`}</div>${e.rem?`<span class="erem">${e.rem}</span>`:''}</div>`).join('');});
-  if(!shown)html+=`<div class="note">No scheduled events${calDayFilter?' on '+calDayFilter:' this week'}. <span class="muted">Add one with “New event”.</span></div>`;
+  const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];let html=calDom?`<div class=”note” style=”margin-bottom:10px”>Scoped to <b>${CAL_DOM_LABEL[calDom]||cap(calDom)}</b> (+ org-wide). <span class=”lenslink” onclick=”calDom='';renderCal()”>↺ all areas</span></div>`:'';
+  if(calDayFilter)html+=`<div class=”note” style=”margin-bottom:10px”>Showing <b>${calDayFilter}</b> only. <span class=”lenslink” onclick=”filterCalDay('${calDayFilter}')”>↺ whole week</span></div>`;
+  // Render ALL 7 days, regardless of whether they have events
+  days.forEach(dy=>{if(calDayFilter&&dy!==calDayFilter)return;const evs=CAL.map((e,i)=>[e,i]).filter(([e])=>(e.day===dy||e.day==='*')&&inDom(e));
+    const today=dy==='Fri';const isSunday=dy==='Sun';
+    html+=`<div class=”dh${today?' today':''}”><span style=”color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;margin:16px 2px 8px”>${dy}${today?' · today':''}</span></div>`;
+    if(evs.length){html+=evs.map(([e,i])=>{if(e.drive)return`<a href=”javascript:void(0)” class=”drivelink” onclick=”openEvent(${i})”>${driveCardHtml(e.drive)}</a>`;return`<div class=”ev” style=”border-left-color:${e.c};display:flex;gap:11px” onclick=”openEvent(${i})”><div class=”et”>${e.t==='next'?'+wk':e.t}</div><div class=”eb”><b>${e.ti}</b><div class=”em”>${e.m}</div></div>${e.rem?`<span class=”erem”>${e.rem}</span>`:''}</div>`;}).join('');}else{html+=`<div class=”cal-empty”>${isSunday?'Rest day · no drives':'No drives scheduled'}</div>`;}});
   document.getElementById('agenda').innerHTML=html;
 }
 function openEvent(i){const e=CAL[i];if(!e)return;curCalEvt=i;

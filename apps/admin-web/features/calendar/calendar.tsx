@@ -85,22 +85,23 @@ function EventRow({
   // line is just that shed's name again) — only render it as a second meta line when it adds
   // information the first `.em` line doesn't already carry.
   const showTertiary = event.summary_tertiary && event.summary_tertiary !== event.subtitle && event.summary_tertiary !== event.shed_name;
+
+  if (event.aggregated) {
+    // Drive rows: render the card as a link (NO wrapping in .ev/.et/.eb)
+    return (
+      <Link href={`/calendar/drive/${encodeURIComponent(event.event_id)}`} replace scroll={false} className="drivelink">
+        <DriveProgressCard event={event} pageContract={pageContract} />
+      </Link>
+    );
+  }
+
   return (
-    <Link href={href} replace scroll={false} className={`ev celllink${event.aggregated ? " drive-ev" : ""}`} style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
+    <Link href={href} replace scroll={false} className="ev celllink" style={{ borderLeftColor: ownerColor(event.owner_key, ownerMeta) }}>
       <div className="et">{event.all_day ? copy(pageContract, "calendar.drive.all_day") : timeOf(event.due_at)}</div>
       <div className="eb">
-        {event.aggregated ? (
-          // A drive row IS its progress card: the card's own header (drive · park), status pill,
-          // "N vaccines", ring, and footer already carry the title/status/sheds/vaccines that the
-          // generic title + meta + tertiary lines would otherwise duplicate. Render only the card.
-          <DriveProgressCard event={event} pageContract={pageContract} />
-        ) : (
-          <>
-            <b>{event.title}</b>
-            <div className="em">{meta}</div>
-            {showTertiary ? <div className="em" style={{ marginTop: 7 }}>{event.summary_tertiary}</div> : null}
-          </>
-        )}
+        <b>{event.title}</b>
+        <div className="em">{meta}</div>
+        {showTertiary ? <div className="em" style={{ marginTop: 7 }}>{event.summary_tertiary}</div> : null}
       </div>
     </Link>
   );
@@ -479,6 +480,16 @@ function WeekView({
   const showFilteredEmpty = byDate.size === 0 && events.length > 0;
   const todayWeekday = weekdayOf(`${today}T00:00:00+05:30`);
 
+  // Enumerate ALL 7 days of the week (Mon..Sun IST) from the window
+  const weekWindow_ = weekWindow(today);
+  const weekStart = new Date(`${weekWindow_.dateFrom}T00:00:00+05:30`);
+  const weekDays: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    weekDays.push(d.toISOString().split("T")[0]);
+  }
+
   return (
     <>
       <RhythmCard rhythmDayHref={rhythmDayHref} todayWeekday={todayWeekday} dayFilter={dayFilter} presentation={presentation} />
@@ -527,16 +538,28 @@ function WeekView({
                 {presentation.week.empty_message}
                 {dayFilter ? ` ${copy(pageContract, "week.empty_day_prefix")} ${dayFilter}` : ""} {copy(pageContract, "week.empty_scope_suffix")}
               </p>
-            ) : byDate.size > 0 ? (
-              Array.from(byDate.entries()).map(([key, rows]) => (
-                <div key={key}>
-                  <div className="dh">{dateHeading(key, today, pageContract)}</div>
-                  {rows.map((event) => (
-                    <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
-                  ))}
-                </div>
-              ))
-            ) : null}
+            ) : (
+              // Render ALL 7 days Mon..Sun, showing cards or empty state for each
+              weekDays.map((dayDate) => {
+                const rows = byDate.get(dateKey(dayDate)) ?? [];
+                const isSunday = new Date(`${dayDate}T00:00:00+05:30`).getDay() === 0;
+                const isEmpty = rows.length === 0;
+                return (
+                  <div key={dayDate}>
+                    <div className={dayDate === today ? "dh today" : "dh"}>{dateHeading(dateKey(dayDate), today, pageContract)}</div>
+                    {isEmpty ? (
+                      <div className="cal-empty">
+                        {copy(pageContract, isSunday ? "calendar.week.rest_day" : "calendar.week.day_empty")}
+                      </div>
+                    ) : (
+                      rows.map((event) => (
+                        <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
+                      ))
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>

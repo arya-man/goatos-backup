@@ -21,10 +21,11 @@ const (
 )
 
 // reminderCadenceCandidate is one open, actionable vaccination obligation/event that MIGHT have a
-// reminder cadence fire due -- read from calendar_event_projections, which is de-scheduling's own
-// source of truth: an obligation that transitions to completed/deferred/canceled leaves the status
-// filter below (so it stops reminding), and one that is rescheduled picks up its NEW due_at on the
-// very next sweep (so the ladder restarts from the new D) -- vaccination-notification-rules.md §3.
+// reminder cadence fire due -- read from the canonical source_events reconstruction
+// (calendarCanonicalEventsCTE), which is de-scheduling's own source of truth: an obligation that
+// transitions to completed/deferred/canceled leaves the status filter below (so it stops reminding),
+// and one that is rescheduled picks up its NEW due_at on the very next sweep (so the ladder restarts
+// from the new D) -- vaccination-notification-rules.md §3.
 type reminderCadenceCandidate struct {
 	EventID    string
 	ParkID     string
@@ -165,25 +166,26 @@ func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.Reminder
 	return fires, nil
 }
 
-func (r *Repository) selectReminderCadenceCandidates(ctx context.Context, tenantID string, now time.Time, limit int) ([]reminderCadenceCandidate, error) {
-	// Bounded window covering the whole ladder lookahead (up to D-7) plus a one-day catch-up buffer
-	// for a late/slow tick. Served by calendar_event_projections_hot_list_idx
-	// (tenant_id, slice_key, system, due_at, event_id) -- the same index ListEvents/SweepDueReminders
-	// already rely on.
-	windowStart := biztime.BusinessDayStart(now).AddDate(0, 0, -1)
-	windowEnd := biztime.BusinessDayStart(now).AddDate(0, 0, 9)
-	rows, err := r.pool.Query(ctx, `
+// calendarReminderCadenceCandidatesSQL is the reminder-cadence candidate set, read directly off the
+// canonical source_events reconstruction instead of calendar_event_projections. windowStart/windowEnd
+// double as the shared CTE's own $2/$3 window bound -- no separate due_at filter needed.
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+const calendarReminderCadenceCandidatesSQL = "WITH " + calendarCanonicalEventsCTE + `
 SELECT event_id, park_id::text, due_at, target_type, COALESCE(source_target_id::text, '')
-FROM calendar_event_projections
-WHERE tenant_id = $1::uuid
-  AND slice_key = 'vaccination'
-  AND system = false
+FROM source_events
+WHERE system = false
   AND event_type <> 'vaccination_dose_due'
   AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
   AND park_id IS NOT NULL
-  AND due_at >= $2 AND due_at < $3
 ORDER BY due_at ASC, event_id ASC
-LIMIT $4`, tenantID, windowStart, windowEnd, limit)
+LIMIT $4`
+
+func (r *Repository) selectReminderCadenceCandidates(ctx context.Context, tenantID string, now time.Time, limit int) ([]reminderCadenceCandidate, error) {
+	// Bounded window covering the whole ladder lookahead (up to D-7) plus a one-day catch-up buffer
+	// for a late/slow tick.
+	windowStart := biztime.BusinessDayStart(now).AddDate(0, 0, -1)
+	windowEnd := biztime.BusinessDayStart(now).AddDate(0, 0, 9)
+	rows, err := r.pool.Query(ctx, calendarReminderCadenceCandidatesSQL, tenantID, windowStart, windowEnd, limit)
 	if err != nil {
 		return nil, fmt.Errorf("calendar: select reminder cadence candidates: %w", err)
 	}
@@ -265,9 +267,7 @@ func (r *Repository) QueueReminderCadenceBatch(ctx context.Context, in ports.Que
 		return 0, err
 	}
 
-	eventIDs := make([]string, 0, len(won))
 	for i, f := range won {
-		eventIDs = append(eventIDs, f.Fire.RepresentativeCalendarEventID)
 		payload := map[string]any{
 			"fire_key":          f.Fire.FireKey,
 			"park_id":           f.Fire.ParkID,
@@ -321,14 +321,8 @@ func (r *Repository) QueueReminderCadenceBatch(ctx context.Context, in ports.Que
 			return 0, fmt.Errorf("calendar: audit reminder cadence: %w", err)
 		}
 	}
-	if len(eventIDs) > 0 {
-		if _, err := tx.Exec(ctx, `
-UPDATE calendar_event_projections
-SET reminder_state = 'queued', updated_at = now()
-WHERE tenant_id = $1::uuid AND event_id = ANY($2::text[])`, in.TenantID, eventIDs); err != nil {
-			return 0, err
-		}
-	}
+	// 5k-50k envelope: reminder_state is read-derived (calendarReminderRailSQL), so there is no
+	// projection row left to update here.
 
 	if err := tx.Commit(ctx); err != nil {
 		return 0, err

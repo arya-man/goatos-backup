@@ -209,11 +209,6 @@ TASK=$(psqlq "select sop_task_id from obligation_batches where batch_id='$BATCH'
 [ -n "$TASK" ] || fail "7-week batch did not get a SOP task"
 BATCH_DATE=$(psqlq "select coalesce(planned_date, window_start::date, window_end::date)::text from obligation_batches where batch_id='$BATCH'")
 [ -n "$BATCH_DATE" ] || fail "7-week batch did not get a planned date"
-( cd "$BACKEND" && GOATOS_TENANT_ID="$TENANT" go run ./cmd/calendar-vaccination-projector \
-  -tenant-id "$TENANT" \
-  -date-from "$BATCH_DATE"'T00:00:00Z' \
-  -date-to "$(psqlq "select (DATE '$BATCH_DATE' + 1)::text")"'T00:00:00Z' \
-  -limit 2000 2>&1 | tail -1 )
 ( cd "$BACKEND" && GOATOS_TENANT_ID="$TENANT" DATABASE_URL="$PGURL" go run ./cmd/process-integrity-projection-recompute \
   -tenant-id "$TENANT" 2>&1 | tail -1 )
 echo "BATCH=$BATCH TASK=$TASK planned_date=$BATCH_DATE"

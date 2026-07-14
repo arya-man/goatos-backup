@@ -20,12 +20,24 @@ import (
 	"github.com/vgoats/goatos/backend/internal/calendar/domain"
 )
 
-// calendarCanonicalListSQL is the compute-on-read canonical reconstruction of the Calendar list. It
-// is deliberately a large multi-CTE query: at the 5k-to-50k scale envelope this is the accepted
-// alternative to a derived read model (ADR operational-kernel-5k-50k-scale-envelope). The scale-guard
-// god-cte detector is suppressed on the driving SELECT below via `scale-guard:ignore`.
-// scale-guard:ignore: 5k-50k-envelope; see operational-kernel-5k-50k-scale-envelope.md
-const calendarCanonicalListSQL = `WITH obligation_events AS (
+// calendarCanonicalEventsCTE is the shared canonical event-reconstruction CTE chain ("source_events")
+// reused by every canonical Calendar read: the list page (calendarCanonicalListSQL), the single-event
+// detail lookup (calendarCanonicalDetailSQL), the reminder rail, and the reminder/escalation
+// operational sweeps in repository.go/reminder_cadence.go. Keeping ONE copy of this chain means the
+// row/summary/drive semantics can never diverge between the list, detail, and sweep paths. It is
+// parameterized by $1 (tenant), $2 (window dateFrom), $3 (window dateToExclusive) -- callers that have
+// no natural list window (single-event lookups, operational sweeps) pass a generously wide window via
+// canonicalUnboundedWindow so the OR-bypassed missed/in_progress/deferred/overdue rows are still
+// unaffected (those branches do not depend on the window) while genuinely future-scheduled rows stay
+// reachable. NOTE: unlike canonical_selected below, this chain does NOT exclude event_type =
+// 'vaccination_dose_due' (individual obligation rows) -- callers that must see those (single-event
+// detail/action-target resolution, the obligation-specific escalation lookup) query source_events
+// directly; callers that must NOT (the list, the general reminder/escalation sweeps) add their own
+// `event_type <> 'vaccination_dose_due'` predicate, exactly mirroring the pre-cutover projector's own
+// distinction between its general sweep and its single-obligation lookup.
+//
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+const calendarCanonicalEventsCTE = `obligation_events AS (
   SELECT
     'obligation:' || oi.obligation_id::text AS event_id,
     'vaccination_dose_due'::text AS event_type,
@@ -142,8 +154,7 @@ const calendarCanonicalListSQL = `WITH obligation_events AS (
     )
     AND pd.category = 'vaccination'
     AND pv.status = 'published'
-    AND oi.status NOT IN ('waived', 'canceled', 'superseded')
-    AND (oi.status <> 'completed' OR oi.due_at >= now() - interval '90 days')
+    AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
 ),
 catchup_drive_events AS (
   SELECT
@@ -461,7 +472,6 @@ batch_events AS (
       AND pd.category = 'vaccination'
       AND pv.status = 'published'
       AND ob.status NOT IN ('superseded', 'canceled')
-      AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days')
     GROUP BY
       ob.batch_id,
       ob.status,
@@ -523,7 +533,10 @@ park_drive_groups AS (
     bool_or(status = 'deferred') AS has_deferred,
     bool_or(status IN ('proof_pending', 'verification_pending', 'rejected', 'rework_due')) AS has_review,
     bool_or(status IN ('scheduled', 'due', 'overdue') AND due_at < now()) AS has_overdue,
-    jsonb_agg(event_id ORDER BY event_id) AS source_event_ids
+    jsonb_agg(event_id ORDER BY event_id) AS source_event_ids,
+    count(DISTINCT shed_id) FILTER (WHERE shed_id IS NOT NULL)::int AS shed_count,
+    NULLIF(min(shed_id::text) FILTER (WHERE shed_id IS NOT NULL), '')::uuid AS primary_shed_id,
+    min(shed_name) FILTER (WHERE shed_name IS NOT NULL) AS primary_shed_name
   FROM drive_sources
   GROUP BY park_id, to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
 ),
@@ -591,8 +604,7 @@ obligation_drive_membership AS (
       (oi.batch_id IS NOT NULL
         AND ob.status NOT IN ('superseded', 'canceled')
         AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= $2::timestamptz
-        AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
-        AND (ob.status <> 'completed' OR COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= now() - interval '90 days'))
+        AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz)
       OR
       (oi.batch_id IS NULL
         AND (
@@ -636,7 +648,7 @@ obligation_drive_animal_coverage AS (
   ) per_animal
   GROUP BY park_id, due_date
 ),
--- projection-review: membership=obligation_drive_membership (one row per obligation_id); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>deferred>overdue>due) so total_count=completed+due+overdue+deferred with no double-counting, PLUS new animal_grain aggregation (count DISTINCT target_id where target_type='goat') rolled up per animal's bool_and(status='completed') per (park_id, due_date); animal_coverage_cardinality=separate animal subquery 1:1 LEFT JOIN on (park_id, due_date) produces animal_total_count and animal_completed_count, no fan-out; pagination=materialized EXACTLY ONCE per RefreshVaccinationProjection call into calendar_drive_summary_tmp before the keyset page loop (unchanged by animal coverage); scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation (unchanged by animal coverage); date/status: all existing dimension semantics preserved (animal counts are independent new grain, do not affect obligation buckets or date-window/status-bucket logic)
+-- projection-review: membership=obligation_drive_membership (one row per obligation_id); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>deferred>overdue>due) so total_count=completed+due+overdue+deferred with no double-counting, PLUS new animal_grain aggregation (count DISTINCT target_id where target_type='goat') rolled up per animal's bool_and(status='completed') per (park_id, due_date), with a separate animal_coverage subquery (separate animal subquery 1:1 LEFT JOIN on (park_id, due_date) produces animal_total_count and animal_completed_count, no fan-out); pagination=computed inline per ListEvents request as a bounded, keyset-paginated canonical read (5k-50k envelope, no projector, no materialized temp table); scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation (unchanged by animal coverage); date/status: all existing dimension semantics preserved (animal counts are independent new grain, do not affect obligation buckets or date-window/status-bucket logic)
 obligation_drive_summary AS (
   -- Bucket precedence is mutually exclusive and total_count-complete. Invariant:
   --   total_count = completed_count + due_count + overdue_count + deferred_count
@@ -717,8 +729,13 @@ park_drive_events AS (
     'india_only'::text AS timezone_source,
     grouped.park_id,
     grouped.park_code,
-    NULL::uuid AS shed_id,
-    NULL::text AS shed_name,
+    -- Mirrors the catchup_drive_events single-shed collapse (shed_count = 1): a park-day drive that
+    -- is genuinely backed by exactly one shed's obligations/batches must still resolve to that shed
+    -- so shed-scoped scope authorization (canonical_selected / calendarCanonicalDetailSQL's
+    -- park_id = ANY / shed_id = ANY predicate) can match it. Multi-shed park-day drives keep shed_id
+    -- NULL (there is no single shed to attribute the aggregate to).
+    CASE WHEN grouped.shed_count = 1 THEN grouped.primary_shed_id ELSE NULL::uuid END AS shed_id,
+    CASE WHEN grouped.shed_count = 1 THEN grouped.primary_shed_name ELSE NULL::text END AS shed_name,
     NULL::uuid AS cohort_id,
     NULL::text AS cohort_name,
     CASE WHEN grouped.park_id IS NULL THEN 'tenant'::text ELSE 'park'::text END AS target_type,
@@ -821,6 +838,112 @@ park_drive_events AS (
     WHERE source.park_id IS NOT DISTINCT FROM grouped.park_id
       AND (source.due_at AT TIME ZONE 'Asia/Kolkata')::date = grouped.due_day::date
   ) vaccine_meta
+),
+vaccination_history_events AS (
+  -- Accepted vaccination administration history: completed doses from vaccination_completions table.
+  -- These represent past accepted administrations that should appear as completed history in Calendar reads.
+  -- Scoped by the completed obligation's own park/shed (goat's current location, falling back to the
+  -- obligation/batch scope) to match the same owner/park/shed filters as open work above.
+  SELECT
+    'completion:' || vc.completion_id::text AS event_id,
+    'vaccination_history'::text AS event_type,
+    'pc'::text AS owner_key,
+    pd.name || ' ' || pr.dose_code || ' completed' AS title,
+    COALESCE(loc.shed_name, loc.park_code, 'Vaccination history') AS subtitle,
+    'completed'::text AS status,
+    'info'::text AS severity,
+    COALESCE(vc.administered_at, vc.created_at) AS due_at,
+    COALESCE(vc.administered_at, vc.created_at) AS window_start,
+    COALESCE(vc.administered_at, vc.created_at) + interval '1 day' AS window_end,
+    'Asia/Kolkata'::text AS timezone,
+    'india_only'::text AS timezone_source,
+    loc.park_id,
+    loc.park_code,
+    loc.shed_id,
+    loc.shed_name,
+    NULL::uuid AS cohort_id,
+    NULL::text AS cohort_name,
+    oi.target_type,
+    1::int AS target_count,
+    pd.protocol_id,
+    pv.protocol_version_id,
+    pr.rule_id,
+    pd.name AS vaccine_name,
+    pr.dose_code,
+    true AS source_backed,
+    pd.name AS source_label,
+    'vaccination_completion'::text AS source_target_type,
+    vc.completion_id AS source_target_id,
+    'PC vaccinator'::text AS assignee_label,
+    NULL::text AS executor_role,
+    'PC verifier'::text AS verifier_label,
+    'not_scheduled'::text AS reminder_state,
+    'local-stub'::text AS primary_notification_channel,
+    'none'::text AS escalation_state,
+    false AS system,
+    false AS cross_cutting,
+    jsonb_build_object(
+      'vaccination', '/vaccination/operations',
+      'action_center', '/vaccination/action-center'
+    ) AS links,
+    jsonb_build_object(
+      'summary', jsonb_build_object('owner', 'PC', 'target_count', 1),
+      'source_and_rule', jsonb_build_object(
+        'protocol_version_id', pv.protocol_version_id,
+        'rule_id', pr.rule_id,
+        'administered_at', COALESCE(vc.administered_at, vc.created_at)
+      ),
+      'execution', jsonb_build_object('completion_id', vc.completion_id, 'work_state', 'completed'),
+      'stock', jsonb_build_object(),
+      'proof', jsonb_build_object(),
+      'verification', jsonb_build_object(),
+      'notification_channels', jsonb_build_array('local-stub'),
+      'notification_policy', jsonb_build_object(),
+      'links', jsonb_build_object()
+    ) AS detail
+  FROM vaccination_completions vc
+  JOIN obligation_instances oi
+    ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+  LEFT JOIN goats g
+    ON oi.target_type = 'goat' AND g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+  LEFT JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
+  LEFT JOIN locations scope_loc
+    ON scope_loc.tenant_id = oi.tenant_id
+   AND scope_loc.location_id = COALESCE(g.park_id, ob.scope_id, oi.scope_id)
+   AND scope_loc.location_type IN ('park', 'shed')
+  LEFT JOIN locations scope_parent
+    ON scope_parent.tenant_id = oi.tenant_id
+   AND scope_parent.location_id = scope_loc.parent_location_id
+  LEFT JOIN LATERAL (
+    SELECT
+      CASE
+        WHEN scope_loc.location_type = 'park' THEN scope_loc.location_id
+        WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
+      END AS park_id,
+      CASE
+        WHEN scope_loc.location_type = 'park' THEN scope_loc.location_code
+        WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code
+      END AS park_code,
+      CASE
+        WHEN scope_loc.location_type = 'shed' THEN scope_loc.location_id
+      END AS shed_id,
+      CASE
+        WHEN scope_loc.location_type = 'shed' THEN scope_loc.name
+      END AS shed_name
+  ) loc ON true
+  WHERE vc.tenant_id = $1::uuid
+    AND vc.status = 'accepted'
+    AND pd.category = 'vaccination'
+    AND pv.status = 'published'
+    AND (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    AND (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date < ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
 ),
 sop_events AS (
   SELECT DISTINCT ON (st.task_id)
@@ -1009,12 +1132,30 @@ config_events AS (
 source_events AS (
   SELECT * FROM obligation_events
   UNION ALL
+  SELECT * FROM vaccination_history_events
+  UNION ALL
   SELECT * FROM park_drive_events
   UNION ALL
   SELECT * FROM sop_events
   UNION ALL
   SELECT * FROM config_events
-),
+)`
+
+// canonicalUnboundedWindow returns a generously wide [from, to) window for canonical point-lookups that
+// have no natural calendar-list window: single-event resolution (detail, action-target, existence)
+// and the reminder/escalation operational sweeps. It deliberately is NOT -infinity/infinity (that would
+// defeat the shared CTE's tenant+due-window pruning) -- +/-2 years is wide enough that no realistically
+// due obligation/batch/SOP task is ever missed, while still bounding the scan.
+func canonicalUnboundedWindow(now time.Time) (time.Time, time.Time) {
+	return now.AddDate(-2, 0, 0), now.AddDate(2, 0, 0)
+}
+
+// calendarCanonicalListSQL is the compute-on-read canonical reconstruction of the Calendar list. It
+// is deliberately a large multi-CTE query: at the 5k-to-50k scale envelope this is the accepted
+// alternative to a derived read model (ADR operational-kernel-5k-50k-scale-envelope). The scale-guard
+// god-cte detector is suppressed on calendarCanonicalEventsCTE above via `scale-guard:ignore`.
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+const calendarCanonicalListSQL = "WITH " + calendarCanonicalEventsCTE + `,
 canonical_selected AS (
   -- scale-guard:ignore: 5k-50k-envelope; see operational-kernel-5k-50k-scale-envelope.md
   -- Canonical read-through: the same summary/label/drive_summary extraction calendarListSQL applies
@@ -1048,7 +1189,19 @@ canonical_selected AS (
     AND event_type <> 'vaccination_dose_due'
     AND status IN ('scheduled', 'due', 'overdue', 'missed', 'in_progress', 'proof_pending',
                    'verification_pending', 'rejected', 'rework_due', 'deferred', 'blocked', 'completed')
-    AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
+    -- Mirrors the missed/in_progress/deferred/overdue OR-bypass already applied inside
+    -- catchup_drive_events'/obligation_events' own WHERE clauses (and the pre-cutover projector's
+    -- catch-up branch): a park-day drive whose aggregated status is still open catch-up work must
+    -- stay visible in the list regardless of how far its own due_at sits outside the requested
+    -- [dateFrom, dateToExclusive) window -- otherwise an old missed/overdue exception silently
+    -- disappears the moment the calendar's requested window moves past it, even though the
+    -- underlying obligation is still unresolved. event_type is scoped to vaccination_drive here
+    -- because only park_drive_events ever projects these aggregated statuses into source_events;
+    -- sop_events/config_events have no catch-up concept and stay strictly window-bound.
+    AND (
+      (due_at >= $2::timestamptz AND due_at < $3::timestamptz)
+      OR (event_type = 'vaccination_drive' AND status IN ('missed', 'in_progress', 'deferred', 'overdue'))
+    )
     AND ($4::text = '' OR owner_key = $4::text)
     AND ($5::text = '' OR status = $5::text)
     AND ($5::text <> '' OR status NOT IN ('completed', 'canceled'))
@@ -1071,6 +1224,40 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
 FROM canonical_selected
 ORDER BY due_at ASC, event_id ASC
 LIMIT $10`
+
+// calendarCanonicalDetailSQL resolves ONE calendar event by event_id straight from the canonical
+// source_events reconstruction (not canonical_selected -- a single-event lookup must still resolve an
+// individual 'obligation:<id>' (vaccination_dose_due) row, which canonical_selected's list-only
+// `event_type <> 'vaccination_dose_due'` filter deliberately excludes). Column order matches
+// scanCalendarEventWithDetail exactly (37 CalendarEvent columns + the raw detail jsonb blob).
+// scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+const calendarCanonicalDetailSQL = "WITH " + calendarCanonicalEventsCTE + `
+SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_at, window_start,
+       window_end, timezone, timezone_source, park_id::text, park_code, shed_id::text, shed_name,
+       cohort_id::text, cohort_name, target_type, target_count, protocol_id::text,
+       protocol_version_id::text, rule_id::text, vaccine_name, dose_code, source_backed,
+       source_label, assignee_label, executor_role, verifier_label, reminder_state,
+       primary_notification_channel, escalation_state, system, cross_cutting, links,
+       event_type = 'vaccination_drive' AS aggregated,
+       event_type = 'vaccination_drive' AS all_day,
+       COALESCE(detail->'summary'->>'summary_primary', '') AS summary_primary,
+       COALESCE(detail->'summary'->>'summary_secondary', '') AS summary_secondary,
+       COALESCE(detail->'summary'->>'summary_tertiary', '') AS summary_tertiary,
+       COALESCE((detail->'summary'->>'shed_count')::int, CASE WHEN shed_id IS NULL THEN 0 ELSE 1 END) AS shed_count,
+       COALESCE((detail->'summary'->>'vaccine_count')::int, CASE WHEN vaccine_name IS NULL THEN 0 ELSE 1 END) AS vaccine_count,
+       COALESCE((detail->'summary'->>'drive_count')::int, CASE WHEN event_type = 'vaccination_drive' THEN 1 ELSE 0 END) AS drive_count,
+       COALESCE((detail->'summary'->>'catch_up_count')::int, 0) AS catch_up_count,
+       COALESCE((detail->'summary'->>'scheduled_count')::int, 0) AS scheduled_count,
+       COALESCE((detail->'summary'->>'deferred_count')::int, 0) AS deferred_count,
+       COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
+       ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
+       ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
+       CASE WHEN jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary,
+       detail
+FROM source_events
+WHERE event_id = $4
+  AND ($5::bool OR park_id::text = ANY($6::text[]) OR shed_id::text = ANY($7::text[]))
+LIMIT 1`
 
 // listEventsCanonical runs the canonical read-through page for ListEvents. Params mirror the projector
 // window ($1 tenant, $2 dateFrom, $3 dateToExclusive) plus the list filters ($4 owner, $5 status,

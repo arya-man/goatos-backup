@@ -61,11 +61,6 @@ type config struct {
 	MarkMissed    bool
 	MissedBefore  time.Time
 
-	ProjectCalendar  bool
-	CalendarDateFrom time.Time
-	CalendarDateTo               time.Time
-	CalendarLimit                int
-
 	SweepReminders bool
 	ReminderLimit  int
 
@@ -165,19 +160,10 @@ func run(args []string) error {
 		}
 		fmt.Printf("marked missed obligations=%d before=%s\n", missed, cfg.MissedBefore.Format(time.RFC3339))
 	}
+	// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): Calendar has no
+	// projection to refresh anymore -- it serves canonical reads directly, which are never stale
+	// relative to the canonical write these sweeps just performed.
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, pgCfg.QueryTimeout))
-	if cfg.ProjectCalendar {
-		refreshed, err := calendarService.RefreshVaccinationProjection(ctx, calendarports.RefreshVaccinationProjection{
-			TenantID: cfg.TenantID,
-			DateFrom: cfg.CalendarDateFrom,
-			DateTo:   cfg.CalendarDateTo,
-			Limit:    cfg.CalendarLimit,
-		})
-		if err != nil {
-			return fmt.Errorf("refresh calendar vaccination projection: %w", err)
-		}
-		fmt.Printf("calendar projection refreshed=%d from=%s to=%s\n", refreshed, cfg.CalendarDateFrom.Format(time.RFC3339), cfg.CalendarDateTo.Format(time.RFC3339))
-	}
 	queuedNotifications := 0
 	if cfg.SweepReminders {
 		queued, err := calendarService.SweepDueReminders(ctx, cfg.TenantID, cfg.ReminderLimit)
@@ -287,10 +273,6 @@ func parseFlags(args []string) (config, error) {
 	missedGrace := fs.Duration("missed-grace", durationEnv("GOATOS_SWEEPER_MISSED_GRACE", 24*time.Hour), "grace period before due/window-crossed obligations become missed")
 	fs.BoolVar(&cfg.MarkMissed, "mark-missed", boolEnv("GOATOS_SWEEPER_MARK_MISSED", true), "materialize canonical missed status for overdue open obligations")
 	fs.IntVar(&cfg.DosesPerGoat, "doses-per-goat", intEnv("GOATOS_SWEEPER_DOSES_PER_GOAT", 1), "doses reserved per goat")
-	calendarDateFromRaw := fs.String("calendar-date-from", getenv("GOATOS_SWEEPER_CALENDAR_DATE_FROM"), "RFC3339 calendar projection lower bound; default now minus 24h")
-	calendarDateToRaw := fs.String("calendar-date-to", getenv("GOATOS_SWEEPER_CALENDAR_DATE_TO"), "RFC3339 calendar projection upper bound; default now plus 45d")
-	fs.BoolVar(&cfg.ProjectCalendar, "project-calendar", boolEnv("GOATOS_SWEEPER_PROJECT_CALENDAR", false), "repair-only Calendar projection refresh; the dedicated Calendar projector is the normal owner")
-	fs.IntVar(&cfg.CalendarLimit, "calendar-limit", intEnv("GOATOS_SWEEPER_CALENDAR_LIMIT", 1000), "max Calendar projection rows to upsert")
 	fs.BoolVar(&cfg.SweepReminders, "sweep-reminders", boolEnv("GOATOS_SWEEPER_SWEEP_REMINDERS", true), "queue due Calendar reminders after projection refresh")
 	fs.IntVar(&cfg.ReminderLimit, "reminder-limit", intEnv("GOATOS_SWEEPER_REMINDER_LIMIT", 100), "max reminders to queue")
 	fs.BoolVar(&cfg.SweepEscalations, "sweep-escalations", boolEnv("GOATOS_SWEEPER_SWEEP_ESCALATIONS", true), "queue SLA escalations after projection refresh")
@@ -325,33 +307,11 @@ func parseFlags(args []string) (config, error) {
 		}
 		cfg.MissedBefore = parsed.In(biztime.DefaultLocation())
 	}
-	cfg.CalendarDateFrom = now.Add(-24 * time.Hour)
-	if strings.TrimSpace(*calendarDateFromRaw) != "" {
-		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*calendarDateFromRaw))
-		if err != nil {
-			return config{}, errors.New("calendar-date-from must be RFC3339")
-		}
-		cfg.CalendarDateFrom = parsed.In(biztime.DefaultLocation())
-	}
-	cfg.CalendarDateTo = now.Add(45 * 24 * time.Hour)
-	if strings.TrimSpace(*calendarDateToRaw) != "" {
-		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*calendarDateToRaw))
-		if err != nil {
-			return config{}, errors.New("calendar-date-to must be RFC3339")
-		}
-		cfg.CalendarDateTo = parsed.In(biztime.DefaultLocation())
-	}
 	if cfg.Timeout <= 0 {
 		return config{}, errors.New("timeout must be positive")
 	}
 	if cfg.DosesPerGoat < 1 {
 		cfg.DosesPerGoat = 1
-	}
-	if !cfg.CalendarDateFrom.Before(cfg.CalendarDateTo) {
-		return config{}, errors.New("calendar-date-from must be before calendar-date-to")
-	}
-	if cfg.CalendarLimit <= 0 {
-		cfg.CalendarLimit = 1000
 	}
 	if cfg.ReminderLimit <= 0 {
 		cfg.ReminderLimit = 100

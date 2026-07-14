@@ -73,9 +73,8 @@ type Fixture struct {
 	PI       *pipg.Repository
 	Inv      *invapp.Service
 	Calendar *calendarapp.Service
-	// CalendarRepo is the concrete calendar repository. The history projection is refreshed directly
-	// on the repo in production (cmd/calendar-vaccination-projector), not through the app Service, so
-	// stories that drive the history read-model use it the same way.
+	// CalendarRepo is the concrete calendar repository used for direct tests that need to verify
+	// low-level storage behavior.
 	CalendarRepo *calendarpg.Repository
 	Consumer     *domainconsumerapp.Service
 	Relay    *outboxapp.Service

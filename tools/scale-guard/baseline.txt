@@ -14,7 +14,6 @@
 # vaccinationexecution: FIXED (C35-002) — ShedSummary now reads the indexed vaccination_shed_projection_rows
 # read model exclusively; the compute-on-read god-CTE was removed from the request path (repository.go) and
 # only survives as the off-request projector query in shed_projection.go (scale-guard:ignore'd there).
-god-cte backend/internal/calendar/adapters/postgres/repository.go 1 # owner=calendar-platform issue=C35-020 expires=2026-09-30 reason=off-request bounded projector recompute; remove detector hit or split query
 
 # --- loop-no-cursor: infinite paging loop with no progress guard ---
 # (none) — finalizePlannedBatches was fixed with a progressed==0 break on 2026-07-11.

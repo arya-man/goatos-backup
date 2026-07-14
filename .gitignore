@@ -107,3 +107,6 @@ wiki/
 # Python bytecode
 __pycache__/
 *.pyc
+
+# compiled backend binary (never commit)
+/backend/api

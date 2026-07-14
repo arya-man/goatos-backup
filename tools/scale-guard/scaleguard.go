@@ -211,17 +211,16 @@ func main() {
 }
 
 var explicitOneTimeCommands = map[string]bool{
-	"backend/cmd/migrate/main.go":                       true,
-	"backend/cmd/seed-calendar-vaccination-dev/main.go": true,
-	"backend/cmd/seed-dev-email-grants/main.go":         true,
-	"backend/cmd/seed-position-duties/main.go":          true,
-	"backend/cmd/seed-roster-real/main.go":              true,
-	"backend/cmd/seed-shed-positions/main.go":           true,
-	"backend/cmd/seed-vaccination-real/main.go":         true,
-	"backend/cmd/seed-vaccination-trigger/main.go":      true,
-	"backend/cmd/counts-projection-recompute/main.go":   true,
-	"backend/cmd/counts-source-import/main.go":          true,
-	"backend/cmd/legacy-god-sheet-sync/main.go":         true,
+	"backend/cmd/migrate/main.go":                     true,
+	"backend/cmd/seed-dev-email-grants/main.go":       true,
+	"backend/cmd/seed-position-duties/main.go":        true,
+	"backend/cmd/seed-roster-real/main.go":            true,
+	"backend/cmd/seed-shed-positions/main.go":         true,
+	"backend/cmd/seed-vaccination-real/main.go":       true,
+	"backend/cmd/seed-vaccination-trigger/main.go":    true,
+	"backend/cmd/counts-projection-recompute/main.go": true,
+	"backend/cmd/counts-source-import/main.go":        true,
+	"backend/cmd/legacy-god-sheet-sync/main.go":       true,
 }
 
 func isExplicitOneTimeCommand(repo, path string) bool {

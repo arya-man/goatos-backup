@@ -180,7 +180,7 @@ not_run() {
   overall_status=1
 }
 
-kernel_test_packages="./internal/protocol/... ./internal/vaccination/... ./internal/obligation/... ./internal/inventory/... ./internal/outbox/... ./internal/notification/... ./internal/calendar/... ./internal/processintegrity/... ./internal/sop/... ./internal/procurement/... ./cmd/outbox-dlq ./cmd/outbox-relay ./cmd/domain-event-consumer ./cmd/notification-dispatcher ./cmd/obligation-sweeper ./cmd/generate-vaccination-obligations ./cmd/calendar-vaccination-projector ./cmd/calendar-reminder-sweeper ./cmd/calendar-escalation-sweeper ./cmd/idempotency-key-sweeper"
+kernel_test_packages="./internal/protocol/... ./internal/vaccination/... ./internal/obligation/... ./internal/inventory/... ./internal/outbox/... ./internal/notification/... ./internal/calendar/... ./internal/processintegrity/... ./internal/sop/... ./internal/procurement/... ./cmd/outbox-dlq ./cmd/outbox-relay ./cmd/domain-event-consumer ./cmd/notification-dispatcher ./cmd/obligation-sweeper ./cmd/generate-vaccination-obligations ./cmd/idempotency-key-sweeper"
 
 log "High-scale kernel E2E-all run_id=$run_id scope=$scope certification=$certification_mode report_dir=$report_dir"
 

@@ -14,17 +14,6 @@ resource "google_project_iam_member" "cloudsql_client" {
   member  = "serviceAccount:${google_service_account.runtime[each.key].email}"
 }
 
-resource "google_project_iam_member" "calendar_cloudtasks_enqueuer" {
-  for_each = toset([
-    "calendar_reminder_sweeper",
-    "calendar_escalation_sweeper",
-  ])
-
-  project = var.project_id
-  role    = "roles/cloudtasks.enqueuer"
-  member  = "serviceAccount:${google_service_account.runtime[each.key].email}"
-}
-
 resource "google_project_iam_custom_role" "notification_fcm_sender" {
   role_id     = "goatosNotificationFcmSenderDev"
   title       = "Goat OS dev notification FCM sender"
@@ -50,13 +39,3 @@ resource "google_service_account_iam_member" "cloudtasks_enqueuer_token_creator"
   member             = "serviceAccount:${google_project_service_identity.cloudtasks.email}"
 }
 
-resource "google_service_account_iam_member" "calendar_cloudtasks_oauth_act_as" {
-  for_each = toset([
-    "calendar_reminder_sweeper",
-    "calendar_escalation_sweeper",
-  ])
-
-  service_account_id = google_service_account.runtime["cloud_tasks_enqueuer"].name
-  role               = "roles/iam.serviceAccountUser"
-  member             = "serviceAccount:${google_service_account.runtime[each.key].email}"
-}

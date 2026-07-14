@@ -304,10 +304,11 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 	return err
 }
 
-// verificationCalendarEventID is the calendar_event_projections event_id a verification
-// notification_requests row links to (notification_requests.calendar_event_id FK). Distinct from
-// the vaccination "calendar:<sop_task_id>" namespace so a generic verification item and its
-// underlying SOP task never collide on the same projection row.
+// verificationCalendarEventID is the calendar_event_id a verification notification_requests row
+// links to. There is no FK to enforce against (calendar_event_projections is retired; the FK was
+// already dropped in migration 000186), so this is a plain naming convention: distinct from the
+// vaccination "calendar:<sop_task_id>" namespace so a generic verification item and its underlying
+// SOP task never collide on the same key.
 func verificationCalendarEventID(itemID string) string {
 	return "verification:" + itemID
 }

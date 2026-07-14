@@ -32,8 +32,6 @@ type Repository interface {
 	ResolveEscalation(ctx context.Context, in ResolveEscalation) (domain.CalendarActionResponse, error)
 	SweepDueReminders(ctx context.Context, tenantID string, limit int) (int, error)
 	SweepEscalations(ctx context.Context, in SweepEscalations) (int, error)
-	RefreshVaccinationProjection(ctx context.Context, in RefreshVaccinationProjection) (int, error)
-	PruneClosedVaccinationProjection(ctx context.Context, tenantID string, cutoff time.Time, limit int) (int, error)
 	// QueueRoleNotifications writes one notification_requests row per recipient (set-based INSERT,
 	// no N+1) for a non-cadence, event-triggered notification such as vaccination verification_pending
 	// / rework (vaccination-notification-rules.md §4c). Each recipient row is idempotent on its own
@@ -120,24 +118,6 @@ type ActorGrant struct {
 	ScopeID   string
 }
 
-type RefreshVaccinationProjection struct {
-	TenantID string
-	DateFrom time.Time
-	DateTo   time.Time
-	Limit    int
-}
-
-// RefreshVaccinationHistoryProjection asks the projector to rebuild the tenant's completed-history
-// projection (calendar_history_projection_rows / calendar_history_date_markers) from the same
-// vaccination_completions/obligation_instances/protocol_* canonical tables the request path used to
-// join on read before this projection existed. See history_projection.go.
-type RefreshVaccinationHistoryProjection struct {
-	TenantID string
-	DateFrom time.Time
-	DateTo   time.Time
-	Limit    int
-}
-
 type SweepEscalations struct {
 	TenantID     string
 	ObligationID string
@@ -163,12 +143,15 @@ type NotificationRecipient struct {
 // QueueRoleNotifications is the generic, non-cadence event-triggered notification write: given an
 // already-resolved recipient list (from another module's own recipient-resolution query -- e.g.
 // workforce's ResolveModuleDutyRecipients/ResolveMemberRecipients/ResolvePositionRecipients), write
-// one queued notification_requests row per recipient device, linked to an EXISTING
-// calendar_event_projections row (the FK the table enforces). Idempotent per (tenant, event,
-// notification type, completion, device) — see idempotencyKeyForRecipient in the postgres adapter.
+// one queued notification_requests row per recipient device. calendar_event_id is a plain,
+// unconstrained text column (the calendar_event_projections FK it used to enforce was dropped in
+// migration 000189 along with the table); CalendarEventID is still expected to follow the same
+// naming convention every canonical event uses (see calendarEventIDForTask), just without a database
+// constraint enforcing it. Idempotent per (tenant, event, notification type, completion, device) —
+// see idempotencyKeyForRecipient in the postgres adapter.
 type QueueRoleNotifications struct {
 	TenantID         string
-	CalendarEventID  string // must already exist in calendar_event_projections (FK)
+	CalendarEventID  string
 	TargetType       string
 	TargetID         string
 	NotificationType string // "verification_pending" | "rework"
@@ -224,9 +207,10 @@ type ReminderCadenceQuery struct {
 type ReminderCadenceFire struct {
 	ParkID string
 	// RepresentativeCalendarEventID/RepresentativeObligationID identify ONE of the collapsed
-	// obligations (deterministically the earliest due_at, then lowest event_id) -- used only to
-	// satisfy notification_requests' FK to calendar_event_projections and to carry a concrete
-	// obligation_id in the FCM deep-link context; the push itself represents the whole batch.
+	// obligations (deterministically the earliest due_at, then lowest event_id) -- used to populate
+	// notification_requests.calendar_event_id (a plain text column now, no FK to satisfy since
+	// migration 000189) and to carry a concrete obligation_id in the FCM deep-link context; the push
+	// itself represents the whole batch.
 	RepresentativeCalendarEventID string
 	RepresentativeObligationID    string
 	FireDayIST                    string // "YYYY-MM-DD", the calendar day this fire is scheduled on (IST)

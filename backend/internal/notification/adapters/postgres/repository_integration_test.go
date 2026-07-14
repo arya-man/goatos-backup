@@ -162,27 +162,15 @@ WHERE tenant_id = $1::uuid
   AND payload ->> 'trace_id' = $3`, 1, testTenantID, requestID, requestTraceID)
 }
 
+// seedCalendarEvent is a deliberate no-op now: calendar_event_projections and the
+// calendar_event_identities identity table its trigger fed (and the notification_requests/
+// calendar_snoozes FKs that validated against calendar_event_identities) are all retired by the
+// 5k-50k envelope cutover (migration 000189, docs/decisions/operational-kernel-5k-50k-scale-envelope.md).
+// notification_requests.calendar_event_id is a plain, unconstrained text column now -- there is
+// nothing left to seed a referential fixture row for. Kept as a function (rather than deleting every
+// call site) so this test's intent at each call site stays self-documenting.
 func seedCalendarEvent(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eventID string) {
 	t.Helper()
-	if _, err := pool.Exec(ctx, `
-INSERT INTO calendar_event_projections (
-  tenant_id, event_id, slice_key, event_type, owner_key, title, subtitle, status, severity,
-  due_at, window_start, window_end, timezone, timezone_source, target_type, target_count,
-  source_backed, source_label, source_target_type, source_target_id, assignee_label,
-  executor_role, reminder_state, primary_notification_channel, escalation_state,
-  system, cross_cutting, links, detail
-) VALUES (
-  $1::uuid, $2, 'vaccination', 'vaccination_dose_due', 'pc',
-  'Notification repo event', 'Notification integration test', 'due', 'warning',
-  now(), now(), now() + interval '1 day', 'Asia/Kolkata', 'india_only',
-  'cohort', 1, true, 'notification repo source', 'calendar_event', NULL,
-  'PC test owner', 'pc_vaccinator', 'not_scheduled', 'local-stub', 'none',
-  false, false, '{}'::jsonb,
-  '{"summary":{"owner":"PC"},"source_and_rule":{"source_backed":true},"execution":{},"stock":{},"proof":{},"verification":{},"notification_channels":["local-stub"],"notification_policy":{},"links":{}}'::jsonb
-)
-ON CONFLICT (tenant_id, event_id) DO NOTHING`, testTenantID, eventID); err != nil {
-		t.Fatalf("seed calendar event: %v", err)
-	}
 }
 
 func assertNotificationRetryDetails(t *testing.T, ctx context.Context, pool *pgxpool.Pool, requestID, wantFailure, wantDeliveredBy string, wantNextAttempt time.Time) {

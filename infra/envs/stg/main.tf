@@ -40,18 +40,6 @@ locals {
       account_id   = "goatos-obligation-sweeper-stg"
       display_name = "Goat OS staging obligation sweeper runtime"
     }
-    calendar_projector = {
-      account_id   = "goatos-calendar-projector-stg"
-      display_name = "Goat OS staging calendar projector runtime"
-    }
-    calendar_reminder_sweeper = {
-      account_id   = "goatos-calendar-reminder-stg"
-      display_name = "Goat OS staging calendar reminder sweeper runtime"
-    }
-    calendar_escalation_sweeper = {
-      account_id   = "goatos-calendar-escalation-stg"
-      display_name = "Goat OS staging calendar escalation sweeper runtime"
-    }
     notification_dispatcher = {
       account_id   = "goatos-notify-stg"
       display_name = "Goat OS staging notification dispatcher runtime"
@@ -98,9 +86,6 @@ locals {
     "domain_event_processed_sweeper",
     "vaccination_generator",
     "obligation_sweeper",
-    "calendar_projector",
-    "calendar_reminder_sweeper",
-    "calendar_escalation_sweeper",
     "notification_dispatcher",
     "inventory_batch_reconciler",
     "idempotency_key_sweeper",
@@ -121,9 +106,6 @@ locals {
         "domain_event_processed_sweeper",
         "vaccination_generator",
         "obligation_sweeper",
-        "calendar_projector",
-        "calendar_reminder_sweeper",
-        "calendar_escalation_sweeper",
         "notification_dispatcher",
         "inventory_batch_reconciler",
         "idempotency_key_sweeper",

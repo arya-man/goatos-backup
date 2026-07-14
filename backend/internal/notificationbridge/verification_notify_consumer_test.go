@@ -1,12 +1,11 @@
 package notificationbridge_test
 
 // Real-Postgres tests for the durable VerificationEventConsumer (verification_notify_consumer.go).
-// They seed only INPUT facts (workforce members/positions/verify-duty/devices + the
-// calendar_event_projections FK row) and then drive consumer.HandleEvent with the exact
-// verification.* outbox payload shape the verification repository emits, asserting the produced
-// notification_requests rows. They reuse the package-level fixture ids (vnTenant/vnPark/vn*Member/
-// vn*Device/vn*Token/vnVerifierPositionCode) and helpers (exec/countRows) defined in
-// verification_notify_integration_test.go.
+// They seed only INPUT facts (workforce members/positions/verify-duty/devices) and then drive
+// consumer.HandleEvent with the exact verification.* outbox payload shape the verification
+// repository emits, asserting the produced notification_requests rows. They reuse the package-level
+// fixture ids (vnTenant/vnPark/vn*Member/vn*Device/vn*Token/vnVerifierPositionCode) and helpers
+// (exec/countRows) defined in verification_notify_integration_test.go.
 //
 // The four required behaviors, each of which was confirmed to FAIL when its production behavior is
 // broken (verified by temporarily inverting the consumer, then restoring):
@@ -49,8 +48,8 @@ const (
 
 // vecSetup stands up a fresh Postgres, the roster + calendar services, the consumer, and seeds the
 // recipient input facts (verifier verify-duty, park-head position, operator/park-head/verifier
-// devices). Returns the pool, the wired consumer, and a helper to seed the calendar projection FK.
-func vecSetup(t *testing.T) (*pgxpool.Pool, *notificationbridge.VerificationEventConsumer, func(itemID string)) {
+// devices). Returns the pool and the wired consumer.
+func vecSetup(t *testing.T) (*pgxpool.Pool, *notificationbridge.VerificationEventConsumer) {
 	t.Helper()
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -100,18 +99,10 @@ func vecSetup(t *testing.T) (*pgxpool.Pool, *notificationbridge.VerificationEven
 	seedDevice(vnParkHeadDevice, vnParkHeadMember, "vec-ph", vnParkHeadToken)
 	seedDevice(vnVerifierDevice, vnVerifierMember, "vec-ver", vnVerifierToken)
 
-	// The calendar_event_projections FK row (notification_requests.calendar_event_id -> it). In
-	// production the calendar projector materializes this; seeding stands in for that upstream.
-	seedProjection := func(itemID string) {
-		exec(t, ctx, pool, "calendar projection "+itemID,
-			`INSERT INTO calendar_event_projections (
-			   tenant_id, event_id, slice_key, event_type, owner_key, title, status, due_at,
-			   target_type, target_count, park_id, executor_role
-			 ) VALUES ($1, $2, 'vaccination', 'vaccination_proof_verification', 'pc', 'VEC proof review',
-			           'verification_pending', now(), 'verification_item', 1, $3, 'operator')`,
-			vnTenant, "verification:"+itemID, vnPark)
-	}
-	return pool, consumer, seedProjection
+	// notification_requests.calendar_event_id no longer has an FK to satisfy (calendar_event_projections
+	// is retired; the FK was already dropped in migration 000186), so there is no projection fixture to
+	// seed here anymore.
+	return pool, consumer
 }
 
 // vecPayload builds the verification.* outbox payload shape the verification repository emits
@@ -149,8 +140,7 @@ func vecEvent(eventType, itemID string, payload []byte) eventbus.Event {
 // ONE notification_request for the verifier (ON CONFLICT DO NOTHING on the device idempotency key).
 func TestVerificationEventConsumer_Idempotent(t *testing.T) {
 	ctx := context.Background()
-	pool, consumer, seedProjection := vecSetup(t)
-	seedProjection(vecItemIdem)
+	pool, consumer := vecSetup(t)
 
 	ev := vecEvent(notificationbridge.EventVerificationItemPending, vecItemIdem,
 		vecPayload(vecItemIdem, vnOperatorMember, "", "", false))
@@ -177,8 +167,7 @@ func TestVerificationEventConsumer_Idempotent(t *testing.T) {
 //     consumer nacks it straight to the DLQ (IsPermanentError -> nacked_for_dlq) instead of looping.
 func TestVerificationEventConsumer_ReplayAndDLQ(t *testing.T) {
 	ctx := context.Background()
-	pool, consumer, seedProjection := vecSetup(t)
-	seedProjection(vecItemReplay)
+	pool, consumer := vecSetup(t)
 
 	// --- replay leg: first attempt commits the row, then fails transiently; retry must not dup. ---
 	realCalendar := calendarapp.NewService(calendarpg.NewRepository(pool, 5*time.Second))
@@ -230,9 +219,7 @@ func TestVerificationEventConsumer_ReplayAndDLQ(t *testing.T) {
 // pending -> verifier device only; rework -> operator + park head; approved -> zero rows.
 func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 	ctx := context.Background()
-	pool, consumer, seedProjection := vecSetup(t)
-	seedProjection(vecItemPending)
-	seedProjection(vecItemRework)
+	pool, consumer := vecSetup(t)
 
 	// pending -> the verifier's device only.
 	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationItemPending,
@@ -279,9 +266,7 @@ func TestVerificationEventConsumer_RecipientResolution(t *testing.T) {
 // suppressed -> NO second notification_request. A non-legacy item on the same park still notifies.
 func TestVerificationEventConsumer_LegacyDedup(t *testing.T) {
 	ctx := context.Background()
-	pool, consumer, seedProjection := vecSetup(t)
-	seedProjection(vecItemLegacy)
-	seedProjection(vecItemRework)
+	pool, consumer := vecSetup(t)
 
 	// Legacy-sourced rework -> suppressed (zero rows).
 	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework,

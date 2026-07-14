@@ -91,7 +91,7 @@ wait_for "process-integrity projection effect" \
 wait_for "vaccination shed projection effect" \
   "test \"\$(psqlq \"select count(*) from vaccination_shed_projection_rows where tenant_id='$tenant_id' and shed_id='00000000-0000-4000-8000-000000003101' and due_animals > 0\")\" -gt 0"
 
-for worker in vaccination-generator obligation-sweeper calendar-reminder-sweeper calendar-escalation-sweeper calendar-projector process-integrity-projector notification-dispatcher; do
+for worker in vaccination-generator obligation-sweeper process-integrity-projector notification-dispatcher; do
   wait_for "$worker completed without exit" \
     "compose logs --no-color kernel-workers | grep -F 'local kernel worker complete: $worker'"
 done
