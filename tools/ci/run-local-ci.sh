@@ -54,6 +54,7 @@ run_guardrails() {
   step "scale-guard self-test"    bash -c 'cd tools/scale-guard && go test ./...'
   step "clinical-defer-guard"     make clinical-defer-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
+  step "deployed-job-flags-guard" make deployed-job-flags-guard
   step "idempotency-writes-guard" make idempotency-writes-guard
   step "atomic-readmodel-sync-guard" make atomic-readmodel-sync-guard
   step "config-validate-guard"    make config-validate-guard

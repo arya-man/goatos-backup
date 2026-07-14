@@ -62,66 +62,24 @@ locals {
         GOATOS_TENANT_ID = var.dev_tenant_id
       }
     }
-    process_integrity_projector = {
-      name                = "goatos-dev-process-integrity-projector"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/process-integrity-projection-recompute"]
-      args                = ["-timeout=120s"]
-      timeout             = "180s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
-      env = {
-        GOATOS_ENV                          = "dev"
-        GOATOS_ALLOW_DEV_CLOUDSQL_TARGET    = "true"
-        GOATOS_DEV_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
-        GOATOS_TENANT_ID                    = var.dev_tenant_id
-        GOATOS_PG_QUERY_TIMEOUT             = "30s"
-      }
-    }
-    vaccination_execution_projector = {
-      name                = "goatos-dev-vaccination-execution-projector"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/vaccination-execution-projection-recompute"]
-      args                = ["-timeout=120s"]
-      timeout             = "180s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
-      env = {
-        GOATOS_ENV                          = "dev"
-        GOATOS_ALLOW_DEV_CLOUDSQL_TARGET    = "true"
-        GOATOS_DEV_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
-        GOATOS_TENANT_ID                    = var.dev_tenant_id
-        GOATOS_PG_QUERY_TIMEOUT             = "30s"
-      }
-    }
-    vaccination_operations_projector = {
-      name                = "goatos-dev-vaccination-operations-projector"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/vaccination-operations-projection-recompute"]
-      args                = ["-timeout=120s"]
-      timeout             = "180s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
-      env = {
-        GOATOS_ENV                          = "dev"
-        GOATOS_ALLOW_DEV_CLOUDSQL_TARGET    = "true"
-        GOATOS_DEV_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
-        GOATOS_TENANT_ID                    = var.dev_tenant_id
-        GOATOS_PG_QUERY_TIMEOUT             = "30s"
-      }
-    }
+    # process_integrity_projector, vaccination_execution_projector,
+    # vaccination_operations_projector, and vaccination_projection_worker were removed
+    # here (KERN-001 follow-up cleanup) -- see the matching comment in
+    # infra/envs/stg/cloud_run_jobs.tf for why: their binaries and backing tables were
+    # already deleted on main by commit cb6fd35e (migration 000187), leaving these four
+    # job blocks dangling on a nonexistent Dockerfile binary.
     obligation_sweeper = {
       name                = "goatos-dev-obligation-sweeper"
       service_account_key = "obligation_sweeper"
       command             = ["/app/bin/obligation-sweeper"]
-      args                = ["-timeout=60s", "-project-calendar=false", "-project-vaccination-read-models=true"]
-      timeout             = "120s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
+      # -project-calendar / -project-vaccination-read-models no longer exist in
+      # obligation-sweeper's flag parser (see stg comment) -- passing them made every
+      # scheduled run fail with "flag provided but not defined".
+      args     = ["-timeout=60s"]
+      timeout  = "120s"
+      memory   = "512Mi"
+      cpu      = "1"
+      schedule = "*/5 * * * *"
       env = {
         GOOGLE_CLOUD_PROJECT                     = var.project_id
         GOATOS_TENANT_ID                         = var.dev_tenant_id
@@ -130,19 +88,6 @@ locals {
         GOATOS_CLOUD_TASKS_QUEUE_ID              = google_cloud_tasks_queue.near_term_kernel.name
         GOATOS_CLOUD_TASKS_OAUTH_SERVICE_ACCOUNT = google_service_account.runtime["cloud_tasks_enqueuer"].email
         GOATOS_NOTIFICATION_DISPATCHER_RUN_URL   = local.notification_dispatcher_run_url
-      }
-    }
-    vaccination_projection_worker = {
-      name                = "goatos-dev-vaccination-projection-worker"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/vaccination-projection-worker"]
-      args                = ["-timeout=90s", "-limit=200", "-enqueue-due-transitions=true", "-due-transitions-limit=200"]
-      timeout             = "120s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/2 * * * *"
-      env = {
-        GOATOS_TENANT_ID = var.dev_tenant_id
       }
     }
     notification_dispatcher = {

@@ -417,7 +417,12 @@ Required implementation sequence:
    rows at 50k animals), not just the 5k list case. A green plan at 5k must not
    be read as proof for the 50k aggregate.
 5. Change reminder, escalation, snooze, and notification references so they do
-   not depend on `calendar_event_projections`.
+   not depend on `calendar_event_projections`. Notification and snooze tables
+   retain their `calendar_event_id` columns as plain application-validated text
+   (never FK-constrained). Referential integrity is enforced in application code:
+   every writer re-derives the canonical work reference before writing. A
+   periodic reconciler function (goatos_reconcile_calendar_event_references) is
+   available to surface any orphaned references for review.
 6. Run the baseline SQL and record animal, obligation, backlog, notification,
    and disposable projection counts.
 7. Drop the projection row/state tables, projector commands, projection-specific

@@ -3643,7 +3643,7 @@ function calDriveHeadline(d){
 }
 function driveCardHtml(d){
   var pct=d.totalAnimals>0?Math.round(d.completedAnimals/d.totalAnimals*100):0;
-  var allChips=[['done',d.completedAnimals,'c-done'],['due',d.dueCount,'c-due'],['overdue',d.overdueCount,'c-over'],['deferred',d.deferredCount,'c-def']].filter(function(c){return c[1]>0;});
+  var allChips=[['completed',d.completedAnimals,'c-completed'],['due',d.dueCount,'c-due'],['overdue',d.overdueCount,'c-over'],['deferred',d.deferredCount,'c-def']].filter(function(c){return c[1]>0;});
   var ringR=29,ringCirc=2*Math.PI*ringR,ringOff=ringCirc*(1-pct/100);
   return '<div class="ev">'+
     '<div class="dhd"><svg class="ic" style="color:var(--brand)"><use href="#i-syringe"/></svg><b>Vaccination drive · '+d.parkName+'</b><span style="color:var(--muted);font-size:12px">'+d.dueDate+'</span></div>'+

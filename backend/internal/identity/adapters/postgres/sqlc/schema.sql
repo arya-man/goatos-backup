@@ -984,6 +984,61 @@ $$;
 
 
 --
+-- Name: goatos_reconcile_calendar_event_references(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.goatos_reconcile_calendar_event_references(p_tenant_id uuid) RETURNS TABLE(source_table text, record_id uuid, calendar_event_id text, issue text)
+    LANGUAGE plpgsql STABLE
+    AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    'notification_requests'::text AS source_table,
+    nr.notification_request_id,
+    nr.calendar_event_id,
+    'orphaned calendar_event_id: does not map to any canonical obligation/batch/task'::text
+  FROM notification_requests nr
+  WHERE nr.tenant_id = p_tenant_id
+    AND nr.calendar_event_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM obligation_instances oi
+      WHERE oi.tenant_id = nr.tenant_id AND oi.obligation_id::text = nr.calendar_event_id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM obligation_batches ob
+      WHERE ob.tenant_id = nr.tenant_id AND ob.batch_id::text = nr.calendar_event_id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM sop_tasks st
+      WHERE st.tenant_id = nr.tenant_id AND st.task_id::text = nr.calendar_event_id
+    );
+
+  RETURN QUERY
+  SELECT
+    'calendar_snoozes'::text AS source_table,
+    cs.snooze_id,
+    cs.calendar_event_id,
+    'orphaned calendar_event_id: does not map to any canonical obligation/batch/task'::text
+  FROM calendar_snoozes cs
+  WHERE cs.tenant_id = p_tenant_id
+    AND cs.calendar_event_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM obligation_instances oi
+      WHERE oi.tenant_id = cs.tenant_id AND oi.obligation_id::text = cs.calendar_event_id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM obligation_batches ob
+      WHERE ob.tenant_id = cs.tenant_id AND ob.batch_id::text = cs.calendar_event_id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM sop_tasks st
+      WHERE st.tenant_id = cs.tenant_id AND st.task_id::text = cs.calendar_event_id
+    );
+END;
+$$;
+
+
+--
 -- Name: herd_register_apply_summary_delta(uuid, uuid, uuid, uuid, text, text, text, bigint, bigint, bigint, bigint); Type: FUNCTION; Schema: public; Owner: -
 --
 

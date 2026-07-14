@@ -970,12 +970,12 @@ private fun LoadMoreButton(label: String, loading: Boolean, onClick: () -> Unit)
 
 /**
  * Status chip for the redesigned drive card: a colored dot (9×9px, rounded) + label.
- * Color and label are derived from the chip key (done/due/overdue/deferred).
+ * Color and label are derived from the chip key (completed/due/overdue/deferred).
  */
 @Composable
 private fun StatusChip(chip: sg.mesha.goatos.feature.calendar.StatusChip) {
     val (dotColor, labelStringRes) = when (chip.key) {
-        "done" -> MeshaColors.Brand to R.string.calendar_drive_done
+        "completed" -> MeshaColors.Brand to R.string.calendar_drive_done
         "due" -> MeshaColors.Warn to R.string.calendar_drive_due
         "overdue" -> MeshaColors.Danger to R.string.calendar_drive_overdue
         "deferred" -> MeshaColors.Purple to R.string.calendar_drive_deferred

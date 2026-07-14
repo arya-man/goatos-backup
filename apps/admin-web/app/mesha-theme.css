@@ -814,7 +814,7 @@
   .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center}
   .sc{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
   .sc .d{width:9px;height:9px;border-radius:3px;flex:none}
-  .c-done{background:var(--brand)}
+  .c-completed{background:var(--brand)}
   .c-due{background:var(--amber)}
   .c-over{background:var(--danger)}
   .c-def{background:var(--purple)}

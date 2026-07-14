@@ -89,7 +89,7 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
           ))}
         </div>
       ) : null}
-      <div className="dft">Owner · {summary.owner_label}</div>
+      <div className="dft">{copy(pageContract, "calendar.drive.owner")} · {summary.owner_label}</div>
     </div>
   );
 }

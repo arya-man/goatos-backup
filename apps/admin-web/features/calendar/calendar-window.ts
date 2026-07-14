@@ -29,6 +29,21 @@ export function weekWindow(anchorKey: string): CalendarDateWindow {
   return { dateFrom: dateKey(monday), dateTo: dateKey(sunday) };
 }
 
+/**
+ * Enumerate all 7 days of a Monday-Sunday week starting from a window's dateFrom.
+ * Uses UTC date arithmetic to avoid timezone shifts via toISOString().
+ * Returns an array of YYYY-MM-DD strings guaranteed to be 7 consecutive calendar days.
+ */
+export function enumerateWeekDays(weekWindowDateFrom: string): string[] {
+  const [year, month, day] = weekWindowDateFrom.split("-").map(Number);
+  const days: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(Date.UTC(year, month - 1, day + i));
+    days.push(d.toISOString().split("T")[0]);
+  }
+  return days;
+}
+
 /** Rolling 45-day history window ending on the anchor IST business date. */
 export function historyWindow(anchorKey: string): CalendarDateWindow {
   const [year, month, day] = anchorKey.split("-").map(Number);

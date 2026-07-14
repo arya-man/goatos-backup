@@ -86,7 +86,7 @@ class DriveCardMetricsTest {
         assertTrue(driveCoverage(0, 0, 4, 8).usesAnimals)
     }
 
-    // Redesigned status chips: returns ALL nonzero buckets in fixed order done/due/overdue/deferred.
+    // Redesigned status chips: returns ALL nonzero buckets in fixed order completed/due/overdue/deferred.
     @Test
     fun driveStatusChipsReturnsAllNonzero() {
         val summary = CalendarDriveSummary(
@@ -105,7 +105,7 @@ class DriveCardMetricsTest {
         )
         val chips = driveStatusChips(summary)
         assertEquals(4, chips.size)
-        assertEquals("done", chips[0].key)
+        assertEquals("completed", chips[0].key)
         assertEquals(20, chips[0].count)
         assertEquals("due", chips[1].key)
         assertEquals(40, chips[1].count)

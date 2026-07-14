@@ -40,12 +40,12 @@ internal fun driveCoverage(
         DriveCoverage(completedDoses, totalDoses, usesAnimals = false)
     }
 
-// Status chips for the redesigned drive card: returns ALL nonzero buckets (done/due/overdue/deferred)
+// Status chips for the redesigned drive card: returns ALL nonzero buckets (completed/due/overdue/deferred)
 // in fixed order, each with a key, count, and placeholder label. Labels are localized at render time
 // via stringResource(). Returns empty list if all buckets are zero (empty card state).
 internal fun driveStatusChips(summary: CalendarDriveSummary): List<StatusChip> =
     listOfNotNull(
-        if (summary.completedCount > 0) StatusChip("done", summary.completedCount, "Done") else null,
+        if (summary.completedCount > 0) StatusChip("completed", summary.completedCount, "Completed") else null,
         if (summary.dueCount > 0) StatusChip("due", summary.dueCount, "Due") else null,
         if (summary.overdueCount > 0) StatusChip("overdue", summary.overdueCount, "Overdue") else null,
         if (summary.deferredCount > 0) StatusChip("deferred", summary.deferredCount, "Deferred") else null,

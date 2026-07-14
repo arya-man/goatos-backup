@@ -1111,27 +1111,26 @@ func printSeedSummary(st stats, genRes vaccinationdomain.GenerateResult) {
 	fmt.Printf("seeded real vaccination data with kernel generation:\n"+
 		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
 		"  obligations=%d (completed=%d scheduled=%d) completions_history=%d pending_source=%d skipped_cells=%d\n"+
-		"  purged_fixtures total=%d (calendar_projections=%d obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n"+
+		"  purged_fixtures total=%d (obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n"+
 		"  kernel_generation generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
 		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
 		st.Obligations, st.Completed, st.Scheduled, st.CompletionsHistory, st.PendingSource, st.Skipped,
-		st.Purged.total(), st.Purged.CalendarProjections, st.Purged.Obligations, st.Purged.Batches,
+		st.Purged.total(), st.Purged.Obligations, st.Purged.Batches,
 		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows,
 		genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.FailedGoats, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory)
 }
 
 // purgeCounts breaks down what the fixture purge removed, for the run report.
 type purgeCounts struct {
-	CalendarProjections int
-	Obligations         int
-	Batches             int
-	Goats               int
-	Sheds               int
-	OtherChildRows      int
+	Obligations    int
+	Batches        int
+	Goats          int
+	Sheds          int
+	OtherChildRows int
 }
 
 func (p purgeCounts) total() int {
-	return p.CalendarProjections + p.Obligations + p.Batches + p.Goats + p.Sheds + p.OtherChildRows
+	return p.Obligations + p.Batches + p.Goats + p.Sheds + p.OtherChildRows
 }
 
 // purgeSyntheticFixtures removes leftover dev/integration-test synthetic fixtures and stale
@@ -1176,9 +1175,6 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 		JOIN protocol_versions pv ON pv.tenant_id = ob.tenant_id AND pv.protocol_version_id = ob.protocol_version_id
 		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
 		WHERE ob.tenant_id = $1 AND pd.category = 'vaccination' AND pd.code LIKE 'vaccination.matrix%')`
-	junkVersions := `(SELECT pv.protocol_version_id FROM protocol_versions pv
-		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-		WHERE pv.tenant_id = $1 AND pd.category = 'vaccination' AND pd.code LIKE 'vaccination.matrix%')`
 	legacySeedVersions := `(SELECT pv.protocol_version_id FROM protocol_versions pv
 		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
 		WHERE pv.tenant_id = $1 AND pd.category = 'vaccination' AND (
@@ -1211,19 +1207,10 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 		return int(tag.RowsAffected()), nil
 	}
 
-	// Phase 1 — stale junk calendar_event_projections (leaf; references locations/protocol/batch).
-	n, err := exec("calendar_event_projections", `DELETE FROM calendar_event_projections
-		WHERE tenant_id = $1 AND (
-			protocol_version_id IN `+junkVersions+`
-			OR shed_id IN `+junkSheds+`
-			OR park_id IN `+junkSheds+`
-			OR title ILIKE '%Chain Proof%' OR title ILIKE '%Rework Proof%'
-			OR title ILIKE '%Trusted History%' OR title ILIKE '%Trigger Seed%'
-			OR title ILIKE '%Calendar Shed%')`)
-	if err != nil {
-		return pc, err
-	}
-	pc.CalendarProjections += n
+	var n int
+	var err error
+
+	// Phase 1 — migration 000189 dropped calendar_event_projections; no purge needed (canonical is source).
 
 	// Phase 2 — trigger-seed obligations + their children.
 	for _, child := range []string{"vaccination_completions", "obligation_status_events", "obligation_escalations", "feed_direction_completions"} {
@@ -1302,7 +1289,6 @@ func purgeSyntheticFixtures(ctx context.Context, tx pgx.Tx, tenantID string) (pu
 
 	// Phase 5 — junk-named sheds: delete referencing rows, then the shed locations.
 	shedChildren := []struct{ label, sql string }{
-		{"calendar_event_projections (shed)", `DELETE FROM calendar_event_projections WHERE tenant_id = $1 AND (shed_id IN ` + junkSheds + ` OR park_id IN ` + junkSheds + `)`},
 		{"location_operational_attributes", `DELETE FROM location_operational_attributes WHERE tenant_id = $1 AND location_id IN ` + junkSheds},
 		{"shed_profiles", `DELETE FROM shed_profiles WHERE location_id IN ` + junkSheds},
 		{"location_capacity_records", `DELETE FROM location_capacity_records WHERE location_id IN ` + junkSheds},

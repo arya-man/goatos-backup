@@ -1,7 +1,7 @@
 import { ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { type AdminUiPageContract, copy, optionLabel } from "@/lib/admin-ui-contract";
-import { type RouteSearchParams } from "@/lib/search-params";
+import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
@@ -24,10 +24,11 @@ export async function VaccinationDriveDetail({
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
   const backHref = scopeHref("/calendar", scope);
+  const cursor = one(sp, "cursor");
 
   const [detail, targets] = await Promise.all([
     getCalendarVaccinationEventDetail(eventId),
-    getCalendarDriveTargets(eventId, { cursor: undefined, limit: 20 }),
+    getCalendarDriveTargets(eventId, { cursor, limit: 20 }),
   ]);
 
   if (!detail.ok) {
@@ -53,9 +54,9 @@ export async function VaccinationDriveDetail({
         <ChevronLeft className="ic" /> Back
       </Link>
       <div className="nbtrail">
-        <Link href={scopeHref("/vaccination", scope)} className="nbc">Vaccination</Link>
+        <Link href={scopeHref("/vaccination", scope)} className="nbc">{copy(pageContract, "calendar.breadcrumb.vaccination")}</Link>
         <span className="nbsep">/</span>
-        <Link href={backHref} className="nbc">Calendar</Link>
+        <Link href={backHref} className="nbc">{copy(pageContract, "calendar.breadcrumb.calendar")}</Link>
         <span className="nbsep">/</span>
         <span className="nbc cur">{summary ? `${summary.park_name} · ${fmtIstDate(summary.due_date)}` : event.title}</span>
       </div>
@@ -79,6 +80,8 @@ export async function VaccinationDriveDetail({
   const ringOffset = ringCircumference * (1 - pct / 100);
 
   const rosterItems = targets && targets.ok ? targets.data.items : [];
+  const nextCursor = targets && targets.ok ? targets.data.next_cursor : undefined;
+  const targetsError = targets && !targets.ok ? targets.error : null;
 
   return (
     <div className="screen on">
@@ -124,24 +127,39 @@ export async function VaccinationDriveDetail({
 
       <div className="card">
         <div className="bd">
-          <div className="lt">Animal roster</div>
-          <div style={{ overflowX: "auto" }}>
-            <table className="rostertbl">
-              <thead><tr><th>Display ID</th><th>Tag 1</th><th>Tag 2</th><th>Status</th></tr></thead>
-              <tbody className="mono">
-                {rosterItems.length ? rosterItems.map((item) => (
-                  <tr key={item.animal_id}>
-                    <td>{item.display_id || "—"}</td>
-                    <td>{item.animal_identifier_1 || "—"}</td>
-                    <td>{item.animal_identifier_2 || "—"}</td>
-                    <td>{optionLabel(pageContract, "calendar_status", item.status).toLowerCase() || item.status}</td>
-                  </tr>
-                )) : (
-                  <tr><td colSpan={4} style={{ padding: 10, textAlign: "center", color: "var(--muted)" }}>No animals in this drive</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <div className="lt">{copy(pageContract, "calendar.drive.animal_roster")}</div>
+          {targetsError ? (
+            <div style={{ padding: 16, textAlign: "center", color: "var(--danger)" }}>
+              <b>{targetsError.code ?? targetsError.kind}</b>&nbsp;{targetsError.message}
+            </div>
+          ) : (
+            <>
+              <div style={{ overflowX: "auto" }}>
+                <table className="rostertbl">
+                  <thead><tr><th>{copy(pageContract, "calendar.drive.display_id_header")}</th><th>{copy(pageContract, "calendar.drive.tag_1_header")}</th><th>{copy(pageContract, "calendar.drive.tag_2_header")}</th><th>{copy(pageContract, "calendar.drive.status_header")}</th></tr></thead>
+                  <tbody className="mono">
+                    {rosterItems.length ? rosterItems.map((item) => (
+                      <tr key={item.animal_id}>
+                        <td>{item.display_id || "—"}</td>
+                        <td>{item.animal_identifier_1 || "—"}</td>
+                        <td>{item.animal_identifier_2 || "—"}</td>
+                        <td>{optionLabel(pageContract, "calendar_status", item.status).toLowerCase() || item.status}</td>
+                      </tr>
+                    )) : (
+                      <tr><td colSpan={4} style={{ padding: 10, textAlign: "center", color: "var(--muted)" }}>{copy(pageContract, "calendar.drive.no_animals")}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {nextCursor ? (
+                <div style={{ padding: 12, textAlign: "center", borderTop: "1px solid var(--border)" }}>
+                  <Link href={scopeHref(`/calendar/drive/${eventId}`, scope, {}, { cursor: nextCursor })} className="btn btn-primary">
+                    {copy(pageContract, "calendar.drive.load_more")}
+                  </Link>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     </div>

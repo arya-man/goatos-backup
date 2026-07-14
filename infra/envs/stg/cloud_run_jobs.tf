@@ -64,66 +64,34 @@ locals {
         GOATOS_PG_QUERY_TIMEOUT = "30s"
       }
     }
-    process_integrity_projector = {
-      name                = "goatos-stg-process-integrity-projector"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/process-integrity-projection-recompute"]
-      args                = ["-timeout=9m"]
-      timeout             = "600s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
-      env = {
-        GOATOS_ENV                          = "stg"
-        GOATOS_ALLOW_STG_CLOUDSQL_TARGET    = "true"
-        GOATOS_STG_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
-        GOATOS_TENANT_ID                    = var.stg_tenant_id
-        GOATOS_PG_QUERY_TIMEOUT             = "30s"
-      }
-    }
-    vaccination_execution_projector = {
-      name                = "goatos-stg-vaccination-execution-projector"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/vaccination-execution-projection-recompute"]
-      args                = ["-timeout=9m"]
-      timeout             = "600s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
-      env = {
-        GOATOS_ENV                          = "stg"
-        GOATOS_ALLOW_STG_CLOUDSQL_TARGET    = "true"
-        GOATOS_STG_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
-        GOATOS_TENANT_ID                    = var.stg_tenant_id
-        GOATOS_PG_QUERY_TIMEOUT             = "30s"
-      }
-    }
-    vaccination_operations_projector = {
-      name                = "goatos-stg-vaccination-operations-projector"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/vaccination-operations-projection-recompute"]
-      args                = ["-timeout=9m"]
-      timeout             = "600s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
-      env = {
-        GOATOS_ENV                          = "stg"
-        GOATOS_ALLOW_STG_CLOUDSQL_TARGET    = "true"
-        GOATOS_STG_CLOUDSQL_CONNECTION_NAME = google_sql_database_instance.core.connection_name
-        GOATOS_TENANT_ID                    = var.stg_tenant_id
-        GOATOS_PG_QUERY_TIMEOUT             = "30s"
-      }
-    }
+    # process_integrity_projector, vaccination_execution_projector,
+    # vaccination_operations_projector, and vaccination_projection_worker were
+    # removed here (KERN-001 follow-up cleanup): their binaries
+    # (process-integrity-projection-recompute, vaccination-execution-projection-recompute,
+    # vaccination-operations-projection-recompute, vaccination-projection-worker) and the
+    # dirty-scope/shed-projection tables they depended on were already deleted on main by
+    # commit cb6fd35e ("feat(kernel): drop the 4 non-calendar screen projections + projector
+    # code (U7)", migration 000187) -- these four job blocks were left dangling, referencing
+    # binaries that do not exist in backend/Dockerfile, so every scheduled execution failed
+    # to start (container ENTRYPOINT not found). tools/agent-hooks/check-deployed-job-flags.mjs
+    # (`make deployed-job-flags-guard`) now fails CI if a job like this is reintroduced without
+    # a matching Dockerfile-built binary.
     obligation_sweeper = {
       name                = "goatos-stg-obligation-sweeper"
       service_account_key = "obligation_sweeper"
       command             = ["/app/bin/obligation-sweeper"]
-      args                = ["-timeout=180s", "-project-calendar=false", "-project-vaccination-read-models=true"]
-      timeout             = "300s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
+      # -project-calendar / -project-vaccination-read-models were retired from
+      # obligation-sweeper's flag parser when the Calendar/vaccination screen projections
+      # were dropped (KERN-001: kernel-worker/calendar reminders+escalations follow-up).
+      # Passing them here made `flag.Parse` fail with
+      # "flag provided but not defined: -project-calendar" on every scheduled run, so the
+      # job exited immediately and neither calendar reminders nor escalations (now handled
+      # by this same binary's -sweep-reminders/-sweep-escalations, default true) ever ran.
+      args     = ["-timeout=180s"]
+      timeout  = "300s"
+      memory   = "512Mi"
+      cpu      = "1"
+      schedule = "*/5 * * * *"
       env = {
         GOOGLE_CLOUD_PROJECT                     = var.project_id
         GOATOS_TENANT_ID                         = var.stg_tenant_id
@@ -134,24 +102,6 @@ locals {
         GOATOS_CLOUD_TASKS_OAUTH_SERVICE_ACCOUNT = google_service_account.runtime["cloud_tasks_enqueuer"].email
         GOATOS_NOTIFICATION_DISPATCHER_RUN_URL   = local.notification_dispatcher_run_url
         GOATOS_PG_QUERY_TIMEOUT                  = "30s"
-      }
-    }
-    vaccination_projection_worker = {
-      # Drains vaccination_projection_dirty_scopes (P0-B bounded incremental shed projector,
-      # migration 000182 / cmd/vaccination-projection-worker). The dirty-shed enqueue handlers
-      # (dirty_shed_handlers.go) are wired into domain-event-consumer, which IS deployed to stg --
-      # without this job, stg enqueues dirty scopes but nothing ever drains them, so the queue grows
-      # unbounded. Mirrors the dev job (same service account, same args/schedule).
-      name                = "goatos-stg-vaccination-projection-worker"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/vaccination-projection-worker"]
-      args                = ["-timeout=90s", "-limit=200", "-enqueue-due-transitions=true", "-due-transitions-limit=200"]
-      timeout             = "120s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/2 * * * *"
-      env = {
-        GOATOS_TENANT_ID = var.stg_tenant_id
       }
     }
     notification_dispatcher = {

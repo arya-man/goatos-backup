@@ -49,7 +49,7 @@ test("driveStatusChips: returns nonzero chips in order", () => {
     deferred_count: 1,
   });
   assert.deepStrictEqual(result, [
-    { key: "done", count: 5 },
+    { key: "completed", count: 5 },
     { key: "due", count: 3 },
     { key: "deferred", count: 1 },
   ]);

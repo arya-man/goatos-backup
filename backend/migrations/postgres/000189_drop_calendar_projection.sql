@@ -59,6 +59,65 @@ ALTER TABLE notification_requests DROP CONSTRAINT IF EXISTS notification_request
 
 ALTER TABLE calendar_snoozes DROP CONSTRAINT IF EXISTS calendar_snoozes_event_identity_fk; -- seed-migration-guard:ignore owner=ravi issue=calendar-canonical-5k50k reason=fk-drop-no-seed-shape-change expiry=2027-01-01
 
+-- Reconcile orphaned notification/snooze references: surface any calendar_event_id values in
+-- notification_requests or calendar_snoozes that do not map back to canonical work
+-- (obligation_instances, obligation_batches, or sop_tasks). This is a periodic integrity check
+-- since referential integrity is now enforced in application code, not via FK constraint.
+-- See operational-kernel-5k-50k-scale-envelope.md, recovery section, for rollback expectations.
+CREATE OR REPLACE FUNCTION goatos_reconcile_calendar_event_references(p_tenant_id uuid)
+RETURNS TABLE(
+  source_table text,
+  record_id uuid,
+  calendar_event_id text,
+  issue text
+) LANGUAGE plpgsql STABLE AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    'notification_requests'::text AS source_table,
+    nr.notification_request_id,
+    nr.calendar_event_id,
+    'orphaned calendar_event_id: does not map to any canonical obligation/batch/task'::text
+  FROM notification_requests nr
+  WHERE nr.tenant_id = p_tenant_id
+    AND nr.calendar_event_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM obligation_instances oi
+      WHERE oi.tenant_id = nr.tenant_id AND oi.obligation_id::text = nr.calendar_event_id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM obligation_batches ob
+      WHERE ob.tenant_id = nr.tenant_id AND ob.batch_id::text = nr.calendar_event_id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM sop_tasks st
+      WHERE st.tenant_id = nr.tenant_id AND st.task_id::text = nr.calendar_event_id
+    );
+
+  RETURN QUERY
+  SELECT
+    'calendar_snoozes'::text AS source_table,
+    cs.snooze_id,
+    cs.calendar_event_id,
+    'orphaned calendar_event_id: does not map to any canonical obligation/batch/task'::text
+  FROM calendar_snoozes cs
+  WHERE cs.tenant_id = p_tenant_id
+    AND cs.calendar_event_id IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM obligation_instances oi
+      WHERE oi.tenant_id = cs.tenant_id AND oi.obligation_id::text = cs.calendar_event_id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM obligation_batches ob
+      WHERE ob.tenant_id = cs.tenant_id AND ob.batch_id::text = cs.calendar_event_id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM sop_tasks st
+      WHERE st.tenant_id = cs.tenant_id AND st.task_id::text = cs.calendar_event_id
+    );
+END;
+$$;
+
 DROP FUNCTION IF EXISTS calendar_prune_closed_vaccination_projection(uuid, timestamptz, int);
 
 DROP TABLE IF EXISTS calendar_event_projections CASCADE;

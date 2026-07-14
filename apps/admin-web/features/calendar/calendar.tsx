@@ -25,7 +25,7 @@ import {
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { CalendarEventDrawer } from "./calendar-event-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
-import { historyWindow, monthWindow, weekWindow } from "./calendar-window";
+import { enumerateWeekDays, historyWindow, monthWindow, weekWindow } from "./calendar-window";
 import { DriveProgressCard } from "./calendar-drive-card";
 import { OwnerLegend, RhythmCard } from "./calendar-week-panels";
 
@@ -480,15 +480,10 @@ function WeekView({
   const showFilteredEmpty = byDate.size === 0 && events.length > 0;
   const todayWeekday = weekdayOf(`${today}T00:00:00+05:30`);
 
-  // Enumerate ALL 7 days of the week (Mon..Sun IST) from the window
+  // Enumerate ALL 7 days of the week (Mon..Sun IST) from the window. Uses UTC date arithmetic
+  // to avoid timezone shifts that toISOString() would introduce.
   const weekWindow_ = weekWindow(today);
-  const weekStart = new Date(`${weekWindow_.dateFrom}T00:00:00+05:30`);
-  const weekDays: string[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    weekDays.push(d.toISOString().split("T")[0]);
-  }
+  const weekDays = enumerateWeekDays(weekWindow_.dateFrom);
 
   return (
     <>
