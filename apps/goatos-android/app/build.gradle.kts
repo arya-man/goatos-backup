@@ -196,6 +196,12 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.analytics)
+    // Remote Config drives the force-update gate: the server declares the minimum
+    // supported versionCode; a build below it is blocked at launch. Default FirebaseApp
+    // auto-inits from the per-flavor firebase.xml (same manual init as auth/messaging);
+    // an env with no key set keeps min=0, so the gate fails open there.
+    // See sg.mesha.goatos.update.RemoteConfigUpdateGate.
+    implementation(libs.firebase.config)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)

@@ -102,4 +102,12 @@
     <string name="gaps_loading_more">Loading more…</string>
     <string name="doses_footer">Every dose is a verified shed record with video proof</string>
     <string name="doses_empty">No vaccination data available for this scope.</string>
+
+    <!-- Force-update gate (below the server-declared minimum supported build). -->
+    <string name="force_update_eyebrow">Update required</string>
+    <string name="force_update_title">Time to update Mesha</string>
+    <string name="force_update_message">This version is no longer supported. Install the latest build to keep recording vaccinations and syncing your work.</string>
+    <string name="force_update_installed">Installed version %1$s</string>
+    <string name="force_update_cta">Update now</string>
+    <string name="force_update_no_link">Update link not available yet. Ask your Mesha admin for the latest build.</string>
 </resources>

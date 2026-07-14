@@ -77,4 +77,12 @@
     <string name="gaps_loading_more">और लोड हो रहे हैं…</string>
     <string name="doses_footer">हर खुराक वीडियो प्रूफ़ के साथ एक सत्यापित शेड रिकॉर्ड है</string>
     <string name="doses_empty">इस स्कोप के लिए कोई टीकाकरण डेटा उपलब्ध नहीं है।</string>
+
+    <!-- Force-update gate (below the server-declared minimum supported build). -->
+    <string name="force_update_eyebrow">अपडेट आवश्यक</string>
+    <string name="force_update_title">Mesha अपडेट करने का समय</string>
+    <string name="force_update_message">यह वर्शन अब समर्थित नहीं है। टीकाकरण रिकॉर्ड करते रहने और अपना काम सिंक करने के लिए नवीनतम बिल्ड इंस्टॉल करें।</string>
+    <string name="force_update_installed">इंस्टॉल किया गया वर्शन %1$s</string>
+    <string name="force_update_cta">अभी अपडेट करें</string>
+    <string name="force_update_no_link">अपडेट लिंक अभी उपलब्ध नहीं है। नवीनतम बिल्ड के लिए अपने Mesha एडमिन से संपर्क करें।</string>
 </resources>

@@ -77,4 +77,12 @@
     <string name="gaps_loading_more">మరిన్ని లోడ్ అవుతున్నాయి…</string>
     <string name="doses_footer">ప్రతి డోసు వీడియో ప్రూఫ్‌తో ధృవీకరించిన షెడ్ రికార్డు</string>
     <string name="doses_empty">ఈ స్కోప్‌కు టీకా డేటా అందుబాటులో లేదు.</string>
+
+    <!-- Force-update gate (below the server-declared minimum supported build). -->
+    <string name="force_update_eyebrow">అప్‌డేట్ అవసరం</string>
+    <string name="force_update_title">Mesha అప్‌డేట్ చేయాల్సిన సమయం</string>
+    <string name="force_update_message">ఈ వెర్షన్‌కు ఇకపై మద్దతు లేదు. టీకాలు నమోదు చేయడం, మీ పనిని సింక్ చేయడం కొనసాగించడానికి తాజా బిల్డ్‌ను ఇన్‌స్టాల్ చేయండి.</string>
+    <string name="force_update_installed">ఇన్‌స్టాల్ చేసిన వెర్షన్ %1$s</string>
+    <string name="force_update_cta">ఇప్పుడే అప్‌డేట్ చేయండి</string>
+    <string name="force_update_no_link">అప్‌డేట్ లింక్ ఇంకా అందుబాటులో లేదు. తాజా బిల్డ్ కోసం మీ Mesha అడ్మిన్‌ను సంప్రదించండి.</string>
 </resources>

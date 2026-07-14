@@ -77,4 +77,12 @@
     <string name="gaps_loading_more">ಇನ್ನಷ್ಟು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
     <string name="doses_footer">ಪ್ರತಿ ಡೋಸ್ ವೀಡಿಯೊ ಪ್ರೂಫ್‌ನೊಂದಿಗೆ ಪರಿಶೀಲಿಸಿದ ಶೆಡ್ ದಾಖಲೆಯಾಗಿದೆ</string>
     <string name="doses_empty">ಈ ಸ್ಕೋಪ್‌ಗೆ ಯಾವುದೇ ಲಸಿಕೆ ಡೇಟಾ ಲಭ್ಯವಿಲ್ಲ.</string>
+
+    <!-- Force-update gate (below the server-declared minimum supported build). -->
+    <string name="force_update_eyebrow">ಅಪ್‌ಡೇಟ್ ಅಗತ್ಯವಿದೆ</string>
+    <string name="force_update_title">Mesha ಅಪ್‌ಡೇಟ್ ಮಾಡುವ ಸಮಯ</string>
+    <string name="force_update_message">ಈ ಆವೃತ್ತಿಗೆ ಇನ್ನು ಬೆಂಬಲವಿಲ್ಲ. ಲಸಿಕೆ ದಾಖಲಿಸುವುದನ್ನು ಮತ್ತು ನಿಮ್ಮ ಕೆಲಸ ಸಿಂಕ್ ಮಾಡುವುದನ್ನು ಮುಂದುವರಿಸಲು ಇತ್ತೀಚಿನ ಬಿಲ್ಡ್ ಇನ್‌ಸ್ಟಾಲ್ ಮಾಡಿ.</string>
+    <string name="force_update_installed">ಇನ್‌ಸ್ಟಾಲ್ ಆದ ಆವೃತ್ತಿ %1$s</string>
+    <string name="force_update_cta">ಈಗ ಅಪ್‌ಡೇಟ್ ಮಾಡಿ</string>
+    <string name="force_update_no_link">ಅಪ್‌ಡೇಟ್ ಲಿಂಕ್ ಇನ್ನೂ ಲಭ್ಯವಿಲ್ಲ. ಇತ್ತೀಚಿನ ಬಿಲ್ಡ್‌ಗಾಗಿ ನಿಮ್ಮ Mesha ಅಡ್ಮಿನ್ ಅನ್ನು ಸಂಪರ್ಕಿಸಿ.</string>
 </resources>

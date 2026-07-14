@@ -1,6 +1,7 @@
 package sg.mesha.goatos
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
@@ -45,7 +46,10 @@ import sg.mesha.goatos.push.PendingNavigation
 import sg.mesha.goatos.push.PushExtras
 import sg.mesha.goatos.push.resolvePushRoute
 import sg.mesha.goatos.rfid.RfidReaderPort
+import sg.mesha.goatos.ui.ForceUpdateScreen
 import sg.mesha.goatos.ui.GoatOsShell
+import sg.mesha.goatos.update.UpdateGateUiState
+import sg.mesha.goatos.update.UpdateGateViewModel
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -53,6 +57,7 @@ class MainActivity : ComponentActivity() {
 
     private val bootstrapViewModel: BootstrapViewModel by viewModels()
     private val sessionViewModel: SessionViewModel by viewModels()
+    private val updateGateViewModel: UpdateGateViewModel by viewModels()
 
     /** V1 keyboard-wedge RFID reader — captures hardware tag reads at the activity layer. */
     @Inject
@@ -77,6 +82,19 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { runCatching { AppLocaleState.set(sessionStore.language.first()) } }
                 LaunchedEffect(AppLocaleState.tag) { runCatching { sessionStore.setLanguage(AppLocaleState.tag) } }
                 ProvideAppLocale {
+                // Force-update gate sits ABOVE auth + bootstrap: an out-of-date build is
+                // blocked whether or not anyone is signed in. Fails open, so an
+                // unconfigured environment (e.g. the dev flavor) renders the app normally.
+                val updateGate by updateGateViewModel.state.collectAsStateWithLifecycle()
+                when (val gate = updateGate) {
+                    is UpdateGateUiState.Blocked ->
+                        ForceUpdateScreen(
+                            updateUrl = gate.updateUrl,
+                            installedVersionName = BuildConfig.VERSION_NAME,
+                            onUpdate = ::openExternalUrl,
+                        )
+
+                    UpdateGateUiState.Allowed -> {
                 val authed by sessionViewModel.isAuthed.collectAsStateWithLifecycle()
                 // Logout clean-slate (C35-001): BootstrapViewModel is Activity-scoped, so it
                 // otherwise survives a logout with the departing user's Ready(navState) still
@@ -117,6 +135,8 @@ class MainActivity : ComponentActivity() {
                             BootstrapError(message = s.message, onRetry = bootstrapViewModel::load)
                     }
                 }
+                    } // UpdateGateUiState.Allowed
+                } // when (updateGate)
                 } // ProvideAppLocale
             }
         }
@@ -132,6 +152,9 @@ class MainActivity : ComponentActivity() {
             app.coldStartTrace?.stop()
             app.coldStartTrace = null
         }
+        // Re-check the update floor on every foreground: a minimum raised while the app
+        // was backgrounded blocks the build the next time it comes forward.
+        updateGateViewModel.refresh()
     }
 
     /**
@@ -160,6 +183,18 @@ class MainActivity : ComponentActivity() {
             .toMap()
         if (payload.isEmpty()) return
         pendingNavigation.set(resolvePushRoute(payload))
+    }
+
+    /**
+     * Opens the force-update install link (a Firebase App Distribution tester link) in the
+     * browser / App Distribution app. New-task launch because it leaves the app; wrapped so
+     * a missing handler never crashes the gate — the CTA simply no-ops.
+     */
+    private fun openExternalUrl(url: String) {
+        if (url.isBlank()) return
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Swallow a missing handler (e.g. no browser) so the gate CTA never crashes the app.
+        runCatching { startActivity(intent) }
     }
 
     /**
