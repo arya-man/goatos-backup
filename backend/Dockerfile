@@ -21,8 +21,9 @@ ARG TARGETARCH
 # fallback.
 ARG GIT_SHA=unknown
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    set -e && \
     mkdir -p /out && \
-    for cmd in api outbox-relay outbox-dlq domain-event-consumer domain-event-processed-sweeper generate-vaccination-obligations vaccination-eligibility-rollup-recompute process-integrity-projection-recompute vaccination-shed-projection-recompute vaccination-execution-projection-recompute vaccination-operations-projection-recompute vaccination-projection-worker obligation-sweeper calendar-vaccination-projector calendar-reminder-sweeper calendar-escalation-sweeper notification-dispatcher backfill-goat-created idempotency-key-sweeper inventory-batch-reconciler sop-review-fanout-retry partition-maintainer legacy-god-sheet-sync seed-dev-grant seed-dev-email-grants seed-vaccination-trigger mint-dev-token analytics-rollup; do \
+    for cmd in api outbox-relay outbox-dlq domain-event-consumer domain-event-processed-sweeper generate-vaccination-obligations vaccination-eligibility-rollup-recompute obligation-sweeper calendar-vaccination-projector calendar-reminder-sweeper calendar-escalation-sweeper notification-dispatcher backfill-goat-created idempotency-key-sweeper inventory-batch-reconciler sop-review-fanout-retry partition-maintainer legacy-god-sheet-sync seed-dev-grant seed-dev-email-grants seed-vaccination-trigger mint-dev-token analytics-rollup; do \
       ldflags="-s -w"; \
       if [ "$cmd" = "api" ]; then \
         ldflags="$ldflags -X github.com/vgoats/goatos/backend/internal/platform/buildinfo.SHA=${GIT_SHA}"; \

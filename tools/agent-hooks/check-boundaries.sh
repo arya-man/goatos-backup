@@ -6,6 +6,12 @@ admin_web_data_pattern="from ['\"]@google-cloud/bigquery|new BigQuery\\(|googlea
 admin_web_feature_deep_import_pattern="(from|import\\() ['\"](@/features/[^'\"]+/[^'\"]+|(\\.\\.?/)+features/[^'\"]+/[^'\"]+)['\"]"
 admin_web_visible_branding_pattern="goat[[:space:]-]*os|vgoat"
 admin_web_debug_footer_pattern="Trace [A-Za-z0-9{]|Rendered [A-Za-z0-9{]"
+# A recover() block must LOG the panic (or re-panic). Accept package log/slog
+# error/warn, the always-logging instance forms .ErrorContext(/.WarnContext(, and
+# instance .Error(/.Warn( WITH ARGS -- the [^)] excludes the bare err.Error()
+# stringer idiom so an unrelated err.Error() cannot make a silent panic-swallow
+# pass. Shared by the self-test and the two production checks (single source of truth).
+recover_log_pattern='\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b|\.(ErrorContext|WarnContext)\(|\.(Error|Warn)\([^)]|\bpanic\('
 
 check_admin_feature_relative_imports() {
   local root="${1:-apps/admin-web/features}"
@@ -197,26 +203,48 @@ EOF
     exit 1
   fi
 
-  # Self-test for recover() guard: create a synthetic silent panic swallow.
+  # Self-test for recover() guard: exercise the ACTUAL log-detection regex
+  # ($recover_log_pattern), both directions.
   mkdir -p "$tmpdir/backend/internal/pkg"
+  # (a) A silent panic-swallow that ALSO contains the err.Error() stringer must
+  # NOT satisfy the pattern (regression guard: err.Error() is not a log call).
   cat >"$tmpdir/backend/internal/pkg/noLog.go" <<'EOF'
 package pkg
 
 func silentPanic() {
   defer func() {
     if p := recover(); p != nil {
-      _ = p // silent swallow — no log call
+      _ = p // silent swallow -- no logging call
+    }
+  }()
+}
+
+// The stringer idiom -- NOT a logging call. Must not make the file pass the guard.
+func describeErr(err error) string { return err.Error() }
+EOF
+  if grep -qE "$recover_log_pattern" "$tmpdir/backend/internal/pkg/noLog.go"; then
+    echo "recover() guard self-test failed: silent panic-swallow with err.Error() slipped through the log-detection pattern."
+    exit 1
+  fi
+  echo "recover() guard self-test passed: silent recover() (with err.Error) correctly not accepted."
+
+  # (b) A genuinely-logged recover via an instance *slog.Logger MUST satisfy it.
+  cat >"$tmpdir/backend/internal/pkg/logged.go" <<'EOF'
+package pkg
+
+func loggedPanic(s hasLogger) {
+  defer func() {
+    if p := recover(); p != nil {
+      s.logger.Error("panic_recovered", "panic", p)
     }
   }()
 }
 EOF
-  if rg -n "recover\(\)" "$tmpdir/backend/internal/pkg/noLog.go" \
-      --glob '!*_test.go' >/dev/null 2>&1; then
-    echo "recover() guard self-test passed: recover() without log detected."
-  else
-    echo "recover() guard self-test failed: synthetic recover() not detected."
+  if ! grep -qE "$recover_log_pattern" "$tmpdir/backend/internal/pkg/logged.go"; then
+    echo "recover() guard self-test failed: instance-logger recover() not recognized as logged."
     exit 1
   fi
+  echo "recover() guard self-test passed: instance-logger recover() recognized as logged."
 
   echo "All boundary self-tests passed."
   exit 0
@@ -355,7 +383,7 @@ if command -v rg >/dev/null 2>&1; then
         # Accept package-form (log./slog.) AND instance-logger method calls
         # (s.logger.Error / logger.ErrorContext / ...) — the repo's observability
         # convention is instance *slog.Logger fields, not package-level logging.
-        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b|\.(Error|ErrorContext|Warn|WarnContext)\(|\bpanic\(' "$gofile"; then
+        if ! grep -qE "$recover_log_pattern" "$gofile"; then
           echo "$gofile: recover() block found with no log.Error/ErrorContext call or re-panic in file."
           echo "  recover() blocks must log the panic value before suppressing/converting it, or re-panic to an outer logger."
           fail=1
@@ -410,7 +438,7 @@ else
         # Accept package-form (log./slog.) AND instance-logger method calls
         # (s.logger.Error / logger.ErrorContext / ...) — the repo's observability
         # convention is instance *slog.Logger fields, not package-level logging.
-        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b|\.(Error|ErrorContext|Warn|WarnContext)\(|\bpanic\(' "$gofile"; then
+        if ! grep -qE "$recover_log_pattern" "$gofile"; then
           echo "$gofile: recover() block found with no log.Error/ErrorContext call or re-panic in file."
           echo "  recover() blocks must log the panic value before suppressing/converting it, or re-panic to an outer logger."
           fail=1
