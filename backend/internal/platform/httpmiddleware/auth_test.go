@@ -558,7 +558,7 @@ func TestHealthRoutesBypassAuth(t *testing.T) {
 	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})))
-	for _, path := range []string{"/healthz", "/livez", "/readyz"} {
+	for _, path := range []string{"/healthz", "/livez", "/readyz", "/version"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
 			rec := httptest.NewRecorder()

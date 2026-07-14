@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/bootstrap"
-	"github.com/vgoats/goatos/backend/internal/platform/logger"
+	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
 )
 
@@ -30,11 +30,22 @@ func main() {
 // (cmd/outbox-relay, cmd/obligation-sweeper, ...) for the same run(ctx) error
 // idiom.
 func run() error {
-	log := logger.New(os.Getenv("GOATOS_LOG_LEVEL"))
+	// observability.New (not the deprecated platform/logger shim, and never
+	// slog.New directly - see platform/observability's package doc and
+	// tools/agent-hooks/check-boundaries.sh's slog.New guard) is the
+	// canonical process logger. Version stamps buildinfo.Current() onto every
+	// log line so a stale-binary drift error (internal/platform/migrationguard,
+	// wired in bootstrap.NewAPI) can be traced back to the exact build that
+	// refused to start.
+	log := observability.New(observability.Config{
+		Service: "api",
+		Version: buildinfo.Current(),
+		Level:   os.Getenv("GOATOS_LOG_LEVEL"),
+	})
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	shutdownTelemetry, err := observability.SetupTelemetry(ctx, observability.Config{Service: "api"})
+	shutdownTelemetry, err := observability.SetupTelemetry(ctx, observability.Config{Service: "api", Version: buildinfo.Current()})
 	if err != nil {
 		log.Error("setup_telemetry", slog.String("error", err.Error()))
 		return err

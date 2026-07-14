@@ -262,7 +262,19 @@ func bearerToken(value string) (string, bool) {
 }
 
 func isPublicHealthRoute(r *http.Request) bool {
-	return r.Method == http.MethodGet && (r.URL.Path == "/healthz" || r.URL.Path == "/livez" || r.URL.Path == "/readyz")
+	if r.Method != http.MethodGet {
+		return false
+	}
+	switch r.URL.Path {
+	case "/healthz", "/livez", "/readyz", "/version":
+		// /version is a diagnostic surface (build SHA + migration-drift
+		// status, see bootstrap.NewAPI), not a data route, so it is public
+		// for the same reason the other three are: an operator or an
+		// external prober needs it reachable without a token.
+		return true
+	default:
+		return false
+	}
 }
 
 func routeRoles(route permissions.Route, grants []permissions.ActiveGrant, tenantID string) []string {

@@ -54,8 +54,10 @@ import (
 	platformauth "github.com/vgoats/goatos/backend/internal/platform/auth"
 	"github.com/vgoats/goatos/backend/internal/platform/authallow"
 	"github.com/vgoats/goatos/backend/internal/platform/authaudit"
+	"github.com/vgoats/goatos/backend/internal/platform/buildinfo"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/platform/migrationguard"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	processintegrityhttp "github.com/vgoats/goatos/backend/internal/processintegrity/adapters/http"
@@ -254,6 +256,37 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Stale-binary migration-drift guard (docs/decisions/stale-binary-migration-drift-guard.md):
+	// refuse to serve traffic when this binary and the database disagree about which migrations
+	// have been applied, in EITHER direction. This is the fix for the incident where a long-lived
+	// `go run ./cmd/api` process kept running after migrations 000187/000188 dropped tables it
+	// still queried - the DB moved forward, the binary did not, and every affected screen returned
+	// 500/503 with no signal that the real cause was a stale binary. binaryMigrationVersion is
+	// captured here (not recomputed per request) because it is fixed for the life of this process;
+	// dbMigrationVersion is re-queried on every /version call below so drift that appears AFTER
+	// this successful startup is still visible without a restart.
+	binaryMigrationVersion, err := migrationguard.BinaryVersion()
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	dbMigrationVersion, err := migrationguard.AppliedVersion(ctx, pool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if _, err := migrationguard.Check(dbMigrationVersion, binaryMigrationVersion); err != nil {
+		if log != nil {
+			log.Error("migration_drift_detected",
+				slog.String("db_migration_version", dbMigrationVersion),
+				slog.String("binary_migration_version", binaryMigrationVersion),
+				slog.String("error", err.Error()))
+		}
+		pool.Close()
+		return nil, err
+	}
+
 	if err := platformpg.RegisterPoolMetrics(pool); err != nil && log != nil {
 		// Pool-stat metrics are an observability nice-to-have, never a
 		// reason to fail API startup.
@@ -385,7 +418,58 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			http.Error(w, "postgres not ready", http.StatusServiceUnavailable)
 			return
 		}
+		// Re-check migration drift on every call, not just at startup: this is
+		// exactly the incident scenario, where the DB gets migrated forward
+		// WHILE this process keeps running. A launcher that reuses an
+		// already-"ready" process (see tools/dev/run-local-stack-supervised.sh's
+		// start_api, which short-circuits on a healthy /readyz) must see this go
+		// unhealthy instead of silently continuing to serve against a schema it
+		// no longer matches.
+		if dbVersion, err := migrationguard.AppliedVersion(r.Context(), pool); err == nil {
+			if _, err := migrationguard.Check(dbVersion, binaryMigrationVersion); err != nil {
+				http.Error(w, "migration drift: "+err.Error(), http.StatusServiceUnavailable)
+				return
+			}
+		}
 		w.WriteHeader(http.StatusNoContent)
+	})
+	// /version is a diagnostic surface (bypasses auth, see
+	// httpmiddleware.isPublicHealthRoute) so an operator or curl can see
+	// build/migration staleness instantly without needing a token. It never
+	// fails the request itself - migration_drift is reported as a boolean
+	// plus a direction so a stale-but-still-running process can still be
+	// introspected instead of only going dark.
+	protectedMux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
+		dbVersion, dbErr := migrationguard.AppliedVersion(r.Context(), pool)
+		status, checkErr := migrationguard.Check(dbVersion, binaryMigrationVersion)
+		direction := ""
+		switch {
+		case status.DBAhead:
+			direction = "db_ahead_of_binary"
+		case status.BinaryAhead:
+			direction = "binary_ahead_of_db"
+		}
+		body := struct {
+			Service                string `json:"service"`
+			BuildSHA               string `json:"build_sha"`
+			BinaryMigrationVersion string `json:"binary_migration_version"`
+			DBMigrationVersion     string `json:"db_migration_version"`
+			MigrationDrift         bool   `json:"migration_drift"`
+			MigrationDriftReason   string `json:"migration_drift_reason,omitempty"`
+			Error                  string `json:"error,omitempty"`
+		}{
+			Service:                "api",
+			BuildSHA:               buildinfo.Current(),
+			BinaryMigrationVersion: binaryMigrationVersion,
+			DBMigrationVersion:     dbVersion,
+			MigrationDrift:         checkErr != nil,
+			MigrationDriftReason:   direction,
+		}
+		if dbErr != nil {
+			body.Error = dbErr.Error()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
 	})
 	identityhttp.Register(protectedMux, identityHandler)
 	bulkstatushttp.Register(protectedMux, bulkStatusHandler)

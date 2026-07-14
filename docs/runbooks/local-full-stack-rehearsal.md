@@ -68,3 +68,31 @@ Implemented admin-web routes:
 Do not use this runbook to revive `rfid-import`, `rfid-apply`,
 `bq-reconcile`, Import Review, Data Quality, Legacy Sync, old generic Counts
 dashboards/reconciliation, mortality, or old dashboard parity workflows.
+
+## Stale API process vs. a migrated local DB
+
+`tools/dev/run-local-stack.sh` (`make dev-local`) and
+`tools/dev/run-local-stack-supervised.sh` (`make dev-local-service-*`) both
+decide whether to reuse an already-running API on `:8080` by curling
+`/readyz`: if it is already healthy, they log "Using existing Goat OS API"
+and skip starting a new one. Before
+`docs/decisions/stale-binary-migration-drift-guard.md`, `/readyz` only
+checked that Postgres was reachable, so an `api` process left running from an
+older worktree/build would still report healthy even after a different
+session applied new migrations to the same local DB (e.g.
+`goatos-local-current` on `:5433`, see
+`docs/runbooks/google-cloud-environments.md`) — exactly the incident that
+guard exists to catch.
+
+`/readyz` now also fails when the running binary's embedded migration
+ceiling and the DB's applied migration level disagree, so a stale reused
+process is correctly reported unhealthy instead of silently kept alive. If a
+launcher run reports the API as unhealthy/refusing to start and you have
+multiple worktrees pointed at the same local DB, check
+`curl -s http://127.0.0.1:8080/version` first (or the log line from a fresh
+`bootstrap.NewAPI` failure) before assuming a code regression — kill the
+stale process and let the launcher start a freshly built one instead of
+chasing a phantom bug. Neither launcher script was modified by that guard;
+this section is deliberately just a runbook note (a different session had
+uncommitted edits to `run-local-stack-supervised.sh` in a different worktree
+at the time).

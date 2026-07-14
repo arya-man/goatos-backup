@@ -43,6 +43,12 @@ Active ADRs:
   couple on launch/login, decouple on logout; store only a token hash on
   `workforce_member_devices`; backend contract shipped, mobile SDK wiring TODO
   gated on the `goatos-prod` Firebase project.
+- `docs/decisions/stale-binary-migration-drift-guard.md` - Stale-binary
+  migration-drift guard: `internal/platform/migrationguard.Check` fails
+  `cmd/api` startup and `/readyz` fast in EITHER direction (DB ahead of the
+  binary's embedded migrations, or binary ahead of an unmigrated/behind DB);
+  `GET /version` exposes build SHA + both migration levels + a drift flag.
+  CI/CD build-arg wiring for the build SHA is a deliberate follow-up.
 
 Pending sign-off ADRs:
 

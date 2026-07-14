@@ -389,12 +389,25 @@ staging operations.
 
 ```text
 GET /livez     -> 204 (no auth; use this for Cloud Run liveness smoke)
-GET /readyz    -> 204 (DB reachable)
+GET /readyz    -> 204 (DB reachable AND not migration-drifted; see below)
+GET /version   -> 200, "migration_drift": false (no auth; build SHA + migration levels)
 A real bearer token (from the IdP) on a read route (e.g. GET /goats/search) -> 200
 A token with wrong issuer/audience/alg -> 401
 GET /action-center/obligations -> 200 for an authorized internal role
 GET /protocols/versions/{version_id} -> 200 for an authorized config role
 ```
+
+`/readyz` and `/version` both compare the database's applied migration level
+against this binary's embedded migration ceiling
+(`internal/platform/migrationguard`,
+`docs/decisions/stale-binary-migration-drift-guard.md`). If a deploy's
+migrate step ran but the app image is stale (or vice versa), `/readyz` goes
+`503` with a `migration drift: ...` body instead of serving requests against
+a schema it disagrees with, and `/version` shows exactly which version each
+side is at plus `migration_drift`/`migration_drift_reason`. Check `/version`
+first when a post-deploy smoke check looks like an unrelated 500/503 - it is
+the fastest way to rule out (or confirm) a stale binary vs. a real
+regression.
 
 For admin-web dashboard smoke, use the canonical dashboard host and the
 committed auth routes:
@@ -426,6 +439,14 @@ admin-web visual smoke for the current active routes.
    projection rebuild job for that module. Do not reintroduce the deleted
    identity-counter commands.
 ```
+
+Rolling back the app image alone (without a matching down-migration) puts the
+previous, older binary in front of an already-forward-migrated database. As
+of `docs/decisions/stale-binary-migration-drift-guard.md`, that older binary
+will refuse to start (or go `503` on `/readyz` if already running) rather
+than silently serving requests against a schema it doesn't recognize. If a
+rollback needs the old binary to run anyway, it must roll the database back
+too (down-migration), not just the image.
 
 ## Monitoring / alerts (per env)
 
