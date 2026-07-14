@@ -74,8 +74,13 @@ VACCINATION FLOW: Config → Due List → Shed Drive → SOP Execution → Proof
 Verification → Completion → Alerts, satisfying SM-1..SM-7.
 
 SENIOR-ARCHITECT LENSES on every finding:
-- 1M scale: bounded/indexed/keyset/partition, no full-herd scan, bounded
-  goroutines, query-plan sanity on hot paths.
+- Scale (current release envelope = 5k-50k animals, query-plan proof at the
+  ~500k obligation-row upper bound; 1-5M = future certification bar, not a
+  present requirement — per docs/decisions/operational-kernel-5k-50k-scale-envelope.md):
+  bounded/indexed/keyset, no full-herd scan, bounded goroutines, query-plan
+  sanity on hot paths. Screen reads (Calendar / process-integrity / vaccination
+  shed/execution/operations) serve canonical indexed SQL under the scoped
+  scale-guard:ignore exemption; compute-on-read stays banned everywhere else.
 - Replay/at-least-once: exact replay = no new effects; same-key different-payload
   rejected (`ON CONFLICT DO UPDATE SET idempotency_key` alone INSUFFICIENT);
   every API/worker/importer/server-action/webhook idempotent.
