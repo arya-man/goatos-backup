@@ -37,6 +37,18 @@ const EventGoatHealthChanged = "goat.health.changed"
 // Species-agnostic: goat and sheep both flow through the same per-goat recompute.
 const EventGoatReproductiveChanged = "goat.reproductive.changed"
 
+// EventGoatIdentityChanged re-evaluates rules after a goat's DOB or entry_date is corrected (B7:
+// dynamic recompute). A DOB/entry-date update changes schedulePathForGoat's age-based routing and
+// dueAt's birth_age/post_arrival anchors, so a corrected anchor must recompute exactly like a
+// stage/location/health/reproductive change: cancel obligations that are no longer effective and
+// reopen deferred ones once the blocking data changes. NOTE (dependency, not faked): as of this
+// change there is no identity mutation command that corrects DOB/entry_date on an existing goat
+// (MoveGoat/ExitGoat/StageGoat/HealthGoat/ReproductiveGoat exist; no equivalent IdentityGoat command
+// emits this event yet) — this constant and its subscription only ensure vaccination generation is
+// ready to recompute the moment that identity-side command ships. See the runbook's B7 dependency
+// note; do not wire a synthetic producer here.
+const EventGoatIdentityChanged = "goat.identity.changed"
+
 // EventManualCampaignRequested intentionally fires manual_campaign schedule rows for one published
 // vaccination version. It is not part of normal publish/backfill generation.
 const EventManualCampaignRequested = "vaccination.manual_campaign.requested"
@@ -91,6 +103,7 @@ func (h *GoatRecheckHandler) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventGoatLocationChanged, h)
 	bus.Subscribe(EventGoatHealthChanged, h)
 	bus.Subscribe(EventGoatReproductiveChanged, h)
+	bus.Subscribe(EventGoatIdentityChanged, h)
 }
 
 func (h *GoatRecheckHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {

@@ -136,36 +136,79 @@ func businessDayStart(t time.Time) time.Time {
 	return biztime.BusinessDayStart(t)
 }
 
-func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time) string {
-	origin := strings.ToLower(strings.TrimSpace(g.OriginType))
-	if origin == "birth" {
-		return schedulePathKid
-	}
+// schedulePathForGoat decides whether birth_age (kid) or post_arrival (adult
+// procurement) rules apply to this goat. B4 (age transition): a NEW kid course may
+// only START through kidWeeks (default 16); a kid already progressing through the
+// course may FINISH its spacing-shifted dose through finishWeeks (kidWeeks+4 = 20,
+// e.g. Goat Pox derived to 20w after a 16w PPR dose). Past finishWeeks the goat is
+// always adult — origin_type="birth" no longer bypasses age unconditionally (the
+// confirmed defect: kid doses generated for animals long past the cutoff). An
+// explicit kid-management stage tag is still honored past finishWeeks: Operating
+// Rules say "if a tag and age disagree, review the animal" — a live K-stage tag is
+// a stronger, reviewable signal than a blank/adult default, so it is not silently
+// discarded, only no longer inferred from origin_type alone.
+//
+// B3 (never-received vaccine + no DOB): when DOB is unknown, NEVER default to kid.
+// A kid-management stage tag or an existing kid-course vaccination proves the
+// animal is genuinely on the kid course (B1/B2 per-vaccine continuation still
+// applies regardless of path via after_previous_completion rules); otherwise route
+// to the adult catch-up/primary path so a never-received vaccine is scheduled from
+// the adult two-visit course rather than a fabricated kid_12w/kid_16w obligation.
+func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time, vaccineHistory []domain.RecentVaccineAdministration) string {
 	kidWeeks := int32(16)
 	if proc.KidsNormalScheduleUntilWeeks > 0 {
 		kidWeeks = proc.KidsNormalScheduleUntilWeeks
 	}
+	finishWeeks := kidWeeks + 4
+
 	if g.DOB != nil {
-		if wholeDaysBetween(*g.DOB, asOf)/7 <= int(kidWeeks) {
+		ageWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
+		if ageWeeks <= int(kidWeeks) {
 			return schedulePathKid
 		}
+		if ageWeeks <= int(finishWeeks) {
+			return schedulePathKid
+		}
+		if isKidManagementStage(g.Stage) {
+			return schedulePathKid
+		}
+		return schedulePathAdultProcurement
 	}
+
 	if isKidManagementStage(g.Stage) {
 		return schedulePathKid
 	}
-	if warmingEntryAt(g) != nil {
-		return schedulePathAdultProcurement
+	if hasKidCourseHistory(vaccineHistory) {
+		return schedulePathKid
 	}
-	if origin == "procured" || origin == "imported" {
-		return schedulePathAdultProcurement
-	}
-	return schedulePathKid
+	return schedulePathAdultProcurement
 }
 
 func isKidManagementStage(stage string) bool {
 	stage = strings.ToUpper(strings.TrimSpace(stage))
 	if len(stage) >= 2 && strings.HasPrefix(stage, "K") {
 		return true
+	}
+	return false
+}
+
+// hasKidCourseHistory reports whether the goat has any accepted administration
+// recorded against a kid-course (birth_age) dose. Used only when DOB is unknown, to
+// distinguish a genuinely-tracked kid (B4 in-course signal) from a never-received
+// vaccine with no anchor at all (B3: must route adult, never default to kid). The
+// seeded matrix's dose_code convention marks every kid-course dose with a "_kid_"
+// segment (e.g. "fmd_kid_12w") distinct from adult ("_adult_wN") and repeat
+// ("_revac") doses; RecentVaccineAdministration does not carry the originating
+// rule's trigger_type, so this is the least-coupled available signal without
+// widening this task's scope into the domain/adapter layer.
+func hasKidCourseHistory(history []domain.RecentVaccineAdministration) bool {
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		if strings.Contains(strings.ToLower(strings.TrimSpace(admin.DoseCode)), "_kid_") {
+			return true
+		}
 	}
 	return false
 }

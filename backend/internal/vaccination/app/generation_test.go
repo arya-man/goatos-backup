@@ -1059,8 +1059,15 @@ func TestGenerateScopesObligationToShed(t *testing.T) {
 	}
 }
 
-func TestGenerateMissingDOBCreatesVisibleDeferredGap(t *testing.T) {
+// B3 (never-received vaccine + no DOB): a missing DOB must never fabricate a
+// deferred missing_due_date gap. It routes to the adult catch-up/primary path at
+// the next compatible drive instead — materialized as a normal SCHEDULED
+// obligation due today, not a "Deferred" (implies sickness) blocker. Confirmed bug
+// #3 in the audit: 531 animals, ~1,994 doses deferred instead of continued/
+// caught-up.
+func TestGenerateMissingDOBRoutesToAdultCatchUpNotDeferredGap(t *testing.T) {
 	ctx := context.Background()
+	asOf := time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
 		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1"}}`),
 		rules: []protodomain.Rule{{
@@ -1073,19 +1080,25 @@ func TestGenerateMissingDOBCreatesVisibleDeferredGap(t *testing.T) {
 	obl := &generationObligationFake{seen: map[string]bool{}}
 	gen := NewGenerationService(proto, goats, obl)
 
-	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", time.Date(2026, time.June, 1, 0, 0, 0, 0, time.UTC))
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if result.SkippedNoDueDate != 1 || result.Generated != 1 || result.Deferred != 1 {
-		t.Fatalf("result=%#v, want one counted skip and one visible deferred gap", result)
+	if result.SkippedNoDueDate != 0 || result.Generated != 1 || result.Deferred != 0 {
+		t.Fatalf("result=%#v, want adult catch-up generated, never a missing_due_date skip/defer", result)
 	}
-	if len(obl.inserted) != 1 || obl.inserted[0].Status != "deferred" || obl.inserted[0].ScopeType != "shed" {
-		t.Fatalf("inserted=%#v, want deferred shed-scoped missing-DOB obligation", obl.inserted)
+	if len(obl.inserted) != 1 || obl.inserted[0].Status != "scheduled" || obl.inserted[0].ScopeType != "shed" {
+		t.Fatalf("inserted=%#v, want a scheduled (not deferred) shed-scoped catch-up obligation", obl.inserted)
+	}
+	if !obl.inserted[0].DueAt.Equal(businessDayStart(asOf)) {
+		t.Fatalf("due=%s, want the next-compatible-drive catch-up due today", obl.inserted[0].DueAt)
 	}
 }
 
-func TestGenerateCancelsMissingDueDateGapWhenSourceDateBackfilled(t *testing.T) {
+// B7 (dynamic recompute): once DOB is backfilled, the no-DOB catch-up placeholder
+// (materialized under B3) is superseded by the real DOB-anchored obligation — the
+// same missingKey supersede mechanism the legacy missing_due_date placeholder used.
+func TestGenerateCancelsAdultCatchUpGapWhenSourceDateBackfilled(t *testing.T) {
 	ctx := context.Background()
 	proto := &generationProtoFake{
 		ruleDSL: []byte(`{"eligibility":{"animal_stage":"K1"}}`),
@@ -1107,8 +1120,8 @@ func TestGenerateCancelsMissingDueDateGapWhenSourceDateBackfilled(t *testing.T) 
 	if err != nil {
 		t.Fatalf("initial generate: %v", err)
 	}
-	if first.SkippedNoDueDate != 1 || first.Deferred != 1 || len(obl.inserted) != 1 || obl.inserted[0].Status != "deferred" {
-		t.Fatalf("first result=%#v inserted=%#v, want one visible missing-DOB gap", first, obl.inserted)
+	if first.Generated != 1 || first.Deferred != 0 || len(obl.inserted) != 1 || obl.inserted[0].Status != "scheduled" {
+		t.Fatalf("first result=%#v inserted=%#v, want one scheduled no-DOB catch-up obligation", first, obl.inserted)
 	}
 
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
@@ -1121,14 +1134,15 @@ func TestGenerateCancelsMissingDueDateGapWhenSourceDateBackfilled(t *testing.T) 
 		t.Fatalf("second result=%#v inserted=%#v, want one real obligation after DOB backfill", second, obl.inserted)
 	}
 	if obl.inserted[0].Status != "canceled" || len(obl.canceledKeys) != 1 {
-		t.Fatalf("missing gap status=%s canceled=%#v, want canceled stale missing-DOB gap", obl.inserted[0].Status, obl.canceledKeys)
+		t.Fatalf("catch-up gap status=%s canceled=%#v, want canceled stale no-DOB catch-up", obl.inserted[0].Status, obl.canceledKeys)
 	}
 	if obl.inserted[1].Status != "scheduled" {
 		t.Fatalf("new obligation status=%s, want scheduled", obl.inserted[1].Status)
 	}
 }
 
-func TestGenerateCancelsMissingPostArrivalGapWhenEntryDateBackfilled(t *testing.T) {
+// Same B3/B7 proof for the post_arrival (missing entry-date) anchor.
+func TestGenerateCancelsAdultCatchUpGapWhenEntryDateBackfilled(t *testing.T) {
 	ctx := context.Background()
 	proto := &generationProtoFake{
 		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult"}}`),
@@ -1151,8 +1165,8 @@ func TestGenerateCancelsMissingPostArrivalGapWhenEntryDateBackfilled(t *testing.
 	if err != nil {
 		t.Fatalf("initial generate: %v", err)
 	}
-	if first.SkippedNoDueDate != 1 || first.Deferred != 1 || len(obl.inserted) != 1 || obl.inserted[0].Status != "deferred" {
-		t.Fatalf("first result=%#v inserted=%#v, want one visible missing-entry gap", first, obl.inserted)
+	if first.Generated != 1 || first.Deferred != 0 || len(obl.inserted) != 1 || obl.inserted[0].Status != "scheduled" {
+		t.Fatalf("first result=%#v inserted=%#v, want one scheduled no-entry-date catch-up obligation", first, obl.inserted)
 	}
 
 	entry := time.Date(2026, time.May, 28, 0, 0, 0, 0, time.UTC)
@@ -1165,7 +1179,7 @@ func TestGenerateCancelsMissingPostArrivalGapWhenEntryDateBackfilled(t *testing.
 		t.Fatalf("second result=%#v inserted=%#v, want one real obligation after entry-date backfill", second, obl.inserted)
 	}
 	if obl.inserted[0].Status != "canceled" || len(obl.canceledKeys) != 1 {
-		t.Fatalf("missing gap status=%s canceled=%#v, want stale missing-entry gap canceled", obl.inserted[0].Status, obl.canceledKeys)
+		t.Fatalf("catch-up gap status=%s canceled=%#v, want stale no-entry-date catch-up canceled", obl.inserted[0].Status, obl.canceledKeys)
 	}
 	if obl.inserted[1].Status != "scheduled" {
 		t.Fatalf("new obligation status=%s, want scheduled", obl.inserted[1].Status)
@@ -1425,22 +1439,29 @@ func TestImmediateCatchUpRecheckKeepsOriginalCycleKey(t *testing.T) {
 	}
 }
 
+// B4 (age transition): these "older goat" catch-up scenarios are ADULT (post_arrival)
+// obligations, not birth_age kid doses — an animal old enough for a years-overdue
+// dose is never routed through the kid-course rules regardless of DOB, only
+// through its own entry-date-anchored adult path. (Previously modeled with
+// birth_age + DOB, which only passed by relying on schedulePathForGoat's
+// confirmed-bug blank-signal default-to-kid fallback; B4 removes that fallback, so
+// these are rewritten on the adult/post_arrival path they actually represent.)
 func TestOlderGoatUnknownHistoryCreatesOnlyOneHistoricalCatchUp(t *testing.T) {
 	ctx := context.Background()
-	dob := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+	entry := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
 	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{rules: []protodomain.Rule{
 		{
 			RuleID: "rule-dose-1", DoseCode: "dose-1", Sequence: 1,
-			TriggerType: "birth_age", OffsetDays: 180, DueWindowDays: 7, CatchUp: "immediate",
+			TriggerType: "post_arrival", OffsetDays: 180, DueWindowDays: 7, CatchUp: "immediate",
 		},
 		{
 			RuleID: "rule-dose-2", DoseCode: "dose-2", Sequence: 2,
-			TriggerType: "birth_age", OffsetDays: 300, DueWindowDays: 7, CatchUp: "immediate",
+			TriggerType: "post_arrival", OffsetDays: 300, DueWindowDays: 7, CatchUp: "immediate",
 		},
 	}}
 	goats := &generationGoatFake{list: []domain.EligibleGoat{
-		{GoatID: "older-goat", LifecycleStatus: "alive", DOB: &dob},
+		{GoatID: "older-goat", LifecycleStatus: "alive", EntryDate: &entry, OriginType: "procured"},
 	}}
 	obl := &generationObligationFake{seen: map[string]bool{}}
 
@@ -1459,20 +1480,20 @@ func TestOlderGoatUnknownHistoryCreatesOnlyOneHistoricalCatchUp(t *testing.T) {
 
 func TestOlderGoatUnknownHistoryCreatesOnlyOnePCReviewCatchUp(t *testing.T) {
 	ctx := context.Background()
-	dob := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+	entry := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
 	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{rules: []protodomain.Rule{
 		{
 			RuleID: "rule-dose-1", DoseCode: "dose-1", Sequence: 1,
-			TriggerType: "birth_age", OffsetDays: 180, DueWindowDays: 7, CatchUp: "pc_approval",
+			TriggerType: "post_arrival", OffsetDays: 180, DueWindowDays: 7, CatchUp: "pc_approval",
 		},
 		{
 			RuleID: "rule-dose-2", DoseCode: "dose-2", Sequence: 2,
-			TriggerType: "birth_age", OffsetDays: 300, DueWindowDays: 7, CatchUp: "pc_approval",
+			TriggerType: "post_arrival", OffsetDays: 300, DueWindowDays: 7, CatchUp: "pc_approval",
 		},
 	}}
 	goats := &generationGoatFake{list: []domain.EligibleGoat{
-		{GoatID: "older-goat", LifecycleStatus: "alive", DOB: &dob},
+		{GoatID: "older-goat", LifecycleStatus: "alive", EntryDate: &entry, OriginType: "procured"},
 	}}
 	obl := &generationObligationFake{seen: map[string]bool{}}
 
@@ -1490,21 +1511,21 @@ func TestOlderGoatUnknownHistoryCreatesOnlyOnePCReviewCatchUp(t *testing.T) {
 
 func TestOlderGoatTrustedFirstDoseAllowsNextMissingDose(t *testing.T) {
 	ctx := context.Background()
-	dob := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
-	firstDue := dob.AddDate(0, 0, 180)
+	entry := time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC)
+	firstDue := entry.AddDate(0, 0, 180)
 	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{rules: []protodomain.Rule{
 		{
 			RuleID: "rule-dose-1", DoseCode: "dose-1", Sequence: 1,
-			TriggerType: "birth_age", OffsetDays: 180, DueWindowDays: 7, CatchUp: "immediate",
+			TriggerType: "post_arrival", OffsetDays: 180, DueWindowDays: 7, CatchUp: "immediate",
 		},
 		{
 			RuleID: "rule-dose-2", DoseCode: "dose-2", Sequence: 2,
-			TriggerType: "birth_age", OffsetDays: 300, DueWindowDays: 7, CatchUp: "immediate",
+			TriggerType: "post_arrival", OffsetDays: 300, DueWindowDays: 7, CatchUp: "immediate",
 		},
 	}}
 	goats := &generationGoatFake{
-		list: []domain.EligibleGoat{{GoatID: "older-goat", LifecycleStatus: "alive", DOB: &dob}},
+		list: []domain.EligibleGoat{{GoatID: "older-goat", LifecycleStatus: "alive", EntryDate: &entry, OriginType: "procured"}},
 		trustedByDue: map[string]bool{
 			firstDue.UTC().Format(time.RFC3339Nano): true,
 		},
@@ -1531,8 +1552,11 @@ func TestTrustedHistorySuppressesMissingDateBlocker(t *testing.T) {
 		rule protodomain.Rule
 	}{
 		{
+			// Stage="K1" keeps this goat on the kid schedule path (B4's DOB-unknown
+			// routing needs a kid signal — a stage tag or kid-course vaccination
+			// history — otherwise it correctly routes adult per B3).
 			name: "birth age without DOB",
-			goat: domain.EligibleGoat{GoatID: "goat-missing-dob", LifecycleStatus: "alive"},
+			goat: domain.EligibleGoat{GoatID: "goat-missing-dob", LifecycleStatus: "alive", Stage: "K1"},
 			rule: protodomain.Rule{
 				RuleID: "rule-primary", DoseCode: "PRIMARY", Sequence: 1,
 				TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7, CatchUp: "immediate",

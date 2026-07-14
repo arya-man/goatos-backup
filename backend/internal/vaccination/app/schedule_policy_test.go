@@ -10,28 +10,64 @@ import (
 
 func TestSchedulePathForGoat(t *testing.T) {
 	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
-	asOf := dob.AddDate(0, 0, 200) // ~28 weeks
+	asOf := dob.AddDate(0, 0, 200) // ~28.5 weeks: past the 20w kid-course finishing window
 	proc := genProcurementPolicy{KidsNormalScheduleUntilWeeks: 16}
 
-	farmBorn := domain.EligibleGoat{OriginType: "birth", DOB: &dob, Stage: "adult"}
-	if got := schedulePathForGoat(farmBorn, proc, asOf); got != schedulePathKid {
-		t.Fatalf("farm-born = %q, want kid", got)
+	// B4 fix: origin_type="birth" no longer bypasses age unconditionally. A farm-born
+	// animal with no kid-management stage tag, long past the 20w finishing window, is
+	// adult — this was confirmed bug #5 ("kid doses generated for animals long past
+	// the cutoff"; origin=birth previously forced kid path regardless of age).
+	farmBornPastCutoff := domain.EligibleGoat{OriginType: "birth", DOB: &dob, Stage: "adult"}
+	if got := schedulePathForGoat(farmBornPastCutoff, proc, asOf, nil); got != schedulePathAdultProcurement {
+		t.Fatalf("farm-born past 20w cutoff, no kid tag = %q, want adult_procurement", got)
+	}
+
+	// A farm-born animal still within the 16-20w finishing window stays kid so it can
+	// receive its spacing-shifted dose (e.g. 20w-derived Goat Pox after 16w PPR).
+	finishingWindowAsOf := dob.AddDate(0, 0, 126) // 18 weeks
+	farmBornFinishing := domain.EligibleGoat{OriginType: "birth", DOB: &dob, Stage: "adult"}
+	if got := schedulePathForGoat(farmBornFinishing, proc, finishingWindowAsOf, nil); got != schedulePathKid {
+		t.Fatalf("farm-born within 16-20w finishing window = %q, want kid", got)
 	}
 
 	procuredKidDOB := dob.AddDate(0, 0, 70)
 	procuredKid := domain.EligibleGoat{OriginType: "procured", DOB: &procuredKidDOB, Stage: "K1"}
-	if got := schedulePathForGoat(procuredKid, proc, asOf); got != schedulePathKid {
+	if got := schedulePathForGoat(procuredKid, proc, asOf, nil); got != schedulePathKid {
 		t.Fatalf("procured <=16w = %q, want kid", got)
 	}
 
 	procuredAdult := domain.EligibleGoat{OriginType: "procured", DOB: &dob, Stage: "adult"}
-	if got := schedulePathForGoat(procuredAdult, proc, asOf); got != schedulePathAdultProcurement {
+	if got := schedulePathForGoat(procuredAdult, proc, asOf, nil); got != schedulePathAdultProcurement {
 		t.Fatalf("procured adult = %q, want adult_procurement", got)
 	}
 
+	// A live kid-management stage tag past the finishing window is still honored
+	// (Operating Rules: "if a tag and age disagree, review the animal" — a live K-tag
+	// is a stronger, reviewable signal than a blank/adult default).
 	procuredOldKidStage := domain.EligibleGoat{OriginType: "procured", DOB: &dob, Stage: "K2"}
-	if got := schedulePathForGoat(procuredOldKidStage, proc, asOf); got != schedulePathKid {
+	if got := schedulePathForGoat(procuredOldKidStage, proc, asOf, nil); got != schedulePathKid {
 		t.Fatalf("procured old kid stage = %q, want kid", got)
+	}
+
+	// B3: DOB unknown, no stage tag, no kid-course vaccination history → must route
+	// adult, never default to kid (the 257-animal blank-origin/no-DOB/no-arrival
+	// cohort from the audit).
+	noSignal := domain.EligibleGoat{Stage: ""}
+	if got := schedulePathForGoat(noSignal, proc, asOf, nil); got != schedulePathAdultProcurement {
+		t.Fatalf("no DOB, no stage, no history = %q, want adult_procurement", got)
+	}
+
+	// B2/B4: DOB unknown but the goat has an accepted kid-course vaccination on
+	// record — genuinely a kid in progress, so per-vaccine continuation (B1) via the
+	// kid path is honored rather than mis-routed to adult.
+	kidHistory := []domain.RecentVaccineAdministration{{
+		AdministeredAt: dob.AddDate(0, 0, 84),
+		VaccineCode:    "FMD",
+		DoseCode:       "fmd_kid_12w",
+	}}
+	noDOBWithKidHistory := domain.EligibleGoat{Stage: ""}
+	if got := schedulePathForGoat(noDOBWithKidHistory, proc, asOf, kidHistory); got != schedulePathKid {
+		t.Fatalf("no DOB with kid-course history = %q, want kid", got)
 	}
 }
 
