@@ -269,12 +269,6 @@ export async function VaccinationExecutionBoard({
   return (
     <>
     <div data-filter-scope>
-      {!result.ok ? (
-        <div className="alert" style={{ marginBottom: 14 }}>
-          <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
-        </div>
-      ) : null}
-
       {/* Filter chrome (severity + work-state + provenance) is hidden when there is genuinely no work — the
           chips would all read 0. It returns the instant any row exists or a filter is active. */}
       {!noWork && (
@@ -327,13 +321,11 @@ export async function VaccinationExecutionBoard({
       </div>
 
       {/* Honest provenance: counts/rows come from a bounded, server-filtered fetch — not tenant-wide totals. */}
-      {result.ok ? (
-        <div className="muted small" style={{ marginBottom: 16 }}>
-          {showStateCounts
-            ? `${copy(pageContract, "note.execution_counts")}${capped ? ` ${copy(pageContract, "note.execution_counts_capped")}` : ""}.`
-            : copy(pageContract, "note.execution_counts_filtered")}
-        </div>
-      ) : null}
+      <div className="muted small" style={{ marginBottom: 16 }}>
+        {showStateCounts
+          ? `${copy(pageContract, "note.execution_counts")}${capped ? ` ${copy(pageContract, "note.execution_counts_capped")}` : ""}.`
+          : copy(pageContract, "note.execution_counts_filtered")}
+      </div>
         </>
       )}
 
@@ -343,21 +335,17 @@ export async function VaccinationExecutionBoard({
             <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--brand)", flexShrink: 0 }} />
             <div style={{ minWidth: 0, flex: 1 }}>
               <b style={{ fontSize: 14 }}>
-                {!result.ok
-                  ? copy(pageContract, "section.shed_events.empty_unavailable_title")
-                  : noWork
-                    ? copy(pageContract, "section.shed_events.empty_none_title")
-                    : copy(pageContract, "section.shed_events.empty_filtered_title")}
+                {noWork
+                  ? copy(pageContract, "section.shed_events.empty_none_title")
+                  : copy(pageContract, "section.shed_events.empty_filtered_title")}
               </b>
               <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-                {!result.ok
-                  ? copy(pageContract, "section.shed_events.empty_unavailable_body")
-                  : noWork
-                    ? copy(pageContract, "section.shed_events.empty_none_body")
-                    : copy(pageContract, "section.shed_events.empty_filtered_body")}
+                {noWork
+                  ? copy(pageContract, "section.shed_events.empty_none_body")
+                  : copy(pageContract, "section.shed_events.empty_filtered_body")}
               </span>
             </div>
-            {result.ok && !noWork ? (
+            {!noWork ? (
               <Link href={resetHref} replace scroll={false} className="btn sm">
                 {copy(pageContract, "action.reset_filters")}
               </Link>

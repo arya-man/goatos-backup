@@ -260,11 +260,9 @@ export async function ProtocolAdherencePage({
                 <tr>
 	                  <td colSpan={ledgerLabels.length}>
                     <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
-	                      {result.ok
-	                        ? hasLedgerFilters
-	                          ? copy(pageContract, "empty.ledger_filtered")
-	                          : copy(pageContract, "empty.ledger_detail")
-	                        : copy(pageContract, "empty.unavailable")}
+	                      {hasLedgerFilters
+	                        ? copy(pageContract, "empty.ledger_filtered")
+	                        : copy(pageContract, "empty.ledger_detail")}
                     </div>
                   </td>
                 </tr>

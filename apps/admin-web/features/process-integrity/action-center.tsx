@@ -485,17 +485,15 @@ export async function VaccinationActionCenterPage({
             <div className="note" style={{ marginBottom: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <Info className="ic" aria-hidden="true" style={{ color: "var(--brand)", flexShrink: 0 }} />
 	              <span>
-	                {actionCenter.ok
-	                  ? hasBoardFilters
-	                    ? copy(pageContract, "empty.work_board_filtered")
-	                    : copy(pageContract, "empty.work_board_detail")
-	                  : copy(pageContract, "empty.unavailable")}
+	                {hasBoardFilters
+	                  ? copy(pageContract, "empty.work_board_filtered")
+	                  : copy(pageContract, "empty.work_board_detail")}
 	              </span>
-	              {actionCenter.ok && hasBoardFilters ? (
+	              {hasBoardFilters ? (
 	                <Link href={clearFiltersHref} className="btn sm">
 	                  {copy(pageContract, "filter.clear_all")}
 	                </Link>
-	              ) : actionCenter.ok ? (
+	              ) : (
 	                <>
 	                  <Link href="/config?category=vaccination" className="btn sm">
 	                    {copy(pageContract, "action.open_config")}
@@ -504,7 +502,7 @@ export async function VaccinationActionCenterPage({
 	                    {copy(pageContract, "action.open_sops")}
 	                  </Link>
 	                </>
-	              ) : null}
+	              )}
             </div>
           ) : boardNextCursor ? (
 	            <div className="muted small" style={{ marginBottom: 12 }}>

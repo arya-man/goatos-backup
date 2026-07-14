@@ -142,12 +142,6 @@ export async function VaccinationShedBoard({
         <span className="muted small">{copy(pageContract, "section.sheds.note")}</span>
       </div>
 
-      {!result.ok ? (
-        <div className="alert" style={{ margin: "12px 14px" }}>
-          <b>{result.error.code ?? result.error.kind}</b>&nbsp;{result.error.message}
-        </div>
-      ) : null}
-
       <ShedFilterBar total={total} pageContract={pageContract} />
 
       {/* Status filter (merged CEO headline). Server-side via ?sheds_status. */}
@@ -179,21 +173,17 @@ export async function VaccinationShedBoard({
           <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--brand)", flexShrink: 0 }} />
           <div style={{ minWidth: 0, flex: 1 }}>
             <b style={{ fontSize: 14 }}>
-              {!result.ok
-                ? copy(pageContract, "section.sheds.unavailable_title")
-                : hasFilter
-                  ? copy(pageContract, "section.sheds.empty_filtered_title")
-                  : copy(pageContract, "section.sheds.empty_none_title")}
+              {hasFilter
+                ? copy(pageContract, "section.sheds.empty_filtered_title")
+                : copy(pageContract, "section.sheds.empty_none_title")}
             </b>
             <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
-              {!result.ok
-                ? copy(pageContract, "section.sheds.unavailable_body")
-                : hasFilter
-                  ? copy(pageContract, "section.sheds.empty_filtered_body")
-                  : copy(pageContract, "section.sheds.empty_none_body")}
+              {hasFilter
+                ? copy(pageContract, "section.sheds.empty_filtered_body")
+                : copy(pageContract, "section.sheds.empty_none_body")}
             </span>
           </div>
-          {result.ok && hasFilter ? (
+          {hasFilter ? (
             <Link href={resetHref} replace scroll={false} className="btn sm">
               {copy(pageContract, "action.reset_filters")}
             </Link>
