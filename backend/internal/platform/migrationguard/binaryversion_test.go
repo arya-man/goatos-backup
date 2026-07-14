@@ -4,6 +4,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"testing"
 )
 
@@ -40,7 +41,13 @@ func TestBinaryVersion(t *testing.T) {
 	if len(versions) == 0 {
 		t.Fatal("no migration files found on disk to cross-check against")
 	}
-	sort.Strings(versions)
+	// Sort numerically, not lexicographically, so that migrations like
+	// 999999 and 1000000 are ordered correctly.
+	sort.Slice(versions, func(i, j int) bool {
+		ni, _ := strconv.ParseInt(versions[i], 10, 64)
+		nj, _ := strconv.ParseInt(versions[j], 10, 64)
+		return ni < nj
+	})
 	want := versions[len(versions)-1]
 	if got != want {
 		t.Fatalf("BinaryVersion() = %q, want %q (highest migration on disk) - embedded migrations/postgres may be stale, rebuild", got, want)

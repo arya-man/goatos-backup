@@ -21,16 +21,16 @@ var migrationFilenameVersion = regexp.MustCompile(`^([0-9]+)_`)
 // (backend/Dockerfile), which does not copy backend/migrations into the
 // image.
 //
-// The comparison is the same lexicographic-on-zero-padded-filename ordering
-// cmd/migrate itself uses to sort migrations (backend/cmd/migrate/main.go's
-// loadMigrations), so this stays consistent with how migrations are actually
-// applied.
+// The highest version is determined by numeric comparison of the leading
+// version prefix (not lexicographic), so it remains correct if migration
+// numbering ever crosses digit-width boundaries (e.g. 999999 → 1000000).
 func BinaryVersion() (string, error) {
 	entries, err := migrations.Postgres.ReadDir("postgres")
 	if err != nil {
 		return "", fmt.Errorf("migrationguard: read embedded migrations: %w", err)
 	}
 	var max string
+	var maxNum int64 = -1
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
@@ -39,7 +39,15 @@ func BinaryVersion() (string, error) {
 		if m == nil {
 			continue
 		}
-		if version := m[1]; version > max {
+		version := m[1]
+		// Parse as int64 for numeric comparison, but keep the original
+		// zero-padded string version for return value.
+		num, err := parseVersion(version)
+		if err != nil {
+			continue
+		}
+		if num > maxNum {
+			maxNum = num
 			max = version
 		}
 	}

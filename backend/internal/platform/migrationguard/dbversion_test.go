@@ -128,3 +128,51 @@ CREATE TABLE goatos_schema_migrations (
 		t.Fatal("AppliedVersion() with a malformed version row = nil error, want error")
 	}
 }
+
+// TestAppliedVersionNumericOrderingWidthCrossing verifies that AppliedVersion
+// finds the highest version using numeric comparison, not lexicographic order.
+// This test covers the hypothetical case where migration numbering crosses a
+// digit-width boundary (e.g. 999999 → 1000000). If the SQL used lexicographic
+// ordering (ORDER BY version DESC), it would incorrectly return "999999" as
+// higher than "1000000". Numeric ordering (ORDER BY
+// (split_part(version,'_',1))::int64 DESC) returns the correct max.
+func TestAppliedVersionNumericOrderingWidthCrossing(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+
+	if _, err := pool.Exec(ctx, `
+CREATE TABLE goatos_schema_migrations (
+  version text PRIMARY KEY,
+  filename text NOT NULL,
+  checksum text NOT NULL,
+  applied_at timestamptz NOT NULL DEFAULT now()
+)`); err != nil {
+		t.Fatalf("create goatos_schema_migrations: %v", err)
+	}
+	// Test width-crossing cases: 000099 vs 000100, and hypothetical 999999 vs 1000000.
+	// Lexicographic order would prefer "999999" (compare '9' > '1'); numeric order
+	// correctly returns 1000000 and 000100 respectively.
+	for _, stem := range []string{
+		"000099_before_width_cross",
+		"000100_after_width_cross",
+		"999999_before_million_cross",
+		"1000000_after_million_cross",
+	} {
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO goatos_schema_migrations (version, filename, checksum) VALUES ($1, $2, 'sha256:test')`,
+			stem, stem+".sql",
+		); err != nil {
+			t.Fatalf("insert migration row %s: %v", stem, err)
+		}
+	}
+
+	got, err := AppliedVersion(ctx, pool)
+	if err != nil {
+		t.Fatalf("AppliedVersion() error = %v", err)
+	}
+	// Should return 1000000, not 999999 (which would win lexicographically).
+	if got != "1000000" {
+		t.Fatalf("AppliedVersion() = %q, want %q (numeric max, not lexicographic)", got, "1000000")
+	}
+}

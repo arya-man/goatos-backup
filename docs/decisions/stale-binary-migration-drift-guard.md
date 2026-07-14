@@ -97,9 +97,24 @@ surface loudly instead of serving 500s against missing tables/columns.
 
 ## Consequences
 
-- A binary can no longer start, nor stay marked ready, against a database it
-  disagrees with in either direction. `equal` is the only silent-success
-  case.
+### Startup behavior split: DBAhead vs BinaryAhead
+
+- **DBAhead (database ahead of binary — the incident direction)**: Fatal at
+  startup. The binary refuses to boot and exits non-zero. This is the stale
+  binary scenario (old binary, newer database) and must be caught hard. Log
+  via `migration_drift_dbahead_fatal`, error message includes exact versions.
+
+- **BinaryAhead (binary ahead of database — pending migrations not applied
+  yet)**: Does NOT crash-loop. The binary boots normally and logs
+  `migration_drift_binaryahead_transient`, but `/readyz` immediately returns
+  503 until the pending migrations apply. This prevents crash-loop during
+  normal deploy sequencing (migrate job → start service → /readyz recovers
+  once migrations finish). Traffic is blocked by `/readyz` health check (e.g.
+  load balancers, supervisors, orchestrators), so the process serves no
+  stale data despite booting.
+
+### Other consequences
+
 - `/version` makes staleness observable without waiting for a request to
   500 or for someone to notice `/readyz` degrade.
 - The production image still does not carry a verified build SHA end to end
@@ -111,3 +126,11 @@ surface loudly instead of serving 500s against missing tables/columns.
   different worktree; the guard was designed against the committed `main`
   copy of that script). Its `start_api`'s reuse-if-healthy check now behaves
   correctly against the sharpened `/readyz`, without needing script changes.
+- Known remaining tail (separate change): several `tools/perf/*.sql`
+  (`seed-scale-shaped-projections.sql`, `explain-vaccination-shed-scale.sql`,
+  `scale-cardinality.sql`, `request-path-usage.sql`) still reference the
+  projection tables dropped in migration 000187. They were NOT removed here
+  because they are wired into the `ci.yml` and `android-quality.yml` scale/
+  latency jobs (`psql -f ...`); deleting the files alone would break those
+  workflows. Retiring or canonical-converting that scale job (and its scripts
+  together) is the projection cutover's remaining CI tail, tracked separately.

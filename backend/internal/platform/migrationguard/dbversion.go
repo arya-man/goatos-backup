@@ -27,17 +27,16 @@ const undefinedTableSQLState = "42P01"
 // cmd/migrate stores the full filename stem there (see
 // backend/cmd/migrate/main.go's `Version: strings.TrimSuffix(entry.Name(),
 // ".sql")`), e.g. "000188_drop_process_integrity_projection_summaries", not
-// "000188". `ORDER BY version DESC` still finds the right row - every stem
-// shares the same fixed-width, zero-padded numeric prefix, so lexicographic
-// order on the full string agrees with numeric order on the prefix - but the
-// returned value must be normalized before Check compares it against
-// BinaryVersion's bare numeric string.
+// "000188". The query uses numeric ordering on the extracted version prefix
+// to correctly handle migration numbering across digit-width boundaries
+// (e.g. 999999 → 1000000). The returned value is normalized to the bare
+// numeric string before Check compares it against BinaryVersion's value.
 func AppliedVersion(ctx context.Context, pool *pgxpool.Pool) (string, error) {
 	if pool == nil {
 		return "", errors.New("migrationguard: pool is required")
 	}
 	var stored string
-	err := pool.QueryRow(ctx, `SELECT version FROM goatos_schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&stored)
+	err := pool.QueryRow(ctx, `SELECT version FROM goatos_schema_migrations ORDER BY (split_part(version,'_',1))::bigint DESC LIMIT 1`).Scan(&stored)
 	switch {
 	case err == nil:
 		m := migrationFilenameVersion.FindStringSubmatch(stored)

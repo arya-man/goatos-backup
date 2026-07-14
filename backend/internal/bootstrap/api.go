@@ -258,14 +258,14 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	}
 
 	// Stale-binary migration-drift guard (docs/decisions/stale-binary-migration-drift-guard.md):
-	// refuse to serve traffic when this binary and the database disagree about which migrations
-	// have been applied, in EITHER direction. This is the fix for the incident where a long-lived
-	// `go run ./cmd/api` process kept running after migrations 000187/000188 dropped tables it
-	// still queried - the DB moved forward, the binary did not, and every affected screen returned
-	// 500/503 with no signal that the real cause was a stale binary. binaryMigrationVersion is
-	// captured here (not recomputed per request) because it is fixed for the life of this process;
-	// dbMigrationVersion is re-queried on every /version call below so drift that appears AFTER
-	// this successful startup is still visible without a restart.
+	// refuse to serve traffic when database is ahead of binary (DBAhead — stale binary incident).
+	// For BinaryAhead (binary ahead of database — pending migrations not yet applied), boot
+	// normally and report not-ready via /readyz, which re-checks on every call. Once pending
+	// migrations apply, /readyz recovers to healthy without a restart. This prevents crash-loop
+	// during normal deploy sequencing (migrate → start service → /readyz recovers).
+	// binaryMigrationVersion is captured here (not recomputed per request) because it is fixed
+	// for the life of this process; dbMigrationVersion is re-queried on every /version and
+	// /readyz call below so drift that appears AFTER this successful startup is still visible.
 	binaryMigrationVersion, err := migrationguard.BinaryVersion()
 	if err != nil {
 		pool.Close()
@@ -276,15 +276,31 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		pool.Close()
 		return nil, err
 	}
-	if _, err := migrationguard.Check(dbMigrationVersion, binaryMigrationVersion); err != nil {
-		if log != nil {
-			log.Error("migration_drift_detected",
-				slog.String("db_migration_version", dbMigrationVersion),
-				slog.String("binary_migration_version", binaryMigrationVersion),
-				slog.String("error", err.Error()))
+	status, err := migrationguard.Check(dbMigrationVersion, binaryMigrationVersion)
+	if err != nil {
+		// DBAhead (database ahead of binary) is fatal — the incident this guard prevents.
+		// Refuse to boot.
+		if status.DBAhead {
+			if log != nil {
+				log.Error("migration_drift_dbahead_fatal",
+					slog.String("db_migration_version", dbMigrationVersion),
+					slog.String("binary_migration_version", binaryMigrationVersion),
+					slog.String("error", err.Error()))
+			}
+			pool.Close()
+			return nil, err
 		}
-		pool.Close()
-		return nil, err
+		// BinaryAhead (binary ahead of database — pending migrations not yet applied) is
+		// transient during deploy. Log and boot anyway; /readyz will report not-ready.
+		if status.BinaryAhead {
+			if log != nil {
+				log.Info("migration_drift_binaryahead_transient",
+					slog.String("db_migration_version", dbMigrationVersion),
+					slog.String("binary_migration_version", binaryMigrationVersion),
+					slog.String("error", err.Error()))
+			}
+			// Continue to boot; /readyz will prevent traffic until migrations apply.
+		}
 	}
 
 	if err := platformpg.RegisterPoolMetrics(pool); err != nil && log != nil {
