@@ -25,10 +25,21 @@ type StageRunner interface {
 	Name() string
 }
 
-// CadenceStage pairs a stage with its lock salt (for advisory lock uniqueness).
+// CadenceStage pairs a stage with its lock salt (for advisory lock uniqueness)
+// and its effective per-run timeout.
 type CadenceStage struct {
 	stage    StageRunner
 	lockSalt int64
+
+	// timeout bounds a single run of the stage. It is derived at registration
+	// time (see defaultStageTimeout) so a periodic stage's timeout is always
+	// strictly less than its own cadence interval — a wedged stage times out
+	// and releases its advisory lock before the next tick would otherwise
+	// queue up behind it. A zero value means "no forced periodic deadline":
+	// this is used for continuous (long-running) stages, which must run
+	// until the parent context (process shutdown) cancels them, not on a
+	// fixed clock.
+	timeout time.Duration
 }
 
 // Supervisor orchestrates work stages across multiple cadence classes
@@ -67,6 +78,10 @@ func NewSupervisor(logger *slog.Logger, pool *pgxpool.Pool, queryTimeout time.Du
 }
 
 // RegisterContinuous registers stages that run continuously (e.g., event consumer).
+// Continuous stages are long-running by design (they block on a subscription
+// or stream) and are never force-timed-out on a clock the way a periodic
+// cadence stage is: their timeout is left at zero, so runStageOnce lets them
+// run until the parent (process shutdown) context cancels them.
 func (s *Supervisor) RegisterContinuous(name string, stages ...StageRunner) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -74,12 +89,17 @@ func (s *Supervisor) RegisterContinuous(name string, stages ...StageRunner) {
 		s.continuous = append(s.continuous, CadenceStage{
 			stage:    stage,
 			lockSalt: s.nextAvailableLockSalt,
+			timeout:  0, // no forced periodic deadline; long-running by design
 		})
 		s.nextAvailableLockSalt++
 	}
 }
 
 // RegisterCadence registers stages that run at a specific interval (e.g., every 15 minutes).
+// Each stage's per-run timeout is derived from the cadence interval (see
+// defaultStageTimeout) so it is always strictly less than the interval itself
+// — a wedged fast (1-minute) stage can no longer block its own cadence for
+// minutes on end the way a flat 5-minute floor previously allowed.
 func (s *Supervisor) RegisterCadence(name string, interval time.Duration, stages ...StageRunner) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -87,11 +107,13 @@ func (s *Supervisor) RegisterCadence(name string, interval time.Duration, stages
 		s.logger.Warn("cadence_already_registered", "cadence", name)
 		return
 	}
+	stageTimeout := defaultStageTimeout(interval, s.queryTimeout)
 	var cadenceStages []CadenceStage
 	for _, stage := range stages {
 		cadenceStages = append(cadenceStages, CadenceStage{
 			stage:    stage,
 			lockSalt: s.nextAvailableLockSalt,
+			timeout:  stageTimeout,
 		})
 		s.nextAvailableLockSalt++
 	}
@@ -99,6 +121,59 @@ func (s *Supervisor) RegisterCadence(name string, interval time.Duration, stages
 		Interval: interval,
 		Stages:   cadenceStages,
 	}
+}
+
+// defaultStageTimeout derives a sane per-run stage timeout for a cadence from
+// its tick interval and the shared query timeout. It scales naturally across
+// cadence classes without hardcoding cadence names:
+//
+//   - The timeout is capped at 90% of the interval, so a stage always times
+//     out (and releases its advisory lock) with headroom before the next
+//     tick — a "fast" (1m) cadence gets a timeout well under a minute, while
+//     "housekeeping" (24h) gets a timeout of many hours.
+//   - Within that cap, the target is the larger of twice the shared query
+//     timeout (room for at least a couple of round trips) and one quarter of
+//     the interval (so a generous cadence like "operational" or "generation"
+//     gets a stage budget proportional to its own tick, not just a multiple
+//     of a single query's timeout).
+//
+// A zero/negative interval (should not occur for a registered cadence) falls
+// back to twice the query timeout, or 1 second if that is also unset, so the
+// timeout is never zero/negative.
+func defaultStageTimeout(interval, queryTimeout time.Duration) time.Duration {
+	const minStageTimeout = 1 * time.Second
+
+	if interval <= 0 {
+		if queryTimeout > 0 {
+			return queryTimeout * 2
+		}
+		return minStageTimeout
+	}
+
+	timeoutCap := interval - interval/10 // 90% of interval; strictly < interval for interval > 0
+	if timeoutCap <= 0 {
+		timeoutCap = interval
+	}
+
+	target := queryTimeout * 2
+	if floor := interval / 4; floor > target {
+		target = floor
+	}
+	if target > timeoutCap {
+		target = timeoutCap
+	}
+	if target < minStageTimeout {
+		target = minStageTimeout
+	}
+	if target >= interval {
+		// Guard against rounding pushing target back up to/over the interval
+		// for very small intervals (e.g. sub-10ns test intervals).
+		target = interval - 1
+		if target <= 0 {
+			target = 1
+		}
+	}
+	return target
 }
 
 // Run starts the supervisor, orchestrating all registered stages and cadences
@@ -174,15 +249,21 @@ func (s *Supervisor) runCadence(ctx context.Context, cadenceName string, def Cad
 func (s *Supervisor) runStageOnce(ctx context.Context, cs CadenceStage) (retErr error) {
 	stage := cs.stage
 	lockSalt := cs.lockSalt
+	stageTimeout := cs.timeout
 
-	// Stage timeout: derive from the query timeout and add headroom.
-	// In a real implementation, cadences may have different timeout targets.
-	stageTimeout := s.queryTimeout * 2
-	if stageTimeout < 5*time.Minute {
-		stageTimeout = 5 * time.Minute
+	// A zero timeout means "no forced periodic deadline" — used for
+	// continuous (long-running) stages, which must keep running until the
+	// parent (process shutdown) context cancels them, not on a fixed clock.
+	// A periodic cadence stage always has a positive timeout assigned at
+	// registration (see defaultStageTimeout), strictly less than its own
+	// cadence interval.
+	var stageCtx context.Context
+	var cancel context.CancelFunc
+	if stageTimeout > 0 {
+		stageCtx, cancel = context.WithTimeout(ctx, stageTimeout)
+	} else {
+		stageCtx, cancel = context.WithCancel(ctx)
 	}
-
-	stageCtx, cancel := context.WithTimeout(ctx, stageTimeout)
 	defer cancel()
 
 	// Try to acquire the advisory lock. If another instance holds it,
@@ -226,7 +307,7 @@ func (s *Supervisor) runStageOnce(ctx context.Context, cs CadenceStage) (retErr 
 	}()
 
 	retErr = stage.Run(stageCtx)
-	if retErr != nil && errors.Is(retErr, context.DeadlineExceeded) {
+	if stageTimeout > 0 && retErr != nil && errors.Is(retErr, context.DeadlineExceeded) {
 		return fmt.Errorf("stage %q timeout (%v): %w", stage.Name(), stageTimeout, retErr)
 	}
 	return retErr

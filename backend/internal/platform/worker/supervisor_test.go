@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,8 +44,15 @@ func TestSupervisorPanicIsolation(t *testing.T) {
 	}
 }
 
-// TestSupervisorTimeoutIsolation verifies that a stage exceeding its timeout
-// does not kill sibling stages.
+// TestSupervisorTimeoutIsolation verifies that a stage which honors ctx
+// cancellation is actually canceled at its assigned deadline (returning
+// context.DeadlineExceeded), and that a sibling stage running concurrently
+// under its own lock/context is unaffected by the timed-out stage.
+//
+// The two stages are run directly via runStageOnce with explicit CadenceStage
+// timeouts (bypassing the cadence-interval-derived default), so the assertion
+// is deterministic and does not depend on tuning cadence intervals against a
+// wall-clock test window.
 func TestSupervisorTimeoutIsolation(t *testing.T) {
 	t.Parallel()
 	pgtest.SkipIfNoDocker(t)
@@ -55,23 +63,113 @@ func TestSupervisorTimeoutIsolation(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
-	s := NewSupervisor(logger, pool, 100*time.Millisecond)
+	s := NewSupervisor(logger, pool, 1*time.Second)
 
-	// Register a stage that sleeps longer than the timeout and a no-op stage.
-	slowStage := NewSlowStage(logger, "slow-stage", 500*time.Millisecond)
+	// slowStage honors ctx (see SlowStage.Run below) and sleeps far longer
+	// than the deadline it is given, so it must be canceled, not merely
+	// outrun by a longer test window.
+	slowStage := NewSlowStage(logger, "slow-stage", 2*time.Second)
 	noOpStage := NewNoOpStage(logger, "no-op-stage")
 
-	s.RegisterCadence("test", 100*time.Millisecond, slowStage, noOpStage)
+	slowCS := CadenceStage{stage: slowStage, lockSalt: 90101, timeout: 50 * time.Millisecond}
+	noOpCS := CadenceStage{stage: noOpStage, lockSalt: 90102, timeout: 5 * time.Second}
 
-	// Run the supervisor for a short time; slow-stage should timeout but no-op
-	// should still run.
-	runCtx, runCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer runCancel()
+	var slowErr, noOpErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		slowErr = s.runStageOnce(ctx, slowCS)
+	}()
+	go func() {
+		defer wg.Done()
+		noOpErr = s.runStageOnce(ctx, noOpCS)
+	}()
+	wg.Wait()
 
-	err := s.Run(runCtx)
-	// Expect context timeout, not a stage timeout panic.
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("supervisor returned unexpected error: %v", err)
+	if slowErr == nil || !errors.Is(slowErr, context.DeadlineExceeded) {
+		t.Fatalf("expected slow-stage to be canceled with context.DeadlineExceeded, got %v", slowErr)
+	}
+	if noOpErr != nil {
+		t.Fatalf("expected sibling no-op-stage to complete unaffected, got %v", noOpErr)
+	}
+}
+
+// TestDefaultStageTimeoutBoundedByCadenceInterval is a regression guard for
+// the U8 fix: a periodic stage's derived timeout must always be strictly less
+// than its own cadence interval. Before the fix, runStageOnce floored every
+// stage's timeout at 5 minutes (queryTimeout*2, min 5m), which exceeded the
+// 1-minute "fast" cadence interval — a wedged fast stage could block its own
+// cadence for minutes instead of timing out within it.
+func TestDefaultStageTimeoutBoundedByCadenceInterval(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		interval     time.Duration
+		queryTimeout time.Duration
+	}{
+		{"fast", 1 * time.Minute, 3 * time.Second},
+		{"operational", 15 * time.Minute, 3 * time.Second},
+		{"generation", 1 * time.Hour, 3 * time.Second},
+		{"housekeeping", 24 * time.Hour, 3 * time.Second},
+		{"sub-second-test-interval", 100 * time.Millisecond, 100 * time.Millisecond},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := defaultStageTimeout(tc.interval, tc.queryTimeout)
+			if got <= 0 {
+				t.Fatalf("expected a positive timeout, got %v", got)
+			}
+			if got >= tc.interval {
+				t.Fatalf("stage timeout %v must be strictly less than cadence interval %v", got, tc.interval)
+			}
+		})
+	}
+}
+
+// TestRegisterCadenceAssignsTimeoutBelowInterval verifies RegisterCadence
+// wires the derived timeout onto every stage in the cadence.
+func TestRegisterCadenceAssignsTimeoutBelowInterval(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	s := NewSupervisor(logger, nil, 3*time.Second)
+
+	s.RegisterCadence("fast", 1*time.Minute,
+		NewNoOpStage(logger, "outbox-relay"),
+		NewNoOpStage(logger, "notification-dispatcher"),
+	)
+
+	def, ok := s.cadences["fast"]
+	if !ok {
+		t.Fatalf("expected cadence %q to be registered", "fast")
+	}
+	if len(def.Stages) != 2 {
+		t.Fatalf("expected 2 stages, got %d", len(def.Stages))
+	}
+	for _, cs := range def.Stages {
+		if cs.timeout <= 0 || cs.timeout >= def.Interval {
+			t.Fatalf("stage %q timeout %v must be > 0 and < cadence interval %v", cs.stage.Name(), cs.timeout, def.Interval)
+		}
+	}
+}
+
+// TestRegisterContinuousHasNoForcedTimeout verifies continuous stages keep
+// their long-running semantics: no periodic force-timeout is assigned.
+func TestRegisterContinuousHasNoForcedTimeout(t *testing.T) {
+	t.Parallel()
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	s := NewSupervisor(logger, nil, 3*time.Second)
+
+	s.RegisterContinuous("event-consumer", NewNoOpStage(logger, "consumer"))
+
+	for _, cs := range s.continuous {
+		if cs.timeout != 0 {
+			t.Fatalf("continuous stage %q must not have a forced periodic timeout, got %v", cs.stage.Name(), cs.timeout)
+		}
 	}
 }
 
@@ -134,9 +232,19 @@ func NewSlowStage(logger *slog.Logger, name string, duration time.Duration) *Slo
 	return &SlowStage{logger: logger, name: name, duration: duration}
 }
 
+// Run honors ctx cancellation: it sleeps for the configured duration but
+// returns ctx.Err() immediately if the context is canceled or its deadline
+// is exceeded first. A stage that ignores ctx cannot be isolated by a
+// supervisor-imposed timeout, so this is required for the timeout-isolation
+// test to exercise real cancellation rather than merely being outrun by a
+// longer outer test deadline.
 func (s *SlowStage) Run(ctx context.Context) error {
-	<-time.After(s.duration)
-	return nil
+	select {
+	case <-time.After(s.duration):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (s *SlowStage) Name() string {
