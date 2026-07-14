@@ -45,10 +45,10 @@ echo "release=$release_id"
 
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-docker build --platform linux/amd64 -f backend/Dockerfile -t "$backend_image" .
+docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile -t "$backend_image" .
 docker push "$backend_image"
 
-docker build --platform linux/amd64 -f backend/Dockerfile.migrate -t "$migration_image" .
+docker build --platform linux/amd64 --build-arg GIT_SHA="$commit_sha" -f backend/Dockerfile.migrate -t "$migration_image" .
 docker push "$migration_image"
 
 docker build --platform linux/amd64 -f apps/admin-web/Dockerfile -t "$admin_web_image" .

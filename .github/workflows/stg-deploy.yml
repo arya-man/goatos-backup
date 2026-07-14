@@ -55,9 +55,9 @@ jobs:
             echo "ADMIN_WEB_IMAGE=${registry}/admin-web:${image_tag}"
           } >> "$GITHUB_ENV"
       - name: Build and push backend image
-        run: docker buildx build --platform linux/amd64 --push -f backend/Dockerfile -t "$BACKEND_IMAGE" .
+        run: docker buildx build --platform linux/amd64 --push --build-arg GIT_SHA=${{ github.sha }} -f backend/Dockerfile -t "$BACKEND_IMAGE" .
       - name: Build and push migration image
-        run: docker buildx build --platform linux/amd64 --push -f backend/Dockerfile.migrate -t "$MIGRATION_IMAGE" .
+        run: docker buildx build --platform linux/amd64 --push --build-arg GIT_SHA=${{ github.sha }} -f backend/Dockerfile.migrate -t "$MIGRATION_IMAGE" .
       - name: Build and push admin-web image
         run: docker buildx build --platform linux/amd64 --push -f apps/admin-web/Dockerfile -t "$ADMIN_WEB_IMAGE" .
       - name: Create Cloud Deploy release

@@ -1023,13 +1023,20 @@ Deploy flow:
 
 ```text
 1. Verify the exact SHA came from a merged same-repo main -> stg PR
-2. Build and push backend:<git-sha-12>
-3. Build and push migrate:<git-sha-12>
+2. Build and push backend:<git-sha-12> with --build-arg GIT_SHA=${{ github.sha }}
+3. Build and push migrate:<git-sha-12> with --build-arg GIT_SHA=${{ github.sha }}
 4. Build and push admin-web:<git-sha-12>
 5. Create the Cloud Deploy release
 6. Cloud Deploy updates migration/API/jobs/admin-web in the documented order
 7. Cloud Deploy verifies image skew and smokes the API/dashboard
 ```
+
+The `GIT_SHA` build-arg stamps the exact commit SHA into the backend api binary
+via ldflags (`-X github.com/vgoats/goatos/backend/internal/platform/buildinfo.SHA`).
+This allows the `/version` endpoint to report the real commit SHA instead of the
+default `unknown` value. See `docs/decisions/stale-binary-migration-drift-guard.md`
+for context. The migration image receives the same `GIT_SHA` for consistency, though
+it is not currently used in the Dockerfile.migrate build.
 
 The workflow skips a push only when the head commit message contains:
 
