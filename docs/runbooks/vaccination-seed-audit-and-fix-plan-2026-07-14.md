@@ -45,6 +45,26 @@ and `docs/preventive-care-vaccination/vaccination-rules.md`. **Do NOT** use V2's
   existing open work**.
 - **Recovery / delivery → reopen and reschedule automatically.**
 
+**Locked health/reproductive mapping (source-backed — Slack health flow "close if
+resolved / extend if disease persists", `context/source-findings/drive-docs-findings.md:357`):**
+
+| Source value | Canonical | Vaccination behavior |
+|---|---|---|
+| `Open` (active problem) | `sick` | defer |
+| `Extended` (disease persists) | `under_treatment` | defer |
+| `Closed` (resolved) | `healthy` | schedule normally |
+| ICU shed tag | `icu` | defer (overrides case status) |
+| Quarantine shed tag | `quarantine` | defer (overrides case status) |
+| `Pregnant`, month unknown | `pregnant` | schedule normally |
+| `Pregnant`, explicitly month 4–5 | pregnancy constraint | defer |
+
+`Closed` maps to `healthy`, NOT `recovering` — the source has no continuing
+"recovering" state; a resolved case is done. This recovers **health eligibility
+signals** (current health/reproductive fields), NOT the full health history —
+the source also carries problems / diagnoses / disease dates / medicine /
+delivery / abortion, which this importer does not load. Describe results as
+"242 health eligibility signals recovered", not "health histories".
+
 ### 6. Dynamic kernel behavior (recompute)
 Health / reproductive / stage / location rechecks are already wired
 (`backend/internal/vaccination/app/generation_handler.go:83`). Implementation
@@ -82,8 +102,19 @@ missing-anchor, NOT clinical/pregnancy.
 - A1. Reconcile **all 3,836 dated source facts with zero silent drops**; the 447
   FMD administrations must be retained and available to anchor FMD recurrence
   (do NOT invent a booster rule to hold them). Fix the branch at `:760`.
-- A2. Map health vocabulary: `Open/Closed/Extended` (+ any others) → the real
-  `health_status` domain at `:1794`; never silently NULL.
+  - **[P0] Reconcile against PERSISTED Postgres rows, not intended counts.** The
+    intended-row reconciliation runs before insert; inserts use
+    `ON CONFLICT DO NOTHING`, so a collision can silently discard a row while the
+    report still reads 3,836/3,836. The gate must compare the source dated facts
+    to the rows actually COMMITTED (and behave correctly on replay).
+  - **[P1] Count RAW dated cells BEFORE vaccine-header filtering.** Unrecognized
+    vaccine columns are filtered before dated cells are counted, so a renamed /
+    misspelled source header could vanish outside the denominator. Count raw
+    dated cells first and FAIL on any unknown vaccine header that carries a date.
+- A2. Map health vocabulary per the locked table in section 5: `Open→sick`,
+  `Extended→under_treatment`, `Closed→healthy` (NOT `recovering`), at `:1794`;
+  never silently NULL a populated source cell. This recovers **health
+  eligibility signals**, not full health history.
 - A3. Load `shed_tag` → clinical / reproductive / location signals (`ICU`,
   `Quarantine`, `Pregnant`, `Non-Pregnant`, `ICU-Kid`).
 - A4. Import `reproductive_status`.
@@ -107,16 +138,28 @@ missing-anchor, NOT clinical/pregnancy.
 - B8. Follow the APPROVED matrix, never V2's Crude-Version plan.
 
 ### C. Re-seed + re-verify (gates)
-- **3,836 source facts reconciled with zero silent drops** (FMD included);
+- **3,836 source facts reconciled with zero silent drops, verified against
+  COMMITTED Postgres rows** (not intended counts; correct on replay) — [P0];
+- **raw dated cells counted before vaccine-header filtering; any unknown header
+  carrying a date FAILS the gate** — [P1];
 - 0 new kid obligations generated for animals past the 16-wk start cutoff
   (in-course 20-wk finish allowed);
 - 0 obligations deferred for `missing_due_date` where any vaccination anchor
   exists (per-vaccine continuation applied);
 - FMD recurrence anchored to the latest administration + 9 months (spot-check
   `901007000503822`);
-- health / reproductive / shed-tag populated where the source provides them;
-- dynamic recompute proven (DOB/entry/history update → recompute + reopen);
+- health / reproductive / shed-tag populated where the source provides them
+  (Open→sick, Extended→under_treatment, Closed→healthy);
+- **dynamic behavior PROVEN with Postgres-backed tests, not just unit** — [P1]:
+  healthy→sick defers existing scheduled work; sick→recovered (Closed) reopens/
+  reschedules; pregnancy month 4–5 defers; delivery/gestation change reopens;
+  newly entered DOB / imported history recomputes + supersedes obsolete
+  obligations. (The DOB/entry-fix producer command may not exist yet — if so,
+  prove the history-triggered path and record the missing-producer as a tracked
+  follow-up, do not fake it.)
 - interval math, grain, coverage unchanged.
+- **Do NOT push/reseed until the generation implementation (B) is independently
+  reviewed and A's P0/P1 gates pass against a real Postgres seed.**
 
 ## Open data caveats
 - `procurement_hf_vaccination_evidence` has **0 rows** — the 498 procured
