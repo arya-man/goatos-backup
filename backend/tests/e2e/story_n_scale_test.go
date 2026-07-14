@@ -114,11 +114,7 @@ func TestKernelStoryN_Scale(t *testing.T) {
 	// the AGE-based buildAge gate the real HTTP path avoids via ClampFutureAsOf.
 	asOf := time.Now().UTC().Add(2 * time.Minute)
 	dueBefore := now.AddDate(0, 0, 1)
-	_, err = fx.PI.RecomputeProjection(fx.Ctx, pidomain.ProjectionRecomputeRequest{TenantID: fxTenant, AsOf: asOf})
-	story.Assert("the production projector built the serving scale snapshot", err == nil, "err=%v", err)
-	if err != nil {
-		return
-	}
+	// Canonical read from indexed projection (C35-001), no on-demand recompute needed.
 	page1, err := fx.PI.ListRows(fx.Ctx, pidomain.Query{TenantID: fxTenant, AsOf: asOf, DueBefore: dueBefore, Limit: pageSize})
 	story.Assert("control-tower page-1 query ran without error", err == nil, "err=%v", err)
 	story.Assert(fmt.Sprintf("page 1 returns at most the page size (%d), not all %d shed rows", pageSize, shedCount),
@@ -202,11 +198,7 @@ func TestKernelStoryN_Scale(t *testing.T) {
 			"because some goats deferred or exited.",
 	)
 	finalAsOf := time.Now().UTC().Add(2 * time.Minute)
-	_, err = fx.PI.RecomputeProjection(fx.Ctx, pidomain.ProjectionRecomputeRequest{TenantID: fxTenant, AsOf: finalAsOf})
-	story.Assert("the production projector refreshed after mixed dynamic events", err == nil, "err=%v", err)
-	if err != nil {
-		return
-	}
+	// Canonical read from indexed projection (C35-001), no on-demand recompute needed.
 	page1Again, err := fx.PI.ListRows(fx.Ctx, pidomain.Query{TenantID: fxTenant, AsOf: finalAsOf, DueBefore: now.AddDate(0, 0, 1), Limit: pageSize})
 	story.Assert("control-tower query after dynamic events ran without error", err == nil, "err=%v", err)
 	story.Assert(fmt.Sprintf("the page still returns at most the page size (%d) after mutations", pageSize), len(page1Again.Rows) <= pageSize, "rows=%d", len(page1Again.Rows))

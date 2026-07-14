@@ -153,10 +153,7 @@ func TestKernelStoryL_ProofVerifyRework(t *testing.T) {
 	// Live as-of a small margin past now (skew-safe, inside the freshness TTL); a now()+hours as-of
 	// would trip the AGE-based buildAge gate that the real HTTP path avoids via ClampFutureAsOf.
 	preAsOf := time.Now().UTC().Add(2 * time.Minute)
-	// Drive the real per-shed execution projector before reading it (without a serving version the
-	// read model is honestly "unavailable").
-	_, err = fx.VaccExec.RecomputeExecutionProjection(fx.Ctx, vaccexecdomain.ExecutionProjectionRecomputeRequest{TenantID: fxTenant, AsOf: preAsOf, DueBefore: now.AddDate(0, 0, 1)})
-	story.Assert("production vaccination-execution projector refreshed the serving version", err == nil, "err=%v", err)
+	// Canonical read: vaccination-execution is served from the indexed projection (C35-002), no on-demand recompute needed.
 	execRowsPre, err := fx.VaccExec.ListVaccinationExecution(fx.Ctx, vaccexecdomain.ExecutionQuery{TenantID: fxTenant, AsOf: preAsOf, DueBefore: now.AddDate(0, 0, 1), Limit: 10})
 	story.Assert("execution rollup query ran (post-reject)", err == nil, "err=%v", err)
 	story.Assert("coverage has NOT advanced after rejection (0 completed)", execCompletedForBatch(execRowsPre, batchID) == 0, "completed=%d", execCompletedForBatch(execRowsPre, batchID))

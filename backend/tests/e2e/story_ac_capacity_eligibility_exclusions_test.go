@@ -146,9 +146,7 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 // mutation at the exact business instant the story is asserting about.
 func shedRow(fx *Fixture, story *Story, shedID string, asOf time.Time) vaccexecdomain.ShedSummaryProjection {
 	fx.T.Helper()
-	if _, err := fx.VaccExec.RecomputeShedProjection(fx.Ctx, vaccexecdomain.ShedProjectionRecomputeRequest{TenantID: fxTenant, AsOf: asOf}); err != nil {
-		fx.T.Fatalf("RecomputeShedProjection: %v", err)
-	}
+	// Canonical read: vaccination-shed is served from the indexed projection (C35-002), no on-demand recompute needed.
 	id := shedID
 	rows, err := fx.VaccExec.ShedSummary(fx.Ctx, vaccexecdomain.ShedSummaryQuery{
 		TenantID: fxTenant, ShedID: &id, AsOf: asOf,
