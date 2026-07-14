@@ -39,11 +39,6 @@ const (
 	defaultQueryTimeout     = 3 * time.Second
 	defaultClosedHistoryAge = 14 * 24 * time.Hour
 	defaultExecutionHorizon = 30 * 24 * time.Hour
-	// Serving freshness TTL. Kept comfortably ABOVE the 5-minute projector refresh
-	// schedule so scheduler jitter or a nonzero build duration on one cycle still serves
-	// the last-known-good projection instead of flapping to a typed 503 in the gap between
-	// "prior version aged out" and "next build committed" (handoff P0-B mitigation).
-	maxVaccinationProjectionLiveLag = 7 * time.Minute
 )
 
 type Repository struct {
@@ -217,9 +212,6 @@ func scanExecutionProjectionPage(rows pgx.Rows, limit int) (domain.ExecutionProj
 	}
 	return domain.ExecutionProjectionPage{Rows: out, TotalCount: totalCount, NextCursor: next}, nil
 }
-
-const executionProjectionBuildRowBudget = 1_000_000
-
 
 // VaccinationOperations returns one row per cohort (park · shed · stage) × vaccination protocol, with the
 // cohort headcount, age band, earliest open due date, and the latest ACCEPTED administered_at as last_dose.
@@ -431,38 +423,6 @@ func int32Ptr(v pgtype.Int4) *int32 {
 	return &i
 }
 
-
-// NOTE(scale, C35-020 follow-up): total_count is an exact filtered COUNT(*) OVER() over the
-// matched set before the keyset+LIMIT, so each page scans the full filtered slice. This is
-// bounded because vaccination_execution_projection_rows is a PRE-AGGREGATED projection grouped by
-// (park,shed,batch_id,rule_id,protocol_name,dose_code) — cardinality is shed x open-batch x
-// protocol x dose (thousands per tenant), NOT per-animal/per-obligation (millions) like the
-// process-integrity rows that earned the dedicated COUNT-before-LIMIT guard. It is the same
-// accepted class as the shed read's COUNT(*) OVER(). An exact FILTERED total cannot be
-// precomputed for arbitrary park/shed/state/severity combos; making it truly O(page) requires
-// dropping the exact total for keyset has_more (LIMIT+1 already fetched) — a response-contract
-// change tracked as a follow-up, not shipped here.
-const vaccinationExecutionProjectionReadSQL = `
-WITH filtered AS (
-  SELECT rows.*, COUNT(*) OVER()::bigint AS total_count
-  FROM vaccination_execution_projection_rows rows
-  WHERE tenant_id=$1::uuid AND projection_version=$2::bigint
-    AND ($3::text='' OR park_id=$3::text)
-    AND ($4::text='' OR shed_id=$4::text)
-    AND ($5::text='' OR work_state=$5::text)
-    AND ($6::text='' OR severity=$6::text)
-)
-SELECT park_id, park_name, shed_id, shed_name, animal_stage, batch_id, protocol_name, dose_code,
-  due_at, obligation_count, scheduled_count, due_count, in_progress_count, completed_count,
-  missed_count, deferred_count, canceled_count, completion_recorded, completion_accepted,
-  completion_rejected, completion_reversed, batch_status, task_state, operator_name, park_head_name,
-  verifier_name, usable_for_vaccination, is_quarantine, is_icu, health_deferred_count, obligation_id,
-  sop_task_id, sop_version_id, sop_task_row_version, completion_id, work_state, total_count,
-  sort_rank, sort_due_micros, sort_row_key
-FROM filtered
-WHERE NOT $7::boolean OR (sort_rank,sort_due_micros,sort_row_key) > ($8::int,$9::bigint,$10::text)
-ORDER BY sort_rank,sort_due_micros,sort_row_key
-LIMIT ($11::int+1);`
 
 // vaccinationExecutionSQL is point-in-time correct as of $7 (as_of): completions are bounded by as_of and
 // the obligation bucket is reconstructed AT as_of (completed via completed_at/as_of-bounded completion;
@@ -871,64 +831,6 @@ ORDER BY grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key
 LIMIT ($5::int + 1);
 `
 
-func (r *Repository) servingOperationsProjection(ctx context.Context, tenantID string, asOf, dueBefore time.Time, historical bool) (int64, *domain.ProjectionFreshness, bool) {
-	var version int64
-	var projectedAt, projectedAsOf time.Time
-	var status string
-	err := r.pool.QueryRow(ctx, `SELECT serving_projection_version,projected_at,as_of,freshness_status
-FROM vaccination_operations_projection_state
-WHERE tenant_id=$1::uuid AND serving_projection_version IS NOT NULL
-  AND serving_state = 'fresh'
-  AND freshness_status = 'green'
-  AND (($4::boolean AND as_of=$2 AND due_before=$3) OR
-       (NOT $4::boolean AND as_of<=$2 AND $2::timestamptz-as_of<=$5::interval
-        AND (as_of AT TIME ZONE 'Asia/Kolkata')::date=($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
-        AND (due_before AT TIME ZONE 'Asia/Kolkata')::date=($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date))`,
-		tenantID, asOf, dueBefore, historical, maxVaccinationProjectionLiveLag.String()).Scan(&version, &projectedAt, &projectedAsOf, &status)
-	if err != nil || version <= 0 {
-		return 0, nil, false
-	}
-	lag := asOf.Sub(projectedAsOf)
-	if lag < 0 {
-		lag = 0
-	}
-	return version, &domain.ProjectionFreshness{ProjectionVersion: version, ProjectedAt: projectedAt, AsOf: projectedAsOf, Status: status, LagSeconds: int64(lag.Seconds())}, true
-}
-
-const vaccinationOperationsProjectionReadSQL = `
-WITH cursor_location AS (
-  SELECT COALESCE(NULLIF($9::text,''),park_name) park_name,
-         COALESCE(NULLIF($10::text,''),shed_name) shed_name
-  FROM vaccination_operations_projection_rows
-  WHERE tenant_id=$1::uuid AND projection_version=$2::bigint
-    AND park_id=NULLIF($5::text,'') AND shed_id=NULLIF($6::text,'')
-  LIMIT 1
-), cohort_page AS (
-  SELECT park_id,park_name,shed_id,shed_name,stage
-  FROM vaccination_operations_projection_rows
-  WHERE tenant_id=$1::uuid AND projection_version=$2::bigint
-    AND ($3::text='' OR park_id=$3) AND ($4::text='' OR shed_id=$4)
-    AND ($5::text='' OR (
-      lower(park_name) COLLATE "C",park_name COLLATE "C",park_id,
-      lower(shed_name) COLLATE "C",shed_name COLLATE "C",shed_id,stage COLLATE "C") > (
-      SELECT lower(cursor_location.park_name) COLLATE "C",cursor_location.park_name COLLATE "C",$5,
-             lower(cursor_location.shed_name) COLLATE "C",cursor_location.shed_name COLLATE "C",$6,$7 COLLATE "C"
-      FROM cursor_location))
-  GROUP BY park_id,park_name,shed_id,shed_name,stage
-  ORDER BY lower(park_name) COLLATE "C",park_name COLLATE "C",park_id,
-    lower(shed_name) COLLATE "C",shed_name COLLATE "C",shed_id,stage COLLATE "C"
-  LIMIT $8
-)
-SELECT rows.park_id,rows.park_name,rows.shed_id,rows.shed_name,rows.stage,rows.age_band,
-  rows.protocol_id,rows.protocol_name,rows.animals,rows.next_due,rows.last_dose,rows.overdue_count,
-  rows.due_count,rows.in_progress_count,rows.scheduled_count,rows.missed_count,rows.deferred_count,
-  rows.accepted_count,rows.proof_pending_count,rows.rejected_count,rows.total_count
-FROM vaccination_operations_projection_rows rows JOIN cohort_page page
-  USING (park_id,park_name,shed_id,shed_name,stage)
-WHERE rows.tenant_id=$1::uuid AND rows.projection_version=$2::bigint
-ORDER BY lower(rows.park_name) COLLATE "C",rows.park_name COLLATE "C",rows.park_id,
-  lower(rows.shed_name) COLLATE "C",rows.shed_name COLLATE "C",rows.shed_id,rows.stage COLLATE "C",
-  rows.protocol_name COLLATE "C",rows.protocol_id;`
 
 // vaccinationOperationsSQL is point-in-time correct as of $2 (as_of). It does NOT bucket off the stored
 // obligation_instances.status (which is the state NOW); it reconstructs the state the obligation had AT
@@ -1573,8 +1475,8 @@ func (r *Repository) CapacityConfig(ctx context.Context, tenantID string) (domai
 // (shedSummaryCanonicalReadSQL) reconstructed point-in-time as of q.AsOf. A canonical read cannot be
 // stale relative to the canonical write, so the serving-projection freshness gate and per-shed shard
 // staleness gate (and their read-through-vs-503 failure mode) are removed. The
-// vaccination_shed_projection_rows read model + RecomputeShedProjection projector remain in the tree as
-// additive read-through infrastructure for a later scale-out step (they no longer gate this read).
+// vaccination_shed_projection_rows/_state/_shard_state read model and its projector were dropped
+// (migrations 000187/000188); this canonical read is now the only serving path for GET /vaccination/sheds.
 // Shed rows are bounded (a tenant has at most a few hundred sheds), so the god-CTE + COUNT(*) OVER() +
 // LIMIT/OFFSET stays scale-safe within this envelope; the driving obligation_instances scan is
 // tenant/status/due-indexed and query-plan-tested (canonical_read_plan_test.go). Freshness is nil.
@@ -1582,10 +1484,9 @@ func (r *Repository) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery)
 	return r.listShedCanonical(ctx, q)
 }
 
-// listShedCanonical runs the shed-wise rollup straight from canonical tables (no projection read model),
-// reconstructing each shed's Due/Done/session-split state as of q.AsOf via shedSummaryCanonicalReadSQL.
-// It mirrors listShedProjection's limit/offset clamps and scan shape; the difference is the data source
-// (canonical obligation/goat/capacity history rather than vaccination_shed_projection_rows).
+// listShedCanonical runs the shed-wise rollup straight from canonical tables. The prior projection
+// read model (vaccination_shed_projection_rows/_state/_shard_state) and its projector were dropped
+// (migrations 000187/000188); this is now the only serving path, not a fallback alongside it.
 func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummaryQuery) ([]domain.ShedSummaryProjection, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -1647,13 +1548,12 @@ func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummary
 // shedSummaryCanonicalReadSQL is the 5k-50k-envelope request-path read for GET /vaccination/sheds. It
 // reconstructs each shed's animal-level Due/Done rollup and the session-split planner outputs
 // (Sessions/Capacity/merged Status) straight from canonical obligation/goat/capacity history AS OF $2
-// (as_of), then applies the request's park/shed/search/status/capacity filters and sort/offset page. It
-// replays the SAME alive/completions/asof_terminal/raw/effective/due_agg/shed_rows/scored/classified
-// chain as vaccinationShedProjectionInsertSQL (the projector) and canonicalShedSummarySQLForParity (the
-// parity test), so the direct read, the projector, and the independent parity query all agree row for
-// row. Params: $1 tenant, $2 as_of, $3 due_before, $4 max_per_day, $5 max_buffer_days, then $6 park_id,
-// $7 shed_id, $8 search, $9 shed_status, $10 capacity_status, $11 limit, $12 offset. __ORDER_BY__ is
-// substituted from a closed whitelist in Go (shedSummaryOrderBy).
+// (as_of), then applies the request's park/shed/search/status/capacity filters and sort/offset page. This
+// is now the ONLY serving path for the shed rollup; the former projector (vaccinationShedProjectionInsertSQL)
+// and its parity test were removed with the dropped vaccination_shed_projection_* tables
+// (migrations 000187/000188). Params: $1 tenant, $2 as_of, $3 due_before, $4 max_per_day, $5
+// max_buffer_days, then $6 park_id, $7 shed_id, $8 search, $9 shed_status, $10 capacity_status, $11
+// limit, $12 offset. __ORDER_BY__ is substituted from a closed whitelist in Go (shedSummaryOrderBy).
 //
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — shed rows are bounded (a few hundred sheds/tenant), driving obligation_instances scan is tenant/status/due-indexed and query-plan-tested (canonical_read_plan_test.go). Keyset replacement for the offset page is tracked as C35-020.
 const shedSummaryCanonicalReadSQL = `

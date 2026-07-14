@@ -134,19 +134,18 @@ func TestKernelStoryAC_CapacityEligibilityExclusions(t *testing.T) {
 	story.Assert("gHeld stays clinically held/excluded — recovery is per-goat", heldStillDeferred == 2, "gHeld deferred=%d", heldStillDeferred)
 }
 
-// shedRow reads exactly one shed's ShedSummary projection (open_cells + capacity classification) from the
+// shedRow reads exactly one shed's ShedSummary row (open_cells + capacity classification) from the
 // real read model as of asOf, failing the story if the shed is not found. It targets the repository
 // (not the app Service) so the story exercises the capacity SQL without the cross-module ownership read.
 //
-// C35-002: ShedSummary now serves exclusively from the vaccination-shed projection (an indexed
-// projection_version lookup), never a live compute-on-read god-CTE. Production keeps that projection
-// fresh via the periodic vaccination-shed-projection-recompute job; this story forces a synchronous
-// RecomputeShedProjection (the same production projector, called directly like fx.PI.RecomputeProjection
-// elsewhere in this suite) immediately before each read so the projection reflects the fixture's latest
-// mutation at the exact business instant the story is asserting about.
+// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): ShedSummary now serves
+// directly from canonical obligation/goat/capacity tables reconstructed AS OF asOf, never a projection
+// read model. The former vaccination-shed projection and its recompute job were dropped (migrations
+// 000187/000188), so this helper needs no synchronous recompute before each read — the canonical read
+// reflects the fixture's latest mutation at the exact business instant the story is asserting about.
 func shedRow(fx *Fixture, story *Story, shedID string, asOf time.Time) vaccexecdomain.ShedSummaryProjection {
 	fx.T.Helper()
-	// Canonical read: vaccination-shed is served from the indexed projection (C35-002), no on-demand recompute needed.
+	// Canonical read: vaccination-shed is served directly from canonical tables (5k-50k envelope), no projection or on-demand recompute involved.
 	id := shedID
 	rows, err := fx.VaccExec.ShedSummary(fx.Ctx, vaccexecdomain.ShedSummaryQuery{
 		TenantID: fxTenant, ShedID: &id, AsOf: asOf,

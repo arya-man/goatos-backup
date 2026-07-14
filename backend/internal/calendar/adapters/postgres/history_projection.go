@@ -21,9 +21,12 @@ import (
 // accepted vaccination history from vaccination_completions/obligation_instances/protocol_* on every
 // request (repository.go). The request path now serves history exclusively from this indexed,
 // tenant + serving-version scoped projection. RecomputeVaccinationHistoryProjection is the only
-// writer. See docs/decisions/high-scale-dashboard-projections.md (Serving-Read Freshness Contract)
-// and the sibling vaccinationexecution/adapters/postgres/shed_projection.go, whose advisory-lock /
-// version-stamp / insert / state-upsert / bounded-prune / mark-failed-on-error shape this file mirrors.
+// writer. See docs/decisions/high-scale-dashboard-projections.md (Serving-Read Freshness Contract).
+// The sibling vaccination-shed projector this file's advisory-lock / version-stamp / insert /
+// state-upsert / bounded-prune / mark-failed-on-error shape used to mirror was removed along with
+// the dropped vaccination_shed_projection_* tables (migrations 000187/000188, docs/decisions/
+// operational-kernel-5k-50k-scale-envelope.md); this Calendar history projection is a SURVIVING
+// projection, not retired by that ADR.
 
 const (
 	// defaultHistoryProjectionFresh bounds how old calendar_history_projection_state.projected_at may
@@ -333,8 +336,7 @@ WHERE tenant_id = $1::uuid
 // (repository.go), plus the exact detail jsonb that calendarCompletedHistoryDetailSQL used to build --
 // so projected rows are byte-parity with the old live query's output, just computed off the request
 // path. Keeping this textually independent from repository.go's read-side SQL (rather than sharing a
-// Go string fragment) mirrors how vaccinationexecution's vaccinationShedProjectionInsertSQL stays
-// independent of ShedSummary's read SQL: this file can never accidentally change a live read path.
+// Go string fragment) means this file can never accidentally change a live read path.
 // scale-guard:ignore: off-request projector recompute only (RecomputeVaccinationHistoryProjection); this replays the canonical join once per run, not on the request path.
 const calendarHistoryProjectionInsertSQL = `
 WITH grouped AS (

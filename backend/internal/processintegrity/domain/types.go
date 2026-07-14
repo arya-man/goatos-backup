@@ -200,21 +200,6 @@ type Query struct {
 	IncludeAdherenceSummary bool
 }
 
-type ProjectionRecomputeRequest struct {
-	TenantID string
-	AsOf     time.Time
-}
-
-type ProjectionRecomputeResult struct {
-	TenantID           string
-	ProjectionVersion  int64
-	ProjectedAt        time.Time
-	AsOf               time.Time
-	Rows               int64
-	CountsByWorkState  []CountByWorkState
-	ProjectionFreshFor time.Duration
-}
-
 type Cursor struct {
 	SortPriority int
 	DueAt        time.Time

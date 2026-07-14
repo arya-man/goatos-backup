@@ -9,9 +9,9 @@ import (
 )
 
 // PlanSessions splits a shed's open vaccination CELLS across consecutive days at the daily cap. It is the
-// single source of truth for the shed-detail per-day plan; vaccinationShedProjectionInsertSQL
-// (shed_projection.go) mirrors its sessions-count and capacity classification in SQL so the projected
-// list row and the re-planned detail page agree.
+// single source of truth for the shed-detail per-day plan; shedSummaryCanonicalReadSQL
+// (adapters/postgres/repository.go) mirrors its sessions-count and capacity classification in SQL so the
+// shed-list row and the re-planned detail page agree.
 //
 //	sessions    = ceil(cells / cap)                 (0 when there are no open cells)
 //	allowedDays = maxBufferDays + 1                  (the due day plus the buffer)

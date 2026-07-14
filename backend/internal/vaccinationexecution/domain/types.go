@@ -456,8 +456,9 @@ type CoverageResponse struct {
 //             (see the shed-due predicate below).
 //   Done    = Animals - Due (identity always holds; Due + Done == Animals).
 //
-// Shed-due predicate (the ONE place the animal-level "still needs work" rule is defined; mirrored in
-// vaccinationShedProjectionInsertSQL, the projector's replay of this logic -- see shed_projection.go).
+// Shed-due predicate (the ONE place the animal-level "still needs work" rule is defined; implemented
+// directly in shedSummaryCanonicalReadSQL -- see repository.go. The prior projector's replay of this
+// logic, vaccinationShedProjectionInsertSQL, was removed with the dropped projection tables).
 // An animal is DUE if, reconstructed as-of, it has at least one vaccination obligation
 // whose effective status is one of {overdue, due, in_progress} OR whose completion sub-state is one of
 // {recorded (proof pending), rejected (rework)}. NOT due: future 'scheduled', 'completed'+accepted,
@@ -472,8 +473,9 @@ type CoverageResponse struct {
 //
 // This is the INTERNAL machine vocabulary; the CEO UI renders the backend-provided label (never the raw
 // token, never the word "state"). "within_cap" never appears here — a shed that fits in one day falls
-// through to its vaccination status. Derived (mirrored in vaccinationShedProjectionInsertSQL, the
-// projector's replay of this logic -- see shed_projection.go), not stored.
+// through to its vaccination status. Derived directly in shedSummaryCanonicalReadSQL (see
+// repository.go), not stored; the prior projector's replay of this logic was removed with the
+// dropped projection tables.
 type ShedStatus string
 
 const (

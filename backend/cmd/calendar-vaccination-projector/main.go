@@ -91,11 +91,10 @@ func run(args []string) error {
 		count, pruned, cfg.TenantID, cfg.DateFrom.Format(time.RFC3339), cfg.DateTo.Format(time.RFC3339))
 
 	if cfg.ProjectHistory {
-		// RecomputeVaccinationHistoryProjection is called directly on the concrete repository (not
-		// through calendarapp.Service/ports.Repository), mirroring how
-		// vaccination-shed-projection-recompute calls vaccinationexecution's RecomputeShedProjection
-		// directly. Bootstrap/repair remains a full recompute of the requested window; zero-value
-		// dates let the projector derive its own now-400d..now+1d default window.
+		// RecomputeVaccinationHistoryProjection is called directly on the concrete repository, not
+		// through calendarapp.Service/ports.Repository. Bootstrap/repair remains a full recompute of
+		// the requested window; zero-value dates let the projector derive its own now-400d..now+1d
+		// default window.
 		historyRows, historyErr := repo.RecomputeVaccinationHistoryProjection(ctx, ports.RefreshVaccinationHistoryProjection{
 			TenantID: cfg.TenantID,
 			DateFrom: cfg.HistoryDateFrom,

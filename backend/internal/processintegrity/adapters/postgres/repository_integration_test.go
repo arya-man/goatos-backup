@@ -477,7 +477,8 @@ func TestProcessIntegrityRequestPathReadsCanonicalWithoutProjection(t *testing.T
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	// Seeds canonical source rows only; deliberately never calls RecomputeProjection.
+	// Seeds canonical source rows only; there is no projection recompute path anymore (the
+	// process_integrity_projection_* tables and projector were dropped, migrations 000187/000188).
 	seedProcessIntegrityProjection(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
@@ -521,22 +522,12 @@ func TestProcessIntegrityRequestPathReadsCanonicalWithoutProjection(t *testing.T
 	}
 }
 
-func TestProcessIntegrityProjectionInsertSQLUpsertsRows(t *testing.T) {
-	if !strings.Contains(processIntegrityProjectionInsertSQL, "ON CONFLICT (tenant_id, projection_version, row_id) DO UPDATE") {
-		t.Fatal("projection insert SQL must upsert by tenant/version/row so recompute builds a new serving generation before flipping")
-	}
-}
-
-func TestProcessIntegrityHotRowsDoNotComputeWindowTotalAndSummariesUseBusinessDayGrain(t *testing.T) {
+func TestProcessIntegrityCanonicalHotRowsDoNotComputeWindowTotal(t *testing.T) {
 	// The canonical LIST page must not force a full filtered scan for a window total; the total comes from
 	// the separate bounded aggregate, never a COUNT(*) OVER on the page.
 	upperCanonical := strings.ToUpper(processIntegrityCanonicalRowsSQL)
 	if strings.Contains(upperCanonical, "COUNT(*) OVER") || strings.Contains(upperCanonical, "COUNT(1) OVER") {
 		t.Fatal("canonical hot row page must not force a full filtered scan for a window total")
-	}
-	if !strings.Contains(processIntegrityProjectionSummaryInsertSQL, "due_business_date") ||
-		!strings.Contains(processIntegrityProjectionSummaryInsertSQL, "AT TIME ZONE 'Asia/Kolkata'") {
-		t.Fatal("summary projector must collapse due timestamps to the IST business-date grain")
 	}
 }
 
