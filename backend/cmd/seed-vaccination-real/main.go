@@ -81,6 +81,7 @@ type goatRecord struct {
 	OldIDSuffix    string
 	Farm           string
 	Shed           string
+	ShedTag        string // clinical/reproductive/location signal (Fix Plan A3/A4): ICU, ICU-Kid, Quarantine kids, Pregnant, Non-Pregnant, etc.
 	Stage          string
 	Age            string
 	Breed          string
@@ -91,7 +92,7 @@ type goatRecord struct {
 	OriginType     string
 	Species        string
 	Status         string
-	Health         string
+	Health         string // source health_status case-log column (Fix Plan A2): Open/Closed/Extended, or a healthy/sick/... value
 }
 
 // vaccCell is one goat x vaccine x dose spreadsheet cell.
@@ -115,11 +116,21 @@ type stats struct {
 	CompletionsHistory int         // vaccination_completions rows (accepted doses)
 	PendingSource      int         // "Pending" source signals delegated to kernel generation
 	Scheduled          int         // future -> scheduled obligations
-	Skipped            int         // NA / blank cells
+	Skipped            int         // NA / blank cells, or a dated cell that failed date parsing
 	KernelGenerated    int         // kernel-generated open obligations
 	KernelDeferred     int         // kernel-deferred obligations
 	KernelSuppressed   int         // kernel-suppressed (already completed) obligations
 	Purged             purgeCounts // synthetic fixtures removed
+
+	// Fix Plan A1 — explicit, non-silent accounting for every dated (non-blank/NA/Pending)
+	// source cell. Every dated fact must land in exactly one bucket: Completed, Scheduled,
+	// or one of the four below. reconcileDatedFacts asserts the totals add up so nothing is
+	// ever dropped without an explicit, reported reason.
+	LaterAdministrationsReconciled int // sheet "Booster" cell for a single+repeat vaccine (FMD, HS) reconciled onto the vaccine's one wave as a later recorded administration, NOT a fabricated booster rule. Counted within Completed/Scheduled.
+	UnresolvedDatedFacts           int // dated cell whose vaccine/dose could not resolve to any configured rule (expected zero for the current matrix)
+	LifecycleExcludedDatedFacts    int // dated cell for a future dose on a goat excluded from new open work by lifecycle (dead/sold/lost/...)
+	GoatNotPlacedDatedFacts        int // dated cell for an animal key with no shed placement / not in the herd sheet
+	VaccineUnrecognizedDatedFacts  int // dated cell under a vaccine header not present in the seeded matrix
 }
 
 type oblIns struct {
@@ -241,6 +252,7 @@ func loadGoats(sourcePath string) ([]goatRecord, error) {
 			OldIDSuffix:    cell(row, col["old_id_suffix"]),
 			Farm:           cell(row, col["farm"]),
 			Shed:           cell(row, col["shed"]),
+			ShedTag:        cell(row, col["shed_tag"]),
 			Stage:          cell(row, col["stage"]),
 			Age:            cell(row, col["age"]),
 			Breed:          cell(row, col["breed"]),
@@ -600,6 +612,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
 		entryDate                                                                                                                                     string
 		health                                                                                                                                        *string
+		reproductiveStatus                                                                                                                            *string
 	}
 	var goatRows []goatIns
 	for _, g := range goats {
@@ -654,24 +667,30 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			originType:        normalizeOriginType(g.OriginType),
 			stage:             normalizeStage(g.Stage, g.Age),
 			age:               g.Age,
-			health:            normalizeHealth(g.Health),
-			shedID:            shedID,
-			parkID:            parkID,
-			dob:               g.DOB,
-			entryDate:         entryDateValue,
+			// health precedence: shed_tag reflects where the goat is housed RIGHT NOW
+			// (e.g. still in the ICU/quarantine shed), a stronger and more current
+			// clinical signal than a closed/extended historical case-log entry, so it
+			// wins over the health_status column when both are present (Fix Plan A2/A3).
+			health:             resolveGoatHealth(g.Health, g.ShedTag),
+			reproductiveStatus: resolveGoatReproductiveStatus(g.ShedTag),
+			shedID:             shedID,
+			parkID:             parkID,
+			dob:                g.DOB,
+			entryDate:          entryDateValue,
 		})
 	}
 	if err := batch(ctx, tx, goatRows, 500, func(b *pgx.Batch, gi goatIns) {
 		b.Queue(`
 				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
-					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, updated_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,now())
+					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17,now())
 				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, breed_id=EXCLUDED.breed_id, sex=EXCLUDED.sex,
 					lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
 					shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
-					management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date, updated_at=now()`,
+					management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date,
+					reproductive_status=EXCLUDED.reproductive_status, updated_at=now()`,
 			gi.goatID, tenantID, gi.species, gi.breed, nullString(gi.breedID), gi.sex, gi.lifecycle, gi.health, nullString(gi.originType),
-			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID)
+			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID, gi.reproductiveStatus)
 	}); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
 	}
@@ -708,71 +727,29 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	vaccMatrixDef := buildCanonicalVaccinationMatrix()
 
 	for _, c := range cells {
+		// A dated fact is any cell that is neither blank/NA (nothing recorded) nor
+		// "Pending" (explicit non-administration evidence owned by the kernel). Fix
+		// Plan A1 requires every one of these 3,836 cells to be reconciled — imported
+		// or explicitly, non-silently classified — never dropped without a reason.
+		val := strings.TrimSpace(c.Value)
+		isDatedFact := val != "" && !strings.EqualFold(val, "NA") && !strings.EqualFold(val, "Pending")
+
 		goatID, ok := goatIDByAnimalKey[c.AnimalKey]
 		if !ok {
+			if isDatedFact {
+				st.GoatNotPlacedDatedFacts++
+			}
 			continue // goat not placed (no shed) or not in herd sheet
 		}
 		versionID, ok := versionByVaccine[c.Vaccine]
 		if !ok {
+			if isDatedFact {
+				st.VaccineUnrecognizedDatedFacts++
+			}
 			continue
 		}
 		def := vaccines[c.Vaccine]
 
-		// Resolve goat's schedule path (kid vs adult)
-		path := schedulePathForGoat(
-			goatOriginTypeByAnimalKey[c.AnimalKey],
-			goatDOBByAnimalKey[c.AnimalKey],
-			goatStageByAnimalKey[c.AnimalKey],
-			goatEntryDateByAnimalKey[c.AnimalKey],
-			now,
-		)
-
-		// Map sheet dose to actual rule based on schedule path
-		var doseCodeForPath string
-		spec := vaccMatrixDef[c.Vaccine]
-
-		if path == "kid" {
-			// Map sheet First/Booster to birth_age waves
-			if c.DoseCode == "first" && len(spec.BirthAgeWaves) > 0 {
-				doseCodeForPath = spec.BirthAgeWaves[0].DoseCode
-			} else if c.DoseCode == "booster" && len(spec.BirthAgeWaves) > 1 {
-				doseCodeForPath = spec.BirthAgeWaves[1].DoseCode
-			} else if c.DoseCode == "first" {
-				doseCodeForPath = spec.BirthAgeWaves[0].DoseCode
-			} else {
-				st.Skipped++
-				continue
-			}
-		} else {
-			// Adult path: map sheet First/Booster to post_arrival waves
-			if c.DoseCode == "first" && len(spec.PostArrivalWaves) > 0 {
-				doseCodeForPath = def.Code + "_adult_w1"
-			} else if c.DoseCode == "booster" && len(spec.PostArrivalWaves) > 1 {
-				doseCodeForPath = def.Code + "_adult_w2"
-			} else if c.DoseCode == "first" {
-				doseCodeForPath = def.Code + "_adult_w1"
-			} else {
-				st.Skipped++
-				continue
-			}
-		}
-
-		ruleID := ruleByDoseCode[doseCodeForPath]
-		if ruleID == "" {
-			st.Skipped++
-			continue
-		}
-
-		oblID := detUUID("obligation", tenantID, c.AnimalKey, def.Code, doseCodeForPath)
-		oblIdem := "vacc-real-obl:" + c.AnimalKey + ":" + def.Code + ":" + doseCodeForPath
-		scopeType, scopeID := seedObligationScope(tenantID, goatParkByAnimalKey[c.AnimalKey], goatShedByAnimalKey[c.AnimalKey])
-
-		// Open (scheduled/due) vaccination obligations are blocked by the procurement
-		// exclusion guard for goats that are dead/sold/lost/culled/transferred/merged/inactive.
-		// Completed history is still allowed for those goats.
-		openEligible := !excludedLifecycle(goatLifecycleByAnimalKey[c.AnimalKey])
-
-		val := strings.TrimSpace(c.Value)
 		switch {
 		case val == "" || strings.EqualFold(val, "NA"):
 			st.Skipped++
@@ -785,64 +762,113 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			// idempotency keys.
 			st.PendingSource++
 			continue
-		default:
-			d, err := time.ParseInLocation("2006-01-02", val, loc)
-			if err != nil {
+		}
+
+		d, err := time.ParseInLocation("2006-01-02", val, loc)
+		if err != nil {
+			st.Skipped++
+			st.UnresolvedDatedFacts++
+			continue
+		}
+
+		// Resolve goat's schedule path (kid vs adult), then map the sheet dose to the
+		// rule's dose code. For a single+repeat vaccine (FMD, HS: one wave per path —
+		// never a fabricated booster rule), a sheet "Booster" cell resolves to the
+		// SAME wave as a later recorded administration (Fix Plan A1) so the fact is
+		// retained and available to anchor recurrence, instead of being silently
+		// dropped as unmapped.
+		path := schedulePathForGoat(
+			goatOriginTypeByAnimalKey[c.AnimalKey],
+			goatDOBByAnimalKey[c.AnimalKey],
+			goatStageByAnimalKey[c.AnimalKey],
+			goatEntryDateByAnimalKey[c.AnimalKey],
+			now,
+		)
+		doseCodeForPath, laterAdministration := mapSheetDoseToRuleCode(c.Vaccine, c.DoseCode, path, vaccMatrixDef)
+		if doseCodeForPath == "" {
+			st.Skipped++
+			st.UnresolvedDatedFacts++
+			continue
+		}
+
+		ruleID := ruleByDoseCode[doseCodeForPath]
+		if ruleID == "" {
+			st.Skipped++
+			st.UnresolvedDatedFacts++
+			continue
+		}
+
+		oblID := detUUID("obligation", tenantID, c.AnimalKey, def.Code, doseCodeForPath)
+		oblIdem := "vacc-real-obl:" + c.AnimalKey + ":" + def.Code + ":" + doseCodeForPath
+		scopeType, scopeID := seedObligationScope(tenantID, goatParkByAnimalKey[c.AnimalKey], goatShedByAnimalKey[c.AnimalKey])
+
+		// Open (scheduled/due) vaccination obligations are blocked by the procurement
+		// exclusion guard for goats that are dead/sold/lost/culled/transferred/merged/inactive.
+		// Completed history is still allowed for those goats.
+		openEligible := !excludedLifecycle(goatLifecycleByAnimalKey[c.AnimalKey])
+
+		administeredAt := sourceVaccinationDateTime(d, loc)
+		if sourceVaccinationDateOnOrBeforeBusinessDate(d, now, loc) {
+			// Source date cells are imported base anchors. Persist anchors on or
+			// before the business date as accepted/completed history so the
+			// recurrence engine has a durable start point, but never materialize
+			// open work from the anchor itself.
+			completedAt := administeredAt
+			verifiedBy := detUUID("seed-actor", tenantID)
+			sourceDateKey := administeredAt.Format("2006-01-02")
+			historyOblID := historyObligationID(tenantID, c, def, sourceDateKey)
+			obls = append(obls, oblIns{
+				obligationID: historyOblID,
+				versionID:    versionID,
+				ruleID:       ruleID,
+				goatID:       goatID,
+				scopeType:    scopeType,
+				scopeID:      scopeID,
+				dueAt:        administeredAt,
+				status:       "completed",
+				completedAt:  &completedAt,
+				sequence:     c.Sequence,
+				idem:         historyObligationIdem(c, def, sourceDateKey),
+			})
+			cmps = append(cmps, cmpIns{
+				completionID:   historyCompletionID(tenantID, c, def, sourceDateKey),
+				obligationID:   historyOblID,
+				goatID:         goatID,
+				doseML:         def.DoseML,
+				administeredAt: administeredAt,
+				verifiedAt:     &administeredAt,
+				verifiedBy:     verifiedBy,
+				idem:           historyCompletionIdem(c, def, sourceDateKey),
+			})
+			st.Completed++
+			st.CompletionsHistory++
+			if laterAdministration {
+				st.LaterAdministrationsReconciled++
+			}
+			// NO flat next-revacc obligation; kernel will generate revacc from the completion
+		} else {
+			if !openEligible {
 				st.Skipped++
+				st.LifecycleExcludedDatedFacts++
 				continue
 			}
-			administeredAt := sourceVaccinationDateTime(d, loc)
-			if sourceVaccinationDateOnOrBeforeBusinessDate(d, now, loc) {
-				// Source date cells are imported base anchors. Persist anchors on or
-				// before the business date as accepted/completed history so the
-				// recurrence engine has a durable start point, but never materialize
-				// open work from the anchor itself.
-				completedAt := administeredAt
-				verifiedBy := detUUID("seed-actor", tenantID)
-				sourceDateKey := administeredAt.Format("2006-01-02")
-				historyOblID := historyObligationID(tenantID, c, def, sourceDateKey)
-				obls = append(obls, oblIns{
-					obligationID: historyOblID,
-					versionID:    versionID,
-					ruleID:       ruleID,
-					goatID:       goatID,
-					scopeType:    scopeType,
-					scopeID:      scopeID,
-					dueAt:        administeredAt,
-					status:       "completed",
-					completedAt:  &completedAt,
-					sequence:     c.Sequence,
-					idem:         historyObligationIdem(c, def, sourceDateKey),
-				})
-				cmps = append(cmps, cmpIns{
-					completionID:   historyCompletionID(tenantID, c, def, sourceDateKey),
-					obligationID:   historyOblID,
-					goatID:         goatID,
-					doseML:         def.DoseML,
-					administeredAt: administeredAt,
-					verifiedAt:     &administeredAt,
-					verifiedBy:     verifiedBy,
-					idem:           historyCompletionIdem(c, def, sourceDateKey),
-				})
-				st.Completed++
-				st.CompletionsHistory++
-				// NO flat next-revacc obligation; kernel will generate revacc from the completion
-			} else {
-				if !openEligible {
-					st.Skipped++
-					continue
-				}
-				// Future dose -> scheduled at the sheet date.
-				obls = append(obls, oblIns{
-					obligationID: oblID, versionID: versionID, ruleID: ruleID, goatID: goatID,
-					scopeType: scopeType, scopeID: scopeID,
-					dueAt: administeredAt, status: "scheduled", sequence: c.Sequence, idem: oblIdem,
-				})
-				st.Scheduled++
+			// Future dose -> scheduled at the sheet date.
+			obls = append(obls, oblIns{
+				obligationID: oblID, versionID: versionID, ruleID: ruleID, goatID: goatID,
+				scopeType: scopeType, scopeID: scopeID,
+				dueAt: administeredAt, status: "scheduled", sequence: c.Sequence, idem: oblIdem,
+			})
+			st.Scheduled++
+			if laterAdministration {
+				st.LaterAdministrationsReconciled++
 			}
 		}
 	}
 	st.Obligations = len(obls)
+
+	if err := reconcileDatedFacts(cells, st); err != nil {
+		return st, err
+	}
 
 	// Insert obligations first (FK target for completions).
 	if err := batch(ctx, tx, obls, 500, func(b *pgx.Batch, o oblIns) {
@@ -1111,10 +1137,13 @@ func printSeedSummary(st stats, genRes vaccinationdomain.GenerateResult) {
 	fmt.Printf("seeded real vaccination data with kernel generation:\n"+
 		"  parks_resolved=%d sheds_resolved=%d sheds_created=%d protocols=%d animals=%d\n"+
 		"  obligations=%d (completed=%d scheduled=%d) completions_history=%d pending_source=%d skipped_cells=%d\n"+
+		"  dated_source_facts reconciled=%d (later_administrations=%d unresolved=%d lifecycle_excluded=%d goat_not_placed=%d vaccine_unrecognized=%d)\n"+
 		"  purged_fixtures total=%d (obligations=%d batches=%d goats=%d sheds=%d other_child_rows=%d)\n"+
 		"  kernel_generation generated=%d deferred=%d reopened=%d failed_goats=%d skipped_no_due_date=%d suppressed_trusted=%d\n",
 		st.ParksResolved, st.ShedsResolved, st.ShedsCreated, st.Protocols, st.Animals,
 		st.Obligations, st.Completed, st.Scheduled, st.CompletionsHistory, st.PendingSource, st.Skipped,
+		st.Completed+st.Scheduled, st.LaterAdministrationsReconciled, st.UnresolvedDatedFacts,
+		st.LifecycleExcludedDatedFacts, st.GoatNotPlacedDatedFacts, st.VaccineUnrecognizedDatedFacts,
 		st.Purged.total(), st.Purged.Obligations, st.Purged.Batches,
 		st.Purged.Goats, st.Purged.Sheds, st.Purged.OtherChildRows,
 		genRes.Generated, genRes.Deferred, genRes.Reopened, genRes.FailedGoats, genRes.SkippedNoDueDate, genRes.SuppressedByTrustedHistory)
@@ -1460,43 +1489,89 @@ func isKidManagementStage(stage string) bool {
 	return false
 }
 
-// resolveGoatPath wraps schedulePathForGoat for spec naming consistency
-func resolveGoatPath(originType string, dob *time.Time, stage string, entryDate *time.Time, asOf time.Time) string {
-	return schedulePathForGoat(originType, dob, stage, entryDate, asOf)
-}
-
 // mapSheetDoseToRuleCode maps a sheet dose code (First/Booster) to the actual rule dose_code
 // based on goat schedule path (kid vs adult) and vaccine spec.
-func mapSheetDoseToRuleCode(vaccine string, sheetDoseCode string, path string, vaccMatrixDef map[string]vaccMatrixSpec) string {
+//
+// Fix Plan A1: for a vaccine whose approved matrix defines only ONE wave per path (FMD, HS —
+// "single + repeat", never a two-wave birth-age/post-arrival course), a sheet "Booster" cell is
+// a LATER recorded administration of that SAME rule, not a distinct booster dose. It resolves
+// to the single wave's dose code, and reconciledAsLaterAdministration reports that case so the
+// caller can account for the fact explicitly instead of silently dropping it as unmapped. This
+// does NOT fabricate a new booster rule — the returned dose code is the vaccine's one existing
+// wave, so both the first and the later administration land as separate accepted completions
+// under the SAME rule/goat pair (distinguished by due_at), letting generation.go anchor
+// recurrence on whichever is latest.
+func mapSheetDoseToRuleCode(vaccine string, sheetDoseCode string, path string, vaccMatrixDef map[string]vaccMatrixSpec) (doseCode string, reconciledAsLaterAdministration bool) {
 	spec, ok := vaccMatrixDef[vaccine]
 	if !ok {
-		return ""
+		return "", false
 	}
 	def, ok := vaccines[vaccine]
 	if !ok {
-		return ""
+		return "", false
 	}
 
 	if path == "kid" {
-		// Map sheet First/Booster to birth_age waves
-		if sheetDoseCode == "first" && len(spec.BirthAgeWaves) > 0 {
-			return spec.BirthAgeWaves[0].DoseCode
-		} else if sheetDoseCode == "booster" && len(spec.BirthAgeWaves) > 1 {
-			return spec.BirthAgeWaves[1].DoseCode
-		} else if sheetDoseCode == "first" {
-			return spec.BirthAgeWaves[0].DoseCode
+		switch {
+		case sheetDoseCode == "first" && len(spec.BirthAgeWaves) > 0:
+			return spec.BirthAgeWaves[0].DoseCode, false
+		case sheetDoseCode == "booster" && len(spec.BirthAgeWaves) > 1:
+			return spec.BirthAgeWaves[1].DoseCode, false
+		case sheetDoseCode == "booster" && len(spec.BirthAgeWaves) == 1:
+			return spec.BirthAgeWaves[0].DoseCode, true
+		case sheetDoseCode == "first" && len(spec.BirthAgeWaves) > 0:
+			return spec.BirthAgeWaves[0].DoseCode, false
 		}
-	} else {
-		// Adult path: map sheet First/Booster to post_arrival waves
-		if sheetDoseCode == "first" && len(spec.PostArrivalWaves) > 0 {
-			return def.Code + "_adult_w1"
-		} else if sheetDoseCode == "booster" && len(spec.PostArrivalWaves) > 1 {
-			return def.Code + "_adult_w2"
-		} else if sheetDoseCode == "first" {
-			return def.Code + "_adult_w1"
-		}
+		return "", false
 	}
-	return ""
+
+	// Adult path: map sheet First/Booster to post_arrival waves.
+	switch {
+	case sheetDoseCode == "first" && len(spec.PostArrivalWaves) > 0:
+		return def.Code + "_adult_w1", false
+	case sheetDoseCode == "booster" && len(spec.PostArrivalWaves) > 1:
+		return def.Code + "_adult_w2", false
+	case sheetDoseCode == "booster" && len(spec.PostArrivalWaves) == 1:
+		return def.Code + "_adult_w1", true
+	case sheetDoseCode == "first" && len(spec.PostArrivalWaves) > 0:
+		return def.Code + "_adult_w1", false
+	}
+	return "", false
+}
+
+// countDatedFacts counts source vaccination cells that carry an actual date (i.e. every cell
+// that is neither blank/NA nor "Pending"). This is the source-of-truth total that Fix Plan A1's
+// reconciliation gate checks against (3,836 in the reviewed source snapshot).
+func countDatedFacts(cells []vaccCell) int {
+	n := 0
+	for _, c := range cells {
+		val := strings.TrimSpace(c.Value)
+		if val == "" || strings.EqualFold(val, "NA") || strings.EqualFold(val, "Pending") {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// reconcileDatedFacts is the Fix Plan A1 hard gate: every dated source cell must land in
+// exactly one explicit bucket — imported (Completed/Scheduled) or one of the four documented
+// exclusion reasons. If the totals do not add up, some dated fact was dropped without being
+// accounted for, and the seed must fail loudly rather than silently lose source history.
+func reconcileDatedFacts(cells []vaccCell, st stats) error {
+	total := countDatedFacts(cells)
+	reconciled := st.Completed + st.Scheduled +
+		st.UnresolvedDatedFacts + st.LifecycleExcludedDatedFacts +
+		st.GoatNotPlacedDatedFacts + st.VaccineUnrecognizedDatedFacts
+	if total != reconciled {
+		return fmt.Errorf(
+			"vaccination source fact reconciliation gap: dated_source_facts=%d reconciled=%d "+
+				"(completed=%d scheduled=%d later_administrations=%d unresolved=%d lifecycle_excluded=%d goat_not_placed=%d vaccine_unrecognized=%d) "+
+				"— zero silent drops required",
+			total, reconciled, st.Completed, st.Scheduled, st.LaterAdministrationsReconciled,
+			st.UnresolvedDatedFacts, st.LifecycleExcludedDatedFacts, st.GoatNotPlacedDatedFacts, st.VaccineUnrecognizedDatedFacts)
+	}
+	return nil
 }
 
 func detUUID(kind string, parts ...string) string {
@@ -1734,18 +1809,29 @@ func excludedLifecycle(s string) bool {
 	}
 }
 
+// normalizeHealth maps the source health signal onto the real health_status domain
+// (healthy, sick, under_treatment, recovering, quarantine, icu — goats_health_status_check).
+// Fix Plan A2: the sheet's health_status column is a vet CASE-LOG state (Open/Closed/
+// Extended), not the clinical status name directly, so those values must not fall through
+// to NULL:
+//   - "Open"     — a currently active, unresolved case            -> sick
+//   - "Extended" — the case ran past its expected close, treatment
+//     continues                                                    -> under_treatment
+//   - "Closed"   — the case has been resolved                     -> recovering (never
+//     jumped straight to "healthy" — matches the fix plan's "recovery -> reopen/
+//     reschedule automatically" language for the generation layer, section 5/B6)
 func normalizeHealth(h string) *string {
 	switch strings.ToLower(strings.TrimSpace(h)) {
 	case "healthy", "normal", "ok":
 		v := "healthy"
 		return &v
-	case "sick", "ill", "diseased":
+	case "sick", "ill", "diseased", "open":
 		v := "sick"
 		return &v
-	case "under_treatment", "under treatment", "treatment":
+	case "under_treatment", "under treatment", "treatment", "extended":
 		v := "under_treatment"
 		return &v
-	case "recovering":
+	case "recovering", "closed":
 		v := "recovering"
 		return &v
 	case "quarantine":
@@ -1757,6 +1843,52 @@ func normalizeHealth(h string) *string {
 	default:
 		return nil
 	}
+}
+
+// shedTagClinicalSignal maps a source shed_tag to a clinical (health_status) and/or
+// reproductive (reproductive_status) signal (Fix Plan A3/A4). shed_tag also carries pure
+// growth-cohort/management-stage groupings (K0-K3, F2/F2-Male/F2-Female, Buck, Mother,
+// Milking, M0, Warmup) that are location/stage information already captured by the
+// stage/age columns — those are intentionally left unmapped here since they are not
+// clinical/reproductive signals, only clinical/reproductive/quarantine tags are.
+func shedTagClinicalSignal(shedTag string) (health *string, reproductive *string) {
+	switch strings.ToLower(strings.TrimSpace(shedTag)) {
+	case "icu":
+		return nullString("icu"), nil
+	case "icu-kid":
+		return nullString("icu"), nil
+	case "icu-non-pregnant":
+		// Compound legacy tag: current placement is BOTH clinical (ICU) and
+		// reproductive (non-pregnant); split onto both axes.
+		return nullString("icu"), nullString("non_pregnant")
+	case "quarantine kids", "quarantine":
+		return nullString("quarantine"), nil
+	case "pregnant":
+		return nil, nullString("pregnant")
+	case "non-pregnant":
+		return nil, nullString("non_pregnant")
+	default:
+		return nil, nil
+	}
+}
+
+// resolveGoatHealth combines the source health_status case-log column with the shed_tag
+// current-placement signal (Fix Plan A2 + A3). shed_tag reflects where the goat is housed
+// RIGHT NOW (e.g. still in the ICU/quarantine shed), a stronger and more current clinical
+// signal than a closed/extended historical case-log entry, so it wins when both are present.
+func resolveGoatHealth(sourceHealth string, shedTag string) *string {
+	if shedTagHealth, _ := shedTagClinicalSignal(shedTag); shedTagHealth != nil {
+		return shedTagHealth
+	}
+	return normalizeHealth(sourceHealth)
+}
+
+// resolveGoatReproductiveStatus imports reproductive_status from the shed_tag signal
+// (Fix Plan A4) — the source has no standalone reproductive_status column, only shed_tag
+// values like Pregnant/Non-Pregnant/ICU-Non-Pregnant.
+func resolveGoatReproductiveStatus(shedTag string) *string {
+	_, reproductive := shedTagClinicalSignal(shedTag)
+	return reproductive
 }
 
 func normalizeStage(stage string, age string) string {
