@@ -52,6 +52,14 @@ const (
 	ProofStatusAccepted    ProofStatus = "accepted"
 )
 
+type ProjectionFreshness struct {
+	ProjectionVersion int64     `json:"projectionVersion"`
+	ProjectedAt       time.Time `json:"projectedAt"`
+	AsOf              time.Time `json:"asOf"`
+	Status            string    `json:"status"`
+	LagSeconds        int64     `json:"lagSeconds"`
+}
+
 type VerificationStatus string
 
 const (
@@ -582,27 +590,6 @@ type ShedSummaryProjection struct {
 	NextDue    *time.Time
 	TotalCount int // window COUNT(*) OVER() of the filtered set, for PageInfo.Total
 	Freshness  *ProjectionFreshness
-}
-
-// ShedProjectionRecomputeRequest asks the projector to rebuild the tenant's shed-wise vaccination read
-// model (vaccination_shed_projection_rows) from canonical obligation/goat/capacity tables. This runs OFF
-// the request path only (RecomputeShedProjection); ShedSummary itself still reads the live compute-on-read
-// CTE until the request path is explicitly flipped (C35-002 follow-up).
-type ShedProjectionRecomputeRequest struct {
-	TenantID  string
-	AsOf      time.Time
-	DueBefore time.Time
-}
-
-// ShedProjectionRecomputeResult reports what a shed-projection recompute committed: the new (now serving)
-// projection_version, how many shed rows it wrote, and how fresh the caller can consider it.
-type ShedProjectionRecomputeResult struct {
-	TenantID           string
-	ProjectionVersion  int64
-	ProjectedAt        time.Time
-	AsOf               time.Time
-	Rows               int64
-	ProjectionFreshFor time.Duration
 }
 
 // ---- Shed detail read model (per-vaccine breakdown + keyset-paginated animal list) ----

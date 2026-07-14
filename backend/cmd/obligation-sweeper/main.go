@@ -30,19 +30,11 @@ import (
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
 	sopports "github.com/vgoats/goatos/backend/internal/sop/ports"
 	"github.com/vgoats/goatos/backend/internal/sopbridge"
-	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
-	vaccexecdomain "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 // sopServiceAdapter wraps the SOP service to match sopbridge.SOPTaskCreator interface
 type sopServiceAdapter struct {
 	service *sopapp.Service
-}
-
-type vaccinationProjectionRefresher interface {
-	RecomputeShedProjection(context.Context, vaccexecdomain.ShedProjectionRecomputeRequest) (vaccexecdomain.ShedProjectionRecomputeResult, error)
-	RecomputeExecutionProjection(context.Context, vaccexecdomain.ExecutionProjectionRecomputeRequest) (vaccexecdomain.ExecutionProjectionRecomputeResult, error)
-	RecomputeOperationsProjection(context.Context, vaccexecdomain.OperationsProjectionRecomputeRequest) (vaccexecdomain.OperationsProjectionRecomputeResult, error)
 }
 
 func (a *sopServiceAdapter) CreateTask(ctx context.Context, cmd sopports.CreateTaskCommand) (sopdomain.TaskSummary, error) {
@@ -69,9 +61,8 @@ type config struct {
 	MarkMissed    bool
 	MissedBefore  time.Time
 
-	ProjectCalendar              bool
-	ProjectVaccinationReadModels bool
-	CalendarDateFrom             time.Time
+	ProjectCalendar  bool
+	CalendarDateFrom time.Time
 	CalendarDateTo               time.Time
 	CalendarLimit                int
 
@@ -187,12 +178,6 @@ func run(args []string) error {
 		}
 		fmt.Printf("calendar projection refreshed=%d from=%s to=%s\n", refreshed, cfg.CalendarDateFrom.Format(time.RFC3339), cfg.CalendarDateTo.Format(time.RFC3339))
 	}
-	if cfg.ProjectVaccinationReadModels {
-		repo := vaccexecpg.NewRepository(pool, pgCfg.QueryTimeout)
-		if err := refreshVaccinationReadModels(ctx, repo, cfg.TenantID, time.Now().In(biztime.DefaultLocation())); err != nil {
-			return err
-		}
-	}
 	queuedNotifications := 0
 	if cfg.SweepReminders {
 		queued, err := calendarService.SweepDueReminders(ctx, cfg.TenantID, cfg.ReminderLimit)
@@ -222,20 +207,6 @@ func run(args []string) error {
 		if err := enqueueNotificationDispatcher(ctx, cfg.TenantID, "obligation-sweeper"); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func refreshVaccinationReadModels(ctx context.Context, repo vaccinationProjectionRefresher, tenantID string, asOf time.Time) error {
-	dueBefore := asOf.Add(30 * 24 * time.Hour)
-	if _, err := repo.RecomputeShedProjection(ctx, vaccexecdomain.ShedProjectionRecomputeRequest{TenantID: tenantID, AsOf: asOf, DueBefore: dueBefore}); err != nil {
-		return fmt.Errorf("refresh vaccination shed projection: %w", err)
-	}
-	if _, err := repo.RecomputeExecutionProjection(ctx, vaccexecdomain.ExecutionProjectionRecomputeRequest{TenantID: tenantID, AsOf: asOf, DueBefore: dueBefore}); err != nil {
-		return fmt.Errorf("refresh vaccination execution projection: %w", err)
-	}
-	if _, err := repo.RecomputeOperationsProjection(ctx, vaccexecdomain.OperationsProjectionRecomputeRequest{TenantID: tenantID, AsOf: asOf, DueBefore: dueBefore}); err != nil {
-		return fmt.Errorf("refresh vaccination operations projection: %w", err)
 	}
 	return nil
 }
@@ -319,7 +290,6 @@ func parseFlags(args []string) (config, error) {
 	calendarDateFromRaw := fs.String("calendar-date-from", getenv("GOATOS_SWEEPER_CALENDAR_DATE_FROM"), "RFC3339 calendar projection lower bound; default now minus 24h")
 	calendarDateToRaw := fs.String("calendar-date-to", getenv("GOATOS_SWEEPER_CALENDAR_DATE_TO"), "RFC3339 calendar projection upper bound; default now plus 45d")
 	fs.BoolVar(&cfg.ProjectCalendar, "project-calendar", boolEnv("GOATOS_SWEEPER_PROJECT_CALENDAR", false), "repair-only Calendar projection refresh; the dedicated Calendar projector is the normal owner")
-	fs.BoolVar(&cfg.ProjectVaccinationReadModels, "project-vaccination-read-models", boolEnv("GOATOS_SWEEPER_PROJECT_VACCINATION_READ_MODELS", true), "refresh vaccination shed/execution/operations read models off-request")
 	fs.IntVar(&cfg.CalendarLimit, "calendar-limit", intEnv("GOATOS_SWEEPER_CALENDAR_LIMIT", 1000), "max Calendar projection rows to upsert")
 	fs.BoolVar(&cfg.SweepReminders, "sweep-reminders", boolEnv("GOATOS_SWEEPER_SWEEP_REMINDERS", true), "queue due Calendar reminders after projection refresh")
 	fs.IntVar(&cfg.ReminderLimit, "reminder-limit", intEnv("GOATOS_SWEEPER_REMINDER_LIMIT", 100), "max reminders to queue")

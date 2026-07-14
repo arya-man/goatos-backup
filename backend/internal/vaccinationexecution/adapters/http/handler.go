@@ -871,11 +871,6 @@ func (h *Handler) GetCapacityConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, vaccexecd.ErrProjectionUnavailable) {
-		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
-			errorEnvelope{Code: "projection_unavailable", Message: "vaccination read model is temporarily unavailable", TraceID: traceID(r)}, err)
-		return
-	}
 	httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 		errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
 }
@@ -920,16 +915,8 @@ func (h *Handler) rejectHistoricalAsOf(w http.ResponseWriter, r *http.Request, p
 	return false
 }
 
-// readShedError maps a shed-summary/shed-detail read-path error to HTTP. A projection-unavailable
-// signal (C35-002: the vaccination-shed read model has no serving version) is an honest, retryable 503
-// — never a 500 and never a silent unbounded canonical fallback — mirroring processintegrity's
-// readError.
+// readShedError maps a shed-summary/shed-detail read-path error to HTTP.
 func (h *Handler) readShedError(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, vaccexecd.ErrProjectionUnavailable) {
-		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
-			errorEnvelope{Code: "projection_unavailable", Message: "vaccination shed read model is temporarily unavailable", TraceID: traceID(r)}, err)
-		return
-	}
 	h.internal(w, r, err)
 }
 

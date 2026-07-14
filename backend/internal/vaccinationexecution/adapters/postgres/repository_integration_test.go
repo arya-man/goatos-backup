@@ -2,8 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"sort"
 	"strings"
 	"testing"
@@ -218,7 +216,7 @@ func TestListVaccinationExecutionPageUsesStableCursorAndFilteredTotal(t *testing
 		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Limit:     1,
 	}
-	first, err := projectedExecutionPage(t, ctx, repo, query)
+	first, err := repo.ListVaccinationExecutionPage(ctx, query)
 	if err != nil {
 		t.Fatalf("first page: %v", err)
 	}
@@ -226,7 +224,7 @@ func TestListVaccinationExecutionPageUsesStableCursorAndFilteredTotal(t *testing
 		t.Fatalf("first page rows=%d total=%d cursor=%v", len(first.Rows), first.TotalCount, first.NextCursor)
 	}
 	query.Cursor = first.NextCursor
-	second, err := projectedExecutionPage(t, ctx, repo, query)
+	second, err := repo.ListVaccinationExecutionPage(ctx, query)
 	if err != nil {
 		t.Fatalf("second page: %v", err)
 	}
@@ -811,7 +809,7 @@ func TestVaccinationOperationsAggregatesCohortsAndDedupesRework(t *testing.T) {
 
 	// Park scope: matching park returns rows, a different park returns none.
 	other := "70000000-0000-4000-8000-0000000000ff"
-	scoped, err := projectedOperations(t, ctx, repo, domain.OperationsQuery{TenantID: testTenant, ParkID: &other, AsOf: asOf, DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 50})
+	scoped, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{TenantID: testTenant, ParkID: &other, AsOf: asOf, DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 50})
 	if err != nil {
 		t.Fatalf("scoped VaccinationOperations: %v", err)
 	}
@@ -820,73 +818,6 @@ func TestVaccinationOperationsAggregatesCohortsAndDedupesRework(t *testing.T) {
 	}
 }
 
-func TestVaccinationOperationsOrdersCohortsByVisibleNamesAndPaginates(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	seedVaccinationExecutionProjection(t, ctx, pool)
-	const (
-		zuluPark  = "60000000-0000-4000-8000-000000000001" // UUID sorts first; visible name must sort last.
-		zuluShed  = "60000000-0000-4000-8000-000000000002"
-		zuluGoat  = "60000000-0000-4000-8000-000000000003"
-		zuluBatch = "60000000-0000-4000-8000-000000000004"
-		zuluObl   = "60000000-0000-4000-8000-000000000005"
-	)
-	execProjectionSQL(t, ctx, pool, "zulu park", `
-INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
-VALUES ($1,$2,'park','PARK-ZULU','Zulu Park','active')`, zuluPark, testTenant)
-	execProjectionSQL(t, ctx, pool, "zulu shed", `
-INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
-VALUES ($1,$2,'shed','SHED-ZULU','Zulu Shed',$3,'active')`, zuluShed, testTenant, zuluPark)
-	insertProjectionGoat(t, ctx, pool, zuluGoat, zuluShed, zuluPark)
-	execProjectionSQL(t, ctx, pool, "zulu batch", `
-INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, conducted_by)
-VALUES ($1,$2,$3,'shed',$4,'in_progress',DATE '2026-06-24',$5)`, zuluBatch, testTenant, testVersion, zuluShed, testOperator)
-	execProjectionSQL(t, ctx, pool, "zulu obligation", `
-INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id,
-  target_type, target_id, scope_type, scope_id, due_at, status, idempotency_key, sequence)
-VALUES ($1,$2,$3,$4,$5,'goat',$6,'shed',$7,TIMESTAMPTZ '2026-06-24 00:00:00+00','due','ops-human-order-zulu',1)`,
-		zuluObl, testTenant, testVersion, testRule, zuluBatch, zuluGoat, zuluShed)
-
-	repo := NewRepository(pool, 5*time.Second)
-	svc := vaccexecapp.NewService(repo)
-	query := domain.OperationsQuery{
-		TenantID: testTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
-		DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 1,
-	}
-	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: query.TenantID, AsOf: query.AsOf, DueBefore: query.DueBefore}); err != nil {
-		t.Fatal(err)
-	}
-	page1, err := svc.VaccinationOperations(ctx, query)
-	if err != nil {
-		t.Fatalf("VaccinationOperations page1: %v", err)
-	}
-	if len(page1.Cohorts) != 1 || page1.Cohorts[0].ParkName != "CBE Park" || page1.NextCursor == nil {
-		t.Fatalf("page1 = %#v, want CBE Park followed by a cursor", page1)
-	}
-	cursor, err := domain.DecodeOperationsCursor(*page1.NextCursor)
-	if err != nil {
-		t.Fatalf("DecodeOperationsCursor: %v", err)
-	}
-	if cursor.ParkName != "CBE Park" || cursor.ShedName != "K1 Shed" {
-		t.Fatalf("cursor names = %q/%q, want visible page boundary", cursor.ParkName, cursor.ShedName)
-	}
-	query.Cursor = &cursor
-	page2, err := svc.VaccinationOperations(ctx, query)
-	if err != nil {
-		t.Fatalf("VaccinationOperations page2: %v", err)
-	}
-	if len(page2.Cohorts) != 1 || page2.Cohorts[0].ParkName != "Zulu Park" {
-		t.Fatalf("page2 = %#v, want Zulu Park with no skip/duplicate", page2)
-	}
-}
-
-// TestVaccinationOperationsAsOfExcludesFutureCompletions proves true as_of on the dose state: a dose
-// ACCEPTED after as_of must not count (last_dose stays nil, accepted=0), and moving as_of past the dose
-// makes it count. This is the "rows/events after as_of must not count" + "last_dose = latest accepted
-// completion at or before as_of" contract for GET /vaccination/operations.
 func TestVaccinationOperationsAsOfExcludesFutureCompletions(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -984,165 +915,7 @@ func TestVaccinationOperationsAsOfExcludesFutureCompletions(t *testing.T) {
 // TestVaccinationExecutionReconstructsObligationStatusAsOf proves the execution board + shed detail use
 // point-in-time obligation status: a 'completed' obligation finalized AFTER as_of reads as overdue (open)
 // before its completion and as completed after, in both VaccinationExecution and ShedDrilldown.
-func TestVaccinationExecutionReconstructsObligationStatusAsOf(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
 
-	seedVaccinationExecutionProjection(t, ctx, pool)
-
-	const (
-		execGoat  = "70000000-0000-4000-8000-0000000000a0"
-		execBatch = "70000000-0000-4000-8000-0000000000a1"
-		execObl   = "70000000-0000-4000-8000-0000000000a2"
-		execComp  = "70000000-0000-4000-8000-0000000000a3"
-		// churn: missed AT/BEFORE as_of and missed AFTER as_of.
-		churnGoat  = "70000000-0000-4000-8000-0000000000a4"
-		churnBatch = "70000000-0000-4000-8000-0000000000a5"
-		churnObl   = "70000000-0000-4000-8000-0000000000a6"
-	)
-	insertProjectionGoat(t, ctx, pool, execGoat, testShed, testPark)
-	insertProjectionBatch(t, ctx, pool, execBatch, "completed")
-	insertProjectionObligation(t, ctx, pool, execObl, execBatch, execGoat, "completed", "2026-06-22 00:00:00+00", "vaccexec-exec-asof")
-	execProjectionSQL(t, ctx, pool, "exec completed_at",
-		`UPDATE obligation_instances SET completed_at = TIMESTAMPTZ '2026-06-30 10:00:00+00' WHERE tenant_id = $1 AND obligation_id = $2`,
-		testTenant, execObl)
-	execProjectionSQL(t, ctx, pool, "exec accepted dose",
-		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, administered_at, status, idempotency_key, recorded_by)
-		 VALUES ($1, $2, $3, $4, $5, TIMESTAMPTZ '2026-06-30 10:00:00+00', 'accepted', 'vaccexec-exec-asof-comp', $6)`,
-		execComp, testTenant, execObl, execBatch, execGoat, testOperator)
-
-	// Churn drive: stored 'missed', due 2026-06-21, with a missed event at/before as_of (06-22) and another
-	// after as_of (06-30). At asOfBefore (06-24) the latest terminal event at/before wins -> blocked (missed),
-	// NOT overdue (which the old unbounded MAX() would wrongly produce by picking the 06-30 event).
-	insertProjectionGoat(t, ctx, pool, churnGoat, testShed, testPark)
-	insertProjectionBatch(t, ctx, pool, churnBatch, "planned")
-	insertProjectionObligation(t, ctx, pool, churnObl, churnBatch, churnGoat, "missed", "2026-06-21 00:00:00+00", "vaccexec-exec-churn")
-	insertObligationStatusEvent(t, ctx, pool, churnObl, "missed", "2026-06-22 10:00:00+00", "vaccexec-exec-churn-old")
-	insertObligationStatusEvent(t, ctx, pool, churnObl, "missed", "2026-06-30 10:00:00+00", "vaccexec-exec-churn-new")
-
-	repo := NewRepository(pool, 5*time.Second)
-	svc := vaccexecapp.NewService(repo)
-	dueBefore := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
-	asOfBefore := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
-	asOfAfter := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
-	if _, err := repo.RecomputeExecutionProjection(ctx, domain.ExecutionProjectionRecomputeRequest{
-		TenantID: testTenant, AsOf: asOfBefore, DueBefore: dueBefore,
-	}); err != nil {
-		t.Fatalf("RecomputeExecutionProjection(before): %v", err)
-	}
-
-	// Board, as_of before completion: the drive reads overdue (completed_at is after as_of).
-	beforeRows, err := svc.VaccinationExecution(ctx, domain.ExecutionQuery{TenantID: testTenant, AsOf: asOfBefore, DueBefore: dueBefore, Limit: 50})
-	if err != nil {
-		t.Fatalf("VaccinationExecution(before): %v", err)
-	}
-	if row := execRowByDrive(beforeRows, execBatch); row == nil || row.WorkState != domain.WorkStateOverdue {
-		t.Fatalf("before: execBatch drive want overdue, got %#v", row)
-	}
-	// Churn drive at as_of-before: missed, not blocked/overdue — latest terminal event at/before as_of wins.
-	if row := execRowByDrive(beforeRows, churnBatch); row == nil || row.WorkState != domain.WorkStateMissed {
-		t.Fatalf("before: churnBatch drive want missed, got %#v", row)
-	}
-	beforeShed, found, err := svc.ShedDrilldown(ctx, domain.ExecutionQuery{TenantID: testTenant, ShedID: ptr(testShed), AsOf: asOfBefore, DueBefore: dueBefore, Limit: 50})
-	if err != nil || !found {
-		t.Fatalf("ShedDrilldown(before): found=%v err=%v", found, err)
-	}
-	if row := execRowByDrive(beforeShed.Rows, execBatch); row == nil || row.WorkState != domain.WorkStateOverdue {
-		t.Fatalf("before shed detail: execBatch want overdue, got %#v", row)
-	}
-
-	// Board, as_of after completion: the same drive reads completed.
-	if _, err := repo.RecomputeExecutionProjection(ctx, domain.ExecutionProjectionRecomputeRequest{
-		TenantID: testTenant, AsOf: asOfAfter, DueBefore: dueBefore,
-	}); err != nil {
-		t.Fatalf("RecomputeExecutionProjection(after): %v", err)
-	}
-	afterRows, err := svc.VaccinationExecution(ctx, domain.ExecutionQuery{TenantID: testTenant, AsOf: asOfAfter, DueBefore: dueBefore, Limit: 50})
-	if err != nil {
-		t.Fatalf("VaccinationExecution(after): %v", err)
-	}
-	if row := execRowByDrive(afterRows, execBatch); row == nil || row.WorkState != domain.WorkStateCompleted {
-		t.Fatalf("after: execBatch drive want completed, got %#v", row)
-	}
-
-	// Shed detail mirrors the board after the matching historical projection is published.
-	afterShed, found, err := svc.ShedDrilldown(ctx, domain.ExecutionQuery{TenantID: testTenant, ShedID: ptr(testShed), AsOf: asOfAfter, DueBefore: dueBefore, Limit: 50})
-	if err != nil || !found {
-		t.Fatalf("ShedDrilldown(after): found=%v err=%v", found, err)
-	}
-	if row := execRowByDrive(afterShed.Rows, execBatch); row == nil || row.WorkState != domain.WorkStateCompleted {
-		t.Fatalf("after shed detail: execBatch want completed, got %#v", row)
-	}
-}
-
-func TestVaccinationExecutionAndOperationsSurfaceDeferredObligations(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	seedVaccinationExecutionProjection(t, ctx, pool)
-	const (
-		deferredGoat  = "70000000-0000-4000-8000-0000000000d4"
-		deferredBatch = "70000000-0000-4000-8000-0000000000d5"
-		deferredObl   = "70000000-0000-4000-8000-0000000000d6"
-	)
-	insertOpsStageGoat(t, ctx, pool, deferredGoat, "DF")
-	insertProjectionBatch(t, ctx, pool, deferredBatch, "planned")
-	insertProjectionObligation(t, ctx, pool, deferredObl, deferredBatch, deferredGoat, "deferred", "2026-06-26 00:00:00+00", "vaccexec-deferred")
-	insertObligationStatusEvent(t, ctx, pool, deferredObl, "deferred", "2026-06-24 10:00:00+00", "vaccexec-deferred-event")
-
-	repo := NewRepository(pool, 5*time.Second)
-	svc := vaccexecapp.NewService(repo)
-	query := domain.ExecutionQuery{
-		TenantID:  testTenant,
-		AsOf:      time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
-		DueBefore: time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC),
-		Limit:     50,
-	}
-	if _, err := repo.RecomputeExecutionProjection(ctx, domain.ExecutionProjectionRecomputeRequest{
-		TenantID: query.TenantID, AsOf: query.AsOf, DueBefore: query.DueBefore,
-	}); err != nil {
-		t.Fatalf("RecomputeExecutionProjection: %v", err)
-	}
-	rows, err := svc.VaccinationExecution(ctx, query)
-	if err != nil {
-		t.Fatalf("VaccinationExecution: %v", err)
-	}
-	if row := execRowByDrive(rows, deferredBatch); row == nil || row.WorkState != domain.WorkStateDeferred {
-		t.Fatalf("deferred execution row = %#v", row)
-	}
-
-	opsQuery := domain.OperationsQuery{TenantID: query.TenantID, AsOf: query.AsOf, DueBefore: query.DueBefore, Limit: query.Limit}
-	opsRows, err := projectedOperations(t, ctx, repo, opsQuery)
-	if err != nil {
-		t.Fatalf("VaccinationOperations: %v", err)
-	}
-	df := opsRowByStage(opsRows, "DF")
-	if df == nil || df.DeferredCount != 1 {
-		t.Fatalf("deferred ops row = %#v", df)
-	}
-	if cohort := opsCohortByStage(t, repo, svc, ctx, opsQuery, "DF"); cohort.WorkState != domain.WorkStateDeferred {
-		t.Fatalf("deferred cohort workState want deferred, got %q", cohort.WorkState)
-	}
-}
-
-func execRowByDrive(rows []domain.ExecutionRow, driveID string) *domain.ExecutionRow {
-	for i := range rows {
-		if rows[i].DriveID != nil && *rows[i].DriveID == driveID {
-			return &rows[i]
-		}
-	}
-	return nil
-}
-
-func ptr[T any](v T) *T { return &v }
-
-// TestVaccinationOperationsBoundsVerificationByVerifiedAt proves the verification timestamp edge: a dose
-// administered BEFORE as_of but accepted AFTER as_of must read as proof-pending (recorded), not accepted,
-// and must not set last_dose, until as_of passes verified_at.
 func TestVaccinationOperationsBoundsVerificationByVerifiedAt(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -1224,9 +997,6 @@ func opsRowByStage(rows []domain.OperationsRow, stage string) *domain.Operations
 // returns the cohort for a stage, so tests can assert the derived WorkState, not only raw SQL counts.
 func opsCohortByStage(t *testing.T, repo *Repository, svc *vaccexecapp.Service, ctx context.Context, q domain.OperationsQuery, stage string) domain.OperationsCohort {
 	t.Helper()
-	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: q.TenantID, AsOf: q.AsOf, DueBefore: q.DueBefore}); err != nil {
-		t.Fatal(err)
-	}
 	resp, err := svc.VaccinationOperations(ctx, q)
 	if err != nil {
 		t.Fatalf("svc.VaccinationOperations(stage %s): %v", stage, err)
@@ -1314,7 +1084,7 @@ func TestVaccinationOperationsReconstructsMissedWaivedAsOf(t *testing.T) {
 		Limit:     50,
 	}
 
-	rows, err := projectedOperations(t, ctx, repo, q)
+	rows, err := repo.VaccinationOperations(ctx, q)
 	if err != nil {
 		t.Fatalf("VaccinationOperations: %v", err)
 	}
@@ -1455,276 +1225,19 @@ func TestVaccinationGapsExcludesCompleteAnimalsAndPaginates(t *testing.T) {
 	}
 }
 
-// TestShedSummaryReadsSeededShed exercises the full shed-wise rollup SQL (alive aggregate + as-of
-// reconstruction + session-split planner columns) and the capacity config read against a real Postgres,
-// proving migrations 000153-000155 apply and the query executes and scans. Small seed => 1 session,
-// within cap; the animal-level identity Due + Done == Animals must hold for every row.
-func TestShedSummaryReadsSeededShed(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	seedVaccinationExecutionProjection(t, ctx, pool)
-	repo := NewRepository(pool, 0)
-
-	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
-	if _, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: asOf.Add(30 * 24 * time.Hour)}); err != nil {
-		t.Fatalf("RecomputeShedProjection: %v", err)
-	}
-	rows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
-		TenantID:  testTenant,
-		AsOf:      asOf,
-		DueBefore: asOf.Add(30 * 24 * time.Hour),
-		Limit:     50,
-	})
-	if err != nil {
-		t.Fatalf("ShedSummary: %v", err)
-	}
-	var found *domain.ShedSummaryProjection
-	for i := range rows {
-		r := rows[i]
-		// Animal-level invariant: a shed can't have more due animals than alive animals (Done = Animals -
-		// Due is then always >= 0).
-		if r.DueAnimals < 0 || r.DueAnimals > r.Animals {
-			t.Fatalf("row %s: DueAnimals=%d out of range for Animals=%d", r.ShedID, r.DueAnimals, r.Animals)
-		}
-		if r.ShedID == testShed {
-			found = &rows[i]
-		}
-	}
-	if found == nil {
-		t.Fatalf("seeded shed %s not present in %d summary rows", testShed, len(rows))
-	}
-	if found.Animals < 1 {
-		t.Errorf("animals = %d, want >= 1", found.Animals)
-	}
-	if found.Sessions > 1 {
-		t.Errorf("sessions = %d, want <= 1 for small seed", found.Sessions)
-	}
-	if found.Capacity != domain.CapacityWithinCap {
-		t.Errorf("capacity = %q, want within_cap", found.Capacity)
-	}
-	if found.Status == "" {
-		t.Errorf("status must be a non-empty merged headline")
-	}
-}
-
-func TestShedSummaryOverdueOutranksCapacityHeadlines(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-
-	seedVaccinationExecutionProjection(t, ctx, pool)
-	execProjectionSQL(t, ctx, pool, "tight capacity config", `
-INSERT INTO vaccination_capacity_config (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy)
-VALUES ($1, 2, 'tenant', 1, 'split_within_safe_window_then_mark_needs_review')
-ON CONFLICT (tenant_id) DO UPDATE
-  SET max_per_day = EXCLUDED.max_per_day,
-      capacity_scope = EXCLUDED.capacity_scope,
-      max_buffer_days = EXCLUDED.max_buffer_days,
-      overflow_policy = EXCLUDED.overflow_policy,
-      row_version = vaccination_capacity_config.row_version + 1,
-      updated_at = now()`, testTenant)
-
-	batchID := "72000000-0000-4000-8000-000000000001"
-	insertProjectionBatch(t, ctx, pool, batchID, "planned")
-	asOf := time.Date(2026, 7, 11, 18, 0, 0, 0, time.UTC)
-	for i := 1; i <= 5; i++ {
-		goatID := fmt.Sprintf("71000000-0000-4000-8000-%012d", i)
-		obligationID := fmt.Sprintf("73000000-0000-4000-8000-%012d", i)
-		insertProjectionGoat(t, ctx, pool, goatID, testShed, testPark)
-		dueAt := "2026-07-11 18:00:00+00"
-		if i == 1 {
-			dueAt = "2026-07-10 00:00:00+00"
-		}
-		insertProjectionObligation(t, ctx, pool, obligationID, batchID, goatID, "scheduled", dueAt, fmt.Sprintf("vaccexec-overdue-split-%03d", i))
-	}
-
-	repo := NewRepository(pool, 0)
-	if _, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: asOf.Add(30 * 24 * time.Hour)}); err != nil {
-		t.Fatalf("RecomputeShedProjection: %v", err)
-	}
-	rows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
-		TenantID:  testTenant,
-		AsOf:      asOf,
-		DueBefore: asOf.Add(30 * 24 * time.Hour),
-		Limit:     50,
-	})
-	if err != nil {
-		t.Fatalf("ShedSummary: %v", err)
-	}
-	found := shedSummaryByShed(rows, testShed)
-	if found == nil {
-		t.Fatalf("seeded shed %s not present in summary rows", testShed)
-	}
-	if found.Sessions <= 2 || found.Capacity != domain.CapacityBreach {
-		t.Fatalf("setup failed: sessions=%d capacity=%q, want capacity-breach setup", found.Sessions, found.Capacity)
-	}
-	if found.Status != domain.ShedStatusOverdue {
-		t.Fatalf("status = %q, want overdue to outrank capacity breach when any animal is late", found.Status)
-	}
-
-	overdueStatus := domain.ShedStatusOverdue
-	overdueRows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
-		TenantID:  testTenant,
-		AsOf:      asOf,
-		DueBefore: asOf.Add(30 * 24 * time.Hour),
-		Status:    &overdueStatus,
-		Limit:     50,
-	})
-	if err != nil {
-		t.Fatalf("ShedSummary(overdue filter): %v", err)
-	}
-	if shedSummaryByShed(overdueRows, testShed) == nil {
-		t.Fatalf("overdue filter did not include shed with overdue animals")
-	}
-
-	needsReviewStatus := domain.ShedStatusNeedsReview
-	needsReviewRows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
-		TenantID:  testTenant,
-		AsOf:      asOf,
-		DueBefore: asOf.Add(30 * 24 * time.Hour),
-		Status:    &needsReviewStatus,
-		Limit:     50,
-	})
-	if err != nil {
-		t.Fatalf("ShedSummary(needs_review filter): %v", err)
-	}
-	if shedSummaryByShed(needsReviewRows, testShed) != nil {
-		t.Fatalf("needs_review status filter included an overdue shed; capacity breach must not steal overdue headline status")
-	}
-
-	breachCapacity := domain.CapacityBreach
-	breachRows, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{
-		TenantID:  testTenant,
-		AsOf:      asOf,
-		DueBefore: asOf.Add(30 * 24 * time.Hour),
-		Capacity:  &breachCapacity,
-		Limit:     50,
-	})
-	if err != nil {
-		t.Fatalf("ShedSummary(capacity_breach filter): %v", err)
-	}
-	if shedSummaryByShed(breachRows, testShed) == nil {
-		t.Fatalf("capacity_breach filter must still include the overdue shed on the capacity axis")
-	}
-}
-
-func shedSummaryByShed(rows []domain.ShedSummaryProjection, shedID string) *domain.ShedSummaryProjection {
-	for i := range rows {
-		if rows[i].ShedID == shedID {
-			return &rows[i]
-		}
-	}
-	return nil
-}
-
-func recomputeExecutionProjection(t *testing.T, ctx context.Context, repo *Repository, q domain.ExecutionQuery) domain.ExecutionProjectionRecomputeResult {
-	t.Helper()
-	result, err := repo.RecomputeExecutionProjection(ctx, domain.ExecutionProjectionRecomputeRequest{TenantID: q.TenantID, AsOf: q.AsOf, DueBefore: q.DueBefore})
-	if err != nil {
-		t.Fatalf("RecomputeExecutionProjection: %v", err)
-	}
-	return result
-}
-
 func projectedExecutionList(t *testing.T, ctx context.Context, repo *Repository, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error) {
 	t.Helper()
-	recomputeExecutionProjection(t, ctx, repo, q)
 	return repo.ListVaccinationExecution(ctx, q)
 }
 
 func projectedExecutionPage(t *testing.T, ctx context.Context, repo *Repository, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error) {
 	t.Helper()
-	if q.Cursor == nil {
-		recomputeExecutionProjection(t, ctx, repo, q)
-	}
 	return repo.ListVaccinationExecutionPage(ctx, q)
 }
 
 func projectedOperations(t *testing.T, ctx context.Context, repo *Repository, q domain.OperationsQuery) ([]domain.OperationsRow, error) {
 	t.Helper()
-	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: q.TenantID, AsOf: q.AsOf, DueBefore: q.DueBefore}); err != nil {
-		t.Fatalf("RecomputeOperationsProjection: %v", err)
-	}
 	return repo.VaccinationOperations(ctx, q)
-}
-
-// TestVaccinationCanonicalReadsIgnoreProjectionServingState proves the 5k-50k-envelope flip: the three
-// vaccination reads (shed / execution / operations) now serve directly from canonical tables and are no
-// longer gated on the projection serving_state/freshness_status. A stale, red, or rebuilding projection
-// state row -- and even an outright replacement-build failure -- must NOT take the read down; the
-// canonical read cannot be stale relative to the canonical write, so ErrProjectionUnavailable is never
-// returned for a projection-freshness reason. This is the deletion of the read-through-vs-503 failure
-// class described in docs/decisions/operational-kernel-5k-50k-scale-envelope.md.
-func TestVaccinationCanonicalReadsIgnoreProjectionServingState(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-	seedVaccinationExecutionProjection(t, ctx, pool)
-
-	repo := NewRepository(pool, 5*time.Second)
-	asOf := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
-	dueBefore := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
-	if _, err := repo.RecomputeShedProjection(ctx, domain.ShedProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore}); err != nil {
-		t.Fatalf("RecomputeShedProjection: %v", err)
-	}
-	if _, err := repo.RecomputeExecutionProjection(ctx, domain.ExecutionProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore}); err != nil {
-		t.Fatalf("RecomputeExecutionProjection: %v", err)
-	}
-	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore}); err != nil {
-		t.Fatalf("RecomputeOperationsProjection: %v", err)
-	}
-	if err := repo.markShedProjectionRebuilding(ctx, testTenant, 999, time.Now(), asOf, dueBefore); err != nil {
-		t.Fatalf("markShedProjectionRebuilding: %v", err)
-	}
-	repo.markShedProjectionFailed(testTenant, errors.New("replacement shed build failed"))
-	repo.markExecutionProjectionFailed(testTenant, asOf, dueBefore, asOf.Add(-defaultClosedHistoryAge), errors.New("replacement execution build failed"))
-	repo.markOperationsProjectionFailed(testTenant, asOf, dueBefore, errors.New("replacement operations build failed"))
-	if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
-		t.Fatalf("shed last-known-good unavailable after replacement failure: %v", err)
-	}
-	if _, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
-		t.Fatalf("execution last-known-good unavailable after replacement failure: %v", err)
-	}
-	if _, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
-		t.Fatalf("operations last-known-good unavailable after replacement failure: %v", err)
-	}
-
-	for _, tc := range []struct {
-		name, servingState, freshnessStatus string
-	}{
-		{name: "stale state", servingState: "stale", freshnessStatus: "green"},
-		{name: "red freshness", servingState: "fresh", freshnessStatus: "red"},
-		{name: "rebuilding state", servingState: "rebuilding", freshnessStatus: "green"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			for _, table := range []string{
-				"vaccination_shed_projection_state",
-				"vaccination_execution_projection_state",
-				"vaccination_operations_projection_state",
-			} {
-				query := fmt.Sprintf("UPDATE %s SET serving_state=$2, freshness_status=$3 WHERE tenant_id=$1::uuid", table)
-				if _, err := pool.Exec(ctx, query, testTenant, tc.servingState, tc.freshnessStatus); err != nil {
-					t.Fatalf("update %s: %v", table, err)
-				}
-			}
-
-			// A non-green / stale / rebuilding projection state must NOT gate the canonical reads.
-			if _, err := repo.ShedSummary(ctx, domain.ShedSummaryQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
-				t.Fatalf("ShedSummary error = %v, want success (canonical read ignores projection serving state)", err)
-			}
-			if _, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
-				t.Fatalf("ListVaccinationExecution error = %v, want success (canonical read ignores projection serving state)", err)
-			}
-			if _, err := repo.VaccinationOperations(ctx, domain.OperationsQuery{TenantID: testTenant, AsOf: asOf, DueBefore: dueBefore, Limit: 50}); err != nil {
-				t.Fatalf("VaccinationOperations error = %v, want success (canonical read ignores projection serving state)", err)
-			}
-		})
-	}
 }
 
 func TestVaccinationOperationsProjectionReadLatency(t *testing.T) {
@@ -1735,9 +1248,6 @@ func TestVaccinationOperationsProjectionReadLatency(t *testing.T) {
 	seedVaccinationExecutionProjection(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 	q := domain.OperationsQuery{TenantID: testTenant, AsOf: time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC), DueBefore: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), Limit: 500}
-	if _, err := repo.RecomputeOperationsProjection(ctx, domain.OperationsProjectionRecomputeRequest{TenantID: q.TenantID, AsOf: q.AsOf, DueBefore: q.DueBefore}); err != nil {
-		t.Fatal(err)
-	}
 	durations := make([]time.Duration, 40)
 	for i := range durations {
 		started := time.Now()
