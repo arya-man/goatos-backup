@@ -107,6 +107,20 @@ reviewed_applied_debt = {
     "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct DROP CONSTRAINT in goose Down section",
     "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct VALIDATE CONSTRAINT",
     "000181_vaccination_reminder_cadence.sql: notification_requests_type_check on hot table notification_requests uses direct VALIDATE CONSTRAINT in goose Down section",
+    # 000186 (U5, docs/decisions/operational-kernel-5k-50k-scale-envelope.md step 5) drops
+    # notification_requests_event_fk and calendar_snoozes_event_fk, the two FKs onto
+    # calendar_event_projections(tenant_id, event_id), so that table can be dropped later (U7)
+    # without an orphaned FK. Unlike the CHECK-relax migrations above, this is a pure DROP
+    # CONSTRAINT with no re-add in Up -- a catalog-only, brief ACCESS EXCLUSIVE lock with no table
+    # scan or rewrite, on both hot tables. The Down section's ADD CONSTRAINT (FK repoint reversal)
+    # is a planned, explicitly-invoked rollback path, not a rolling-deploy migration step, so it is
+    # reviewed as acceptable to run as a direct (validated-on-add) FOREIGN KEY rather than a
+    # NOT VALID + concurrent VALIDATE two-step; the ADR's own recovery section already treats
+    # restoring these FKs as an explicit, supervised reversal step.
+    "000186_notification_snooze_projection_fk_repoint.sql: notification_requests_event_fk on hot table notification_requests uses direct DROP CONSTRAINT",
+    "000186_notification_snooze_projection_fk_repoint.sql: calendar_snoozes_event_fk on hot table calendar_snoozes uses direct DROP CONSTRAINT",
+    "000186_notification_snooze_projection_fk_repoint.sql: notification_requests_event_fk on hot table notification_requests uses direct CHECK/FOREIGN KEY constraint without NOT VALID in goose Down section",
+    "000186_notification_snooze_projection_fk_repoint.sql: calendar_snoozes_event_fk on hot table calendar_snoozes uses direct CHECK/FOREIGN KEY constraint without NOT VALID in goose Down section",
 }
 
 create_table_re = re.compile(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)

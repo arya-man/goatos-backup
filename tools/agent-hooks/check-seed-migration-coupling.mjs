@@ -226,9 +226,20 @@ function sensitivityFor(table) {
   return "";
 }
 
-function isIgnored(source, index) {
+// isIgnored takes a LINE NUMBER, not a character offset. affectedSeedObjectsForSQL matches against
+// `searchable` (block comments AND inline "--" comments stripped) but must look up the ignore marker
+// in `withoutBlocks` (inline comments intact, since the marker itself is a "--" comment that
+// stripInlineSqlComment would otherwise erase). Those two strings have an IDENTICAL line count
+// (stripping never adds/removes a line) but generally DIFFERENT character lengths per line, so a
+// character offset computed against one string does not locate the same position in the other --
+// reusing match.index (an offset into `searchable`) directly as an offset into `withoutBlocks` was a
+// bug: any stripped comment text before the match (including the mandatory "-- +goose Up"/"Down"
+// markers) shifts the two strings out of alignment, and in a run of blank single-newline lines (the
+// common case right after a block comment) even a small character drift becomes a large line-number
+// error. The line number itself, in contrast, is the same in both strings by construction, so pass
+// that instead of re-deriving it from a cross-string character index.
+function isIgnored(source, line) {
   const lines = source.split("\n");
-  const line = lineOfIndex(source, index);
   const window = [
     lines[line - 3] ?? "",
     lines[line - 2] ?? "",
@@ -246,7 +257,7 @@ export function affectedSeedObjectsForSQL(source) {
   SQL_OP_RE.lastIndex = 0;
   let match;
   while ((match = SQL_OP_RE.exec(searchable)) !== null) {
-    if (isIgnored(withoutBlocks, match.index)) continue;
+    if (isIgnored(withoutBlocks, lineOfIndex(searchable, match.index))) continue;
     const op = match[1].replace(/\s+/g, " ").toUpperCase();
     const table = identifier(match[2]);
     const reason = sensitivityFor(table);

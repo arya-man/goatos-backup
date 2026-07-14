@@ -2342,29 +2342,102 @@ FROM marker_rows
 GROUP BY marker_date
 ORDER BY marker_date`
 
-// projection-review: membership=calendar_event_projections rows in the requested [$6,$7) window matching the same owner/status/park/shed/scope filters as the list/date-marker queries (system=false, slice_key='vaccination', event_type <> 'vaccination_dose_due'); group_key=event_id (one row per already-materialized projection row, no grouping/aggregation beyond the window count(*) OVER() total, so there is no group key collision to prove); join_cardinality=no JOIN at all -- a single filtered SELECT against calendar_event_projections, so there is no dimension fan-out to dedupe; pagination=whole-result total (count(*) OVER() over the FULL filtered week window, independent of the ~20-row LIMIT below) AND bounded-execution (one indexed query per ListEvents(IncludeDateMarkers) call, LIMIT $11 keeps the returned preview small, never recomputed by filtering whatever page of Items the frontend currently holds); scope=park_id/shed_id read directly from calendar_event_projections' precomputed columns (already resolved at refresh time), same tenant-wide/park/shed scope predicate as calendarListSQL/calendarDateMarkersSQL
+// projection-review: membership=calendar_event_projections rows in the requested [$6,$7) window matching the same owner/status/park/shed/scope filters as the list/date-marker queries (system=false, slice_key='vaccination', event_type <> 'vaccination_dose_due'), LEFT JOINed to at most one row each from calendar_snoozes (active_snooze), notification_requests (latest_reminder/latest_escalation, one row per calendar_event_id via DISTINCT ON), and obligation_escalations (obligation_escalation_active, one row per obligation_id via DISTINCT ON) -- every join side is itself grouped to at most one row per join key before the join, so none of these LEFT JOINs can fan out a candidate row; group_key=event_id (one row per already-materialized projection row plus its at-most-one derived state row, no grouping/aggregation beyond the window count(*) OVER() total); join_cardinality=candidates 1:{0,1} against each derived CTE (all four are pre-deduplicated to their join key), so no dimension fan-out to dedupe; pagination=whole-result total (count(*) OVER() over the FULL filtered week window, independent of the ~20-row LIMIT below) AND bounded-execution (one indexed query per ListEvents(IncludeReminderRail) call: the notification_requests/calendar_snoozes/obligation_escalations CTEs are each restricted via JOIN candidates to the same bounded date-window event set, using notification_requests_event_idx/calendar_snoozes_event_idx/(tenant_id, obligation_id) rather than a tenant-wide scan; LIMIT $11 keeps the returned preview small, never recomputed by filtering whatever page of Items the frontend currently holds); scope=park_id/shed_id read directly from calendar_event_projections' precomputed columns (already resolved at refresh time), same tenant-wide/park/shed scope predicate as calendarListSQL/calendarDateMarkersSQL
+//
+// U5 (operational-kernel-5k-50k-scale-envelope ADR step 5): this query used to read the persisted
+// reminder_state/escalation_state columns on calendar_event_projections. Those columns are still
+// written (for now -- U7 removes the whole table) but are no longer READ here, so the rail's
+// contents no longer depend on calendar_event_projections' state columns and stay correct even if a
+// sweeper crashed before writing them. Reminder/nudge/escalation activity is derived at read time
+// from the same durable/canonical tables the sweepers already use for idempotency:
+// notification_requests (the durable record of every reminder/nudge/escalation actually queued --
+// see queueDueReminder/SendNudge/queueEscalation) and obligation_escalations (the canonical
+// escalation ladder for obligation-sourced events -- see lockLatestEscalation/updateEscalationState).
+// Priority mirrors the single mutable reminder_state/escalation_state field the old code kept:
+// an active snooze always wins display-wise; otherwise, once ANY escalation notification has ever
+// fired for the event (obligation-sourced or not) the reminder label is pinned to "escalated" and
+// never reverts (acknowledge/resolve only ever changed escalation_state, never reminder_state, in
+// the old code); otherwise the most recently requested reminder/nudge notification decides
+// "queued" vs "nudged". escalation_state mirrors obligation_escalations while it has an open/
+// acknowledged row (matching AcknowledgeEscalation/ResolveEscalation, which only ever act on
+// obligation-sourced events -- see applyEscalationAction's target.TargetType != "obligation" guard);
+// for composite/drive events (catchup/park_drive/batch/sop_task), which can never be acknowledged
+// or resolved, it stays at the highest escalation level ever queued, exactly like the old
+// escalation_state column did for those event types.
 const calendarReminderRailSQL = `
+WITH candidates AS (
+  SELECT event_id, title, subtitle, source_target_type, source_target_id, primary_notification_channel, due_at
+  FROM calendar_event_projections
+  WHERE tenant_id = $1::uuid
+    AND slice_key = 'vaccination'
+    AND system = false
+    AND event_type <> 'vaccination_dose_due'
+    AND ($2::text = '' OR owner_key = $2::text)
+    AND ($3::text = '' OR status = $3::text)
+    AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
+    AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
+    AND due_at >= $6::timestamptz
+    AND due_at < $7::timestamptz
+    AND ($8::bool OR park_id::text = ANY($9::text[]) OR shed_id::text = ANY($10::text[]))
+),
+active_snooze AS (
+  SELECT DISTINCT cs.calendar_event_id
+  FROM calendar_snoozes cs
+  JOIN candidates c ON c.event_id = cs.calendar_event_id
+  WHERE cs.tenant_id = $1::uuid AND cs.status = 'active' AND cs.snooze_until > now()
+),
+latest_reminder AS (
+  SELECT DISTINCT ON (nr.calendar_event_id) nr.calendar_event_id, nr.notification_type
+  FROM notification_requests nr
+  JOIN candidates c ON c.event_id = nr.calendar_event_id
+  WHERE nr.tenant_id = $1::uuid AND nr.notification_type IN ('reminder', 'nudge')
+  ORDER BY nr.calendar_event_id, nr.requested_at DESC, nr.notification_request_id DESC
+),
+escalation_notification_level AS (
+  SELECT nr.calendar_event_id, max(NULLIF(nr.context->>'escalation_level', '')::int) AS max_level
+  FROM notification_requests nr
+  JOIN candidates c ON c.event_id = nr.calendar_event_id
+  WHERE nr.tenant_id = $1::uuid AND nr.notification_type = 'escalation'
+  GROUP BY nr.calendar_event_id
+),
+obligation_escalation_active AS (
+  SELECT DISTINCT ON (oe.obligation_id) oe.obligation_id, oe.level, oe.status
+  FROM obligation_escalations oe
+  JOIN candidates c ON c.source_target_type = 'obligation' AND c.source_target_id = oe.obligation_id
+  WHERE oe.tenant_id = $1::uuid AND oe.status IN ('open', 'acknowledged')
+  ORDER BY oe.obligation_id, oe.level DESC, oe.opened_at DESC
+),
+derived AS (
+  SELECT
+    c.event_id, c.title, c.subtitle, c.primary_notification_channel, c.due_at,
+    CASE
+      WHEN asn.calendar_event_id IS NOT NULL THEN 'snoozed'
+      WHEN oea.obligation_id IS NOT NULL OR enl.calendar_event_id IS NOT NULL THEN 'escalated'
+      WHEN lr.notification_type = 'nudge' THEN 'nudged'
+      WHEN lr.notification_type = 'reminder' THEN 'queued'
+      ELSE 'not_scheduled'
+    END AS reminder_state,
+    CASE
+      WHEN oea.obligation_id IS NOT NULL AND oea.status = 'acknowledged' THEN 'level_' || oea.level::text || '_acknowledged'
+      WHEN oea.obligation_id IS NOT NULL THEN 'level_' || oea.level::text || '_open'
+      WHEN enl.calendar_event_id IS NOT NULL THEN 'level_' || COALESCE(enl.max_level, 1)::text || '_open'
+      ELSE 'none'
+    END AS escalation_state
+  FROM candidates c
+  LEFT JOIN active_snooze asn ON asn.calendar_event_id = c.event_id
+  LEFT JOIN latest_reminder lr ON lr.calendar_event_id = c.event_id
+  LEFT JOIN escalation_notification_level enl ON enl.calendar_event_id = c.event_id
+  LEFT JOIN obligation_escalation_active oea ON c.source_target_type = 'obligation' AND oea.obligation_id = c.source_target_id
+)
 SELECT event_id, title, subtitle, reminder_state, escalation_state, primary_notification_channel,
        count(*) OVER ()::int AS total_count
-FROM calendar_event_projections
-WHERE tenant_id = $1::uuid
-  AND slice_key = 'vaccination'
-  AND system = false
-  AND event_type <> 'vaccination_dose_due'
-  AND ($2::text = '' OR owner_key = $2::text)
-  AND ($3::text = '' OR status = $3::text)
-  AND ($4::text = '' OR park_id = nullif($4::text, '')::uuid)
-  AND ($5::text = '' OR shed_id = nullif($5::text, '')::uuid)
-  AND due_at >= $6::timestamptz
-  AND due_at < $7::timestamptz
-  AND ($8::bool OR park_id::text = ANY($9::text[]) OR shed_id::text = ANY($10::text[]))
-  AND (
-    reminder_state IN ('scheduled', 'queued', 'nudged', 'snoozed', 'sent', 'escalated')
-    OR escalation_state IN (
-      'pending', 'queued', 'escalated', 'acknowledged',
-      'level_1_open', 'level_2_open', 'level_3_open', 'level_4_open',
-      'level_1_acknowledged', 'level_2_acknowledged', 'level_3_acknowledged', 'level_4_acknowledged'
-    )
+FROM derived
+WHERE
+  reminder_state IN ('scheduled', 'queued', 'nudged', 'snoozed', 'sent', 'escalated')
+  OR escalation_state IN (
+    'pending', 'queued', 'escalated', 'acknowledged',
+    'level_1_open', 'level_2_open', 'level_3_open', 'level_4_open',
+    'level_1_acknowledged', 'level_2_acknowledged', 'level_3_acknowledged', 'level_4_acknowledged'
   )
 ORDER BY due_at ASC, event_id ASC
 LIMIT $11`

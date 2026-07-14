@@ -1334,6 +1334,142 @@ WHERE tenant_id=$1::uuid AND event_id=$2`, testTenantID, eventID).Scan(&status, 
 	}
 }
 
+// TestCalendarReminderRailDerivesFromCanonicalNotificationsNotProjectionColumns is the U5 (ADR
+// operational-kernel-5k-50k-scale-envelope step 5) regression: the reminder rail must no longer
+// depend on calendar_event_projections.reminder_state/escalation_state to decide which events are
+// "active". Each scenario below performs the real write path (SweepDueReminders/SendNudge/Snooze/
+// SweepEscalations), then deliberately corrupts/resets the projection row's reminder_state/
+// escalation_state columns back to their defaults -- exactly what those columns would look like once
+// U7 stops maintaining them (or if a sweeper crashed before writing them) -- and proves the rail
+// still reports the correct label, because it is derived at read time from
+// notification_requests/calendar_snoozes instead.
+//
+// This does not exercise the obligation_escalations-derived branch of calendarReminderRailSQL
+// (the "acknowledged"/individually-dosed obligation path): every 'obligation:'-prefixed event row is
+// event_type='vaccination_dose_due' (see the obligation_events CTE), which the rail's own candidate
+// filter (event_type <> 'vaccination_dose_due') has always excluded -- and AcknowledgeEscalation/
+// ResolveEscalation only ever act on an obligation-typed target (applyEscalationAction's
+// target.TargetType != "obligation" guard), so no event that can be acknowledged/resolved was ever
+// rail-visible, before or after this change. The obligation_escalations JOIN in the new SQL is
+// therefore defensive/future-proofing (in case that coupling changes), not a reachable path today;
+// TestCalendarEscalationAcknowledgeAndResolveWorkflow already covers the acknowledge/resolve write
+// path itself. The catch-up (composite) escalation case below IS rail-visible and IS the real proof
+// that escalation display no longer depends on the stored escalation_state column.
+func TestCalendarReminderRailDerivesFromCanonicalNotificationsNotProjectionColumns(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	resetProjectionState := func(eventID string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+UPDATE calendar_event_projections
+SET reminder_state = 'not_scheduled', escalation_state = 'none'
+WHERE tenant_id = $1::uuid AND event_id = $2`, testTenantID, eventID); err != nil {
+			t.Fatalf("reset projection state columns for %s: %v", eventID, err)
+		}
+	}
+	findRailItem := func(rail domain.CalendarReminderRail, eventID string) domain.CalendarReminderRailItem {
+		t.Helper()
+		for _, item := range rail.Items {
+			if item.EventID == eventID {
+				return item
+			}
+		}
+		t.Fatalf("reminder rail missing event %s, items=%#v", eventID, rail.Items)
+		return domain.CalendarReminderRailItem{}
+	}
+
+	// Queued reminder: derived from notification_requests(notification_type='reminder'), not the
+	// (here corrupted) reminder_state column.
+	reminderEvent := "batch:86000000-0000-4000-8000-000000009001:rule:86000000-0000-4000-8000-000000001011:shed:86000000-0000-4000-8000-000000001012"
+	seedCalendarProjection(t, ctx, pool, reminderEvent, time.Now().UTC().Add(30*time.Minute), "not_scheduled")
+	if queued, err := repo.SweepDueReminders(ctx, testTenantID, 10); err != nil {
+		t.Fatalf("SweepDueReminders: %v", err)
+	} else if queued != 1 {
+		t.Fatalf("queued reminders = %d, want 1", queued)
+	}
+	resetProjectionState(reminderEvent)
+
+	// Nudge overrides the reminder label: derived from notification_requests(notification_type='nudge').
+	nudgeEvent := "batch:86000000-0000-4000-8000-000000009002:rule:86000000-0000-4000-8000-000000001011:shed:86000000-0000-4000-8000-000000001012"
+	seedCalendarProjection(t, ctx, pool, nudgeEvent, time.Now().UTC().Add(45*time.Minute), "not_scheduled")
+	if _, err := repo.SendNudge(ctx, ports.SendNudge{
+		TenantID: testTenantID, EventID: nudgeEvent, ActorID: testActorID,
+		IdempotencyKey: "rail-nudge-key", Channel: "local-stub", Message: "please act",
+		Scope: domain.ScopeFilter{TenantWide: true},
+	}); err != nil {
+		t.Fatalf("SendNudge: %v", err)
+	}
+	resetProjectionState(nudgeEvent)
+
+	// Snooze overrides the reminder label: derived purely from an active calendar_snoozes row.
+	snoozeEvent := "batch:86000000-0000-4000-8000-000000009003:rule:86000000-0000-4000-8000-000000001011:shed:86000000-0000-4000-8000-000000001012"
+	seedCalendarProjection(t, ctx, pool, snoozeEvent, time.Now().UTC().Add(50*time.Minute), "not_scheduled")
+	if _, err := repo.Snooze(ctx, ports.Snooze{
+		TenantID: testTenantID, EventID: snoozeEvent, ActorID: testActorID,
+		IdempotencyKey: "rail-snooze-key", SnoozeUntil: time.Now().UTC().Add(2 * time.Hour),
+		Reason: "waiting on stock", Scope: domain.ScopeFilter{TenantWide: true},
+	}); err != nil {
+		t.Fatalf("Snooze: %v", err)
+	}
+	resetProjectionState(snoozeEvent)
+
+	// Composite (catch-up summary) escalation: no obligation_escalations row is ever written for a
+	// catch-up event (see TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation), so
+	// this must be derived purely from the notification_requests escalation row.
+	catchupProtocolID := "86000000-0000-4000-8000-000000009201"
+	catchupVersionID := "86000000-0000-4000-8000-000000009202"
+	catchupRuleID := "86000000-0000-4000-8000-000000009203"
+	catchupObligationID := "86000000-0000-4000-8000-000000009204"
+	catchupDueAt := time.Now().UTC().Add(-2 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, catchupProtocolID, catchupVersionID, catchupRuleID, catchupObligationID, catchupDueAt)
+	if _, err := repo.RefreshVaccinationProjection(ctx, ports.RefreshVaccinationProjection{
+		TenantID: testTenantID, DateFrom: time.Now().UTC().Add(-24 * time.Hour), DateTo: time.Now().UTC().Add(24 * time.Hour), Limit: 100,
+	}); err != nil {
+		t.Fatalf("RefreshVaccinationProjection (catch-up): %v", err)
+	}
+	if _, err := repo.SweepEscalations(ctx, ports.SweepEscalations{
+		TenantID: testTenantID, Limit: 10, Now: time.Now().In(biztime.DefaultLocation()),
+		Level1After: 0, Level2After: 4 * time.Hour, Level3After: 24 * time.Hour, Level4After: 48 * time.Hour,
+	}); err != nil {
+		t.Fatalf("SweepEscalations (catch-up): %v", err)
+	}
+	catchupEvent := catchupEventID(testTenantID, catchupDueAt)
+	assertCount(t, ctx, pool, "no canonical escalation ladder for catch-up event", `
+SELECT count(*) FROM obligation_escalations WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`,
+		0, testTenantID, catchupObligationID)
+	resetProjectionState(catchupEvent)
+
+	q := domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: time.Now().Add(-24 * time.Hour), DateTo: time.Now().Add(24 * time.Hour),
+		Limit: 50, IncludeReminderRail: true, Scope: domain.ScopeFilter{TenantWide: true},
+	}
+	got, err := repo.ListEvents(ctx, q)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if got.ReminderRail == nil {
+		t.Fatalf("reminder rail missing")
+	}
+
+	if item := findRailItem(*got.ReminderRail, reminderEvent); item.ReminderLabel != "Reminder queued" {
+		t.Fatalf("reminder label = %q, want Reminder queued (derived despite corrupted reminder_state column)", item.ReminderLabel)
+	}
+	if item := findRailItem(*got.ReminderRail, nudgeEvent); item.ReminderLabel != "Reminder sent" {
+		t.Fatalf("nudge label = %q, want Reminder sent", item.ReminderLabel)
+	}
+	if item := findRailItem(*got.ReminderRail, snoozeEvent); item.ReminderLabel != "Reminder snoozed" {
+		t.Fatalf("snooze label = %q, want Reminder snoozed", item.ReminderLabel)
+	}
+	if item := findRailItem(*got.ReminderRail, catchupEvent); item.EscalationLabel != "Escalated · L1" || item.ReminderLabel != "Reminder escalated" {
+		t.Fatalf("catch-up escalation item = %#v, want Escalated L1 / Reminder escalated (derived from notification_requests only)", item)
+	}
+}
+
 func TestCalendarSweepersDoNotNotifyHeldDeferredOrBlockedWork(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
