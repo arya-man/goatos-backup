@@ -25,7 +25,13 @@ Implementation order:
 2. Generate sqlc.
 3. Add protocol/obligation/inventory domains and repositories.
 4. Add the outbox Pub/Sub publisher adapter while keeping the logging adapter.
-5. Add idempotency guards and query-plan validation for million-animal hot paths.
+5. Add idempotency guards and query-plan validation for hot paths at the
+   current 5k-50k release envelope. Prove the aggregate/summary path against the
+   upper bound (~500k obligation rows = 50k animals x retained obligations) with
+   single-worker cadence/backlog validation, not just the 5k list case. The
+   1M / 1-5M query-plan bar stays as the FUTURE certification gate, not the
+   present release requirement. See
+   `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`.
 6. Add tests.
 ```
 
@@ -54,7 +60,11 @@ Rules:
   trigger, canonical transaction, audit/outbox, obligation/work item, sweeper,
   reminder/deadline alert, notification/escalation, proof/verification,
   read-model/process-integrity view, observability, local/cloud parity, and
-  million-animal scale proof.
+  scale proof at the current 5k-50k envelope — the aggregate/summary path proven
+  at the upper bound (~500k obligation rows), single-worker cadence/backlog. The
+  1M / 1-5M scale proof is retained as the FUTURE certification gate, not
+  dropped. Authority for the current deployment scale target and worker
+  topology: `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`.
 - For Calendar vaccination work, Developer A owns the protected backend routes,
   generic `CalendarEvent` contract, Postgres projection, nudge/snooze
   persistence, seed/E2E proof, and scale/query-plan checks. Developer B owns the

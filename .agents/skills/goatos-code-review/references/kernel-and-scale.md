@@ -1,13 +1,28 @@
-# Kernel Integrity & 1-5M-Animal Scale
+# Kernel Integrity & Scale (5k-50k current envelope; 1-5M future gate)
 
 The operational kernel is the core of Goat OS. Review it first and hardest. A
 feature that forks its own scheduler, status store, proof flow, or notification
 path — instead of plugging into the kernel — is a CRITICAL finding even if it
 compiles and passes tests.
 
+**Current release scale target: 5,000-50,000 animals.** Per the accepted ADR
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, the active
+deployment optimizes for the 5k-to-50k envelope: APIs read canonical indexed
+SQL, one modular kernel worker replaces the split job fleet, and query-plan
+proof runs at the upper bound (~500k obligation rows = 50k animals × retained
+obligations) under single-worker cadence/backlog validation. The
+one-million / 1-5M-animal topology is **future certification work, not a present
+release requirement** — retained below as the FUTURE scale gate, not deleted.
+This is a scope reframe, not a safety downgrade: every anti-pattern, the
+idempotency/migration/timezone bars, and the kernel golden lens below stay in
+force. When the two disagree on the *present* release bar, the ADR wins; on
+*correctness shape* (indexing, boundedness, idempotency), both agree.
+
 Law: `context/architecture/operational-kernel.md` (golden rule),
 `context/architecture/operational-kernel-system-design.md` (system design),
-`docs/protocol-engine/high-scale-kernel-validation-plan.md` (scale validation).
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md` (current 5k-50k
+deployment authority), `docs/protocol-engine/high-scale-kernel-validation-plan.md`
+(future 1-5M scale validation).
 
 **Verify against source, not memory.** This file names tables, statuses, cron
 binaries, and thresholds only to tell you WHAT to check and WHERE to confirm it.
@@ -138,14 +153,30 @@ contract from `context/architecture/operational-kernel-system-design.md` and
 - [ ] Tests cover allow, block, approval, exception, replay, idempotency conflict,
       missing evidence, stale state, primitive bypass, and skewed/high-scale load
 
-## 1-5M-animal scale — hard requirement on every change
+## Scale shape — hard requirement on every change (5k-50k now, 1-5M future)
 
-`AGENTS.md` makes million-animal scale a hard requirement. For any new query,
+The correctness *shape* is a hard requirement at every scale. For any new query,
 worker, importer, reporting path, or UI data flow, check the scale shape:
 tenant/run-scoped, indexed, chunked/paginated, bounded in memory/goroutines,
-idempotent on retry, and query-plan-validated on large tables.
+idempotent on retry, and query-plan-validated on large tables. None of that
+relaxes under the 5k-50k envelope — a query that is unbounded, unindexed, or
+fans out per animal is still a defect at 500k rows, and the same code is what
+must eventually certify at 1-5M.
 
-CRITICAL scale violations:
+The scale *acceptance bar* is what the ADR reframes. The **current** release
+gate proves the query-plan/backlog shape at the upper bound of the envelope
+(~500k obligation rows at 50k animals) under the single kernel worker's
+cadences, per `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. The
+1M / 1-5M full-chain acceptance bar and its `high-scale-kernel-e2e-*`
+certification stay the **future** gate (see "High-scale certification gates"
+below) — required before the multi-worker topology ships, not before the 5k-50k
+release. A green 5k plan is never proof for the 50k aggregate, and a green 50k
+plan is never proof for the future 1M certification; keep the three claims
+distinct.
+
+CRITICAL scale violations (banned in `backend/internal/**` at every scale; the
+five ADR-exempted canonical screen reads are the only carve-out — see the
+read-model note below):
 
 1. **Unbounded fan-out.** `for _, a := range allAnimals { go … }` or loading all
    animals into memory. Use a bounded worker pool / fixed batch size. At 1M
@@ -179,13 +210,28 @@ CRITICAL scale violations:
    materialize it. Read-time compute is non-durable and inconsistent across
    queries. (Projection-level "days overdue" derived for display is fine; the
    canonical status transition must be persisted.)
-7. **Dashboards/reports sliced by dimension without the projection rule.** Slicing
-   by month/date/breed/farm/shed/load/status/etc. must follow
+7. **Dashboards/reports sliced by dimension without the projection rule —
+   except the five ADR-exempted canonical screen reads.** Slicing by
+   month/date/breed/farm/shed/load/status/etc. must follow
    `docs/decisions/high-scale-dashboard-projections.md` — durable projections,
-   not raw scans. Projection-backed APIs must expose the standard freshness
-   envelope (`as_of`/`last_success_at`, `freshness_status`, `serving_state`,
-   source watermark/unavailable sources, stale/rebuild flags, projection
-   version); a stale or approximate response must say so.
+   not raw scans — for every path EXCEPT the five screens the 5k-50k ADR moves
+   to canonical reads. Under `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`
+   the active runtime keeps **0 of the five named screen projections**
+   (`calendar_event_projections`, `process_integrity_projection_rows`,
+   `vaccination_shed_projection_rows`, `vaccination_execution_projection_rows`,
+   `vaccination_operations_projection_rows`): those screens read canonical
+   indexed SQL — a keyset-paginated ~20-row **list read**, plus an indexed
+   **summary aggregate** for rollups/counts. These reads are explicitly exempted
+   from the compute-on-read ban (see the read-model note below); the ban still
+   holds for every other path. `vaccination_eligibility_rollups` and the counts
+   summaries survive as durable read models. A projection-backed API that is
+   still projection-backed must expose the standard freshness envelope
+   (`as_of`/`last_success_at`, `freshness_status`, `serving_state`, source
+   watermark/unavailable sources, stale/rebuild flags, projection version); a
+   stale or approximate response must say so. A canonical read cannot be stale
+   relative to the canonical write, so it carries no freshness envelope and needs
+   no reconciler — but it MUST be query-plan-tested at both list and aggregate
+   shapes against the ~500k upper-bound row count.
 8. **N+1 per-animal queries in a loop.** A list, generation, projection, or
    drive-planning path that issues one DB round-trip per animal (fetch history/
    proof/compatibility/eligibility/label per row inside an animal loop) instead of
@@ -205,6 +251,49 @@ CRITICAL scale violations:
    in-loop call INTO its adapter: a per-item service/port call that reads the DB
    one row at a time is the same defect as an inline N+1 and must batch to a single
    `*ByIDs` / `= ANY($1)` read.
+
+## Read-model default & the scoped scale-guard exemption (5k-50k)
+
+Default read model under the 5k-50k envelope: screens read canonical indexed
+SQL, not derived projections. Per
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, the two read shapes
+are distinct and must not be conflated under the word "bounded":
+
+- **List reads** (day list, shed list, per-shed capture) are keyset-paginated at
+  ~20 rows and are genuinely bounded regardless of herd size.
+- **Summary aggregates** (Control Tower gaps, adherence rollups,
+  process-integrity counts) cannot be keyset-paginated; they are indexed scans
+  whose cost grows with open-obligation count. Acceptable at this envelope, but
+  the first extraction candidate, and they MUST be plan-tested against the
+  ~500k upper-bound row count, not only the 5k list case.
+
+Only these five named screen reads default to canonical SQL and are exempted
+from the seven scale anti-patterns above: `calendar_event_projections`,
+`process_integrity_projection_rows`, `vaccination_shed_projection_rows`,
+`vaccination_execution_projection_rows`, and
+`vaccination_operations_projection_rows` (0 projectors/tables in the active
+runtime). `vaccination_eligibility_rollups` and the counts summaries remain
+durable read models. **compute-on-read stays banned everywhere else.**
+
+The exemption is machine-scoped, never blanket. `make scale-guard` (the CI
+`guardrails` job) still blocks the compute-on-read/god-CTE shape mechanically;
+the five reads clear it only through the sanctioned scoped annotation
+`// scale-guard:ignore: 5k-50k-envelope; see operational-kernel-5k-50k-scale-envelope.md`
+on each read (plus a `tools/scale-guard/baseline.txt` entry where required) AND
+a passing query-plan test at both list and aggregate shapes. Review checkpoints
+for any change touching one of these five reads:
+
+- [ ] The read carries the scoped `scale-guard:ignore: 5k-50k-envelope`
+      annotation citing the ADR — not a blanket guard disable, not a bare
+      `scale-guard:ignore` with no envelope tag
+- [ ] The exempted read is query-plan-tested at BOTH the list (~20-row keyset)
+      and the aggregate shapes against the ~500k upper-bound row count; an
+      exempted read that is not plan-tested is a defect
+- [ ] The guard remains fully active for every other path in
+      `backend/internal/**`; no global disable, no widening the exemption beyond
+      the five named screens
+- [ ] A screen that later earns its own projection drops the annotation and
+      returns under full guard enforcement (see the scale-out ladder in the ADR)
 
 ## Business audit vs technical logs
 
@@ -233,12 +322,20 @@ to populated hot tables without an explicit reviewed rollout. Run
 `make validate-hot-index-migrations` and `make validate-migrations` for migration
 changes, plus `make validate-sqlc-plans` for hot queries.
 
-High-scale certification gates: kernel/scale changes must either run or clearly
+High-scale certification gates (the FUTURE 1-5M gate, not the current release
+bar): the 1M full-chain acceptance targets remain the certification gate for the
+future multi-worker topology, per
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. They are NOT the
+5k-50k release bar — the current release proves the query-plan/backlog shape at
+the ~500k upper-bound row count under the single kernel worker. A kernel/scale
+change that touches the future high-scale path must still either run or clearly
 mark not-applicable/not-implemented for `make high-scale-kernel-e2e-data`,
 `make high-scale-kernel-e2e-all`, or strict
-`make high-scale-kernel-e2e-certification`. Reports must list measured threshold,
-pass/fail, and evidence for each relevant case. (These are the real high-scale
-targets in the `Makefile`; do not invent others.)
+`make high-scale-kernel-e2e-certification`, and reports must list measured
+threshold, pass/fail, and evidence for each relevant case. (These are the real
+high-scale targets in the `Makefile`; do not invent others.) Do not cite a 1M
+certification result as the 5k-50k release bar, and do not treat the 5k-50k
+release as satisfying the future 1M certification — keep the two gates distinct.
 
 Do not let a report overclaim its certification level. Local `make
 high-scale-kernel-e2e-*` output is local behavior proof unless the report also
@@ -494,14 +591,20 @@ start.
       `EXPLAIN (ANALYZE, BUFFERS)` without `enable_seqscan=off`, not only static
       plan/index lint
 - [ ] Projection-backed APIs expose freshness/serving-state/source-watermark
-      envelopes and label stale or approximate data
+      envelopes and label stale or approximate data; the five 5k-50k canonical
+      screen reads instead carry the scoped `scale-guard:ignore: 5k-50k-envelope`
+      annotation + a list-and-aggregate query-plan test at the ~500k upper bound,
+      and `compute-on-read` stays banned everywhere else
 - [ ] Long-running generation/backfill/import/projection jobs have durable
       run/progress rows with heartbeat, cursor/page/shard resume, stale reclaim,
       and completion/failure state
 - [ ] Migration changes on populated hot tables run `make validate-hot-index-migrations` + `make validate-migrations`
-- [ ] Scale-sensitive changes run or explicitly report the relevant high-scale
-      E2E/certification target (`make high-scale-kernel-e2e-*`); 1M/full-chain
-      claims distinguish local behavior proof vs `target_eval` vs staging
+- [ ] Current 5k-50k changes prove the query-plan/backlog shape at the ~500k
+      upper-bound row count under the single kernel worker; the FUTURE 1-5M
+      `make high-scale-kernel-e2e-*` certification is run or explicitly reported
+      only when the change touches the future high-scale path — the two gates are
+      distinct, and a 1M cert is not the 5k-50k release bar; 1M/full-chain claims
+      still distinguish local behavior proof vs `target_eval` vs staging
       `full_chain` and include the benchmark profile, per-stage counters,
       thresholds, and pass/fail evidence
 - [ ] Durable status persisted by sweeper; read-time compute only for display derivation

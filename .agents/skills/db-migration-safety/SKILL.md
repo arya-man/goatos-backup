@@ -10,7 +10,14 @@ description: >-
   validate-hot-index-migrations · idempotency-writes-guard · atomic-readmodel-sync-guard.
 ---
 
-# DB / migration safety (1M-scale)
+# DB / migration safety (5k-50k envelope; 1M future gate)
+
+Current release scale target is the **5,000-50,000-animal envelope** per
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md` (the authority).
+The **1M / 1-5M** bar is NOT deleted — it stays as the FUTURE certification gate,
+reintroduced per that ADR's scale-out ladder when measured workload requires it.
+Every lock-safety, idempotency, and atomic-read-model rule below is UNCHANGED;
+only the query-plan proof's upper-bound row count is reframed to this envelope.
 
 ## Lock-safe migrations
 On large tables: `CREATE INDEX CONCURRENTLY` in its own migration; NO long locks,
@@ -20,12 +27,36 @@ ordering). Goose Up/Down; Down restores prior state (verify byte-for-byte). Gate
 `make validate-migrations` (applies 000001→HEAD on a throwaway Postgres) +
 `make validate-hot-index-migrations` (hot-table index safety).
 
+The ADR's restructure migrations are EXPECTED and must still clear every gate
+above: dropping the five projection tables (`calendar_event_projections`,
+`process_integrity_projection_rows`, `vaccination_shed/execution/operations_projection_rows`)
+and their state tables, converting the three partitioned parents
+(`goat_identity_events`, `audit_log`, `obligation_status_events`) to ordinary
+indexed tables, and rewiring notification/snooze foreign keys off
+`calendar_event_projections` onto canonical `obligation_instances`/
+`obligation_batches`/`sop_tasks`. Current rows are test data (no backfill), but
+the DROP/rewire ordering must be lock-safe and the FK rewire must land before the
+table drop. `vaccination_eligibility_rollups` and counts summaries SURVIVE — do
+not drop them.
+
 ## Query-plan proof (no Seq Scan on hot tables)
 Every hot-path query on a large table (goat/event/obligation/counter/import/
 projection) must show **no Seq Scan** under EXPLAIN. Add/extend
-`make validate-sqlc-plans` coverage whenever a query touches those tables. A green
-plan proves SHAPE, not "1M-proven" (plans run at ~1k rows). Non-sargable
-`lower(col) LIKE '%x%'` → normalized column / `pg_trgm` GIN expression index.
+`make validate-sqlc-plans` coverage whenever a query touches those tables.
+Non-sargable `lower(col) LIKE '%x%'` → normalized column / `pg_trgm` GIN
+expression index.
+
+The **current** proof runs at the 5k-50k envelope's upper bound: ~500k
+obligation rows (50k animals × retained obligations), with single-worker
+cadence/backlog validation. Distinguish the two read shapes and plan-test BOTH:
+list reads are keyset-paginated at ~20 rows (bounded regardless of herd size);
+summary aggregates (Control Tower gaps, adherence rollups, process-integrity
+counts) cannot be keyset-paginated and must be run against the ~500k upper-bound
+row count, NOT just the 5k list case. A green plan at 5k is not proof for the 50k
+aggregate. A green plan still proves SHAPE, not "1M-proven"; the **1M / 1-5M**
+plan proof remains the FUTURE certification gate (plans currently run at ~1k
+rows in CI — see the ADR's runtime-gap section), not a present release
+requirement.
 
 ## Idempotency (every write path) — machine: idempotency-writes-guard
 Persist a stable idempotency key + semantic request fingerprint in the SAME txn as
@@ -44,8 +75,19 @@ commit best-effort sync only for an already-committed replay. Canonical:
 
 ## Scale-shape (see scale-anti-patterns skill)
 No god-CTE/compute-on-read, N+1, deep OFFSET, full-table MV refresh, unbounded/
-non-terminating worker tick — `make scale-guard`. Projections updated on write;
-request does an indexed lookup.
+non-terminating worker tick — `make scale-guard`. These stay BANNED across
+`backend/internal/**`; compute-on-read stays banned everywhere. The default read
+model is canonical indexed SQL: list = keyset ~20; summary = indexed aggregate.
+
+The ADR intentionally serves FIVE named screens (Calendar, process-integrity,
+shed, execution, operations) from canonical tables per request. Those five reads
+— and ONLY those — are EXEMPTED via scoped
+`// scale-guard:ignore: 5k-50k-envelope; see operational-kernel-5k-50k-scale-envelope.md`
+annotations plus query-plan tests (both list and aggregate shapes; an exempted
+read that is not plan-tested is a defect). `make scale-guard` is NOT globally
+disabled — it stays fully active for every other path. When a screen later earns
+its own projection, remove the annotation and it returns under enforcement.
+Projections that remain are updated on write; the request does an indexed lookup.
 
 ## India business calendar
 Business meaning derived from timestamps (scheduling, due/missed buckets, reminder

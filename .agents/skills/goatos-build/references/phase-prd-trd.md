@@ -20,7 +20,13 @@ docs/preventive-care-vaccination/TRD.md
 
 Use those files as the source of truth for migrations `000070-074`, scoped
 protocol rulesets, obligations, inventory ledger, Config activation policy, and
-million-animal query shape.
+scale-safe query shape. The current release scale target is the 5,000-to-50,000
+animal envelope: prove query plans against the upper-bound obligation volume
+(~500k rows at 50k animals x retained obligations) under the single-worker
+cadence. The one-million-animal query shape is retained as the FUTURE
+certification target, not a present release gate. See
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md` for the authoritative
+scope split.
 
 Canonical docs:
 
@@ -29,6 +35,8 @@ Canonical docs:
 - `context/execution/two-dev-build-plan.md`
 - `context/source-findings/drive-docs-findings.md`
 - `context/source-findings/customer-promise-safety-findings.md`
+- `docs/decisions/operational-kernel-5k-50k-scale-envelope.md` (authoritative
+  scale envelope: 5k-to-50k current release target, 1M future certification)
 
 Rules:
 
@@ -45,7 +53,13 @@ Rules:
   `context/architecture/operational-kernel.md`: trigger, canonical transaction,
   obligation/work item, sweeper, reminder/deadline alert, notification/
   escalation, proof/verification, read-model process-integrity view, local/cloud
-  parity, and million-animal scale proof.
+  parity, and current-envelope (5k-to-50k) scale proof — query-plan validation at
+  the ~500k-obligation-row upper bound with single-worker cadence/backlog checks.
+  The one-million-animal scale proof is retained EXPLICITLY as the future
+  certification gate, not dropped. See
+  `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. This reframes the
+  scale target only; every other kernel-lens step and all anti-pattern,
+  migration, idempotency, and mobile safety bars stay in force.
 - If the phase adds a permanent module/tool/workflow/rule, update the relevant
   skill reference in `.agents/skills/goatos-build/references/` before coding.
 - Before asking humans to answer business decisions from memory, inspect

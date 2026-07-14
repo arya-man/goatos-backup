@@ -1,6 +1,6 @@
 ---
 name: goatos-code-review
-description: Review or audit a Goat OS change (diff, branch, PR, or path) for kernel correctness, aggregate/projection grain and key correctness, 1-5M-animal scale safety, hexagonal boundaries, backend + frontend + Android-mobile architecture (Room SSOT / offline / pagination / memory), DB-schema/migration lock-safety, and vaccination/obligation business-rule fidelity — applying root-cause-vs-band-aid, anti-pattern, and blast-radius lenses and returning a bug list (or approval). Orchestrates CRG, Graphify, RTK, and repowise. Use when reviewing code, auditing a diff, or gating a change before push.
+description: Review or audit a Goat OS change (diff, branch, PR, or path) for kernel correctness, aggregate/projection grain and key correctness, release-scale safety (current 5k-50k envelope; 1-5M future certification), hexagonal boundaries, backend + frontend + Android-mobile architecture (Room SSOT / offline / pagination / memory), DB-schema/migration lock-safety, and vaccination/obligation business-rule fidelity — applying root-cause-vs-band-aid, anti-pattern, and blast-radius lenses and returning a bug list (or approval). Orchestrates CRG, Graphify, RTK, and repowise. Use when reviewing code, auditing a diff, or gating a change before push.
 version: 0.1.0
 user-invocable: true
 argument-hint: "[target: diff | branch | PR | path — what to review]"
@@ -12,7 +12,8 @@ Use this skill to **review** Goat OS code — a diff, a branch, a PR, or a path 
 not to build it. For building/navigating, use `goatos-build`. This skill is the
 review gate: it knows where every layer lives, drives the four review tools
 (CRG, Graphify, RTK, repowise), and holds the checklists that turn "the build is
-green" into "this is safe to merge at 1-5M animals."
+green" into "this is safe to merge at the current 5,000-50,000-animal release
+envelope (with 1-5M retained as the future certification gate)."
 
 This file is the single entry point. Route to references below; do not review
 from memory alone. Every path here is repo-relative to the goatos checkout root.
@@ -49,8 +50,17 @@ Room-backed offline-first), built on one **operational kernel**:
 > obligation → sweeper/scheduler → reminder/escalation → notification → proof →
 > verification → read-model/projection → leadership answer.
 
-Every feature must plug into that chain and hold at **1-5 million animals**. The
-kernel is the core of the system; review it first. Its law lives in
+Every feature must plug into that chain and hold at the current release scale
+envelope — **5,000-50,000 animals** — with query plans proven at the upper-bound
+~500k obligation rows (50k animals × retained obligations) under one kernel
+worker's cadence/backlog validation. The **1-5 million-animal** bar is retained as
+the FUTURE certification gate, not the present release requirement — see
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. At this envelope the
+read-model step of the chain is served by **canonical indexed SQL by default**
+(list = keyset ~20; summary = indexed aggregate): none of the five named screen
+projections run in the active runtime, while `vaccination_eligibility_rollups` and
+counts summaries survive — the kernel chain itself is unchanged, only its read
+shape. The kernel is the core of the system; review it first. Its law lives in
 `context/architecture/operational-kernel.md` (golden rule) and
 `context/architecture/operational-kernel-system-design.md` (system design).
 
@@ -145,12 +155,28 @@ clean the rest is:
 
 1. **Kernel integrity** — does the change plug into the kernel chain, or does it
    fork a private scheduler / proof / notification / status engine? (`references/kernel-and-scale.md`)
-2. **Scale & idempotency (1-5M)** — bounded sweepers, tenant/date-filtered
-   indexed queries, keyset pagination, bounded goroutines, idempotency key + DB
-   unique constraint, atomic state+audit+outbox. (`references/kernel-and-scale.md`)
-   Any aggregate/projection also proves canonical membership, stable group key,
-   join cardinality, hierarchy mapping, and page-independent totals using
-   `references/aggregates-and-projections.md`.
+2. **Scale & idempotency (current envelope 5k-50k; 1-5M future certification)** —
+   bounded sweepers, tenant/date-filtered indexed queries, keyset pagination,
+   bounded goroutines, idempotency key + DB unique constraint, atomic
+   state+audit+outbox. (`references/kernel-and-scale.md`) The current release gate
+   proves query plans at the upper bound — up to ~500k obligation rows (50k animals
+   × retained obligations) — under single-worker cadence/backlog validation; the
+   1-5M bar stays as the FUTURE certification gate, retained not deleted. At this
+   envelope screens read **canonical indexed SQL by default** (list = keyset ~20;
+   summary = indexed aggregate): none of the five named screen projections
+   (`calendar_event_projections`, `process_integrity_projection_rows`,
+   `vaccination_shed`/`execution`/`operations_projection_rows`) run in the active
+   runtime, while `vaccination_eligibility_rollups` and counts summaries survive.
+   Those five canonical screen reads are the ONLY sanctioned exemption to the
+   compute-on-read ban — each carries a scoped
+   `// scale-guard:ignore: 5k-50k-envelope; see operational-kernel-5k-50k-scale-envelope.md`
+   annotation plus query-plan tests (list AND aggregate shapes); the guard is NOT
+   globally disabled and every other path in `backend/internal/**` stays under full
+   enforcement of the seven scale anti-patterns. An exempted read with no plan test
+   is a defect. Any aggregate/projection also proves canonical membership, stable
+   group key, join cardinality, hierarchy mapping, and page-independent totals using
+   `references/aggregates-and-projections.md`. See
+   `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`.
 3. **Security / privacy / tenant isolation** — every scoped query filters
    `tenant_id`; no secrets/tokens/service-account JSON in logs; input validated
    at boundaries. (Goat identifiers are livestock data, NOT PII — log them.)
@@ -347,7 +373,8 @@ disclosure. (Multi-layer changes load multiple; see Scope detection above.)
 Deeper source-of-truth docs (not duplicated here — read the doc):
 
 - Kernel: `context/architecture/operational-kernel.md`, `operational-kernel-system-design.md`
-- Scale: `docs/protocol-engine/high-scale-kernel-validation-plan.md`
+- Release-scale envelope (authority): `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`
+- Scale (future 1-5M certification): `docs/protocol-engine/high-scale-kernel-validation-plan.md`
 - Backend stack: `docs/decisions/go-backend-stack.md`, `docs/decisions/observability.md`
 - Dashboards at scale: `docs/decisions/high-scale-dashboard-projections.md`
 - Frontend: `context/frontend/final-frontend-mobile-backend-architecture.md`,
@@ -358,11 +385,17 @@ Deeper source-of-truth docs (not duplicated here — read the doc):
 - Org/species base: `context/source-findings/goats-and-parks-source-findings.md`
 - Repo AGENTS rules: `AGENTS.md`, `backend/AGENTS.md`, `apps/admin-web/AGENTS.md`
 
-## Kernel / scale changes — run the certification gate
+## Kernel / scale changes — run the scale gate
 
 If the change touches the operational kernel (triggers, obligations, sweepers,
 outbox, notifications, projections) or any hot-path query on large tables, do not
-approve on unit tests alone. Confirm the scale gates:
+approve on unit tests alone. The **current release gate is the 5k-50k envelope**:
+canonical indexed reads, one kernel worker, and query plans proven at the
+upper-bound ~500k obligation rows (50k animals × retained obligations) under
+single-worker cadence/backlog validation. The **1-5M full certification remains
+the FUTURE gate** (`make high-scale-kernel-e2e-certification`), retained not
+deleted per `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. Confirm
+the scale gates:
 
 ```bash
 # from the goatos checkout root
@@ -373,8 +406,12 @@ make high-scale-kernel-e2e-data       # data-plane kernel e2e (no browser)
 make high-scale-kernel-e2e-certification   # full certification gate (browser)
 ```
 
-Mark in the review whether the kernel/scale change ran (or must run) the
-certification gate before push. A new hot-path query without `make
+An exempted canonical screen read (one of the five named projections retired for
+this envelope) must ship query-plan tests for BOTH the keyset list AND the indexed
+aggregate shape, and run the aggregate path against the upper-bound row count — a
+green plan at 5k is not proof for the 50k aggregate, and an exempted read with no
+plan test is a defect. Mark in the review whether the kernel/scale change ran (or
+must run) the scale gate before push. A new hot-path query without `make
 validate-sqlc-plans` coverage is a HIGH finding.
 
 ## Maintainer-rule lock
