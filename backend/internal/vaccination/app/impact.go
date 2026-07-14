@@ -28,8 +28,10 @@ type impactReads interface {
 // ImpactPreview computes the aggregate config impact preview for a vaccination rule/version from the
 // precomputed eligibility rollup: eligible animals, vaccination cells, affected sheds, and estimated
 // days at the configured daily cap. It reads ONLY the read model (plus a cheap optional stock lookup) —
-// no live goats scan — so the "Preview impact" button stays cheap at 1-5M-animal scale. Per-animal,
-// workflow, session-plan, and manager/backup detail belong after publish/planner execution, not here.
+// no live goats scan — so the "Preview impact" button stays cheap across the current 5,000-50,000-animal
+// release envelope (up to the ~500k obligation-row upper bound; 1-5M is the future certification bar —
+// see docs/decisions/operational-kernel-5k-50k-scale-envelope.md). Per-animal, workflow, session-plan,
+// and manager/backup detail belong after publish/planner execution, not here.
 func (s *Service) ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error) {
 	reads, ok := s.repo.(impactReads)
 	if !ok {

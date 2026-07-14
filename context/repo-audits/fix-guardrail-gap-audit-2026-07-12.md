@@ -37,8 +37,8 @@ The complaint is **valid**. Almost every fix shipped with a test + local-CI proo
 | C35-010 clinical defer P0 | `56e0e804` | ✓ | ✓ | ✓ | CLOSED | — |
 | **C35-004** bulk sweeper N+1 write | `10264732` | ✓ | ✓ | ✗ | **P1** | scale-guard doesn't scan `backend/cmd/**`; sweeper loop `obligation-sweeper/main.go:358-367` unguarded. Add cmd-path scan + txn-count assertion at 100/1k batch. |
 | **FIXCHK-001** app-vaccination park scope | `04cd330c` | ✓ (units) | ✓ | ✗ | **P1** | units only; no full E2E middleware→handler→SQL clamp proving cross-park denial. |
-| C35-007 finalization index | `10183f15` | schema-only | ✓ | ✓(sqlc-plan) | P2 | no 1M+ EXPLAIN E2E; sqlc-check passes at small scale. |
-| C35-023 unbudgeted prune | `539284b5` | ✓ | ✓ | ✗ | P2 | no million-row prune budget/checkpoint/restart test. |
+| C35-007 finalization index | `10183f15` | schema-only | ✓ | ✓(sqlc-plan) | P2 | no envelope-scale (~500k-row) EXPLAIN E2E; sqlc-check passes at small scale (1M+ is future certification per `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`). |
+| C35-023 unbudgeted prune | `539284b5` | ✓ | ✓ | ✗ | P2 | no envelope-scale (~500k-row) prune budget/checkpoint/restart test (million-row prune is future certification); the prune must be budgeted/checkpointed regardless. |
 | C35-024 consumer replay | `2f5dfce8` | ✓ | ✓ | ✗ | P2 | only vaccination handler tested; no replay-safety registry across all consumers. |
 | NEW-E2E-001 control-tower projector | `6d5469cd` | ✓ RED→GREEN | ✓ | ✗ | P2 | no pinned-clock boundary matrix (before/at/after 14-day cutoff). |
 | FIXCHK-002 FEFO UTC vs IST | `d682d28c` | ✓ (1 case) | ✓ | ✗ | P2 | no IST-midnight frozen-clock matrix; **no timezone lint** (class open). |
@@ -83,7 +83,7 @@ The complaint is **valid**. Almost every fix shipped with a test + local-CI proo
 | **validate-or-reject authored config** | — | ✗ | **PROSE-ONLY** |
 | **India-business-date (no UTC business day)** | — | ✗ | **PROSE-ONLY** (FIXCHK-002 is exactly this class) |
 | **offline-first Room SSOT (network-only read BANNED)** | ⚠ mobile-guard partial | ✗ | **PROSE-ONLY** (C35-001/019/MOB-007 are this class) |
-| 1M / latency scale certification | targets exist (`api-latency-gate`, `scale-kernel-gate`) | ✗ not on ordinary PR | ratchet-pass ≠ certification (C35-009) |
+| 5k-50k envelope proof + future 1-5M latency/scale certification | targets exist (`api-latency-gate`, `scale-kernel-gate`) | ✗ not on ordinary PR | ratchet-pass ≠ envelope query-plan proof (~500k rows), and neither is the future 1-5M certification (C35-009); see `docs/decisions/operational-kernel-5k-50k-scale-envelope.md` |
 
 **5 mandated AGENTS.md "Do:" rules have ZERO machine enforcement** — idempotency, atomic-rollback, validate-or-reject config, India-business-date, offline-first Room SSOT. Any new code violates them undetected; four of them map directly to bugs we just "fixed."
 

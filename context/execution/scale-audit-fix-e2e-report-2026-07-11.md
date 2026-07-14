@@ -6,9 +6,19 @@ Status: local/backend E2E proof complete; staging 1M certification not run.
 
 This report explains the scale-audit fixes that were verified after the staging
 Control Tower slowdown review. It is not a generic changelog. Each item below
-states what behavior was under test, why it matters at 1M-goat scale, how the
+states what behavior was under test, why it matters at operational scale, how the
 test sets up the failure mode, what code path it executes, and what assertions
 prove the fix.
+
+Scale target: per
+`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, the present release
+envelope is 5,000-50,000 animals (query-plan proof at the ~500k obligation-row
+upper bound). The 1-5M-animal / staging-1M certification referenced below is the
+FUTURE certification bar, not a present-release requirement — the anti-patterns
+these fixes remove (non-advancing pagination loops, canonical replay, stop-the-
+world delete-then-reinsert) are already dangerous inside the current envelope,
+which is why they are fixed now; the 1M staging run only adds the future
+certification datapoint.
 
 Covered in this report:
 
@@ -105,7 +115,8 @@ The original scale risk was twofold:
 2. The recompute path could delete tenant projection rows before the replacement
    generation was fully ready.
 
-At 1M goats, either behavior is dangerous. Canonical replay becomes a dashboard
+At envelope scale (~500k obligation rows) and beyond, either behavior is
+dangerous — well before the future 1-5M bar. Canonical replay becomes a dashboard
 pileup, and delete-then-reinsert creates a long transaction, WAL pressure, and a
 window where hot reads have no safe projection to serve.
 

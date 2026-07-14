@@ -407,7 +407,7 @@ Compared with legacy, Goat OS must add:
 - proof confidence and privacy controls
 - immutable decision records with policy version and replay-safe idempotency
 - read models that answer where the process broke, not just where a row exists
-- batch-safe evaluation that works at one million-plus goat operations
+- batch-safe evaluation sized to the current 5,000–50,000-animal release envelope (query-plan proof at the ~500k obligation-row upper bound) and designed to scale toward the future one-million-plus certification bar without re-architecture
 
 Production completion requires both passes. A feature that only preserves
 legacy behavior without closing known gaps is incomplete. A feature that adds
@@ -1142,10 +1142,14 @@ Animal policy packs then add or reference domain records:
 
 All mutating routes must be idempotent and replay-safe.
 
-## Scale Model For 1M+ Goat Operations
+## Scale Model
 
-Guardrails must work when Goat OS has more than one million goat operations and
-hot parks/sheds are unevenly loaded.
+Guardrails must hold at the current 5,000–50,000-animal release envelope — with
+query-plan proof at the ~500k obligation-row upper bound per the accepted ADR
+[`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../decisions/operational-kernel-5k-50k-scale-envelope.md)
+— and must stay safe to scale toward the future one-million-plus certification
+bar (not a present release requirement), including when hot parks/sheds are
+unevenly loaded.
 
 Rules:
 

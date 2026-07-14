@@ -332,7 +332,9 @@ See: [Preventive Care (PC) Vaccination TRD](../preventive-care-vaccination/TRD.m
 
 ---
 
-## 9. Million-animal scale — acceptance checklist (hard rules, enforce before SQL ships)
+## 9. Scale acceptance checklist (hard rules, enforce before SQL ships)
+
+Scale envelope: the current release target is 5,000–50,000 animals, with query-plan proof required at the envelope's upper bound (up to ~500k obligation rows) per the accepted ADR [`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../decisions/operational-kernel-5k-50k-scale-envelope.md). One-million to 1–5M-animal deployment is the future certification bar, not a present release requirement. The invariants below are written to hold at both scales and stay non-negotiable at the current envelope precisely because they are what keeps the design safe to scale toward that future bar.
 
 Non-negotiable invariants. A PR that violates any of these is rejected, not merged.
 

@@ -379,19 +379,48 @@ REQUIRED LEDGER SECTIONS
 15. Local CI/CD Improvement Backlog
 16. Final Summary Table
 
-ONE-MILLION SCALE ACCEPTANCE BAR
-Treat 1M animals as a release invariant.
+OPERATIONAL-SCALE ACCEPTANCE BAR (CURRENT 5k-50k ENVELOPE; 1-5M FUTURE)
+The current release invariant is the 5,000-50,000-animal operational envelope
+defined in docs/decisions/operational-kernel-5k-50k-scale-envelope.md. Prove
+behavior against that envelope with query-plan evidence at its upper bound (up
+to ~500k obligation rows at 50k animals for the aggregate/summary paths, not
+just the 5k list case). One-million to 1-5M-animal deployment is the FUTURE
+certification bar, not a present release requirement: flag 1-5M risk as
+future-certification debt, never as a present-release blocker unless the finding
+also breaks the current envelope.
+
+The runtime this bar reviews against is the ADR's target topology: ONE modular
+kernel worker beside the API and Postgres (not the retired 17-job Cloud Run
+fleet); the Calendar / process-integrity / vaccination shed / execution /
+operations screens served by bounded, keyset/indexed canonical SQL (0 of those 5
+screen projections survive as runtime infrastructure except Calendar's, which is
+kept as a surviving projection); and the scoped
+`// scale-guard:ignore: 5k-50k-envelope` exemption on exactly those canonical
+screen reads. Do NOT flag those sanctioned canonical indexed reads as a
+"missing projection" / "compute-on-read" defect — they are the approved envelope
+default. Every other correctness property in that ADR is preserved and still
+reviewed: Postgres canonical truth, tenant isolation, idempotent/replay-safe
+writes and worker stages, the transactional outbox, indexed/bounded/paginated
+queries, and durable obligation/SOP/proof/notification/audit history.
+
+None of the scale-safety rigor below is relaxed by the smaller number. A read
+that is unbounded, a full-herd scan, an N+1, a non-keyset growable list, or a
+compute-on-read god-CTE is a defect at 5k-50k too — it is fast at ~1k rows and
+already fatal well before 1M. The envelope changes the certification target, not
+the anti-pattern ban.
 
 For every finding, prior issue, counter, and fixed claim, ask whether behavior
-still works at:
-- 1M animals
+still works across the current envelope and its stress axes:
+- up to 50k animals / ~500k obligation rows (present bar), with a SEPARATE
+  forward note on 1-5M behavior (future certification), never conflated
 - high vaccination obligation volume
 - many parks/sheds
 - repeated worker retries
 - multi-page mobile/web lists
 - long-running history
-- concurrent sweepers/consumers
-- large read-model/projection tables
+- concurrent sweepers/consumers (the kernel worker runs min-instances >= 2,
+  advisory-lock-serialized, so two instances are safe)
+- canonical indexed read paths and any surviving/earned projection tables
 
 Business scale:
 - Vaccination scheduling must not scan herd on request paths.
@@ -406,10 +435,14 @@ Business scale:
 
 Kernel scale:
 - event -> txn -> audit/outbox -> trigger -> obligation -> sweeper ->
-  notify/escalate -> proof -> read model -> answer must be bounded, resumable,
-  observable.
-- No request path may replay canonical kernel tables when projection/read model
-  is required.
+  notify/escalate -> proof -> read model / canonical-read answer must be bounded,
+  resumable, observable.
+- No request path may reconstruct derived state via an unbounded god-CTE or a
+  full/canonical replay. At the 5k-50k envelope the five named screens instead
+  serve bounded keyset/indexed canonical SQL by design (the sanctioned exemption)
+  — that is NOT a "replay" defect; the defect is unbounded/full-scan
+  reconstruction, or a request that silently falls back to unbounded canonical
+  replay when a projection that IS the serving contract failed.
 - Workers must use leases, cursors, idempotency keys, retry-safe failure records.
 - No silent ACK/drop of kernel work at scale.
 
@@ -421,15 +454,16 @@ Technical scale:
 - Read models/projections must have query-plan proof.
 - Guardrails must fail on new scale debt, not only report baseline debt.
 
-1M operations means:
-- one million animals and the operational events around them, not merely one
-  million rows sitting idle
+Operational scale means (present envelope, then future bar):
+- up to 50,000 animals / ~500k obligation rows and the operational events around
+  them (present bar); one-million to 1-5M animals is the FUTURE certification
+  scenario, not the present target — but neither is merely rows sitting idle
 - repeated daily/weekly commands, reminders, proof uploads, SOP tasks, status
   transitions, projection refreshes, mobile syncs, repairs, and replays
 - tenant/park/shed/date scoped throughput with fairness and backpressure, not a
   single happy-path benchmark
 
-Latency bar at 1M scale:
+Latency bar (current envelope; unchanged at the future 1-5M bar):
 - Ideal hot read/API target: p50 and p95 near or below 100 ms on representative
   local/live data.
 - Bare-minimum release target for normal hot paths: p50 <= 100 ms, p95 <= 300
@@ -443,10 +477,12 @@ Latency bar at 1M scale:
 - User-facing writes should ACK quickly and move heavy fanout/rebuild work to
   bounded async execution with correctness proof.
 
-For every final bug, state:
-- 1M-safe
-- 1M-unsafe
+For every final bug, state its present-envelope verdict (and a separate
+future-1-5M note where relevant):
+- envelope-safe (5k-50k, query-plan proof to ~500k obligation rows)
+- envelope-unsafe
 - not proven
+plus, where it matters: future 1-5M = safe / unsafe / not-yet-certified
 
 BUSINESS / DOMAIN CORRECTNESS MANDATORY LENS
 This audit is not allowed to be only a technical review. GoatOS can be fast and
@@ -485,7 +521,12 @@ Business mismatch finding rule:
 - Do not let a passing unit test prove business correctness unless the test is
   traceable to source rules or an explicit product decision.
 
-1M OPERATIONS KERNEL ARCHITECTURE CATEGORY CHECKLIST
+OPERATIONAL-KERNEL ARCHITECTURE CATEGORY CHECKLIST (5k-50k ENVELOPE; 1-5M FUTURE)
+These architecture invariants are scale-agnostic: the ADR preserves every one of
+them at the current 5k-50k envelope, and they are exactly what the future 1-5M
+certification will also require. Review them against the present envelope
+(query-plan proof to ~500k obligation rows) and record any 1-5M-only risk as
+future-certification debt, not a present-release blocker.
 We are on GCP, but this checklist is about system design invariants, not vendor
 box-ticking. GCP services such as Pub/Sub, Cloud Tasks, Cloud Run, Cloud SQL,
 Memorystore, Cloud Storage, and schedulers are implementation choices; they do
@@ -504,9 +545,15 @@ For the operational kernel and every major capability, check these categories:
   recurring full-tenant rebuilds are repair tools, not normal request flow
 - freshness contracts: read models expose version/projected_at/as_of/serving
   state; stale data is visibly degraded, rejected, or policy-accepted
-- pre-aggregated counters: badges, Control Tower, Action Center, Protocol
-  Adherence, calendar markers, and summary counts cannot GROUP BY million-row
-  projections on every screen
+- pre-aggregated / bounded summary reads: badges, Control Tower, Action Center,
+  Protocol Adherence, calendar markers, and summary counts must be bounded,
+  indexed reads. At the 5k-50k envelope the sanctioned default is an indexed scan
+  over canonical tables whose cost grows with open-obligation count (acceptable
+  up to ~500k rows WITH query-plan proof, and the first extraction candidate on
+  the ADR scale-out ladder) — never an unbounded full scan, and clients still get
+  summary DTOs / day-markers, not row dumps. A GROUP BY over an unbounded/growing
+  projection on every screen remains banned and is the shape the future 1-5M bar
+  will force onto a pre-aggregated counter.
 - partitioning and retention: histories, outbox/inbox, projections, audit logs,
   and mobile sync cursors have tenant/time partitions, bounded indexes, archival,
   and chunked pruning
@@ -559,7 +606,8 @@ Audit the operational kernel as a common platform:
 - Retry/backoff/DLQ/replay must be platform-level behavior with per-domain
   policy where needed; it must not be reinvented differently per feature.
 - Extensibility proof: for any kernel finding, ask "How would tomorrow's feature
-  plug into this safely at 1M scale?"
+  plug into this safely at the current 5k-50k envelope, and how would it later
+  reach the future 1-5M certification bar without a kernel rewrite?"
 
 Flag findings when:
 - vaccination fixes special-case the kernel in a way future domains cannot reuse
@@ -636,11 +684,19 @@ Explicitly hunt for:
 - compute-on-read god CTEs on hot request paths.
 - fallback from projection to canonical replay when projection is
   stale/failed/missing.
-- read-side grouping that belongs in a projector/read model.
-- CQRS missing: write path has canonical truth but no durable read model for hot
-  reads.
-- CQRS partial: one endpoint reads projection but sibling endpoints still replay
-  raw tables.
+- read-side grouping that belongs in a projector/read model (or, at this
+  envelope, in a bounded indexed canonical query).
+- CQRS "missing" is NOT automatically a defect at the 5k-50k envelope: the
+  sanctioned default for the five named screens is bounded keyset/indexed
+  canonical SQL with query-plan proof and the scoped scale-guard exemption. It
+  becomes a defect only when that canonical read cannot meet its query-plan /
+  latency target at the ~500k-row upper bound — then it earns a projection per
+  the ADR scale-out ladder. A hot read with NO durable read model AND NO bounded
+  indexed canonical query is the real defect.
+- CQRS partial: a mix where one endpoint reads a projection and a sibling reads
+  bounded indexed canonical SQL is fine at this envelope if each is bounded,
+  indexed, and plan-proven. The defect is an UNBOUNDED raw-table replay / god-CTE
+  sitting next to a projected sibling, not canonical indexed SQL as such.
 - keyset missing: OFFSET or cursor omitted on growable lists.
 - query-plan gap: no EXPLAIN/plan gate for hot query.
 - index gap: no composite index matching tenant/scope/status/sort cursor.
@@ -670,8 +726,13 @@ Core architecture constraints:
 - Postgres canonical tables remain the source of truth for business facts.
 - Pub/Sub, Cloud Tasks, schedulers, workers, Redis, local caches, and mobile
   stores are execution/read/transport layers, not canonical truth.
-- Event-driven flow and CQRS projections are expected for hot operational
-  surfaces; request-time reconstruction is suspect by default.
+- Event-driven flow is expected for hot operational surfaces. At the current
+  5k-50k envelope, CQRS projections are NOT mandatory for the five named screens:
+  bounded keyset/indexed canonical SQL (Calendar kept as a surviving projection)
+  is the sanctioned default. What stays suspect by default is UNBOUNDED
+  request-time reconstruction (god-CTE, full/herd scan, capped read-time rollup) —
+  not a plan-proven bounded canonical read. The future 1-5M bar may add
+  projections per the ADR scale-out ladder.
 - Outbox/inbox/retry/DLQ/replay/projection plumbing should be reusable kernel
   infrastructure, with domain-specific policy injected through contracts.
 - Do not add complexity blindly. Every async component must have a clear reason:
@@ -758,22 +819,27 @@ For each hot path, record:
   projection
 - consistency and freshness model: strong/read-your-write/eventual/stale-allowed
   /fail-closed, with as_of/version proof where needed
-- 1M verdict
+- envelope verdict: envelope-safe (5k-50k, query-plan proof to ~500k obligation
+  rows) / envelope-unsafe / not proven, plus a separate forward note on future
+  1-5M certification
 
 SCREENSHOT-DERIVED CLOSURE CHECK
 Specifically verify this closure gap:
 - Some paths may now be architecturally correct on main: CT, Action Center,
   Protocol Adherence, Calendar, SOP list N+1.
 - Do not mark complete unless /vaccination/sheds, /vaccination/execution, and
-  /vaccination/operations are also proven bounded and projection/read-model
-  safe.
+  /vaccination/operations are also proven bounded — via the sanctioned 5k-50k
+  bounded keyset/indexed canonical SQL read, or a surviving/earned projection —
+  with query-plan proof at the ~500k-row upper bound.
 - A shed projection alone does not certify execution and operations endpoints.
 - A latency CI commit is a gate, not an optimization by itself.
 - Bootstrap cold-load caching and frontend SOP request cleanup must be present
   and proven locally.
-- No honest 1M API certification exists until projection paths, query plans,
-  bounded payloads, and local/live p90/p95/p99 gates all pass together against
-  the 100/300/500/1000 ms bar.
+- Present-envelope closure needs query plans, bounded payloads, and local/live
+  p90/p95/p99 gates all passing together against the 100/300/500/1000 ms bar at
+  the ~500k-row upper bound. The separate FUTURE 1-5M API certification (a
+  1-5M-row staging dataset) is not a present-release blocker and must be recorded
+  as future-certification debt, never conflated with envelope closure.
 
 LOCAL KERNEL STACK E2E LENS (DOCKER COMPOSE)
 The kernel is proven locally against a REAL Docker Compose stack that BOOTS and
@@ -814,8 +880,10 @@ Cloud Tasks parity honesty:
 Named local kernel-E2E targets to check when relevant:
 - `make high-scale-kernel-e2e-all` / `-certification` / `-data`
   (`tools/dev/high-scale-kernel-e2e-all.sh`)
-- `make scale-kernel-gate` (+ `-smoke`) — 1M-row bulk kernel, crash/resume,
-  zero double-apply
+- `make scale-kernel-gate` (+ `-smoke`) — bulk-kernel crash/resume + zero
+  double-apply proof (a present-envelope correctness property); its 1M-row
+  dataset is the FUTURE 1-5M certification, so run it for that cert while the
+  crash/resume + idempotency behavior is reviewed now at the envelope
 - `make bulk-status-kernel-it`
 - `make e2e-integrity-guard`
 - `make dev-local-service-start` / `-status` / `-logs`
@@ -1026,12 +1094,13 @@ REVIEW LENSES
 Rank by changed files:
 1. Fix quality / root-cause regression
 2. Business/domain correctness and source-rule traceability
-3. 1M operations kernel architecture category checklist
+3. Operational-kernel architecture category checklist (5k-50k envelope; 1-5M future)
 4. Performance, batching, CQRS, cache, latency
 5. Distributed/event-driven architecture
 6. Operational kernel as reusable/extensible platform
 7. Retry, backoff, DLQ, replay, repair, idempotency
-8. 1M scale with 100/300/500/1000 ms API latency bar
+8. Current 5k-50k scale (query-plan proof to ~500k obligation rows) with the
+   100/300/500/1000 ms API latency bar; 1-5M is the future certification bar
 9. Strict Asia/Kolkata timezone and backend-owned computation
 10. Kernel flow
 11. Vaccination business rules
@@ -1056,7 +1125,8 @@ For each changed capability, actively search:
 - source-ledger parity gap between code/API/UI/mobile and migration/business truth
 - N+1 / N+2 / fake batch
 - slow API / missing p95/p99 proof
-- missing 1M operations architecture category: outbox, idempotency, ordering,
+- missing operational-kernel architecture category (reviewed at the 5k-50k
+  envelope; 1-5M future): outbox, idempotency, ordering,
   replay/versioning, incremental projection, freshness, pre-aggregated counter,
   partition/retention, backpressure, workflow orchestration, concurrency, API
   discipline, cache-above-truth, observability, disaster/replay, or mobile sync
@@ -1096,10 +1166,12 @@ Every surviving finding needs:
 - failure scenario
 - if business/domain related: source rule/SOP/ledger/product decision, expected
   actor workflow, actual code/API/UI behavior, and mismatch impact
-- if 1M operations architecture related: checklist category, current mechanism,
-  missing invariant, cardinality/throughput scenario, and recovery/observability
-  proof or gap
-- if scale/performance related: data volume, p50/p95/p99 numbers, threshold
+- if operational-kernel architecture related: checklist category, current
+  mechanism, missing invariant, cardinality/throughput scenario (present bar
+  ~500k obligation rows; note any 1-5M-only gap as future certification), and
+  recovery/observability proof or gap
+- if scale/performance related: data volume (present-envelope proof must reach
+  the ~500k-row upper bound, not toy data), p50/p95/p99 numbers, threshold
   breached, and whether proof ran on current SHA
 - if time/business-computation related: exact timezone source, backend vs client
   owner, UTC/IST boundary case, API fields involved, and stale/offline behavior
@@ -1119,7 +1191,7 @@ Evidence against:
 Prod reachability decision:
 Business/domain decision:
 Scale decision:
-1M operations architecture category decision:
+Operational-kernel architecture category decision (5k-50k envelope; 1-5M future):
 Performance/CQRS/cache decision:
 Distributed architecture decision:
 Kernel platform/extensibility decision:
@@ -1158,7 +1230,8 @@ For each finding, check:
 - make android-doctor, when Android environment/device readiness is relevant
 - API latency gate
 - process-integrity latency gate
-- 1M operations architecture category tests/checks for outbox, idempotency,
+- operational-kernel architecture category tests/checks (reviewed at the 5k-50k
+  envelope; 1-5M future) for outbox, idempotency,
   ordering, replay/versioning, incremental projections, freshness, counters,
   partitioning, backpressure, workflow orchestration, concurrency, API discipline,
   cache-above-truth, observability, disaster/replay, and mobile sync
@@ -1193,9 +1266,10 @@ Origin: introduced/pre-existing/prior-ledger/new
 Verdict: CONFIRMED/PLAUSIBLE/UNPROVEN
 Business/domain verdict: source-matched/business-mismatch/needs-ops-confirmation/
 not applicable
-Scale verdict: 1M-safe/1M-unsafe/not proven
-1M operations architecture verdict: invariant-safe/category-gap/vendor-only-proof/
-not proven
+Scale verdict: envelope-safe (5k-50k, query-plan proof to ~500k obligation rows)/
+envelope-unsafe/not proven; future 1-5M: safe/unsafe/not-yet-certified
+Operational-kernel architecture verdict: invariant-safe/category-gap/
+vendor-only-proof/not proven
 Performance verdict: bounded/projection-backed/cache-safe/slow-risk/not proven
 Architecture verdict: sync-safe/event-driven-safe/projection-safe/over-simple/
 over-complex/not proven
@@ -1241,13 +1315,14 @@ counter-reviewed, locally synced ledger with:
 - existing issue ledgers
 - business/source-rule traceability and business-mismatch review
 - last-50-commit anti-pattern summary
-- 1M operations kernel architecture category review
+- operational-kernel architecture category review (5k-50k envelope; 1-5M future)
 - N+1/N+2/batching/CQRS/cache/latency review
 - distributed/event-driven architecture review
 - reusable kernel platform / SOLID extensibility review
 - retry/backoff/DLQ/replay/repair review
 - strict Asia/Kolkata timezone and backend-owned computation review
-- 1M-scale business/kernel/technical review
+- 5k-50k-envelope business/kernel/technical review (query-plan proof to ~500k
+  obligation rows), with 1-5M future-certification notes kept separate
 - mobile best-practice review
 - local CI/CD improvement review
 - Claude/Codex peer counters

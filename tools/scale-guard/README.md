@@ -1,8 +1,13 @@
 # scale-guard
 
-Zero-dependency static gate that blocks the million-animal scale anti-patterns
+Zero-dependency static gate that blocks the scale anti-patterns
 in [`../../docs/decisions/scale-anti-patterns.md`](../../docs/decisions/scale-anti-patterns.md)
-from re-entering `main`.
+from re-entering `main`. The patterns are fast at ~1k rows and fatal at high
+scale, so the guard runs regardless of release target. Per the
+[Operational kernel 5k-to-50k scale envelope ADR](../../docs/decisions/operational-kernel-5k-50k-scale-envelope.md),
+the current release envelope is 5,000-50,000 animals (query-plan proof at the
+~500k obligation-row upper bound); 1-5M-animal deployment is the future
+certification bar, not a present release requirement.
 
 ## Run
 

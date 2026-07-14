@@ -1977,7 +1977,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"modal.rule_editor.impact_plan_capacity":                    "Capacity",
 			"modal.rule_editor.impact_method_title":                     "How the numbers are calculated",
 			"modal.rule_editor.impact_method_body":                      "Read-only aggregate estimate for the selected combo, read from the precomputed vaccination eligibility rollup (never a live goat scan). Eligible animals = usable in-care animals matching species, stage, sex, breed, health, and park scope. Vaccination cells = eligible animals x selected dose rows. Affected sheds = distinct sheds holding those animals. Estimated days = ceil(vaccination cells / the configured daily cap). Stock appears only when the row has a vaccine inventory item.",
-			"modal.rule_editor.impact_scale_note":                       "For 1-5M animals, this panel reads a precomputed eligibility rollup and does not scan goats or load them into the browser. It is a quick planning estimate; per-animal scheduling, sessions, and assignment happen after publish.",
+			"modal.rule_editor.impact_scale_note":                       "Even across a 5,000-50,000-animal herd, this panel reads a precomputed eligibility rollup and does not scan goats or load them into the browser. It is a quick planning estimate; per-animal scheduling, sessions, and assignment happen after publish.",
 			"modal.rule_editor.label.draft_saved":                       "draft saved",
 			"modal.rule_editor.message.preview_failed":                  "preview failed",
 			"modal.rule_editor.label.rule_singular":                     "rule",

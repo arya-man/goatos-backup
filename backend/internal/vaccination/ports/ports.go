@@ -53,7 +53,9 @@ type Repository interface {
 	GetLastAcceptedForGoat(ctx context.Context, tenantID, goatID string) (rec domain.LastAccepted, found bool, err error)
 
 	// Impact-preview aggregate (READ MODEL). Reads ONLY vaccination_eligibility_rollups — never scans
-	// goats — so the config preview stays cheap at 1-5M-animal scale. Scoped by tenant + the eligibility
+	// goats — so the config preview stays cheap across the current 5,000-50,000-animal release envelope
+	// (up to the ~500k obligation-row upper bound; 1-5M is the future certification bar — see
+	// docs/decisions/operational-kernel-5k-50k-scale-envelope.md). Scoped by tenant + the eligibility
 	// filter dims (usable animals only).
 	SumEligibilityRollup(ctx context.Context, f domain.ImpactFilter) (domain.EligibilityRollupAggregate, error)
 	// CapacityMaxPerDay returns the tenant's configured vaccinations/day cap (default when unset). Used

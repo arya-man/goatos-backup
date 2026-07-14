@@ -12,8 +12,12 @@
 >   `shedProjectionServingVersion`, and returns `ErrProjectionUnavailable` instead
 >   of falling back to the god-CTE. Historical text below that says the live path is
 >   "not flipped" is stale and superseded by this block.
-> - `BUG-002` is closed by the current `C35-002` implementation. Remaining 1M/5M
->   scale certification is validation debt, **NOT an open software bug**.
+> - `BUG-002` is closed by the current `C35-002` implementation. Present-release
+>   scale proof is the 5k-50k envelope (query-plan proof to the ~500k
+>   obligation-row upper bound) per
+>   `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`; the remaining
+>   1M/5M scale certification is the FUTURE certification bar / validation debt,
+>   **NOT an open software bug and NOT a present-release requirement**.
 > - Hosted GitHub Actions billing/platform outage is **removed from this bug ledger**.
 >   It lives in `docs/runbooks/local-release-evidence.md`. Local CI (`make ci-local`) is
 >   the authoritative gate per AGENTS.md until the org billing/platform state is restored.
@@ -406,7 +410,7 @@ Failure scenario: A large due cohort produces hundreds/thousands of sequential D
 Business impact: Slow sweeps, delayed drives, retry load, and uneven task visibility.  
 Root-cause-or-band-aid verdict: Band-aid/API-shape change; root per-item write behavior remains in both sibling adapters.  
 Counterargument: Each singular write is idempotent, and typical pages may be small.  
-Why it survives / why downgraded: Target scale is 1-5M animals and the sweeper is explicitly page-oriented; idempotency does not remove latency or transaction count.  
+Why it survives / why downgraded: The current release target is the 5k-50k envelope (query-plan proof to the ~500k obligation-row upper bound) per `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, with 1-5M as the future certification bar; the sweeper is explicitly page-oriented, and idempotency does not remove latency or transaction count even at the envelope's ~500k-row upper bound.  
 E2E / guardrail status: false-green; scale guard scans `backend/internal` but misses the `backend/cmd` loop, and E2E does not assert SQL/transaction count.  
 Fix sketch: Expose one repository bulk command using a set input and one transaction, returning batch-to-task IDs; have both bridges delegate once.  
 Guardrail needed: Integration assertion on transaction/query count for a 100/1,000-batch page and scanner coverage for `backend/cmd`.
@@ -431,7 +435,7 @@ Counterargument: Exact scoped totals require all rows and the projection may be 
 Why it survives / why downgraded: An intended future reader cannot protect current production. P1 is required for target-scale page failure.  
 E2E / guardrail status: missing/false-green; migration and sqlc-plan gates pass but do not prove a projection reader, live-write convergence, or large SSR behavior.  
 Fix sketch: Serve row page and exact summary from bounded projection queries, add reconciliation/checkpointed backfill, and remove `searchAllGoats` from request rendering.  
-Guardrail needed: 1M-row SSR query-count/memory test plus migration concurrency/reconciliation test and a check forbidding unbounded cursor accumulation.
+Guardrail needed: envelope-scale (~500k-row upper-bound) SSR query-count/memory test plus migration concurrency/reconciliation test and a check forbidding unbounded cursor accumulation; the 1M-row SSR test is future 1-5M certification, not present closure.
 Fix (pushed): the herd-register KPI cards no longer accumulate the entire herd — `searchAllGoats` (the unbounded full-herd cursor walk) is removed and the SSR now reads exact counts from `herd_register_summary_projection` via a new projection-backed `/herd-register/summary` reader (ports/service/repo/handler + OpenAPI + generated client), returning an honest dash when the projection is unavailable (never a full-herd fallback). The row list correctly stays on bounded keyset `searchGoats` (/goats/search) — the projection lacks render fields (tag/weight/health/breeding), so moving rows to it is out of scope; the orphan `/herd-register/page` reader an earlier draft added was removed on review (no orphan infra). Proof: go build + real-Postgres `TestRepositoryHerdRegisterSummaryReadsProjection` (counts via the 000164 triggers) + `make validate-sqlc-plans` (HerdRegisterSummary indexed, no seq-scan) + `make api-client-check` + admin-web typecheck/lint/mock-fidelity — all green on the integrated tree. Honest note: cross-status exact totals in one call would need an added rollup grain (out of scope).
 
 ### C35-006
@@ -946,7 +950,7 @@ Failure scenario: Row 201+ never reaches Room or UI; operators see incomplete du
 Business impact: Work can be missed and displayed progress can be wrong at scale.  
 Root-cause-or-band-aid verdict: Backend keyset work exists; Android/OpenAPI projection and screen wiring are incomplete.  
 Counterargument: A normal park may have fewer than 200 execution rows.  
-Why it survives / why downgraded: The product target is 1–5M animals and the accepted rule requires ~20-row pagination at every drill level; an undocumented cardinality assumption cannot suppress returned `nextCursor`.  
+Why it survives / why downgraded: The current release target is the 5k-50k envelope (1-5M is the future certification bar per `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`), and the accepted rule already requires ~20-row pagination at every drill level regardless of scale target; an undocumented cardinality assumption cannot suppress returned `nextCursor`.  
 E2E / guardrail status: missing; no >200 Android list test or cursor contract test.  
 Fix sketch: Model cursor/total, request ~20, persist per-item pages in Room, expose PagingSource/RemoteMediator or an equivalent bounded keyset window, and prefetch near the end.  
 Guardrail needed: >2-page L2 integration test asserting every row appears once across recreation/offline and no request exceeds 20.
@@ -1257,7 +1261,7 @@ Guardrail needed: Android integration test with a >2-page roster asserting every
 | Business-day inventory semantics | FIXCHK-002 | Freeze the clock around IST/UTC boundaries and require FEFO SQL rank, response availability, disabled reasons, and displayed expiry state to use one `Asia/Kolkata` business-date contract. |
 | API response-shape contract assertions | FIXCHK-003 | Backend tests must assert exact generated/contract field names, including snake_case cursor keys, and fail when only stale camelCase keys are present. |
 | Deployment-shaped sweeper test | C35-003, C35-004, C35-007 | Parse real Terraform/env, require actor, execute 1,000-batch finalization, assert bounded queries/transactions and EXPLAIN plan. |
-| 1M/5M current-SHA read certification | C35-002, C35-005, C35-007, C35-009, C35-013 | Real cardinality, projection-unavailable case, query count, p95/p99, memory, DB plan; report generated from same SHA artifact. |
+| Envelope query-plan proof (~500k rows) + future 1-5M read certification | C35-002, C35-005, C35-007, C35-009, C35-013 | Present: envelope-scale cardinality (~500k obligation rows), projection-unavailable/canonical-read case, query count, p95/p99, memory, DB plan; report generated from same SHA artifact. The 1-5M-row read certification is the FUTURE bar per `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, not present closure. |
 | Cross-boundary fanout static guard | C35-004, C35-013, C35-014, C35-015, C35-016, C35-020 | Scan `backend/cmd` and SSR; detect loop/map/Promise.all calls with cardinality; run self-tests explicitly. |
 | Clinical authoring property/E2E matrix | C35-010 | Explicit policy for sick/under-treatment/quarantine/ICU, cap=0, recovery/reopen, partial/missing inputs. |
 | Domain-handler replay certification | C35-024 | For every registered handler, inject finalization failure after side-effect commit and prove semantic idempotency/transactional inbox. |

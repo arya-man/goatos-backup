@@ -231,8 +231,10 @@ func (h *Handler) RunManualCampaign(w http.ResponseWriter, r *http.Request) {
 // ImpactPreview computes the AGGREGATE config impact preview for a vaccination rule/version: eligible
 // animals, vaccination cells, affected sheds, and estimated days at the configured daily cap. Numbers
 // come from the vaccination_eligibility_rollups read model — this request path never scans goats — so
-// the "Preview impact" button stays cheap at 1-5M-animal scale. An optional cheap stock check is added
-// only when a vaccine item is set.
+// the "Preview impact" button stays cheap across the current 5,000-50,000-animal release envelope (up
+// to the ~500k obligation-row upper bound; 1-5M is the future certification bar, not a present
+// requirement — see docs/decisions/operational-kernel-5k-50k-scale-envelope.md). An optional cheap
+// stock check is added only when a vaccine item is set.
 func (h *Handler) ImpactPreview(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {

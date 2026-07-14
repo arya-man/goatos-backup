@@ -2,6 +2,18 @@
 
 Date: 2026-07-13 (Asia/Kolkata)
 
+> **Scale-envelope note (reconciled 2026-07-14).** This handoff predates and is
+> narrowed by the accepted ADR
+> [`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../../docs/decisions/operational-kernel-5k-50k-scale-envelope.md).
+> The current release target is the 5,000–50,000-animal envelope, with
+> query-plan proof required at the ~500k obligation-row upper bound;
+> one-million / 1–5M-animal deployment is the **future** certification bar, not a
+> present release requirement. Read the "1M", "1M-certified", and "P0 scale gap"
+> framing below as that future-scale certification target — and as correctness
+> work that still matters at the current envelope — not as a claim that
+> one-million-scale is a present release invariant. The certification-boundary
+> statements that already say this work does not prove 1M are correct as written.
+
 ## Purpose
 
 This handoff is for the unfinished API/performance recovery covering:

@@ -17,10 +17,13 @@ type ProjectionFreshness struct {
 // read model (vaccination_shed_projection_rows/_state) has no serving version yet (never built, or
 // rebuilding without a prior serving version). ShedSummary/ShedDetail request paths MUST NOT fall back
 // to the canonical compute-on-read replay of obligation_instances/vaccination_completions/
-// obligation_status_events — at 1-5M animals that god-CTE is the slowest possible path exactly when the
-// system is already degraded. Callers surface this as an honest, retryable "temporarily unavailable"
-// state (HTTP 503), mirroring backend/internal/processintegrity/domain.ErrProjectionUnavailable. See
-// docs/decisions/high-scale-dashboard-projections.md and context/execution/vaccexec-readmodel-design.md.
+// obligation_status_events — even across the current 5,000-50,000-animal release envelope (query-plan
+// proof to the ~500k obligation-row upper bound) that god-CTE is the slowest possible path exactly when
+// the system is already degraded, and it only worsens toward the future 1-5M certification bar. Callers
+// surface this as an honest, retryable "temporarily unavailable" state (HTTP 503), mirroring
+// backend/internal/processintegrity/domain.ErrProjectionUnavailable. See
+// docs/decisions/high-scale-dashboard-projections.md, context/execution/vaccexec-readmodel-design.md,
+// and docs/decisions/operational-kernel-5k-50k-scale-envelope.md.
 var ErrProjectionUnavailable = errors.New("vaccinationexecution: read model projection unavailable")
 
 type ExecutionProjectionRecomputeRequest struct {

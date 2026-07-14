@@ -263,9 +263,18 @@ real supported Postgres instance where SQL behavior matters.
   NULL behavior, collation, keyset ordering, isolation, locking, or plans.
 - Canonical state, audit, idempotency reservation, and outbox must commit in the
   required transaction. Projections are rebuildable read models, not truth.
-- Broad dashboard reads must come from bounded projections/counters. No request
-  may reconstruct million-row process state, make N+1 calls, or silently fall
-  back to an unbounded canonical replay.
+- Broad dashboard reads must be bounded. Per
+  `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, at the current
+  5k-50k envelope the Calendar / process-integrity / vaccination shed / execution
+  / operations screens are served by bounded keyset/indexed canonical SQL (the
+  sanctioned `scale-guard:ignore` reads; Calendar kept as a surviving projection),
+  not necessarily a projection/counter — that canonical indexed read is NOT a
+  defect. What is banned is a request that reconstructs process state via an
+  unbounded god-CTE / full scan, makes N+1 calls, or silently falls back to an
+  unbounded canonical replay. A screen earns its own projection only when the
+  bounded canonical read cannot meet its query-plan/latency target at the ~500k
+  obligation-row upper bound (the ADR scale-out ladder); the 1-5M-row bar is
+  future certification, not present closure.
 - Every worker has bounded batch size, bounded concurrency, deterministic
   continuation, lease/claim ownership, progress telemetry, and a matching hot
   index/plan gate.
@@ -512,7 +521,12 @@ missing sub-gates visible and fails closed.
 - Upload machine-readable and human-readable current-SHA reports: tests,
   migrations, SQL plans, query counts, load/latency percentiles, E2E stories,
   Android benchmarks/leaks, web vitals, and guard self-tests.
-- Nightly/staging runs exercise 1M/5M-equivalent data, concurrency, retry/DLQ,
+- Present-release closure proves the 5k-50k envelope: query-plan evidence at the
+  ~500k obligation-row upper bound plus the ordinary-PR representative gates.
+  Nightly/staging runs that exercise 1M/5M-equivalent data are the FUTURE 1-5M
+  certification path (see
+  `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`), not a
+  present-release blocker; they also carry concurrency, retry/DLQ,
   migration/backfill, low-end Android, browser visual/accessibility, and long-run
   heap/battery. Ordinary PR still carries fast representative gates.
 - Deployment promotes the same tested artifact, verifies migrations/workers and

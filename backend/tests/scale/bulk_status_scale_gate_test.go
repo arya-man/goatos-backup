@@ -5,6 +5,12 @@
 // deliberately (see `make scale-kernel-gate`), because it seeds and drains a
 // 1,000,000-row bulk_status_job against a throwaway Postgres.
 //
+// This 1,000,000-row run is the FUTURE 1-5M-animal certification bar per
+// docs/decisions/operational-kernel-5k-50k-scale-envelope.md, not the current
+// release requirement (the present release envelope is 5,000-50,000 animals, with
+// query-plan proof at the ~500k obligation-row upper bound). It stays opt-in and is
+// run deliberately; GOATOS_SCALE_GATE_ROWS scales it down for a quick local smoke.
+//
 // It proves, at scale, the durable bulk status-update kernel invariants:
 //   - ZERO double-apply (each goat advances exactly one row_version; one event id per row);
 //   - ZERO missing outbox events for applied rows;

@@ -11,12 +11,15 @@ import (
 )
 
 // TestKernelStoryN_Scale drives a realistic multi-shed drive at scale through the REAL generation
-// service, SM-4 sweeper, and process-integrity read model, and asserts the platform's hard
-// scale contract (see AGENTS.md "million-animal scale"): per-shed drive grouping is exact, and the
+// service, SM-4 sweeper, and process-integrity read model, and asserts the platform's scale
+// contract (per docs/decisions/operational-kernel-5k-50k-scale-envelope.md the current release
+// envelope is 5,000-50,000 animals with query-plan proof at the ~500k obligation-row upper bound,
+// and 1-5M-animal deployment is the future certification bar): per-shed drive grouping is exact, and the
 // control-tower read path is keyset-paginated/bounded -- a page returns at most Limit rows with a
-// cursor to the next page, never a full-herd dump.
+// cursor to the next page, never a full-herd dump. Bounded/indexed reads are required at the current
+// envelope and remain the property the future 1-5M certification gate verifies.
 //
-// Extended (docs/architecture/event-driven-kernel.md "Cross-cutting rules... at 1M-goat scale"): after
+// Extended (docs/architecture/event-driven-kernel.md "Cross-cutting rules"): after
 // the static generate/sweep/paginate proof above, this story also drives two DYNAMIC events across the
 // same multi-shed cohort -- a sick-defer sweep over one shed's goats, and a death cancellation of two
 // goats in a different shed -- and asserts each stays bounded to exactly the goats/sheds it targets,
