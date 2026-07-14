@@ -51,6 +51,37 @@ Is the vaccination process intact for each park/shed, and if not, who owns the
 next action?
 ```
 
+## Operational Kernel: 5k–50k Consolidation (in progress)
+
+Per `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, the runtime is
+being consolidated for the current 5,000–50,000-animal release envelope: **one
+modular kernel worker** instead of the ~17 scheduled Cloud Run Jobs, **zero
+screen-projection tables** (screens read canonical indexed SQL), with the
+1–5M-animal topology kept as a future certification bar.
+
+Shipped to `main` (additive — the old jobs + projections still run alongside, so
+nothing is switched over yet):
+
+- `backend/cmd/kernel-worker` supervisor: crash-safe per-stage advisory lock
+  (session-level, dedicated conn), panic isolation, per-cadence startup catch-up,
+  HA failover test; all 11 job-stages wired into 5 cadence classes.
+- Canonical indexed-SQL reads for process-integrity + vaccination
+  shed/execution/operations (calendar flip in progress); FK-drop + derive of
+  reminder/escalation state off the calendar projection.
+- Query-plan gates proven at the ~500k obligation-row envelope upper bound.
+- Docs, review lenses, and the repo router reconciled to this envelope.
+
+Not yet done (gated / in progress):
+
+- Dropping the 5 projection tables + converting the 3 partitioned parents, and
+  removing the 18 staging jobs — these are the destructive cutover, done only
+  behind an explicit go and recoverable via tag `kernel-split-workers-v1`.
+- Full calendar canonical flip, clean-slate data reseed, kernel-story E2E, and
+  the single-worker staging deploy.
+
+This is infrastructure consolidation; the active *product* slice remains
+Preventive Care (PC) Vaccination process integrity above.
+
 ## AI Developer Setup
 
 Goat OS includes portable AI setup for Codex, Claude, Cursor, and other agents.
