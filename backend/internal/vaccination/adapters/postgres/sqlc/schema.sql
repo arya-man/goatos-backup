@@ -8864,6 +8864,34 @@ CREATE INDEX identity_decisions_tenant_type_state_idx ON public.identity_decisio
 
 
 --
+-- Name: idx_obligation_instances_calendar_exceptions; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_obligation_instances_calendar_exceptions ON public.obligation_instances USING btree (tenant_id, status) WHERE ((batch_id IS NULL) AND (status = ANY (ARRAY['missed'::text, 'in_progress'::text, 'deferred'::text])));
+
+
+--
+-- Name: idx_obligation_instances_calendar_overdue; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_obligation_instances_calendar_overdue ON public.obligation_instances USING btree (tenant_id, status, due_at) WHERE ((batch_id IS NULL) AND (status = ANY (ARRAY['scheduled'::text, 'due'::text])));
+
+
+--
+-- Name: idx_obligation_instances_calendar_window; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_obligation_instances_calendar_window ON public.obligation_instances USING btree (tenant_id, due_at) WHERE ((batch_id IS NULL) AND (status <> ALL (ARRAY['waived'::text, 'canceled'::text, 'superseded'::text])));
+
+
+--
+-- Name: idx_obligation_instances_sop_task; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_obligation_instances_sop_task ON public.obligation_instances USING btree (tenant_id, sop_task_id) WHERE (sop_task_id IS NOT NULL);
+
+
+--
 -- Name: inventory_stock_fefo_idx; Type: INDEX; Schema: public; Owner: -
 --
 

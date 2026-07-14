@@ -439,6 +439,41 @@ Required implementation sequence:
 No canonical schema is dropped. Derived projection schemas and all current test
 rows are intentionally dropped.
 
+### Scale gate: calendar canonical read is index-bound (migration 000190)
+
+Step 4's aggregate-path plan test (`TestCalendarCanonicalReadPlanAtScale`,
+gated behind `GOATOS_SCALE_CERT=1`, run by `make scale-cert` at 500k) surfaced a
+real regression and its fix:
+
+- **Finding.** The production-shaped bounded calendar read (1-week window, single
+  park scope, `LIMIT 21`) sequentially scanned `obligation_instances` at scale.
+  Two causes: (a) the drive-membership predicate was a non-sargable 3-way `OR`
+  (window / exception-catch-up / overdue-by-due_at) that no single index can
+  satisfy; (b) `obligation_drive_summary` LEFT JOINed membership rows to its
+  per-`(park_id, due_date)` sub-aggregates at **row** grain with `IS NOT DISTINCT
+  FROM` keys, so the planner re-executed each sub-aggregate once per membership
+  row (O(n²): ~19s at 500k once the scan was fixed).
+- **Fix.** Migration **000190** adds three partial indexes on
+  `obligation_instances` — `..._calendar_window (tenant_id, due_at)`,
+  `..._calendar_exceptions (tenant_id, status)`,
+  `..._calendar_overdue (tenant_id, status, due_at)` — plus
+  `..._sop_task (tenant_id, sop_task_id)`. `calendarCanonicalEventsCTE` is
+  rewritten so each `OR` branch is a separate index-scannable `UNION` selecting
+  full rows (deduped, so a row matching two branches is counted exactly once — the
+  drive-summary count invariants are preserved), and `obligation_drive_summary`
+  aggregates membership to the `(park_id, due_date)` group grain *before* joining
+  the 1:1 sub-metrics. The out-of-window visibility of missed/in-progress/
+  deferred/overdue drives is unchanged (regression-tested in
+  `repository_integration_test.go` + the e2e story).
+- **Result.** At 500k obligations the bounded read is Seq-Scan-free (all
+  `obligation_instances` access is index scan) and executes well under the 1s SLO.
+  `obligation_batches` stays a cheap scan by design (low cardinality; its
+  `COALESCE(window_start, planned_date::timestamptz, window_end)` drive-time is not
+  IMMUTABLE and cannot back an index). The seed must anchor to `now()` over a
+  realistic multi-month spread — a fixed past date is a time-bomb that turns every
+  scheduled row overdue, making the window non-selective and a seq scan genuinely
+  optimal.
+
 ### Scale-guard reconciliation (required — this is a CI gate, not just a doc)
 
 Step 4 intentionally serves five screens from canonical tables per request. That

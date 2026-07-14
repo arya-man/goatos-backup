@@ -58,6 +58,7 @@ collect_tree 'backend/tests/e2e-hrms'
 collect_story_files 'backend/tests/e2e'
 collect_story_files 'backend/tests/e2e-hrms'
 collect_named_artifacts 'tools/dev'
+collect_named_artifacts 'tools/e2e'
 collect_named_artifacts 'apps/admin-web/scripts'
 
 if ((${#source_files[@]} == 0)); then

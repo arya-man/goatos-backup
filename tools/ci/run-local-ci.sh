@@ -41,13 +41,18 @@ step() { # name, command...
 
 # run_e2e_docker_chain: the Docker-image E2E foundation (KERN-001 follow-up). Builds the
 # real goatos-backend:e2e image, proves deploy/runtime/workers.json against it
-# (e2e-parity), then boots deploy/e2e/docker-compose.e2e.yml and proves the real topology
-# starts clean with zero worker restarts (e2e-smoke). Skips (exit 0, loud warning, NOT a
-# silent pass) when docker is unavailable — same posture as
-# backend/internal/platform/pgtest.SkipIfNoDocker — because ci-local must stay usable in a
-# sandboxed environment that genuinely cannot run containers. Default ON; set
-# GOATOS_E2E_SMOKE_SKIP=1 to opt the smoke stage out explicitly (image-build/parity still
-# run, since those need no long-running containers beyond `docker run`).
+# (e2e-parity), boots deploy/e2e/docker-compose.e2e.yml and proves the real topology starts
+# clean with zero worker restarts (e2e-smoke), then (Phase 2a) drives the REAL business chain
+# + resilience/idempotency/concurrency scenarios end-to-end against that same image and compose
+# file (e2e-business-chain). Skips (exit 0, loud warning, NOT a silent pass) when docker is
+# unavailable — same posture as backend/internal/platform/pgtest.SkipIfNoDocker — because
+# ci-local must stay usable in a sandboxed environment that genuinely cannot run containers.
+# Default ON; set GOATOS_E2E_SMOKE_SKIP=1 to opt the smoke stage out and
+# GOATOS_E2E_BUSINESS_CHAIN_SKIP=1 to opt the business-chain stage out explicitly (image-build/
+# parity still run, since those need no long-running containers beyond `docker run`).
+# e2e-business-chain reuses the already-built image (no second build) and manages its own
+# ephemeral stack lifecycle (its own compose project + volumes, torn down on exit) so it does
+# not collide with e2e-smoke's stack.
 run_e2e_docker_chain() {
   if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
     echo "!! e2e docker chain: SKIPPED — docker not available/reachable in this environment. This is NOT a pass." >&2
@@ -55,7 +60,8 @@ run_e2e_docker_chain() {
   fi
   make e2e-image-build \
     && make e2e-parity \
-    && make e2e-smoke
+    && make e2e-smoke \
+    && make e2e-business-chain
 }
 
 run_guardrails() {

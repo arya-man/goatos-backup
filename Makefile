@@ -9,7 +9,7 @@ AI_BACKEND ?= auto
 
 .PHONY: check guardrails stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard scale-certification-docs-guard scale-guard clinical-defer-guard sweeper-deployment-guard deployed-job-flags-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
-.PHONY: e2e-image-build e2e-parity e2e-smoke scale-cert
+.PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 .PHONY: vaccination-execution-projection-recompute vaccination-operations-projection-recompute
 
 setup-crg: ai-setup
@@ -220,6 +220,20 @@ e2e-parity:
 # silent pass) if docker is unavailable; see tools/dev/e2e-smoke.sh's header.
 e2e-smoke:
 	bash tools/dev/e2e-smoke.sh
+
+# e2e-business-chain: Phase 2a. Brings up its OWN ephemeral deploy/e2e/docker-compose.e2e.yml
+# stack (real goatos-backend:e2e image — build it first with `make e2e-image-build`; a stale
+# image is refused at startup by the migrationguard, exactly as in production) and drives the
+# REAL operational kernel chain end-to-end, asserting each hop from the resulting canonical
+# rows / real HTTP responses — NOTHING downstream of the ingress is hand-seeded:
+#   input goat + authored protocol config -> goat.created via the real identity outbox path ->
+#   Pub/Sub emulator publish -> domain-event consumer -> obligation generation -> operational
+#   sweep/batch -> canonical GET /calendar/vaccination/events.
+# Plus resilience: duplicate Pub/Sub delivery (idempotency, P0), kernel-worker restart catch-up,
+# and two-worker advisory-lock concurrency. Skips loudly (exit 0, NOT a silent pass) when docker
+# is unavailable — same posture as e2e-smoke. Tears its stack + volumes down on any exit.
+e2e-business-chain:
+	bash tools/e2e/business-chain-driver.sh
 
 # idempotency-writes-guard: block the insufficient idempotency pattern where
 # `ON CONFLICT DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key` is the
@@ -510,15 +524,12 @@ scale-kernel-gate-smoke:
 	cd backend && GOATOS_SCALE_GATE_ROWS=$${GOATOS_SCALE_GATE_ROWS:-20000} go test -tags scale_kernel -run TestBulkStatusKernelScaleGate -count=1 -v -timeout 20m ./tests/scale/...
 
 # scale-cert: pre-push/scheduled certification gate for the 5k-50k envelope (NOT part of
-# ci-local's inner loop — this is deliberately heavier). Currently runs the canonical
-# Calendar read-plan scale test gated behind GOATOS_SCALE_CERT (see
-# backend/internal/calendar/adapters/postgres/canonical_read_plan_test.go). Phase-2 extends
-# this target with kernel-worker cadence-drain/SLO certification per
-# docs/decisions/operational-kernel-5k-50k-scale-envelope.md's "Availability model" and
-# "When the architecture may scale out" sections — add new gated tests here, do not add
-# them to ci-local.
+# ci-local's inner loop — this is deliberately heavier). Runs both the canonical Calendar
+# read-plan scale test and the worker cadence-drain scale test, both gated behind GOATOS_SCALE_CERT
+# (see backend/internal/calendar/adapters/postgres/canonical_read_plan_test.go).
+# See docs/decisions/operational-kernel-5k-50k-scale-envelope.md for scale gate charter.
 scale-cert:
-	cd backend && GOATOS_SCALE_CERT=1 go test -run TestCalendarCanonicalReadPlanAtScale -timeout 30m ./internal/calendar/adapters/postgres/
+	cd backend && GOATOS_SCALE_CERT=1 SCALE_CERT_SIZE=$${SCALE_CERT_SIZE:-500k} go test -run "TestCalendarCanonicalReadPlanAtScale|TestReminderCadenceDrainAtScale" -timeout 30m -v ./internal/calendar/adapters/postgres/
 
 admin-web-e2e-smoke:
 	bash tools/dev/admin-web-e2e-smoke.sh

@@ -36,8 +36,38 @@ import (
 // `event_type <> 'vaccination_dose_due'` predicate, exactly mirroring the pre-cutover projector's own
 // distinction between its general sweep and its single-obligation lookup.
 //
+// SCALE-OPTIMIZATION (migration 000190): The original OR predicate combining three date/status branches
+// caused seq-scans at scale (100k+ obligations). Refactored as UNION ALL of three indexed branches:
+// - Branch 1: window-bound (index: idx_obligation_instances_calendar_window on (tenant_id, due_at))
+// - Branch 2: exception catch-up (index: idx_obligation_instances_calendar_exceptions on (tenant_id, status))
+// - Branch 3: overdue-by-due_at (index: idx_obligation_instances_calendar_overdue on (tenant_id, status, due_at))
+// This ensures the planner uses index scans for each branch and stays sub-second at 500k obligations.
+//
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 const calendarCanonicalEventsCTE = `obligation_events AS (
+  WITH obligation_events_rows AS (
+    -- Index-bound decomposition of the former 3-way OR (see migration 000190). Each branch is a
+    -- guaranteed index scan on a partial index; the branches select FULL obligation_instances rows so
+    -- there is no join back to the base table (a candidate-id join let the planner hash-join against a
+    -- full seq scan). UNION (distinct over the whole row) dedups an obligation matching two branches so
+    -- it is emitted exactly once. Semantically identical to the original OR over the same tenant/
+    -- unbatched/active-status set.
+    -- Branch 1: window-bound (index: idx_obligation_instances_calendar_window)
+    SELECT * FROM obligation_instances
+    WHERE tenant_id = $1::uuid AND batch_id IS NULL
+      AND status NOT IN ('waived', 'canceled', 'superseded', 'completed')
+      AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
+    UNION
+    -- Branch 2: exception catch-up (index: idx_obligation_instances_calendar_exceptions)
+    SELECT * FROM obligation_instances
+    WHERE tenant_id = $1::uuid AND batch_id IS NULL
+      AND status IN ('missed', 'in_progress', 'deferred')
+    UNION
+    -- Branch 3: overdue-by-due_at (index: idx_obligation_instances_calendar_overdue)
+    SELECT * FROM obligation_instances
+    WHERE tenant_id = $1::uuid AND batch_id IS NULL
+      AND status IN ('scheduled', 'due') AND due_at < now()
+  )
   SELECT
     'obligation:' || oi.obligation_id::text AS event_id,
     'vaccination_dose_due'::text AS event_type,
@@ -107,7 +137,7 @@ const calendarCanonicalEventsCTE = `obligation_events AS (
       'notification_policy', jsonb_build_object('reminder', 'due_minus_1h'),
       'links', jsonb_build_object()
     ) AS detail
-  FROM obligation_instances oi
+  FROM obligation_events_rows oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
   JOIN protocol_definitions pd
@@ -145,14 +175,7 @@ const calendarCanonicalEventsCTE = `obligation_events AS (
         WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.name
       END AS shed_name
   ) loc ON true
-  WHERE oi.tenant_id = $1::uuid
-    AND oi.batch_id IS NULL
-    AND (
-      (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
-      OR oi.status IN ('missed', 'in_progress', 'deferred')
-      OR (oi.status IN ('scheduled', 'due') AND oi.due_at < now())
-    )
-    AND pd.category = 'vaccination'
+  WHERE pd.category = 'vaccination'
     AND pv.status = 'published'
     AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
 ),
@@ -240,6 +263,23 @@ catchup_drive_events AS (
       'links', jsonb_build_object()
     ) AS detail
   FROM (
+    WITH catchup_rows AS (
+      -- Same index-bound UNION decomposition as obligation_events_rows (migration 000190):
+      -- window / exception / overdue branches selecting FULL rows (no join-back), deduped so a row
+      -- matching two branches is counted once.
+      SELECT * FROM obligation_instances
+      WHERE tenant_id = $1::uuid AND batch_id IS NULL
+        AND status NOT IN ('waived', 'canceled', 'superseded', 'completed')
+        AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
+      UNION
+      SELECT * FROM obligation_instances
+      WHERE tenant_id = $1::uuid AND batch_id IS NULL
+        AND status IN ('missed', 'in_progress', 'deferred')
+      UNION
+      SELECT * FROM obligation_instances
+      WHERE tenant_id = $1::uuid AND batch_id IS NULL
+        AND status IN ('scheduled', 'due') AND due_at < now()
+    )
     SELECT
       loc.park_id,
       loc.park_code,
@@ -276,7 +316,7 @@ catchup_drive_events AS (
         WHEN min(oi.due_at) <= now() + interval '24 hours' THEN 'warning'
         ELSE 'info'
       END AS severity
-    FROM obligation_instances oi
+    FROM catchup_rows oi
     JOIN protocol_versions pv
       ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
     JOIN protocol_definitions pd
@@ -316,14 +356,7 @@ catchup_drive_events AS (
           WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.name
         END AS shed_name
     ) loc ON true
-    WHERE oi.tenant_id = $1::uuid
-      AND oi.batch_id IS NULL
-      AND (
-        (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
-        OR oi.status IN ('missed', 'in_progress', 'deferred')
-        OR (oi.status IN ('scheduled', 'due') AND oi.due_at < now())
-      )
-      AND pd.category = 'vaccination'
+    WHERE pd.category = 'vaccination'
       AND pv.status = 'published'
       AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
     GROUP BY
@@ -541,6 +574,41 @@ park_drive_groups AS (
   GROUP BY park_id, to_char((due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD')
 ),
 obligation_drive_membership AS (
+  WITH obligation_membership_rows AS (
+    -- Index-bound decomposition of the former batched-OR-unbatched-3-way-OR membership predicate
+    -- (migration 000190). Four index-scannable branches selecting FULL obligation_instances rows (no
+    -- join-back to the base table), deduped by UNION so an obligation matching two branches (e.g.
+    -- in-window AND overdue) is counted EXACTLY ONCE -- preserving the exact total_count /
+    -- completed_count / total_animals / completed_animals drive-summary invariants.
+    -- Unbatched window branch keeps 'completed' (membership needs it for the completed aggregates),
+    -- hence idx_obligation_instances_calendar_window excludes only waived/canceled/superseded.
+    -- Unbatched window (index: idx_obligation_instances_calendar_window)
+    SELECT * FROM obligation_instances
+    WHERE tenant_id = $1::uuid AND batch_id IS NULL
+      AND status NOT IN ('superseded', 'canceled', 'waived')
+      AND due_at >= $2::timestamptz AND due_at < $3::timestamptz
+    UNION
+    -- Unbatched exception catch-up (index: idx_obligation_instances_calendar_exceptions)
+    SELECT * FROM obligation_instances
+    WHERE tenant_id = $1::uuid AND batch_id IS NULL
+      AND status IN ('missed', 'in_progress', 'deferred')
+    UNION
+    -- Unbatched overdue-by-due_at (index: idx_obligation_instances_calendar_overdue)
+    SELECT * FROM obligation_instances
+    WHERE tenant_id = $1::uuid AND batch_id IS NULL
+      AND status IN ('scheduled', 'due') AND due_at < now()
+    UNION
+    -- Batched drives in-window (obligation_batches window joined to obligation_instances via
+    -- obligation_instances_batch_idx). obligation_batches stays a cheap scan (low cardinality).
+    SELECT oi2.* FROM obligation_instances oi2
+    JOIN obligation_batches ob2
+      ON ob2.tenant_id = oi2.tenant_id AND ob2.batch_id = oi2.batch_id
+    WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL
+      AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
+      AND ob2.status NOT IN ('superseded', 'canceled')
+      AND COALESCE(ob2.window_start, ob2.planned_date::timestamptz, ob2.window_end) >= $2::timestamptz
+      AND COALESCE(ob2.window_start, ob2.planned_date::timestamptz, ob2.window_end) < $3::timestamptz
+  )
   SELECT
     oi.obligation_id,
     oi.status,
@@ -553,7 +621,7 @@ obligation_drive_membership AS (
     CASE WHEN oi.target_type = 'goat' THEN oi.target_id END AS animal_id
     -- Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
     -- product feature yet (owner decision 2026-07-14); revisit when the stock module ships.
-  FROM obligation_instances oi
+  FROM obligation_membership_rows oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
   JOIN protocol_definitions pd
@@ -596,23 +664,9 @@ obligation_drive_membership AS (
         WHEN member.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
       END AS shed_id
   ) loc ON true
-  WHERE oi.tenant_id = $1::uuid
-    AND pd.category = 'vaccination'
+  WHERE pd.category = 'vaccination'
     AND pv.status = 'published'
     AND oi.status NOT IN ('superseded', 'canceled', 'waived')
-    AND (
-      (oi.batch_id IS NOT NULL
-        AND ob.status NOT IN ('superseded', 'canceled')
-        AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= $2::timestamptz
-        AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz)
-      OR
-      (oi.batch_id IS NULL
-        AND (
-          (oi.due_at >= $2::timestamptz AND oi.due_at < $3::timestamptz)
-          OR oi.status IN ('missed', 'in_progress', 'deferred')
-          OR (oi.status IN ('scheduled', 'due') AND oi.due_at < now())
-        ))
-    )
 ),
 obligation_drive_vaccine_labels AS (
   SELECT
@@ -660,39 +714,59 @@ obligation_drive_summary AS (
   --   deferred  = NOT completed AND status='deferred' (a clinical/anchor hold stays deferred)
   --   overdue   = NOT completed AND NOT deferred AND status IN ('overdue','missed')
   --   due       = everything else open, not already bucketed
+  -- SCALE: aggregate membership to the (park_id, due_date) GROUP grain FIRST, then attach the three
+  -- 1:1 per-group sub-metrics (shed_complete / animal_coverage / vaccine_labels). Previously the
+  -- membership rows were LEFT JOINed to those sub-aggregates at ROW grain and grouped afterwards; with
+  -- CTE rows=1 estimates + IS-NOT-DISTINCT-FROM join keys the planner re-executed each sub-aggregate
+  -- once per membership row (O(n^2): loops = #membership rows). Grouping first collapses the outer side
+  -- to one row per park-day, so the sub-aggregate joins are group-count x group-count. Result set is
+  -- byte-for-byte identical (sc/ac/vl are exactly one row per (park_id, due_date), so no fan-out and
+  -- the former max()/COALESCE picked that single value).
   SELECT
-    m.park_id,
-    m.due_date,
-    count(DISTINCT m.obligation_id) FILTER (WHERE m.status IN (
-      'completed', 'scheduled', 'due', 'in_progress', 'proof_pending',
-      'verification_pending', 'rejected', 'rework_due', 'overdue', 'missed',
-      'deferred'))::int AS total_count,
-    count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'completed')::int AS completed_count,
-    count(DISTINCT m.obligation_id) FILTER (
-      WHERE m.status <> 'completed'
-        AND m.status <> 'deferred'
-        AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
-    )::int AS due_count,
-    count(DISTINCT m.obligation_id) FILTER (
-      WHERE m.status <> 'completed'
-        AND m.status <> 'deferred'
-        AND m.status IN ('overdue', 'missed')
-    )::int AS overdue_count,
-    count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'deferred')::int AS deferred_count,
-    count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
-    COALESCE(max(sc.sheds_completed), 0)::int AS sheds_completed,
-    COALESCE(max(ac.total_animals), 0)::int AS total_animals,
-    COALESCE(max(ac.completed_animals), 0)::int AS completed_animals,
-    COALESCE(max(vl.vaccine_labels), ARRAY[]::text[]) AS vaccine_labels,
-    max(m.park_code) AS park_code
-  FROM obligation_drive_membership m
+    g.park_id,
+    g.due_date,
+    g.total_count,
+    g.completed_count,
+    g.due_count,
+    g.overdue_count,
+    g.deferred_count,
+    g.shed_count,
+    COALESCE(sc.sheds_completed, 0)::int AS sheds_completed,
+    COALESCE(ac.total_animals, 0)::int AS total_animals,
+    COALESCE(ac.completed_animals, 0)::int AS completed_animals,
+    COALESCE(vl.vaccine_labels, ARRAY[]::text[]) AS vaccine_labels,
+    g.park_code
+  FROM (
+    SELECT
+      m.park_id,
+      m.due_date,
+      count(DISTINCT m.obligation_id) FILTER (WHERE m.status IN (
+        'completed', 'scheduled', 'due', 'in_progress', 'proof_pending',
+        'verification_pending', 'rejected', 'rework_due', 'overdue', 'missed',
+        'deferred'))::int AS total_count,
+      count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'completed')::int AS completed_count,
+      count(DISTINCT m.obligation_id) FILTER (
+        WHERE m.status <> 'completed'
+          AND m.status <> 'deferred'
+          AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
+      )::int AS due_count,
+      count(DISTINCT m.obligation_id) FILTER (
+        WHERE m.status <> 'completed'
+          AND m.status <> 'deferred'
+          AND m.status IN ('overdue', 'missed')
+      )::int AS overdue_count,
+      count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'deferred')::int AS deferred_count,
+      count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
+      max(m.park_code) AS park_code
+    FROM obligation_drive_membership m
+    GROUP BY m.park_id, m.due_date
+  ) g
   LEFT JOIN obligation_drive_shed_complete sc
-    ON sc.park_id IS NOT DISTINCT FROM m.park_id AND sc.due_date = m.due_date
+    ON sc.park_id IS NOT DISTINCT FROM g.park_id AND sc.due_date = g.due_date
   LEFT JOIN obligation_drive_animal_coverage ac
-    ON ac.park_id IS NOT DISTINCT FROM m.park_id AND ac.due_date = m.due_date
+    ON ac.park_id IS NOT DISTINCT FROM g.park_id AND ac.due_date = g.due_date
   LEFT JOIN obligation_drive_vaccine_labels vl
-    ON vl.park_id IS NOT DISTINCT FROM m.park_id AND vl.due_date = m.due_date
-  GROUP BY m.park_id, m.due_date
+    ON vl.park_id IS NOT DISTINCT FROM g.park_id AND vl.due_date = g.due_date
 ),
 park_drive_events AS (
   SELECT

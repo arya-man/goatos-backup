@@ -32,14 +32,17 @@ name: goatos-e2e
 # `postgres` below (its own container, its own named volume, torn down by
 # `docker compose down -v`).
 #
-# PHASE-2 SEAM: this file intentionally stops at "the real topology boots and the
-# fast/operational/generation/housekeeping stages start cleanly". Phase-2 agents add
-# business-chain assertions (accept an intake event -> outbox -> Pub/Sub -> domain
-# consumer -> obligation -> batch/SOP -> notification -> canonical API read) and
-# resilience/scale scenarios on top of this skeleton — see
-# tools/dev/local-gcp-kernel-parity-smoke.sh for the shape such assertions can take
-# against a compose stack, and add them as a NEW smoke driver (or extend
-# tools/dev/e2e-smoke.sh) rather than growing this file into that role.
+# PHASE-1 stops at "the real topology boots and the fast/operational/generation/housekeeping
+# stages start cleanly" (tools/dev/e2e-smoke.sh). PHASE-2a (tools/e2e/business-chain-driver.sh,
+# `make e2e-business-chain`) drives the REAL business chain end-to-end against THIS stack:
+# input goat + authored protocol config -> goat.created via the real identity outbox path ->
+# Pub/Sub emulator publish -> domain-event consumer -> obligation generation -> operational
+# sweep/batch -> canonical GET /calendar/vaccination/events, plus duplicate-delivery idempotency
+# (real re-publish to the topic), kernel-worker restart catch-up, and two-worker advisory-lock
+# concurrency. It seeds ONLY input facts and asserts every hop from the resulting canonical rows
+# (never seeding a kernel-produced table — enforced by tools/agent-hooks/check-e2e-kernel-integrity.sh,
+# which now scans tools/e2e). The driver runs its own compose project so it does not collide with
+# e2e-smoke's stack.
 
 x-e2e-environment: &e2e-environment
   DATABASE_URL: postgres://postgres:goatos@postgres:5432/goatos?sslmode=disable
