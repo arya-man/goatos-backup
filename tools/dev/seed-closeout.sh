@@ -45,11 +45,12 @@ run_go_cmd() {
 }
 
 run_required_projectors() {
+  # U7 (operational-kernel-5k-50k-scale-envelope ADR): the process-integrity, vaccination
+  # shed/execution/operations screens are served from canonical indexed SQL at the 5k-50k
+  # envelope, so their projection tables + projector commands were dropped/removed. No
+  # recompute is required for those screens (seed-green is a canonical-read 200). Only the
+  # SURVIVING indexed summary — the vaccination eligibility rollup — is recomputed here.
   run_go_cmd vaccination-eligibility-rollup-recompute -tenant-id "$tenant_id"
-  run_go_cmd process-integrity-projection-recompute -tenant-id "$tenant_id"
-  run_go_cmd vaccination-shed-projection-recompute -tenant-id "$tenant_id"
-  run_go_cmd vaccination-execution-projection-recompute -tenant-id "$tenant_id"
-  run_go_cmd vaccination-operations-projection-recompute -tenant-id "$tenant_id"
 }
 
 run_calendar_projectors() {

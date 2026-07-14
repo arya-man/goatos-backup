@@ -20,7 +20,6 @@ god-cte backend/internal/calendar/adapters/postgres/repository.go 1 # owner=cale
 # (none) — finalizePlannedBatches was fixed with a progressed==0 break on 2026-07-11.
 
 # --- offset-pagination: use keyset/cursor instead ---
-offset-pagination backend/internal/vaccinationexecution/adapters/postgres/repository.go 1 # owner=vaccination-platform issue=C35-020 expires=2026-09-30 reason=shed-only bounded offset needs explicit cursor replacement
 offset-pagination backend/internal/locations/adapters/postgres/repository.go 1 # owner=identity-platform issue=C35-020 expires=2026-09-30 reason=admin locations search needs keyset pagination
 
 # --- non-sargable-like: lower(col) LIKE '%..%' is unindexable ---
