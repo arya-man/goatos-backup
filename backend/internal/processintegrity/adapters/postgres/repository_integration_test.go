@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -278,13 +279,17 @@ func TestProcessIntegrityCanonicalListQueryPlanUsesIndexes(t *testing.T) {
 	}
 }
 
-// TestProcessIntegrityCanonicalAggregateQueryPlanUsesIndexesAtScale is the non-keyset AGGREGATE proof at the
-// ADR upper bound (~500k obligation rows, operational-kernel-5k-50k-scale-envelope.md step 4). A green plan
-// at the 5k regression fixture is NOT proof for an aggregate that scans the whole tenant window: the risk is
-// a plan that is fine small and catastrophic large. We load ~500k canonical obligations, ANALYZE so the
-// planner uses real statistics, then EXPLAIN the counts aggregate WITHOUT forcing enable_seqscan off — the
-// planner must still choose an index path on the driving obligation_instances scan (tenant+due_at), proving
-// the aggregate stays index-bound at scale rather than falling to a full sequential scan.
+// TestProcessIntegrityCanonicalAggregateQueryPlanUsesIndexesAtScale is the 500k-ENVELOPE GATE for the two
+// non-keyset canonical aggregates (CountByWorkState + Protocol Adherence summary) at the ADR upper bound
+// (~500k obligation rows, operational-kernel-5k-50k-scale-envelope.md step 4). A green plan on the 5k
+// regression fixture, or a plan under enable_seqscan=off, only proves an index EXISTS — not that the planner
+// CHOOSES it at scale or that cost stays bounded; the real risk is a plan that is fine small and
+// catastrophic large. We load ~500k canonical obligations, ANALYZE so the planner uses real statistics, then
+// EXPLAIN (ANALYZE, BUFFERS) BOTH aggregates WITHOUT forcing enable_seqscan off and read the executed plan.
+// Each must (a) reach obligation_instances through an index path, never a Seq Scan, (b) touch only the
+// bounded due window at that scan (actual rows << 500k), and (c) keep estimated total cost far below a
+// full-table-scan aggregate — proving the aggregate stays index-bound at scale rather than degrading to a
+// compute-on-read full sequential scan.
 func TestProcessIntegrityCanonicalAggregateQueryPlanUsesIndexesAtScale(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -318,17 +323,31 @@ func TestProcessIntegrityCanonicalAggregateQueryPlanUsesIndexesAtScale(t *testin
 		Limit:     1,
 	}
 	countArgs := countQueryArgs(queryArgs(normalizeQuery(scaleQuery)))
-	// No SET enable_seqscan = off here: at ~500k rows a genuinely index-bound aggregate must be the
-	// planner's own choice, not a forced one.
-	plan := explainPlan(t, ctx, tx, "EXPLAIN (COSTS OFF)\n"+processIntegrityCanonicalCountsSQL, countArgs...)
 
-	if strings.Contains(plan, "Seq Scan on obligation_instances") {
-		t.Fatalf("canonical aggregate fell to a sequential scan of obligation_instances at ~500k rows:\n%s", plan)
-	}
-	if !strings.Contains(plan, "Index Scan") &&
-		!strings.Contains(plan, "Index Only Scan") &&
-		!strings.Contains(plan, "Bitmap Index Scan") {
-		t.Fatalf("canonical aggregate did not use an index scan at ~500k rows:\n%s", plan)
+	// 500k-ENVELOPE GATE. Both non-keyset aggregates (CountByWorkState + Protocol Adherence summary) must
+	// stay index-bound at the ADR upper bound. We EXPLAIN (ANALYZE, BUFFERS) each WITHOUT enable_seqscan=off,
+	// so the index path is the planner's OWN choice on real ~500k statistics, and we read the real executed
+	// plan (actual rows + estimated cost) rather than merely proving an index EXISTS. Two thresholds bound
+	// the plan:
+	//   - obligationRowCeiling: the driving obligation_instances scan must touch only the bounded due window
+	//     (~1.4k rows/day here), NEVER the whole ~500k table. 50k is a huge margin over the window yet an
+	//     order of magnitude below a full-table scan, so a compute-on-read regression that drops the
+	//     tenant+due_at selectivity trips it even if PG still labels the node an "Index Scan".
+	//   - costCeiling: the estimated total cost must sit far below a 500k sequential-scan-based aggregate
+	//     (a full seq scan of the obligation table alone costs well over ~15k here plus the group/sort).
+	const (
+		obligationRowCeiling = 50_000.0
+		costCeiling          = 13_000.0
+	)
+	for _, agg := range []struct {
+		name string
+		sql  string
+	}{
+		{"processIntegrityCanonicalCountsSQL", processIntegrityCanonicalCountsSQL},
+		{"processIntegrityCanonicalAdherenceSummarySQL", processIntegrityCanonicalAdherenceSummarySQL},
+	} {
+		res := explainAnalyzeJSON(t, ctx, tx, agg.sql, countArgs...)
+		assertAggregateIndexBoundAtScale(t, agg.name, res, costCeiling, obligationRowCeiling)
 	}
 
 	// The aggregate must also RUN within the request budget at scale and stay a bounded, page-independent
@@ -1243,6 +1262,123 @@ func explainPlan(t *testing.T, ctx context.Context, q pgx.Tx, sql string, args .
 		t.Fatalf("read plan rows: %v", err)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// pgxQuerier is satisfied by both *pgxpool.Pool and pgx.Tx, so the 500k-envelope EXPLAIN helper can run on
+// either a pooled connection or a rolled-back transaction.
+type pgxQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// explainPlanNode is one node of an EXPLAIN (FORMAT JSON) plan tree. Only the fields the 500k-envelope gate
+// asserts on are decoded.
+type explainPlanNode struct {
+	NodeType     string            `json:"Node Type"`
+	RelationName string            `json:"Relation Name"`
+	TotalCost    float64           `json:"Total Cost"`
+	PlanRows     float64           `json:"Plan Rows"`
+	ActualRows   float64           `json:"Actual Rows"`
+	Plans        []explainPlanNode `json:"Plans"`
+}
+
+// explainAnalyzeResult is one top-level EXPLAIN (ANALYZE, FORMAT JSON) result object.
+type explainAnalyzeResult struct {
+	Plan          explainPlanNode `json:"Plan"`
+	ExecutionTime float64         `json:"Execution Time"`
+}
+
+// explainAnalyzeJSON runs EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) on a parameterized query and returns the
+// executed plan tree (real statistics: actual rows + estimated cost). ANALYZE means the query is actually
+// run, so the returned actual-row counts are ground truth, not planner guesses. It is used by the
+// 500k-envelope gate WITHOUT enable_seqscan disabled so the access path is the planner's own choice.
+func explainAnalyzeJSON(t *testing.T, ctx context.Context, q pgxQuerier, sql string, args ...any) explainAnalyzeResult {
+	t.Helper()
+	rows, err := q.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\n"+sql, args...)
+	if err != nil {
+		t.Fatalf("explain analyze query: %v", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			t.Fatalf("explain analyze: no plan row: %v", err)
+		}
+		t.Fatalf("explain analyze: no plan row returned")
+	}
+	var raw []byte
+	if err := rows.Scan(&raw); err != nil {
+		t.Fatalf("scan explain json: %v", err)
+	}
+	rows.Close()
+	var parsed []explainAnalyzeResult
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("unmarshal explain json: %v\nraw=%s", err, string(raw))
+	}
+	if len(parsed) == 0 {
+		t.Fatalf("explain analyze: empty plan array\nraw=%s", string(raw))
+	}
+	return parsed[0]
+}
+
+// collectRelationScans walks the plan tree collecting every node whose base relation is rel (e.g. every
+// scan of obligation_instances, which the base CTE may reference more than once).
+func collectRelationScans(n explainPlanNode, rel string, out *[]explainPlanNode) {
+	if n.RelationName == rel {
+		*out = append(*out, n)
+	}
+	for _, c := range n.Plans {
+		collectRelationScans(c, rel, out)
+	}
+}
+
+// planHasIndexAccess reports whether any node in the tree uses an index access path (Index Scan, Index Only
+// Scan, or Bitmap Index Scan).
+func planHasIndexAccess(n explainPlanNode) bool {
+	if strings.Contains(n.NodeType, "Index") {
+		return true
+	}
+	for _, c := range n.Plans {
+		if planHasIndexAccess(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// assertAggregateIndexBoundAtScale enforces the 500k-envelope thresholds on one executed aggregate plan:
+// the driving obligation_instances scan must be an index path (no Seq Scan), must touch only the bounded
+// due window (actual rows below obligationRowCeiling, i.e. NOT the whole ~500k table), the plan must use an
+// index access path overall, and the estimated total cost must stay below costCeiling.
+func assertAggregateIndexBoundAtScale(t *testing.T, label string, res explainAnalyzeResult, costCeiling, obligationRowCeiling float64) {
+	t.Helper()
+	root := res.Plan
+	var oblScans []explainPlanNode
+	collectRelationScans(root, "obligation_instances", &oblScans)
+	if len(oblScans) == 0 {
+		t.Fatalf("%s @500k: obligation_instances not referenced in executed plan; cannot prove index-bound access", label)
+	}
+	var maxObligationRows float64
+	for _, s := range oblScans {
+		if strings.Contains(s.NodeType, "Seq Scan") {
+			t.Fatalf("%s @500k: obligation_instances hit a %q (compute-on-read regression); rootCost=%.0f execTime=%.1fms",
+				label, s.NodeType, root.TotalCost, res.ExecutionTime)
+		}
+		if s.ActualRows > maxObligationRows {
+			maxObligationRows = s.ActualRows
+		}
+	}
+	if !planHasIndexAccess(root) {
+		t.Fatalf("%s @500k: no index access path anywhere in executed plan", label)
+	}
+	if maxObligationRows > obligationRowCeiling {
+		t.Fatalf("%s @500k: obligation_instances scan touched %.0f rows (> ceiling %.0f) — lost due-window selectivity, effectively a full scan",
+			label, maxObligationRows, obligationRowCeiling)
+	}
+	if root.TotalCost > costCeiling {
+		t.Fatalf("%s @500k: estimated total cost %.0f exceeds envelope ceiling %.0f (aggregate no longer bounded at scale)",
+			label, root.TotalCost, costCeiling)
+	}
+	t.Logf("%s @500k index-bound: rootCost=%.0f rootActualRows=%.0f maxObligationScanRows=%.0f execTime=%.1fms",
+		label, root.TotalCost, root.ActualRows, maxObligationRows, res.ExecutionTime)
 }
 
 func seedProcessIntegrityProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
