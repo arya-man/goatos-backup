@@ -352,7 +352,10 @@ if command -v rg >/dev/null 2>&1; then
       # Skip test files.
       case "$gofile" in *_test.go) continue ;; esac
       if grep -qE '\brecover\(\)' "$gofile"; then
-        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b|\bpanic\(' "$gofile"; then
+        # Accept package-form (log./slog.) AND instance-logger method calls
+        # (s.logger.Error / logger.ErrorContext / ...) — the repo's observability
+        # convention is instance *slog.Logger fields, not package-level logging.
+        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b|\.(Error|ErrorContext|Warn|WarnContext)\(|\bpanic\(' "$gofile"; then
           echo "$gofile: recover() block found with no log.Error/ErrorContext call or re-panic in file."
           echo "  recover() blocks must log the panic value before suppressing/converting it, or re-panic to an outer logger."
           fail=1
@@ -404,7 +407,10 @@ else
     while IFS= read -r gofile; do
       case "$gofile" in *_test.go) continue ;; esac
       if grep -qE '\brecover\(\)' "$gofile"; then
-        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b|\bpanic\(' "$gofile"; then
+        # Accept package-form (log./slog.) AND instance-logger method calls
+        # (s.logger.Error / logger.ErrorContext / ...) — the repo's observability
+        # convention is instance *slog.Logger fields, not package-level logging.
+        if ! grep -qE '\blog\.(Error|ErrorContext|Warn|WarnContext)\b|\bslog\.(Error|ErrorContext|Warn|WarnContext)\b|\.(Error|ErrorContext|Warn|WarnContext)\(|\bpanic\(' "$gofile"; then
           echo "$gofile: recover() block found with no log.Error/ErrorContext call or re-panic in file."
           echo "  recover() blocks must log the panic value before suppressing/converting it, or re-panic to an outer logger."
           fail=1
