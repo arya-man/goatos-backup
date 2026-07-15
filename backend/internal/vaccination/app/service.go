@@ -33,8 +33,12 @@ func (s *Service) ListOpenStageReviewItems(ctx context.Context, tenantID string,
 }
 
 // ResolveStageReviewItem marks an open review item resolved (idempotent no-op if already resolved).
-func (s *Service) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error) {
-	return s.repo.ResolveStageReviewItem(ctx, tenantID, reviewItemID, resolvedBy, note, resolvedAt)
+// resolutionMode ('corrected' | 'exception') and a non-empty note are required and enforced at the
+// HTTP boundary (VACC-REV-10): an operator must declare whether the stage/DOB conflict was actually
+// corrected or is being left as an explicit reviewed exception, so an active mismatch cannot be
+// silently hidden.
+func (s *Service) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error) {
+	return s.repo.ResolveStageReviewItem(ctx, tenantID, reviewItemID, resolvedBy, note, resolutionMode, resolvedAt)
 }
 
 // AcceptCompletion accepts a recorded completion on verification, returning its verification context

@@ -462,6 +462,6 @@ func (r *completionRepoFake) ListOpenStageReviewItems(context.Context, string, *
 	return domain.StageReviewItemPage{}, nil
 }
 
-func (r *completionRepoFake) ResolveStageReviewItem(context.Context, string, string, string, string, time.Time) (bool, error) {
+func (r *completionRepoFake) ResolveStageReviewItem(context.Context, string, string, string, string, string, time.Time) (bool, error) {
 	return false, nil
 }

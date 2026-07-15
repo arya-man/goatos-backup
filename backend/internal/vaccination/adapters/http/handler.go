@@ -27,7 +27,7 @@ type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
 	VerificationQueue(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error)
 	ListOpenStageReviewItems(ctx context.Context, tenantID string, cursor *domain.StageReviewItemCursor, limit int) (domain.StageReviewItemPage, error)
-	ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error)
+	ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error)
 }
 
 // ManualCampaignGenerator materializes deliberate manual_campaign schedule rows for a published
@@ -423,11 +423,15 @@ func (h *Handler) ListStageReviewItems(w http.ResponseWriter, r *http.Request) {
 }
 
 type resolveStageReviewRequest struct {
-	Note string `json:"note"`
+	Resolution string `json:"resolution"`
+	Note       string `json:"note"`
 }
 
 // ResolveStageReviewItem marks an open stage/age review item resolved (VACC-REV-10). Idempotent: a
-// replay on an already-resolved (or missing) item returns 404 without changing state.
+// replay on an already-resolved (or missing) item returns 404 without changing state. A resolution
+// mode ('corrected' | 'exception') and a non-empty note are REQUIRED so an operator cannot silently
+// hide an active stage/age mismatch: they must declare whether the stage/DOB conflict was corrected
+// or is an explicit reviewed exception, and record why.
 func (h *Handler) ResolveStageReviewItem(w http.ResponseWriter, r *http.Request) {
 	reviewItemID := r.PathValue("review_item_id")
 	if !uuidutil.IsUUIDString(reviewItemID) {
@@ -442,8 +446,18 @@ func (h *Handler) ResolveStageReviewItem(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	resolution := strings.TrimSpace(req.Resolution)
+	if resolution != "corrected" && resolution != "exception" {
+		h.badRequest(w, r, "invalid_resolution", "resolution must be 'corrected' (stage/DOB conflict fixed) or 'exception' (explicit reviewed exception)")
+		return
+	}
+	note := strings.TrimSpace(req.Note)
+	if note == "" {
+		h.badRequest(w, r, "invalid_note", "note is required: record what was corrected or why this is an accepted exception")
+		return
+	}
 	resolved, err := h.svc.ResolveStageReviewItem(r.Context(), tenantID(r), reviewItemID,
-		httpmiddleware.ActorIDFromContext(r.Context()), strings.TrimSpace(req.Note), time.Now().In(biztime.DefaultLocation()))
+		httpmiddleware.ActorIDFromContext(r.Context()), note, resolution, time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)

@@ -1453,7 +1453,7 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 	}
 
 	// resolve, then list shows none open; re-resolve is an idempotent no-op.
-	resolved, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "tag corrected to adult", time.Now())
+	resolved, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "tag corrected to adult", "corrected", time.Now())
 	if err != nil || !resolved {
 		t.Fatalf("resolve: resolved=%v err=%v", resolved, err)
 	}
@@ -1461,7 +1461,7 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 	if len(openAfterResolve.Items) != 0 {
 		t.Fatalf("open after resolve = %d, want 0", len(openAfterResolve.Items))
 	}
-	if again, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "", time.Now()); err != nil || again {
+	if again, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "", "corrected", time.Now()); err != nil || again {
 		t.Fatalf("re-resolve should be a no-op: again=%v err=%v", again, err)
 	}
 
@@ -1482,10 +1482,11 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 	}
 }
 
-// TestStageReviewItemOpenUniquePerGoat is the VACC-REV-10 defect guard (migration 000207): a goat
-// moving from a stale K1 to a stale K2 must keep exactly ONE open review item, updated in place —
-// open uniqueness is per (tenant, goat), independent of the observed stage. Before the fix the
-// idempotency key embedded the stage, so K1 and K2 minted two open items for the same goat.
+// TestStageReviewItemOpenUniquePerGoat is the VACC-REV-10 defect guard (migrations 000207/000208): a
+// goat moving from a stale K1 to a stale K2 must keep exactly ONE open review item, updated in place.
+// The fix is a STAGE-FREE idempotency key (vacc-stage-review:<tenant>:<goat>) that generation now
+// emits regardless of the observed stage, so both records collapse onto the same open row. Before the
+// fix the key embedded the stage, so K1 and K2 minted two open items for the same goat.
 func TestStageReviewItemOpenUniquePerGoat(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -1494,14 +1495,13 @@ func TestStageReviewItemOpenUniquePerGoat(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 
 	const goatID = "40000000-0000-4000-8000-0000000000d2"
+	// The stage-free per-goat key generation emits — the SAME string for K1 and K2.
+	key := "vacc-stage-review:" + impTenant + ":" + goatID
 
-	// Record the goat as stale K1, then (as its tag drifts) stale K2 — with DIFFERENT keys, exactly
-	// as the old stage-suffixed key produced. Open uniqueness is now per goat, so the second record
-	// updates the first open item rather than adding a second.
-	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 22, "vacc-stage-review:t:g:K1"); err != nil {
+	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 22, key); err != nil {
 		t.Fatalf("record K1: %v", err)
 	}
-	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K2", 30, "vacc-stage-review:t:g:K2"); err != nil {
+	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K2", 30, key); err != nil {
 		t.Fatalf("record K2: %v", err)
 	}
 

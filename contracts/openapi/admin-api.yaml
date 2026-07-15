@@ -1850,16 +1850,31 @@ paths:
             type: string
             format: uuid
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               type: object
               additionalProperties: false
+              required:
+                - resolution
+                - note
               properties:
+                resolution:
+                  type: string
+                  description: >-
+                    Whether the stage/age conflict was actually corrected
+                    ('corrected') or is being left as an explicit reviewed
+                    exception ('exception'). Required so an active mismatch
+                    cannot be silently hidden.
+                  enum:
+                    - corrected
+                    - exception
                 note:
                   type: string
+                  minLength: 1
                   maxLength: 500
+                  description: What was corrected, or why this is an accepted exception.
       responses:
         "200":
           description: Review item resolved.

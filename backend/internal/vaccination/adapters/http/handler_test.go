@@ -44,7 +44,7 @@ func (f *fakeImpact) ListOpenStageReviewItems(_ context.Context, _ string, _ *do
 	return domain.StageReviewItemPage{Items: f.reviewItems}, nil
 }
 
-func (f *fakeImpact) ResolveStageReviewItem(_ context.Context, _, reviewItemID, resolvedBy, _ string, _ time.Time) (bool, error) {
+func (f *fakeImpact) ResolveStageReviewItem(_ context.Context, _, reviewItemID, resolvedBy, _, _ string, _ time.Time) (bool, error) {
 	f.resolvedID = reviewItemID
 	f.resolvedBy = resolvedBy
 	return f.resolveResult, nil
@@ -360,9 +360,27 @@ func TestStageReviewItemsListAndResolveHTTP(t *testing.T) {
 		t.Fatalf("unexpected list: %#v", list.Items)
 	}
 
-	// resolve OK
+	// resolve requires a typed resolution mode: empty body (no resolution) -> 400.
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", strings.NewReader(`{"note":"tag corrected"}`))
+	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("resolve without resolution status=%d, want 400", rec.Code)
+	}
+
+	// resolve with a resolution mode but no note -> 400 (note is required).
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", strings.NewReader(`{"resolution":"corrected"}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("resolve without note status=%d, want 400", rec.Code)
+	}
+
+	// resolve OK: corrected + note.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", strings.NewReader(`{"resolution":"corrected","note":"tag corrected to adult"}`))
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -372,10 +390,10 @@ func TestStageReviewItemsListAndResolveHTTP(t *testing.T) {
 		t.Fatalf("resolved id = %q", fake.resolvedID)
 	}
 
-	// resolve on already-resolved/missing -> 404
+	// resolve on already-resolved/missing -> 404 (still requires a valid body).
 	fake.resolveResult = false
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", nil)
+	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", strings.NewReader(`{"resolution":"exception","note":"already vaccinated; tag fix pending"}`))
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {

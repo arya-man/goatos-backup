@@ -75,7 +75,7 @@ func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID
 		INSERT INTO vaccination_stage_review_items
 			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
 		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6)
-		ON CONFLICT (tenant_id, goat_id) WHERE status = 'open' DO UPDATE
+		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO UPDATE
 		SET observed_stage = EXCLUDED.observed_stage,
 		    observed_age_weeks = EXCLUDED.observed_age_weeks,
 		    updated_at = now()`,
@@ -152,15 +152,15 @@ func (r *Repository) ListOpenStageReviewItems(ctx context.Context, tenantID stri
 
 // ResolveStageReviewItem marks an OPEN stage review item resolved. It returns false (no error) when
 // the item does not exist or was already resolved, so a replayed resolve is a safe no-op.
-func (r *Repository) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error) {
+func (r *Repository) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE vaccination_stage_review_items
 		SET status = 'resolved', resolved_by = $3::uuid, resolved_at = $4::timestamptz,
-		    resolution_note = $5, updated_at = now()
+		    resolution_note = $5, resolution_mode = $6, updated_at = now()
 		WHERE tenant_id = $1::uuid AND review_item_id = $2::uuid AND status = 'open'`,
-		tenantID, reviewItemID, nullUUID(resolvedBy), resolvedAt, note)
+		tenantID, reviewItemID, nullUUID(resolvedBy), resolvedAt, note, resolutionMode)
 	if err != nil {
 		return false, fmt.Errorf("vaccination: resolve stage review item: %w", err)
 	}

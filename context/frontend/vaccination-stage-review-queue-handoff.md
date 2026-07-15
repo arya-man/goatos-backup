@@ -30,32 +30,57 @@ Important, and the reason the earlier framing was wrong:
 The flag fires only when a DOB exists. **Missing-DOB goats are unaffected** — they
 are scheduled off vaccination-history anchors and never enter this check.
 
-## Backend contract (live — do not re-implement)
+## Backend contract (live — verify against the generated client)
 
 - `GET /admin/vaccination/stage-review-items?limit=&cursor=`
   → `{ items: StageReviewItem[], nextCursor: string | null }`. Keyset (cursor)
-  pagination — page it (~20/page), never fetch all. `StageReviewItem`:
-  `review_item_id`, `goat_id`, `reason` (`kid_stage_past_age_cutoff`),
-  `observed_stage` (the stale tag), `observed_age_weeks` (DOB-derived age),
-  `status`, `resolved_by`, `resolved_at`, `resolution_note`, `created_at`.
+  pagination — page it (~20/page), never fetch all. The generated client response
+  is **camelCase** and each item carries **only**:
+  `reviewItemId`, `goatId`, `reason` (`kid_stage_past_age_cutoff`),
+  `observedStage` (the stale tag), `observedAgeWeeks` (DOB-derived age), `status`,
+  `createdAt`. **It does NOT include** resolution metadata, goat identity/tag,
+  owner, or vaccination coverage — see the enrichment gap below.
 - `POST /admin/vaccination/stage-review-items/{review_item_id}/resolve`
-  body `{ "note": string }` → marks `open -> resolved` with who/when/note.
+  body `{ "resolution": "corrected" | "exception", "note": string }` — **both
+  required** (server rejects a missing/empty `resolution` or `note` with `400`).
+  Marks `open -> resolved`, records who/when + `resolution_mode` + note.
   **Idempotent**: replay on an already-resolved/missing item returns `404`.
 
-Table `vaccination_stage_review_items` (migration `000196`). Lifecycle
-`open -> resolved`. **Open uniqueness is per (tenant, goat)** (migration `000207`
-fixed an earlier defect where the idempotency key embedded the stage, so a goat
-drifting K1 → K2 got two open items). The open item is **updated in place** as the
-observed stage/age changes.
+Table `vaccination_stage_review_items` (migrations `000196`, `000207`, `000208`).
+Lifecycle `open -> resolved`. **Open uniqueness is per (tenant, goat)**, enforced
+via a stage-free idempotency key (`vacc-stage-review:<tenant>:<goat>`) on the
+`(tenant_id, idempotency_key)` open-partial index. `000207` first swapped to a
+`(tenant_id, goat_id)` unique index; `000208` reverted that to the stage-free-key
+approach because a `(tenant, goat)` unique index is **not migrate-first-safe**
+(the still-live previous-release recorder runs `ON CONFLICT (tenant_id,
+idempotency_key)` and its insert would violate the new index). A goat drifting
+K1 → K2 **updates the one open item in place**.
+
+### Enrichment gap (blocks the row design below — NOT built)
+
+The list response above is the **bounded page only**. The row design wants goat
+tag/identity, **owner**, and **vaccination coverage** per row — none of which are
+in the response. The existing coverage API is an **aggregate by scope/protocol,
+not per goat**. So "backend closed" is **inaccurate for the UI**: building the
+rows would require either (a) adding identity/owner/coverage to this page
+response, or (b) a **single batch enrichment endpoint** keyed by the page's
+goat ids. Do NOT build it with per-row (N+1) client calls. This backend
+enrichment is the first task before the lane can be built.
 
 ## CRITICAL — what "resolve" does and does NOT do
 
-`resolve` **closes the review item with a note** (a human triaged it). It does
-**NOT** fix the goat: it does not change the stage tag and does not generate or
-alter any vaccination. The operator fixes the root cause **separately** (correct
-the goat's stage in the identity/correction flow), then marks the item resolved.
-The UI must not imply one click fixes the goat. Label the action **"Mark
-resolved"** with a required note — never "Reconcile" (which implies auto-fix).
+`resolve` **closes the review item with a typed mode + note** (a human triaged
+it). It does **NOT** fix the goat: it does not change the stage tag and does not
+generate or alter any vaccination. The operator fixes the root cause
+**separately** (correct the goat's stage in the identity/correction flow), then
+marks the item resolved. The server now **requires** `resolution` = `corrected`
+(the stage/DOB conflict was fixed) or `exception` (explicit reviewed exception),
+plus a non-empty `note` — so an active mismatch cannot be silently hidden. The UI
+must not imply one click fixes the goat. Label the action **"Mark resolved"** with
+a mode selector + required note — never "Reconcile" (which implies auto-fix).
+NOTE: the server records the declared mode; it does **not yet** re-verify that the
+goat's stage/DOB is actually corrected (that server-side auto-check is a
+follow-up — today `corrected` is operator-attested).
 
 ## Admin-web design (to build)
 
@@ -100,7 +125,13 @@ Before push: `check:mock-fidelity` + `admin-web-request-reads-guard` +
 
 ## Follow-up
 
-Backend closed (list + resolve + per-goat open uniqueness). Open: the admin-web
-lane above, and — if the business wants it — a separate missing-dose coverage
-alert. Related: `vaccination-process-integrity-frontend-handoff.md`,
-`current-admin-web-scope.md`.
+Backend done: the list endpoint (cursor-paged), resolve with required
+`corrected`|`exception` mode + note, and per-goat open uniqueness. **NOT done and
+required before the lane can be built:** (1) per-row **enrichment** — goat
+tag/identity, owner, and per-goat vaccination coverage are not in the list
+response and the coverage API is aggregate-only, so add them to the page response
+or a single batch enrichment endpoint (no N+1); (2) optional server-side
+re-verification that a `corrected` resolution actually cleared the stage/DOB
+conflict (today the mode is operator-attested); (3) the admin-web lane itself;
+(4) if the business wants it, a separate missing-dose coverage alert. Related:
+`vaccination-process-integrity-frontend-handoff.md`, `current-admin-web-scope.md`.

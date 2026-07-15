@@ -5546,10 +5546,16 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
+        requestBody: {
             content: {
                 "application/json": {
-                    note?: string;
+                    /**
+                     * @description Whether the stage/age conflict was actually corrected ('corrected') or is being left as an explicit reviewed exception ('exception'). Required so an active mismatch cannot be silently hidden.
+                     * @enum {string}
+                     */
+                    resolution: "corrected" | "exception";
+                    /** @description What was corrected, or why this is an accepted exception. */
+                    note: string;
                 };
             };
         };
