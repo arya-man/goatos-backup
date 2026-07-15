@@ -19,6 +19,7 @@ import (
 	obligationdomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
@@ -312,13 +313,15 @@ func (s *ObligationSweeperStage) buildSweepConfig(ctx context.Context, cfg Sweep
 		return obligationapp.SweepConfig{}, err
 	}
 	// BUG #1 fix: populate per-rule vaccine identity from rule eligibility_json (populated at publish
-	// time from matrix_rows). Used to thread vaccine code/priority through cap/tie detection.
-	out.RuleVaccineIDs = make(map[string]obligationapp.RuleVaccineIdentity, len(rules))
+	// time from matrix_rows). Used to thread vaccine code/priority through cap/tie detection. Shared
+	// with cmd/obligation-sweeper via BuildRuleVaccineIdentities so the two live sweep paths cannot
+	// drift; blank (non-matrix) identities are skipped so the version-level fallback applies (BUG #2).
+	out.RuleVaccineIDs = obligationapp.BuildRuleVaccineIdentities(
+		rules,
+		func(r protocoldomain.Rule) string { return r.RuleID },
+		func(r protocoldomain.Rule) []byte { return r.EligibilityJSON },
+	)
 	for _, rule := range rules {
-		// Extract vaccine identity from rule's eligibility_json (contains matrix row vaccine metadata).
-		ruleVaccineID := obligationapp.ExtractRuleVaccineIdentity(rule.EligibilityJSON)
-		out.RuleVaccineIDs[rule.RuleID] = ruleVaccineID
-
 		ruleSOP := strings.TrimSpace(rule.SopVersionID)
 		if ruleSOP == "" || ruleSOP == versionSOP {
 			continue

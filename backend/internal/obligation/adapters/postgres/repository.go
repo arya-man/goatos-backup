@@ -1547,7 +1547,12 @@ func (r *Repository) ListUnbatchedDueForVersionKeyset(ctx context.Context, tenan
 		if err != nil {
 			return nil, fmt.Errorf("obligation: cursor obligation id: %w", err)
 		}
-		afterClause = " AND oi.obligation_id > $5"
+		// The cursor UUID is the NEXT positional arg. Compute its placeholder BEFORE appending
+		// limit, so the cursor compares obligation_id against the UUID ($4) and LIMIT gets its own
+		// following placeholder ($5) -- not the same number, which would compare obligation_id
+		// against the LIMIT integer and error (uuid > int) on any page-2 fetch.
+		cursorPos := len(args) + 1
+		afterClause = fmt.Sprintf(" AND oi.obligation_id > $%d", cursorPos)
 		args = append(args, afterID)
 	}
 	args = append(args, limit)

@@ -822,15 +822,44 @@ func ExtractRuleVaccineIdentity(eligibilityJSON []byte) RuleVaccineIdentity {
 	}
 }
 
+// BuildRuleVaccineIdentities builds the per-rule vaccine-identity cache (RuleVaccineIDs) for a
+// SweepConfig from a version's published rules. It is generic over the caller's rule type (both
+// kernelstages and cmd/obligation-sweeper pass protocol/domain.Rule) via a ruleID and an
+// eligibilityJSON accessor, so the single-sourced extraction/caching logic can be shared without
+// coupling this package to protocol/domain.
+//
+// Defense-in-depth for BUG #2: a rule whose extracted identity has a BLANK vaccine code (a
+// non-matrix published rule, whose eligibility JSON has no `vaccine` object) is NOT cached at all,
+// so getRuleVaccineIdentity falls back to the version-level identity for it. getRuleVaccineIdentity
+// also treats a blank cached code as missing, so the two guards are belt-and-suspenders.
+func BuildRuleVaccineIdentities[R any](rules []R, ruleID func(R) string, eligibilityJSON func(R) []byte) map[string]RuleVaccineIdentity {
+	out := make(map[string]RuleVaccineIdentity, len(rules))
+	for _, rule := range rules {
+		id := ExtractRuleVaccineIdentity(eligibilityJSON(rule))
+		if strings.TrimSpace(id.VaccineCode) == "" {
+			// Non-matrix rule: leave it out so the version-level fallback applies.
+			continue
+		}
+		out[ruleID(rule)] = id
+	}
+	return out
+}
+
 // getRuleVaccineIdentity returns the vaccine identity for a rule, either from the cache
 // (RuleVaccineIDs) or by extracting it on demand. Handles non-matrix rules gracefully.
 func (cfg SweepConfig) getRuleVaccineIdentity(ruleID string) RuleVaccineIdentity {
-	if id, ok := cfg.RuleVaccineIDs[ruleID]; ok {
+	// A cached entry with a real (non-blank) vaccine code wins. A blank cached VaccineCode is
+	// treated EXACTLY like a missing key: ExtractRuleVaccineIdentity returns a zero-value identity
+	// for a non-matrix published rule (its eligibility JSON has no `vaccine` object), and caching
+	// that zero value must NOT shadow the version-level fallback -- otherwise non-matrix sweeps
+	// would claim visits as vaccine "" at priority 0, masking cross-vaccine ties and losing real
+	// priority/session behavior.
+	if id, ok := cfg.RuleVaccineIDs[ruleID]; ok && strings.TrimSpace(id.VaccineCode) != "" {
 		return id
 	}
-	// Fallback: return the version-level identity (for non-matrix or missing cache entries).
-	// In a properly initialized SweepConfig, RuleVaccineIDs is populated for all matrix rules,
-	// so this fallback is only for legacy non-matrix rules or initialization gaps.
+	// Fallback: return the version-level identity (for non-matrix rules, blank cached entries, or
+	// missing cache entries). In a properly initialized SweepConfig, RuleVaccineIDs is populated
+	// for all matrix rules, so this fallback covers legacy non-matrix rules or initialization gaps.
 	return RuleVaccineIdentity{
 		VaccineCode:     cfg.VaccineCode,
 		VaccinePriority: normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode).VaccinePriority,

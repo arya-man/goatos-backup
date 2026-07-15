@@ -25,6 +25,7 @@ import (
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	"github.com/vgoats/goatos/backend/internal/platform/taskqueue"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	soppg "github.com/vgoats/goatos/backend/internal/sop/adapters/postgres"
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
@@ -263,6 +264,17 @@ func buildSweepConfig(ctx context.Context, protocolRepo *protocolpg.Repository, 
 	if err != nil {
 		return obligationapp.SweepConfig{}, err
 	}
+	// BUG #3 fix: populate per-rule vaccine identity from rule eligibility_json on this standalone
+	// sweep path too (previously only kernelstages did this), so matrix versions get real per-rule
+	// vaccine code/priority through cap/tie/park detection instead of falling back to the
+	// version-level wrapper identity. Shared with kernelstages via BuildRuleVaccineIdentities so the
+	// two live sweep paths cannot drift; blank (non-matrix) identities are skipped so the
+	// version-level fallback applies (BUG #2).
+	out.RuleVaccineIDs = obligationapp.BuildRuleVaccineIdentities(
+		rules,
+		func(r protocoldomain.Rule) string { return r.RuleID },
+		func(r protocoldomain.Rule) []byte { return r.EligibilityJSON },
+	)
 	for _, rule := range rules {
 		ruleSOP := strings.TrimSpace(rule.SopVersionID)
 		if ruleSOP == "" || ruleSOP == versionSOP {
