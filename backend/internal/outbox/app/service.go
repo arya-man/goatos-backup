@@ -301,21 +301,29 @@ func (s *Service) backoff(attempt int) time.Duration {
 // cancellation are re-available on the next tick rather than staying leased
 // for ~5 minutes (KERN-02 mitigation).
 func (s *Service) releaseUnprocessedMessages(claimedIDs []string, processedIDs map[string]bool, now time.Time) {
+	// Collect unprocessed IDs into one batch instead of looping
+	// (scale-guard: n-plus-one-fanout mitigation).
+	unprocessedIDs := make([]string, 0, len(claimedIDs))
 	for _, id := range claimedIDs {
 		if !processedIDs[id] {
-			// Use a fresh context so the release completes even if the
-			// original ctx is cancelled. Use a short timeout (5s) to avoid
-			// holding the operation open indefinitely if the DB is down.
-			releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if err := s.repo.ReleasePublishing(releaseCtx, id, now); err != nil {
-				if s.log != nil {
-					s.log.Warn("failed_to_release_cancelled_outbox_message",
-						"outbox_id", id,
-						"error", err.Error(),
-					)
-				}
-			}
-			cancel()
+			unprocessedIDs = append(unprocessedIDs, id)
+		}
+	}
+	if len(unprocessedIDs) == 0 {
+		return
+	}
+
+	// Use a fresh context so the release completes even if the
+	// original ctx is cancelled. Use a short timeout (5s) to avoid
+	// holding the operation open indefinitely if the DB is down.
+	releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.repo.ReleasePublishingByIDs(releaseCtx, unprocessedIDs, now); err != nil {
+		if s.log != nil {
+			s.log.Warn("failed_to_release_cancelled_outbox_messages",
+				"outbox_ids_count", len(unprocessedIDs),
+				"error", err.Error(),
+			)
 		}
 	}
 }

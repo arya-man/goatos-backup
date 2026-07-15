@@ -381,6 +381,10 @@ func (r *serviceFakeRepo) ReleasePublishing(context.Context, string, time.Time) 
 	return nil
 }
 
+func (r *serviceFakeRepo) ReleasePublishingByIDs(context.Context, []string, time.Time) error {
+	return nil
+}
+
 func (r *serviceFakeRepo) ListDeadLetters(context.Context, ports.DeadLetterQuery) ([]domain.DeadLetterMessage, error) {
 	return nil, nil
 }

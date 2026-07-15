@@ -311,6 +311,29 @@ WHERE outbox_id = $1
   AND status = 'publishing'`, outboxID, now)
 }
 
+// ReleasePublishingByIDs releases multiple messages from 'publishing' back to 'pending'
+// in a single batch statement, making them immediately available for re-claim.
+// Used as a scale-safe alternative to looping ReleasePublishing calls.
+func (r *Repository) ReleasePublishingByIDs(ctx context.Context, outboxIDs []string, now time.Time) error {
+	if len(outboxIDs) == 0 {
+		return nil
+	}
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+UPDATE outbox_messages
+SET status = 'pending',
+    next_attempt_at = NULL,
+    updated_at = $2
+WHERE outbox_id::text = ANY($1::text[])
+  AND status = 'publishing'`, outboxIDs, now)
+	if err != nil {
+		return err
+	}
+	_ = tag // tag.RowsAffected() indicates how many were released; we don't enforce a minimum
+	return nil
+}
+
 func (r *Repository) ListDeadLetters(ctx context.Context, q ports.DeadLetterQuery) ([]domain.DeadLetterMessage, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
