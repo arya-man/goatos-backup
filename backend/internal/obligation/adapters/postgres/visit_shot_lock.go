@@ -52,6 +52,7 @@ func countVisitShots(ctx context.Context, q pgxQuerier, tenantID string, targetI
 		return nil, fmt.Errorf("obligation: visit shot target ids: %w", err)
 	}
 	day := biztime.BusinessDayStart(date)
+	// projection-review: membership=obligation_instances attached via oi.batch_id to obligation_batches (same tenant); group_key=oi.target_id for a single planned_date; join_cardinality=1:1 (each oi carries one batch_id and obligation_batches is keyed by (tenant_id, batch_id), so the JOIN is a semijoin to the batch's planned_date/status and COUNT(*) counts obligation rows, never a batch fan-out); pagination=bounded by the caller's explicit target_ids + one planned_date, computed whole (no user page — this is the cap-enforcement count, not a paged UI projection); scope=n/a (explicit target-id list, not a park/shed/cohort hierarchy)
 	rows, err := q.Query(ctx, `
 SELECT oi.target_id::text, count(*)::int
 FROM obligation_instances oi
@@ -126,16 +127,20 @@ func (r *Repository) LockVisitShots(ctx context.Context, tenantID string, target
 
 	lockArgs := make([]string, 0, len(keys))
 	for _, targetID := range keys {
-		keyArg := visitShotLockKeyArg(tenantID, targetID, dateKey)
-		if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(hashtext($1))", keyArg); err != nil {
-			_ = unlockAndRelease(context.Background(), conn, lockArgs)
-			return nil, nil, fmt.Errorf("obligation: lock visit shot for target %s: %w", targetID, err)
-		}
-		lockArgs = append(lockArgs, keyArg)
+		lockArgs = append(lockArgs, visitShotLockKeyArg(tenantID, targetID, dateKey))
+	}
+	// Acquire every per-visit advisory lock in ONE round trip. unnest preserves array element order
+	// and lockArgs is built from the already-sorted key set, so every caller acquires any shared
+	// locks in the same global order and cannot deadlock. pg_advisory_lock is parallel-unsafe, so the
+	// function scan runs sequentially in array order -- this is the batched, single-statement
+	// equivalent of a per-target lock loop, without the per-target round trips.
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(hashtext(k)) FROM unnest($1::text[]) AS t(k)", lockArgs); err != nil {
+		_ = releaseVisitShotConn(context.Background(), conn)
+		return nil, nil, fmt.Errorf("obligation: lock visit shots: %w", err)
 	}
 
 	release := func(releaseCtx context.Context) error {
-		return unlockAndRelease(releaseCtx, conn, lockArgs)
+		return releaseVisitShotConn(releaseCtx, conn)
 	}
 
 	counts, err := countVisitShots(ctx, conn, tenantID, keys, date)
@@ -146,18 +151,17 @@ func (r *Repository) LockVisitShots(ctx context.Context, tenantID string, target
 	return counts, release, nil
 }
 
-// unlockAndRelease releases every held advisory lock (best-effort: it keeps going on error so one
-// failed unlock cannot leak the rest) and returns the dedicated connection to the pool. The first
-// error, if any, is returned so a caller can still tell a release genuinely failed.
-func unlockAndRelease(ctx context.Context, conn *pgxpool.Conn, keyArgs []string) error {
-	var firstErr error
-	for _, keyArg := range keyArgs {
-		if _, err := conn.Exec(ctx, "SELECT pg_advisory_unlock(hashtext($1))", keyArg); err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("obligation: unlock visit shot: %w", err)
-		}
-	}
+// releaseVisitShotConn releases every session advisory lock this dedicated connection holds in ONE
+// round trip (pg_advisory_unlock_all frees all locks the session owns) and returns the connection
+// to the pool. Using unlock_all rather than a per-key unlock loop keeps release a single call and
+// cannot leak a lock on the pooled connection regardless of how large the key set was.
+func releaseVisitShotConn(ctx context.Context, conn *pgxpool.Conn) error {
+	_, err := conn.Exec(ctx, "SELECT pg_advisory_unlock_all()")
 	conn.Release()
-	return firstErr
+	if err != nil {
+		return fmt.Errorf("obligation: unlock visit shots: %w", err)
+	}
+	return nil
 }
 
 func dedupNonBlank(values []string) []string {

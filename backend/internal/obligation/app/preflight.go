@@ -55,6 +55,9 @@ func (s *SweeperService) PreflightVisitShotCapTies(ctx context.Context, tenantID
 	preflight := NewSweepSession()
 	for _, plan := range plans {
 		planner := normalizedDrivePlannerSettings(plan.Config.DrivePlanner, plan.Config.VaccineCode)
+		// One read per published vaccination version for one tenant (a small fixed set), not per-row;
+		// mirrors the real sweep's own per-version list in ObligationSweeperStage.Run.
+		// scale-guard:ignore: bounded per published vaccination version, one read per version, not per-row.
 		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, plan.VersionID, dueBefore, s.page)
 		if err != nil {
 			return fmt.Errorf("obligation: preflight list unbatched due for version %s: %w", plan.VersionID, err)

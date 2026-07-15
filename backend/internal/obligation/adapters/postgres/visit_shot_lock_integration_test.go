@@ -256,3 +256,256 @@ ORDER BY b.planned_date`, tenantID, goatID)
 		t.Fatalf("total shots committed across all dates = %d, want %d (none silently dropped)", total, n)
 	}
 }
+
+// seedShotOnDate inserts one scheduled obligation for goatID under (versionID, ruleID) and attaches
+// it to a freshly created 'planned' batch scoped as (scopeType, scopeID) with planned_date =
+// plannedDate. Each shot is given a UNIQUE session ("shot:"+idemKey) so CreateBatchWithObligations'
+// planned-batch merge (which keys on tenant/version/scope/session/planned_date/window) never folds
+// two of a goat's shots into one batch -- every call yields its OWN batch, giving the cap-count
+// tests below precise control over the goat->batches fan-out and each batch's status. Returns the
+// obligation id and batch id so callers can mutate their status directly (canceled/superseded
+// buckets). Callers MUST pass a distinct protocol version per shot for the same goat+due_at, to
+// satisfy obligation_instances' (tenant, version, rule, target, due_at) duplicate-spawn guard.
+func seedShotOnDate(t *testing.T, ctx context.Context, repo *Repository, v struct{ versionID, ruleID string }, goatID, scopeType, scopeID string, dueAt, plannedDate time.Time, idemKey string) (obligationID, batchID string) {
+	t.Helper()
+	oblID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: v.versionID, RuleID: v.ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: scopeType, ScopeID: scopeID,
+		DueAt: dueAt, Status: "scheduled", IdempotencyKey: idemKey, Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("seed obligation %s: applied=%v err=%v", idemKey, applied, err)
+	}
+	pd := plannedDate
+	bID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: v.versionID, ScopeType: scopeType, ScopeID: scopeID,
+		Session: "shot:" + idemKey, PlannedDate: &pd, Status: "planned",
+		EstimatedTargets: 1, PlannedQuantity: "1", QuantityUnit: "dose",
+	}, []string{oblID})
+	if err != nil {
+		t.Fatalf("attach obligation %s to batch: %v", idemKey, err)
+	}
+	if attached != 1 {
+		t.Fatalf("attach obligation %s: attached=%d want 1", idemKey, attached)
+	}
+	return oblID, bID
+}
+
+// TestCountVisitShotsOneToManyBatchesCountsEachShotOnce is the adversarial guard that the cap-count
+// query's oi->obligation_batches JOIN is a 1:1 semijoin, not a fan-out: a goat with two shots in
+// TWO SEPARATE non-canceled batches on the SAME planned_date must return count = 2 (each obligation
+// counted exactly once). obligation_batches is keyed by (tenant_id, batch_id) and every
+// obligation_instances row carries exactly one batch_id, so COUNT(*) counts obligation rows -- if a
+// regression ever widened the JOIN (e.g. joined on a non-unique column and multiplied rows), this
+// goat-with-many-batches shape would inflate past 2.
+func TestCountVisitShotsOneToManyBatchesCountsEachShotOnce(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.onetomany", 2)
+
+	const goatID = "10000000-0000-4000-8000-00000000f201"
+	const shedID = "00000000-0000-4000-8000-00000000d201"
+	seedParkConsolidationShed(t, ctx, pool, shedID, "count-onetomany-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
+
+	date := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	_, batchA := seedShotOnDate(t, ctx, repo, versions[0], goatID, "shed", shedID, date, date, "onetomany-A")
+	_, batchB := seedShotOnDate(t, ctx, repo, versions[1], goatID, "shed", shedID, date, date, "onetomany-B")
+	if batchA == batchB {
+		t.Fatalf("fixture invalid: both shots landed in the same batch %s, want two separate batches", batchA)
+	}
+
+	counts, err := repo.CountVisitShotsForTargets(ctx, tenantID, []string{goatID}, date)
+	if err != nil {
+		t.Fatalf("CountVisitShotsForTargets: %v", err)
+	}
+	if counts[goatID] != 2 {
+		t.Fatalf("count = %d, want 2 (two shots in two batches, each counted once; no JOIN fan-out)", counts[goatID])
+	}
+}
+
+// TestCountVisitShotsMultiPageTargetsStableTotal is the adversarial guard that the count is a pure
+// function of each target's own committed shots and has NO dependence on how the caller chunks its
+// target_id list (the sweeper seeds the cap per distinct target, and any batching/paging of that
+// target set must not change a single per-animal count). Three goats with 1 / 2 / 1 shots on the
+// same date are counted as the full set and as arbitrary subsets ("pages"); every per-target count
+// is identical regardless of which targets accompany it in the query.
+func TestCountVisitShotsMultiPageTargetsStableTotal(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.multipage", 2)
+
+	const goatA = "10000000-0000-4000-8000-00000000f2a1"
+	const goatB = "10000000-0000-4000-8000-00000000f2a2"
+	const goatC = "10000000-0000-4000-8000-00000000f2a3"
+	const shedID = "00000000-0000-4000-8000-00000000d202"
+	seedParkConsolidationShed(t, ctx, pool, shedID, "count-multipage-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatA, goatB, goatC)
+
+	date := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	seedShotOnDate(t, ctx, repo, versions[0], goatA, "shed", shedID, date, date, "multipage-A0")
+	seedShotOnDate(t, ctx, repo, versions[0], goatB, "shed", shedID, date, date, "multipage-B0")
+	seedShotOnDate(t, ctx, repo, versions[1], goatB, "shed", shedID, date, date, "multipage-B1")
+	seedShotOnDate(t, ctx, repo, versions[1], goatC, "shed", shedID, date, date, "multipage-C1")
+
+	full, err := repo.CountVisitShotsForTargets(ctx, tenantID, []string{goatA, goatB, goatC}, date)
+	if err != nil {
+		t.Fatalf("full-set count: %v", err)
+	}
+	if full[goatA] != 1 || full[goatB] != 2 || full[goatC] != 1 {
+		t.Fatalf("full-set counts = A:%d B:%d C:%d, want A:1 B:2 C:1", full[goatA], full[goatB], full[goatC])
+	}
+
+	// Every chunking of the target list must yield the SAME per-animal count as the full set.
+	pages := [][]string{{goatA}, {goatB}, {goatC}, {goatA, goatC}, {goatB, goatA}}
+	for _, page := range pages {
+		got, err := repo.CountVisitShotsForTargets(ctx, tenantID, page, date)
+		if err != nil {
+			t.Fatalf("page %v count: %v", page, err)
+		}
+		for _, target := range page {
+			if got[target] != full[target] {
+				t.Fatalf("page %v: count[%s] = %d, want %d (per-target count must not depend on page composition)", page, target, got[target], full[target])
+			}
+		}
+	}
+}
+
+// TestCountVisitShotsDateShiftExcludesOtherDates is the adversarial guard that the count is scoped
+// to exactly the queried planned_date (ob.planned_date = $3::date) and never bleeds a shot from an
+// adjacent visit into the wrong day. One goat has a shot on D and another on D+7; counting D returns
+// only the D shot and counting D+7 returns only the D+7 shot.
+func TestCountVisitShotsDateShiftExcludesOtherDates(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.dateshift", 2)
+
+	const goatID = "10000000-0000-4000-8000-00000000f203"
+	const shedID = "00000000-0000-4000-8000-00000000d203"
+	seedParkConsolidationShed(t, ctx, pool, shedID, "count-dateshift-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
+
+	dateD := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	dateD7 := dateD.AddDate(0, 0, 7)
+	seedShotOnDate(t, ctx, repo, versions[0], goatID, "shed", shedID, dateD, dateD, "dateshift-D")
+	seedShotOnDate(t, ctx, repo, versions[1], goatID, "shed", shedID, dateD7, dateD7, "dateshift-D7")
+
+	onD, err := repo.CountVisitShotsForTargets(ctx, tenantID, []string{goatID}, dateD)
+	if err != nil {
+		t.Fatalf("count on D: %v", err)
+	}
+	if onD[goatID] != 1 {
+		t.Fatalf("count on D = %d, want 1 (only the D shot; the D+7 shot must be excluded by planned_date scoping)", onD[goatID])
+	}
+	onD7, err := repo.CountVisitShotsForTargets(ctx, tenantID, []string{goatID}, dateD7)
+	if err != nil {
+		t.Fatalf("count on D+7: %v", err)
+	}
+	if onD7[goatID] != 1 {
+		t.Fatalf("count on D+7 = %d, want 1 (only the D+7 shot)", onD7[goatID])
+	}
+}
+
+// TestCountVisitShotsScopeHierarchyAggregatesPerAnimalAcrossScopes is the adversarial guard that
+// the per-animal cap count is keyed on target_id ALONE and is scope-independent: a goat with one
+// shot in a SHED-scoped batch and one in a PARK-scoped batch on the same date counts as 2. The
+// count must aggregate per animal across scope levels of the location hierarchy -- it must not
+// fragment (report per scope) or double-count. This is what makes MaxShotsPerAnimalPerDrive an
+// actual per-ANIMAL cap rather than a per-scope one, so a shed drive plus a park drive on one day
+// correctly reads as the animal's 2 shots.
+func TestCountVisitShotsScopeHierarchyAggregatesPerAnimalAcrossScopes(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.scopehier", 2)
+
+	const goatID = "10000000-0000-4000-8000-00000000f204"
+	const shedID = "00000000-0000-4000-8000-00000000d204"
+	seedParkConsolidationShed(t, ctx, pool, shedID, "count-scopehier-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
+
+	date := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	// One shot in a shed-scoped batch, one in a park-scoped batch (cbePark), same animal, same day.
+	_, shedBatch := seedShotOnDate(t, ctx, repo, versions[0], goatID, "shed", shedID, date, date, "scopehier-shed")
+	_, parkBatch := seedShotOnDate(t, ctx, repo, versions[1], goatID, "park", cbePark, date, date, "scopehier-park")
+	if shedBatch == parkBatch {
+		t.Fatalf("fixture invalid: shed and park shots landed in the same batch %s", shedBatch)
+	}
+
+	counts, err := repo.CountVisitShotsForTargets(ctx, tenantID, []string{goatID}, date)
+	if err != nil {
+		t.Fatalf("CountVisitShotsForTargets: %v", err)
+	}
+	if counts[goatID] != 2 {
+		t.Fatalf("count = %d, want 2 (shed-scoped + park-scoped shots aggregate per animal, not per scope)", counts[goatID])
+	}
+}
+
+// TestCountVisitShotsStatusBucketsExcludesCanceledSuperseded is the adversarial guard for the
+// status filter (ob.status NOT IN ('canceled','superseded') AND oi.status NOT IN ('canceled')): a
+// goat with an ACTIVE shot plus three shots that must NOT count -- one in a 'canceled' batch, one in
+// a 'superseded' batch, and one whose OBLIGATION is 'canceled' (its batch still planned) -- returns
+// exactly 1. A regression that dropped either the batch-status or the obligation-status exclusion
+// would over-count a released/superseded/canceled shot against the animal's cap.
+func TestCountVisitShotsStatusBucketsExcludesCanceledSuperseded(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.statusbuckets", 4)
+
+	const goatID = "10000000-0000-4000-8000-00000000f205"
+	const shedID = "00000000-0000-4000-8000-00000000d205"
+	seedParkConsolidationShed(t, ctx, pool, shedID, "count-statusbuckets-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
+
+	date := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	// 0: active (planned batch, scheduled obligation) -> counts.
+	seedShotOnDate(t, ctx, repo, versions[0], goatID, "shed", shedID, date, date, "status-active")
+	// 1: batch canceled -> excluded by ob.status filter.
+	_, canceledBatch := seedShotOnDate(t, ctx, repo, versions[1], goatID, "shed", shedID, date, date, "status-batch-canceled")
+	// 2: batch superseded -> excluded by ob.status filter.
+	_, supersededBatch := seedShotOnDate(t, ctx, repo, versions[2], goatID, "shed", shedID, date, date, "status-batch-superseded")
+	// 3: obligation canceled (batch still planned) -> excluded by oi.status filter.
+	canceledObl, _ := seedShotOnDate(t, ctx, repo, versions[3], goatID, "shed", shedID, date, date, "status-obl-canceled")
+
+	if _, err := pool.Exec(ctx, `UPDATE obligation_batches SET status='canceled' WHERE tenant_id=$1 AND batch_id=$2`, tenantID, canceledBatch); err != nil {
+		t.Fatalf("cancel batch: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE obligation_batches SET status='superseded' WHERE tenant_id=$1 AND batch_id=$2`, tenantID, supersededBatch); err != nil {
+		t.Fatalf("supersede batch: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='canceled' WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, canceledObl); err != nil {
+		t.Fatalf("cancel obligation: %v", err)
+	}
+
+	counts, err := repo.CountVisitShotsForTargets(ctx, tenantID, []string{goatID}, date)
+	if err != nil {
+		t.Fatalf("CountVisitShotsForTargets: %v", err)
+	}
+	if counts[goatID] != 1 {
+		t.Fatalf("count = %d, want 1 (only the active shot; canceled batch, superseded batch, and canceled obligation must all be excluded)", counts[goatID])
+	}
+}
