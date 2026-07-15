@@ -140,12 +140,45 @@ func run(ctx context.Context, args []string) error {
 		kernelstages.NewCalendarReconcilerStage(deps, tenantID),
 	)
 
+	// Cloud Run lifecycle/health listener on $PORT. Required so a Cloud Run
+	// SERVICE revision (min=2 HA) becomes ready — the worker itself has no
+	// request surface. The listener only answers /livez + /readyz; it never
+	// triggers stage work. Skipped when GOATOS_HEALTH_ADDR is empty (e.g. a
+	// one-shot local/CI run of the binary).
+	if healthAddr := healthListenAddr(); healthAddr != "" {
+		health := worker.NewHealthServer(healthAddr, pool, logger)
+		health.Start()
+		health.SetReady(true)
+		defer func() {
+			// Drain first (readyz 503) so Cloud Run stops counting this
+			// instance before the process exits, then stop the listener.
+			health.BeginDraining()
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			health.Shutdown(shutdownCtx)
+		}()
+		logger.Info("kernel_worker_health_listening", "addr", healthAddr)
+	}
+
 	logger.Info("kernel_worker_starting", "tenant_id", tenantID, "domain_consumer_enabled", consumerEnabled)
 	if err := supervisor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	logger.Info("kernel_worker_shutdown")
 	return nil
+}
+
+// healthListenAddr resolves the health/lifecycle listen address. Cloud Run
+// injects PORT; GOATOS_HEALTH_ADDR overrides (set it empty to disable the
+// listener for a one-shot binary run).
+func healthListenAddr() string {
+	if addr, ok := os.LookupEnv("GOATOS_HEALTH_ADDR"); ok {
+		return strings.TrimSpace(addr)
+	}
+	if port := strings.TrimSpace(os.Getenv("PORT")); port != "" {
+		return ":" + port
+	}
+	return ":8080"
 }
 
 func parseFlags(args []string) (cliConfig, error) {
