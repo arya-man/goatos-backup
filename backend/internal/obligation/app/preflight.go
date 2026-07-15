@@ -93,7 +93,9 @@ func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cf
 	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 		return err
 	}
-	selectedIDs, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
+	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
+	selectedIDs, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 	if err != nil {
 		return err
 	}
@@ -103,7 +105,7 @@ func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cf
 			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 				return err
 			}
-			if _, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session); err != nil {
+			if _, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session); err != nil {
 				return err
 			}
 		}

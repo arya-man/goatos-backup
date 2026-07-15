@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1991,6 +1992,101 @@ LIMIT $3`, tenant, pgconv.Date(&dueDay), limit)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("obligation: list planned combo batches: %w", err)
+	}
+	return out, nil
+}
+
+// ListPlannedComboBatchesKeyset pages through combo batches using keyset pagination.
+// Cursor is keyset-based using (scope_type, scope_id, session, planned_date, batch_id).
+// after == nil starts from the beginning.
+func (r *Repository) ListPlannedComboBatchesKeyset(ctx context.Context, tenantID string, dueBefore time.Time, after *domain.ComboBatchCursor, limit int32) ([]domain.ComboDriveBatch, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	dueDay := dueBefore.UTC()
+
+	// Build keyset pagination WHERE clause. Cursor-based pagination: if after is provided,
+	// rows must be lexicographically AFTER the cursor in the ORDER BY direction.
+	whereClause := `WHERE b.tenant_id = $1
+  AND b.status = 'planned'
+  AND b.session LIKE 'combo:%'
+  AND b.sop_task_id IS NULL
+  AND NOT (b.context ? 'stock_reservation')
+  AND (b.planned_date IS NULL OR b.planned_date <= $2::date)`
+
+	args := []interface{}{tenant, pgconv.Date(&dueDay)}
+	argIdx := 3
+
+	if after != nil {
+		// Keyset cursor: continue after the last row from the previous page.
+		// For tuples (a, b, c, d, e) ordered ASC, we want:
+		// (scope_type, scope_id, session, planned_date, batch_id) > (cursor.scope_type, cursor.scope_id, cursor.session, cursor.planned_date, cursor.batch_id)
+		// This expands to: (a > a') OR (a = a' AND b > b') OR (a = a' AND b = b' AND c > c') OR ...
+		whereClause += `
+  AND (b.scope_type, b.scope_id, b.session, COALESCE(b.planned_date, '0000-01-01'::date), b.batch_id) >
+      ($` + strconv.Itoa(argIdx) + `, $` + strconv.Itoa(argIdx+1) + `, $` + strconv.Itoa(argIdx+2) + `, COALESCE($` + strconv.Itoa(argIdx+3) + `::date, '0000-01-01'::date), $` + strconv.Itoa(argIdx+4) + `)`
+
+		batchID, err := pgconv.UUID(after.BatchID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: cursor batch id: %w", err)
+		}
+		args = append(args,
+			pgconv.Text(after.ScopeType),
+			pgconv.Text(after.ScopeID),
+			pgconv.Text(after.Session),
+			pgconv.Date(after.PlannedDate),
+			batchID,
+		)
+		argIdx += 5
+	}
+
+	query := `
+SELECT b.batch_id::text,
+       b.protocol_version_id::text,
+       b.scope_type,
+       COALESCE(b.scope_id::text, '')::text AS scope_id,
+       COALESCE(b.session, '')::text AS session,
+       b.planned_date,
+       COALESCE(oi.target_ids, ARRAY[]::text[]) AS target_ids
+FROM obligation_batches b
+LEFT JOIN LATERAL (
+    SELECT array_agg(DISTINCT o.target_id::text) AS target_ids
+    FROM obligation_instances o
+    WHERE o.tenant_id = b.tenant_id
+      AND o.batch_id = b.batch_id
+) oi ON true
+` + whereClause + `
+ORDER BY b.scope_type, b.scope_id, b.session, b.planned_date, b.batch_id
+LIMIT $` + strconv.Itoa(argIdx)
+
+	args = append(args, limit)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list planned combo batches keyset: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]domain.ComboDriveBatch, 0)
+	for rows.Next() {
+		var row domain.ComboDriveBatch
+		var planned pgtype.Date
+		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &row.TargetIDs); err != nil {
+			return nil, fmt.Errorf("obligation: scan planned combo batch: %w", err)
+		}
+		if planned.Valid {
+			row.PlannedDate = pgconv.DateValue(planned)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: list planned combo batches keyset: %w", err)
 	}
 	return out, nil
 }

@@ -218,8 +218,9 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 	}
 
 	session := obligationapp.NewSweepSession()
+	// BUG #6: use SweepVersionWithSessionNoFinalize so AlignComboDrives can run before SOP-task finalization.
 	for _, plan := range plans {
-		result, err := s.sweeper.SweepVersionWithSession(ctx, cfg.TenantID, plan.VersionID, plan.Config, dueBefore, session)
+		result, err := s.sweeper.SweepVersionWithSessionNoFinalize(ctx, cfg.TenantID, plan.VersionID, plan.Config, dueBefore, session)
 		if err != nil {
 			return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
 		}
@@ -233,10 +234,18 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 			)
 		}
 	}
+	// VAX-REV-04 (BUG #6): align combo drives BEFORE SOP-task finalization, so AlignComboDrives can find
+	// and move batches with sop_task_id IS NULL. After alignment, finalize SOP tasks for all swept versions.
 	if len(plans) > 0 {
 		defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
 		if _, err := s.sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, dueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session); err != nil {
 			return fmt.Errorf("align combo drives: %w", err)
+		}
+		// Now finalize SOP tasks for all versions swept (batches have already had stock reserved in sweepVersion).
+		for _, plan := range plans {
+			if err := s.sweeper.FinalizePlannedBatchesTasksOnly(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
+				return fmt.Errorf("finalize batch tasks version %s: %w", plan.VersionID, err)
+			}
 		}
 	}
 	if cfg.MarkMissed {
@@ -299,7 +308,14 @@ func (s *ObligationSweeperStage) buildSweepConfig(ctx context.Context, cfg Sweep
 	if err != nil {
 		return obligationapp.SweepConfig{}, err
 	}
+	// BUG #1 fix: populate per-rule vaccine identity from rule eligibility_json (populated at publish
+	// time from matrix_rows). Used to thread vaccine code/priority through cap/tie detection.
+	out.RuleVaccineIDs = make(map[string]obligationapp.RuleVaccineIdentity, len(rules))
 	for _, rule := range rules {
+		// Extract vaccine identity from rule's eligibility_json (contains matrix row vaccine metadata).
+		ruleVaccineID := obligationapp.ExtractRuleVaccineIdentity(rule.EligibilityJSON)
+		out.RuleVaccineIDs[rule.RuleID] = ruleVaccineID
+
 		ruleSOP := strings.TrimSpace(rule.SopVersionID)
 		if ruleSOP == "" || ruleSOP == versionSOP {
 			continue

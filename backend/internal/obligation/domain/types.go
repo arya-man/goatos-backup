@@ -145,6 +145,16 @@ type ComboDriveBatch struct {
 	TargetIDs         []string
 }
 
+// ComboBatchCursor is a keyset pagination cursor for ListPlannedComboBatchesKeyset.
+// Matches the query's ORDER BY clause: (scope_type, scope_id, session, planned_date, batch_id).
+type ComboBatchCursor struct {
+	ScopeType   string
+	ScopeID     string
+	Session     string
+	PlannedDate *time.Time
+	BatchID     string
+}
+
 // ParkConsolidationSettings controls the second-pass park drive planner (after shed batching).
 type ParkConsolidationSettings struct {
 	Enabled             bool

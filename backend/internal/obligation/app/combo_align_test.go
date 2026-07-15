@@ -52,6 +52,16 @@ func (f *fakeComboAlignRepo) ListPlannedComboBatches(context.Context, string, ti
 	return f.comboBatches, nil
 }
 
+// ListPlannedComboBatchesKeyset implements keyset pagination for combo batches (BUG #7 fix).
+// For tests, simply return all batches if after == nil, or empty if after != nil (simulating next page).
+func (f *fakeComboAlignRepo) ListPlannedComboBatchesKeyset(_ context.Context, _ string, _ time.Time, after *domain.ComboBatchCursor, _ int32) ([]domain.ComboDriveBatch, error) {
+	if after == nil {
+		return f.comboBatches, nil
+	}
+	// Cursor provided means "give me the next page", which for tests is empty (all batches fit in one page).
+	return []domain.ComboDriveBatch{}, nil
+}
+
 func (f *fakeComboAlignRepo) UpdateBatchPlannedDate(_ context.Context, _, batchID string, plannedDate time.Time) error {
 	f.updates = append(f.updates, comboPlannedDateUpdate{BatchID: batchID, PlannedDate: plannedDate})
 	return nil
