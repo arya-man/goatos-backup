@@ -92,6 +92,13 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
 		return domain.PublishedCapacity{}, false, nil
 	}
+	// Decode into a key map first so we can tell a genuinely-ABSENT field (default applies)
+	// apart from a field that is PRESENT but null/blank/whitespace (must be rejected per the
+	// validate-or-reject rule). A plain string field cannot make that distinction.
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity must be a JSON object: %v", ErrInvalidRuleDSL, err)
+	}
 	var body struct {
 		MaxPerDay      *int   `json:"max_per_day"`
 		MaxBufferDays  *int   `json:"max_buffer_days"`
@@ -101,11 +108,36 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity must be a JSON object: %v", ErrInvalidRuleDSL, err)
 	}
+	// parsePresentString returns the trimmed value of a string field that is PRESENT in the
+	// authored JSON, rejecting a present null/""/whitespace value; when the key is ABSENT it
+	// returns the provided default so genuinely-omitted fields still fall back safely.
+	parsePresentString := func(field, def, decoded string) (string, error) {
+		rawVal, present := keys[field]
+		if !present {
+			return def, nil
+		}
+		if strings.TrimSpace(string(rawVal)) == "null" {
+			return "", fmt.Errorf("%w: rule_dsl.capacity.%s must not be null", ErrInvalidRuleDSL, field)
+		}
+		trimmed := strings.TrimSpace(decoded)
+		if trimmed == "" {
+			return "", fmt.Errorf("%w: rule_dsl.capacity.%s must not be blank", ErrInvalidRuleDSL, field)
+		}
+		return trimmed, nil
+	}
+	capacityScope, err := parsePresentString("capacity_scope", "tenant", body.CapacityScope)
+	if err != nil {
+		return domain.PublishedCapacity{}, false, err
+	}
+	overflowPolicy, err := parsePresentString("overflow_policy", "split_within_safe_window_then_mark_needs_review", body.OverflowPolicy)
+	if err != nil {
+		return domain.PublishedCapacity{}, false, err
+	}
 	out := domain.PublishedCapacity{
 		MaxPerDay:      100,
 		MaxBufferDays:  defaultMaxBufferDays,
-		CapacityScope:  strings.TrimSpace(body.CapacityScope),
-		OverflowPolicy: strings.TrimSpace(body.OverflowPolicy),
+		CapacityScope:  capacityScope,
+		OverflowPolicy: overflowPolicy,
 	}
 	if body.MaxPerDay != nil {
 		if *body.MaxPerDay < 1 {
@@ -118,12 +150,6 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 			return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity.max_buffer_days must be >= 0, got %d", ErrInvalidRuleDSL, *body.MaxBufferDays)
 		}
 		out.MaxBufferDays = *body.MaxBufferDays
-	}
-	if out.CapacityScope == "" {
-		out.CapacityScope = "tenant"
-	}
-	if out.OverflowPolicy == "" {
-		out.OverflowPolicy = "split_within_safe_window_then_mark_needs_review"
 	}
 	return out, true, nil
 }

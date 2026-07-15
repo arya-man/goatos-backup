@@ -102,6 +102,46 @@ func TestParseVersionedCapacityRejectsInvalid(t *testing.T) {
 	}
 }
 
+// TestParseVersionedCapacityRejectsBlankOrNullStrings proves a PRESENT-but-blank/null string field
+// (capacity_scope/overflow_policy) blocks publish with ErrInvalidRuleDSL instead of being silently
+// rewritten to a default the admin never authored, while a genuinely-absent key still defaults.
+func TestParseVersionedCapacityRejectsBlankOrNullStrings(t *testing.T) {
+	reject := []struct {
+		name string
+		dsl  string
+	}{
+		{"blank capacity_scope", `{"max_per_day":50,"capacity_scope":" "}`},
+		{"empty capacity_scope", `{"max_per_day":50,"capacity_scope":""}`},
+		{"null capacity_scope", `{"max_per_day":50,"capacity_scope":null}`},
+		{"blank overflow_policy", `{"max_per_day":50,"overflow_policy":"   "}`},
+		{"empty overflow_policy", `{"max_per_day":50,"overflow_policy":""}`},
+		{"null overflow_policy", `{"max_per_day":50,"overflow_policy":null}`},
+	}
+	for _, tc := range reject {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := parseVersionedCapacity([]byte(tc.dsl)); !errors.Is(err, ErrInvalidRuleDSL) {
+				t.Fatalf("%s must be rejected with ErrInvalidRuleDSL, got %v", tc.name, err)
+			}
+		})
+	}
+	// Absent scope/policy keys still default and publish unchanged.
+	got, ok, err := parseVersionedCapacity([]byte(`{"max_per_day":50}`))
+	if err != nil || !ok {
+		t.Fatalf("absent scope/policy: want ok=true err=nil, got ok=%v err=%v", ok, err)
+	}
+	if got.CapacityScope != "tenant" || got.OverflowPolicy != "split_within_safe_window_then_mark_needs_review" {
+		t.Fatalf("absent scope/policy must default, got %+v", got)
+	}
+	// A present, non-blank value is accepted and trimmed.
+	got, ok, err = parseVersionedCapacity([]byte(`{"max_per_day":50,"capacity_scope":" park ","overflow_policy":"reject"}`))
+	if err != nil || !ok {
+		t.Fatalf("present scope/policy: ok=%v err=%v", ok, err)
+	}
+	if got.CapacityScope != "park" || got.OverflowPolicy != "reject" {
+		t.Fatalf("present scope/policy not applied/trimmed: %+v", got)
+	}
+}
+
 func TestValidatePublishable(t *testing.T) {
 	cases := []struct {
 		name    string
