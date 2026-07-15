@@ -65,16 +65,18 @@ func TestFailoverTakeoverIsIdempotent(t *testing.T) {
 		t.Fatalf("create test table: %v", err)
 	}
 
-	salt := int64(91003)
+	stageName := "failover-stage"
 	workID := "drive-item-1"
 
 	// --- Instance A: hold the stage lock, then crash BEFORE doing the work. ---
+	// A acquires the SAME stable, name-derived key the standby's stage will
+	// contend for (hashtext(stageLockKeyArg(stageName))) — no numeric salt.
 	connA, err := poolA.Acquire(ctx)
 	if err != nil {
 		t.Fatalf("A acquire conn: %v", err)
 	}
 	var locked bool
-	if err := connA.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", salt).Scan(&locked); err != nil {
+	if err := connA.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext($1))", stageLockKeyArg(stageName)).Scan(&locked); err != nil {
 		t.Fatalf("A advisory lock: %v", err)
 	}
 	if !locked {
@@ -96,11 +98,13 @@ func TestFailoverTakeoverIsIdempotent(t *testing.T) {
 	_ = raw.Close(ctx)
 
 	// --- Instance B: a real Supervisor takes over and completes the work. ---
-	stage := &onceWorkStage{name: "failover-stage", pool: poolB, workID: workID, instance: "B"}
+	stage := &onceWorkStage{name: stageName, pool: poolB, workID: workID, instance: "B"}
 	supervisorB := NewSupervisor(logger, poolB, 1*time.Second)
-	// Register with the SAME salt A held, so B contends for the exact lock.
+	// Register the stage under the SAME name A held. The lock key is derived
+	// from the stage name (hashtext), so B contends for the exact same lock
+	// regardless of registration order — this is the rolling-deploy guarantee.
 	supervisorB.mu.Lock()
-	supervisorB.continuous = append(supervisorB.continuous, CadenceStage{stage: stage, lockSalt: salt})
+	supervisorB.continuous = append(supervisorB.continuous, CadenceStage{stage: stage})
 	supervisorB.mu.Unlock()
 
 	runCtx, runCancel := context.WithTimeout(ctx, 10*time.Second)

@@ -25,11 +25,12 @@ type StageRunner interface {
 	Name() string
 }
 
-// CadenceStage pairs a stage with its lock salt (for advisory lock uniqueness)
-// and its effective per-run timeout.
+// CadenceStage pairs a stage with its effective per-run timeout. Advisory-lock
+// uniqueness is derived from the stage name at lock time (hashtext, see
+// stagelock.go), not from a per-registration salt, so lock identity is stable
+// across worker versions and registration order.
 type CadenceStage struct {
-	stage    StageRunner
-	lockSalt int64
+	stage StageRunner
 
 	// timeout bounds a single run of the stage. It is derived at registration
 	// time (see defaultStageTimeout) so a periodic stage's timeout is always
@@ -52,10 +53,9 @@ type Supervisor struct {
 	pool         *pgxpool.Pool
 	queryTimeout time.Duration
 
-	mu                    sync.Mutex
-	continuous            []CadenceStage
-	cadences              map[string]CadenceDefinition // cadence name -> definition
-	nextAvailableLockSalt int64
+	mu         sync.Mutex
+	continuous []CadenceStage
+	cadences   map[string]CadenceDefinition // cadence name -> definition
 }
 
 // CadenceDefinition holds the refresh interval and stages for a named cadence.
@@ -65,15 +65,15 @@ type CadenceDefinition struct {
 }
 
 // NewSupervisor constructs a Supervisor with a shared pgxpool and observability logger.
-// Lock salts are auto-assigned starting from 90000 to avoid collisions with reserved
-// salts (86171 calendar-upcoming, 86172 process-integrity, 86173 calendar-history).
+// Each stage's advisory-lock key is derived from its name via hashtext at lock
+// time (see stagelock.go), so keys are stable across worker versions and
+// registration order — no per-process salt allocation is needed.
 func NewSupervisor(logger *slog.Logger, pool *pgxpool.Pool, queryTimeout time.Duration) *Supervisor {
 	return &Supervisor{
-		logger:                logger,
-		pool:                  pool,
-		queryTimeout:          queryTimeout,
-		cadences:              make(map[string]CadenceDefinition),
-		nextAvailableLockSalt: 90000, // Start above reserved salts
+		logger:       logger,
+		pool:         pool,
+		queryTimeout: queryTimeout,
+		cadences:     make(map[string]CadenceDefinition),
 	}
 }
 
@@ -87,11 +87,9 @@ func (s *Supervisor) RegisterContinuous(name string, stages ...StageRunner) {
 	defer s.mu.Unlock()
 	for _, stage := range stages {
 		s.continuous = append(s.continuous, CadenceStage{
-			stage:    stage,
-			lockSalt: s.nextAvailableLockSalt,
-			timeout:  0, // no forced periodic deadline; long-running by design
+			stage:   stage,
+			timeout: 0, // no forced periodic deadline; long-running by design
 		})
-		s.nextAvailableLockSalt++
 	}
 }
 
@@ -111,11 +109,9 @@ func (s *Supervisor) RegisterCadence(name string, interval time.Duration, stages
 	var cadenceStages []CadenceStage
 	for _, stage := range stages {
 		cadenceStages = append(cadenceStages, CadenceStage{
-			stage:    stage,
-			lockSalt: s.nextAvailableLockSalt,
-			timeout:  stageTimeout,
+			stage:   stage,
+			timeout: stageTimeout,
 		})
-		s.nextAvailableLockSalt++
 	}
 	s.cadences[name] = CadenceDefinition{
 		Interval: interval,
@@ -248,7 +244,6 @@ func (s *Supervisor) runCadence(ctx context.Context, cadenceName string, def Cad
 // context is canceled, or the stage fails.
 func (s *Supervisor) runStageOnce(ctx context.Context, cs CadenceStage) (retErr error) {
 	stage := cs.stage
-	lockSalt := cs.lockSalt
 	stageTimeout := cs.timeout
 
 	// A zero timeout means "no forced periodic deadline" — used for
@@ -268,7 +263,7 @@ func (s *Supervisor) runStageOnce(ctx context.Context, cs CadenceStage) (retErr 
 
 	// Try to acquire the advisory lock. If another instance holds it,
 	// this will return immediately with locked=false, and we skip the stage.
-	locked, err := AcquireStageLock(stageCtx, s.pool, lockSalt, stage.Name())
+	locked, err := AcquireStageLock(stageCtx, s.pool, stage.Name())
 	if err != nil {
 		s.logger.Error("stage_lock_acquire_failed", "stage", stage.Name(), "err", err)
 		return fmt.Errorf("acquire lock for stage %q: %w", stage.Name(), err)

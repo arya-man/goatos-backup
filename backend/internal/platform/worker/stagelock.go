@@ -9,12 +9,29 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// heldLock pairs a dedicated pooled connection with the advisory-lock salt it
-// holds. The salt is retained so the lock can be explicitly released with
-// pg_advisory_unlock BEFORE the connection is returned to the pool.
+// heldLock pairs a dedicated pooled connection with the advisory-lock key
+// argument it holds. The key arg is retained so the lock can be explicitly
+// released with pg_advisory_unlock(hashtext(arg)) BEFORE the connection is
+// returned to the pool.
 type heldLock struct {
-	conn *pgxpool.Conn
-	salt int64
+	conn   *pgxpool.Conn
+	keyArg string
+}
+
+// stageLockNamespace prefixes every kernel stage advisory-lock key so stage
+// keys cannot collide with other advisory-lock users (e.g. cmd/migrate's
+// hashtext('goatos:postgres:migrate')).
+const stageLockNamespace = "goatos:kernel:stage:"
+
+// stageLockKeyArg is the STABLE advisory-lock key argument for a stage. It is a
+// pure function of the stage name — no registration order, no per-process
+// counter — so two kernel-worker processes of ANY version compute the same
+// Postgres advisory-lock key for the same stage and therefore mutually exclude
+// during a rolling deployment. The numeric key is derived server-side via
+// pg_try_advisory_lock(hashtext($1)), so it is identical across every instance
+// talking to the same database regardless of Go build.
+func stageLockKeyArg(stageName string) string {
+	return stageLockNamespace + stageName
 }
 
 // stageLockStore holds acquired connections keyed by stage name.
@@ -42,7 +59,7 @@ var (
 //
 // Returns (true, nil) if the lock was acquired, (false, nil) if the lock
 // was already held by another session, or (false, err) if an error occurred.
-func AcquireStageLock(ctx context.Context, pool *pgxpool.Pool, lockSalt int64, stageName string) (bool, error) {
+func AcquireStageLock(ctx context.Context, pool *pgxpool.Pool, stageName string) (bool, error) {
 	if pool == nil {
 		return false, fmt.Errorf("pool is nil")
 	}
@@ -53,11 +70,14 @@ func AcquireStageLock(ctx context.Context, pool *pgxpool.Pool, lockSalt int64, s
 		return false, fmt.Errorf("acquire connection for stage lock: %w", err)
 	}
 
-	// Try to acquire the advisory lock on this dedicated connection.
+	// Try to acquire the advisory lock on this dedicated connection. The key is
+	// hashtext(namespace+stageName), computed server-side so it is stable across
+	// every worker version and registration order (see stageLockKeyArg).
 	// pg_try_advisory_lock(bigint) returns true if the lock was acquired,
 	// false if it was already held by another session.
+	keyArg := stageLockKeyArg(stageName)
 	var locked bool
-	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockSalt).Scan(&locked); err != nil {
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext($1))", keyArg).Scan(&locked); err != nil {
 		conn.Release()
 		return false, fmt.Errorf("execute advisory lock query: %w", err)
 	}
@@ -68,10 +88,10 @@ func AcquireStageLock(ctx context.Context, pool *pgxpool.Pool, lockSalt int64, s
 		return false, nil
 	}
 
-	// Lock acquired; store the connection (and its salt) so it is not returned
-	// to the pool until ReleaseStageLock is called.
+	// Lock acquired; store the connection (and its key arg) so it is not
+	// returned to the pool until ReleaseStageLock is called.
 	stageLockMu.Lock()
-	stageLockStore[stageName] = &heldLock{conn: conn, salt: lockSalt}
+	stageLockStore[stageName] = &heldLock{conn: conn, keyArg: keyArg}
 	stageLockMu.Unlock()
 
 	return true, nil
@@ -106,7 +126,7 @@ func ReleaseStageLock(ctx context.Context, pool *pgxpool.Pool, stageName string)
 	// still return the connection to the pool so pgxpool can reap it.
 	unlockCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, unlockErr := held.conn.Exec(unlockCtx, "SELECT pg_advisory_unlock($1)", held.salt)
+	_, unlockErr := held.conn.Exec(unlockCtx, "SELECT pg_advisory_unlock(hashtext($1))", held.keyArg)
 	held.conn.Release()
 	if unlockErr != nil {
 		return fmt.Errorf("release advisory lock for stage %q: %w", stageName, unlockErr)

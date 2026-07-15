@@ -71,8 +71,8 @@ func TestSupervisorTimeoutIsolation(t *testing.T) {
 	slowStage := NewSlowStage(logger, "slow-stage", 2*time.Second)
 	noOpStage := NewNoOpStage(logger, "no-op-stage")
 
-	slowCS := CadenceStage{stage: slowStage, lockSalt: 90101, timeout: 50 * time.Millisecond}
-	noOpCS := CadenceStage{stage: noOpStage, lockSalt: 90102, timeout: 5 * time.Second}
+	slowCS := CadenceStage{stage: slowStage, timeout: 50 * time.Millisecond}
+	noOpCS := CadenceStage{stage: noOpStage, timeout: 5 * time.Second}
 
 	var slowErr, noOpErr error
 	var wg sync.WaitGroup

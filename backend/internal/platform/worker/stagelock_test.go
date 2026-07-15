@@ -24,13 +24,16 @@ func secondPoolSameDB(t *testing.T, ctx context.Context, base *pgxpool.Pool) *pg
 	return p
 }
 
-// TestStageLockSerializesAcrossSessions verifies that the advisory-lock salt
-// serializes to exactly one holder across two independent sessions (two pools
-// to the same database), and that a second session can acquire only AFTER the
-// first releases. This is the core serialization + release guarantee and, by
-// using a DIFFERENT session for the second acquire, it genuinely proves the
-// lock was released (a same-connection re-acquire would falsely pass because a
-// session advisory lock is re-entrant on its own connection).
+// TestStageLockSerializesAcrossSessions verifies the rolling-deployment
+// guarantee: two independent worker instances (two pools to the same database)
+// that run the SAME NAMED STAGE mutually exclude, and the standby can acquire
+// only AFTER the holder releases. The advisory-lock key is derived from the
+// stage name via hashtext (see stageLockKeyArg), computed server-side, so it is
+// identical for both instances regardless of their registration order or Go
+// build — a v1 and a v2 worker overlapping during a rolling deploy cannot run
+// the same stage concurrently. Using a DIFFERENT session for the second acquire
+// genuinely proves the lock was released (a same-connection re-acquire would
+// falsely pass because a session advisory lock is re-entrant on its own conn).
 func TestStageLockSerializesAcrossSessions(t *testing.T) {
 	t.Parallel()
 	pgtest.SkipIfNoDocker(t)
@@ -41,10 +44,14 @@ func TestStageLockSerializesAcrossSessions(t *testing.T) {
 	poolA := pgtest.StartPostgres(t, ctx)
 	poolB := secondPoolSameDB(t, ctx, poolA)
 
-	salt := int64(91000)
+	// Both instances run the same named stage. The key comes from the name, not
+	// a per-instance salt, so the two contend for the exact same lock. Unique
+	// per-test name: the release store (stageLockStore) is process-global and
+	// keyed by stage name, so parallel tests must not share a stage name.
+	const stageName = "test-serialize-stage"
 
-	// Session A acquires the lock.
-	lockedA, err := AcquireStageLock(ctx, poolA, salt, "instance-a")
+	// Instance A (think: the v1 worker) acquires the lock.
+	lockedA, err := AcquireStageLock(ctx, poolA, stageName)
 	if err != nil {
 		t.Fatalf("A acquire failed: %v", err)
 	}
@@ -52,24 +59,25 @@ func TestStageLockSerializesAcrossSessions(t *testing.T) {
 		t.Fatal("A should have acquired the lock")
 	}
 
-	// Session B (a different pool/session) must NOT be able to acquire while A holds it.
-	lockedB, err := AcquireStageLock(ctx, poolB, salt, "instance-b")
+	// Instance B (think: the v2 worker mid rolling deploy, different registration
+	// order) must NOT be able to acquire the SAME stage while A holds it.
+	lockedB, err := AcquireStageLock(ctx, poolB, stageName)
 	if err != nil {
 		t.Fatalf("B acquire (while A holds) failed: %v", err)
 	}
 	if lockedB {
-		t.Fatal("B acquired the lock while A holds it — serialization broken")
+		t.Fatal("B acquired the same stage while A holds it — rolling-deploy serialization broken")
 	}
 
 	// A releases. With the explicit pg_advisory_unlock, the lock must now be
 	// free for a DIFFERENT session. If release relied only on conn.Release()
 	// (the REQ-2 bug), the lock would leak on A's pooled conn and B would still
 	// fail to acquire below.
-	if err := ReleaseStageLock(ctx, poolA, "instance-a"); err != nil {
+	if err := ReleaseStageLock(ctx, poolA, stageName); err != nil {
 		t.Fatalf("A release failed: %v", err)
 	}
 
-	lockedB2, err := AcquireStageLock(ctx, poolB, salt, "instance-b")
+	lockedB2, err := AcquireStageLock(ctx, poolB, stageName)
 	if err != nil {
 		t.Fatalf("B re-acquire (after A released) failed: %v", err)
 	}
@@ -77,7 +85,7 @@ func TestStageLockSerializesAcrossSessions(t *testing.T) {
 		t.Fatal("B could not acquire after A released — lock leaked (REQ-2 not satisfied)")
 	}
 
-	if err := ReleaseStageLock(ctx, poolB, "instance-b"); err != nil {
+	if err := ReleaseStageLock(ctx, poolB, stageName); err != nil {
 		t.Fatalf("B release failed: %v", err)
 	}
 }
@@ -93,11 +101,11 @@ func TestStageLockSerializesAcrossSessions(t *testing.T) {
 // single miss. If the lock never frees within the deadline the loop returns
 // false and the caller fails the test — the release guarantee is still proven,
 // just with realistic (bounded) timing tolerance.
-func acquireStageLockWithin(t *testing.T, ctx context.Context, pool *pgxpool.Pool, salt int64, stageName string, within time.Duration) bool {
+func acquireStageLockWithin(t *testing.T, ctx context.Context, pool *pgxpool.Pool, stageName string, within time.Duration) bool {
 	t.Helper()
 	deadline := time.Now().Add(within)
 	for {
-		locked, err := AcquireStageLock(ctx, pool, salt, stageName)
+		locked, err := AcquireStageLock(ctx, pool, stageName)
 		if err != nil {
 			t.Fatalf("acquire stage lock %q: %v", stageName, err)
 		}
@@ -132,15 +140,17 @@ func TestStageLockReleasedOnConnectionDeath(t *testing.T) {
 	poolA := pgtest.StartPostgres(t, ctx)
 	poolB := secondPoolSameDB(t, ctx, poolA)
 
-	salt := int64(91001)
+	// Unique per-test stage name (process-global release store is name-keyed).
+	const stageName = "test-conndeath-stage"
 
-	// Acquire the lock directly on a dedicated connection from poolA.
+	// Acquire the lock directly on a dedicated connection from poolA, using the
+	// SAME name-derived key AcquireStageLock uses (hashtext(stageLockKeyArg)).
 	connA, err := poolA.Acquire(ctx)
 	if err != nil {
 		t.Fatalf("acquire conn: %v", err)
 	}
 	var locked bool
-	if err := connA.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", salt).Scan(&locked); err != nil {
+	if err := connA.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext($1))", stageLockKeyArg(stageName)).Scan(&locked); err != nil {
 		t.Fatalf("advisory lock: %v", err)
 	}
 	if !locked {
@@ -148,7 +158,7 @@ func TestStageLockReleasedOnConnectionDeath(t *testing.T) {
 	}
 
 	// A second session must not be able to acquire while A's session is alive.
-	if lockedB, err := AcquireStageLock(ctx, poolB, salt, "b-before-death"); err != nil {
+	if lockedB, err := AcquireStageLock(ctx, poolB, stageName); err != nil {
 		t.Fatalf("B acquire (A alive) failed: %v", err)
 	} else if lockedB {
 		t.Fatal("B acquired while A's session alive — serialization broken")
@@ -164,10 +174,10 @@ func TestStageLockReleasedOnConnectionDeath(t *testing.T) {
 	// advisory lock) asynchronously, so a warm-pool single-shot poll can race
 	// ahead of the reaper. A few seconds is far beyond the observed reap lag
 	// (single-digit milliseconds) yet still fails closed on a genuine leak.
-	if !acquireStageLockWithin(t, ctx, poolB, salt, "b-after-death", 5*time.Second) {
+	if !acquireStageLockWithin(t, ctx, poolB, stageName, 5*time.Second) {
 		t.Fatal("lock not released after holding connection died — standby cannot take over")
 	}
-	if err := ReleaseStageLock(ctx, poolB, "b-after-death"); err != nil {
+	if err := ReleaseStageLock(ctx, poolB, stageName); err != nil {
 		t.Fatalf("B release failed: %v", err)
 	}
 }

@@ -113,10 +113,12 @@ func run(ctx context.Context, args []string) error {
 		kernelstages.NewNotificationDispatcherStage(deps, tenantID),
 	)
 
-	// Operational (every 15 minutes): sweep due/missed obligations, create
+	// Operational (every 5 minutes): sweep due/missed obligations, create
 	// batches + SOP tasks, reconcile inventory, queue reminders + escalations,
-	// retry SOP review fanout, and queue reminder cadence fires (T-7d, daily, due-today).
-	supervisor.RegisterCadence("operational", 15*time.Minute,
+	// retry SOP review fanout, and queue reminder cadence fires (T-7d, daily,
+	// due-today). 5m matches the retired Cloud Run job cadence at 5k-50k scale;
+	// relax later after measuring sweeper cost.
+	supervisor.RegisterCadence("operational", 5*time.Minute,
 		kernelstages.NewObligationSweeperStage(deps, sweeperCfg),
 		kernelstages.NewReminderCadenceStage(deps, tenantID),
 		kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
@@ -129,8 +131,10 @@ func run(ctx context.Context, args []string) error {
 		kernelstages.NewVaccinationGenerationStage(deps, tenantID),
 	)
 
-	// Housekeeping (daily): processed-event retention + expired idempotency keys.
-	supervisor.RegisterCadence("housekeeping", 24*time.Hour,
+	// Housekeeping (hourly): processed-event retention + expired idempotency
+	// keys. 1h initially to match the retired jobs; safe to relax to daily once
+	// retention volume at scale is measured.
+	supervisor.RegisterCadence("housekeeping", 1*time.Hour,
 		kernelstages.NewProcessedEventSweeperStage(deps, tenantID),
 		kernelstages.NewIdempotencyKeySweeperStage(deps, tenantID),
 		kernelstages.NewCalendarReconcilerStage(deps, tenantID),
