@@ -708,13 +708,15 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 	if err := rejectVaccineTypeValueInPathogenClass(env.Vaccine.PathogenClass, "rule_dsl.vaccine.pathogen_class"); err != nil {
 		return err
 	}
-	// Validate pathogen_class only if it's present (matrix wrapper may not have it)
+	// The wrapper vaccine (type=matrix, code=vaccination.matrix) is exempt from pathogen_class and course_type.
+	// Individual vaccines in matrix_rows MUST carry these classifications (validated separately below).
+	// Validate pathogen_class only if present (wrapper may omit it)
 	if strings.TrimSpace(env.Vaccine.PathogenClass) != "" {
 		if err := validatePathogenClass(env.Vaccine.PathogenClass, "rule_dsl.vaccine"); err != nil {
 			return err
 		}
 	}
-	// Validate course_type only if it's present
+	// Validate course_type only if present (wrapper may omit it)
 	if strings.TrimSpace(env.Vaccine.CourseType) != "" {
 		if err := validateCourseType(env.Vaccine.CourseType, "rule_dsl.vaccine"); err != nil {
 			return err
@@ -792,17 +794,13 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 					return err
 				}
 			}
-			// Validate pathogen class (required for individual vaccines)
-			if strings.TrimSpace(rowVaccine.PathogenClass) != "" {
-				if err := validatePathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
-					return err
-				}
+			// Validate pathogen class (REQUIRED for individual vaccines)
+			if err := validatePathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
+				return err
 			}
-			// Validate course type (required for individual vaccines)
-			if strings.TrimSpace(rowVaccine.CourseType) != "" {
-				if err := validateCourseType(rowVaccine.CourseType, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
-					return err
-				}
+			// Validate course type (REQUIRED for individual vaccines)
+			if err := validateCourseType(rowVaccine.CourseType, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
+				return err
 			}
 		}
 	}

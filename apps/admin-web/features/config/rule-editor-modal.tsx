@@ -42,6 +42,11 @@ import {
   type SopVersionOption,
   type VaccinationMatrixRow,
 } from "./rule-dsl";
+import {
+  VALID_VACCINE_TYPES,
+  VALID_PATHOGEN_CLASSES,
+  VALID_COURSE_TYPES,
+} from "./vaccine-taxonomy";
 import type { ImpactPreviewResult } from "@/lib/api/server";
 import {
   copy,
@@ -397,9 +402,9 @@ export function RuleEditorModal({
         pathogenClass:
           seed?.vaccine?.pathogenClass ??
           firstKey(pathogenClassOptions, "vaccine_pathogen_classes"),
-        courseType:
-          seed?.vaccine?.courseType ??
-          firstKey(courseTypeOptions, "vaccine_course_types"),
+        // courseType is NOT defaulted — it must be an explicit author choice
+        // (draft-save validation ensures it is set before saving)
+        courseType: seed?.vaccine?.courseType ?? "",
         inventoryItemId: seed?.vaccine?.inventoryItemId ?? "",
         manufacturer: seed?.vaccine?.manufacturer ?? "",
         disease: seed?.vaccine?.disease ?? "",
@@ -1088,7 +1093,8 @@ export function RuleEditorModal({
       name: option.label,
       vaccineType: meta.vaccine_type ?? "",
       pathogenClass: meta.pathogen_class ?? "",
-      courseType: meta.course_type ?? "single",
+      // courseType is NOT defaulted to "single" — it must be explicitly present in the preset metadata
+      courseType: meta.course_type ?? "",
       disease: meta.disease ?? option.label,
       compatibilityGroup: meta.compatibility_group ?? option.key,
       approvedKidWeeks: numberList(meta.weeks),
@@ -1428,40 +1434,38 @@ export function RuleEditorModal({
     }
 
     // Validate vaccine type, pathogen class, and course type for all matrix rows
-    const validVaccineTypes = ["live", "killed", "toxoid", "matrix"];
-    const validPathogenClasses = ["viral", "bacterial"];
-    const validCourseTypes = ["single", "booster"];
-
+    // These constants must match the backend protocol/app/publish.go validation exactly
     for (const row of activeScopedMatrixRows) {
       const vaccine = row.vaccine;
+      const vaccineTypeLC = vaccine.type.toLowerCase();
+      const pathogenClassLC = vaccine.pathogenClass.toLowerCase();
+      const courseTypeLC = vaccine.courseType.toLowerCase();
 
-      // Check vaccine type
-      if (!vaccine.type || !validVaccineTypes.includes(vaccine.type.toLowerCase())) {
+      // Check vaccine type (must be one of: live, killed, toxoid)
+      if (!vaccine.type || !VALID_VACCINE_TYPES.includes(vaccineTypeLC)) {
         setNotice({
           ok: false,
-          message: `Vaccine type is required and must be one of: live, killed, or toxoid`,
+          message: `Vaccine type is required and must be one of: ${VALID_VACCINE_TYPES.join(", ")}`,
         });
         return;
       }
 
-      // Check pathogen class (for non-matrix vaccines)
-      if (vaccine.type.toLowerCase() !== "matrix") {
-        if (!vaccine.pathogenClass || !validPathogenClasses.includes(vaccine.pathogenClass.toLowerCase())) {
-          setNotice({
-            ok: false,
-            message: `Pathogen class is required and must be one of: viral or bacterial`,
-          });
-          return;
-        }
+      // Check pathogen class (REQUIRED for individual vaccines)
+      if (!vaccine.pathogenClass || !VALID_PATHOGEN_CLASSES.includes(pathogenClassLC)) {
+        setNotice({
+          ok: false,
+          message: `Pathogen class is required and must be one of: ${VALID_PATHOGEN_CLASSES.join(", ")}`,
+        });
+        return;
+      }
 
-        // Check course type
-        if (!vaccine.courseType || !validCourseTypes.includes(vaccine.courseType.toLowerCase())) {
-          setNotice({
-            ok: false,
-            message: `Course type is required and must be one of: single or booster`,
-          });
-          return;
-        }
+      // Check course type (REQUIRED for individual vaccines)
+      if (!vaccine.courseType || !VALID_COURSE_TYPES.includes(courseTypeLC)) {
+        setNotice({
+          ok: false,
+          message: `Course type is required and must be one of: ${VALID_COURSE_TYPES.join(", ")}`,
+        });
+        return;
       }
     }
 
