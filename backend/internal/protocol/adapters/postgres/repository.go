@@ -690,7 +690,7 @@ WHERE tenant_id = $1
 // PublishVersionWithDerivedRules replaces vaccination.matrix derived rules/dimensions and publishes
 // the version in one transaction. The matrix JSON is the authoring source of truth; protocol_rules
 // and protocol_rule_dimensions are regenerated execution indexes, never hand-authored authority.
-func (r *Repository) PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, idempotencyKey ...string) error {
+func (r *Repository) PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, seedOwnedGuardActor string, idempotencyKey ...string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -753,6 +753,17 @@ FOR UPDATE`, tenant, vid).Scan(&status, &scopeType, &scopeID)
 	lockKey := strings.Join([]string{tenantID, "vaccination.matrix", scopeType, scopeID}, ":")
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, lockKey); err != nil {
 		return fmt.Errorf("protocol: lock vaccination matrix scope: %w", err)
+	}
+	// VAX-SEED-01/03 ownership safety: a seed-owned publish may retire ONLY seed-owned overlapping
+	// matrices. This runs INSIDE the publish transaction, after the vaccination-matrix advisory lock and
+	// BEFORE the overlap-retire, so it is atomic with the retire — a matrix published concurrently (or
+	// authored via Config under the SAME protocol) is seen here and blocks the retire (fail closed)
+	// instead of being silently retired. seedOwnedGuardActor is empty for ordinary/Config publishes,
+	// which keep the normal supersede-on-publish behavior.
+	if seedOwnedGuardActor != "" {
+		if err := assertOnlySeedOwnedMatrixOverlapsTx(ctx, tx, tenant, vid, seedOwnedGuardActor); err != nil {
+			return err
+		}
 	}
 	retiredRows, err := retirePublishedVaccinationMatrixOverlapsTx(ctx, tx, tenant, vid)
 	if err != nil {
@@ -961,6 +972,68 @@ func derivedDimensionsFingerprint(dimensions []domain.RuleDimension) string {
 		)
 	}
 	return protocolFingerprint(parts...)
+}
+
+// ErrVaccinationMatrixOwnershipConflict is returned when a seed-owned matrix publish would retire an
+// overlapping published matrix that is NOT seed-owned (a different-author version, including one
+// authored via Config under the same canonical vaccination.matrix protocol). The publish is refused
+// (fail closed) rather than silently retiring user-authored configuration.
+var ErrVaccinationMatrixOwnershipConflict = errors.New("protocol: seed vaccination matrix publish would retire a non-seed-owned overlapping matrix")
+
+// assertOnlySeedOwnedMatrixOverlapsTx enforces, inside the publish transaction and under the
+// vaccination-matrix advisory lock, that no published matrix version overlapping the one being
+// published is authored by anyone other than the seed. It uses the SAME overlap predicate as
+// retirePublishedVaccinationMatrixOverlapsTx, so it flags exactly the versions the retire would
+// clear. An overlap is "seed-owned" when drafted_by = seedGuardActor OR drafted_by IS NULL (a legacy
+// seed row: published versions are immutable and cannot be back-stamped, and Config authoring always
+// stamps drafted_by with the acting user, so a NULL author under the seed's label is only ever the
+// seed's own pre-provenance row). Any overlap with a real, different author (drafted_by set and not
+// the seed) makes it fail closed with ErrVaccinationMatrixOwnershipConflict.
+func assertOnlySeedOwnedMatrixOverlapsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, versionID pgtype.UUID, seedGuardActor string) error {
+	actor, err := pgconv.UUID(seedGuardActor)
+	if err != nil {
+		return fmt.Errorf("protocol: seed guard actor id: %w", err)
+	}
+	rows, err := tx.Query(ctx, `
+SELECT other.protocol_version_id::text, other.protocol_id::text, COALESCE(other.version_label, '')
+FROM protocol_versions other
+JOIN protocol_versions target ON target.tenant_id = $1 AND target.protocol_version_id = $2
+JOIN protocol_definitions pd ON pd.tenant_id = other.tenant_id AND pd.protocol_id = other.protocol_id
+WHERE other.tenant_id = target.tenant_id
+  AND other.protocol_version_id <> target.protocol_version_id
+  AND other.status = 'published'
+  AND pd.category = 'vaccination'
+  AND other.scope_type = target.scope_type
+  AND other.scope_id IS NOT DISTINCT FROM target.scope_id
+  AND daterange(other.effective_from, other.effective_to, '[)') &&
+      daterange(target.effective_from, target.effective_to, '[)')
+  AND (
+    lower(COALESCE(other.rule_dsl->>'ruleset_family', '')) = 'vaccination.matrix'
+    OR lower(COALESCE(other.rule_dsl->'vaccine'->>'code', '')) = 'vaccination.matrix'
+    OR other.rule_dsl ? 'matrix_rows'
+  )
+  AND other.drafted_by IS NOT NULL
+  AND other.drafted_by <> $3::uuid
+ORDER BY other.protocol_version_id`, tenant, versionID, actor)
+	if err != nil {
+		return fmt.Errorf("protocol: check seed-owned matrix overlaps: %w", err)
+	}
+	defer rows.Close()
+	var offenders []string
+	for rows.Next() {
+		var versionIDText, protocolIDText, label string
+		if err := rows.Scan(&versionIDText, &protocolIDText, &label); err != nil {
+			return fmt.Errorf("protocol: scan matrix overlap: %w", err)
+		}
+		offenders = append(offenders, fmt.Sprintf("version %s (protocol %s, label %q)", versionIDText, protocolIDText, label))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("protocol: matrix overlap rows: %w", err)
+	}
+	if len(offenders) > 0 {
+		return fmt.Errorf("%w: %v", ErrVaccinationMatrixOwnershipConflict, offenders)
+	}
+	return nil
 }
 
 func retirePublishedVaccinationMatrixOverlapsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, versionID pgtype.UUID) ([]protocolRetiredRow, error) {

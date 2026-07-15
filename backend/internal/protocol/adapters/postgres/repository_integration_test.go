@@ -508,7 +508,7 @@ func TestPublishVersionWithDerivedRulesReplacesOverlappingVaccinationMatrixFamil
 		ScopeType:         "tenant",
 		Status:            "draft",
 		RuleDsl:           vaccinationMatrixRuleDSL(),
-	}, firstRules, firstDims, nil, nil, "matrix-family-first"); err != nil {
+	}, firstRules, firstDims, nil, nil, "", "matrix-family-first"); err != nil {
 		t.Fatalf("publish first matrix version: %v", err)
 	}
 
@@ -532,7 +532,7 @@ func TestPublishVersionWithDerivedRulesReplacesOverlappingVaccinationMatrixFamil
 		ScopeType:         "tenant",
 		Status:            "draft",
 		RuleDsl:           vaccinationMatrixRuleDSL(),
-	}, secondRules, secondDims, nil, nil, "matrix-family-overlap"); err != nil {
+	}, secondRules, secondDims, nil, nil, "", "matrix-family-overlap"); err != nil {
 		t.Fatalf("publish replacement matrix: %v", err)
 	}
 	var firstStatus, secondStatus string
@@ -622,7 +622,7 @@ WHERE tenant_id = $1
 		ScopeID:           parkID,
 		Status:            "draft",
 		RuleDsl:           vaccinationMatrixRuleDSL(),
-	}, parkRules, parkDims, nil, nil, "matrix-family-park-override"); err != nil {
+	}, parkRules, parkDims, nil, nil, "", "matrix-family-park-override"); err != nil {
 		t.Fatalf("park-scoped matrix should coexist with tenant default: %v", err)
 	}
 }
@@ -928,7 +928,7 @@ func TestPublishVersionWithDerivedRulesRollsBackOnCapacityFailure(t *testing.T) 
 		ScopeType:         "tenant",
 		Status:            "draft",
 		RuleDsl:           vaccinationMatrixRuleDSL(),
-	}, rules, dims, nil, badCapacity, "matrix-capacity-rollback-key")
+	}, rules, dims, nil, badCapacity, "", "matrix-capacity-rollback-key")
 	if err == nil {
 		t.Fatalf("matrix publish with a failing capacity sync must return an error, got nil")
 	}

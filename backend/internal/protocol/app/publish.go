@@ -41,7 +41,7 @@ type protocolRuleDimensionWriter interface {
 }
 
 type protocolMatrixPublisher interface {
-	PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, idempotencyKey ...string) error
+	PublishVersionWithDerivedRules(ctx context.Context, tenantID string, v domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, publishedBy *string, capacity *domain.PublishedCapacity, seedOwnedGuardActor string, idempotencyKey ...string) error
 }
 
 // capacityAtomicPublisher publishes a non-matrix vaccination version and upserts + parity-checks its
@@ -1069,6 +1069,22 @@ func arrayHasNonBlankString(v any) bool {
 // also enforces the published-window EXCLUDE non-overlap; category capability
 // (CEO/COO protocol.publish.*) is enforced at the API/RBAC boundary.
 func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, idempotencyKey ...string) error {
+	return s.publishVersion(ctx, tenantID, versionID, publishedBy, "", idempotencyKey...)
+}
+
+// PublishSeedOwnedVaccinationMatrixVersion publishes a vaccination matrix on behalf of the source
+// seed, guarded so its overlap-retire may clear ONLY seed-owned versions (drafted_by = seedGuardActor).
+// If an overlapping published matrix authored by anyone else exists (including one authored via Config
+// under the same canonical vaccination.matrix protocol, or one published concurrently), the publish
+// fails closed with ErrVaccinationMatrixOwnershipConflict instead of retiring user configuration.
+func (s *Service) PublishSeedOwnedVaccinationMatrixVersion(ctx context.Context, tenantID, versionID, seedGuardActor string, idempotencyKey ...string) error {
+	if strings.TrimSpace(seedGuardActor) == "" {
+		return fmt.Errorf("protocol: seed-owned matrix publish requires a seed guard actor id")
+	}
+	return s.publishVersion(ctx, tenantID, versionID, nil, seedGuardActor, idempotencyKey...)
+}
+
+func (s *Service) publishVersion(ctx context.Context, tenantID, versionID string, publishedBy *string, seedGuardActor string, idempotencyKey ...string) error {
 	v, err := s.repo.GetVersion(ctx, tenantID, versionID)
 	if err != nil {
 		return err
@@ -1113,7 +1129,7 @@ func (s *Service) PublishVersion(ctx context.Context, tenantID, versionID string
 		if err != nil {
 			return err
 		}
-		if err := publisher.PublishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, capacity, idempotencyKey...); err != nil {
+		if err := publisher.PublishVersionWithDerivedRules(ctx, tenantID, v, rules, dimensions, publishedBy, capacity, seedGuardActor, idempotencyKey...); err != nil {
 			return mapCapacityParityErr(err)
 		}
 		return nil

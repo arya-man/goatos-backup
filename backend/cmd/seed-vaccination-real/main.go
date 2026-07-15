@@ -520,14 +520,21 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, fmt.Errorf("resolve vaccination matrix protocol id: %w", err)
 	}
 
-	// Ownership safety (VACC-REV): PublishVersion's overlap-retire clears every overlapping published
-	// vaccination matrix at this scope regardless of which protocol authored it. Refuse — fail closed —
-	// rather than silently retire a user-authored matrix under a different protocol. A normal reseed
-	// (only the seed's own protocol) is never flagged.
-	if foreign, ferr := foreignPublishedVaccinationMatrices(ctx, tx, tenantID, protocolID); ferr != nil {
-		return st, fmt.Errorf("check foreign published vaccination matrices: %w", ferr)
+	// seedActorID is the deterministic, server-only provenance stamp on seed-owned protocol versions
+	// (Config authoring stamps drafted_by with the real acting user, never this id). It is what makes
+	// a seed-owned matrix distinguishable from a user-authored one under the SAME canonical protocol.
+	seedActorID := detUUID("seed-actor", tenantID)
+
+	// Ownership safety (VAX-SEED-01): PublishVersion's overlap-retire clears every overlapping published
+	// vaccination matrix at this scope regardless of which protocol OR author created it — including a
+	// user-authored version under the same canonical vaccination.matrix protocol. Fail fast (before
+	// committing this config transaction) when a non-seed-owned overlapping matrix exists, rather than
+	// commit and then have the guarded publish refuse. The authoritative, TOCTOU-safe check is the
+	// atomic guard inside the publish transaction below; this is the friendly early exit.
+	if foreign, ferr := foreignPublishedVaccinationMatrices(ctx, tx, tenantID, seedActorID); ferr != nil {
+		return st, fmt.Errorf("check non-seed-owned vaccination matrices: %w", ferr)
 	} else if len(foreign) > 0 {
-		return st, fmt.Errorf("seed-vaccination-real: refusing to publish the seed vaccination matrix — %d foreign published vaccination matrix protocol(s) exist at tenant scope (%v); publishing would retire that user-authored configuration. Retire or remove them first, then reseed", len(foreign), foreign)
+		return st, fmt.Errorf("seed-vaccination-real: refusing to publish the seed vaccination matrix — %d non-seed-owned published vaccination matrix version(s) overlap at tenant scope (%v); publishing would retire that user-authored configuration. Retire or remove them first, then reseed", len(foreign), foreign)
 	}
 
 	ruleDSL, err := vaccinationMatrixRuleDSL()
@@ -538,7 +545,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	if err != nil {
 		return st, err
 	}
-	versionID, err := reconcileSeedMatrixDraftVersion(ctx, tx, tenantID, protocolID, ruleDSL, sopVersionID)
+	versionID, err := reconcileSeedMatrixDraftVersion(ctx, tx, tenantID, protocolID, ruleDSL, sopVersionID, seedActorID)
 	if err != nil {
 		return st, err
 	}
@@ -549,7 +556,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	committed = true
 
 	protocolService := protocolapp.NewService(protocolpg.NewRepository(pool, pgCfg.QueryTimeout))
-	if err := protocolService.PublishVersion(ctx, tenantID, versionID, nil, "seed-vaccination-real:"+versionID); err != nil {
+	if err := protocolService.PublishSeedOwnedVaccinationMatrixVersion(ctx, tenantID, versionID, seedActorID, "seed-vaccination-real:"+versionID); err != nil {
 		return st, fmt.Errorf("publish vaccination matrix through protocol service: %w", err)
 	}
 
@@ -2281,10 +2288,16 @@ type seedQuerier interface {
 // NEW version when the published matrix genuinely changed (a real correction). It never retires or
 // creates versions itself — publishing (retire-overlap) is the caller's next step. Extracted from the
 // seed's config transaction so a Postgres regression can drive it twice and assert no version churn.
-func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID, ruleDSL, sopVersionID string) (string, error) {
+func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID, ruleDSL, sopVersionID, seedActorID string) (string, error) {
 	versionID := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
 	var status, existingRuleDSL, existingSOPVersionID string
 	var existingVersion int
+	// Only ever adopt/refresh SEED-OWNED versions: this run's provenance stamp (drafted_by = seed
+	// actor) OR a legacy seed row with no stamp (drafted_by IS NULL — published versions are immutable
+	// so old rows cannot be back-stamped; Config authoring always stamps drafted_by with the acting
+	// user, so a NULL stamp under the seed label is only ever the seed's own pre-provenance row). A
+	// user-authored version that happens to share the seed label (drafted_by = a real user) is never
+	// adopted here; the publish guard refuses to retire it.
 	qerr := tx.QueryRow(ctx, `
 		SELECT protocol_version_id, status, version, rule_dsl::text, COALESCE(sop_version_id::text, '')
 		FROM protocol_versions
@@ -2294,9 +2307,10 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 		  AND scope_id IS NULL
 		  AND version_label=$3
 		  AND status <> 'retired'
+		  AND (drafted_by=$4::uuid OR drafted_by IS NULL)
 		ORDER BY version DESC
 		LIMIT 1`,
-		tenantID, protocolID, matrixVersionLabel).Scan(&versionID, &status, &existingVersion, &existingRuleDSL, &existingSOPVersionID)
+		tenantID, protocolID, matrixVersionLabel, seedActorID).Scan(&versionID, &status, &existingVersion, &existingRuleDSL, &existingSOPVersionID)
 	if qerr == nil && status == "published" && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) || existingSOPVersionID != sopVersionID) {
 		qerr = pgx.ErrNoRows
 	}
@@ -2308,9 +2322,9 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 		versionID = detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real", fmt.Sprintf("%d", nextVersion))
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-				version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id)
-			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,$7::uuid)`,
-			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL, sopVersionID); err != nil {
+				version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id, drafted_by)
+			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,$7::uuid,$8::uuid)`,
+			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL, sopVersionID, seedActorID); err != nil {
 			return "", fmt.Errorf("protocol version vaccination matrix: %w", err)
 		}
 	} else if qerr != nil {
@@ -2321,12 +2335,13 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 			SET rule_dsl=$1::jsonb,
 			    proof_policy='{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,
 			    sop_version_id=$2::uuid,
+			    drafted_by=$5::uuid,
 			    updated_at=now(),
 			    row_version=row_version+1
 			WHERE tenant_id=$3::uuid
 			  AND protocol_version_id=$4::uuid
 			  AND status='draft'`,
-			ruleDSL, sopVersionID, tenantID, versionID); err != nil {
+			ruleDSL, sopVersionID, tenantID, versionID, seedActorID); err != nil {
 			return "", fmt.Errorf("refresh vaccination matrix draft: %w", err)
 		}
 	} else {
@@ -2335,21 +2350,22 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 	return versionID, nil
 }
 
-// foreignPublishedVaccinationMatrices returns the protocol codes of any PUBLISHED, tenant-scoped,
-// matrix-shaped vaccination protocol version owned by a protocol OTHER than the seed's own
-// (seedProtocolID) whose effective window overlaps the seed's ([2026-01-01, ∞)). Those are exactly
-// the versions that PublishVersion's overlap-retire (retirePublishedVaccinationMatrixOverlapsTx)
-// would silently retire when the seed publishes — it retires every overlapping matrix at the scope
-// regardless of provenance. The seed refuses rather than overwrite user-authored configuration
-// (VACC-REV ownership safety). It NEVER flags the seed's own protocol, so a normal reseed that only
-// supersedes its own prior versions is unaffected.
-func foreignPublishedVaccinationMatrices(ctx context.Context, q seedQuerier, tenantID, seedProtocolID string) ([]string, error) {
+// foreignPublishedVaccinationMatrices returns identifiers for any PUBLISHED, tenant-scoped,
+// matrix-shaped vaccination version — under ANY protocol, including the seed's own canonical
+// vaccination.matrix protocol — whose window overlaps the seed's ([2026-01-01, ∞)) and that is NOT
+// seed-owned. Ownership is decided by explicit provenance (drafted_by = seedActorID), NOT by
+// protocol_id: Config authoring publishes under the SAME canonical protocol, so a protocol_id check
+// misses user versions. Legacy seed rows (drafted_by IS NULL under the seed label) are tolerated here
+// because reconcileSeedMatrixDraftVersion claims them just before publish; a genuine other-author row
+// (drafted_by set to a non-seed actor) is flagged so the seed refuses rather than overwrite it. This
+// is the friendly early check; the authoritative TOCTOU-safe enforcement is the atomic guard inside
+// the publish transaction (assertOnlySeedOwnedMatrixOverlapsTx).
+func foreignPublishedVaccinationMatrices(ctx context.Context, q seedQuerier, tenantID, seedActorID string) ([]string, error) {
 	rows, err := q.Query(ctx, `
-SELECT DISTINCT pd.code
+SELECT pv.protocol_version_id::text, pd.code, COALESCE(pv.version_label, '')
 FROM protocol_versions pv
 JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
 WHERE pv.tenant_id = $1::uuid
-  AND pv.protocol_id <> $2::uuid
   AND pv.status = 'published'
   AND pv.scope_type = 'tenant'
   AND pv.scope_id IS NULL
@@ -2360,20 +2376,22 @@ WHERE pv.tenant_id = $1::uuid
     OR lower(COALESCE(pv.rule_dsl->'vaccine'->>'code', '')) = 'vaccination.matrix'
     OR pv.rule_dsl ? 'matrix_rows'
   )
-ORDER BY pd.code`, tenantID, seedProtocolID)
+  AND pv.drafted_by IS NOT NULL
+  AND pv.drafted_by <> $2::uuid
+ORDER BY pd.code, pv.protocol_version_id`, tenantID, seedActorID)
 	if err != nil {
-		return nil, fmt.Errorf("query foreign published vaccination matrices: %w", err)
+		return nil, fmt.Errorf("query non-seed-owned vaccination matrices: %w", err)
 	}
 	defer rows.Close()
-	var codes []string
+	var out []string
 	for rows.Next() {
-		var code string
-		if err := rows.Scan(&code); err != nil {
-			return nil, fmt.Errorf("scan foreign vaccination matrix protocol code: %w", err)
+		var versionID, code, label string
+		if err := rows.Scan(&versionID, &code, &label); err != nil {
+			return nil, fmt.Errorf("scan non-seed-owned vaccination matrix: %w", err)
 		}
-		codes = append(codes, code)
+		out = append(out, fmt.Sprintf("%s (protocol %s, label %q)", versionID, code, label))
 	}
-	return codes, rows.Err()
+	return out, rows.Err()
 }
 
 func jsonSemanticallyEqual(a, b string) bool {

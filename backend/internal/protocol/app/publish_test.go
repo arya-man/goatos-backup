@@ -1056,7 +1056,7 @@ func (f *fakeProtocolRepo) PublishVersion(context.Context, string, string, *stri
 	f.version.Status = "published"
 	return nil
 }
-func (f *fakeProtocolRepo) PublishVersionWithDerivedRules(_ context.Context, _ string, _ domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, _ *string, capacity *domain.PublishedCapacity, _ ...string) error {
+func (f *fakeProtocolRepo) PublishVersionWithDerivedRules(_ context.Context, _ string, _ domain.Version, rules []domain.NewRule, dimensions []domain.RuleDimension, _ *string, capacity *domain.PublishedCapacity, _ string, _ ...string) error {
 	// Parity is verified in the same transaction as the publish: a mismatch rolls everything back, so
 	// on failure record no derived rules and leave the version draft.
 	if err := f.applyCapacityAtomic(capacity); err != nil {
