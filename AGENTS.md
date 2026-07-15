@@ -705,6 +705,10 @@ Do:
   derived from those instants — scheduling, due/missed buckets, reminder keys,
   reporting groups, audit-log display, and UI labels — must convert to
   `Asia/Kolkata` first. UTC must never define a Goat OS business day.
+- Pinned-clock tests must derive time-sensitive fixture fields such as
+  `valid_from`, `valid_to`, due instants, and recipient eligibility from the
+  same pinned anchor. Never mix a pinned application clock with SQL `now()` or
+  a second `time.Now()` when the fixture is evaluated against that anchor.
 - For dashboards or reports that slice data by month, date, breed, farm, shed,
   load, category, status, gender, operator, source, or similar dimensions, use
   the canonical rule in `docs/decisions/high-scale-dashboard-projections.md`

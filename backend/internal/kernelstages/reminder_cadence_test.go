@@ -95,14 +95,14 @@ func TestReminderCadenceStageQueuesNotificationsAtEachLadderSlot(t *testing.T) {
 	deps := Deps{Pool: pool, PgCfg: platformpg.Config{QueryTimeout: 10 * time.Second}, Logger: logger}
 
 	// ---- Anchor everything to the business day, never a fixed date. -----------------------------
-	dayStart := biztime.BusinessDayStart(time.Now())            // midnight IST today
-	evalNow := dayStart.Add(19*time.Hour + 30*time.Minute)      // 19:30 IST today (after all slots, before quiet hours)
-	dueToday := dayStart.Add(10 * time.Hour)                    // today 10:00 IST  -> due_today rung fires today
-	duePlus3 := dayStart.AddDate(0, 0, 3).Add(10 * time.Hour)   // today+3          -> reminder rung fires today
-	duePlus7 := dayStart.AddDate(0, 0, 7).Add(10 * time.Hour)   // today+7          -> advance_notice rung fires today
+	dayStart := biztime.BusinessDayStart(time.Now())          // midnight IST today
+	evalNow := dayStart.Add(19*time.Hour + 30*time.Minute)    // 19:30 IST today (after all slots, before quiet hours)
+	dueToday := dayStart.Add(10 * time.Hour)                  // today 10:00 IST  -> due_today rung fires today
+	duePlus3 := dayStart.AddDate(0, 0, 3).Add(10 * time.Hour) // today+3          -> reminder rung fires today
+	duePlus7 := dayStart.AddDate(0, 0, 7).Add(10 * time.Hour) // today+7          -> advance_notice rung fires today
 
 	// ---- Seed INPUT facts only. -----------------------------------------------------------------
-	seedReminderRoster(t, ctx, pool)
+	seedReminderRoster(t, ctx, pool, evalNow)
 	seedReminderProtocol(t, ctx, pool)
 	seedReminderObligation(t, ctx, pool, "e1000000-0000-4000-9000-000000000001", "rc-obl-today", dueToday)
 	seedReminderObligation(t, ctx, pool, "e1000000-0000-4000-9000-000000000002", "rc-obl-plus3", duePlus3)
@@ -146,7 +146,8 @@ func TestReminderCadenceStageQueuesNotificationsAtEachLadderSlot(t *testing.T) {
 
 // seedReminderRoster seeds the park's operational reminder audience: three members (operator, park
 // head, PHC manager), each an active center-scoped position at the park with an active FCM device.
-func seedReminderRoster(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+// Position validity is anchored to activeAt so pinned-clock tests never depend on database wall time.
+func seedReminderRoster(t *testing.T, ctx context.Context, pool *pgxpool.Pool, activeAt time.Time) {
 	t.Helper()
 	member := func(id, code, name, hint string) {
 		if _, err := pool.Exec(ctx, `
@@ -163,8 +164,8 @@ VALUES ($1::uuid, $2::uuid, $3, $4, 'active', $5)`,
 	position := func(memberID, positionCode, tier string) {
 		if _, err := pool.Exec(ctx, `
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, status, valid_from)
-VALUES ($1::uuid, $2::uuid, 'center', $3::uuid, $4, $5, 'active', now() - interval '1 hour')`,
-			rcTenant, memberID, rcPark, positionCode, tier); err != nil {
+VALUES ($1::uuid, $2::uuid, 'center', $3::uuid, $4, $5, 'active', $6::timestamptz)`,
+			rcTenant, memberID, rcPark, positionCode, tier, activeAt.Add(-time.Hour)); err != nil {
 			t.Fatalf("seed position %s: %v", positionCode, err)
 		}
 	}

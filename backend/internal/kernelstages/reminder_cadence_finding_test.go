@@ -68,7 +68,7 @@ func TestReminderCadenceP1Finding1NoRecipientRetryable(t *testing.T) {
 	t.Logf("FINDING 1: run 1 (no recipients) -> 0 notifications, 0 markers claimed (retryable) — OK")
 
 	// ---- Assign the operational roster (operator + park head + PHC manager, each with a device). ------
-	seedReminderRoster(t, ctx, pool)
+	seedReminderRoster(t, ctx, pool, evalNow)
 
 	// ---- Run 2: recipients now exist. The previously-unclaimed fire retries and sends exactly once. ---
 	if err := stage.Run(ctx); err != nil {
@@ -118,7 +118,7 @@ func TestReminderCadenceP1Finding2DrainWithRecipients(t *testing.T) {
 	duePlus3 := dayStart.AddDate(0, 0, 3).Add(10 * time.Hour)
 	duePlus7 := dayStart.AddDate(0, 0, 7).Add(10 * time.Hour)
 
-	seedReminderRoster(t, ctx, pool)
+	seedReminderRoster(t, ctx, pool, evalNow)
 	seedReminderProtocol(t, ctx, pool)
 
 	// Seed 250 obligations (> the 200-per-tick candidate page) across three due days. They collapse per
