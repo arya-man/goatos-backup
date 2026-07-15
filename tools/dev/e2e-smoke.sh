@@ -79,7 +79,12 @@ echo "── e2e-smoke: docker compose config check"
 compose config --quiet || fail "docker compose config is invalid"
 
 echo "── e2e-smoke: bringing up postgres, migrate, pubsub, pubsub-bootstrap, api, kernel-worker"
-compose up -d postgres migrate pubsub pubsub-bootstrap api kernel-worker \
+# --build rebuilds ONLY services with a build: block (the migrate image, from
+# backend/Dockerfile.migrate) so it always embeds the CURRENT migrations. Without
+# it a cached migrate image predating a new migration leaves the DB one version
+# behind the api binary -> migrationguard drift -> /readyz 503 forever. api and
+# kernel-worker have no build: block; they stay on the prebuilt goatos-backend:e2e tag.
+compose up -d --build postgres migrate pubsub pubsub-bootstrap api kernel-worker \
   || fail "docker compose up failed — is goatos-backend:e2e built? (make e2e-image-build)"
 
 migrate_exit_code() {

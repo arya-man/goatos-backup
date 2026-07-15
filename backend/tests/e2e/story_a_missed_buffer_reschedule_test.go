@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
@@ -77,11 +78,14 @@ func TestKernelStoryA_MissedBufferReschedule(t *testing.T) {
 	// `superseded_missed_obligation_id` pointing back at G-Missed's obligation -- there is no
 	// parent_obligation_id column on obligation_instances, so this JSONB back-reference is the
 	// established traceability mechanism.
-	newDue := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
+	// The reschedule endpoint validates due_at is in the FUTURE against real server now(), so anchor
+	// the new date relative to now (not a fixed calendar date, which becomes a time-bomb once wall-clock
+	// reaches it). 30 business-days out is comfortably future regardless of when the suite runs.
+	newDue := biztime.BusinessDayStart(time.Now()).AddDate(0, 0, 30)
 	newWindowEnd := newDue.AddDate(0, 0, 14)
 	story.Step("Rework the missed dose onto a new calendar date",
 		"Call the production app reschedule HTTP endpoint on G-Missed's obligation. It must "+
-			"create a brand-new obligation for 2026-07-15 and leave the missed row untouched, never "+
+			"create a brand-new obligation for the future date and leave the missed row untouched, never "+
 			"mutate the missed row back to scheduled.")
 	rescheduled, statusCode, detail := rescheduleObligationViaHTTP(t, fx, missedObl, "e2e-story-a-reschedule", newDue, newDue, &newWindowEnd)
 	newObl := rescheduled.ObligationID

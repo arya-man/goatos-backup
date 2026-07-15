@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
@@ -64,7 +65,9 @@ func TestKernelStoryF_EscalationAlert(t *testing.T) {
 			"Leadership is alerted and may rework it onto a new obligation.")
 
 	// Leadership reworks the missed obligation onto a new one.
-	newDue := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
+	// Future-relative to real server now() (the reschedule endpoint rejects past due_at); a fixed
+	// calendar date here is a time-bomb once wall-clock reaches it.
+	newDue := biztime.BusinessDayStart(time.Now()).AddDate(0, 0, 30)
 	newWindowEnd := newDue.AddDate(0, 0, 14)
 	rescheduled, statusCode, detail := rescheduleObligationViaHTTP(t, fx, oblID, "e2e-story-f-reschedule", newDue, newDue, &newWindowEnd)
 	newOblID := rescheduled.ObligationID
