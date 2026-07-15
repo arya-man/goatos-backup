@@ -179,11 +179,16 @@ func defaultStageTimeout(interval, queryTimeout time.Duration) time.Duration {
 func (s *Supervisor) Run(ctx context.Context) error {
 	eg, egCtx := errgroup.WithContext(ctx)
 
-	// Start continuous stages (e.g., event consumer).
+	// Start continuous stages (e.g., event consumer) under a supervised restart
+	// loop. A continuous stage must run for the whole process lifetime; a
+	// transient error or an unexpected clean return must NOT (a) cancel the
+	// errgroup and kill every other stage, nor (b) silently stop event handling
+	// while the worker appears alive. runContinuous isolates both: it only
+	// returns on shutdown (ctx cancellation).
 	for _, cadenceStage := range s.continuous {
 		cs := cadenceStage
 		eg.Go(func() error {
-			return s.runStageOnce(egCtx, cs)
+			return s.runContinuous(egCtx, cs)
 		})
 	}
 
@@ -197,6 +202,63 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	}
 
 	return eg.Wait()
+}
+
+// Continuous-stage restart backoff bounds. A failing continuous stage is
+// retried with exponential backoff so a persistently-broken dependency does not
+// hot-loop, while a clean return (or a standby that did not win the advisory
+// lock) restarts promptly so failover to a healthy consumer is fast.
+const (
+	continuousMinBackoff = 1 * time.Second
+	continuousMaxBackoff = 30 * time.Second
+)
+
+// runContinuous supervises a single continuous stage for the life of the
+// process. It runs the stage, and when the stage returns it restarts it —
+// EXCEPT when ctx is done (shutdown), which is the only condition that ends the
+// loop. Crucially, a stage error is logged and retried with backoff rather than
+// returned: returning it would cancel the parent errgroup and take down every
+// other stage (the "one transient error kills the whole kernel" failure). A
+// clean nil return without shutdown is treated as an unexpected exit and the
+// stage is restarted (never silently dropped). Because runStageOnce returns nil
+// both on a genuine clean run and when another instance holds the advisory lock,
+// a standby simply re-polls at the min backoff — that poll IS the failover path.
+func (s *Supervisor) runContinuous(ctx context.Context, cs CadenceStage) error {
+	backoff := continuousMinBackoff
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		err := s.runStageOnce(ctx, cs)
+		if ctx.Err() != nil {
+			// Shutdown: the only way out of the loop.
+			return ctx.Err()
+		}
+
+		if err != nil {
+			s.logger.Error("continuous_stage_failed_restarting",
+				"stage", cs.stage.Name(), "backoff", backoff.String(), "err", err)
+		} else {
+			// Unexpected clean exit (or standby that did not hold the lock).
+			// Restart promptly so event handling never silently stops.
+			s.logger.Warn("continuous_stage_exited_restarting", "stage", cs.stage.Name())
+			backoff = continuousMinBackoff
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+
+		if err != nil {
+			backoff *= 2
+			if backoff > continuousMaxBackoff {
+				backoff = continuousMaxBackoff
+			}
+		}
+	}
 }
 
 // runCadence runs a single cadence class (fast, operational, etc.) which
