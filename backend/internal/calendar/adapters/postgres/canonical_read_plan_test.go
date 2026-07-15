@@ -464,17 +464,25 @@ func TestReminderCadenceDrainAtScale(t *testing.T) {
 	// backlog of advance-notice/reminder/due-today fires for the near-term obligations to drain.
 	now := dueDayStart.Add(4*24*time.Hour + 14*time.Hour)
 
-	// ---- Cadence-drain loop: sweep -> queue -> repeat until a sweep returns zero newly-due fires.
-	// A correct sweep marks each fire claimed (vaccination_reminder_cadence_fires) inside
-	// QueueReminderCadenceBatch, so the next sweep at the same `now` no longer re-derives it and the
-	// backlog converges to zero. A buggy sweep (not claiming, or re-firing) would never converge and
-	// would trip the iteration cap. The whole loop must finish inside ONE operational cadence interval. ----
+	// ---- Cadence-drain loop: sweep -> queue -> repeat until the backlog drains.
+	// A fire is CLAIMED (vaccination_reminder_cadence_fires) inside QueueReminderCadenceBatch ONLY when
+	// it produced >=1 notification, so the queue MUST be given a recipient for the fire to claim and drop
+	// out of the next sweep (Finding 1: a zero-recipient fire is deliberately left unclaimed/retryable).
+	// A hand-built recipient stands in for the workforce roster + active device the kernel-worker stage
+	// resolves in production. Termination is on NO PROGRESS (zero fires returned OR zero claimed this
+	// iteration), which converges for recipient-backed fires and does not spin on unclaimable ones. ----
 	const (
 		cadenceInterval = 15 * time.Minute // kernel-worker "operational" cadence (cmd/kernel-worker/main.go)
 		perSweepSLO     = 5 * time.Second   // a single sweep tick must stay well under the interval
 		maxIterations   = 50                // generous cap; a converging drain needs only a handful
 		sweepLimit      = 2000              // reminderCadenceMaxLimit: bounds the candidate scan per tick
 	)
+	scaleRecipient := ports.NotificationRecipient{
+		MemberID:  "8a000000-0000-4000-8000-00000000cafe",
+		DeviceID:  "scale-cert-device-1",
+		FCMToken:  "scale-cert-fcm-1",
+		RoleLabel: "operator",
+	}
 	drainStart := time.Now()
 	totalFires := 0
 	iterations := 0
@@ -509,9 +517,8 @@ func TestReminderCadenceDrainAtScale(t *testing.T) {
 		}
 		totalFires += len(fires)
 
-		// Queue (claim + notify) the fires so the backlog actually drains. Empty recipient lists are
-		// fine here: QueueReminderCadenceBatch still claims each fire marker (that is what removes it
-		// from the next sweep), which is exactly the drain mechanic under test.
+		// Queue (claim + notify) the fires WITH a recipient so each fire actually claims its marker and
+		// drops out of the next sweep — that is the drain mechanic under test.
 		inputs := make([]ports.ReminderCadenceFireInput, 0, len(fires))
 		for _, f := range fires {
 			inputs = append(inputs, ports.ReminderCadenceFireInput{
@@ -519,21 +526,29 @@ func TestReminderCadenceDrainAtScale(t *testing.T) {
 				Title:      "Vaccination reminder",
 				Body:       "Scale-cert drain",
 				Context:    map[string]string{"scale_cert": "1"},
-				Recipients: nil,
+				Recipients: []ports.NotificationRecipient{scaleRecipient},
 			})
 		}
-		if _, err := repo.QueueReminderCadenceBatch(ctx, ports.QueueReminderCadenceBatch{
+		queued, err := repo.QueueReminderCadenceBatch(ctx, ports.QueueReminderCadenceBatch{
 			TenantID: testTenantID,
 			Channel:  "push_fcm",
 			TraceID:  "scale-cert-drain",
 			Fires:    inputs,
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("queue cadence batch (iteration %d) failed: %v", i, err)
 		}
 
 		// Pool must stay bounded throughout: never more acquired than MaxConns.
 		if st := boundedPool.Stat(); st.AcquiredConns() > st.MaxConns() {
 			t.Fatalf("bounded pool over-acquired: %d acquired > %d max", st.AcquiredConns(), st.MaxConns())
+		}
+
+		if queued == 0 {
+			// No progress this iteration: the remaining fires are unclaimable right now (this can only
+			// happen if recipient resolution yielded nothing). Defer instead of spinning the cap.
+			drained = true
+			break
 		}
 	}
 	drainDuration := time.Since(drainStart)

@@ -140,6 +140,11 @@ services:
     <<: *backend-image
     environment:
       <<: *kernel-environment
+      # The dev kernel worker runs the tenant-scoped operational/generation stages. It must be pointed
+      # at a REAL tenant, never a fabricated placeholder UUID: leave GOATOS_TENANT_ID unset by default
+      # and require it here so `docker compose up` fails fast with a clear message instead of silently
+      # sweeping a made-up tenant (the kernel-worker binary also fail-fasts on an empty value).
+      GOATOS_TENANT_ID: ${GOATOS_TENANT_ID:?set GOATOS_TENANT_ID to a real tenant UUID for the kernel worker (no fabricated default)}
       GOATOS_NOTIFICATION_DRY_RUN: "true"
       GOATOS_SWEEPER_TIMEOUT: 45s
       GOATOS_LOCAL_KERNEL_INTERVAL_SECONDS: ${GOATOS_LOCAL_KERNEL_INTERVAL_SECONDS:-300}

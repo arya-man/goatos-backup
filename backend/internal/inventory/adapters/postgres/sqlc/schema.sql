@@ -814,90 +814,142 @@ CREATE FUNCTION public.goatos_calendar_event_reference_valid(p_tenant_id uuid, p
     AS $_$
 DECLARE
   m text[];
+  parsed_uuid uuid;
+  parsed_date date;
 BEGIN
   IF p_calendar_event_id IS NULL THEN
     RETURN true;
   END IF;
 
-  -- obligation:<uuid> -- individual vaccination_dose_due obligation events (reminder-cadence fires,
-  -- the obligation-scoped escalation lookup).
+  -- obligation:<uuid> -- individual vaccination_dose_due obligation events.
   m := regexp_match(p_calendar_event_id, '^obligation:([0-9a-fA-F-]{36})$');
   IF m IS NOT NULL THEN
-    RETURN EXISTS (
-      SELECT 1 FROM obligation_instances oi
-      WHERE oi.tenant_id = p_tenant_id AND oi.obligation_id = m[1]::uuid
-    );
+    BEGIN
+      parsed_uuid := m[1]::uuid;
+      RETURN EXISTS (
+        SELECT 1 FROM obligation_instances oi
+        WHERE oi.tenant_id = p_tenant_id AND oi.obligation_id = parsed_uuid
+      );
+    EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR numeric_value_out_of_range THEN
+      RETURN false;
+    END;
   END IF;
 
-  -- batch:<uuid> -- a resolvable MEMBERSHIP identity (canonical_read.go's park_drive_events no
-  -- longer assigns this as a NEW drive's own identity post CR-002/CR-003, but rows written before
-  -- that fix, or any other legacy writer, may still carry it).
+  -- batch:<uuid>
   m := regexp_match(p_calendar_event_id, '^batch:([0-9a-fA-F-]{36})$');
   IF m IS NOT NULL THEN
-    RETURN EXISTS (
-      SELECT 1 FROM obligation_batches ob
-      WHERE ob.tenant_id = p_tenant_id AND ob.batch_id = m[1]::uuid
-    );
+    BEGIN
+      parsed_uuid := m[1]::uuid;
+      RETURN EXISTS (
+        SELECT 1 FROM obligation_batches ob
+        WHERE ob.tenant_id = p_tenant_id AND ob.batch_id = parsed_uuid
+      );
+    EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR numeric_value_out_of_range THEN
+      RETURN false;
+    END;
   END IF;
 
-  -- completion:<uuid> -- accepted vaccination_history_events completion rows.
+  -- completion:<uuid>
   m := regexp_match(p_calendar_event_id, '^completion:([0-9a-fA-F-]{36})$');
   IF m IS NOT NULL THEN
-    RETURN EXISTS (
-      SELECT 1 FROM vaccination_completions vc
-      WHERE vc.tenant_id = p_tenant_id AND vc.completion_id = m[1]::uuid
-    );
+    BEGIN
+      parsed_uuid := m[1]::uuid;
+      RETURN EXISTS (
+        SELECT 1 FROM vaccination_completions vc
+        WHERE vc.tenant_id = p_tenant_id AND vc.completion_id = parsed_uuid
+      );
+    EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR numeric_value_out_of_range THEN
+      RETURN false;
+    END;
   END IF;
 
-  -- calendar:<uuid> -- overloaded prefix shared by sop_events (sop_task_id) and config_events
-  -- (protocol_version_id); either canonical table backing it makes the reference valid.
+  -- calendar:<uuid>
   m := regexp_match(p_calendar_event_id, '^calendar:([0-9a-fA-F-]{36})$');
   IF m IS NOT NULL THEN
-    RETURN EXISTS (
-      SELECT 1 FROM sop_tasks st WHERE st.tenant_id = p_tenant_id AND st.task_id = m[1]::uuid
-    ) OR EXISTS (
-      SELECT 1 FROM protocol_versions pv WHERE pv.tenant_id = p_tenant_id AND pv.protocol_version_id = m[1]::uuid
-    );
+    BEGIN
+      parsed_uuid := m[1]::uuid;
+      RETURN EXISTS (
+        SELECT 1 FROM sop_tasks st WHERE st.tenant_id = p_tenant_id AND st.task_id = parsed_uuid
+      ) OR EXISTS (
+        SELECT 1 FROM protocol_versions pv WHERE pv.tenant_id = p_tenant_id AND pv.protocol_version_id = parsed_uuid
+      );
+    EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR numeric_value_out_of_range THEN
+      RETURN false;
+    END;
   END IF;
 
-  -- parkdrive:park:<uuid>:date:<day> -- CR-002/CR-003 stable park/day drive identity.
+  -- parkdrive:park:<uuid>:date:<day>
   m := regexp_match(p_calendar_event_id, '^parkdrive:park:([0-9a-fA-F-]{36}):date:(\d{4}-\d{2}-\d{2})$');
   IF m IS NOT NULL THEN
-    RETURN goatos_park_day_has_vaccination_work(p_tenant_id, m[1]::uuid, NULL, m[2]::date);
+    BEGIN
+      parsed_uuid := m[1]::uuid;
+      parsed_date := m[2]::date;
+      RETURN goatos_park_day_has_vaccination_work(p_tenant_id, parsed_uuid, NULL, parsed_date);
+    EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR numeric_value_out_of_range THEN
+      RETURN false;
+    END;
   END IF;
 
-  -- parkdrive:tenant:<uuid>:date:<day> -- tenant-wide park-drive aggregate (no resolvable park).
+  -- parkdrive:tenant:<uuid>:date:<day>
   m := regexp_match(p_calendar_event_id, '^parkdrive:tenant:([0-9a-fA-F-]{36}):date:(\d{4}-\d{2}-\d{2})$');
   IF m IS NOT NULL THEN
-    RETURN goatos_park_day_has_vaccination_work(p_tenant_id, NULL, NULL, m[2]::date);
+    BEGIN
+      parsed_uuid := m[1]::uuid;
+      parsed_date := m[2]::date;
+      RETURN goatos_park_day_has_vaccination_work(p_tenant_id, NULL, NULL, parsed_date);
+    EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR numeric_value_out_of_range THEN
+      RETURN false;
+    END;
   END IF;
 
-  -- catchup:park:<uuid>:due:<day> -- unbatched catch-up, park-scoped.
+  -- catchup:park:<uuid>:due:<day>
   m := regexp_match(p_calendar_event_id, '^catchup:park:([0-9a-fA-F-]{36}):due:(\d{4}-\d{2}-\d{2})$');
   IF m IS NOT NULL THEN
-    RETURN goatos_park_day_has_vaccination_work(p_tenant_id, m[1]::uuid, NULL, m[2]::date);
+    BEGIN
+      parsed_uuid := m[1]::uuid;
+      parsed_date := m[2]::date;
+      RETURN goatos_park_day_has_vaccination_work(p_tenant_id, parsed_uuid, NULL, parsed_date);
+    EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR numeric_value_out_of_range THEN
+      RETURN false;
+    END;
   END IF;
 
-  -- catchup:tenant:<uuid>:due:<day> -- unbatched catch-up, tenant-wide.
+  -- catchup:tenant:<uuid>:due:<day>
   m := regexp_match(p_calendar_event_id, '^catchup:tenant:([0-9a-fA-F-]{36}):due:(\d{4}-\d{2}-\d{2})$');
   IF m IS NOT NULL THEN
-    RETURN goatos_park_day_has_vaccination_work(p_tenant_id, NULL, NULL, m[2]::date);
+    BEGIN
+      parsed_uuid := m[1]::uuid;
+      parsed_date := m[2]::date;
+      RETURN goatos_park_day_has_vaccination_work(p_tenant_id, NULL, NULL, parsed_date);
+    EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR numeric_value_out_of_range THEN
+      RETURN false;
+    END;
   END IF;
 
-  -- catchup:shed:<uuid>:rule:<uuid>:due:<day> -- unbatched catch-up, shed+rule-scoped.
+  -- catchup:shed:<uuid>:rule:<uuid>:due:<day>
   m := regexp_match(p_calendar_event_id, '^catchup:shed:([0-9a-fA-F-]{36}):rule:([0-9a-fA-F-]{36}):due:(\d{4}-\d{2}-\d{2})$');
   IF m IS NOT NULL THEN
-    RETURN goatos_park_day_has_vaccination_work(p_tenant_id, NULL, m[1]::uuid, m[3]::date, m[2]::uuid);
+    BEGIN
+      parsed_uuid := m[1]::uuid;
+      parsed_date := m[3]::date;
+      RETURN goatos_park_day_has_vaccination_work(p_tenant_id, NULL, parsed_uuid, parsed_date, m[2]::uuid);
+    EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR numeric_value_out_of_range THEN
+      RETURN false;
+    END;
   END IF;
 
-  -- catchup:tenant:<uuid>:rule:<uuid>:due:<day> -- unbatched catch-up, tenant+rule-scoped.
+  -- catchup:tenant:<uuid>:rule:<uuid>:due:<day>
   m := regexp_match(p_calendar_event_id, '^catchup:tenant:([0-9a-fA-F-]{36}):rule:([0-9a-fA-F-]{36}):due:(\d{4}-\d{2}-\d{2})$');
   IF m IS NOT NULL THEN
-    RETURN goatos_park_day_has_vaccination_work(p_tenant_id, NULL, NULL, m[3]::date, m[2]::uuid);
+    BEGIN
+      parsed_date := m[3]::date;
+      RETURN goatos_park_day_has_vaccination_work(p_tenant_id, NULL, NULL, parsed_date, m[2]::uuid);
+    EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR numeric_value_out_of_range THEN
+      RETURN false;
+    END;
   END IF;
 
-  -- Unrecognized shape: not one of the canonical naming conventions above -- flag it rather than
-  -- silently accept it (a genuine typo/legacy/foreign id should surface as an orphan for review).
+  -- Unrecognized shape: not one of the canonical naming conventions.
   RETURN false;
 END;
 $_$;
@@ -1167,6 +1219,45 @@ BEGIN
   WHERE cs.tenant_id = p_tenant_id
     AND cs.calendar_event_id IS NOT NULL
     AND NOT goatos_calendar_event_reference_valid(p_tenant_id, cs.calendar_event_id);
+END;
+$$;
+
+
+--
+-- Name: goatos_reconcile_calendar_event_references(uuid, integer, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.goatos_reconcile_calendar_event_references(p_tenant_id uuid, p_limit integer DEFAULT 1000, p_offset integer DEFAULT 0) RETURNS TABLE(source_table text, record_id uuid, calendar_event_id text, issue text)
+    LANGUAGE plpgsql STABLE
+    AS $$
+BEGIN
+  RETURN QUERY
+  SELECT * FROM (
+    SELECT
+      'notification_requests'::text AS source_table,
+      nr.notification_request_id,
+      nr.calendar_event_id,
+      'orphaned calendar_event_id: does not map to any canonical obligation/batch/drive/task'::text
+    FROM notification_requests nr
+    WHERE nr.tenant_id = p_tenant_id
+      AND nr.calendar_event_id IS NOT NULL
+      AND NOT goatos_calendar_event_reference_valid(p_tenant_id, nr.calendar_event_id)
+
+    UNION ALL
+
+    SELECT
+      'calendar_snoozes'::text AS source_table,
+      cs.snooze_id,
+      cs.calendar_event_id,
+      'orphaned calendar_event_id: does not map to any canonical obligation/batch/drive/task'::text
+    FROM calendar_snoozes cs
+    WHERE cs.tenant_id = p_tenant_id
+      AND cs.calendar_event_id IS NOT NULL
+      AND NOT goatos_calendar_event_reference_valid(p_tenant_id, cs.calendar_event_id)
+  ) combined
+  ORDER BY source_table, record_id
+  LIMIT p_limit
+  OFFSET p_offset;
 END;
 $$;
 

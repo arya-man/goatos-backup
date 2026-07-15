@@ -65,6 +65,13 @@ type Repository interface {
 	// obligation.
 	ResolveVaccinationCompletionContext(ctx context.Context, tenantID, completionID string) (VaccinationCompletionContext, error)
 
+	// ReconcileEventReferencesPage (FINDING 4 fix: migration 000192) surfaces a bounded page of
+	// notification_requests/calendar_snoozes rows whose calendar_event_id no longer maps to any
+	// canonical obligation/batch/drive/task/completion. Ordered by (source_table, record_id) for
+	// stable pagination. Used by kernelstages.CalendarReconcilerStage to process large orphan sets
+	// without loading all into memory.
+	ReconcileEventReferencesPage(ctx context.Context, tenantID string, limit, offset int) ([]OrphanedCalendarEventReference, error)
+
 	// ReconcileEventReferences (CR-004, calendar-canonical-5k50k review) surfaces every
 	// notification_requests/calendar_snoozes row whose calendar_event_id no longer maps to any
 	// canonical obligation/batch/drive/task/completion (the referential integrity check migration
@@ -72,6 +79,7 @@ type Repository interface {
 	// goatos_reconcile_calendar_event_references / goatos_calendar_event_reference_valid in
 	// migration 000191). This is a callable integrity check, not yet on any recurring schedule --
 	// see adapters/postgres/reconciler.go's doc comment for the housekeeping-stage wiring seam.
+	// NOTE: deprecated in favor of ReconcileEventReferencesPage for bounded pagination.
 	ReconcileEventReferences(ctx context.Context, tenantID string) ([]OrphanedCalendarEventReference, error)
 }
 
@@ -227,10 +235,12 @@ type ReminderCadenceFire struct {
 	// RepresentativeCalendarEventID/RepresentativeObligationID identify ONE of the collapsed
 	// obligations (deterministically the earliest due_at, then lowest event_id) -- used to populate
 	// notification_requests.calendar_event_id (a plain text column now, no FK to satisfy since
-	// migration 000189) and to carry a concrete obligation_id in the FCM deep-link context; the push
-	// itself represents the whole batch.
+	// migration 000189) and to carry a concrete id in the FCM deep-link context; the push
+	// itself represents the whole batch. SourceTargetType specifies what type of entity
+	// RepresentativeObligationID actually refers to (obligation | batch | catchup | park_drive).
 	RepresentativeCalendarEventID string
 	RepresentativeObligationID    string
+	SourceTargetType              string // "obligation" | "batch" | "catchup" | "park_drive" — derived from source_events
 	FireDayIST                    string // "YYYY-MM-DD", the calendar day this fire is scheduled on (IST)
 	NotificationType              string // advance_notice | reminder | due_today
 	Priority                      string // normal | high

@@ -466,11 +466,33 @@ func (s *Service) ResolveVaccinationCompletionContext(ctx context.Context, tenan
 	return s.repo.ResolveVaccinationCompletionContext(ctx, tenantID, completionID)
 }
 
+// ReconcileEventReferencesPage (FINDING 4 fix: migration 000192) surfaces a bounded page of
+// notification_requests/calendar_snoozes rows whose calendar_event_id no longer resolves to any
+// canonical obligation/batch/drive/task/completion. Used by kernelstages.CalendarReconcilerStage
+// to process large orphan sets without loading all into memory.
+func (s *Service) ReconcileEventReferencesPage(ctx context.Context, tenantID string, limit, offset int) ([]ports.OrphanedCalendarEventReference, error) {
+	if !uuidutil.IsUUIDString(tenantID) {
+		return nil, BadRequest("invalid_tenant", "tenant id is required")
+	}
+	if limit <= 0 || limit > 10000 {
+		limit = 1000 // default/cap
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	orphans, err := s.repo.ReconcileEventReferencesPage(ctx, tenantID, limit, offset)
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+	return orphans, nil
+}
+
 // ReconcileEventReferences (CR-004, calendar-canonical-5k50k review) surfaces every
 // notification_requests/calendar_snoozes row whose calendar_event_id no longer resolves to any
 // canonical obligation/batch/drive/task/completion. It is a read-only integrity check -- see
 // adapters/postgres/reconciler.go's doc comment for the callable's housekeeping-stage wiring seam
 // (this package does not own cmd/kernel-worker/internal/kernelstages, so it is not scheduled here).
+// NOTE: deprecated in favor of ReconcileEventReferencesPage (bounded pagination, FINDING 4 fix).
 func (s *Service) ReconcileEventReferences(ctx context.Context, tenantID string) ([]ports.OrphanedCalendarEventReference, error) {
 	if !uuidutil.IsUUIDString(tenantID) {
 		return nil, BadRequest("invalid_tenant", "tenant id is required")

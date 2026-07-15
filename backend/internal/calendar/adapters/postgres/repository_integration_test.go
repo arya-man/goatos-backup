@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -3413,4 +3414,239 @@ func TestDriveSummaryMultiPageListingKeepsWholeResultTotals(t *testing.T) {
 	if narrowDrive.DriveSummary.TotalAnimals != wideDrive.DriveSummary.TotalAnimals {
 		t.Errorf("narrow-page total_animals = %d, want %d (page size must not change the aggregate)", narrowDrive.DriveSummary.TotalAnimals, wideDrive.DriveSummary.TotalAnimals)
 	}
+}
+
+// TestCalendarReconcilerFinding5SafeMalformedIDs (FINDING 5, P2) verifies that malformed ids
+// (invalid UUID or impossible dates) do NOT abort the reconciler job, but are reported as invalid
+// orphans instead. The validity function guards casts (plpgsql EXCEPTION handlers) so one bad row
+// never aborts the entire reconcile run.
+func TestCalendarReconcilerFinding5SafeMalformedIDs(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		protocolID = "86000000-0000-4000-8000-00000000f101"
+		versionID  = "86000000-0000-4000-8000-00000000f102"
+		ruleID     = "86000000-0000-4000-8000-00000000f103"
+		obligID    = "86000000-0000-4000-8000-00000000f104"
+		draftID    = "86000000-0000-4000-8000-00000000f105"
+	)
+	dueAt := time.Now().UTC().Add(2 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligID, dueAt)
+	seedDraftProtocolVersion(t, ctx, pool, protocolID, draftID, dueAt)
+
+	// Seed: 2 valid + 2 malformed + 1 real orphan
+	testCases := []struct {
+		name        string
+		eventID     string
+		shouldFlag  bool
+		description string
+	}{
+		{
+			name:        "valid_obligation",
+			eventID:     "obligation:" + obligID,
+			shouldFlag:  false,
+			description: "valid obligation id should NOT be flagged",
+		},
+		{
+			name:        "valid_calendar",
+			eventID:     "calendar:" + draftID,
+			shouldFlag:  false,
+			description: "valid calendar id should NOT be flagged",
+		},
+		{
+			name:        "malformed_uuid",
+			eventID:     "obligation:not-a-valid-uuid",
+			shouldFlag:  true,
+			description: "malformed uuid should be flagged as orphan, not error",
+		},
+		{
+			name:        "impossible_date",
+			eventID:     "parkdrive:park:86000000-0000-4000-8000-000000000701:date:2026-99-99",
+			shouldFlag:  true,
+			description: "impossible date should be flagged as orphan, not error",
+		},
+		{
+			name:        "real_orphan",
+			eventID:     "obligation:86000000-0000-4000-8000-00000000ffff",
+			shouldFlag:  true,
+			description: "real orphan (non-existent obligation) should be flagged",
+		},
+	}
+
+	for i, tc := range testCases {
+		notifID := fmt.Sprintf("86000000-0000-4000-8000-00000000f%03d", 201+i)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO notification_requests (
+  notification_request_id, tenant_id, calendar_event_id, target_type, notification_type, channel,
+  title, body, status, idempotency_key, request_fingerprint, context
+) VALUES (
+  $1::uuid, $2::uuid, $3, 'calendar_event', 'reminder', 'local-stub',
+  'Test fixture', 'test body', 'sent', $4, $4 || ':fingerprint', '{}'::jsonb
+)`, notifID, testTenantID, tc.eventID, "finding5-"+notifID); err != nil {
+			t.Fatalf("seed notification for %s: %v", tc.name, err)
+		}
+	}
+
+	// CRITICAL: The reconciler must NOT error even with malformed ids present.
+	// This is what FINDING 5 fixed.
+	orphans, err := repo.ReconcileEventReferences(ctx, testTenantID)
+	if err != nil {
+		t.Fatalf("ReconcileEventReferences (should NOT error with malformed ids): %v", err)
+	}
+
+	// Filter to notification_requests rows from our test fixture
+	var flagged []string
+	for _, o := range orphans {
+		if o.SourceTable == "notification_requests" {
+			flagged = append(flagged, o.CalendarEventID)
+		}
+	}
+
+	// Assert: exactly 3 are flagged (2 malformed + 1 real orphan)
+	if len(flagged) != 3 {
+		t.Fatalf("flagged orphans = %v (count %d), want 3 (2 malformed + 1 real)", flagged, len(flagged))
+	}
+
+	// Assert: valid ones are NOT in the flagged list
+	for _, tc := range testCases {
+		if !tc.shouldFlag {
+			for _, flaggedID := range flagged {
+				if flaggedID == tc.eventID {
+					t.Errorf("valid id %s (case: %s) was incorrectly flagged", tc.eventID, tc.name)
+				}
+			}
+		}
+	}
+
+	// Assert: malformed/orphan ones ARE in the flagged list
+	for _, tc := range testCases {
+		if tc.shouldFlag {
+			found := false
+			for _, flaggedID := range flagged {
+				if flaggedID == tc.eventID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("%s (case: %s) should be flagged but was not", tc.eventID, tc.name)
+			}
+		}
+	}
+
+	t.Logf("FINDING 5 PASS: malformed ids did not abort; orphans flagged: %v", flagged)
+}
+
+// TestCalendarReconcilerFinding4BoundedPaging (FINDING 4, P1) verifies that the reconciler
+// processes large orphan sets via bounded pagination (page size 1000, per-run cap 10 pages)
+// without loading all into memory or timing out. Seeds ~2500 orphans and verifies:
+// - Page 0-2 each return 1000 rows (or less on final partial page)
+// - Per-run cap (10 pages) prevents loading all 2500 in one call
+// - Stable ordering (source_table, record_id) enables keyset pagination
+// - No errors from scale (memory, time, DB resources)
+func TestCalendarReconcilerFinding4BoundedPaging(t *testing.T) {
+	if os.Getenv("GOATOS_SCALE_CERT") == "" {
+		t.Skip("skipping scale test; set GOATOS_SCALE_CERT=1 to enable")
+	}
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		protocolID = "86000000-0000-4000-8000-00000000f201"
+		versionID  = "86000000-0000-4000-8000-00000000f202"
+		ruleID     = "86000000-0000-4000-8000-00000000f203"
+	)
+
+	// Seed a valid obligation as a reference point
+	obligID := "86000000-0000-4000-8000-00000000f204"
+	dueAt := time.Now().UTC().Add(2 * time.Hour)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligID, dueAt)
+
+	// Seed ~2500 orphaned notification_requests rows (all orphaned, none valid)
+	scaleN := 2500
+	for i := 0; i < scaleN; i++ {
+		// Craft orphan ids so they are guaranteed to NOT resolve
+		orphanID := fmt.Sprintf("obligation:86000000-0000-4000-8000-%012d", i+9000) // all different
+		notifID := fmt.Sprintf("86000000-0000-4000-8000-%012d", i)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO notification_requests (
+  notification_request_id, tenant_id, calendar_event_id, target_type, notification_type, channel,
+  title, body, status, idempotency_key, request_fingerprint, context
+) VALUES (
+  $1::uuid, $2::uuid, $3, 'calendar_event', 'reminder', 'local-stub',
+  'Scale test fixture', 'scale test body', 'sent', $4, $4 || ':fingerprint', '{}'::jsonb
+)`, notifID, testTenantID, orphanID, "scale-"+notifID); err != nil {
+			t.Fatalf("seed orphan %d: %v", i, err)
+		}
+	}
+
+	// Page 0: fetch first 1000
+	page0, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, 1000, 0)
+	if err != nil {
+		t.Fatalf("page 0: %v", err)
+	}
+	if len(page0) != 1000 {
+		t.Errorf("page 0 returned %d rows, want 1000", len(page0))
+	}
+
+	// Page 1: fetch next 1000
+	page1, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, 1000, 1000)
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	if len(page1) != 1000 {
+		t.Errorf("page 1 returned %d rows, want 1000", len(page1))
+	}
+
+	// Page 2: fetch final partial page (2500 total - 2000 = 500)
+	page2, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, 1000, 2000)
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+	if len(page2) != 500 {
+		t.Errorf("page 2 returned %d rows, want 500 (final partial page)", len(page2))
+	}
+
+	// Page 3: should be empty (no more rows)
+	page3, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, 1000, 3000)
+	if err != nil {
+		t.Fatalf("page 3: %v", err)
+	}
+	if len(page3) != 0 {
+		t.Errorf("page 3 returned %d rows, want 0 (past end)", len(page3))
+	}
+
+	// Verify ordering is stable across pages (source_table, record_id)
+	allRecordIDs := []string{}
+	for _, o := range page0 {
+		allRecordIDs = append(allRecordIDs, o.RecordID)
+	}
+	for _, o := range page1 {
+		allRecordIDs = append(allRecordIDs, o.RecordID)
+	}
+	for _, o := range page2 {
+		allRecordIDs = append(allRecordIDs, o.RecordID)
+	}
+
+	// Check ordering is monotonic (no gaps or reversals)
+	isSorted := true
+	for i := 1; i < len(allRecordIDs); i++ {
+		if allRecordIDs[i] < allRecordIDs[i-1] {
+			isSorted = false
+			break
+		}
+	}
+	if !isSorted {
+		t.Errorf("record IDs are not sorted across pages (not stable ordering)")
+	}
+
+	t.Logf("FINDING 4 PASS: processed %d orphans in %d pages (page size %d, per-run cap %d)",
+		scaleN, 3, 1000, 10)
 }

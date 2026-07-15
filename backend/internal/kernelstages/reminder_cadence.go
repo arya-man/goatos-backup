@@ -33,6 +33,10 @@ type ReminderCadenceStage struct {
 	// inject a fixed instant (e.g. an evening slot after every ladder rung) so the ladder is
 	// deterministic regardless of when the suite runs. Kept parallel to calendarapp.Service.now.
 	now func() time.Time
+	// lastRunIterations records how many drain iterations the most recent Run() executed. Test-only
+	// observability (same-package tests read it) proving the drain terminates on no-progress rather
+	// than spinning the iteration cap when fires are unclaimable (no recipients).
+	lastRunIterations int
 }
 
 // reminderCadencePositionCodes is the park-scoped operational audience for the reminder ladder
@@ -76,82 +80,139 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 
 	now := s.now()
 
-	// Find all fires due as of now (collapsed per park, fire day, notification type, slot).
-	fires, err := s.calendar.SweepReminderCadence(ctx, calendarports.ReminderCadenceQuery{
-		TenantID: s.tenantID,
-		Now:      now,
-		Limit:    200,
-	})
-	if err != nil {
-		return fmt.Errorf("sweep reminder cadence: %w", err)
-	}
-
-	if len(fires) == 0 {
-		if s.logger != nil {
-			s.logger.Info("reminder_cadence_stage_no_fires", "tenant_id", s.tenantID)
-		}
-		return nil
-	}
-
-	// Collect unique parks from all fires so we can batch-resolve recipients once.
-	parkMap := make(map[string]bool)
-	for _, fire := range fires {
-		parkMap[fire.ParkID] = true
-	}
-	var parks []string
-	for parkID := range parkMap {
-		parks = append(parks, parkID)
-	}
-
-	// Resolve recipients for all parks at once (batch query, not per-park N+1). The park is a 'center'
-	// scope in the workforce model; the ladder audience is the park's operator/park-head/PHC-manager
-	// seats (vaccination-notification-rules.md §4a).
-	recipientsByParkPosition, err := s.roster.ResolvePositionRecipientsBatch(
-		ctx,
-		s.tenantID,
-		"center", // parks are 'center'-scoped positions
-		parks,
-		reminderCadencePositionCodes,
-		now,
+	// Drain all eligible reminder cadence fires: loop, each iteration sweeping a bounded page,
+	// resolving recipients, and queueing. A correct queue CLAIMS each fire that produced >=1
+	// notification (QueueReminderCadenceBatch), so the next sweep at the same `now` no longer
+	// re-derives it and the backlog of recipient-backed fires converges to zero — this drains
+	// farms with >200 events (vaccination-notification-rules.md §3).
+	//
+	// Termination is on NO PROGRESS, not on "zero fires returned":
+	//   - a page that returns zero fires  -> fully drained -> stop.
+	//   - a page that CLAIMS zero fires    -> the remaining fires are unclaimable right now
+	//     (no recipient assigned yet: Finding 1 deliberately refuses to burn their marker).
+	//     Re-sweeping would return the SAME fires forever, so we stop and DEFER them to the next
+	//     cadence tick instead of spinning the whole iteration cap doing nothing.
+	const (
+		perTickLimit  = 200 // bounded sweep per tick (avoid loading an unbounded result set into memory)
+		maxIterations = 50  // safety cap; a converging drain typically needs only a handful
 	)
-	if err != nil {
-		return fmt.Errorf("resolve position recipients batch: %w", err)
-	}
-
-	// ResolvePositionRecipientsBatch keys its result by "<scopeID>|<positionCode>", so a park with
-	// three seats (operator, park_head, phc_manager) yields three separate keys. Fold every seat's
-	// devices back to the bare park id and dedup by device (one member may hold two seats, or one
-	// device serve two members) so a recipient is pushed at most once per fire.
-	recipientsByPark := foldRecipientsByPark(recipientsByParkPosition)
-
-	// Map fires to fire inputs with resolved recipients.
-	var fireInputs []calendarports.ReminderCadenceFireInput
-	for _, fire := range fires {
-		fireInputs = append(fireInputs, calendarports.ReminderCadenceFireInput{
-			Fire:       fire,
-			Title:      renderReminderTitle(fire),
-			Body:       renderReminderBody(fire),
-			Context:    renderReminderContext(fire),
-			Recipients: recipientsByPark[fire.ParkID],
+	iterations := 0
+	runs := 0
+	totalQueued := 0
+	defer func() { s.lastRunIterations = runs }()
+	for iterations = 0; iterations < maxIterations; iterations++ {
+		runs++
+		fires, err := s.calendar.SweepReminderCadence(ctx, calendarports.ReminderCadenceQuery{
+			TenantID: s.tenantID,
+			Now:      now,
+			Limit:    perTickLimit,
 		})
-	}
+		if err != nil {
+			return fmt.Errorf("sweep reminder cadence (iteration %d): %w", iterations, err)
+		}
 
-	// Queue the batch of fires (set-based insert, claims each fire atomically).
-	queued, err := s.calendar.QueueReminderCadenceBatch(ctx, calendarports.QueueReminderCadenceBatch{
-		TenantID: s.tenantID,
-		Channel:  "push_fcm",
-		Fires:    fireInputs,
-	})
-	if err != nil {
-		return fmt.Errorf("queue reminder cadence batch: %w", err)
-	}
+		if len(fires) == 0 {
+			// Backlog fully drained; no more fires to process.
+			break
+		}
 
-	if s.logger != nil {
-		s.logger.Info("reminder_cadence_stage_queued",
-			"tenant_id", s.tenantID,
-			"fires", len(fires),
-			"notification_requests_queued", queued,
+		// Collect unique parks from all fires so we can batch-resolve recipients once.
+		parkMap := make(map[string]bool)
+		for _, fire := range fires {
+			parkMap[fire.ParkID] = true
+		}
+		var parks []string
+		for parkID := range parkMap {
+			parks = append(parks, parkID)
+		}
+
+		// Resolve recipients for all parks at once (batch query, not per-park N+1). The park is a 'center'
+		// scope in the workforce model; the ladder audience is the park's operator/park-head/PHC-manager
+		// seats (vaccination-notification-rules.md §4a).
+		// Batched resolve for ALL parks in this drain page in one = ANY($parks) round trip.
+		// scale-guard:ignore: per-PAGE batched read in the bounded drain loop, not per-park/per-row.
+		recipientsByParkPosition, err := s.roster.ResolvePositionRecipientsBatch(
+			ctx,
+			s.tenantID,
+			"center", // parks are 'center'-scoped positions
+			parks,
+			reminderCadencePositionCodes,
+			now,
 		)
+		if err != nil {
+			return fmt.Errorf("resolve position recipients batch: %w", err)
+		}
+
+		// ResolvePositionRecipientsBatch keys its result by "<scopeID>|<positionCode>", so a park with
+		// three seats (operator, park_head, phc_manager) yields three separate keys. Fold every seat's
+		// devices back to the bare park id and dedup by device (one member may hold two seats, or one
+		// device serve two members) so a recipient is pushed at most once per fire.
+		recipientsByPark := foldRecipientsByPark(recipientsByParkPosition)
+
+		// Map fires to fire inputs with resolved recipients.
+		var fireInputs []calendarports.ReminderCadenceFireInput
+		for _, fire := range fires {
+			fireInputs = append(fireInputs, calendarports.ReminderCadenceFireInput{
+				Fire:       fire,
+				Title:      renderReminderTitle(fire),
+				Body:       renderReminderBody(fire),
+				Context:    renderReminderContext(fire),
+				Recipients: recipientsByPark[fire.ParkID],
+			})
+		}
+
+		// Queue the batch of fires (set-based insert, claims each fire atomically).
+		queued, err := s.calendar.QueueReminderCadenceBatch(ctx, calendarports.QueueReminderCadenceBatch{
+			TenantID: s.tenantID,
+			Channel:  "push_fcm",
+			Fires:    fireInputs,
+		})
+		if err != nil {
+			return fmt.Errorf("queue reminder cadence batch (iteration %d): %w", iterations, err)
+		}
+
+		totalQueued += queued
+		if s.logger != nil {
+			s.logger.Debug("reminder_cadence_stage_iteration",
+				"tenant_id", s.tenantID,
+				"iteration", iterations,
+				"fires_in_batch", len(fires),
+				"notification_requests_queued", queued,
+			)
+		}
+
+		if queued == 0 {
+			// No fire was claimed this iteration (every returned fire had zero resolvable
+			// recipients). Claiming happens iff >=1 notification is inserted, so queued==0 means
+			// zero progress. Stop and defer these fires to the next cadence tick — re-sweeping now
+			// would just return the same unclaimable fires and spin the iteration cap.
+			if s.logger != nil {
+				s.logger.Info("reminder_cadence_stage_deferred_no_recipients",
+					"tenant_id", s.tenantID,
+					"iteration", iterations,
+					"deferred_fires", len(fires),
+				)
+			}
+			break
+		}
+	}
+
+	if iterations >= maxIterations {
+		if s.logger != nil {
+			s.logger.Warn("reminder_cadence_stage_capped",
+				"tenant_id", s.tenantID,
+				"iterations_capped_at", maxIterations,
+				"total_queued", totalQueued,
+			)
+		}
+	} else if totalQueued > 0 && s.logger != nil {
+		s.logger.Info("reminder_cadence_stage_drained",
+			"tenant_id", s.tenantID,
+			"total_iterations", iterations,
+			"total_notification_requests_queued", totalQueued,
+		)
+	} else if s.logger != nil {
+		s.logger.Info("reminder_cadence_stage_no_fires", "tenant_id", s.tenantID)
 	}
 	return nil
 }

@@ -58,11 +58,13 @@ func run(ctx context.Context, args []string) error {
 
 	deps := kernelstages.Deps{Pool: pool, PgCfg: pgCfg, Logger: logger}
 
-	// Tenant-scoped operational/generation/fast stages need a tenant. Fail fast at
-	// startup rather than logging a per-tick error forever.
+	// Tenant-scoped operational/generation/fast stages need a tenant ID.
+	// CRITICAL: this must be set to an actual tenant ID, never a fake/placeholder UUID.
+	// Fail fast at startup rather than logging a per-tick error forever.
+	// Dev/test environments must explicitly set GOATOS_TENANT_ID to their target tenant.
 	tenantID := strings.TrimSpace(os.Getenv("GOATOS_TENANT_ID"))
 	if tenantID == "" {
-		return errors.New("GOATOS_TENANT_ID is required for the kernel worker (tenant-scoped stages)")
+		return errors.New("GOATOS_TENANT_ID is required for the kernel worker (must be set to an actual tenant UUID, not empty or placeholder)")
 	}
 
 	// Shared domain-event envelope validator (outbox relay + domain consumer).

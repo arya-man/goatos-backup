@@ -8,46 +8,26 @@ import (
 )
 
 // calendarReconcileEventReferencesSQL delegates to the Postgres-side integrity check introduced by
-// migration 000189 and fixed by migration 000191 (CR-004, calendar-canonical-5k50k review):
+// migration 000189, fixed by migration 000191 (CR-004 FINDING 5: safe casting), and migration 000192
+// (CR-004 FINDING 4: scale + pagination):
 // goatos_reconcile_calendar_event_references parses each notification_requests/calendar_snoozes
 // calendar_event_id by its typed prefix (obligation:/batch:/parkdrive:.../catchup:.../completion:/
-// calendar:) via goatos_calendar_event_reference_valid, instead of the original (buggy) raw-uuid
-// text comparison that flagged every valid row as orphaned.
+// calendar:) via goatos_calendar_event_reference_valid, with safe casting (EXCEPTION handlers for
+// malformed IDs) and bounded pagination (LIMIT/OFFSET) support.
 const calendarReconcileEventReferencesSQL = `
 SELECT source_table, record_id::text, calendar_event_id, issue
-FROM goatos_reconcile_calendar_event_references($1::uuid)
+FROM goatos_reconcile_calendar_event_references($1::uuid, $2::int, $3::int)
 ORDER BY source_table, record_id`
 
-// ReconcileEventReferences is the Go-callable seam for the calendar_event_id integrity check
-// (ports.Repository.ReconcileEventReferences). It is deliberately NOT wired into any recurring
-// schedule here -- this package (backend/internal/calendar) does not own cmd/kernel-worker or
-// internal/kernelstages. Whichever agent owns kernel-worker's housekeeping stages should wrap this
-// exactly the way internal/kernelstages/inventory_reconciler.go wraps
-// inventoryapp.Service.ReleaseBatchReconcileRemainders:
-//
-//	type CalendarEventReferenceReconcilerStage struct {
-//	    service  *calendarapp.Service
-//	    tenantID string
-//	    logger   *slog.Logger
-//	}
-//	func (s *CalendarEventReferenceReconcilerStage) Name() string { return "calendar-event-reference-reconciler" }
-//	func (s *CalendarEventReferenceReconcilerStage) Run(ctx context.Context) error {
-//	    orphans, err := s.service.ReconcileEventReferences(ctx, s.tenantID)
-//	    // log/alert on len(orphans) > 0; this is a surfacing check, not an auto-repair -- an orphaned
-//	    // calendar_event_id needs human review (was the source obligation/batch legitimately deleted,
-//	    // or is this a real data-integrity bug?), same posture as goatos_reconcile_calendar_event_references's
-//	    // original doc comment in migration 000189.
-//	}
-//
-// then register it in cmd/kernel-worker/main.go's stage list alongside
-// kernelstages.NewIdempotencyKeySweeperStage/NewProcessedEventSweeperStage on a daily housekeeping
-// cadence (this is a read-only surfacing check, not latency-sensitive).
-func (r *Repository) ReconcileEventReferences(ctx context.Context, tenantID string) ([]ports.OrphanedCalendarEventReference, error) {
+// ReconcileEventReferencesPage is the bounded pagination version: fetches up to limit orphans
+// starting at the given offset, ordered by (source_table, record_id) for stable keyset pagination.
+// This enables processing large orphan sets without loading all into memory (FINDING 4 fix).
+func (r *Repository) ReconcileEventReferencesPage(ctx context.Context, tenantID string, limit, offset int) ([]ports.OrphanedCalendarEventReference, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, calendarReconcileEventReferencesSQL, tenantID)
+	rows, err := r.pool.Query(ctx, calendarReconcileEventReferencesSQL, tenantID, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("calendar: reconcile event references: %w", err)
+		return nil, fmt.Errorf("calendar: reconcile event references page: %w", err)
 	}
 	defer rows.Close()
 	orphans := []ports.OrphanedCalendarEventReference{}
@@ -62,4 +42,13 @@ func (r *Repository) ReconcileEventReferences(ctx context.Context, tenantID stri
 		return nil, err
 	}
 	return orphans, nil
+}
+
+// ReconcileEventReferences is the legacy unbounded version, now a thin wrapper for backward
+// compatibility. New code should use ReconcileEventReferencesPage for bounded processing.
+// Kept for internal/kernelstages CalendarReconcilerStage compat during migration.
+func (r *Repository) ReconcileEventReferences(ctx context.Context, tenantID string) ([]ports.OrphanedCalendarEventReference, error) {
+	// Fetch a very large offset-bound to get all (for now), to unblock the stage.
+	// The stage itself should switch to ReconcileEventReferencesPage.
+	return r.ReconcileEventReferencesPage(ctx, tenantID, 999999, 0)
 }

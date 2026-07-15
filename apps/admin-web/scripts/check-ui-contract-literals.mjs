@@ -47,8 +47,57 @@ const ALLOW_LINE = [
 const JSX_TEXT = />\s*[A-Z][^<{}`]{2,}\s*</;
 const VISIBLE_ATTR = /\b(?:placeholder|aria-label|title)=["'][A-Z][^"']{2,}["']/;
 const CAPITAL_STRING = /["'][A-Z][^"']{2,}["']/;
-// Lowercase UI copy: multi-word phrases and specific UI terms that should use contract (not technical parameters)
-const LOWERCASE_UI_COPY = /["'](?:animals|doses|sheds done|vaccines|vaccines_suffix)\s*["']/;
+// Lowercase visible copy detector: catches natural-language prose in JSX text and visible attributes
+// Must start with lowercase, be 2+ words OR a single word 3+ letters, and not be a technical term
+// JSX text: must have word/space characters only (not operators), not spanning code syntax
+const LOWERCASE_JSX_TEXT = />\s*[a-z][\w\s,.–—'"!?&()]{0,}[a-z0-9)\]'"!?]\s*</;
+const LOWERCASE_VISIBLE_ATTR = /\b(?:placeholder|aria-label|title)=["'][a-z][a-z0-9\s,.–—'"!?&()]*[a-z0-9]["']/;
+
+// Common technical single words that should NOT be flagged as prose
+const TECHNICAL_WORDS = new Set([
+  'id', 'key', 'add', 'add', 'day', 'run', 'fix', 'set', 'get', 'put', 'use', 'api', 'url', 'uri', 'xml', 'css',
+  'sql', 'cli', 'uri', 'jwt', 'org', 'app', 'net', 'sys', 'tmp', 'var', 'req', 'res', 'ctx', 'env', 'dev',
+]);
+
+// Detect whether a string is natural-language prose (not a technical identifier)
+function isLowercaseProseString(str) {
+  // Remove leading/trailing whitespace and quotes
+  const cleaned = str.trim().replace(/^["']|["']$/g, '').trim();
+  if (!cleaned || !/^[a-z]/.test(cleaned)) return false;
+
+  // Single lowercase letter or digit is likely technical (e.g., 'x', 'i', '1')
+  if (cleaned.length < 2) return false;
+
+  // Single technical word: lowercase short identifiers (e.g., 'id', 'key', 'href')
+  if (cleaned.length < 3 && !/\s/.test(cleaned)) return false;
+
+  // Check common technical words (even if 3+ letters)
+  const lowerStr = cleaned.toLowerCase();
+  if (TECHNICAL_WORDS.has(lowerStr)) return false;
+
+  // Multiple words (separated by space/dash/underscore) is clearly prose (unless all technical)
+  if (/[\s\-_]/.test(cleaned)) return true;
+
+  // Single word 4+ letters: likely prose if it's a real English word pattern
+  // Require 4+ letters to avoid catching short technical words
+  if (/^[a-z]+$/.test(cleaned) && cleaned.length >= 4) return true;
+
+  return false;
+}
+
+// Extract and validate lowercase strings from JSX/attribute patterns
+function extractLowercaseStringFromMatch(match, pattern) {
+  if (pattern === 'jsx') {
+    // Extract text from JSX: >text<
+    const extracted = match.match(/>\s*([^<{}`]+)\s*</);
+    return extracted ? extracted[1] : null;
+  } else if (pattern === 'attr') {
+    // Extract text from attribute: attribute="text"
+    const extracted = match.match(/=["']([^"']+)["']/);
+    return extracted ? extracted[1] : null;
+  }
+  return null;
+}
 const FORBIDDEN_RENDER_META = /\b(?:SEVERITY_META|WORK_STATE_META|PROC_[A-Z_]+_META)\b/;
 const STRICT_OPTION_LOOKUP = /\boption(?:Label|Tone|Title)\s*\(/;
 const LIVE_ENTITY_ID = /\.(?:park|location|vendor|operator|supplier|farm|shed|goat|lot)_id\b/;
@@ -110,8 +159,38 @@ for (const file of files) {
       }
       return;
     }
-    if (!JSX_TEXT.test(code) && !VISIBLE_ATTR.test(code) && !CAPITAL_STRING.test(code) && !LOWERCASE_UI_COPY.test(code)) return;
-    findings.push(`${rel}:${index + 1}  visible/admin text literal should come from AdminWebPageContract.copy or option_groups`);
+    // Check for uppercase visible copy (capital-letter strings in JSX or attributes)
+    if (JSX_TEXT.test(code) || VISIBLE_ATTR.test(code) || CAPITAL_STRING.test(code)) {
+      findings.push(`${rel}:${index + 1}  visible/admin text literal should come from AdminWebPageContract.copy or option_groups`);
+      return;
+    }
+
+    // Check for lowercase visible copy (natural-language prose starting with lowercase)
+    let lowercaseMatch = null;
+    let lowerPattern = null;
+
+    const jsxTextMatch = code.match(LOWERCASE_JSX_TEXT);
+    if (jsxTextMatch) {
+      const extracted = extractLowercaseStringFromMatch(jsxTextMatch[0], 'jsx');
+      if (extracted && isLowercaseProseString(extracted)) {
+        lowercaseMatch = jsxTextMatch[0];
+        lowerPattern = 'jsx';
+      }
+    }
+
+    const visibleAttrMatch = code.match(LOWERCASE_VISIBLE_ATTR);
+    if (!lowercaseMatch && visibleAttrMatch) {
+      const extracted = extractLowercaseStringFromMatch(visibleAttrMatch[0], 'attr');
+      if (extracted && isLowercaseProseString(extracted)) {
+        lowercaseMatch = visibleAttrMatch[0];
+        lowerPattern = 'attr';
+      }
+    }
+
+    if (lowercaseMatch) {
+      findings.push(`${rel}:${index + 1}  visible/admin text literal should come from AdminWebPageContract.copy or option_groups`);
+      return;
+    }
   });
 }
 

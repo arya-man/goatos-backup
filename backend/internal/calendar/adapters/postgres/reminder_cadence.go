@@ -135,6 +135,7 @@ func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.Reminder
 				ParkID:                        c.ParkID,
 				RepresentativeCalendarEventID: c.EventID,
 				RepresentativeObligationID:    c.TargetID,
+				SourceTargetType:              c.TargetType, // derived from source_events: obligation | batch | catchup | park_drive
 				FireDayIST:                    fireDay.Format("2006-01-02"),
 				NotificationType:              fire.Type,
 				Priority:                      fire.Priority,
@@ -169,9 +170,16 @@ func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.Reminder
 // calendarReminderCadenceCandidatesSQL is the reminder-cadence candidate set, read directly off the
 // canonical source_events reconstruction instead of calendar_event_projections. windowStart/windowEnd
 // double as the shared CTE's own $2/$3 window bound -- no separate due_at filter needed.
+//
+// The 4th column is SOURCE_TARGET_TYPE (obligation | batch | catchup | park_drive), NOT the drive's
+// display target_type (park/shed/tenant). It is paired with source_target_id below so the notification
+// this fire produces stores a (type, id) that resolves to the SAME real entity the drive is about
+// (Finding 3): a solo batch -> ('batch', batch_id); an unbatched catch-up -> ('catchup', park_id); a
+// multi-source park-day drive -> ('park_drive', park_id). Selecting the display target_type here
+// mislabeled every batch/park id as an 'obligation'.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 const calendarReminderCadenceCandidatesSQL = "WITH " + calendarCanonicalEventsCTE + `
-SELECT event_id, park_id::text, due_at, target_type, COALESCE(source_target_id::text, '')
+SELECT event_id, park_id::text, due_at, source_target_type, COALESCE(source_target_id::text, '')
 FROM source_events
 WHERE system = false
   AND event_type <> 'vaccination_dose_due'
@@ -226,14 +234,16 @@ WHERE tenant_id = $1::uuid AND fire_key = ANY($2::text[])`, tenantID, keys)
 	return fired, rows.Err()
 }
 
-// QueueReminderCadenceBatch implements ports.Repository.QueueReminderCadenceBatch. Three phases, all
+// QueueReminderCadenceBatch implements ports.Repository.QueueReminderCadenceBatch. Four phases, all
 // set-based:
-//  1. claim every fire atomically against the fire-marker table (ON CONFLICT DO NOTHING) so two
-//     concurrent sweeper runs never double-fire the same batch;
-//  2. bulk-insert one notification_requests row per (won fire, recipient) via a single unnest INSERT;
-//  3. mark reminder_state + write outbox/audit for the WON fires' representative events (a small,
-//     Limit-bounded loop over already-fetched Go data -- no injected-dependency call inside it, so no
-//     additional I/O fan-out beyond the two set-based statements above).
+//  1. bulk-insert one notification_requests row per (fire, recipient) via a single unnest INSERT;
+//     only fires with at least one inserted notification are returned as "successfully queued";
+//  2. claim only the fires that actually produced notifications atomically against the fire-marker
+//     table (ON CONFLICT DO NOTHING) so two concurrent sweeper runs never double-fire the same batch,
+//     and fires with zero recipients are left unclaimed and will retry when recipients are assigned;
+//  3. write outbox/audit for the claimed fires' representative events (a small, Limit-bounded loop
+//     over already-fetched Go data -- no injected-dependency call inside it, so no additional I/O
+//     fan-out beyond the two set-based statements above).
 func (r *Repository) QueueReminderCadenceBatch(ctx context.Context, in ports.QueueReminderCadenceBatch) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -251,23 +261,34 @@ func (r *Repository) QueueReminderCadenceBatch(ctx context.Context, in ports.Que
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	won, err := claimReminderCadenceFires(ctx, tx, in.TenantID, in.Fires)
+	// Insert notifications FIRST, then only claim fires that produced at least one notification.
+	// Fires with zero recipients are left UNCLAIMED so they retry once recipients are assigned
+	// (Finding 1: never burn a fire-marker for a fire that produced zero notifications).
+	inserted, firstReqIDByFireKey, firedFireKeys, err := insertReminderCadenceNotifications(ctx, tx, in.TenantID, channel, in.TraceID, in.Fires)
 	if err != nil {
 		return 0, err
 	}
-	if len(won) == 0 {
+	if inserted == 0 {
 		if err := tx.Commit(ctx); err != nil {
 			return 0, err
 		}
 		return 0, nil
 	}
 
-	inserted, firstRequestIDByGroup, err := insertReminderCadenceNotifications(ctx, tx, in.TenantID, channel, in.TraceID, won)
+	// Build the subset of fires that actually produced notifications, preserving original order.
+	var firesToClaim []ports.ReminderCadenceFireInput
+	for _, f := range in.Fires {
+		if firedFireKeys[f.Fire.FireKey] {
+			firesToClaim = append(firesToClaim, f)
+		}
+	}
+
+	won, err := claimReminderCadenceFires(ctx, tx, in.TenantID, firesToClaim)
 	if err != nil {
 		return 0, err
 	}
 
-	for i, f := range won {
+	for _, f := range won {
 		payload := map[string]any{
 			"fire_key":          f.Fire.FireKey,
 			"park_id":           f.Fire.ParkID,
@@ -283,7 +304,7 @@ func (r *Repository) QueueReminderCadenceBatch(ctx context.Context, in ports.Que
 		// QueueRoleNotifications). Reuse it with the representative notification row this batch
 		// actually inserted for the fire; a fire with zero newly-inserted rows (every recipient
 		// device was already an exact replay) has nothing new to audit, so it is skipped here.
-		requestID, ok := firstRequestIDByGroup[i]
+		requestID, ok := firstReqIDByFireKey[f.Fire.FireKey]
 		if !ok {
 			continue
 		}
@@ -328,6 +349,25 @@ func (r *Repository) QueueReminderCadenceBatch(ctx context.Context, in ports.Que
 		return 0, err
 	}
 	return inserted, nil
+}
+
+// deriveNotificationTargetType derives the correct notification target type from the source_target_type
+// read from the canonical source_events. The notification record must store the SAME (type, id) pair
+// that resolves to the actual entity in the operational kernel.
+//   - "obligation" → "obligation" (single obligation)
+//   - "batch" → "batch" (scheduled vaccination drive)
+//   - "catchup" → "catchup" (catch-up drive)
+//   - "park_drive" → "park_drive" (aggregated park/day drive, single or multi-source)
+// If the type is unknown, default to "obligation" for backward compatibility, but log the anomaly.
+func deriveNotificationTargetType(sourceTargetType string) string {
+	switch sourceTargetType {
+	case "obligation", "batch", "catchup", "park_drive":
+		return sourceTargetType
+	default:
+		// Unmapped type; default to obligation for safety. Real production deployments should
+		// never hit this path unless the source_events schema emits a new type not yet mapped here.
+		return "obligation"
+	}
 }
 
 // claimReminderCadenceFires inserts every candidate fire into the fire-marker table in ONE set-based
@@ -413,13 +453,21 @@ func splitReminderCadenceFireKey(key string) (parkID, fireDay, notifType, slot s
 	return parts[0], parts[1], parts[2], parts[3], true
 }
 
-// insertReminderCadenceNotifications bulk-inserts one notification_requests row per (won fire,
-// recipient) via a single unnest-driven INSERT -- no per-fire loop calling the database. Also returns
-// ONE representative notification_request_id per fire index (the first recipient row that actually
-// got inserted for that fire), used as the outbox/audit aggregate reference; a fire with zero inserted
-// rows (e.g. every recipient device already had this exact row from a prior partial run) is simply
-// absent from the map.
-func insertReminderCadenceNotifications(ctx context.Context, tx pgx.Tx, tenantID, channel, traceID string, fires []ports.ReminderCadenceFireInput) (int, map[int]string, error) {
+// insertReminderCadenceNotifications bulk-inserts one notification_requests row per (fire, recipient)
+// via a single unnest-driven INSERT -- no per-fire loop calling the database. Correlation back to the
+// caller is keyed by the fire's stable FireKey (NOT a positional index), so it stays correct even when
+// the caller later re-slices/re-orders the fires (e.g. claims only the subset that produced rows):
+//   - firstReqIDByFireKey: fire_key -> the FIRST notification_request_id inserted for that fire, used
+//     as the outbox/audit aggregate reference; a fire whose every recipient row was an exact idempotent
+//     replay (zero new rows) is simply absent.
+//   - firedFireKeys: the set of fire_keys that produced AT LEAST ONE new notification row -- exactly the
+//     fires that should be claimed (a zero-recipient / fully-replayed fire is absent, so its marker is
+//     never burned and it is retried on a later sweep once recipients exist).
+//
+// RETURNING intentionally selects only target-table columns (notification_request_id, idempotency_key);
+// Postgres cannot return a source CTE column (recip.group_idx) from an INSERT, so the fire correlation
+// is done in Go via the idempotency_key -> fire_key map built here.
+func insertReminderCadenceNotifications(ctx context.Context, tx pgx.Tx, tenantID, channel, traceID string, fires []ports.ReminderCadenceFireInput) (int, map[string]string, map[string]bool, error) {
 	groupIdx := make([]int32, 0, len(fires))
 	groupEventIDs := make([]string, 0, len(fires))
 	groupTargetTypes := make([]string, 0, len(fires))
@@ -430,11 +478,13 @@ func insertReminderCadenceNotifications(ctx context.Context, tx pgx.Tx, tenantID
 
 	var rowGroupIdx []int32
 	var rowDeviceIDs, rowFCMTokens, rowIdemKeys, rowFingerprints, rowContexts []string
+	// idemKey -> fire_key, so an inserted row (returned by idempotency_key) maps back to its fire.
+	idemKeyToFireKey := map[string]string{}
 
 	for i, f := range fires {
 		groupIdx = append(groupIdx, int32(i))
 		groupEventIDs = append(groupEventIDs, f.Fire.RepresentativeCalendarEventID)
-		groupTargetTypes = append(groupTargetTypes, "obligation")
+		groupTargetTypes = append(groupTargetTypes, deriveNotificationTargetType(f.Fire.SourceTargetType))
 		groupTargetIDs = append(groupTargetIDs, f.Fire.RepresentativeObligationID)
 		groupTypes = append(groupTypes, f.Fire.NotificationType)
 		groupTitles = append(groupTitles, f.Title)
@@ -442,6 +492,7 @@ func insertReminderCadenceNotifications(ctx context.Context, tx pgx.Tx, tenantID
 
 		for _, recipient := range f.Recipients {
 			idempotencyKey := tenantID + ":calendar.reminder.cadence:" + f.Fire.FireKey + ":device:" + recipient.DeviceID
+			idemKeyToFireKey[idempotencyKey] = f.Fire.FireKey
 			contextData := map[string]any{
 				"priority":         f.Fire.Priority,
 				"role":             recipient.RoleLabel,
@@ -458,7 +509,7 @@ func insertReminderCadenceNotifications(ctx context.Context, tx pgx.Tx, tenantID
 			}
 			contextJSON, err := json.Marshal(contextData)
 			if err != nil {
-				return 0, nil, fmt.Errorf("calendar: encode reminder cadence context: %w", err)
+				return 0, nil, nil, fmt.Errorf("calendar: encode reminder cadence context: %w", err)
 			}
 			rowGroupIdx = append(rowGroupIdx, int32(i))
 			rowDeviceIDs = append(rowDeviceIDs, recipient.DeviceID)
@@ -469,7 +520,7 @@ func insertReminderCadenceNotifications(ctx context.Context, tx pgx.Tx, tenantID
 		}
 	}
 	if len(rowGroupIdx) == 0 {
-		return 0, nil, nil
+		return 0, map[string]string{}, map[string]bool{}, nil
 	}
 
 	rows, err := tx.Query(ctx, `
@@ -495,7 +546,7 @@ RETURNING notification_request_id::text, idempotency_key`,
 		channel, traceID,
 	)
 	if err != nil {
-		return 0, nil, fmt.Errorf("calendar: insert reminder cadence notifications: %w", err)
+		return 0, nil, nil, fmt.Errorf("calendar: insert reminder cadence notifications: %w", err)
 	}
 	defer rows.Close()
 	insertedRequestIDByKey := map[string]string{}
@@ -503,26 +554,29 @@ RETURNING notification_request_id::text, idempotency_key`,
 	for rows.Next() {
 		var requestID, idemKey string
 		if err := rows.Scan(&requestID, &idemKey); err != nil {
-			return 0, nil, err
+			return 0, nil, nil, err
 		}
 		insertedRequestIDByKey[idemKey] = requestID
 		count++
 	}
 	if err := rows.Err(); err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 
-	// One representative notification_request_id per fire index (the first recipient row of that
-	// group that actually got inserted) -- pure in-memory correlation, no extra I/O.
-	firstRequestIDByGroup := map[int]string{}
-	for j, idemKey := range rowIdemKeys {
-		groupIndex := int(rowGroupIdx[j])
-		if _, already := firstRequestIDByGroup[groupIndex]; already {
-			continue
+	// Correlate inserted rows back to their fire by fire_key (stable, re-slice-safe). Walk rowIdemKeys
+	// in build order so firstReqIDByFireKey deterministically picks the first inserted recipient row.
+	firstReqIDByFireKey := map[string]string{}
+	firedFireKeys := map[string]bool{}
+	for _, idemKey := range rowIdemKeys {
+		requestID, ok := insertedRequestIDByKey[idemKey]
+		if !ok {
+			continue // this recipient row was an idempotent replay (no new row)
 		}
-		if requestID, ok := insertedRequestIDByKey[idemKey]; ok {
-			firstRequestIDByGroup[groupIndex] = requestID
+		fireKey := idemKeyToFireKey[idemKey]
+		firedFireKeys[fireKey] = true
+		if _, already := firstReqIDByFireKey[fireKey]; !already {
+			firstReqIDByFireKey[fireKey] = requestID
 		}
 	}
-	return count, firstRequestIDByGroup, nil
+	return count, firstReqIDByFireKey, firedFireKeys, nil
 }
