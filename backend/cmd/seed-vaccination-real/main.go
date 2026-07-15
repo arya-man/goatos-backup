@@ -1132,29 +1132,6 @@ SELECT
          AND gi.identifier_type = 'animal_identifier_1'
          AND gi.status = 'active'
          AND NULLIF(btrim(gi.identifier_value), '') IS NOT NULL
-     )),
-  (SELECT count(*)
-   FROM active oi
-   JOIN protocol_rules pr
-     ON pr.tenant_id = oi.tenant_id
-    AND pr.rule_id = oi.rule_id
-   JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
-   WHERE oi.target_type = 'goat'
-     AND (
-       (pr.trigger_type = 'birth_age' AND g.dob IS NULL)
-       OR (pr.trigger_type = 'post_arrival' AND g.entry_date IS NULL)
-     )
-     AND oi.status <> 'deferred'
-     AND NOT EXISTS (
-       SELECT 1
-       FROM obligation_instances history_oi
-       JOIN vaccination_completions vc
-         ON vc.tenant_id = history_oi.tenant_id
-        AND vc.obligation_id = history_oi.obligation_id
-        AND vc.status = 'accepted'
-       WHERE history_oi.tenant_id = oi.tenant_id
-         AND history_oi.target_id = oi.target_id
-         AND history_oi.rule_id = oi.rule_id
      ))
 `, tenantID, asOf).Scan(
 		&got.SourceAcceptedHistory,
@@ -1166,16 +1143,124 @@ SELECT
 		&got.SchedulableOpenWorkNotFuture,
 		&got.MissingBreedForeignKeys,
 		&got.MissingPrimaryIdentifiers,
-		&got.MissingAnchorNormalWork,
 	)
 	if err != nil {
 		return fmt.Errorf("vaccination seed reconciliation query: %w", err)
 	}
+	// MissingAnchorNormalWork can no longer be a pure-SQL count. Contract §89 option 4 legitimately
+	// routes a blank vaccine family with an unavailable DOB/entry anchor to an adult catch-up at the
+	// next compatible drive ("missing identity dates alone are not a clinical defer reason"), so a
+	// non-deferred birth_age/post_arrival obligation on a NULL-anchor goat is NOT automatically a
+	// defect. §13 still forbids a FABRICATED normal missing-anchor due. The only durable provenance
+	// signal distinguishing the two is the obligation's idempotency key: the routed catch-up carries
+	// the deterministic AnchorMissingCatchUpKey the generator stamps, a fabricated normal due does
+	// not. The key is a sha256 hash (not SQL-LIKE-able), so we load the candidate rows and classify
+	// them in Go against the generator's own exported key derivation.
+	missingAnchorCandidates, err := loadMissingAnchorCandidates(ctx, pool, tenantID)
+	if err != nil {
+		return fmt.Errorf("vaccination seed reconciliation missing-anchor candidates: %w", err)
+	}
+	got.MissingAnchorNormalWork = int64(countFabricatedMissingAnchorWork(missingAnchorCandidates))
 	if err := validateSeedReconciliation(got, int64(st.CompletionsHistory)); err != nil {
 		return fmt.Errorf("vaccination seed reconciliation failed: %w", err)
 	}
 	fmt.Printf("seed_reconciliation accepted_history=%d status_mismatches=0 duplicate_active_rule_targets=0 active_primary_after_history=0 seeded_pending_placeholders=0 repeat_not_future=0 schedulable_not_future=0 missing_breed_fks=0 missing_primary_identifiers=0 missing_anchor_normal_work=0\n", got.SourceAcceptedHistory)
 	return nil
+}
+
+// missingAnchorCandidate is one active, non-deferred birth_age/post_arrival obligation on a goat
+// whose own trigger anchor (DOB for birth_age, herd-entry date for post_arrival) is NULL and which
+// has no accepted completion history for that rule. Post-VAX-REV-02 this class contains BOTH the
+// contract-legitimate Contract §89 option-4 catch-up (routed to the next compatible drive) AND — if a
+// regression ever fabricates one — a normal missing-anchor due that §13 forbids. The idempotency key
+// is the durable signal that separates them.
+type missingAnchorCandidate struct {
+	idempotencyKey    string
+	tenantID          string
+	protocolVersionID string
+	ruleID            string
+	goatID            string
+	sequence          int32
+	triggerType       string
+}
+
+// isRoutedCatchUp reports whether this candidate is the deliberate Contract §89 option-4 adult
+// catch-up: its persisted idempotency key equals the deterministic key the generator stamps on that
+// path (vaccinationapp.AnchorMissingCatchUpKey). Any other key on a NULL-anchor birth_age/post_arrival
+// obligation means the row was materialized WITHOUT going through the option-4 routing — a fabricated
+// normal missing-anchor due, which stays a reconciliation defect.
+func (c missingAnchorCandidate) isRoutedCatchUp() bool {
+	return c.idempotencyKey == vaccinationapp.AnchorMissingCatchUpKey(
+		c.tenantID, c.protocolVersionID, c.ruleID, c.goatID, c.triggerType, c.sequence)
+}
+
+// countFabricatedMissingAnchorWork returns how many missing-anchor candidates are NOT the routed
+// §89 option-4 catch-up — the genuine defect the MissingAnchorNormalWork invariant guards. Legitimate
+// routed catch-ups are excluded; everything else still fails reconciliation. This never blanket-
+// ignores missing-anchor work: a fabricated normal due (any non-catch-up key) is always counted.
+func countFabricatedMissingAnchorWork(candidates []missingAnchorCandidate) int {
+	n := 0
+	for _, c := range candidates {
+		if !c.isRoutedCatchUp() {
+			n++
+		}
+	}
+	return n
+}
+
+// loadMissingAnchorCandidates fetches every active, non-deferred birth_age/post_arrival obligation on
+// a NULL-anchor goat with no accepted history for that rule. The WHERE clause mirrors the invariant's
+// former pure-SQL sub-select exactly; classification (routed catch-up vs fabricated due) then happens
+// in Go against the generator's own key derivation so the two can never drift.
+func loadMissingAnchorCandidates(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([]missingAnchorCandidate, error) {
+	rows, err := pool.Query(ctx, `
+SELECT oi.idempotency_key,
+       oi.tenant_id::text,
+       oi.protocol_version_id::text,
+       oi.rule_id::text,
+       oi.target_id::text,
+       oi.sequence,
+       pr.trigger_type
+FROM obligation_instances oi
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.status NOT IN ('completed', 'canceled', 'superseded', 'waived')
+  AND oi.status <> 'deferred'
+  AND oi.target_type = 'goat'
+  AND (
+    (pr.trigger_type = 'birth_age' AND g.dob IS NULL)
+    OR (pr.trigger_type = 'post_arrival' AND g.entry_date IS NULL)
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM obligation_instances history_oi
+    JOIN vaccination_completions vc
+      ON vc.tenant_id = history_oi.tenant_id
+     AND vc.obligation_id = history_oi.obligation_id
+     AND vc.status = 'accepted'
+    WHERE history_oi.tenant_id = oi.tenant_id
+      AND history_oi.target_id = oi.target_id
+      AND history_oi.rule_id = oi.rule_id
+  )`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []missingAnchorCandidate
+	for rows.Next() {
+		var c missingAnchorCandidate
+		if err := rows.Scan(&c.idempotencyKey, &c.tenantID, &c.protocolVersionID, &c.ruleID, &c.goatID, &c.sequence, &c.triggerType); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) error {

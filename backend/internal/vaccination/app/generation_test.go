@@ -2412,6 +2412,31 @@ func (f *fakeReviewRecorder) RecordStageReviewItem(ctx context.Context, tenantID
 	return nil
 }
 
+// AnchorMissingCatchUpKey must stay byte-identical to the key genOneGoat stamps on the §89 option-4
+// catch-up path (missingDueDateKey with anchorMissingReason). Seed reconciliation classifies
+// missing-anchor obligations against the exported helper, so any drift between the two would either
+// mis-count a legitimate routed catch-up as a defect (false seed failure) or hide a fabricated due.
+func TestAnchorMissingCatchUpKeyMatchesGeneratorKey(t *testing.T) {
+	tenantID := "11111111-1111-4111-8111-111111111111"
+	versionID := "22222222-2222-4222-8222-222222222222"
+	cases := []struct {
+		triggerType string
+		reason      string
+	}{
+		{"birth_age", "missing_dob"},
+		{"post_arrival", "missing_entry_date"},
+	}
+	for _, tc := range cases {
+		rule := protodomain.Rule{RuleID: "rule-abc", Sequence: 3, TriggerType: tc.triggerType}
+		goat := domain.EligibleGoat{GoatID: "goat-xyz"}
+		want := missingDueDateKey(tenantID, versionID, rule, goat, tc.reason)
+		got := AnchorMissingCatchUpKey(tenantID, versionID, rule.RuleID, goat.GoatID, tc.triggerType, rule.Sequence)
+		if got != want {
+			t.Fatalf("%s: AnchorMissingCatchUpKey=%s, want generator key %s", tc.triggerType, got, want)
+		}
+	}
+}
+
 // gpoxProfile is the reviewed Goat Pox vaccine profile shared by the VAX-REV-02 per-vaccine-anchor
 // regressions (formerly the VAX-SEED-01 goat-wide-checkpoint regressions the bug fix replaced).
 func gpoxProfile() vaccineProfile {

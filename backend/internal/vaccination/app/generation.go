@@ -1424,6 +1424,20 @@ func missingDueDateKey(tenantID, versionID string, rule protodomain.Rule, g doma
 	return obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, "missing_due_date", reason, strconv.Itoa(int(rule.Sequence)))
 }
 
+// AnchorMissingCatchUpKey returns the durable idempotency key genOneGoat stamps on a Contract §89
+// option-4 adult catch-up obligation — the one materialized for a blank vaccine family whose
+// birth_age/post_arrival anchor (DOB / herd-entry date) is unavailable (genOneGoat's B3 branch sets
+// anchorCatchUpKey = missingDueDateKey(..., anchorMissingReason(triggerType))). It exists so seed
+// reconciliation can tell a contract-legitimate routed catch-up (§89 option 4 — "missing identity
+// dates alone are not a clinical defer reason", schedule at the next compatible drive) apart from a
+// fabricated NORMAL missing-anchor due (the defect §13 forbids). This exported facade keeps the key
+// derivation single-sourced with the generator, so the reconciliation classifier can never drift from
+// the exact bytes genOneGoat hashed. Inputs must be the same canonical (lowercase-uuid) string forms
+// the generator used; feed the raw uuid::text columns straight from obligation_instances.
+func AnchorMissingCatchUpKey(tenantID, versionID, ruleID, goatID, triggerType string, sequence int32) string {
+	return obligationKey(tenantID, versionID, ruleID, "goat", goatID, "missing_due_date", anchorMissingReason(triggerType), strconv.Itoa(int(sequence)))
+}
+
 func previousMissingDueDateKey(tenantID, versionID string, rule protodomain.Rule, g domain.EligibleGoat) string {
 	switch rule.TriggerType {
 	case "birth_age":
