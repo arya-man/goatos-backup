@@ -1,7 +1,10 @@
 package worker
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -116,11 +119,11 @@ func TestSupervisorTimeoutIsolation(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		slowErr = s.runStageOnce(ctx, slowCS)
+		_, slowErr = s.runStageOnce(ctx, slowCS)
 	}()
 	go func() {
 		defer wg.Done()
-		noOpErr = s.runStageOnce(ctx, noOpCS)
+		_, noOpErr = s.runStageOnce(ctx, noOpCS)
 	}()
 	wg.Wait()
 
@@ -237,6 +240,103 @@ func TestSupervisorStartupCatchUp(t *testing.T) {
 	// The tracker should have run at least once (the startup catch-up).
 	if tracker.runCount == 0 {
 		t.Fatalf("expected at least one startup catch-up run, got %d runs", tracker.runCount)
+	}
+}
+
+// TestContinuousStandbyDoesNotWarnOrPollHot proves the KERN-05 fix: an HA
+// standby that cannot acquire a continuous stage's advisory lock (the normal
+// steady state for every non-active replica — min=2 HA by design cannot win
+// the lock the active instance holds) must stay quiet — no
+// continuous_stage_exited_restarting warning — and must not re-attempt the
+// lock on the tight ~1-second continuousMinBackoff loop used for genuine
+// stage-exit restarts.
+//
+// Before the fix, runContinuous could not tell "lock not acquired" apart from
+// "stage exited cleanly after holding the lock": runStageOnce returned nil for
+// both, so every standby logged a warning and re-queried Postgres for the
+// advisory lock roughly every second, indefinitely — log spam plus constant DB
+// churn on every standby instance.
+func TestContinuousStandbyDoesNotWarnOrPollHot(t *testing.T) {
+	t.Parallel()
+	pgtest.SkipIfNoDocker(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	poolWinner := pgtest.StartPostgres(t, ctx)
+	poolStandby := secondPoolSameDB(t, ctx, poolWinner)
+
+	stageName := "standby-quiet-stage"
+
+	// Winner: hold the stage's advisory lock for the whole test window on a
+	// dedicated connection, so the standby below never wins the race and
+	// stays a standby for the entire run (models a healthy active instance
+	// that simply keeps the lock).
+	winnerConn, err := poolWinner.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("winner acquire conn: %v", err)
+	}
+	defer winnerConn.Release()
+	var locked bool
+	if err := winnerConn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext($1))", stageLockKeyArg(stageName)).Scan(&locked); err != nil {
+		t.Fatalf("winner advisory lock: %v", err)
+	}
+	if !locked {
+		t.Fatal("winner should hold the stage lock")
+	}
+	defer func() {
+		_, _ = winnerConn.Exec(context.Background(), "SELECT pg_advisory_unlock(hashtext($1))", stageLockKeyArg(stageName))
+	}()
+
+	// Standby: a real Supervisor that can never win the lock during this
+	// test. Capture its logs (including Debug) to a buffer for inspection.
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	standbyStage := NewTrackerStage(logger, stageName)
+	standby := NewSupervisor(logger, poolStandby, 1*time.Second)
+	standby.RegisterContinuous(stageName, standbyStage)
+
+	runCtx, runCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer runCancel()
+	runErr := standby.Run(runCtx)
+	if runErr != nil && !errors.Is(runErr, context.DeadlineExceeded) && !errors.Is(runErr, context.Canceled) {
+		t.Fatalf("standby run: %v", runErr)
+	}
+
+	// The standby must never have actually run the stage — it never held the
+	// advisory lock.
+	if standbyStage.runCount != 0 {
+		t.Fatalf("standby stage ran %d times; it never held the advisory lock and must not run", standbyStage.runCount)
+	}
+
+	warnCount := 0
+	contendedAttempts := 0
+	scanner := bufio.NewScanner(&logBuf)
+	for scanner.Scan() {
+		var entry map[string]any
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			continue
+		}
+		msg, _ := entry["msg"].(string)
+		switch msg {
+		case "continuous_stage_exited_restarting":
+			warnCount++
+		case "continuous_stage_lock_contended":
+			contendedAttempts++
+		}
+	}
+
+	if warnCount != 0 {
+		t.Fatalf("standby logged %d continuous_stage_exited_restarting warning(s); a lock-miss standby must stay quiet, not warn", warnCount)
+	}
+
+	// With the fix, the standby backs off on continuousStandbyBackoff (>=5s
+	// with jitter), so a 3-second window should see essentially only the
+	// initial immediate attempt. Before the fix, the tight ~1-second
+	// continuousMinBackoff retry loop would have produced ~3 attempts in this
+	// same window.
+	if contendedAttempts > 2 {
+		t.Fatalf("standby attempted the advisory lock %d times in 3s; expected <=2 (standby backoff, not ~1s polling)", contendedAttempts)
 	}
 }
 

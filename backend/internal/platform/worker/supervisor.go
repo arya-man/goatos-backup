@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -227,23 +228,50 @@ func (s *Supervisor) Run(ctx context.Context) error {
 
 // Continuous-stage restart backoff bounds. A failing continuous stage is
 // retried with exponential backoff so a persistently-broken dependency does not
-// hot-loop, while a clean return (or a standby that did not win the advisory
-// lock) restarts promptly so failover to a healthy consumer is fast.
+// hot-loop, while an unexpected clean exit restarts promptly so failover to a
+// healthy consumer is fast.
 const (
 	continuousMinBackoff = 1 * time.Second
 	continuousMaxBackoff = 30 * time.Second
+
+	// continuousStandbyBackoff (+jitter) bounds how often a standby instance
+	// that did NOT win a continuous stage's advisory lock re-attempts it. This
+	// is the expected steady state for every non-active HA replica — it is
+	// NOT an error or an unexpected exit, so it must not share the tight
+	// continuousMinBackoff retry loop (which would otherwise re-query
+	// Postgres for the lock roughly every second, forever, on every standby;
+	// see KERN-05). The window stays small (single-digit seconds) so a
+	// standby still picks up the lock promptly after the active instance
+	// dies and releases it.
+	continuousStandbyBackoff = 5 * time.Second
+	continuousStandbyJitter  = 2 * time.Second
 )
+
+// standbyBackoffWithJitter returns continuousStandbyBackoff plus a random
+// jitter in [0, continuousStandbyJitter), so many standby replicas contending
+// for the same lock do not all re-poll Postgres in lockstep.
+func standbyBackoffWithJitter() time.Duration {
+	return continuousStandbyBackoff + time.Duration(rand.Int63n(int64(continuousStandbyJitter)))
+}
 
 // runContinuous supervises a single continuous stage for the life of the
 // process. It runs the stage, and when the stage returns it restarts it —
 // EXCEPT when ctx is done (shutdown), which is the only condition that ends the
 // loop. Crucially, a stage error is logged and retried with backoff rather than
 // returned: returning it would cancel the parent errgroup and take down every
-// other stage (the "one transient error kills the whole kernel" failure). A
-// clean nil return without shutdown is treated as an unexpected exit and the
-// stage is restarted (never silently dropped). Because runStageOnce returns nil
-// both on a genuine clean run and when another instance holds the advisory lock,
-// a standby simply re-polls at the min backoff — that poll IS the failover path.
+// other stage (the "one transient error kills the whole kernel" failure).
+//
+// runStageOnce reports whether the advisory lock was acquired, which lets this
+// loop distinguish three outcomes instead of collapsing them into one:
+//   - an error (lock-acquire failure or a failed stage run): logged as a
+//     warning-level failure and retried with exponential backoff, same as
+//     before.
+//   - lock NOT acquired (another instance holds it — the normal HA standby
+//     state): stays quiet (debug only) and backs off on the slower, jittered
+//     continuousStandbyBackoff instead of the tight continuousMinBackoff loop.
+//   - lock acquired but the stage returned nil anyway (an unexpected clean
+//     exit while holding the lock — genuinely abnormal): logged as a warning
+//     and restarted promptly on continuousMinBackoff, same as before.
 func (s *Supervisor) runContinuous(ctx context.Context, cs CadenceStage) error {
 	backoff := continuousMinBackoff
 	for {
@@ -251,33 +279,43 @@ func (s *Supervisor) runContinuous(ctx context.Context, cs CadenceStage) error {
 			return ctx.Err()
 		}
 
-		err := s.runStageOnce(ctx, cs)
+		acquiredLock, err := s.runStageOnce(ctx, cs)
 		if ctx.Err() != nil {
 			// Shutdown: the only way out of the loop.
 			return ctx.Err()
 		}
 
-		if err != nil {
+		var wait time.Duration
+		switch {
+		case err != nil:
 			s.logger.Error("continuous_stage_failed_restarting",
 				"stage", cs.stage.Name(), "backoff", backoff.String(), "err", err)
-		} else {
-			// Unexpected clean exit (or standby that did not hold the lock).
-			// Restart promptly so event handling never silently stops.
+			wait = backoff
+			backoff *= 2
+			if backoff > continuousMaxBackoff {
+				backoff = continuousMaxBackoff
+			}
+
+		case !acquiredLock:
+			// Standby: another instance holds this stage's advisory lock.
+			// Expected steady state — stay quiet and poll on the slower
+			// standby cadence, not the tight per-second restart loop.
+			s.logger.Debug("continuous_stage_lock_contended", "stage", cs.stage.Name())
+			backoff = continuousMinBackoff // reset so a future real failure still starts from the min
+			wait = standbyBackoffWithJitter()
+
+		default:
+			// Unexpected clean exit while holding the lock. Restart promptly
+			// so event handling never silently stops.
 			s.logger.Warn("continuous_stage_exited_restarting", "stage", cs.stage.Name())
 			backoff = continuousMinBackoff
+			wait = backoff
 		}
 
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(backoff):
-		}
-
-		if err != nil {
-			backoff *= 2
-			if backoff > continuousMaxBackoff {
-				backoff = continuousMaxBackoff
-			}
+		case <-time.After(wait):
 		}
 	}
 }
@@ -291,7 +329,7 @@ func (s *Supervisor) runCadence(ctx context.Context, cadenceName string, def Cad
 	// Immediate startup catch-up run for each stage.
 	for _, cadenceStage := range def.Stages {
 		cs := cadenceStage
-		if err := s.runStageOnce(ctx, cs); err != nil {
+		if _, err := s.runStageOnce(ctx, cs); err != nil {
 			// Log but continue to the next stage; a catch-up failure does not
 			// stop the entire cadence.
 			s.logger.Error("startup_catch_up_failed", "cadence", cadenceName, "stage", cs.stage.Name(), "err", err)
@@ -313,7 +351,7 @@ func (s *Supervisor) runCadence(ctx context.Context, cadenceName string, def Cad
 			// will hold the lock at a time).
 			for _, cadenceStage := range def.Stages {
 				cs := cadenceStage
-				if err := s.runStageOnce(ctx, cs); err != nil {
+				if _, err := s.runStageOnce(ctx, cs); err != nil {
 					s.logger.Error("cadence_stage_failed", "cadence", cadenceName, "stage", cs.stage.Name(), "err", err)
 					// Continue to the next stage; do not stop the cadence.
 				}
@@ -325,7 +363,13 @@ func (s *Supervisor) runCadence(ctx context.Context, cadenceName string, def Cad
 // runStageOnce runs a single stage with advisory lock, per-stage timeout,
 // and panic recovery. Returns an error if the lock cannot be acquired,
 // context is canceled, or the stage fails.
-func (s *Supervisor) runStageOnce(ctx context.Context, cs CadenceStage) (retErr error) {
+//
+// acquiredLock reports whether this call actually won the advisory lock and
+// ran the stage. It is false when another instance already holds the lock
+// (locked=false, err=nil) — the normal HA-standby case — which callers that
+// care about that distinction (runContinuous) use to avoid treating a lock
+// miss the same as an unexpected clean stage exit (KERN-05).
+func (s *Supervisor) runStageOnce(ctx context.Context, cs CadenceStage) (acquiredLock bool, retErr error) {
 	stage := cs.stage
 	stageTimeout := cs.timeout
 
@@ -349,15 +393,16 @@ func (s *Supervisor) runStageOnce(ctx context.Context, cs CadenceStage) (retErr 
 	locked, err := AcquireStageLock(stageCtx, s.pool, stage.Name())
 	if err != nil {
 		s.logger.Error("stage_lock_acquire_failed", "stage", stage.Name(), "err", err)
-		return fmt.Errorf("acquire lock for stage %q: %w", stage.Name(), err)
+		return false, fmt.Errorf("acquire lock for stage %q: %w", stage.Name(), err)
 	}
 	if !locked {
 		s.logger.Debug("stage_lock_already_held", "stage", stage.Name())
-		return nil // Another instance holds the lock; skip.
+		return false, nil // Another instance holds the lock; skip.
 	}
 
 	// Lock was acquired; the lock is held on a dedicated connection and will
 	// be released in defer by ReleaseStageLock.
+	acquiredLock = true
 
 	// Run the stage with panic recovery.
 	s.logger.Info("stage_starting", "stage", stage.Name())
@@ -386,9 +431,9 @@ func (s *Supervisor) runStageOnce(ctx context.Context, cs CadenceStage) (retErr 
 
 	retErr = stage.Run(stageCtx)
 	if stageTimeout > 0 && retErr != nil && errors.Is(retErr, context.DeadlineExceeded) {
-		return fmt.Errorf("stage %q timeout (%v): %w", stage.Name(), stageTimeout, retErr)
+		retErr = fmt.Errorf("stage %q timeout (%v): %w", stage.Name(), stageTimeout, retErr)
 	}
-	return retErr
+	return acquiredLock, retErr
 }
 
 // NoOpStage is a placeholder stage that does nothing; used for testing
