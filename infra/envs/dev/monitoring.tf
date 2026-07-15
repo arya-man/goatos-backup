@@ -134,48 +134,10 @@ resource "google_monitoring_alert_policy" "cloud_sql_cpu" {
   depends_on = [google_project_service.enabled]
 }
 
-# Backlog-age SLO for the notification delivery path after the sub-minute Cloud
-# Tasks fast path + notification-dispatcher job were retired. Notifications are
-# durable in notification_requests and drained by the kernel worker's 1-minute
-# fast-lane stage; a healthy backlog age is well under two minutes. This fires if
-# the oldest still-undelivered request ages past the threshold, catching a
-# wedged/failing dispatcher stage (delivery stalled, retries exhausted, or DLQ
-# growth) even though no delivery is "lost".
-resource "google_monitoring_alert_policy" "kernel_notification_backlog_age" {
-  display_name          = "goatos-dev notification backlog age"
-  combiner              = "OR"
-  enabled               = true
-  notification_channels = local.monitoring_notification_channel_names
-  user_labels           = local.labels
-
-  conditions {
-    display_name = "kernel.notify.backlog age exceeds the 1-minute fast-lane SLO"
-
-    condition_threshold {
-      filter = join(" ", [
-        "metric.type=\"prometheus.googleapis.com/kernel_notify_backlog_age_seconds/gauge\"",
-        "AND resource.type=\"generic_task\"",
-      ])
-      comparison = "COMPARISON_GT"
-      duration   = "300s"
-      # 600s: healthy backlog age is <2m (1-minute drain). 10 minutes of
-      # oldest-undelivered age means the fast-lane stage is not keeping up.
-      threshold_value = 600
-
-      aggregations {
-        alignment_period   = "60s"
-        per_series_aligner = "ALIGN_MAX"
-      }
-    }
-  }
-
-  alert_strategy {
-    notification_rate_limit {
-      period = "300s"
-    }
-
-    auto_close = "604800s"
-  }
-
-  depends_on = [google_project_service.enabled]
-}
+# NO notification backlog-age alert in dev (KERN-REV-07): dev has no OTel
+# collector sidecar and no observability_config bucket, so the kernel worker's
+# GOATOS_OBS_SINK stays stdout_json and SetupTelemetry never exports metrics to
+# Cloud Monitoring. An enabled alert on a metric that never produces samples is
+# false-green — it would sit "OK" forever regardless of a real backlog. The
+# backlog-age SLO + a metric-absence deadman live in stg, which has the
+# collector. Reintroduce a dev alert only alongside a real dev metrics exporter.

@@ -360,6 +360,49 @@ resource "google_monitoring_alert_policy" "kernel_notification_backlog_age" {
   depends_on = [google_project_service.enabled]
 }
 
+# Deadman for the notification backlog-age SLO (KERN-REV-07). The backlog-age
+# gauge above only fires on a HIGH value; a dead kernel worker or a broken
+# metrics exporter makes the series DISAPPEAR, which the threshold policy reads
+# as "OK" (false-green). The kernel worker records kernel.notify.backlog.age
+# every 1-minute fast-lane cycle (0 when caught up), so a healthy service emits a
+# continuous series; its absence for 10 minutes means the worker or its exporter
+# is down. This is an independent condition from the threshold, so a stalled
+# delivery path cannot hide behind a missing series.
+resource "google_monitoring_alert_policy" "kernel_worker_metrics_absent" {
+  display_name          = "goatos-stg kernel worker metrics absent (deadman)"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = local.monitoring_notification_channel_names
+  user_labels           = local.labels
+
+  conditions {
+    display_name = "kernel.notify.backlog series absent — worker or metrics exporter down"
+
+    condition_absent {
+      filter = join(" ", [
+        "metric.type=\"prometheus.googleapis.com/kernel_notify_backlog_age_seconds/gauge\"",
+        "AND resource.type=\"generic_task\"",
+      ])
+      duration = "600s"
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MAX"
+      }
+    }
+  }
+
+  alert_strategy {
+    notification_rate_limit {
+      period = "300s"
+    }
+
+    auto_close = "604800s"
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
 resource "google_monitoring_alert_policy" "kernel_notification_failure_rate" {
   display_name          = "goatos-stg notification dispatch failure rate"
   combiner              = "OR"
