@@ -80,6 +80,8 @@ run_guardrails() {
   step "clinical-defer-guard"     make clinical-defer-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard
+  step "secret-accessors-guard"   make secret-accessors-guard
+  step "worker-stage-budgets-guard" make worker-stage-budgets-guard
   step "e2e docker chain (image-build + parity + smoke)" run_e2e_docker_chain
   step "idempotency-writes-guard" make idempotency-writes-guard
   step "atomic-readmodel-sync-guard" make atomic-readmodel-sync-guard

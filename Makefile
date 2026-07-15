@@ -7,7 +7,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard scale-certification-docs-guard scale-guard clinical-defer-guard sweeper-deployment-guard deployed-job-flags-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
+.PHONY: seed-state-guard check guardrails stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard scale-certification-docs-guard scale-guard clinical-defer-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 .PHONY: vaccination-execution-projection-recompute vaccination-operations-projection-recompute
@@ -107,6 +107,9 @@ guardrails:
 	$(MAKE) scale-guard
 	$(MAKE) clinical-defer-guard
 	$(MAKE) sweeper-deployment-guard
+	$(MAKE) deployed-job-flags-guard
+	$(MAKE) secret-accessors-guard
+	$(MAKE) worker-stage-budgets-guard
 	$(MAKE) idempotency-writes-guard
 	$(MAKE) nav-composition-guard
 	$(MAKE) mobile-contract-ownership-guard
@@ -188,6 +191,25 @@ sweeper-deployment-guard:
 deployed-job-flags-guard:
 	node tools/agent-hooks/check-deployed-job-flags.mjs --self-test
 	node tools/agent-hooks/check-deployed-job-flags.mjs
+
+# secret-accessors-guard (KERN-REV-04): terraform validate cannot detect a
+# google_service_account.runtime["X"] index or a secret_containers accessor
+# naming a retired service account (only `terraform plan` catches the missing map
+# key, and plan needs the GCS backend). This static guard asserts every accessor,
+# database_clients entry, and literal runtime[...] reference resolves to a
+# runtime_service_accounts key in both envs.
+secret-accessors-guard:
+	node tools/agent-hooks/check-secret-accessors.mjs --self-test
+	node tools/agent-hooks/check-secret-accessors.mjs
+
+# worker-stage-budgets-guard (KERN-REV-05 / 05B): the consolidated kernel worker
+# must not silently shrink the retired jobs' processing budgets. Asserts each
+# env's cloud_run_worker.tf sets GOATOS_OUTBOX_LIMIT>=500 + GOATOS_NOTIFICATION_LIMIT>=100
+# AND that main.go keeps the outbox relay on a cadence whose effective per-run
+# budget is >= 54s and on a SEPARATE cadence from notification dispatch.
+worker-stage-budgets-guard:
+	node tools/agent-hooks/check-worker-stage-budgets.mjs --self-test
+	node tools/agent-hooks/check-worker-stage-budgets.mjs
 
 # --- Docker-image E2E foundation (KERN-001 follow-up) -----------------------------------
 # e2e-image-build / e2e-parity / e2e-smoke / scale-cert: see deploy/runtime/workers.json

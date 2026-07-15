@@ -71,20 +71,15 @@ function databaseClients(text) {
   return [...m[1].matchAll(/"([a-zA-Z0-9_]+)"/g)].map((x) => x[1]);
 }
 
-const errors = [];
-
-for (const env of ENVS) {
-  const dir = resolve(repo, "infra/envs", env);
-  if (!existsSync(dir)) continue;
-  const files = readdirSync(dir).filter((f) => f.endsWith(".tf"));
-  const texts = Object.fromEntries(
-    files.map((f) => [f, readFileSync(resolve(dir, f), "utf8")]),
-  );
+// violationsForEnv is the pure core (no file IO): given an env name and its
+// { filename: content } .tf map, returns the list of accessor/database-client/
+// runtime[...] references that do not resolve to a runtime_service_accounts key.
+export function violationsForEnv(env, texts) {
+  const errors = [];
   const mainTf = texts["main.tf"] || "";
   const saKeys = topLevelKeys(blockBody(mainTf, "runtime_service_accounts"));
   if (saKeys.size === 0) {
-    errors.push(`${env}: could not parse runtime_service_accounts keys`);
-    continue;
+    return [`${env}: could not parse runtime_service_accounts keys`];
   }
 
   // 1. secret_containers[*].accessors
@@ -118,6 +113,66 @@ for (const env of ENVS) {
       }
     }
   }
+  return errors;
+}
+
+// selfTest exercises the pure core against IN-MEMORY fixtures only — it never
+// reads or writes tracked files, so it deterministically proves a retired /
+// missing accessor is rejected and a clean config passes.
+function selfTest() {
+  const goodMain = `
+locals {
+  runtime_service_accounts = {
+    api = {
+      account_id = "a"
+    }
+    kernel_worker = {
+      account_id = "k"
+    }
+  }
+  database_clients = toset(["api", "kernel_worker"])
+  secret_containers = {
+    database_url = {
+      secret_id = "s"
+      accessors = ["api", "kernel_worker"]
+    }
+  }
+}`;
+  if (violationsForEnv("fixture", { "main.tf": goodMain }).length !== 0) {
+    throw new Error("self-test: a clean config produced violations");
+  }
+  // Retired accessor in secret_containers.
+  const retiredAccessor = goodMain.replace('accessors = ["api", "kernel_worker"]', 'accessors = ["api", "notification_dispatcher"]');
+  if (!violationsForEnv("fixture", { "main.tf": retiredAccessor }).some((e) => e.includes("notification_dispatcher"))) {
+    throw new Error("self-test: missed a retired secret accessor");
+  }
+  // Retired database_clients entry.
+  const retiredDbClient = goodMain.replace('toset(["api", "kernel_worker"])', 'toset(["api", "outbox_relay"])');
+  if (!violationsForEnv("fixture", { "main.tf": retiredDbClient }).some((e) => e.includes("outbox_relay"))) {
+    throw new Error("self-test: missed a retired database_clients entry");
+  }
+  // Retired literal runtime[...] reference in another file.
+  const iam = 'x = google_service_account.runtime["obligation_sweeper"].email';
+  if (!violationsForEnv("fixture", { "main.tf": goodMain, "iam.tf": iam }).some((e) => e.includes("obligation_sweeper"))) {
+    throw new Error("self-test: missed a retired runtime[...] reference");
+  }
+  console.error("secret-accessors guard: self-test passed");
+}
+
+if (process.argv.includes("--self-test")) {
+  selfTest();
+  process.exit(0);
+}
+
+const errors = [];
+for (const env of ENVS) {
+  const dir = resolve(repo, "infra/envs", env);
+  if (!existsSync(dir)) continue;
+  const files = readdirSync(dir).filter((f) => f.endsWith(".tf"));
+  const texts = Object.fromEntries(
+    files.map((f) => [f, readFileSync(resolve(dir, f), "utf8")]),
+  );
+  errors.push(...violationsForEnv(env, texts));
 }
 
 if (errors.length > 0) {
