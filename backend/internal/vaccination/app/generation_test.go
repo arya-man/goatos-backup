@@ -2412,18 +2412,24 @@ func (f *fakeReviewRecorder) RecordStageReviewItem(ctx context.Context, tenantID
 	return nil
 }
 
-// gpoxProfile is the reviewed Goat Pox vaccine profile shared by the VAX-SEED-01 regressions.
+// gpoxProfile is the reviewed Goat Pox vaccine profile shared by the VAX-REV-02 per-vaccine-anchor
+// regressions (formerly the VAX-SEED-01 goat-wide-checkpoint regressions the bug fix replaced).
 func gpoxProfile() vaccineProfile {
 	return vaccineProfile{Code: "Goat Pox", Type: "live", PathogenClass: "viral"}
 }
 
-// VAX-SEED-01: an imported source cohort is a goat-wide cutover checkpoint. Its dated facts become
-// accepted history and drive future recurrence; NO birth_age/post_arrival primary is reconstructed
-// from a DOB/entry anchor, even for a kid path that would otherwise still be inside its schedule.
-func TestSeedCutoverCohortSuppressesAnchorPrimaryKeepsRecurrence(t *testing.T) {
+// VAX-REV-02: Contract §89 anchors PER VACCINE FAMILY, never goat-wide, and there is no separate
+// "seed cutover" generation mode any more (GenerateSeedCutoverForAllGoats/seedCutoverCohort were
+// removed — the seed importer now calls the exact same GenerateEffectiveForAllGoats path as runtime).
+// A family WITH its own accepted history is course continuation: the already-administered dose
+// (gpox_kid_w4) must never be regenerated (hasSameDoseAdministration, option 1), but a STILL-REQUIRED
+// different dose of that same course (gpox_kid_w6, due now, no matching administration) is not a
+// "family blanket" suppression target and must still generate — alongside the family's own
+// after_previous_completion recurrence, anchored to its own latest administration.
+func TestSameFamilyDifferentDoseGeneratesAlongsideOwnRecurrence(t *testing.T) {
 	ctx := context.Background()
 	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
-	dob := asOf.AddDate(0, 0, -42) // ~6 weeks: kid path, birth_age would otherwise be due now
+	dob := asOf.AddDate(0, 0, -42) // ~6 weeks: birth_age (w6) is due now
 	gpoxAt := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
 	goat := domain.EligibleGoat{GoatID: "imported-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}
@@ -2431,39 +2437,66 @@ func TestSeedCutoverCohortSuppressesAnchorPrimaryKeepsRecurrence(t *testing.T) {
 		{RuleID: "rule-gpox-w6", DoseCode: "gpox_kid_w6", Sequence: 1, TriggerType: "birth_age", OffsetDays: 42, DueWindowDays: 7},
 		{RuleID: "rule-gpox-revac", DoseCode: "gpox_revac", Sequence: 2, TriggerType: "after_previous_completion", Repeat: "every_n_days", MinGapDays: 270},
 	}
+	// Goat Pox history exists (gpox_kid_w4 given), but NOT for this specific dose (gpox_kid_w6).
 	history := []domain.RecentVaccineAdministration{{AdministeredAt: gpoxAt, VaccineCode: "Goat Pox", VaccineType: "live", PathogenClass: "viral", DoseCode: "gpox_kid_w4", Sequence: 0}}
 
-	cutover := &domain.GenerateResult{}
+	res := &domain.GenerateResult{}
 	obl := svc.obl.(*generationObligationFake)
 	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
-		generationOptions{healthRecoveryAlign: true, seedCutoverCohort: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), cutover); err != nil {
-		t.Fatalf("cutover generate: %v", err)
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), res); err != nil {
+		t.Fatalf("generate: %v", err)
 	}
-	if cutover.Generated != 1 || len(obl.inserted) != 1 {
-		t.Fatalf("cutover result=%#v inserted=%#v, want only the Goat Pox recurrence generated (zero anchor primary)", cutover, obl.inserted)
+	if res.Generated != 2 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want both the still-required gpox_kid_w6 dose and the recurrence generated", res, obl.inserted)
 	}
-	if got := obl.inserted[0]; got.RuleID != "rule-gpox-revac" || !got.DueAt.Equal(businessDayStart(gpoxAt).AddDate(0, 0, 270)) {
-		t.Fatalf("inserted=%#v, want recurrence anchored to the family's own latest administration", got)
+	var sawPrimary, sawRecurrence bool
+	for _, got := range obl.inserted {
+		switch got.RuleID {
+		case "rule-gpox-w6":
+			sawPrimary = true
+		case "rule-gpox-revac":
+			sawRecurrence = true
+			if !got.DueAt.Equal(businessDayStart(gpoxAt).AddDate(0, 0, 270)) {
+				t.Fatalf("inserted=%#v, want recurrence anchored to the family's own latest administration", got)
+			}
+		}
 	}
-	if cutover.SuppressedByTrustedHistory < 1 {
-		t.Fatalf("cutover result=%#v, want the birth_age primary suppressed by the checkpoint", cutover)
-	}
-
-	// Control: the SAME goat/rules under ordinary runtime generation still materializes the birth_age
-	// primary (a current, in-window dose is not a pre-checkpoint reconstruction), proving the
-	// suppression is specific to the seed cutover cohort and not a general regression.
-	runtimeSvc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
-	runtime := &domain.GenerateResult{}
-	if err := runtimeSvc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
-		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), runtime); err != nil {
-		t.Fatalf("runtime generate: %v", err)
-	}
-	if runtime.Generated != 2 {
-		t.Fatalf("runtime result=%#v, want both the birth_age primary and the recurrence generated", runtime)
+	if !sawPrimary || !sawRecurrence {
+		t.Fatalf("inserted=%#v, want both rule-gpox-w6 and rule-gpox-revac", obl.inserted)
 	}
 }
 
-// VAX-SEED-01 runtime rule: a zero-history goat still receives a safe historical catch-up (nothing
+// VAX-REV-02 guard: a family WITH its own accepted history of the EXACT SAME dose is still
+// suppressed (option 1, course continuation) — this must not regress when the goat-wide checkpoint
+// suppression is removed.
+func TestSameFamilySameDoseStillSuppressed(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	dob := asOf.AddDate(0, 0, -42)
+	gpoxAt := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
+	goat := domain.EligibleGoat{GoatID: "same-dose-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}
+	rules := []protodomain.Rule{
+		{RuleID: "rule-gpox-w6", DoseCode: "gpox_kid_w6", Sequence: 1, TriggerType: "birth_age", OffsetDays: 42, DueWindowDays: 7},
+	}
+	// The SAME dose (gpox_kid_w6) has already been administered.
+	history := []domain.RecentVaccineAdministration{{AdministeredAt: gpoxAt, VaccineCode: "Goat Pox", VaccineType: "live", PathogenClass: "viral", DoseCode: "gpox_kid_w6", Sequence: 1}}
+
+	res := &domain.GenerateResult{}
+	obl := svc.obl.(*generationObligationFake)
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), res); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if res.Generated != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("result=%#v inserted=%#v, want the already-administered dose suppressed", res, obl.inserted)
+	}
+	if res.SuppressedByTrustedHistory < 1 {
+		t.Fatalf("result=%#v, want the suppression counted", res)
+	}
+}
+
+// VAX-REV-02 runtime rule: a zero-history goat still receives a safe historical catch-up (nothing
 // proves it was already enrolled).
 func TestRuntimeZeroHistoryGoatStillReceivesCatchUp(t *testing.T) {
 	ctx := context.Background()
@@ -2485,12 +2518,14 @@ func TestRuntimeZeroHistoryGoatStillReceivesCatchUp(t *testing.T) {
 	}
 }
 
-// VAX-SEED-01 runtime rule: an already-enrolled goat (>=1 accepted dose in ANY family) does NOT get a
-// historical catch-up reconstructed for a BLANK family — a blank cell is not proof of a missed dose.
-func TestRuntimeEnrolledGoatSkipsBlankFamilyHistoricalCatchUp(t *testing.T) {
+// VAX-REV-02 (was the VAX-SEED-01 bug): an already-enrolled goat (>=1 accepted dose in ANY OTHER
+// family) MUST still get a historical catch-up reconstructed for a BLANK family — a dose recorded in
+// an unrelated vaccine family (PPR here) is never proof that Goat Pox was administered. Per Contract
+// §89 this blank family falls through DOB → entry → adult catch-up exactly like a zero-history goat.
+func TestRuntimeEnrolledGoatStillGetsBlankFamilyCatchUp(t *testing.T) {
 	ctx := context.Background()
 	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
-	dob := asOf.AddDate(0, 0, -120) // kid dose window elapsed → would be a catch-up
+	dob := asOf.AddDate(0, 0, -120) // kid dose window elapsed → catch-up
 	pprAt := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
 	goat := domain.EligibleGoat{GoatID: "enrolled-kid", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}
@@ -2505,10 +2540,90 @@ func TestRuntimeEnrolledGoatSkipsBlankFamilyHistoricalCatchUp(t *testing.T) {
 		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), res); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if res.Generated != 0 || len(obl.inserted) != 0 {
-		t.Fatalf("result=%#v inserted=%#v, want the blank-family historical catch-up suppressed for an enrolled goat", res, obl.inserted)
+	if res.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want the blank Goat Pox family to still receive catch-up for an enrolled goat", res, obl.inserted)
 	}
-	if res.SuppressedByTrustedHistory < 1 {
-		t.Fatalf("result=%#v, want the suppression counted", res)
+	if got := obl.inserted[0]; got.DueAt.Before(businessDayStart(asOf)) {
+		t.Fatalf("inserted=%#v, want the catch-up due date never before the business date", got)
+	}
+}
+
+// VAX-REV-02 guard (partial history, missing anchor): a goat with accepted PPR history but NO DOB, NO
+// entry date, and a blank FMD family must get FMD's adult catch-up routed to the next compatible
+// drive — never suppressed by the PPR history, and never a backdated/overdue card (it lands on or
+// after the business date, per Contract §89 option 4: "adult catch-up/primary at the next compatible
+// drive when neither DOB nor entry is available").
+func TestPartialHistoryGoatBlankFamilyGetsFutureAdultCatchUp(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	pprAt := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
+	// No DOB, no entry date, no kid-management stage: routes adult (schedulePathForGoat B3).
+	goat := domain.EligibleGoat{GoatID: "partial-history-goat", LifecycleStatus: "alive", Species: "goat"}
+	rules := []protodomain.Rule{
+		{RuleID: "rule-fmd-adult", DoseCode: "fmd_adult_primary", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 0, DueWindowDays: 7, CatchUp: "immediate"},
+	}
+	// PPR history exists (goat is not zero-history), but FMD is blank — a different family.
+	history := []domain.RecentVaccineAdministration{{AdministeredAt: pprAt, VaccineCode: "PPR", VaccineType: "live", PathogenClass: "viral", DoseCode: "ppr_adult", Sequence: 0}}
+	fmdProfile := vaccineProfile{Code: "FMD", Type: "killed", PathogenClass: "viral"}
+	res := &domain.GenerateResult{}
+	obl := svc.obl.(*generationObligationFake)
+	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, fmdProfile, history, newTrustedEvidenceLookup(), res); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if res.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want the blank FMD family to still receive an adult catch-up", res, obl.inserted)
+	}
+	if got := obl.inserted[0]; got.DueAt.Before(businessDayStart(asOf)) {
+		t.Fatalf("inserted=%#v, want the catch-up due date never before the business date (no backdated overdue card)", got)
+	}
+}
+
+// VAX-REV-03: GenerateSeedCutoverForAllGoats/seedCutoverCohort no longer exist — the seed importer and
+// runtime generation both call GenerateEffectiveForAllGoats over the SAME tenant-wide scope, so a
+// mixed cohort (a goat that would have been "freshly imported" alongside a pre-existing goat) is
+// generated by identical per-vaccine rules with no whole-tenant or partial-cohort cutover marking: a
+// blank-family goat with an elapsed catch-up window materializes it, while a goat whose exact dose is
+// already accepted history is suppressed — both in the SAME pass, over the SAME scope, via the SAME
+// function.
+func TestGenerateEffectiveForAllGoatsMixedCohortNoCutoverScope(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+	catchUpDOB := asOf.AddDate(0, 0, -120)  // window elapsed → catch-up due
+	satisfiedDOB := asOf.AddDate(0, 0, -42) // in-window, but the exact dose is already given
+	gpoxAt := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"},"eligibility":{}}`),
+		rules: []protodomain.Rule{{
+			RuleID: "rule-gpox-w6", DoseCode: "gpox_kid_w6", Sequence: 1,
+			TriggerType: "birth_age", OffsetDays: 42, DueWindowDays: 7, CatchUp: "immediate",
+		}},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{
+			{GoatID: "blank-family-goat", LifecycleStatus: "alive", DOB: &catchUpDOB, Stage: "K1", Species: "goat"},
+			{GoatID: "already-dosed-goat", LifecycleStatus: "alive", DOB: &satisfiedDOB, Stage: "K1", Species: "goat"},
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"already-dosed-goat": {{AdministeredAt: gpoxAt, VaccineCode: "Goat Pox", VaccineType: "live", PathogenClass: "viral", DoseCode: "gpox_kid_w6", Sequence: 1}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateEffectiveForAllGoats(ctx, "tenant-1", asOf)
+	if err != nil {
+		t.Fatalf("mixed cohort generate: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want only the blank-family goat's catch-up generated", result, obl.inserted)
+	}
+	if obl.inserted[0].TargetID != "blank-family-goat" {
+		t.Fatalf("inserted=%#v, want the blank-family goat's obligation, not the already-dosed goat", obl.inserted)
+	}
+	if result.SuppressedByTrustedHistory < 1 {
+		t.Fatalf("result=%#v, want the already-dosed goat's exact dose suppressed by its own recorded history", result)
 	}
 }
