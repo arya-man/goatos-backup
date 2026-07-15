@@ -423,6 +423,104 @@ type insertedOutbox struct {
 	EventID  string
 }
 
+// TestOutboxRelayStageDrains500WithinFastLaneBudget proves the KERN-REV-05A
+// budget decision: the retired job's 240s window shrank to the 1-minute fast
+// lane's 54s effective budget, but a full 500-message batch drains well within
+// it. At 54s / 500 = 108ms per message, and a simulated 15ms Pub/Sub round-trip,
+// the drain finishes with large headroom.
+func TestOutboxRelayStageDrains500WithinFastLaneBudget(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+	ctx := context.Background()
+	pool := startOutboxDB(t, ctx)
+	defer pool.Close()
+	seedOutboxGoat(t, pool)
+
+	const batch = 500
+	for i := 1; i <= batch; i++ {
+		insertOutboxMessage(t, pool, outboxRow{Suffix: i, Status: domain.StatusPending})
+	}
+
+	publisher := &fakePublisher{publishDelay: 15 * time.Millisecond}
+	svc := newRelayService(t, pool, publisher, outboxapp.Config{Limit: batch, MaxAttempts: 5, LeaseTimeout: 5 * time.Minute, Now: fixedNow})
+
+	const budget = 54 * time.Second
+	runCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	start := time.Now()
+	total, err := svc.RunUntilDrained(runCtx)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("RunUntilDrained: %v", err)
+	}
+	if total.PublishedCount != batch {
+		t.Fatalf("published %d of %d within the fast-lane budget", total.PublishedCount, batch)
+	}
+	// Hard requirement: the full batch drains inside the 54s budget with clear
+	// margin. Observed ~26s in local pgtest (per-message MarkPublished round-trips
+	// dominate; Cloud SQL is faster), so 45s leaves headroom without flakiness.
+	if elapsed >= 45*time.Second {
+		t.Fatalf("drain took %v — too close to the %v fast-lane budget", elapsed, budget)
+	}
+}
+
+// TestOutboxRelayCancellationRecoversWithoutLoss proves that cancelling a drain
+// mid-batch (the fast-lane budget expiring) loses nothing: messages left
+// unpublished stay leased/pending and a subsequent drain — after the lease
+// expires — reclaims and publishes the entire set. At-least-once with
+// consumer-side dedup, no loss.
+func TestOutboxRelayCancellationRecoversWithoutLoss(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+	ctx := context.Background()
+	pool := startOutboxDB(t, ctx)
+	defer pool.Close()
+	seedOutboxGoat(t, pool)
+
+	const total = 20
+	ids := make([]string, 0, total)
+	for i := 1; i <= total; i++ {
+		ids = append(ids, insertOutboxMessage(t, pool, outboxRow{Suffix: i, Status: domain.StatusPending}).OutboxID)
+	}
+
+	// Slow publisher + a short budget: only some messages publish before cancel.
+	slow := &fakePublisher{publishDelay: 30 * time.Millisecond}
+	leaseTimeout := 50 * time.Millisecond
+	svc := newRelayService(t, pool, slow, outboxapp.Config{Limit: total, MaxAttempts: 5, LeaseTimeout: leaseTimeout, Now: time.Now})
+	runCtx, cancelRun := context.WithTimeout(ctx, 120*time.Millisecond)
+	partial, _ := svc.RunUntilDrained(runCtx)
+	cancelRun()
+	if partial.PublishedCount >= total {
+		t.Fatalf("expected a partial drain, published all %d", total)
+	}
+
+	// Wait past the lease so stale 'publishing' rows can be reclaimed, then drain
+	// with a fast publisher.
+	time.Sleep(2 * leaseTimeout)
+	fast := &fakePublisher{}
+	recoverSvc := newRelayService(t, pool, fast, outboxapp.Config{Limit: total, MaxAttempts: 5, LeaseTimeout: leaseTimeout, Now: time.Now})
+	recoverCtx, cancelRecover := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelRecover()
+	if _, err := recoverSvc.RunUntilDrained(recoverCtx); err != nil {
+		t.Fatalf("recovery drain: %v", err)
+	}
+
+	// No loss: every one of the seeded messages ends 'published'; none stuck
+	// 'pending'/'publishing'. Scoped to the exact seeded ids.
+	var published, stuck int
+	if err := pool.QueryRow(ctx, `SELECT
+	  count(*) FILTER (WHERE status = 'published'),
+	  count(*) FILTER (WHERE status IN ('pending', 'publishing'))
+	FROM outbox_messages WHERE outbox_id = ANY($1::uuid[])`, ids).Scan(&published, &stuck); err != nil {
+		t.Fatalf("count statuses: %v", err)
+	}
+	if published != total || stuck != 0 {
+		t.Fatalf("after recovery: published=%d stuck=%d of %d seeded; want all published, 0 stuck (no loss)", published, stuck, total)
+	}
+}
+
 func insertOutboxMessage(t *testing.T, pool *pgxpool.Pool, row outboxRow) insertedOutbox {
 	t.Helper()
 	if row.Status == "" {
@@ -565,6 +663,9 @@ type fakePublisher struct {
 	blockOutboxID string
 	started       chan struct{}
 	release       chan struct{}
+	// publishDelay simulates a per-message Pub/Sub publish round-trip so a
+	// full-batch drain has realistic wall-clock cost (KERN-REV-05A budget proof).
+	publishDelay time.Duration
 }
 
 func (p *fakePublisher) Publish(ctx context.Context, message ports.PublishMessage) error {
@@ -575,7 +676,16 @@ func (p *fakePublisher) Publish(ctx context.Context, message ports.PublishMessag
 	shouldBlock := p.blockOutboxID == message.OutboxID
 	started := p.started
 	release := p.release
+	delay := p.publishDelay
 	p.mu.Unlock()
+
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 
 	if shouldBlock {
 		close(started)

@@ -38,6 +38,15 @@ func TestRegisterCadenceWithTimeoutBudget(t *testing.T) {
 	if got := s.cadences["derived"].Stages[0].timeout; got != 75*time.Second {
 		t.Fatalf("derived timeout = %v, want 75s", got)
 	}
+
+	// KERN-REV-05A: the outbox fast lane is a 1-minute cadence, so its EFFECTIVE
+	// per-run budget is capped at 90% of the interval = 54s (not the retired
+	// job's 240s). This asserts the effective value the supervisor will enforce,
+	// which TestOutboxRelayStageDrains500WithinFastLaneBudget proves is enough.
+	s.RegisterCadence("outbox", 1*time.Minute, NewNoOpStage(logger, "o"))
+	if got := s.cadences["outbox"].Stages[0].timeout; got != 54*time.Second {
+		t.Fatalf("1-minute fast-lane effective timeout = %v, want 54s", got)
+	}
 }
 
 // TestSupervisorPanicIsolation verifies that a panic in one stage does not

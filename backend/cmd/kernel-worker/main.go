@@ -107,9 +107,26 @@ func run(ctx context.Context, args []string) error {
 		logger.Info("kernel_worker_domain_consumer_disabled", "reason", "pubsub not configured")
 	}
 
-	// Fast lane (every minute): drain outbox, dispatch due notifications.
-	supervisor.RegisterCadence("fast", 1*time.Minute,
+	// Fast lanes (every minute), on SEPARATE cadences so they run as independent
+	// goroutines. Outbox relay and notification dispatch must not share one
+	// serial lane: a full outbox drain can use most of the ~54s per-run budget
+	// (derived from the 1-minute interval), and if the dispatcher ran after it on
+	// the same lane a slow outbox would delay — or, if it overran the tick, skip
+	// — notification delivery. On their own cadences each gets its own advisory
+	// lock (no self-overlap across the HA pair or across ticks) and its own full
+	// budget, and a slow outbox cannot starve the dispatcher (KERN-REV-05A).
+	//
+	// The ~54s outbox budget is sufficient: RunUntilDrained publishes a claimed
+	// batch (limit GOATOS_OUTBOX_LIMIT=500) serially and loops until drained or
+	// the budget expires; a 500-message batch drains well within 54s (see
+	// TestOutboxRelayStageDrains500WithinFastLaneBudget), and any batch not
+	// reached before cancellation stays leased and is recovered by
+	// ReclaimStalePublishing on the next tick — at-least-once with consumer-side
+	// dedup, no loss.
+	supervisor.RegisterCadence("outbox", 1*time.Minute,
 		kernelstages.NewOutboxRelayStage(deps, publisher, validator, kernelstages.OutboxRelayConfigFromEnv()),
+	)
+	supervisor.RegisterCadence("notify", 1*time.Minute,
 		kernelstages.NewNotificationDispatcherStage(deps, tenantID),
 	)
 
