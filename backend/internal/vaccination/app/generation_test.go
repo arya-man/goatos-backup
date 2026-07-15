@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -2144,6 +2145,7 @@ type generationObligationFake struct {
 	failOnceAfterInserted  int
 	failErr                error
 	failed                 bool
+	rescheduledDue         map[string]time.Time // R2-01: simulate a persisted reschedule per idempotency key
 }
 
 type nearestBatchLookup struct {
@@ -2174,6 +2176,23 @@ func (o *generationObligationFake) InsertObligation(_ context.Context, in obldom
 	o.keyIndex[in.IdempotencyKey] = len(o.inserted)
 	o.inserted = append(o.inserted, in)
 	return "obligation-1", true, nil
+}
+
+func (o *generationObligationFake) GetByIdempotencyKey(_ context.Context, _, idempotencyKey string) (obldomain.ObligationRef, error) {
+	idx, ok := o.keyIndex[idempotencyKey]
+	if !ok {
+		return obldomain.ObligationRef{}, ports.ErrNotFound
+	}
+	in := o.inserted[idx]
+	// rescheduledDue lets a test simulate a persisted reschedule (R2-01): the persisted DueAt then
+	// differs from what generation recomputes.
+	due := in.DueAt
+	if o.rescheduledDue != nil {
+		if d, ok := o.rescheduledDue[idempotencyKey]; ok {
+			due = d
+		}
+	}
+	return obldomain.ObligationRef{ObligationID: "obligation-1", Status: in.Status, DueAt: due}, nil
 }
 
 func (o *generationObligationFake) DeferOpenObligationByIdempotencyKey(_ context.Context, _, idempotencyKey, reason string, _ time.Time) (string, bool, error) {
@@ -2968,5 +2987,112 @@ func TestGenerateForVersionAdultPriorVaccinationAllowedFlag(t *testing.T) {
 		if len(obl.inserted) != 0 {
 			t.Errorf("with flag=false: inserted=%d obligations, want 0 (revac scheduling disabled by flag)", len(obl.inserted))
 		}
+	}
+}
+
+// TestGenerateForVersionAdultPriorFalseWithoutWarmup is the R2-03 guard: an EXPLICIT
+// adult_prior_vaccination_allowed:false must be honored even when it is the ONLY configured
+// procurement field (no warmup, no kid cutoff). The prior bug made active() require a positive field,
+// so a policy of just {"adult_prior_vaccination_allowed":false} read as inactive and the false was
+// silently ignored -- adult prior history then still scheduled the revac. This fixture removes the
+// unrelated warmup the sibling test used to mask the defect.
+func TestGenerateForVersionAdultPriorFalseWithoutWarmup(t *testing.T) {
+	ctx := context.Background()
+	entryDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	adult := domain.EligibleGoat{GoatID: "adult-goat", LifecycleStatus: "alive", EntryDate: &entryDate, Species: "goat"}
+	priorPPRAt := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	vaccineHistory := []domain.RecentVaccineAdministration{{
+		AdministeredAt: priorPPRAt, VaccineCode: "PPR", VaccineType: "live", PathogenClass: "viral",
+	}}
+	proto := &generationProtoFake{
+		// ONLY the adult-prior flag, explicitly false -- no warmup, no kid cutoff.
+		ruleDSL: []byte(`{
+			"eligibility":{},
+			"compatibility_policy":{"live_to_live_gap_days":28},
+			"procurement_policy":{"adult_prior_vaccination_allowed":false}
+		}`),
+		rules: []protodomain.Rule{{
+			RuleID: "ppr-revac", DoseCode: "ppr_revac_yearly", Sequence: 1,
+			TriggerType: "after_previous_completion", Repeat: "yearly",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+		}},
+	}
+	goats := &generationGoatFake{
+		list:           []domain.EligibleGoat{adult},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{"adult-goat": vaccineHistory},
+	}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 0 || len(obl.inserted) != 0 {
+		t.Fatalf("explicit adult_prior_vaccination_allowed:false (no warmup) must NOT schedule adult revac from prior history: Generated=%d inserted=%d, want 0/0", result.Generated, len(obl.inserted))
+	}
+}
+
+// TestGenerateReplayCoDueSpacingUsesPersistedRescheduledDate is the R2-01 guard: when vaccine A is
+// generated, later rescheduled, and generation reruns, a co-due incompatible vaccine B (generated
+// fresh in the same pass while A replays) must be spaced from A's PERSISTED (rescheduled) date, not
+// the freshly recalculated one. Insert A -> reschedule it -> add B and regenerate -> B's cross-vaccine
+// gap floor must anchor on A's persisted date.
+func TestGenerateReplayCoDueSpacingUsesPersistedRescheduledDate(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	ruleA := protodomain.Rule{
+		RuleID: "ppr", DoseCode: "ppr_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+	}
+	ruleB := protodomain.Rule{
+		RuleID: "goatpox", DoseCode: "goatpox_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+		EligibilityJSON: []byte(`{"vaccine":{"code":"GOAT_POX","type":"live","pathogen_class":"viral"}}`),
+	}
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"eligibility":{},"compatibility_policy":{"live_to_live_gap_days":28}}`),
+		rules:   []protodomain.Rule{ruleA},
+	}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{{GoatID: "goat-1", LifecycleStatus: "alive", DOB: &dob, Species: "goat"}}}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+
+	// Pass 1: only PPR exists -> A generated at DOB+30 = July 31.
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("pass 1: %v", err)
+	}
+	if len(obl.inserted) != 1 || obl.inserted[0].RuleID != "ppr" {
+		t.Fatalf("pass 1 inserted = %#v, want exactly PPR", obl.inserted)
+	}
+
+	// A is rescheduled to a LATER persisted date (e.g. an operator moved the drive).
+	rescheduled := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	obl.inserted[0].DueAt = rescheduled
+
+	// Pass 2: PPR now replays (applied=false) and Goat Pox is generated fresh, co-due + incompatible.
+	proto.rules = []protodomain.Rule{ruleA, ruleB}
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("pass 2: %v", err)
+	}
+
+	var goatPox *obldomain.NewObligation
+	for i := range obl.inserted {
+		if obl.inserted[i].RuleID == "goatpox" {
+			goatPox = &obl.inserted[i]
+		}
+	}
+	if goatPox == nil {
+		t.Fatalf("Goat Pox obligation was not generated in pass 2: inserted=%#v", obl.inserted)
+	}
+	// B must be floored to A's PERSISTED date + the 28-day live-live gap, not the recalculated July 31.
+	wantFloor := businessDayStart(rescheduled).AddDate(0, 0, 28)
+	staleFloor := businessDayStart(businessDayStart(dob).AddDate(0, 0, 30)).AddDate(0, 0, 28)
+	if goatPox.DueAt.Equal(staleFloor) {
+		t.Fatalf("Goat Pox spaced from the OBSOLETE calculated date %s (R2-01 regression)", staleFloor.Format("2006-01-02"))
+	}
+	if !goatPox.DueAt.Equal(wantFloor) {
+		t.Fatalf("Goat Pox due = %s, want %s (A's persisted %s + 28d)", goatPox.DueAt.Format("2006-01-02"), wantFloor.Format("2006-01-02"), rescheduled.Format("2006-01-02"))
 	}
 }

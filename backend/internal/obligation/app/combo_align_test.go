@@ -106,6 +106,39 @@ func TestAlignComboDrivesSkipsBatchThatWouldExceedShotCap(t *testing.T) {
 	}
 }
 
+// TestAlignComboDrivesClustersAroundOutlier is the R2-06a guard: a single far-outlier batch in a
+// park/combo group must NOT prevent an otherwise-compatible nearby pair from aligning. Aug 1, Aug 20,
+// Aug 22 under a 7-day window used to span 21 days as one group and align nothing; now the Aug 20/22
+// pair clusters and converges while the Aug 1 outlier is left on its own date.
+func TestAlignComboDrivesClustersAroundOutlier(t *testing.T) {
+	outlier := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	near1 := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	near2 := time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC)
+	repo := &fakeComboAlignRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		comboBatches: []domain.ComboDriveBatch{
+			{BatchID: "batch-outlier", ScopeType: "park", ScopeID: "park-1", Session: "combo:FMD+HS", PlannedDate: &outlier, TargetIDs: []string{"goat-1"}},
+			{BatchID: "batch-near1", ScopeType: "park", ScopeID: "park-1", Session: "combo:FMD+HS", PlannedDate: &near1, TargetIDs: []string{"goat-2"}},
+			{BatchID: "batch-near2", ScopeType: "park", ScopeID: "park-1", Session: "combo:FMD+HS", PlannedDate: &near2, TargetIDs: []string{"goat-3"}},
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 7, outlier, 0, NewSweepSession())
+	if err != nil {
+		t.Fatalf("AlignComboDrives: %v", err)
+	}
+	if aligned != 1 {
+		t.Fatalf("aligned = %d, want 1 (only the Aug 20 batch moves onto Aug 22)", aligned)
+	}
+	if len(repo.updates) != 1 || repo.updates[0].BatchID != "batch-near1" {
+		t.Fatalf("updates = %#v, want only batch-near1 moved", repo.updates)
+	}
+	if want := businessDate(near2); !businessDate(repo.updates[0].PlannedDate).Equal(want) {
+		t.Fatalf("batch-near1 moved to %s, want %s", repo.updates[0].PlannedDate, want)
+	}
+}
+
 // TestAlignComboDrivesAlignsWithinShotCap is the sanity-check sibling: when no member animal
 // would be pushed past the cap, normal cross-version combo alignment still happens.
 func TestAlignComboDrivesAlignsWithinShotCap(t *testing.T) {

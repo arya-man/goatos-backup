@@ -41,3 +41,25 @@ func TestPublishRejectsVaccineTypeValueInPathogenClass(t *testing.T) {
 		})
 	}
 }
+
+// TestPublishRejectsMatrixRowMissingVaccineType is the R2-07a guard: vaccine type is REQUIRED for
+// every matrix-row vaccine server-side. Removing `type` from the canonical row must fail publish
+// with ErrNotPublishable -- previously type was validated only when nonblank, so a direct publish
+// with the row's type removed bypassed both the UI check and the server.
+func TestPublishRejectsMatrixRowMissingVaccineType(t *testing.T) {
+	base := validVaccinationMatrixRulesetDSL()
+	if !strings.Contains(base, `"type":"live","pathogen_class":"viral"`) {
+		t.Fatalf("test fixture drift: expected the matrix row to carry type=live before pathogen_class")
+	}
+	// Remove ONLY the matrix row's type field (the wrapper vaccine keeps type=matrix).
+	missingType := strings.Replace(base, `"type":"live","pathogen_class":"viral"`, `"pathogen_class":"viral"`, 1)
+
+	version := domain.Version{
+		SopVersionID: "62000000-0000-4000-8000-000000000001",
+		ProofPolicy:  []byte(`{"required":true,"types":["video"]}`),
+		RuleDsl:      []byte(missingType),
+	}
+	if err := ValidateExecutionContract(version); !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("matrix row missing vaccine type must fail publish with ErrNotPublishable, got: %v", err)
+	}
+}

@@ -618,24 +618,57 @@ var forbiddenPathogenClassValues = map[string]struct{}{
 	"combo":  {},
 }
 
-// validVaccineTypes are the only accepted immunological types.
+// validVaccineTypes are the only accepted immunological types. Per the V1 Implementation Contract
+// (docs/preventive-care-vaccination/vaccination-rules.md) and the Config UI's own vaccine_types
+// option group (adminui service.pageOptionGroups), the reviewed taxonomy is live/killed/toxoid PLUS
+// "combo" (a reviewed combination row) and "unknown_review_needed" (source explicitly lacks a type;
+// fail-closed downstream). R2-07b: these were previously rejected here even though the Config UI
+// offered them and the canonical rules require them, so a direct publish with a reviewed value was
+// blocked and the UI presented un-publishable options. classifyVaccine() already maps combo/unknown
+// to immunoUnknown, which crossVaccineGapDays fails closed on (strictest gap).
 // Note: "matrix" is valid only for the wrapper vaccine (vaccination.matrix), not for individual vaccines.
 var validVaccineTypes = map[string]struct{}{
-	"live":   {},
-	"killed": {},
-	"toxoid": {},
+	"live":                  {},
+	"killed":                {},
+	"toxoid":                {},
+	"combo":                 {},
+	"unknown_review_needed": {},
 }
 
-// validPathogenClasses are the only accepted organism classes.
+// validPathogenClasses are the only accepted organism classes: bacterial/viral PLUS "mixed"
+// (combination vaccine or reviewed combo row) and "unknown_review_needed" (source lacks class; fail
+// closed for same-day planning) -- matching the Config UI vaccine_pathogen_classes option group and
+// the V1 contract (R2-07b). classifyVaccine treats mixed/unknown as a non-viral/non-bacterial base
+// class, which the compatibility engine handles conservatively.
 var validPathogenClasses = map[string]struct{}{
-	"viral":     {},
-	"bacterial": {},
+	"viral":                 {},
+	"bacterial":             {},
+	"mixed":                 {},
+	"unknown_review_needed": {},
 }
 
 // validCourseTypes are the only accepted course types.
 var validCourseTypes = map[string]struct{}{
 	"single":  {},
 	"booster": {},
+}
+
+// IsValidVaccineType / IsValidPathogenClass / IsValidCourseType expose the reviewed taxonomy so the
+// adminui Config option groups (and their tests) validate against ONE backend source of truth
+// instead of a second hardcoded list that can silently drift out of sync (R2-07b).
+func IsValidVaccineType(v string) bool {
+	_, ok := validVaccineTypes[strings.ToLower(strings.TrimSpace(v))]
+	return ok
+}
+
+func IsValidPathogenClass(v string) bool {
+	_, ok := validPathogenClasses[strings.ToLower(strings.TrimSpace(v))]
+	return ok
+}
+
+func IsValidCourseType(v string) bool {
+	_, ok := validCourseTypes[strings.ToLower(strings.TrimSpace(v))]
+	return ok
 }
 
 func rejectVaccineTypeValueInPathogenClass(pathogenClass, label string) error {
@@ -788,11 +821,12 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 			if err := rejectVaccineTypeValueInPathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine.pathogen_class", idx)); err != nil {
 				return err
 			}
-			// Validate vaccine type (must be live, killed, or toxoid; never "matrix" for individual vaccines)
-			if strings.TrimSpace(rowVaccine.Type) != "" {
-				if err := validateVaccineType(rowVaccine.Type, fmt.Sprintf("matrix_rows[%d].vaccine", idx), false); err != nil {
-					return err
-				}
+			// Validate vaccine type. REQUIRED for every matrix-row vaccine (R2-07a): validateVaccineType
+			// itself rejects an empty type, so calling it unconditionally closes the bypass where a
+			// direct publish with `type` removed passed server-side while the UI check could be skipped.
+			// Must be live, killed, or toxoid; never "matrix" for an individual vaccine.
+			if err := validateVaccineType(rowVaccine.Type, fmt.Sprintf("matrix_rows[%d].vaccine", idx), false); err != nil {
+				return err
 			}
 			// Validate pathogen class (REQUIRED for individual vaccines)
 			if err := validatePathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {

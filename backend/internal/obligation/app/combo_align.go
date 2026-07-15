@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -62,6 +63,10 @@ func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, 
 	var pendingKey comboGroupKey
 	havePending := false
 
+	// alignComboCluster is forward-declared so flushPending (defined next) can call it; it is
+	// assigned below.
+	var alignComboCluster func([]domain.ComboDriveBatch) error
+
 	// flushPending aligns the currently-accumulated group (if it has >=2 members) and clears it. It
 	// must only be called once the caller has confirmed no further row in the ordered result can
 	// still belong to this group -- i.e. on a group-key change, or once the query is exhausted.
@@ -75,6 +80,22 @@ func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, 
 		if len(batches) < 2 {
 			return nil
 		}
+		// R2-06a: partition the park/session group into date-window clusters BEFORE choosing an
+		// alignment date, so one far-outlier batch (e.g. Aug 1 alongside an Aug 20/22 pair under a
+		// 7-day window) can no longer blow the whole group's span past the window and prevent the
+		// otherwise-compatible nearby batches from aligning. Each cluster is aligned independently.
+		for _, cluster := range clusterComboByWindow(batches, window) {
+			if len(cluster) < 2 {
+				continue
+			}
+			if err := alignComboCluster(cluster); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	alignComboCluster = func(batches []domain.ComboDriveBatch) error {
 		target := pickComboAlignDate(batches, dueBefore, window)
 		if target == nil {
 			return nil
@@ -182,6 +203,48 @@ func comboBatchExceedsShotCapAtDate(batch domain.ComboDriveBatch, target time.Ti
 		}
 	}
 	return false
+}
+
+// clusterComboByWindow partitions batches into maximal clusters whose planned dates all fall within
+// window of the cluster's EARLIEST date (greedy from earliest, deterministic), so a far-outlier
+// batch cannot prevent an otherwise-compatible nearby pair from aligning (R2-06a). Each returned
+// cluster independently satisfies the window and can be aligned to its own target date. Batches
+// without a usable planned date are returned as their own singletons (never aligned).
+func clusterComboByWindow(batches []domain.ComboDriveBatch, window time.Duration) [][]domain.ComboDriveBatch {
+	dated := make([]domain.ComboDriveBatch, 0, len(batches))
+	var singletons [][]domain.ComboDriveBatch
+	for _, b := range batches {
+		if b.PlannedDate == nil || b.PlannedDate.IsZero() {
+			singletons = append(singletons, []domain.ComboDriveBatch{b})
+			continue
+		}
+		dated = append(dated, b)
+	}
+	sort.SliceStable(dated, func(i, j int) bool {
+		return businessDate(*dated[i].PlannedDate).Before(businessDate(*dated[j].PlannedDate))
+	})
+	var clusters [][]domain.ComboDriveBatch
+	var cur []domain.ComboDriveBatch
+	var clusterStart time.Time
+	for _, b := range dated {
+		day := businessDate(*b.PlannedDate)
+		if len(cur) == 0 {
+			cur = []domain.ComboDriveBatch{b}
+			clusterStart = day
+			continue
+		}
+		if day.Sub(clusterStart) > window {
+			clusters = append(clusters, cur)
+			cur = []domain.ComboDriveBatch{b}
+			clusterStart = day
+			continue
+		}
+		cur = append(cur, b)
+	}
+	if len(cur) > 0 {
+		clusters = append(clusters, cur)
+	}
+	return append(clusters, singletons...)
 }
 
 func pickComboAlignDate(batches []domain.ComboDriveBatch, dueBefore time.Time, window time.Duration) *time.Time {

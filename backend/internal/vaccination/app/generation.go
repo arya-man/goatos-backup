@@ -68,6 +68,10 @@ func IsGenerationAbortError(err error) bool {
 // ObligationWriter is the slice of the obligation repo SM-1 generation needs.
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
+	// GetByIdempotencyKey returns the persisted obligation for a key (R2-01): on idempotent replay
+	// its DueAt is the ACTUAL scheduled date, which may differ from a freshly recalculated one if the
+	// obligation was rescheduled, and is what co-due cross-vaccine spacing must anchor on.
+	GetByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string) (obldomain.ObligationRef, error)
 	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
 	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obligationID string, changed bool, err error)
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
@@ -1200,7 +1204,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			if hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
 				shouldSuppressByHistory := true
 				if path == schedulePathAdultProcurement && policies.Procurement.active() &&
-					!policies.Procurement.AdultPriorVaccinationAllowed {
+					!policies.Procurement.adultPriorAllowed() {
 					// Adult prior vaccination is disabled: schedule the full course
 					// as if this vaccine has no prior history.
 					shouldSuppressByHistory = false
@@ -1262,7 +1266,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			// Default (when policy not active) is to allow adult prior vaccination for backward compat.
 			allowHistoryDue := true
 			if path == schedulePathAdultProcurement && policies.Procurement.active() &&
-				!policies.Procurement.AdultPriorVaccinationAllowed {
+				!policies.Procurement.adultPriorAllowed() {
 				allowHistoryDue = false
 			}
 			if allowHistoryDue {
@@ -1367,10 +1371,24 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			// already-persisted obligations. Without this, idempotent replay loses the spacing
 			// floor when vaccine A was inserted in a prior attempt and B is generated on retry
 			// without knowing about A's due date.
+			//
+			// R2-01: append the PERSISTED obligation's due_at, not the freshly recalculated `due`.
+			// If A was inserted on July 1 and later rescheduled to July 10, `due` may still compute
+			// July 1, and spacing B off July 1 could schedule B too close to A's actual July 10
+			// visit. GetByIdempotencyKey returns A's real scheduled date. Fall back to `due` on a
+			// benign miss (e.g. a not-found race); only a run-level infra fault aborts.
+			pendingDue := due
+			if ref, gerr := s.obl.GetByIdempotencyKey(ctx, tenantID, key); gerr == nil {
+				if !ref.DueAt.IsZero() {
+					pendingDue = ref.DueAt
+				}
+			} else if shouldAbortGeneration(gerr) {
+				return gerr
+			}
 			pending = append(pending, pendingVaccine{
 				code:  ruleVaccine.Code,
 				class: ruleVaccine.Class,
-				due:   due,
+				due:   pendingDue,
 			})
 			if missingKey != "" {
 				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {

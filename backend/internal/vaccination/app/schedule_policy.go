@@ -26,13 +26,24 @@ type genCompatibilityPolicy struct {
 }
 
 type genProcurementPolicy struct {
-	WarmupNoVaccinationDays       int32 `json:"warmup_no_vaccination_days"`
-	KidsNormalScheduleUntilWeeks  int32 `json:"kids_normal_schedule_until_weeks"`
-	AdultPriorVaccinationAllowed  bool  `json:"adult_prior_vaccination_allowed"`
+	WarmupNoVaccinationDays      int32 `json:"warmup_no_vaccination_days"`
+	KidsNormalScheduleUntilWeeks int32 `json:"kids_normal_schedule_until_weeks"`
+	// AdultPriorVaccinationAllowed is a pointer so an EXPLICIT false is distinguishable from an
+	// omitted field (R2-03). A plain bool made active() require a positive field, so publishing only
+	// {"adult_prior_vaccination_allowed": false} left the policy "inactive" and the false was ignored.
+	AdultPriorVaccinationAllowed *bool `json:"adult_prior_vaccination_allowed"`
 }
 
 func (p genProcurementPolicy) active() bool {
-	return p.WarmupNoVaccinationDays > 0 || p.KidsNormalScheduleUntilWeeks > 0 || p.AdultPriorVaccinationAllowed
+	// An explicitly-present adult-prior flag (true OR false) makes the procurement policy active,
+	// even when every numeric field is zero -- R2-03.
+	return p.WarmupNoVaccinationDays > 0 || p.KidsNormalScheduleUntilWeeks > 0 || p.AdultPriorVaccinationAllowed != nil
+}
+
+// adultPriorAllowed reports whether adult prior vaccination history may suppress/anchor adult work.
+// Default is true (backward compat) when the flag is omitted; an explicit false is honored (R2-03).
+func (p genProcurementPolicy) adultPriorAllowed() bool {
+	return p.AdultPriorVaccinationAllowed == nil || *p.AdultPriorVaccinationAllowed
 }
 
 type genPregnancyPolicy struct {

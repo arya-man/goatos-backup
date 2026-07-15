@@ -2,20 +2,28 @@
  * Vaccine taxonomy constants shared with the backend protocol/app/publish.go validation.
  * These must match the server's valid sets exactly.
  *
- * Backend source of truth: backend/internal/protocol/app/publish.go
- *   - validVaccineTypes: live, killed, toxoid (+ matrix for wrapper)
- *   - validPathogenClasses: viral, bacterial
+ * BACKEND SOURCE OF TRUTH: backend/internal/protocol/app/publish.go
+ *   - validVaccineTypes: live, killed, toxoid, combo, unknown_review_needed (+ matrix for wrapper)
+ *   - validPathogenClasses: viral, bacterial, mixed, unknown_review_needed
  *   - validCourseTypes: single, booster
+ *
+ * These lists deliberately mirror the backend Config option groups
+ * (adminui service.pageOptionGroups vaccine_types / vaccine_pathogen_classes / vaccine_course_types)
+ * and the V1 Implementation Contract in docs/preventive-care-vaccination/vaccination-rules.md, which
+ * require the reviewed "combo" type and "mixed" / "unknown_review_needed" values. R2-07b: they were
+ * previously a narrower second list (live/killed/toxoid, viral/bacterial), so the UI both offered
+ * options its own Save validation rejected AND diverged from what the server accepts. A backend guard
+ * test (protocol IsValidVaccineType/IsValidPathogenClass) keeps the option groups and publish
+ * validation from drifting; keep these constants in lockstep with that reconciled set.
  */
 
-// Valid vaccine types (live, killed, toxoid, matrix for wrapper)
-// Individual vaccines use: live, killed, toxoid
-// Wrapper vaccine (type=matrix, code=vaccination.matrix) uses: matrix
-export const VALID_VACCINE_TYPES = ["live", "killed", "toxoid"];
-export const VALID_VACCINE_TYPES_WITH_MATRIX = ["live", "killed", "toxoid", "matrix"];
+// Valid vaccine types. Individual vaccines: live, killed, toxoid, combo (reviewed), unknown_review_needed.
+// Wrapper vaccine (type=matrix, code=vaccination.matrix) additionally uses: matrix.
+export const VALID_VACCINE_TYPES = ["live", "killed", "toxoid", "combo", "unknown_review_needed"];
+export const VALID_VACCINE_TYPES_WITH_MATRIX = ["live", "killed", "toxoid", "combo", "unknown_review_needed", "matrix"];
 
-// Valid pathogen classes (organism types)
-export const VALID_PATHOGEN_CLASSES = ["viral", "bacterial"];
+// Valid pathogen classes (organism types), including reviewed combination/unknown values.
+export const VALID_PATHOGEN_CLASSES = ["viral", "bacterial", "mixed", "unknown_review_needed"];
 
 // Valid course types (immunological course classification)
 export const VALID_COURSE_TYPES = ["single", "booster"];
