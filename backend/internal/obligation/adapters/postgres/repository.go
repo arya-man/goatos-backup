@@ -1947,14 +1947,24 @@ func (r *Repository) ListPlannedComboBatches(ctx context.Context, tenantID strin
 		limit = 1000
 	}
 	dueDay := dueBefore.UTC()
+	// TargetIDs is aggregated here (one set-based join, not a per-batch follow-up query) so
+	// AlignComboDrives can enforce MaxShotsPerAnimalPerDrive when co-locating combo batches
+	// onto a shared date without an N+1 fan-out over the (typically small) combo batch set.
 	rows, err := r.pool.Query(ctx, `
 SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
        COALESCE(b.scope_id::text, '')::text AS scope_id,
        COALESCE(b.session, '')::text AS session,
-       b.planned_date
+       b.planned_date,
+       COALESCE(oi.target_ids, ARRAY[]::text[]) AS target_ids
 FROM obligation_batches b
+LEFT JOIN LATERAL (
+    SELECT array_agg(DISTINCT o.target_id::text) AS target_ids
+    FROM obligation_instances o
+    WHERE o.tenant_id = b.tenant_id
+      AND o.batch_id = b.batch_id
+) oi ON true
 WHERE b.tenant_id = $1
   AND b.status = 'planned'
   AND b.session LIKE 'combo:%'
@@ -1971,7 +1981,7 @@ LIMIT $3`, tenant, pgconv.Date(&dueDay), limit)
 	for rows.Next() {
 		var row domain.ComboDriveBatch
 		var planned pgtype.Date
-		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned); err != nil {
+		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &row.TargetIDs); err != nil {
 			return nil, fmt.Errorf("obligation: scan planned combo batch: %w", err)
 		}
 		if planned.Valid {

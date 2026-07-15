@@ -56,7 +56,8 @@ type vaccineDef struct {
 	Code      string  // protocol_definitions.code suffix (lowercase dotted-safe)
 	Name      string  // human protocol name / vaccine column label
 	Disease   string  // vaccine disease target
-	Type      string  // live | killed | toxoid
+	Type      string  // immunological type: live | killed | toxoid
+	Pathogen  string  // pathogen class: bacterial | viral (NEVER a Type value)
 	ItemCode  string  // inventory item code
 	DoseML    float64 // dose amount (ml) from the source dose table
 	VialDoses int     // doses per vial
@@ -64,14 +65,27 @@ type vaccineDef struct {
 
 // vaccines maps the source-sheet vaccine header -> its definition. Keys are the
 // exact strings that appear in vaccination.json header row 0.
+//
+// Type and Pathogen are two INDEPENDENT medical axes and must never be conflated:
+//   - Type describes the immunological preparation: live | killed | toxoid.
+//   - Pathogen describes the organism class: bacterial | viral.
+//
+// Same-day compatibility and cross-vaccine spacing rules depend on BOTH axes
+// (see internal/vaccination/app/compatibility.go classifyVaccine), so writing a
+// Type value into the pathogen_class field selects the wrong medical rule.
+// The reviewed source of truth for both axes is the V1 preset table in
+// docs/preventive-care-vaccination/vaccination-rules.md.
 var vaccines = map[string]vaccineDef{
-	"ET+TT":       {Code: "et_tt", Name: "ET+TT", Disease: "Enterotoxaemia + Tetanus", Type: "toxoid", ItemCode: "VAC-ET-TT", DoseML: 2, VialDoses: 100},
-	"PPR":         {Code: "ppr", Name: "PPR", Disease: "Peste des Petits Ruminants", Type: "live", ItemCode: "VAC-PPR", DoseML: 1, VialDoses: 100},
-	"Blue tongue": {Code: "blue_tongue", Name: "Blue Tongue", Disease: "Blue Tongue", Type: "killed", ItemCode: "VAC-BT", DoseML: 2, VialDoses: 100},
-	"FMD":         {Code: "fmd", Name: "FMD", Disease: "Foot and Mouth Disease", Type: "killed", ItemCode: "VAC-FMD", DoseML: 1, VialDoses: 30},
-	"HS":          {Code: "hs", Name: "HS", Disease: "Haemorrhagic Septicaemia", Type: "killed", ItemCode: "VAC-HS", DoseML: 2, VialDoses: 100},
-	"Goat Pox":    {Code: "goat_pox", Name: "Goat Pox", Disease: "Goat Pox", Type: "live", ItemCode: "VAC-GP", DoseML: 1, VialDoses: 25},
-	"Sheep Pox":   {Code: "sheep_pox", Name: "Sheep Pox", Disease: "Sheep Pox", Type: "live", ItemCode: "VAC-SP", DoseML: 1, VialDoses: 100},
+	// ET+TT is "bacteria killed" per the wiki source (Vaccination Rules.docx):
+	// vaccine_type=killed, pathogen_class=bacterial. "Booster" is its course type,
+	// not its vaccine type. Do not classify ET+TT as toxoid.
+	"ET+TT":       {Code: "et_tt", Name: "ET+TT", Disease: "Enterotoxaemia + Tetanus", Type: "killed", Pathogen: "bacterial", ItemCode: "VAC-ET-TT", DoseML: 2, VialDoses: 100},
+	"PPR":         {Code: "ppr", Name: "PPR", Disease: "Peste des Petits Ruminants", Type: "live", Pathogen: "viral", ItemCode: "VAC-PPR", DoseML: 1, VialDoses: 100},
+	"Blue tongue": {Code: "blue_tongue", Name: "Blue Tongue", Disease: "Blue Tongue", Type: "killed", Pathogen: "viral", ItemCode: "VAC-BT", DoseML: 2, VialDoses: 100},
+	"FMD":         {Code: "fmd", Name: "FMD", Disease: "Foot and Mouth Disease", Type: "killed", Pathogen: "viral", ItemCode: "VAC-FMD", DoseML: 1, VialDoses: 30},
+	"HS":          {Code: "hs", Name: "HS", Disease: "Haemorrhagic Septicaemia", Type: "killed", Pathogen: "bacterial", ItemCode: "VAC-HS", DoseML: 2, VialDoses: 100},
+	"Goat Pox":    {Code: "goat_pox", Name: "Goat Pox", Disease: "Goat Pox", Type: "live", Pathogen: "viral", ItemCode: "VAC-GP", DoseML: 1, VialDoses: 25},
+	"Sheep Pox":   {Code: "sheep_pox", Name: "Sheep Pox", Disease: "Sheep Pox", Type: "live", Pathogen: "viral", ItemCode: "VAC-SP", DoseML: 1, VialDoses: 100},
 }
 
 // vaccineOrder gives a stable insert order for the 7 protocols.
@@ -506,6 +520,16 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, fmt.Errorf("resolve vaccination matrix protocol id: %w", err)
 	}
 
+	// Ownership safety (VACC-REV): PublishVersion's overlap-retire clears every overlapping published
+	// vaccination matrix at this scope regardless of which protocol authored it. Refuse — fail closed —
+	// rather than silently retire a user-authored matrix under a different protocol. A normal reseed
+	// (only the seed's own protocol) is never flagged.
+	if foreign, ferr := foreignPublishedVaccinationMatrices(ctx, tx, tenantID, protocolID); ferr != nil {
+		return st, fmt.Errorf("check foreign published vaccination matrices: %w", ferr)
+	} else if len(foreign) > 0 {
+		return st, fmt.Errorf("seed-vaccination-real: refusing to publish the seed vaccination matrix — %d foreign published vaccination matrix protocol(s) exist at tenant scope (%v); publishing would retire that user-authored configuration. Retire or remove them first, then reseed", len(foreign), foreign)
+	}
+
 	ruleDSL, err := vaccinationMatrixRuleDSL()
 	if err != nil {
 		return st, err
@@ -514,56 +538,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	if err != nil {
 		return st, err
 	}
-	versionID := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
-	var status, existingRuleDSL, existingSOPVersionID string
-	var existingVersion int
-	qerr := tx.QueryRow(ctx, `
-		SELECT protocol_version_id, status, version, rule_dsl::text, COALESCE(sop_version_id::text, '')
-		FROM protocol_versions
-		WHERE tenant_id=$1
-		  AND protocol_id=$2
-		  AND scope_type='tenant'
-		  AND scope_id IS NULL
-		  AND version_label=$3
-		  AND status <> 'retired'
-		ORDER BY version DESC
-		LIMIT 1`,
-		tenantID, protocolID, matrixVersionLabel).Scan(&versionID, &status, &existingVersion, &existingRuleDSL, &existingSOPVersionID)
-	if qerr == nil && status == "published" && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) || existingSOPVersionID != sopVersionID) {
-		qerr = pgx.ErrNoRows
-	}
-	if qerr == pgx.ErrNoRows {
-		nextVersion, err := nextProtocolVersion(ctx, tx, tenantID, protocolID)
-		if err != nil {
-			return st, err
-		}
-		versionID = detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real", fmt.Sprintf("%d", nextVersion))
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-				version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id)
-			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,$7::uuid)`,
-			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL, sopVersionID); err != nil {
-			return st, fmt.Errorf("protocol version vaccination matrix: %w", err)
-		}
-		status = "draft"
-	} else if qerr != nil {
-		return st, fmt.Errorf("lookup vaccination matrix version: %w", qerr)
-	} else if status == "draft" && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) || existingSOPVersionID != sopVersionID) {
-		if _, err := tx.Exec(ctx, `
-			UPDATE protocol_versions
-			SET rule_dsl=$1::jsonb,
-			    proof_policy='{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,
-			    sop_version_id=$2::uuid,
-			    updated_at=now(),
-			    row_version=row_version+1
-			WHERE tenant_id=$3::uuid
-			  AND protocol_version_id=$4::uuid
-			  AND status='draft'`,
-			ruleDSL, sopVersionID, tenantID, versionID); err != nil {
-			return st, fmt.Errorf("refresh vaccination matrix draft: %w", err)
-		}
-	} else {
-		_ = existingVersion
+	versionID, err := reconcileSeedMatrixDraftVersion(ctx, tx, tenantID, protocolID, ruleDSL, sopVersionID)
+	if err != nil {
+		return st, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -1010,7 +987,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 
-	genRes, err := gen.GenerateEffectiveForAllGoats(ctx, tenantID, now)
+	genRes, err := gen.GenerateSeedCutoverForAllGoats(ctx, tenantID, now)
 	st.KernelGenerated = genRes.Generated
 	st.KernelDeferred = genRes.Deferred
 	st.KernelSuppressed = genRes.SuppressedByTrustedHistory
@@ -2292,6 +2269,113 @@ func nextProtocolVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID st
 	return nextVersion, nil
 }
 
+// seedQuerier is the read seam shared by pgx.Tx and *pgxpool.Pool so the ownership-safety guard can
+// run inside the seed's config transaction and be exercised directly from tests.
+type seedQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+// reconcileSeedMatrixDraftVersion resolves the seed's single canonical vaccination-matrix version to
+// publish, WITHOUT churning config on replay: it reuses the current non-retired version when the
+// authored rule_dsl + SOP already match, refreshes it in place while still a draft, and only mints a
+// NEW version when the published matrix genuinely changed (a real correction). It never retires or
+// creates versions itself — publishing (retire-overlap) is the caller's next step. Extracted from the
+// seed's config transaction so a Postgres regression can drive it twice and assert no version churn.
+func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID, ruleDSL, sopVersionID string) (string, error) {
+	versionID := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
+	var status, existingRuleDSL, existingSOPVersionID string
+	var existingVersion int
+	qerr := tx.QueryRow(ctx, `
+		SELECT protocol_version_id, status, version, rule_dsl::text, COALESCE(sop_version_id::text, '')
+		FROM protocol_versions
+		WHERE tenant_id=$1
+		  AND protocol_id=$2
+		  AND scope_type='tenant'
+		  AND scope_id IS NULL
+		  AND version_label=$3
+		  AND status <> 'retired'
+		ORDER BY version DESC
+		LIMIT 1`,
+		tenantID, protocolID, matrixVersionLabel).Scan(&versionID, &status, &existingVersion, &existingRuleDSL, &existingSOPVersionID)
+	if qerr == nil && status == "published" && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) || existingSOPVersionID != sopVersionID) {
+		qerr = pgx.ErrNoRows
+	}
+	if qerr == pgx.ErrNoRows {
+		nextVersion, err := nextProtocolVersion(ctx, tx, tenantID, protocolID)
+		if err != nil {
+			return "", err
+		}
+		versionID = detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real", fmt.Sprintf("%d", nextVersion))
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+				version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id)
+			VALUES ($1,$2,$3,'tenant',NULL,$4,$5,'draft',DATE '2026-01-01',NULL,$6::jsonb,'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,$7::uuid)`,
+			versionID, tenantID, protocolID, nextVersion, matrixVersionLabel, ruleDSL, sopVersionID); err != nil {
+			return "", fmt.Errorf("protocol version vaccination matrix: %w", err)
+		}
+	} else if qerr != nil {
+		return "", fmt.Errorf("lookup vaccination matrix version: %w", qerr)
+	} else if status == "draft" && (!jsonSemanticallyEqual(existingRuleDSL, ruleDSL) || existingSOPVersionID != sopVersionID) {
+		if _, err := tx.Exec(ctx, `
+			UPDATE protocol_versions
+			SET rule_dsl=$1::jsonb,
+			    proof_policy='{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,
+			    sop_version_id=$2::uuid,
+			    updated_at=now(),
+			    row_version=row_version+1
+			WHERE tenant_id=$3::uuid
+			  AND protocol_version_id=$4::uuid
+			  AND status='draft'`,
+			ruleDSL, sopVersionID, tenantID, versionID); err != nil {
+			return "", fmt.Errorf("refresh vaccination matrix draft: %w", err)
+		}
+	} else {
+		_ = existingVersion
+	}
+	return versionID, nil
+}
+
+// foreignPublishedVaccinationMatrices returns the protocol codes of any PUBLISHED, tenant-scoped,
+// matrix-shaped vaccination protocol version owned by a protocol OTHER than the seed's own
+// (seedProtocolID) whose effective window overlaps the seed's ([2026-01-01, ∞)). Those are exactly
+// the versions that PublishVersion's overlap-retire (retirePublishedVaccinationMatrixOverlapsTx)
+// would silently retire when the seed publishes — it retires every overlapping matrix at the scope
+// regardless of provenance. The seed refuses rather than overwrite user-authored configuration
+// (VACC-REV ownership safety). It NEVER flags the seed's own protocol, so a normal reseed that only
+// supersedes its own prior versions is unaffected.
+func foreignPublishedVaccinationMatrices(ctx context.Context, q seedQuerier, tenantID, seedProtocolID string) ([]string, error) {
+	rows, err := q.Query(ctx, `
+SELECT DISTINCT pd.code
+FROM protocol_versions pv
+JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+WHERE pv.tenant_id = $1::uuid
+  AND pv.protocol_id <> $2::uuid
+  AND pv.status = 'published'
+  AND pv.scope_type = 'tenant'
+  AND pv.scope_id IS NULL
+  AND pd.category = 'vaccination'
+  AND daterange(pv.effective_from, pv.effective_to, '[)') && daterange(DATE '2026-01-01', NULL, '[)')
+  AND (
+    lower(COALESCE(pv.rule_dsl->>'ruleset_family', '')) = 'vaccination.matrix'
+    OR lower(COALESCE(pv.rule_dsl->'vaccine'->>'code', '')) = 'vaccination.matrix'
+    OR pv.rule_dsl ? 'matrix_rows'
+  )
+ORDER BY pd.code`, tenantID, seedProtocolID)
+	if err != nil {
+		return nil, fmt.Errorf("query foreign published vaccination matrices: %w", err)
+	}
+	defer rows.Close()
+	var codes []string
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, fmt.Errorf("scan foreign vaccination matrix protocol code: %w", err)
+		}
+		codes = append(codes, code)
+	}
+	return codes, rows.Err()
+}
+
 func jsonSemanticallyEqual(a, b string) bool {
 	var left, right any
 	if json.Unmarshal([]byte(a), &left) != nil || json.Unmarshal([]byte(b), &right) != nil {
@@ -2309,6 +2393,12 @@ func jsonSemanticallyEqual(a, b string) bool {
 }
 
 func vaccinationMatrixRuleDSL() (string, error) {
+	// Reject malformed vaccine metadata before building the published matrix so a
+	// wrong pathogen_class (e.g. a leaked vaccine-type value) can never reach the
+	// compatibility engine as seeded truth (BUG1).
+	if err := validateVaccineClassifications(); err != nil {
+		return "", fmt.Errorf("vaccination seed matrix: %w", err)
+	}
 	type scheduleRow struct {
 		DoseCode            string  `json:"dose_code"`
 		SourceDoseCode      string  `json:"source_dose_code"`
@@ -2462,7 +2552,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				Type:               def.Type,
 				Disease:            def.Disease,
 				CompatibilityGroup: strings.ToUpper(def.Code),
-				PathogenClass:      pathogenClass(def.Type),
+				PathogenClass:      def.Pathogen,
 				CourseType:         courseType,
 			},
 			Species:     spec.Species,
@@ -2617,17 +2707,42 @@ func vaccinationSeedEligibilityForSpecies(species []string) map[string]any {
 	return eligibility
 }
 
-func pathogenClass(vaccineType string) string {
-	switch strings.ToLower(strings.TrimSpace(vaccineType)) {
-	case "live":
-		return "live"
-	case "killed":
-		return "killed"
-	case "toxoid":
-		return "bacterial"
-	default:
-		return "unknown_review_needed"
+// validVaccineTypes / validPathogenClasses are the only accepted values for the
+// two independent medical axes. Pathogen class is deliberately disjoint from
+// vaccine type: a "live"/"killed"/"toxoid"/"combo" value in pathogen_class is
+// malformed seed metadata (BUG1) that mis-selects same-day compatibility /
+// spacing rules. Toxoid stays a valid vaccine TYPE for any future reviewed
+// vaccine that needs it; it is simply never a pathogen class.
+var (
+	validVaccineTypes     = map[string]struct{}{"live": {}, "killed": {}, "toxoid": {}}
+	validPathogenClasses  = map[string]struct{}{"bacterial": {}, "viral": {}}
+	forbiddenPathogenVals = map[string]struct{}{"live": {}, "killed": {}, "toxoid": {}, "combo": {}}
+)
+
+// validateVaccineClassifications proves, at seed-build time, that every approved
+// vaccine has a known reviewed classification and that the two axes are stored
+// separately: Type ∈ {live,killed,toxoid}, Pathogen ∈ {bacterial,viral}, and the
+// pathogen field never carries a vaccine-type value. A malformed row fails the
+// seed loudly instead of silently emitting a wrong medical class.
+func validateVaccineClassifications() error {
+	return validateVaccineClassificationsIn(vaccines)
+}
+
+func validateVaccineClassificationsIn(defs map[string]vaccineDef) error {
+	for name, def := range defs {
+		t := strings.ToLower(strings.TrimSpace(def.Type))
+		p := strings.ToLower(strings.TrimSpace(def.Pathogen))
+		if _, ok := validVaccineTypes[t]; !ok {
+			return fmt.Errorf("vaccine %q has invalid immunological type %q (want live|killed|toxoid)", name, def.Type)
+		}
+		if _, bad := forbiddenPathogenVals[p]; bad {
+			return fmt.Errorf("vaccine %q pathogen_class %q is a vaccine-TYPE value; pathogen class must be bacterial|viral (BUG1)", name, def.Pathogen)
+		}
+		if _, ok := validPathogenClasses[p]; !ok {
+			return fmt.Errorf("vaccine %q has unknown pathogen class %q (want bacterial|viral)", name, def.Pathogen)
+		}
 	}
+	return nil
 }
 
 func historyObligationID(tenantID string, c vaccCell, def vaccineDef, sourceDateKey string) string {

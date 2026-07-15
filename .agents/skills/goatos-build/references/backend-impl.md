@@ -132,6 +132,9 @@ reopened.
 - Construct loggers via `backend/internal/platform/observability`.
 - Emit durable domain events through outbox where downstream status/projection
   consumers will need them.
+- In pinned-clock tests, derive every time-sensitive fixture field from the same
+  anchor passed to the production path. Mixing that anchor with SQL `now()` or
+  another `time.Now()` creates wall-clock-dependent eligibility failures.
 
 ## Idempotent Write Path Checklist
 

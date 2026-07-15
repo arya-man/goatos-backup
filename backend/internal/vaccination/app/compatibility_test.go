@@ -74,10 +74,10 @@ func TestApplyCrossVaccineGapFloorSkipsSameVaccineCode(t *testing.T) {
 	last := &domain.RecentVaccineAdministration{
 		AdministeredAt: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
 		VaccineCode:    "ET+TT",
-		VaccineType:    "toxoid",
+		VaccineType:    "killed",
 		PathogenClass:  "bacterial",
 	}
-	next := vaccineProfile{Code: "ET+TT", Type: "toxoid", PathogenClass: "bacterial", Class: immunoKilledBacterial}
+	next := vaccineProfile{Code: "ET+TT", Type: "killed", PathogenClass: "bacterial", Class: immunoKilledBacterial}
 	baseDue := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC)
 	got := applyCrossVaccineGapFloor(baseDue, last, next, genCompatibilityPolicy{})
 	if !got.Equal(baseDue) {

@@ -123,13 +123,30 @@ func run(args []string) error {
 	if len(versionIDs) == 0 {
 		fmt.Println("no published vaccination protocol versions to sweep")
 	} else {
+		// Build every version's sweep config up front, then sort by resolved vaccine priority
+		// (ascending -- highest disease priority first) before sweeping. All versions in this
+		// run share ONE SweepSession so MaxShotsPerAnimalPerDrive is enforced across
+		// vaccines/versions, not reset per version (an animal due 3 vaccines the same day would
+		// otherwise be scheduled 3 shots because each version started counting from zero).
+		// Sweeping in priority order lets higher-priority vaccines claim an over-subscribed
+		// animal's slots first, deterministically, regardless of the arbitrary order
+		// ListPublishedVaccinationVersions returned. An unresolved same-priority conflict at a
+		// real shared visit is still reported by the sweeper itself
+		// (obligationapp.ShotCapPriorityTieError), not silently decided by this ordering.
+		plans := make([]obligationapp.SweepVersionPriority, 0, len(versionIDs))
 		for _, versionID := range versionIDs {
 			sweepCfg, err := buildSweepConfig(ctx, protocolRepo, cfg, versionID)
 			if err != nil {
 				return fmt.Errorf("sweep config version %s: %w", versionID, err)
 			}
+			plans = append(plans, obligationapp.SweepVersionPriority{VersionID: versionID, Config: sweepCfg})
+		}
+		plans = obligationapp.SortSweepVersionsByPriority(plans)
+
+		session := obligationapp.NewSweepSession()
+		for _, plan := range plans {
 			sweepStart := time.Now()
-			result, err := sweeper.SweepVersion(ctx, cfg.TenantID, versionID, sweepCfg, cfg.DueBefore)
+			result, err := sweeper.SweepVersionWithSession(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.DueBefore, session)
 			// tasksCreated approximates 1 SOP batch task per obligation batch -
 			// obligationapp.SweepResult does not return a distinct
 			// tasks-created count, and batches are only task-bearing when a
@@ -140,12 +157,13 @@ func run(args []string) error {
 			}
 			kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, tasksCreated)
 			if err != nil {
-				return fmt.Errorf("sweep version %s: %w", versionID, err)
+				return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
 			}
 			fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
-				versionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
+				plan.VersionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
 		}
-		aligned, err := sweeper.AlignComboDrives(ctx, cfg.TenantID, obligationdomain.DefaultDrivePlannerSettings().ComboAlignWindowDays, cfg.DueBefore)
+		defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
+		aligned, err := sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, cfg.DueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session)
 		if err != nil {
 			return fmt.Errorf("align combo drives: %w", err)
 		}

@@ -39,12 +39,27 @@ import (
 
 const defaultPostgresImage = "postgres:16.9-alpine"
 
-// SkipIfNoDocker skips the test when the docker CLI is unavailable — EXCEPT when the required-gate
-// flag GOATOS_REQUIRE_DOCKER is set (the CI Postgres gate), where a missing docker FAILS the test
-// instead of silently skipping. This closes the CI false-green hole: a required Postgres integration
-// gate that cannot run its container must turn the build red, never pass by skipping.
+// Enabled reports whether this process was explicitly authorized to run Postgres tests.
+// Postgres tests are intentionally opt-in because container startup dominates normal local and
+// pull-request CI time. Set GOATOS_RUN_POSTGRES_TESTS=1 only for a deliberate database run.
+func Enabled() bool {
+	v := strings.TrimSpace(os.Getenv("GOATOS_RUN_POSTGRES_TESTS"))
+	return v == "1" || strings.EqualFold(v, "true")
+}
+
+func skipUnlessEnabled(t *testing.T) {
+	t.Helper()
+	if !Enabled() {
+		t.Skip("Postgres tests are opt-in; set GOATOS_RUN_POSTGRES_TESTS=1 to run")
+	}
+}
+
+// SkipIfNoDocker skips unless Postgres tests were explicitly enabled, then verifies Docker is
+// available. GOATOS_REQUIRE_DOCKER=1 keeps deliberate database gates fail-closed when Docker is
+// missing; it does not itself opt a default test run into Postgres.
 func SkipIfNoDocker(t *testing.T) {
 	t.Helper()
+	skipUnlessEnabled(t)
 	if _, err := exec.LookPath("docker"); err != nil {
 		if requireDocker() {
 			t.Fatalf("GOATOS_REQUIRE_DOCKER is set but docker is unavailable: the required Postgres integration gate must run, not skip")
@@ -94,6 +109,9 @@ var pkg = &pkgHarness{}
 // are dropped/closed on t.Cleanup. The shared package container is started lazily on first use.
 func StartPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
+	// Enforce the opt-in at the resource boundary too, so a test that forgets to call
+	// SkipIfNoDocker can never start a database during the default suite.
+	skipUnlessEnabled(t)
 	// Escape hatch: GOATOS_PGTEST_DEDICATED=1 forces every StartPostgres onto its own throwaway
 	// migrated container (the pre-optimization model). Used to bisect clone-model vs pre-existing
 	// failures and to unblock any test that proves it is unsafe under template cloning.

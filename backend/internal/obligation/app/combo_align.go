@@ -14,12 +14,19 @@ type ComboDriveAligner interface {
 	UpdateBatchPlannedDate(ctx context.Context, tenantID, batchID string, plannedDate time.Time) error
 }
 
-// AlignComboDrives harmonizes planned dates for approved combo bundles (FMD+HS, etc.) after per-version sweeps.
-func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, alignWindowDays int32, dueBefore time.Time) (int, error) {
+// AlignComboDrives harmonizes planned dates for approved combo bundles (FMD+HS, etc.) after
+// per-version sweeps. maxShotsPerAnimalPerDrive (0 = no cap) and session together guard against
+// co-locating combo batches onto one shared date pushing a member animal past
+// MaxShotsPerAnimalPerDrive: a batch that would push any of its animals over the cap on the
+// target date is left on its own (already-safe) planned date instead of being aligned. Pass the
+// same SweepSession used for the preceding SweepVersionWithSession calls so the check also
+// counts shots already claimed by those sweeps, not just by the combo batches being aligned.
+func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, alignWindowDays int32, dueBefore time.Time, maxShotsPerAnimalPerDrive int32, session *SweepSession) (int, error) {
 	aligner, ok := s.repo.(ComboDriveAligner)
 	if !ok || alignWindowDays <= 0 {
 		return 0, nil
 	}
+	session = sessionOrNew(session)
 	rows, err := aligner.ListPlannedComboBatches(ctx, tenantID, dueBefore, s.page)
 	if err != nil {
 		return 0, err
@@ -54,13 +61,35 @@ func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, 
 			if batch.PlannedDate != nil && businessDate(*batch.PlannedDate).Equal(*target) {
 				continue
 			}
+			if maxShotsPerAnimalPerDrive > 0 && comboBatchExceedsShotCapAtDate(batch, *target, maxShotsPerAnimalPerDrive, session) {
+				// Aligning would push a member animal past the shot cap on the target date;
+				// leave this batch on its own already-safe planned date (overflow).
+				continue
+			}
 			if err := aligner.UpdateBatchPlannedDate(ctx, tenantID, batch.BatchID, *target); err != nil {
 				return aligned, err
 			}
+			session.claimComboBatchTargets(batch.TargetIDs, *target)
 			aligned++
 		}
 	}
 	return aligned, nil
+}
+
+// comboBatchExceedsShotCapAtDate reports whether moving batch onto target would push any of its
+// member animals past maxShots, given shots already claimed for that date in session (by prior
+// sweeps and/or earlier-aligned batches in this same pass).
+func comboBatchExceedsShotCapAtDate(batch domain.ComboDriveBatch, target time.Time, maxShots int32, session *SweepSession) bool {
+	for _, targetID := range batch.TargetIDs {
+		targetID = strings.TrimSpace(targetID)
+		if targetID == "" {
+			continue
+		}
+		if session.visitShotCounts[visitShotCountKey(target, targetID)] >= maxShots {
+			return true
+		}
+	}
+	return false
 }
 
 func pickComboAlignDate(batches []domain.ComboDriveBatch, dueBefore time.Time, window time.Duration) *time.Time {

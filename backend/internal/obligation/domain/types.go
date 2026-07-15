@@ -132,6 +132,9 @@ type ParkConsolidationCursor struct {
 }
 
 // ComboDriveBatch is a planned shed/park batch participating in combo-session alignment.
+// TargetIDs is the distinct set of animal target IDs already attached to this batch, used to
+// keep AlignComboDrives from pushing any one animal past MaxShotsPerAnimalPerDrive when it
+// co-locates approved combo batches (FMD+HS, etc.) onto one shared drive date.
 type ComboDriveBatch struct {
 	BatchID           string
 	ProtocolVersionID string
@@ -139,6 +142,7 @@ type ComboDriveBatch struct {
 	ScopeID           string
 	Session           string
 	PlannedDate       *time.Time
+	TargetIDs         []string
 }
 
 // ParkConsolidationSettings controls the second-pass park drive planner (after shed batching).

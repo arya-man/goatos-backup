@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/app"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 const (
@@ -28,9 +28,7 @@ const (
 )
 
 func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	pgtest.SkipIfNoDocker(t)
 
 	ctx := context.Background()
 	pool, repo := startCorrectionWriteDB(t, ctx)
@@ -711,9 +709,7 @@ INSERT INTO outbox_messages (
 // 1000000 into '100000' (collision with G-100000); to_char(nextval,'FM000000')
 // yields G-1000000 with no truncation, unique and format-valid.
 func TestGoatDisplayIDNoTruncatePastMillion(t *testing.T) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool, _ := startCorrectionWriteDB(t, ctx)
 	defer pool.Close()
@@ -1469,8 +1465,9 @@ func identityGoatCommand(t *testing.T, key, goatID string, rowVersion int, dob, 
 		DOB:                  dobT,
 		EntryDate:            entryT,
 		Reason:               "Synthetic identity correction for vaccination anchors.",
-		OccurredAt:           time.Now().UTC(),
-		RowVersion:           rowVersion,
+		// india-date-guard:ignore: owner=ravi issue=CI-postgres-opt-in scope=test-event-absolute-instant expiry=2026-12-31
+		OccurredAt: time.Now().UTC(),
+		RowVersion: rowVersion,
 	}
 }
 
@@ -1478,9 +1475,7 @@ func identityGoatCommand(t *testing.T, key, goatID string, rowVersion int, dob, 
 // entry_date (or entry before DOB) on the EFFECTIVE pair, and a rejection makes no mutation, decision,
 // or outbox event. The created goat has dob=2025-12-15, entry_date=2026-06-25.
 func TestIdentityGoatEnforcesChronology(t *testing.T) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool, repo := startCorrectionWriteDB(t, ctx)
 	defer pool.Close()

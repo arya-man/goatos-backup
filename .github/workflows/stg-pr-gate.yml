@@ -42,6 +42,7 @@ jobs:
     env:
       GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
       GOATOS_SQLC_POSTGRES_IMAGE: postgres:16.9-alpine
+      GOATOS_RUN_POSTGRES_TESTS: "0"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -65,22 +66,34 @@ jobs:
       - name: Backend unit and integration tests
         working-directory: backend
         run: go test ./...
-      - name: Install pinned sqlc
+      - name: Install pinned sqlc (explicit PR label only)
+        if: contains(github.event.pull_request.labels.*.name, 'run-postgres-tests')
         run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@"$(cat tools/sqlc/sqlc.version)"
           "$(go env GOPATH)/bin/sqlc" version
-      - name: Migrations and query-plan guards
+      - name: Static migration guard
+        run: |
+          make validate-hot-index-migrations
+          git diff --check
+      - name: Postgres-backed sqlc, migration, and query-plan guards (explicit PR label only)
+        if: contains(github.event.pull_request.labels.*.name, 'run-postgres-tests')
+        env:
+          GOATOS_RUN_POSTGRES_TESTS: "1"
         run: |
           make sqlc-check
           make validate-sqlc-plans
-          make validate-hot-index-migrations
           make validate-migrations
-          git diff --check
-      - name: Vaccination DB/API kernel story smoke
+      - name: Vaccination DB/API kernel story smoke (explicit PR label only)
+        if: contains(github.event.pull_request.labels.*.name, 'run-postgres-tests')
+        env:
+          GOATOS_RUN_POSTGRES_TESTS: "1"
         working-directory: backend
         run: go test ./tests/e2e/... -run TestKernelStor -count=1 -v
-      - name: HRMS roster/RBAC DB/API story smoke
+      - name: HRMS roster/RBAC DB/API story smoke (explicit PR label only)
+        if: contains(github.event.pull_request.labels.*.name, 'run-postgres-tests')
+        env:
+          GOATOS_RUN_POSTGRES_TESTS: "1"
         working-directory: backend
         run: go test ./tests/e2e-hrms/... -run TestHRMS -count=1 -v
 

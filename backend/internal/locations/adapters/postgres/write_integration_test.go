@@ -17,6 +17,7 @@ import (
 	locationsapp "github.com/vgoats/goatos/backend/internal/locations/app"
 	"github.com/vgoats/goatos/backend/internal/locations/domain"
 	"github.com/vgoats/goatos/backend/internal/locations/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 const (
@@ -27,9 +28,7 @@ const (
 )
 
 func TestLocationWritePathWithDockerPostgres(t *testing.T) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	pgtest.SkipIfNoDocker(t)
 
 	ctx := context.Background()
 	pool, repo := startLocationWriteDB(t, ctx)

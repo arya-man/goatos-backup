@@ -15,8 +15,10 @@ starts jobs, agents must use the following language and behavior:
   **hosted Actions unavailable**, not "CI failed" and not a code-test failure.
 - Do not treat that synthetic run as a release blocker, reopen a fixed defect, or
   keep polling/re-running GitHub Actions for code evidence.
-- Run `make ci-local` on the exact candidate SHA first. A green result is the
-  authoritative repository release gate and must be reported with that SHA.
+- Run `make ci-local` on the exact candidate SHA first. It always runs common
+  guards and every component selected by the checked-in path rules. A green
+  result is the authoritative repository release gate and must be reported with
+  that SHA.
 - Only report CI as failed when a local gate fails, or when hosted Actions
   actually starts jobs and one of those jobs fails.
 
@@ -27,27 +29,50 @@ starts jobs, agents must use the following language and behavior:
 
 ## Local Release Evidence — Authoritative Gate
 
-Per Goat OS AGENTS.md governance: "CI availability is never a closure blocker (Claude AND Codex). A GitHub Actions billing/spending/platform failure — the synthetic `BuildFailed` / `(Unknown event)` / zero-job `startup_failure` runs — must NOT be recorded as an external blocker or used to defer a fix. When remote GitHub Actions cannot execute, run the SAME required CI gates LOCALLY via `make ci-local` (which mirrors `.github/workflows/ci.yml` job-for-job: agent guardrails, scale-guard + self-test, clinical-defer-guard, mobile-guard, `go test ./...`, sqlc/migration validation, admin-web lint/typecheck/mock-fidelity, and the Android compile/unit gate with mandatory JDK/SDK; no USB device is required) and treat a green `make ci-local` on the exact pushed SHA as the authoritative gate."
+Per Goat OS AGENTS.md governance, hosted Actions unavailability never blocks
+continuing fixable work. Run the same affected-component gates locally with
+`make ci-local`; CI/shared-tooling and unmapped runtime paths force the full
+suite. Treat a green result on the exact pushed SHA as authoritative evidence.
 
 A **green `make ci-local`** on the pushed commit SHA is the authoritative release evidence when remote GitHub Actions cannot execute.
 
 ## Running Local CI Gates
 
-### All Jobs (Default)
+### Affected Jobs (Default)
 
 ```bash
 make ci-local
 ```
 
-This runs guardrails, admin-web, and android jobs in sequence.
+This compares the candidate to `origin/main`, runs common repository guards,
+then adds backend, admin-web, and/or Android according to
+`tools/ci/component-paths.json`.
+
+To force every job:
+
+```bash
+make ci-local MODE=all
+```
+
+This still skips every Postgres/Docker database gate. Run those only when
+explicitly requested:
+
+```bash
+GOATOS_RUN_POSTGRES_TESTS=1 make ci-local
+```
 
 ### Individual Jobs
 
 Run a single job with `JOB=<job-name>`:
 
 ```bash
-# Guardrails: agent guards, scale-guard, clinical-defer-guard, mobile-guard,
-#             large-file guard, go test ./..., sqlc validation, migration validation
+# Common repository/agent/contract/file guards
+make ci-local JOB=common
+
+# Backend/kernel/scale static guards + Go package/unit tests (no Postgres by default)
+make ci-local JOB=backend
+
+# Backward-compatible combined static guard surface
 make ci-local JOB=guardrails
 
 # Admin-web: lint, typecheck, mock-fidelity, request-plan validation, production build
@@ -81,11 +106,12 @@ No physical device or emulator is required for the compile + unit gate.
 
 The local CI script (`tools/ci/run-local-ci.sh`) runs the **exact same checks** as the remote GitHub Actions workflows (`.github/workflows/ci.yml`):
 
-| Remote Job      | Local Job       | Commands                                                 |
-|-----------------|-----------------|----------------------------------------------------------|
-| `guardrails`    | `JOB=guardrails`| Agent guards, scale-guard, clinical-defer, mobile-guard, go test, sqlc, migrations, large-file check |
-| `admin-web`     | `JOB=admin-web` | lint, typecheck, mock-fidelity, request-plan, build |
-| *(not yet)*     | `JOB=android`   | :app compile + unit tests (available locally; not yet in remote workflow) |
+| Remote Job | Local Job | Commands |
+|------------|-----------|----------|
+| `common` | `JOB=common` | Repository, agent, contract, large-file, and diff guards |
+| `backend` | `JOB=backend` | Kernel/scale/E2E static guards and Go package/unit tests; Postgres gates require explicit opt-in |
+| `admin-web` | `JOB=admin-web` | lint, unit tests, typecheck, request/fidelity guards, build |
+| `android` | `JOB=android` | mobile static guards, app compile, unit tests |
 
 Both local and remote invoke the same runner: `bash tools/ci/run-local-ci.sh` with environment setup (Go, Node, tooling) matching the GitHub Actions images.
 
@@ -142,8 +168,8 @@ fi
 
 ## Exact-SHA Local-CI Push Gate (Main)
 
-Only a FULL green `make ci-local` on the exact commit SHA authorizes a push to
-`main`. A machine-local pre-push hook installed by `make ai-setup` (or
+Only a complete green `make ci-local` on the exact commit SHA authorizes a push
+to `main`. A machine-local pre-push hook installed by `make ai-setup` (or
 `make stg-promotion-guard-install`) enforces this gate via a SHA-bound receipt.
 
 ### Flow
@@ -155,10 +181,12 @@ Developer/Codex/Claude commits on main branch
     ↓
     Pre-push hook runs check-local-ci-evidence.mjs --pre-push
     ↓
-    Hook checks: goatos-ci-local-receipt.json exists AND
-                 receipt.sha === commit SHA AND
-                 receipt.result === 'green' AND
-                 receipt.mode === 'all'
+    Hook checks: receipt.sha === commit SHA AND result === green AND
+                 mode === all
+                 OR
+                 mode === scoped AND base === current remote-main SHA AND
+                 rules hash is current AND recorded jobs exactly match the
+                 classifier's recomputed required jobs
     ↓
     If YES: push is permitted
     If NO:  push is rejected (hook exits 1)
@@ -166,18 +194,18 @@ Developer/Codex/Claude commits on main branch
 
 ### Recording the Receipt
 
-The receipt is written automatically by a full `make ci-local`:
+The receipt is written automatically by the default `make ci-local`:
 
 ```bash
-# Run the complete local-CI suite (all jobs: guardrails, admin-web, android)
+# Run common plus every affected component
 make ci-local
 
 # If all gates pass, the script runs:
-# tools/ci/check-local-ci-evidence.mjs --record <current-sha>
+# tools/ci/check-local-ci-evidence.mjs --record <current-sha> --mode <all|scoped> ...
 # which writes: <git-dir>/goatos-ci-local-receipt.json
 
 # The receipt is machine-local and never committed
-# It binds the EXACT SHA with a green result and full-suite mode
+# It binds the exact SHA to either full or recomputable scoped coverage
 ```
 
 The receipt contains:
@@ -186,7 +214,10 @@ The receipt contains:
 {
   "sha": "<commit-sha>",
   "result": "green",
-  "mode": "all",
+  "mode": "scoped",
+  "base": "<remote-main-sha>",
+  "jobs": ["backend", "common"],
+  "rulesHash": "<sha256-of-component-paths.json>",
   "timestamp": "<iso-8601>"
 }
 ```
@@ -197,14 +228,16 @@ If you run `make ci-local JOB=<job-name>` (a partial job):
 
 ```bash
 make ci-local JOB=guardrails
+make ci-local JOB=backend
+make ci-local JOB=common
 make ci-local JOB=admin-web
 make ci-local JOB=android
 ```
 
-The partial run **intentionally writes NO receipt**. It passes or fails the single
-job for development iteration, but it does NOT authorize a `main` push. A partial
-run is for local validation only. Only a full `make ci-local` (all jobs in one
-run) writes the receipt.
+The explicit partial run **intentionally writes NO receipt**. It passes or fails
+the selected job for development iteration, but it does not authorize a `main`
+push. Use default `make ci-local` for complete affected-component evidence, or
+`make ci-local MODE=all` to force everything.
 
 ### How to Install the Hook
 
@@ -229,8 +262,8 @@ branch deletes. Non-main pushes and branch deletes to other refs are not gated.
 
 Do NOT bypass the hook with `git push --no-verify`. The hook is a governance layer:
 
-- It enforces that every `main` push has passed a full local-CI suite on the exact
-  commit.
+- It enforces that every `main` push has passed the complete classifier-selected
+  local-CI suite on the exact commit and remote-main base.
 - Skipping it with `--no-verify` is a circumvention, not a valid escape hatch.
 - If the receipt is stale or the build genuinely broke, re-run `make ci-local` to
   produce a fresh receipt, then push normally.
@@ -250,5 +283,7 @@ If you absolutely must override in an emergency (rare, maintainer-only):
 - **Stale receipt**: If you rebase or reset `HEAD` after a previous `make ci-local`,
   the old receipt's SHA no longer matches; you must re-run `make ci-local` on the
   new SHA to generate a fresh receipt before pushing
+- **Changed remote base**: A scoped receipt is rejected if `main` advanced after
+  the run; fetch/rebase and re-run so the classifier covers the actual push diff
 - **No global receipt store**: The receipt is ephemeral and machine-local; it does
   not sync between developers or persist after a clone/checkout

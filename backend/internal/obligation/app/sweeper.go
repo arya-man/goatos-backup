@@ -119,7 +119,27 @@ func NewSweeperService(repo ports.Repository, tasks TaskCreator, reserver StockR
 }
 
 // SweepVersion batches all currently-unbatched due obligations for a version (due_at <= dueBefore).
+// It uses a private, single-call shot-cap session: MaxShotsPerAnimalPerDrive is enforced only
+// within this one version's own obligations. A caller sweeping multiple protocol
+// versions/vaccines for the same due window (the production obligation-sweeper) must share ONE
+// session across those calls via SweepVersionWithSession, or the per-animal cap silently resets
+// per vaccine and can over-schedule an animal with more than MaxShotsPerAnimalPerDrive shots on
+// one visit.
 func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, NewSweepSession())
+}
+
+// SweepVersionWithSession behaves like SweepVersion but claims MaxShotsPerAnimalPerDrive slots
+// against the caller-supplied session, so the cap spans every version swept against that same
+// session in one run. Vaccines/versions competing for a shared visit should be swept in
+// ascending resolved-priority order (see SortSweepVersionsByPriority) so higher-priority
+// vaccines claim an over-subscribed animal's slots first; an unresolved same-priority conflict
+// is reported as *ShotCapPriorityTieError rather than resolved by call/arrival order.
+func (s *SweeperService) SweepVersionWithSession(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session))
+}
+
+func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
 		return res, err
@@ -129,7 +149,6 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 	}
 	touchedScopes := make(map[string]bool)
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	visitShotCounts := make(map[string]int32)
 	for {
 		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
 		if err != nil {
@@ -174,11 +193,17 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 					plannedDate = picked
 				}
 			}
-			selectedIDs := selectIDsWithinVisitShotCap(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+			selectedIDs, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+			if err != nil {
+				return res, err
+			}
 			if len(selectedIDs) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
 				if overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows); overflowDate != nil {
 					plannedDate = overflowDate
-					selectedIDs = selectIDsWithinVisitShotCap(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+					selectedIDs, err = selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+					if err != nil {
+						return res, err
+					}
 				}
 			}
 			idChunks := splitObligationIDs(selectedIDs, planner.MaxGoatsPerDrive)
@@ -221,7 +246,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 			break
 		}
 	}
-	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, visitShotCounts)
+	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session)
 	if err != nil {
 		return res, err
 	}
@@ -230,7 +255,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 	res.Batches += parkRes.ParkBatches
 	res.Obligations += parkRes.ParkObligations
 
-	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, visitShotCounts)
+	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session)
 	if err != nil {
 		return res, err
 	}
@@ -316,10 +341,10 @@ func deferShedGroupToPark(cfg SweepConfig, scopeType string, obligationCount int
 // including missed singletons, so coverage is never left behind after the park merge pass.
 func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	return s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, make(map[string]int32))
+	return s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, NewSweepSession())
 }
 
-func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, visitShotCounts map[string]int32) (domain.SweepResult, error) {
+func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	if !cfg.ParkConsolidation.Enabled {
 		return res, nil
@@ -367,11 +392,17 @@ func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx contex
 					plannedDate = picked
 				}
 			}
-			selectedIDs := selectIDsWithinVisitShotCap(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+			selectedIDs, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+			if err != nil {
+				return res, err
+			}
 			if len(selectedIDs) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
 				if overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows); overflowDate != nil {
 					plannedDate = overflowDate
-					selectedIDs = selectIDsWithinVisitShotCap(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+					selectedIDs, err = selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+					if err != nil {
+						return res, err
+					}
 				}
 			}
 			idChunks := splitObligationIDs(selectedIDs, planner.MaxGoatsPerDrive)

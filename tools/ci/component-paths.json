@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "forceFull": {
+    "prefixes": [
+      ".github/workflows/",
+      ".github/actions/",
+      "tools/ci/",
+      "tools/agent-hooks/"
+    ],
+    "files": [
+      "Makefile",
+      "package.json",
+      "package-lock.json",
+      "go.work",
+      "go.work.sum"
+    ]
+  },
+  "fanout": [
+    {
+      "name": "shared-api-contracts",
+      "prefixes": [
+        "contracts/",
+        "packages/api-client/"
+      ],
+      "components": [
+        "backend",
+        "adminWeb",
+        "android"
+      ]
+    }
+  ],
+  "components": {
+    "backend": {
+      "prefixes": [
+        "backend/",
+        "deploy/",
+        "infra/",
+        "load-tests/",
+        "tools/perf/",
+        "tools/scale-guard/"
+      ],
+      "files": []
+    },
+    "adminWeb": {
+      "prefixes": [
+        "apps/admin-web/",
+        "mock/"
+      ],
+      "files": []
+    },
+    "android": {
+      "prefixes": [
+        "apps/goatos-android/",
+        "tools/android/"
+      ],
+      "files": []
+    }
+  },
+  "commonOnly": {
+    "prefixes": [
+      ".agents/",
+      ".claude/",
+      ".codex/",
+      "context/",
+      "docs/"
+    ],
+    "files": [
+      ".gitignore",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "CODEX.md",
+      "README.md",
+      "SKILLS.md"
+    ],
+    "extensions": [
+      ".md"
+    ]
+  }
+}

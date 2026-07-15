@@ -598,6 +598,30 @@ func isVaccinationVersion(v domain.Version, env ruleDSLEnvelope) bool {
 	return strings.TrimSpace(v.Category) == "vaccination" || strings.TrimSpace(env.Category) == "vaccination"
 }
 
+// forbiddenPathogenClassValues are vaccine-TYPE (or course) values that must
+// never appear in the pathogen_class field. pathogen_class describes the
+// organism (bacterial/viral); live/killed/toxoid are immunological types and
+// combo is a course/compatibility concept. A type value leaking into
+// pathogen_class (BUG1) makes the compatibility engine select the wrong same-day
+// / spacing rule, so publish must reject it rather than persist bad metadata.
+var forbiddenPathogenClassValues = map[string]struct{}{
+	"live":   {},
+	"killed": {},
+	"toxoid": {},
+	"combo":  {},
+}
+
+func rejectVaccineTypeValueInPathogenClass(pathogenClass, label string) error {
+	v := strings.ToLower(strings.TrimSpace(pathogenClass))
+	if v == "" {
+		return nil
+	}
+	if _, bad := forbiddenPathogenClassValues[v]; bad {
+		return fmt.Errorf("%w: %s %q is a vaccine-type value; pathogen class must describe the organism (bacterial/viral), not the vaccine type", ErrNotPublishable, label, pathogenClass)
+	}
+	return nil
+}
+
 func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 	if strings.TrimSpace(env.Vaccine.Code) == "" {
 		return fmt.Errorf("%w: vaccine.code required for vaccination matrix", ErrNotPublishable)
@@ -607,6 +631,9 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 	}
 	if strings.TrimSpace(env.Vaccine.Type) == "" {
 		return fmt.Errorf("%w: vaccine.type required for vaccination matrix", ErrNotPublishable)
+	}
+	if err := rejectVaccineTypeValueInPathogenClass(env.Vaccine.PathogenClass, "rule_dsl.vaccine.pathogen_class"); err != nil {
+		return err
 	}
 	if len(env.Schedule) == 0 {
 		return fmt.Errorf("%w: vaccination matrix requires at least one schedule row", ErrNotPublishable)
@@ -661,6 +688,17 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 		}
 		if err := rejectPartialClinicalDeferStates(rowEligibility, fmt.Sprintf("matrix_rows[%d].eligibility.defer_states", idx)); err != nil {
 			return err
+		}
+		if len(row.Vaccine) > 0 {
+			var rowVaccine struct {
+				PathogenClass string `json:"pathogen_class"`
+			}
+			if err := json.Unmarshal(row.Vaccine, &rowVaccine); err != nil {
+				return fmt.Errorf("%w: matrix_rows[%d].vaccine is not a valid object", ErrNotPublishable, idx)
+			}
+			if err := rejectVaccineTypeValueInPathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine.pathogen_class", idx)); err != nil {
+				return err
+			}
 		}
 	}
 	for idx, row := range env.Schedule {

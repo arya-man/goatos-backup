@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 const (
@@ -29,9 +30,7 @@ const (
 )
 
 func TestRepositoryReadPathsWithDockerPostgres(t *testing.T) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	pgtest.SkipIfNoDocker(t)
 
 	ctx := context.Background()
 	container := fmt.Sprintf("goatos-repo-test-%d", time.Now().UnixNano())
