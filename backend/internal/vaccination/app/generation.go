@@ -172,17 +172,29 @@ func (l trustedEvidenceLookup) get(key string) (bool, bool) {
 // pendingVaccine tracks a vaccine being generated in the current genOneGoat pass,
 // used to enforce cross-vaccine spacing among co-due pending obligations (BUG #2).
 type pendingVaccine struct {
-	class          vaccineImmunoClass
-	due            time.Time
-	ruleSequence   int32 // for deterministic sorting
+	code  string
+	class vaccineImmunoClass
+	due   time.Time
 }
 
 // applyCrossVaccineGapFloorFromPending floors a vaccine's due date against incompatible
-// pending vaccines already generated in this pass. Processes pending in rule-sequence order
-// to ensure deterministic results across replayed generation.
+// pending vaccines already generated in this pass. Cross-vaccine spacing is a positive medical
+// assertion between two IDENTIFIED, DIFFERENT vaccine products, so it applies ONLY when both the
+// prior pending vaccine and next carry a non-empty vaccine code AND those codes differ:
+//   - Same code = two sequential doses of ONE course (e.g., ET+TT week-0 then week-7). These must
+//     never be pushed apart by the cross-vaccine gap — that would wrongly delay a legitimate
+//     same-course dose. This mirrors applyCrossVaccineGapFloor's own same-code guard.
+//   - Empty/unknown code on either side = we cannot establish the pair are distinct products, so
+//     we do not fabricate a gap between them. (Unknown-class fail-closed still applies against
+//     real administered history via applyCrossVaccineGapFloorFromHistory; upstream config/publish
+//     validation rejects vaccines without a valid classification before they can be scheduled.)
+// Callers append pending in rule order, so results are deterministic across replayed generation.
 func applyCrossVaccineGapFloorFromPending(due time.Time, next vaccineProfile, pending []pendingVaccine, policy genCompatibilityPolicy) time.Time {
 	out := due
 	for _, p := range pending {
+		if p.code == "" || next.Code == "" || strings.EqualFold(p.code, next.Code) {
+			continue
+		}
 		gap := crossVaccineGapDays(p.class, next.Class, policy)
 		if gap <= 0 {
 			continue
@@ -1361,9 +1373,9 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		res.Generated++
 		// BUG #2: track this newly generated obligation so subsequent vaccines in this pass respect cross-vaccine spacing.
 		pending = append(pending, pendingVaccine{
-			class:        ruleVaccine.Class,
-			due:          due,
-			ruleSequence: rule.Sequence,
+			code:  ruleVaccine.Code,
+			class: ruleVaccine.Class,
+			due:   due,
 		})
 		if missingKey != "" {
 			if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {

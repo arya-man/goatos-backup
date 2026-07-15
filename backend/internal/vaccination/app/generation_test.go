@@ -2661,11 +2661,12 @@ func TestGenerateForVersionSpacesCoDuePendingVaccines(t *testing.T) {
 	kidDOB := asOf.AddDate(0, 0, -84) // 12 weeks old: eligible for both PPR and Goat Pox at 12w
 
 	proto := &generationProtoFake{
-		// Two rules for live vaccines that are both due at 12 weeks. Both should be live-viral, so they
-		// should be spaced LiveToLiveGapDays (28 days) apart when generated in the same pass.
-		// No prior history for either vaccine.
+		// Two DIFFERENT live-viral vaccines (PPR and Goat Pox), each with its OWN vaccine code set via
+		// per-rule metadata, both due at 12 weeks. live-viral→live-viral is not a same-day-allowed pair,
+		// so they must be spaced LiveToLiveGapDays (28 days) apart when generated in the same pass.
+		// Distinct per-rule codes matter: cross-vaccine spacing applies only between different products,
+		// never between two doses of one course (which would share a code). No prior history for either.
 		ruleDSL: []byte(`{
-			"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},
 			"eligibility":{},
 			"compatibility_policy":{"live_to_live_gap_days":28}
 		}`),
@@ -2673,10 +2674,12 @@ func TestGenerateForVersionSpacesCoDuePendingVaccines(t *testing.T) {
 			{
 				RuleID: "ppr-12w", DoseCode: "ppr_kid_12w", Sequence: 1,
 				TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
 			},
 			{
 				RuleID: "gpox-12w", DoseCode: "gpox_kid_12w", Sequence: 2,
 				TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"}}`),
 			},
 		},
 	}
