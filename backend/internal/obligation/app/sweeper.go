@@ -247,7 +247,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		}
 	}
 	targetIDs := distinctUnbatchedTargetIDs(g.rows)
-	release, err := s.seedAndLockVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+	release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
 	if err != nil {
 		return false, 0, err
 	}
@@ -264,7 +264,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 				return false, 0, err
 			}
 			plannedDate = overflowDate
-			release, err = s.seedAndLockVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+			release, err = s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
 			if err != nil {
 				return false, 0, err
 			}

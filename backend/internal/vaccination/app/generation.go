@@ -1976,19 +1976,29 @@ func dueAfterPreviousCompletion(rule protodomain.Rule, ruleVaccine vaccineProfil
 }
 
 // latestVaccineCompletion returns the MOST RECENT accepted administration of the
-// rule's own vaccine (matching protocol lineage), regardless of which rule
-// generated it. Selecting max(administered_at) explicitly — rather than trusting
-// the first entry in whatever order a caller's history slice happens to be in —
-// keeps this correct even when a goat has multiple real historical administrations
-// of the same vaccine (the common case for the years-long imported field history).
+// rule's own vaccine, regardless of which rule OR PROTOCOL/VERSION produced it
+// (RV-03). Continuation anchors on the vaccine's real-world latest dose: a goat
+// whose latest FMD was administered under an older protocol still has its next FMD
+// scheduled from that administration + the CURRENT protocol's interval (screenshot
+// example: latest FMD 1 Jan under old protocol, current interval 9 months → next
+// FMD 1 Oct). Requiring same-protocol lineage here left an animal with cross-protocol
+// same-vaccine history and a missing DOB/entry anchor with NOTHING scheduled: the
+// primary is suppressed by hasVaccineAdministrationHistory (which matches by vaccine
+// code across any protocol) while continuation was rejected for lineage — the two
+// signals must use ONE consistent lineage rule (RV-03), and per the product decision
+// that rule is "latest administration of this vaccine, any protocol, anchors the next
+// dose". Dose-level anti-duplication stays protocol-scoped in hasSameDoseAdministration
+// (a different protocol's "dose 1" is not our dose), so no earlier dose is recreated.
+//
+// Selecting max(administered_at) explicitly — rather than trusting the first entry in
+// whatever order a caller's history slice happens to be in — keeps this correct even
+// when a goat has multiple real historical administrations of the same vaccine (the
+// common case for the years-long imported field history).
 func latestVaccineCompletion(rule protodomain.Rule, targetVaccine string, history []domain.RecentVaccineAdministration) (time.Time, bool) {
 	var latest time.Time
 	found := false
 	for _, admin := range history {
 		if admin.AdministeredAt.IsZero() {
-			continue
-		}
-		if !sameProtocolLineage(rule, admin) {
 			continue
 		}
 		adminVaccine := strings.TrimSpace(admin.VaccineCode)

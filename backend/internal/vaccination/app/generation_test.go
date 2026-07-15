@@ -120,7 +120,12 @@ func TestDueAfterPreviousCompletionRequiresPositiveGap(t *testing.T) {
 	}
 }
 
-func TestDueAfterPreviousCompletionRequiresSameProtocolLineage(t *testing.T) {
+// RV-03: continuation anchors on the vaccine's latest real-world administration
+// regardless of protocol/version. A cross-protocol dose of the SAME vaccine must
+// anchor the next due date (latest administration + current protocol interval), not
+// be ignored — otherwise a missing-anchor animal whose primary is suppressed by
+// cross-protocol history gets nothing scheduled at all.
+func TestDueAfterPreviousCompletionAnchorsCrossProtocol(t *testing.T) {
 	administered := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
 	rule := protodomain.Rule{
 		RuleID:            "rule-et-booster",
@@ -131,6 +136,8 @@ func TestDueAfterPreviousCompletionRequiresSameProtocolLineage(t *testing.T) {
 		TriggerType:       "after_previous_completion",
 		OffsetDays:        21,
 	}
+	wantDue := businessDayStart(administered).AddDate(0, 0, 21)
+
 	otherProtocol := []domain.RecentVaccineAdministration{{
 		AdministeredAt:    administered,
 		VaccineCode:       "ET_TT",
@@ -138,8 +145,9 @@ func TestDueAfterPreviousCompletionRequiresSameProtocolLineage(t *testing.T) {
 		ProtocolVersionID: "version-other",
 		ProtocolID:        "protocol-other",
 	}}
-	if due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, otherProtocol); ok {
-		t.Fatalf("due=%s, want unrelated protocol completion ignored", due)
+	due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, otherProtocol)
+	if !ok || !due.Equal(wantDue) {
+		t.Fatalf("due=%s ok=%v, want cross-protocol completion to anchor next due at %s", due, ok, wantDue)
 	}
 
 	sameProtocolPreviousVersion := []domain.RecentVaccineAdministration{{
@@ -149,9 +157,31 @@ func TestDueAfterPreviousCompletionRequiresSameProtocolLineage(t *testing.T) {
 		ProtocolVersionID: "version-v1",
 		ProtocolID:        "protocol-vaccination",
 	}}
-	due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, sameProtocolPreviousVersion)
-	if !ok || !due.Equal(businessDayStart(administered).AddDate(0, 0, 21)) {
+	due, ok = dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, sameProtocolPreviousVersion)
+	if !ok || !due.Equal(wantDue) {
 		t.Fatalf("due=%s ok=%v, want same protocol lineage accepted", due, ok)
+	}
+
+	// The LATEST administration wins regardless of which protocol it came from.
+	newerCrossProtocol := []domain.RecentVaccineAdministration{
+		{
+			AdministeredAt:    administered.AddDate(0, 0, -90),
+			VaccineCode:       "ET_TT",
+			Sequence:          1,
+			ProtocolVersionID: "version-v1",
+			ProtocolID:        "protocol-vaccination",
+		},
+		{
+			AdministeredAt:    administered,
+			VaccineCode:       "ET_TT",
+			Sequence:          1,
+			ProtocolVersionID: "version-other",
+			ProtocolID:        "protocol-other",
+		},
+	}
+	due, ok = dueAfterPreviousCompletion(rule, vaccineProfile{Code: "ET_TT"}, newerCrossProtocol)
+	if !ok || !due.Equal(wantDue) {
+		t.Fatalf("due=%s ok=%v, want latest (cross-protocol) administration to anchor next due at %s", due, ok, wantDue)
 	}
 }
 

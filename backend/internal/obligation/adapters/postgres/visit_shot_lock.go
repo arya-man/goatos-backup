@@ -151,16 +151,30 @@ func (r *Repository) LockVisitShots(ctx context.Context, tenantID string, target
 	return counts, release, nil
 }
 
+// visitShotUnlockTimeout bounds the independent cleanup context releaseVisitShotConn uses so a
+// canceled caller context can never skip pg_advisory_unlock_all and leak session locks (RV-05).
+const visitShotUnlockTimeout = 5 * time.Second
+
 // releaseVisitShotConn releases every session advisory lock this dedicated connection holds in ONE
 // round trip (pg_advisory_unlock_all frees all locks the session owns) and returns the connection
 // to the pool. Using unlock_all rather than a per-key unlock loop keeps release a single call and
 // cannot leak a lock on the pooled connection regardless of how large the key set was.
+//
+// RV-05: the unlock runs on an independent, bounded context derived with context.WithoutCancel, so
+// a caller whose context is already canceled (a shut-down sweep, a timed-out request) still frees
+// its session locks instead of silently skipping the unlock. If the unlock nonetheless fails, the
+// connection may still own session advisory locks; returning it to the pool would leave an
+// invisible lock that blocks every later worker on that visit key forever, so it is DESTROYED
+// (hijacked out of the pool and closed) rather than released back.
 func releaseVisitShotConn(ctx context.Context, conn *pgxpool.Conn) error {
-	_, err := conn.Exec(ctx, "SELECT pg_advisory_unlock_all()")
-	conn.Release()
-	if err != nil {
-		return fmt.Errorf("obligation: unlock visit shots: %w", err)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), visitShotUnlockTimeout)
+	defer cancel()
+	if _, err := conn.Exec(cleanupCtx, "SELECT pg_advisory_unlock_all()"); err != nil {
+		hijacked := conn.Hijack()
+		_ = hijacked.Close(cleanupCtx)
+		return fmt.Errorf("obligation: unlock visit shots (connection destroyed to avoid leaking session locks): %w", err)
 	}
+	conn.Release()
 	return nil
 }
 

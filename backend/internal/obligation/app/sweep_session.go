@@ -92,6 +92,29 @@ func (s *SweepSession) seedResolved(date time.Time, targetIDs []string, persiste
 	}
 }
 
+// resetResolved SETS this session's in-memory shot count for every (date, target) key to the
+// fresh persisted count just read under the per-visit advisory lock (RV-02). Unlike seedResolved
+// (additive, once-per-key), this is the WRITE-path primitive called before EACH group's select:
+// by the time a group locks a shared visit, every earlier group in this same run has already
+// durably committed its claim for that visit, so the fresh persisted count is the AUTHORITATIVE
+// starting point -- overwriting (not adding to) the stale in-memory count carried over from the
+// earlier group, and simultaneously picking up any shot a concurrent worker committed for the
+// same visit in between. It (re)marks the keys loaded so the read-only additive seedResolved can
+// never later double-count them. visitClaims is intentionally left intact: it records which
+// vaccine last filled a slot so rejectOrTie can still tell a genuine same-priority tie from an
+// ordinary overflow after the count is refreshed.
+func (s *SweepSession) resetResolved(date time.Time, targetIDs []string, persisted map[string]int32) {
+	for _, targetID := range targetIDs {
+		targetID = strings.TrimSpace(targetID)
+		if targetID == "" {
+			continue
+		}
+		key := visitShotCountKey(date, targetID)
+		s.loaded[key] = struct{}{}
+		s.visitShotCounts[key] = persisted[targetID]
+	}
+}
+
 // sessionOrNew returns session, or a fresh private one when the caller passed nil.
 func sessionOrNew(session *SweepSession) *SweepSession {
 	if session != nil {

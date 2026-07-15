@@ -77,26 +77,39 @@ func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, 
 				if batch.PlannedDate != nil && businessDate(*batch.PlannedDate).Equal(*target) {
 					continue
 				}
-				// Seed session with the persisted, cross-pass shot count for this batch's animals on
-				// the target date BEFORE checking the cap (VAX-REV-01): without this, a fresh session
-				// (a new sweep pass, or AlignComboDrives running standalone) would wrongly assume 0
-				// shots already exist on target for these animals and could align a batch onto a visit
-				// that a PRIOR pass already filled, exceeding MaxShotsPerAnimalPerDrive.
+				// Lock this batch's animals on the target date and refresh their persisted shot count
+				// BEFORE the cap check, and HOLD the lock across UpdateBatchPlannedDate (RV-02): the old
+				// read-only seed released immediately, leaving a read-then-write window in which a
+				// concurrent worker (or an earlier-aligned batch that this session did not re-lock) could
+				// fill the remaining slot, after which this align would push a member animal past
+				// MaxShotsPerAnimalPerDrive. lockAndRefreshVisitShots also seeds a fresh session correctly
+				// (a new sweep pass, or AlignComboDrives running standalone) instead of assuming 0 shots
+				// already exist on the target date.
+				release := noopRelease
 				if maxShotsPerAnimalPerDrive > 0 {
-					if err := s.seedVisitShotCounts(ctx, tenantID, batch.TargetIDs, target, maxShotsPerAnimalPerDrive, session); err != nil {
+					rel, err := s.lockAndRefreshVisitShots(ctx, tenantID, batch.TargetIDs, target, maxShotsPerAnimalPerDrive, session)
+					if err != nil {
 						return aligned, err
 					}
+					release = rel
 				}
 				if maxShotsPerAnimalPerDrive > 0 && comboBatchExceedsShotCapAtDate(batch, *target, maxShotsPerAnimalPerDrive, session) {
 					// Aligning would push a member animal past the shot cap on the target date;
 					// leave this batch on its own already-safe planned date (overflow).
+					if err := release(ctx); err != nil {
+						return aligned, err
+					}
 					continue
 				}
 				if err := aligner.UpdateBatchPlannedDate(ctx, tenantID, batch.BatchID, *target); err != nil {
+					_ = release(ctx)
 					return aligned, err
 				}
 				session.claimComboBatchTargets(batch.TargetIDs, *target)
 				aligned++
+				if err := release(ctx); err != nil {
+					return aligned, err
+				}
 			}
 		}
 

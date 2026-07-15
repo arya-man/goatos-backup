@@ -97,7 +97,7 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, dueBefore time.Time, session *SweepSession, parkID string, remaining []domain.ParkConsolidationCandidate, minMergeTargets, minMergeSheds int32) (newRemaining []domain.ParkConsolidationCandidate, attached int64, stop bool, err error) {
 	plannedDate, selected := pickBestParkDriveDate(now, remaining)
 	targetIDs := distinctParkTargetIDs(remaining)
-	release, err := s.seedAndLockVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+	release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
 	if err != nil {
 		return remaining, 0, true, err
 	}
@@ -113,7 +113,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 			}
 			plannedDate = overflowDate
 			selected = obligationsFeasibleOnDate(*plannedDate, remaining)
-			release, err = s.seedAndLockVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+			release, err = s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
 			if err != nil {
 				return remaining, 0, true, err
 			}

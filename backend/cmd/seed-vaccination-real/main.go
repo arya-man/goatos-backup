@@ -1156,11 +1156,11 @@ SELECT
 	// the deterministic AnchorMissingCatchUpKey the generator stamps, a fabricated normal due does
 	// not. The key is a sha256 hash (not SQL-LIKE-able), so we load the candidate rows and classify
 	// them in Go against the generator's own exported key derivation.
-	missingAnchorCandidates, err := loadMissingAnchorCandidates(ctx, pool, tenantID)
+	fabricatedMissingAnchor, err := countFabricatedMissingAnchorWorkPaged(ctx, pool, tenantID)
 	if err != nil {
 		return fmt.Errorf("vaccination seed reconciliation missing-anchor candidates: %w", err)
 	}
-	got.MissingAnchorNormalWork = int64(countFabricatedMissingAnchorWork(missingAnchorCandidates))
+	got.MissingAnchorNormalWork = int64(fabricatedMissingAnchor)
 	if err := validateSeedReconciliation(got, int64(st.CompletionsHistory)); err != nil {
 		return fmt.Errorf("vaccination seed reconciliation failed: %w", err)
 	}
@@ -1208,13 +1208,31 @@ func countFabricatedMissingAnchorWork(candidates []missingAnchorCandidate) int {
 	return n
 }
 
-// loadMissingAnchorCandidates fetches every active, non-deferred birth_age/post_arrival obligation on
-// a NULL-anchor goat with no accepted history for that rule. The WHERE clause mirrors the invariant's
-// former pure-SQL sub-select exactly; classification (routed catch-up vs fabricated due) then happens
-// in Go against the generator's own key derivation so the two can never drift.
-func loadMissingAnchorCandidates(ctx context.Context, pool *pgxpool.Pool, tenantID string) ([]missingAnchorCandidate, error) {
-	rows, err := pool.Query(ctx, `
-SELECT oi.idempotency_key,
+// missingAnchorReconcilePageSize bounds each keyset page of the missing-anchor reconciliation scan
+// so the postflight check never streams the whole cohort (potentially millions of joined rows) into
+// the process at once (RV-04).
+const missingAnchorReconcilePageSize = 5000
+
+// countFabricatedMissingAnchorWorkPaged returns how many active, non-deferred birth_age/post_arrival
+// obligations on a NULL-anchor goat with no accepted history for that rule are NOT the routed §89
+// option-4 catch-up (the genuine defect the MissingAnchorNormalWork invariant guards). The WHERE
+// clause mirrors the invariant's former pure-SQL sub-select exactly; classification (routed catch-up
+// vs fabricated due) happens in Go against the generator's own key derivation so the two can never
+// drift.
+//
+// RV-04: it classifies each row on the fly and keeps only a running count — it NEVER accumulates the
+// candidate rows into a slice — and pages through the cohort with a stable keyset cursor on the
+// obligation_instances primary key (oi.obligation_id), bounded to missingAnchorReconcilePageSize per
+// query. Memory is O(page), not O(cohort), and each query is bounded and resumable rather than one
+// unbounded scan that can OOM or time out at 1-5M animals. Ordering/filtering on the native uuid PK
+// keeps every page index-eligible (no per-row text cast in the WHERE/ORDER BY).
+func countFabricatedMissingAnchorWorkPaged(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, error) {
+	fabricated := 0
+	afterID := "00000000-0000-0000-0000-000000000000"
+	for {
+		rows, err := pool.Query(ctx, `
+SELECT oi.obligation_id::text,
+       oi.idempotency_key,
        oi.tenant_id::text,
        oi.protocol_version_id::text,
        oi.rule_id::text,
@@ -1227,6 +1245,7 @@ JOIN protocol_rules pr
  AND pr.rule_id = oi.rule_id
 JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
 WHERE oi.tenant_id = $1::uuid
+  AND oi.obligation_id > $2::uuid
   AND oi.status NOT IN ('completed', 'canceled', 'superseded', 'waived')
   AND oi.status <> 'deferred'
   AND oi.target_type = 'goat'
@@ -1244,23 +1263,37 @@ WHERE oi.tenant_id = $1::uuid
     WHERE history_oi.tenant_id = oi.tenant_id
       AND history_oi.target_id = oi.target_id
       AND history_oi.rule_id = oi.rule_id
-  )`, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []missingAnchorCandidate
-	for rows.Next() {
-		var c missingAnchorCandidate
-		if err := rows.Scan(&c.idempotencyKey, &c.tenantID, &c.protocolVersionID, &c.ruleID, &c.goatID, &c.sequence, &c.triggerType); err != nil {
-			return nil, err
+  )
+ORDER BY oi.obligation_id
+LIMIT $3`, tenantID, afterID, missingAnchorReconcilePageSize)
+		if err != nil {
+			return 0, err
 		}
-		out = append(out, c)
+		n := 0
+		lastID := afterID
+		for rows.Next() {
+			var obligationID string
+			var c missingAnchorCandidate
+			if err := rows.Scan(&obligationID, &c.idempotencyKey, &c.tenantID, &c.protocolVersionID, &c.ruleID, &c.goatID, &c.sequence, &c.triggerType); err != nil {
+				rows.Close()
+				return 0, err
+			}
+			n++
+			lastID = obligationID
+			if !c.isRoutedCatchUp() {
+				fabricated++
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		rows.Close()
+		if n < missingAnchorReconcilePageSize {
+			return fabricated, nil
+		}
+		afterID = lastID
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) error {

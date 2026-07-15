@@ -82,9 +82,63 @@ func (s *SweeperService) seedAndLockVisitShots(ctx context.Context, tenantID str
 	return noopRelease, nil
 }
 
+// lockAndRefreshVisitShots is the WRITE-path shot-cap primitive (RV-02). Unlike
+// seedAndLockVisitShots it does NOT skip keys this session already resolved: for every group that
+// is about to write, it re-acquires the per-visit advisory lock for ALL of the group's targets and
+// re-reads the FRESH persisted shot count under that lock, then RESETS the session's in-memory
+// counts for those keys to that authoritative value (see SweepSession.resetResolved). This closes
+// the stale-count race the loaded/unresolvedTargets short-circuit opened: a second group touching a
+// visit an earlier group already resolved used to reuse the earlier in-memory count with NO lock at
+// all, so a concurrent worker could fill the remaining slot in between and this worker would then
+// commit an over-cap shot.
+//
+// Only the production Postgres repo (visitShotLocker) gets this lock-and-reset treatment; an
+// in-memory test fake (no locker) falls back to seedAndLockVisitShots' additive, single-process
+// accounting, which is correct for the uncontested single-process sweeps those fakes model. The
+// caller MUST hold the returned release until its writes for this (targetIDs, date) claim are
+// durably committed.
+func (s *SweeperService) lockAndRefreshVisitShots(ctx context.Context, tenantID string, targetIDs []string, date *time.Time, maxShots int32, session *SweepSession) (func(context.Context) error, error) {
+	if maxShots <= 0 || date == nil {
+		return noopRelease, nil
+	}
+	locker, ok := s.repo.(visitShotLocker)
+	if !ok {
+		return s.seedAndLockVisitShots(ctx, tenantID, targetIDs, date, maxShots, session)
+	}
+	targets := distinctNonBlankTargets(targetIDs)
+	if len(targets) == 0 {
+		return noopRelease, nil
+	}
+	counts, release, err := locker.LockVisitShots(ctx, tenantID, targets, *date)
+	if err != nil {
+		return noopRelease, err
+	}
+	session.resetResolved(*date, targets, counts)
+	return release, nil
+}
+
+// distinctNonBlankTargets returns the distinct, trimmed, non-blank target IDs in targetIDs,
+// preserving first-seen order.
+func distinctNonBlankTargets(targetIDs []string) []string {
+	seen := make(map[string]struct{}, len(targetIDs))
+	out := make([]string, 0, len(targetIDs))
+	for _, t := range targetIDs {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	return out
+}
+
 // seedVisitShotCounts is the read-only sibling of seedAndLockVisitShots, used by the write-free
-// tie preflight (PreflightVisitShotCapTies) and by AlignComboDrives' cross-pass seed, where there
-// is no subsequent write to protect with a lock.
+// tie preflight (PreflightVisitShotCapTies), where there is no subsequent write to protect with a
+// lock.
 func (s *SweeperService) seedVisitShotCounts(ctx context.Context, tenantID string, targetIDs []string, date *time.Time, maxShots int32, session *SweepSession) error {
 	release, err := s.seedAndLockVisitShots(ctx, tenantID, targetIDs, date, maxShots, session)
 	if err != nil {
