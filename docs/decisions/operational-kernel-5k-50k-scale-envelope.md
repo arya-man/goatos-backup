@@ -345,6 +345,24 @@ GROUP BY status
 ORDER BY status;
 ```
 
+**Notification delivery is a single durable path.** The retired job fleet
+included a `notification-dispatcher` Cloud Run Job that an obligation-sweeper
+near-term Cloud Tasks fast path could invoke on its `:run` URL for sub-minute
+delivery. Consolidating to the kernel worker retires BOTH: there is no
+notification-dispatcher job and no near-term Cloud Tasks queue. Notifications
+stay durable in `notification_requests` and are drained idempotently by the
+worker's 1-minute fast-lane `NotificationDispatcherStage` (leases, per-attempt
+backoff/retry, and terminal `exhausted`/DLQ handling are unchanged). The only
+behavioral change is delivery latency: up to ~1 minute instead of sub-minute —
+no delivery is lost. The worker exports `kernel_notify_backlog_age_seconds` (the
+oldest currently-due, still-undelivered request's wait; the `oldest_request`
+column above is its ad-hoc equivalent), and the goatos-{dev,stg} notification
+backlog-age alert fires if that age crosses the 1-minute-fast-lane SLO — catching
+a wedged/behind dispatcher even though nothing is dropped. A sub-minute path may
+be reintroduced later only if a real business SLA requires under 60 seconds, and
+only via a dedicated authenticated dispatch target — never an HTTP work-trigger
+on the worker service.
+
 ### Event and retry backlog
 
 ```sql

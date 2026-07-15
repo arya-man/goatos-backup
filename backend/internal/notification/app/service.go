@@ -75,6 +75,18 @@ func (s *Service) RunOnce(ctx context.Context, tenantID string) (domain.Dispatch
 			return result, err
 		}
 	}
+
+	// Export the post-drain backlog age for the 1-minute fast-lane SLO alert.
+	// Best-effort: a metrics read must never fail the dispatch run. Records 0
+	// when the backlog is empty so the gauge resets once delivery catches up.
+	if age, found, ageErr := s.repo.OldestDuePendingAge(ctx, tenantID, s.now()); ageErr != nil {
+		s.log.Warn("notification_backlog_age_query_failed", "error", ageErr.Error())
+	} else if found {
+		kmetrics.RecordNotifyBacklogAge(ctx, int64(age.Seconds()))
+	} else {
+		kmetrics.RecordNotifyBacklogAge(ctx, 0)
+	}
+
 	return result, nil
 }
 

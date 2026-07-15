@@ -69,12 +69,49 @@ func TestServiceDoesNotRetryPermanentChannelMisconfiguration(t *testing.T) {
 	}
 }
 
+// TestServiceRunOnceExportsBacklogAgeBestEffort proves the dispatcher stage
+// queries the backlog age every run (so the 1-minute fast-lane SLO metric is
+// exported after the near-term Cloud Tasks path + notification-dispatcher job
+// were retired), and that a backlog-age read error is best-effort — it must
+// never fail the dispatch run or drop the delivery that already happened.
+func TestServiceRunOnceExportsBacklogAgeBestEffort(t *testing.T) {
+	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	repo := &fakeRepo{
+		requests: []domain.Request{
+			{TenantID: testTenant, NotificationRequestID: "86000000-0000-4000-8000-000000000010", LeaseToken: "86000000-0000-4000-8000-000000000110", Channel: "local-stub", DeliveryAttempts: 1},
+		},
+		backlogErr: errors.New("backlog probe unavailable"),
+	}
+	service := NewService(repo, &fakeGateway{}, Config{Limit: 10, MaxAttempts: 5, Now: func() time.Time { return now }}, nil)
+
+	result, err := service.RunOnce(context.Background(), testTenant)
+	if err != nil {
+		t.Fatalf("RunOnce must not fail on a backlog-age read error (best-effort): %v", err)
+	}
+	if result.SentCount != 1 {
+		t.Fatalf("delivery lost: result=%#v", result)
+	}
+	if repo.backlogCalls != 1 {
+		t.Fatalf("backlog age not queried exactly once: calls=%d", repo.backlogCalls)
+	}
+}
+
 const testTenant = "00000000-0000-4000-8000-000000000001"
 
 type fakeRepo struct {
 	requests []domain.Request
 	sent     []string
 	failed   []failedMark
+
+	backlogAge   time.Duration
+	backlogFound bool
+	backlogErr   error
+	backlogCalls int
+}
+
+func (f *fakeRepo) OldestDuePendingAge(context.Context, string, time.Time) (time.Duration, bool, error) {
+	f.backlogCalls++
+	return f.backlogAge, f.backlogFound, f.backlogErr
 }
 
 type failedMark struct {

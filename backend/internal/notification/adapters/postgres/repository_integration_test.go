@@ -63,6 +63,60 @@ WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
 	assertNotificationState(t, ctx, pool, failedID, "queued", 1, true)
 }
 
+// TestNotificationRepositoryOldestDuePendingAge proves the backlog-age signal
+// the kernel worker's 1-minute fast-lane stage exports: it measures the oldest
+// currently-due, undelivered request's wait, ignores future-scheduled retries
+// (they are intentionally deferred, not backlog), and reports an empty backlog.
+func TestNotificationRepositoryOldestDuePendingAge(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	seedCalendarEvent(t, ctx, pool, testEventID)
+
+	// Empty backlog: no rows -> found=false, zero age.
+	if age, found, err := repo.OldestDuePendingAge(ctx, testTenantID, now); err != nil || found || age != 0 {
+		t.Fatalf("empty backlog: age=%v found=%v err=%v; want 0,false,nil", age, found, err)
+	}
+
+	// A due queued request waiting 5 minutes.
+	newerID := seedNotification(t, ctx, pool, testEventID, "notif-backlog-newer", "queued", 0, nil)
+	setRequestedAt(t, ctx, pool, newerID, now.Add(-5*time.Minute))
+	if age, found, err := repo.OldestDuePendingAge(ctx, testTenantID, now); err != nil || !found || age != 5*time.Minute {
+		t.Fatalf("single due: age=%v found=%v err=%v; want 5m,true,nil", age, found, err)
+	}
+
+	// An older due request must win (oldest wait, not newest).
+	olderID := seedNotification(t, ctx, pool, testEventID, "notif-backlog-older", "queued", 0, nil)
+	setRequestedAt(t, ctx, pool, olderID, now.Add(-12*time.Minute))
+	if age, found, err := repo.OldestDuePendingAge(ctx, testTenantID, now); err != nil || !found || age != 12*time.Minute {
+		t.Fatalf("oldest-wins: age=%v found=%v err=%v; want 12m,true,nil", age, found, err)
+	}
+
+	// A far-future-scheduled retry is NOT backlog: mark both existing due rows
+	// sent, seed one more request scheduled to retry in an hour, and expect an
+	// empty backlog again.
+	if _, err := pool.Exec(ctx, `UPDATE notification_requests SET status='sent' WHERE tenant_id=$1::uuid`, testTenantID); err != nil {
+		t.Fatalf("mark all sent: %v", err)
+	}
+	future := now.Add(time.Hour)
+	deferredID := seedNotification(t, ctx, pool, testEventID, "notif-backlog-deferred", "failed", 1, &future)
+	setRequestedAt(t, ctx, pool, deferredID, now.Add(-30*time.Minute))
+	if age, found, err := repo.OldestDuePendingAge(ctx, testTenantID, now); err != nil || found || age != 0 {
+		t.Fatalf("future retry excluded: age=%v found=%v err=%v; want 0,false,nil", age, found, err)
+	}
+}
+
+func setRequestedAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, requestID string, at time.Time) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `UPDATE notification_requests SET requested_at=$3::timestamptz WHERE tenant_id=$1::uuid AND notification_request_id=$2::uuid`,
+		testTenantID, requestID, at); err != nil {
+		t.Fatalf("set requested_at: %v", err)
+	}
+}
+
 func TestNotificationRepositoryRetryFailureDoesNotWriteExhaustedEvidence(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
