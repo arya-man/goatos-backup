@@ -4,37 +4,143 @@ locals {
   run_job_api_base                = "https://run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs"
   notification_dispatcher_run_url = "${local.run_job_api_base}/goatos-dev-notification-dispatcher:run"
 
-  kernel_jobs = {
-    # outbox_relay, domain_event_consumer, domain_event_processed_sweeper, and
-    # vaccination_generator were consolidated into the kernel-worker SERVICE
-    # (infra/envs/dev/cloud_run_worker.tf). Their scheduled jobs are retired so
-    # the worker and a job can never run the same stage concurrently. See
-    # docs/decisions/operational-kernel-5k-50k-scale-envelope.md.
-    #
-    # process_integrity_projector, vaccination_execution_projector,
-    # vaccination_operations_projector, and vaccination_projection_worker were removed
-    # here (KERN-001 follow-up cleanup) -- see the matching comment in
-    # infra/envs/stg/cloud_run_jobs.tf for why: their binaries and backing tables were
-    # already deleted on main by commit cb6fd35e (migration 000187), leaving these four
-    # job blocks dangling on a nonexistent Dockerfile binary.
-    # obligation_sweeper, notification_dispatcher, inventory_batch_reconciler,
-    # idempotency_key_sweeper, and sop_review_fanout_retry were consolidated into
-    # the kernel-worker SERVICE (cloud_run_worker.tf). The near-term Cloud Tasks
-    # fast path is retired with them (see cloud_tasks.tf): notifications stay
-    # durable in notification_requests and drain via the worker's 1-minute
-    # NotificationDispatcherStage.
-    partition_maintainer = {
-      name                = "goatos-dev-partition-maintainer"
-      service_account_key = "partition_maintainer"
-      command             = ["/app/bin/partition-maintainer"]
-      args                = ["-timeout=60s", "-months-ahead=12"]
+  # KERN-01 SAFETY: Two-phase kernel-worker cutover.
+  # Phase 1 (retire_legacy_stage_jobs = false): kernel-worker service + legacy jobs
+  #   Both run for parity verification; no stage runs concurrently in job and worker.
+  # Phase 2 (retire_legacy_stage_jobs = true): legacy jobs removed after service proven healthy.
+  # This gate prevents a single terraform apply from destroying all 9 retired jobs before the
+  # replacement service is ready, which would violate the required parity-first cutover.
+  # See docs/decisions/operational-kernel-5k-50k-scale-envelope.md.
+
+  # Legacy jobs consolidated into the kernel-worker SERVICE (cloud_run_worker.tf).
+  # Gated by var.retire_legacy_stage_jobs; phase 2 apply sets flag=true to enable removal.
+  legacy_stage_jobs = var.retire_legacy_stage_jobs ? {} : {
+    # Retired to kernel-worker fast-lane stage (continuous domain-event consumer):
+    domain_event_consumer = {
+      name                = "goatos-dev-domain-event-consumer"
+      service_account_key = "domain_consumer"
+      command             = ["/app/bin/domain-event-consumer"]
+      args                = ["-timeout=9m"]
+      timeout             = "600s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/10 * * * *"
+      env = {
+        GOOGLE_CLOUD_PROJECT                 = var.project_id
+        GOATOS_DOMAIN_EVENTS_SUBSCRIPTION_ID = google_pubsub_subscription.domain_events.name
+        GOATOS_DOMAIN_EVENT_SCHEMA_PATH      = "/app/contracts/jsonschema/domain-event-envelope.schema.json"
+        GOATOS_PUBSUB_PROJECT_ID             = var.project_id
+      }
+    }
+    # Retired to kernel-worker continuous housekeeping stage:
+    outbox_relay = {
+      name                = "goatos-dev-outbox-relay"
+      service_account_key = "outbox_relay"
+      command             = ["/app/bin/outbox-relay"]
+      args                = ["-limit=500", "-timeout=240s"]
+      timeout             = "300s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "* * * * *"
+      env = {
+        GOOGLE_CLOUD_PROJECT          = var.project_id
+        GOATOS_OUTBOX_PUBLISHER       = "pubsub"
+        GOATOS_OUTBOX_PUBSUB_TOPIC_ID = google_pubsub_topic.outbox_events.name
+      }
+    }
+    # Retired to kernel-worker housekeeping stage:
+    domain_event_processed_sweeper = {
+      name                = "goatos-dev-domain-event-processed-sweeper"
+      service_account_key = "domain_event_processed_sweeper"
+      command             = ["/app/bin/domain-event-processed-sweeper"]
+      args                = ["-timeout=45s", "-limit=1000", "-retention=336h"]
+      timeout             = "90s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "37 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.dev_tenant_id
+      }
+    }
+    # Retired to kernel-worker generation stage:
+    vaccination_generator = {
+      name                = "goatos-dev-vaccination-generator"
+      service_account_key = "vaccination_generator"
+      command             = ["/app/bin/generate-vaccination-obligations"]
+      args                = ["-timeout=120s"]
+      timeout             = "180s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "0 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.dev_tenant_id
+      }
+    }
+    # Note: obligation_sweeper and notification_dispatcher are NOT restored here because
+    # their supporting infrastructure (google_cloud_tasks_queue.near_term_kernel) was
+    # retired. These jobs cannot be rolled back to without rebuilding the queue. They
+    # remain consolidated in the kernel-worker SERVICE only.
+    # Retired to kernel-worker 5-minute operational lane:
+    inventory_batch_reconciler = {
+      name                = "goatos-dev-inventory-batch-reconciler"
+      service_account_key = "inventory_batch_reconciler"
+      command             = ["/app/bin/inventory-batch-reconciler"]
+      args                = ["-timeout=60s", "-limit=100"]
       timeout             = "120s"
       memory              = "512Mi"
       cpu                 = "1"
-      schedule            = "11 0 * * *"
-      env                 = {}
+      schedule            = "*/5 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.dev_tenant_id
+      }
+    }
+    # Retired to kernel-worker 5-minute operational lane:
+    idempotency_key_sweeper = {
+      name                = "goatos-dev-idempotency-key-sweeper"
+      service_account_key = "idempotency_key_sweeper"
+      command             = ["/app/bin/idempotency-key-sweeper"]
+      args                = ["-timeout=45s", "-limit=1000"]
+      timeout             = "90s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "17 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.dev_tenant_id
+      }
+    }
+    # Retired to kernel-worker 5-minute operational lane:
+    sop_review_fanout_retry = {
+      name                = "goatos-dev-sop-review-fanout-retry"
+      service_account_key = "sop_review_fanout_retry"
+      command             = ["/app/bin/sop-review-fanout-retry"]
+      args                = ["-timeout=60s", "-limit=100"]
+      timeout             = "120s"
+      memory              = "512Mi"
+      cpu                 = "1"
+      schedule            = "*/5 * * * *"
+      env = {
+        GOATOS_TENANT_ID = var.dev_tenant_id
+      }
     }
   }
+
+  kernel_jobs = merge(
+    local.legacy_stage_jobs,
+    {
+      # Retained until the de-partition migration removes it (see KERN-001 cleanup note below).
+      partition_maintainer = {
+        name                = "goatos-dev-partition-maintainer"
+        service_account_key = "partition_maintainer"
+        command             = ["/app/bin/partition-maintainer"]
+        args                = ["-timeout=60s", "-months-ahead=12"]
+        timeout             = "120s"
+        memory              = "512Mi"
+        cpu                 = "1"
+        schedule            = "11 0 * * *"
+        env                 = {}
+      }
+    }
+  )
 }
 
 resource "google_cloud_run_v2_job" "migrate" {

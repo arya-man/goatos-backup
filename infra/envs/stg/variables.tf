@@ -230,6 +230,21 @@ variable "monitoring_alert_email_addresses" {
 }
 
 # ---------------------------------------------------------------------------
+# Kernel-worker cutover control (KERN-01 safety: two-phase legacy job retirement)
+# ---------------------------------------------------------------------------
+
+variable "retire_legacy_stage_jobs" {
+  description = "Gate for two-phase kernel-worker cutover: enable removal of legacy per-stage scheduled Cloud Run Jobs. Phase 1 (flag=false): kernel-worker service deployed alongside retained legacy jobs for parity verification. Phase 2 (flag=true): legacy jobs removed after service proven healthy. Default false prevents accidental one-apply destruction."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = var.retire_legacy_stage_jobs == true || var.retire_legacy_stage_jobs == false
+    error_message = "retire_legacy_stage_jobs must be explicitly true or false; no default inference."
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Observability stack (infra/envs/stg/observability.tf, monitoring.tf,
 # secrets.tf, analytics_rollup.tf, cloud_sql.tf). See
 # docs/observability/OBSERVABILITY_DESIGN.md and docs/observability/INFRA.md.
