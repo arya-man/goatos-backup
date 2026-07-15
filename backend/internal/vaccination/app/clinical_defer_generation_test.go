@@ -104,3 +104,59 @@ func TestGoatMatchesEligibilityDefersSickUnderHealthyOnlyRule(t *testing.T) {
 		t.Fatalf("sick goat under healthy-only rule with partial defer_states was excluded; it must be deferred, not cancelled")
 	}
 }
+
+// Finding #4 regression: inCare is the prefilter used by activeGenerationGoats
+// and the single-goat short-circuit (GenerateForGoat). It MUST be case/
+// whitespace-insensitive so a legacy/imported row carrying "ICU",
+// "Quarantine", or surrounding whitespace on lifecycle_status is not dropped
+// BEFORE the mandatory clinical defer path runs. Schema constraints are NOT
+// VALID, so such non-canonical rows can exist. If inCare excluded them, the
+// generator would create NO deferred obligation, violating the non-negotiable
+// clinical defer rule.
+func TestInCareIsCaseAndWhitespaceInsensitive(t *testing.T) {
+	// Non-canonical clinical states (uppercase / mixed-case / whitespace) must
+	// stay IN care so downstream defer logic can hold their open work.
+	kept := []string{
+		"ICU", "Quarantine", "SICK", "Under_Treatment",
+		" icu ", "  quarantine", "Icu\t", " alive ", "ALIVE",
+	}
+	for _, status := range kept {
+		if !inCare(status) {
+			t.Fatalf("inCare(%q) = false; a clinical/alive row must not be dropped before the defer path", status)
+		}
+	}
+
+	// True exit states remain excluded regardless of case/whitespace.
+	dropped := []string{"DEAD", " sold ", "Culled", "transferred", "LOST", "Merged", "inactive", "", "  "}
+	for _, status := range dropped {
+		if inCare(status) {
+			t.Fatalf("inCare(%q) = true; exit/empty state must be excluded", status)
+		}
+	}
+}
+
+// Finding #4 end-to-end: a goat whose lifecycle_status is a non-canonical
+// clinical token ("ICU" uppercase, or whitespace/mixed-case) must survive the
+// inCare prefilter AND still resolve to a deferred reason under a canonical
+// rule, i.e. reach deferredReason rather than being silently excluded.
+func TestNonCanonicalClinicalLifecycleReachesDeferPath(t *testing.T) {
+	canonical := genEligibility{
+		Lifecycle:   genStringList{"alive"},
+		Health:      genStringList{"healthy"},
+		DeferStates: []string{"icu", "quarantine"}, // partial; union enforces the rest
+	}
+	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
+
+	for _, status := range []string{"ICU", " ICU ", "Quarantine", "SICK", " under_treatment "} {
+		if !inCare(status) {
+			t.Fatalf("inCare(%q) dropped the row before the defer path could run", status)
+		}
+		g := domain.EligibleGoat{GoatID: "g", LifecycleStatus: status, HealthStatus: "healthy"}
+		if !goatMatchesEligibility(g, canonical, genPregnancyPolicy{}, asOf) {
+			t.Fatalf("lifecycle_status=%q was excluded under canonical rule; must be deferred", status)
+		}
+		if reason := deferredReason(g, canonical.DeferStates); reason == "" {
+			t.Fatalf("lifecycle_status=%q produced no defer reason; mandatory clinical hold violated", status)
+		}
+	}
+}

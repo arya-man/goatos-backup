@@ -1607,13 +1607,21 @@ func (s *GenerationService) nearbyMissedDoseDriveDate(ctx context.Context, tenan
 	return s.obl.FindNearestPlannedBatchDate(ctx, tenantID, versionID, rule.RuleID, ruleVaccine.Code, g.ShedID, g.ParkID, from, to)
 }
 
+// inCare reports whether a lifecycle_status row should stay in vaccination
+// generation. It is a case/whitespace-insensitive prefilter, normalized through
+// the protocol-domain helpers so it can never bypass the mandatory clinical
+// defer path: a terminal exit state (dead/sold/culled/...) drops out, while
+// `alive` and the mandatory clinical safety-hold states (sick/under_treatment/
+// quarantine/icu) are kept so deferredReason/goatMatchesEligibility can defer
+// them. Legacy/imported rows carrying "ICU", "Quarantine", or surrounding
+// whitespace (schema constraints are NOT VALID) must reach the defer path
+// rather than being silently excluded here.
 func inCare(lifecycle string) bool {
-	switch lifecycle {
-	case "alive", "sick", "under_treatment", "quarantine", "icu":
-		return true
-	default:
+	normalized := protodomain.NormalizeDeferState(lifecycle)
+	if protodomain.IsExitLifecycleState(normalized) {
 		return false
 	}
+	return normalized == "alive" || protodomain.IsClinicalDeferState(normalized)
 }
 
 func generationScope(tenantID string, g domain.EligibleGoat) (string, string) {
