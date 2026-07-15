@@ -68,10 +68,11 @@ resource "google_pubsub_subscription" "outbox_events_dlq_inspect" {
   labels = local.labels
 }
 
-resource "google_pubsub_topic_iam_member" "outbox_relay_publisher" {
+# The kernel worker's outbox-relay stage publishes domain events.
+resource "google_pubsub_topic_iam_member" "kernel_worker_publisher" {
   topic  = google_pubsub_topic.outbox_events.name
   role   = "roles/pubsub.publisher"
-  member = "serviceAccount:${google_service_account.runtime["outbox_relay"].email}"
+  member = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
 }
 
 resource "google_pubsub_topic_iam_member" "pubsub_service_agent_dlq_publisher" {
@@ -86,10 +87,11 @@ resource "google_pubsub_subscription_iam_member" "pubsub_service_agent_source_su
   member       = "serviceAccount:${google_project_service_identity.pubsub.email}"
 }
 
-resource "google_pubsub_subscription_iam_member" "domain_consumer_subscriber" {
+# The kernel worker's continuous domain-event consumer stage subscribes.
+resource "google_pubsub_subscription_iam_member" "kernel_worker_subscriber" {
   subscription = google_pubsub_subscription.domain_events.name
   role         = "roles/pubsub.subscriber"
-  member       = "serviceAccount:${google_service_account.runtime["domain_consumer"].email}"
+  member       = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
 }
 
 resource "google_pubsub_subscription_iam_member" "pubsub_service_agent_domain_source_subscriber" {

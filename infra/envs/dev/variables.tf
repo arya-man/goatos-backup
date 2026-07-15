@@ -113,6 +113,20 @@ variable "dev_tenant_id" {
   }
 }
 
+# Audited operator id the kernel worker's obligation-sweeper stage attributes
+# SOP-task creation to. REQUIRED, no default: without it SweeperConfigFromEnv
+# fails and the worker refuses to boot, so plan/deploy must fail closed until a
+# real goatos-dev tenant operator UUID is supplied (never a staging/invented id).
+variable "dev_sweeper_actor_id" {
+  description = "Real goatos-dev tenant operator UUID for the kernel worker's obligation-sweeper stage (audited SOP-task actor)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.dev_sweeper_actor_id))
+    error_message = "dev_sweeper_actor_id must be a real UUID (no default; supply the goatos-dev operator id at plan/deploy time)."
+  }
+}
+
 variable "backend_image_tag" {
   description = "Backend image tag consumed by Cloud Run Jobs in dev."
   type        = string

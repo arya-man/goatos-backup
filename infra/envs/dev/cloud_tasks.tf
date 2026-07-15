@@ -1,23 +1,5 @@
-resource "google_cloud_tasks_queue" "near_term_kernel" {
-  name     = "goatos-dev-near-term-kernel"
-  location = var.region
-
-  rate_limits {
-    max_dispatches_per_second = 5
-    max_concurrent_dispatches = 20
-  }
-
-  retry_config {
-    max_attempts       = 5
-    min_backoff        = "30s"
-    max_backoff        = "600s"
-    max_doublings      = 5
-    max_retry_duration = "1800s"
-  }
-
-  stackdriver_logging_config {
-    sampling_ratio = 1.0
-  }
-
-  depends_on = [google_project_service.enabled]
-}
+# The near-term Cloud Tasks queue (goatos-dev-near-term-kernel) was retired with
+# the notification-dispatcher Cloud Run Job. Notifications now stay durable in
+# notification_requests and are drained idempotently by the kernel worker's
+# 1-minute fast-lane NotificationDispatcherStage. See
+# docs/decisions/operational-kernel-5k-50k-scale-envelope.md.

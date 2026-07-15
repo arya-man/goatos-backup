@@ -16,46 +16,18 @@ locals {
       account_id   = "goatos-admin-web-dev"
       display_name = "Goat OS dev admin-web runtime"
     }
-    outbox_relay = {
-      account_id   = "goatos-outbox-relay-dev"
-      display_name = "Goat OS dev outbox relay runtime"
+    # kernel_worker: consolidated long-running SERVICE replacing the retired
+    # per-stage scheduled Cloud Run Jobs. See
+    # docs/decisions/operational-kernel-5k-50k-scale-envelope.md.
+    kernel_worker = {
+      account_id   = "goatos-kernel-worker-dev"
+      display_name = "Goat OS dev kernel worker runtime"
     }
     outbox_dlq = {
       account_id   = "goatos-outbox-dlq-dev"
       display_name = "Goat OS dev outbox DLQ operator runtime"
     }
-    domain_consumer = {
-      account_id   = "goatos-domain-consumer-dev"
-      display_name = "Goat OS dev domain event consumer runtime"
-    }
-    domain_event_processed_sweeper = {
-      account_id   = "goatos-domain-event-sweep-dev"
-      display_name = "Goat OS dev domain processed-event retention sweeper runtime"
-    }
-    vaccination_generator = {
-      account_id   = "goatos-vaccination-generator-dev"
-      display_name = "Goat OS dev vaccination obligation generator runtime"
-    }
-    obligation_sweeper = {
-      account_id   = "goatos-obligation-sweeper-dev"
-      display_name = "Goat OS dev obligation sweeper runtime"
-    }
-    notification_dispatcher = {
-      account_id   = "goatos-notification-dispatcher-dev"
-      display_name = "Goat OS dev notification dispatcher runtime"
-    }
-    inventory_batch_reconciler = {
-      account_id   = "goatos-inventory-reconcile-dev"
-      display_name = "Goat OS dev inventory batch reconciler runtime"
-    }
-    idempotency_key_sweeper = {
-      account_id   = "goatos-idempotency-sweeper-dev"
-      display_name = "Goat OS dev idempotency key sweeper runtime"
-    }
-    sop_review_fanout_retry = {
-      account_id   = "goatos-sop-review-retry-dev"
-      display_name = "Goat OS dev SOP review fanout retry runtime"
-    }
+    # partition_maintainer retained until the de-partition migration (KERN-REV-02).
     partition_maintainer = {
       account_id   = "goatos-partition-maint-dev"
       display_name = "Goat OS dev partition coverage maintainer runtime"
@@ -72,24 +44,12 @@ locals {
       account_id   = "goatos-scheduler-dev"
       display_name = "Goat OS dev scheduler invoker"
     }
-    cloud_tasks_enqueuer = {
-      account_id   = "goatos-cloud-tasks-dev"
-      display_name = "Goat OS dev Cloud Tasks OAuth enqueuer"
-    }
   }
 
   database_clients = toset([
     "api",
-    "outbox_relay",
+    "kernel_worker",
     "outbox_dlq",
-    "domain_consumer",
-    "domain_event_processed_sweeper",
-    "vaccination_generator",
-    "obligation_sweeper",
-    "notification_dispatcher",
-    "inventory_batch_reconciler",
-    "idempotency_key_sweeper",
-    "sop_review_fanout_retry",
     "partition_maintainer",
     "migrate",
     "legacy_sync",
