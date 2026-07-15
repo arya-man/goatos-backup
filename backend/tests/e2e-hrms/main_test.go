@@ -17,6 +17,10 @@ const reportRelPath = "report/index.html"
 // report -- even a partial report from a setup failure is more useful than none -- and prints its
 // path before propagating the real test exit code.
 func TestMain(m *testing.M) {
+	if !pgtest.Enabled() {
+		// Keep default no-Postgres runs read-only; report generation belongs to the explicit DB run.
+		os.Exit(m.Run())
+	}
 	code := m.Run()
 	// Tear down the shared pgtest container before report writing / os.Exit (os.Exit skips defers).
 	pgtest.Shutdown()

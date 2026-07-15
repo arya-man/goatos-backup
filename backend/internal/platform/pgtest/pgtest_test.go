@@ -15,6 +15,27 @@ import (
 // the migrated schema would couple these tests to product tables, so each test creates its own.
 const createScratch = `CREATE TABLE IF NOT EXISTS pgtest_scratch (id int primary key, note text)`
 
+func TestEnabledRequiresExplicitOptIn(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{
+		{"", false},
+		{"0", false},
+		{"false", false},
+		{"1", true},
+		{"true", true},
+		{"TRUE", true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			t.Setenv("GOATOS_RUN_POSTGRES_TESTS", tc.value)
+			if got := pgtest.Enabled(); got != tc.want {
+				t.Fatalf("Enabled() = %v, want %v for %q", got, tc.want, tc.value)
+			}
+		})
+	}
+}
+
 func TestStartPostgresGivesMigratedIsolatedDatabase(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

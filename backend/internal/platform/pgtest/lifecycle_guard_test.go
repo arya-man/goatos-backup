@@ -98,6 +98,50 @@ func TestLifecycleContractGuard(t *testing.T) {
 	}
 }
 
+// TestDirectDockerPostgresRequiresOptInGuard prevents a new test from bypassing the central
+// opt-in simply by invoking docker directly instead of using StartPostgres. Deliberate scale gates
+// remain allowed behind their explicit build tag.
+func TestDirectDockerPostgresRequiresOptInGuard(t *testing.T) {
+	root := pgtest.RepoRootForTest(t)
+	backend := filepath.Join(root, "backend")
+	var violations []string
+	err := filepath.WalkDir(backend, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		src, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		text := string(src)
+		directPostgres := strings.Contains(text, "GOATOS_POSTGRES_IMAGE") ||
+			strings.Contains(text, "POSTGRES_PASSWORD=goatos") ||
+			strings.Contains(text, "pg_isready")
+		if !directPostgres || !strings.Contains(text, "func Test") {
+			return nil
+		}
+		optedIn := strings.Contains(text, "pgtest.SkipIfNoDocker") ||
+			strings.Contains(text, "pgtest.Enabled()") ||
+			strings.Contains(text, "//go:build scale_kernel")
+		if !optedIn {
+			rel, _ := filepath.Rel(root, path)
+			violations = append(violations, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk backend tests: %v", err)
+	}
+	sort.Strings(violations)
+	if len(violations) > 0 {
+		t.Fatalf("direct Docker Postgres tests must call pgtest.SkipIfNoDocker, gate their TestMain with pgtest.Enabled, or use the explicit scale_kernel build tag:\n  %s",
+			strings.Join(violations, "\n  "))
+	}
+}
+
 // pgtestAlias returns the local name the file uses for the pgtest package ("pgtest" by default, an
 // alias if renamed, "." for a dot-import), or "" if the file does not import pgtest.
 func pgtestAlias(f *ast.File) string {

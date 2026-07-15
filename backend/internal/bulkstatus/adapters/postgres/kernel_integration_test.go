@@ -33,6 +33,7 @@ import (
 	identitypg "github.com/vgoats/goatos/backend/internal/identity/adapters/postgres"
 	identityapp "github.com/vgoats/goatos/backend/internal/identity/app"
 	identityports "github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 const (
@@ -49,6 +50,10 @@ var (
 
 func TestMain(m *testing.M) {
 	os.Exit(func() int {
+		if !pgtest.Enabled() {
+			fmt.Fprintln(os.Stderr, "Postgres tests are opt-in; set GOATOS_RUN_POSTGRES_TESTS=1 to run")
+			return m.Run()
+		}
 		if _, err := exec.LookPath("docker"); err != nil {
 			fmt.Fprintln(os.Stderr, "docker not available; bulkstatus integration tests will skip")
 			return m.Run()

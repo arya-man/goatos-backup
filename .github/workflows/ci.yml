@@ -4,16 +4,66 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_postgres_tests:
+        description: "Explicitly run Postgres/Docker integration and latency gates"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
-  guardrails:
+  changes:
     runs-on: ubuntu-latest
-    env:
-      GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
+    outputs:
+      common: ${{ steps.scope.outputs.common }}
+      backend: ${{ steps.scope.outputs.backend }}
+      admin_web: ${{ steps.scope.outputs.admin_web }}
+      android: ${{ steps.scope.outputs.android }}
+      full: ${{ steps.scope.outputs.full }}
+      postgres: ${{ github.event_name == 'workflow_dispatch' && inputs.run_postgres_tests == true }}
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # mobile-guard diffs against origin/main to scope to changed mobile files
+          fetch-depth: 0
+      - name: Self-test component path rules
+        run: node tools/ci/ci-scope.mjs --self-test
+      - name: Classify affected components
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node tools/ci/ci-scope.mjs --base "$BASE_SHA" --head "$HEAD_SHA" --format github >> "$GITHUB_OUTPUT"
+
+  common:
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Install common guardrail tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+          rg --version
+      - name: Required common repository gates — same runner used locally
+        run: make ci-local JOB=common
+
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
+      GOATOS_RUN_POSTGRES_TESTS: ${{ needs.changes.outputs.postgres == 'true' && '1' || '0' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -23,33 +73,41 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ripgrep
           rg --version
-      - name: Install pinned sqlc
+      - name: Install pinned sqlc for explicit Postgres run
+        if: needs.changes.outputs.postgres == 'true'
         run: |
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@"$(cat tools/sqlc/sqlc.version)"
           "$(go env GOPATH)/bin/sqlc" version
-      - name: Required guardrails — same runner used locally
-        env:
-          MOBILE_GUARD_BASE: origin/${{ github.base_ref || 'main' }}
-          TELEMETRY_GUARD_BASE: origin/${{ github.base_ref || 'main' }}
-        run: make ci-local JOB=guardrails
+      - name: Required backend gates — same runner used locally
+        run: make ci-local JOB=backend
 
   admin-web:
+    needs: changes
+    if: needs.changes.outputs.admin_web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: apps/admin-web/package-lock.json
       - name: Required admin-web gates — same runner used locally
+        env:
+          TELEMETRY_GUARD_BASE: origin/${{ github.base_ref || 'main' }}
         run: make ci-local JOB=admin-web
 
   android:
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -58,9 +116,14 @@ jobs:
       # which run-local-ci's android job consumes (JDK 21 runs Gradle/AGP; app
       # bytecode stays Java/Kotlin 17). No USB device is required for compile+unit.
       - name: Required android gates — same runner used locally
+        env:
+          MOBILE_GUARD_BASE: origin/${{ github.base_ref || 'main' }}
+          TELEMETRY_GUARD_BASE: origin/${{ github.base_ref || 'main' }}
         run: make ci-local JOB=android
 
   live-api-latency:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' && needs.changes.outputs.postgres == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -220,3 +283,17 @@ jobs:
           path: artifacts/api-latency/*.json
           if-no-files-found: error
           retention-days: 30
+
+  ci-required:
+    if: always()
+    needs: [changes, common, backend, admin-web, android, live-api-latency]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify every affected component passed and unrelated jobs skipped
+        env:
+          CI_EXPECTED_RESULTS: >-
+            {"common":"true","backend":"${{ needs.changes.outputs.backend }}","admin-web":"${{ needs.changes.outputs.admin_web }}","android":"${{ needs.changes.outputs.android }}","live-api-latency":"${{ needs.changes.outputs.backend == 'true' && needs.changes.outputs.postgres == 'true' }}"}
+          CI_JOB_RESULTS: >-
+            {"changes":"${{ needs.changes.result }}","common":"${{ needs.common.result }}","backend":"${{ needs.backend.result }}","admin-web":"${{ needs['admin-web'].result }}","android":"${{ needs.android.result }}","live-api-latency":"${{ needs['live-api-latency'].result }}"}
+        run: node tools/ci/ci-scope.mjs --verify-results

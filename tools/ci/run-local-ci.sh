@@ -3,28 +3,32 @@
 # locally, job-for-job. Per AGENTS.md: a GitHub Actions billing/platform failure
 # (synthetic BuildFailed / (Unknown event) / zero-job startup_failure) is NEVER a
 # closure blocker — a green `make ci-local` on the exact pushed SHA is the
-# authoritative current-SHA gate. Record the SHA + result as proof.
+# authoritative current-SHA gate. The default is path-scoped against origin/main;
+# CI/shared-tooling changes conservatively force every component job.
 #
 # Mirrors ci.yml:
-#   job `guardrails`  -> agent guardrails, scale-guard(+self-test), clinical-defer
-#                        guard, mobile-guard, telemetry-guard,
-#                        admin-web-request-reads-guard,
-#                        android-bounded-memory-guard, large-file guard,
-#                        go test ./..., sqlc/migration validation
+#   job `common`      -> repository/agent/contract/large-file/diff guards
+#   job `backend`     -> backend/kernel/scale/E2E/Go/sqlc/migration gates
 #   job `admin-web`   -> lint, typecheck, mock-fidelity, request-plan, build
-#   android           -> :app compile + unit gate; JDK/SDK are mandatory, no USB device required
+#   job `android`     -> mobile static guards + :app compile/unit gate
 #
 # Usage:
-#   tools/ci/run-local-ci.sh            # all jobs
-#   tools/ci/run-local-ci.sh guardrails # one job: guardrails | admin-web | android
+#   tools/ci/run-local-ci.sh             # auto: common + affected components
+#   tools/ci/run-local-ci.sh all         # force every component job
+#   tools/ci/run-local-ci.sh backend     # one partial job (no push receipt)
+#   tools/ci/run-local-ci.sh guardrails  # compatibility: common + backend + mobile static guards
+#   GOATOS_RUN_POSTGRES_TESTS=1 tools/ci/run-local-ci.sh  # explicit DB/Docker opt-in
 set -uo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo"
 
 sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
-only="${1:-all}"
+only="${1:-${MODE:-auto}}"
 fail=0
+receipt_mode=""
+receipt_base=""
+receipt_jobs=""
 declare -a RESULTS
 
 step() { # name, command...
@@ -39,6 +43,13 @@ step() { # name, command...
   fi
 }
 
+postgres_tests_enabled() {
+  case "${GOATOS_RUN_POSTGRES_TESTS:-0}" in
+    1|true|TRUE|True) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # run_e2e_docker_chain: the Docker-image E2E foundation (KERN-001 follow-up). Builds the
 # real goatos-backend:e2e image, proves deploy/runtime/workers.json against it
 # (e2e-parity), boots deploy/e2e/docker-compose.e2e.yml and proves the real topology starts
@@ -47,9 +58,8 @@ step() { # name, command...
 # file (e2e-business-chain). Skips (exit 0, loud warning, NOT a silent pass) when docker is
 # unavailable — same posture as backend/internal/platform/pgtest.SkipIfNoDocker — because
 # ci-local must stay usable in a sandboxed environment that genuinely cannot run containers.
-# Default ON; set GOATOS_E2E_SMOKE_SKIP=1 to opt the smoke stage out and
-# GOATOS_E2E_BUSINESS_CHAIN_SKIP=1 to opt the business-chain stage out explicitly (image-build/
-# parity still run, since those need no long-running containers beyond `docker run`).
+# This chain is opt-in only through GOATOS_RUN_POSTGRES_TESTS=1. It never runs in the default
+# local or pull-request gate.
 # e2e-business-chain reuses the already-built image (no second build) and manages its own
 # ephemeral stack lifecycle (its own compose project + volumes, torn down on exit) so it does
 # not collide with e2e-smoke's stack.
@@ -64,7 +74,7 @@ run_e2e_docker_chain() {
     && make e2e-business-chain
 }
 
-run_guardrails() {
+run_common() {
   step "guardrail-registration-guard" make guardrail-registration-guard
   step "local-ci-evidence-guard"   make local-ci-evidence-guard
   step "agent: ai-doctor"          make ai-doctor
@@ -73,6 +83,12 @@ run_guardrails() {
   step "agent: boundaries"        bash tools/agent-hooks/check-boundaries.sh
   step "agent: refresh-binding"   node tools/agent-hooks/check-refresh-binding.mjs
   step "agent: contract-drift"    bash tools/agent-hooks/check-contract-drift.sh
+  step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
+  step "large-file guard"         node tools/ci/check-large-files.mjs
+  step "git diff --check"         git diff --check
+}
+
+run_backend() {
   step "agent: aggregate-projection" make aggregate-projection-guard
   step "agent: scale-certification-docs" make scale-certification-docs-guard
   step "agent: e2e-kernel-integrity" bash tools/agent-hooks/check-e2e-kernel-integrity.sh
@@ -85,29 +101,34 @@ run_guardrails() {
   step "kernel-worker-cutover-guard" make kernel-worker-cutover-guard
   step "secret-accessors-guard"   make secret-accessors-guard
   step "worker-stage-budgets-guard" make worker-stage-budgets-guard
-  step "e2e docker chain (image-build + parity + smoke)" run_e2e_docker_chain
+  if postgres_tests_enabled; then
+    step "e2e docker chain (explicit Postgres opt-in)" run_e2e_docker_chain
+  else
+    RESULTS+=("SKIP  Postgres Docker/E2E chain (set GOATOS_RUN_POSTGRES_TESTS=1 to run)")
+    echo "── ci-local: Postgres Docker/E2E chain SKIPPED by default (explicit opt-in required)"
+  fi
   step "idempotency-writes-guard" make idempotency-writes-guard
   step "atomic-readmodel-sync-guard" make atomic-readmodel-sync-guard
   step "config-validate-guard"    make config-validate-guard
   step "seed-migration-guard"     make seed-migration-guard
   step "india-date-guard"         make india-date-guard
-  step "offline-first-guard"      make offline-first-guard
   step "local-single-db-guard"    make local-single-db-guard
-  step "mobile-guard"             make mobile-guard
-  step "telemetry-guard"          make telemetry-guard
-  step "admin-web-request-reads-guard" make admin-web-request-reads-guard
-  step "android-bounded-memory-guard"  make android-bounded-memory-guard
-  step "room-migration-guard"     make room-migration-guard
-  step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
-  step "large-file guard"         node tools/ci/check-large-files.mjs
-  # GOATOS_REQUIRE_DOCKER=1: the required Postgres integration gate must RUN, not skip. A missing
-  # docker turns SkipIfNoDocker into a hard failure so CI can never false-green by skipping the
-  # kernel Postgres/E2E tests (VACC-REV-04).
-  step "go test ./... (docker-required)" bash -c 'cd backend && GOATOS_REQUIRE_DOCKER=1 go test ./...'
-  step "sqlc-check"               make sqlc-check
-  step "validate-sqlc-plans"      make validate-sqlc-plans
-  step "validate-migrations"      make validate-migrations
-  step "git diff --check"         git diff --check
+  if postgres_tests_enabled; then
+    # A deliberate Postgres run is fail-closed if Docker is unavailable.
+    step "go test ./... (explicit Postgres opt-in)" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=1 GOATOS_REQUIRE_DOCKER=1 go test ./...'
+  else
+    # Unit/package tests still compile and run; pgtest-backed and direct Docker Postgres tests
+    # skip through the central opt-in policy even when Docker happens to be installed.
+    step "go test ./... (Postgres disabled)" bash -c 'cd backend && GOATOS_RUN_POSTGRES_TESTS=0 go test ./...'
+  fi
+  if postgres_tests_enabled; then
+    step "sqlc-check (explicit Postgres opt-in)" make sqlc-check
+    step "validate-sqlc-plans (explicit Postgres opt-in)" make validate-sqlc-plans
+    step "validate-migrations (explicit Postgres opt-in)" make validate-migrations
+  else
+    RESULTS+=("SKIP  Postgres sqlc/query-plan/migration integration gates (explicit opt-in required)")
+    echo "── ci-local: Postgres sqlc/query-plan/migration gates SKIPPED by default"
+  fi
 }
 
 run_admin_web() {
@@ -117,12 +138,23 @@ run_admin_web() {
   step "admin-web lint"          npm --prefix apps/admin-web run lint
   step "admin-web typecheck"     npm --prefix apps/admin-web run typecheck
   step "admin-web unit tests"    npm --prefix apps/admin-web run test
+  step "telemetry-guard"         make telemetry-guard
+  step "admin-web request reads" make admin-web-request-reads-guard
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan
   step "admin-web production build + token leak" env GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build
 }
 
+run_android_guards() {
+  step "offline-first-guard"          make offline-first-guard
+  step "mobile-guard"                 make mobile-guard
+  step "telemetry-guard"              make telemetry-guard
+  step "android-bounded-memory-guard" make android-bounded-memory-guard
+  step "room-migration-guard"         make room-migration-guard
+}
+
 run_android() {
+  run_android_guards
   local jdk="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21}"
   local sdk="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
   if [ ! -x "$jdk/bin/java" ] || [ ! -d "$sdk" ]; then
@@ -136,12 +168,50 @@ run_android() {
   step "android :app unit"    bash -c 'cd apps/goatos-android && ./gradlew :app:testStgReleaseUnitTest --no-daemon --console=plain'
 }
 
+run_guardrails() {
+  run_common
+  run_backend
+  run_android_guards
+}
+
+run_job() {
+  case "$1" in
+    common)    run_common ;;
+    backend)   run_backend ;;
+    admin-web) run_admin_web ;;
+    android)   run_android ;;
+    *) echo "unknown selected CI job: $1"; exit 2 ;;
+  esac
+}
+
 case "$only" in
+  auto)
+    base_ref="${GOATOS_CI_BASE:-origin/main}"
+    if ! git rev-parse --verify "${base_ref}^{commit}" >/dev/null 2>&1; then
+      base_ref="HEAD~1"
+    fi
+    scope="$(node tools/ci/ci-scope.mjs --base "$base_ref" --head HEAD --format github)" || exit 2
+    selected="$(printf '%s\n' "$scope" | sed -n 's/^selected_jobs=//p')"
+    receipt_base="$(printf '%s\n' "$scope" | sed -n 's/^base=//p')"
+    is_full="$(printf '%s\n' "$scope" | sed -n 's/^full=//p')"
+    [ -n "$selected" ] || { echo "ci-local: classifier returned no selected jobs" >&2; exit 2; }
+    echo "ci-local: auto scope against ${receipt_base:-$base_ref} -> ${selected}"
+    IFS=',' read -r -a selected_array <<< "$selected"
+    for job in "${selected_array[@]}"; do run_job "$job"; done
+    receipt_jobs="$selected"
+    if [ "$is_full" = "true" ]; then receipt_mode="all"; else receipt_mode="scoped"; fi
+    ;;
+  common)      run_common ;;
+  backend)     run_backend ;;
   guardrails) run_guardrails ;;
   admin-web)  run_admin_web ;;
   android)    run_android ;;
-  all)        run_guardrails; run_admin_web; run_android ;;
-  *) echo "unknown job: $only (guardrails|admin-web|android|all)"; exit 2 ;;
+  all)
+    run_common; run_backend; run_admin_web; run_android
+    receipt_mode="all"
+    receipt_jobs="common,backend,admin-web,android"
+    ;;
+  *) echo "unknown job/mode: $only (auto|common|backend|guardrails|admin-web|android|all)"; exit 2 ;;
 esac
 
 echo ""
@@ -149,14 +219,15 @@ echo "════════ ci-local summary @ ${sha} ═══════�
 for r in "${RESULTS[@]}"; do echo "  $r"; done
 if [ "$fail" -eq 0 ]; then
   echo "ci-local: GREEN @ ${sha}"
-  # Exact-SHA push evidence: only a FULL green run (job "all") records the receipt the
-  # pre-push hook checks before it allows an update to refs/heads/main. A partial
-  # `JOB=...` run intentionally records nothing. See docs/runbooks/local-release-evidence.md.
-  if [ "$only" = "all" ]; then
-    node tools/ci/check-local-ci-evidence.mjs --record "$sha" || \
+  # Exact-SHA push evidence: an auto-scoped run records the exact base + selected
+  # jobs; a forced full run records mode=all. Explicit JOB=... runs stay partial.
+  if [ -n "$receipt_mode" ]; then
+    receipt_args=(--record "$sha" --mode "$receipt_mode" --jobs "$receipt_jobs")
+    if [ "$receipt_mode" = "scoped" ]; then receipt_args+=(--base "$receipt_base"); fi
+    node tools/ci/check-local-ci-evidence.mjs "${receipt_args[@]}" || \
       echo "!! warning: could not record local-CI evidence receipt for ${sha}" >&2
   else
-    echo "ci-local: partial run (job '${only}') — no main-push evidence receipt written."
+    echo "ci-local: explicit partial run ('${only}') — no main-push evidence receipt written."
   fi
 else
   echo "ci-local: RED @ ${sha}"

@@ -3,10 +3,11 @@ package postgres
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 // TestMigration000201DownToleratesIdentityGoatRows is the VACC-REV-13 guard. The identity_goat
@@ -18,9 +19,7 @@ import (
 // The down therefore re-adds the narrow constraint NOT VALID (no VALIDATE scan): it tolerates the
 // existing rows while still enforcing the rollback on every NEW identity_goat write.
 func TestMigration000201DownToleratesIdentityGoatRows(t *testing.T) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool, _ := startCorrectionWriteDB(t, ctx)
 	defer pool.Close()

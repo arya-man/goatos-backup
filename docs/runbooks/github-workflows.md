@@ -28,6 +28,7 @@ It runs on:
 ```text
 push to main
 pull_request
+workflow_dispatch (manual; optional run_postgres_tests input)
 ```
 
 We usually push directly to `main`, so every pushed commit should pass this
@@ -46,32 +47,32 @@ Can admin-web lint, typecheck, pass mock-fidelity guards, build, and keep the be
 Are API contracts still valid?
 Did we accidentally commit a huge/private file?
 Did we accidentally add a new million-animal scale anti-pattern?
-Can a brand-new Postgres database be built from our migrations?
-Can sqlc regenerate typed DB code from that schema?
-Do important SQL queries still use the expected indexes, including natural
-planner proof for typed UUID-array predicates?
-Do migration invariants still hold?
+When explicitly requested, can a brand-new Postgres database be built from our
+migrations, can sqlc regenerate typed DB code, and do important SQL queries use
+the expected indexes?
 ```
 
-This is why even a README-only commit runs CI: GitHub does not know whether a
-commit is "just docs" until it checks the repository state. Running the same
-guardrail on every commit keeps `main` honest.
+The workflow always starts a small `changes` classifier and the `common` job.
+It runs backend, admin-web, and Android only when their owned paths or shared
+contracts changed. Unknown runtime paths and changes to CI workflows, CI scripts,
+agent hooks, or the Makefile conservatively force every component job. Postgres
+and live-latency gates remain skipped unless a maintainer manually dispatches the
+workflow with `run_postgres_tests=true`; path classification and `MODE=all` never
+opt into Postgres.
 
 ## Who Starts Postgres In CI?
 
-GitHub does.
+Nobody in default CI. Postgres is explicit opt-in only.
 
 More precisely:
 
 ```text
-1. We push to GitHub.
+1. A maintainer manually dispatches `ci.yml` with `run_postgres_tests=true`.
 2. GitHub Actions starts a temporary Ubuntu runner.
-3. Our CI job runs on that runner.
-4. The CI scripts run Docker on that runner.
-5. Docker starts a temporary Postgres container.
-6. We apply Goat OS migrations into that temporary Postgres.
-7. We run sqlc, query-plan, and migration checks.
-8. When CI ends, the container is deleted.
+3. Docker starts a temporary Postgres container on that runner.
+4. The explicit database gates apply migrations and run DB tests, sqlc,
+   query-plan, migration, E2E, and live-latency checks.
+5. When CI ends, the container is deleted.
 ```
 
 The CI database is **not**:
@@ -106,12 +107,16 @@ File:
 .github/workflows/ci.yml
 ```
 
-Job:
+Jobs:
 
 ```text
-guardrails
+changes
+common
+backend
 admin-web
 android
+live-api-latency
+ci-required
 ```
 
 Runs on:
@@ -128,6 +133,33 @@ actions/checkout@v7
 actions/setup-go@v6
 actions/setup-node@v6
 ```
+
+### Affected-component selection
+
+`changes` checks out full history and runs:
+
+```text
+node tools/ci/ci-scope.mjs --base <event-base-sha> --head <event-head-sha> --format github
+```
+
+The single source of path ownership is `tools/ci/component-paths.json`:
+
+```text
+backend/**, deploy/**, infra/**, load-tests/**, tools/perf/** -> backend
+apps/admin-web/**, mock/**                                  -> admin-web
+apps/goatos-android/**, tools/android/**                    -> android
+contracts/**, packages/api-client/**                       -> all component consumers
+docs/context/agent markdown                                -> common only
+.github/workflows/**, tools/ci/**, tools/agent-hooks/**,
+Makefile, unmapped runtime paths                            -> full suite
+```
+
+`live-api-latency` additionally requires a manual dispatch with
+`run_postgres_tests=true`; a backend path match alone never starts Postgres.
+
+`ci-required` always runs after all component jobs. It fails if a required job
+was skipped/failed, or if an unrelated job unexpectedly ran. Branch protection
+should require this one stable status instead of every conditional job.
 
 ### Step 1: Checkout
 
@@ -275,7 +307,7 @@ O(n^2) date scans (`.find { ... parseLocalDate }`).
 
 It is **diff-scoped in CI** (`MOBILE_GUARD_BASE`, default `origin/main`): it only
 scans mobile `.kt` files changed vs the base, so **a commit with no mobile code
-passes instantly** — the guardrails job checks out with `fetch-depth: 0` so the
+does not start the Android job** — that job checks out with `fetch-depth: 0` so the
 diff base is available. `make mobile-guard-audit` scans the whole tree to show the
 current backlog. A genuinely-bounded case may carry an inline
 `// mobile-guard:ignore: <reason>`.
@@ -415,7 +447,7 @@ admin_web (mode: warn)   -> ADDED apps/admin-web/app/**/page.tsx or
 It is **diff-scoped in CI** (`TELEMETRY_GUARD_BASE`, default `origin/main`,
 set alongside `MOBILE_GUARD_BASE`): it only scans files changed vs the base,
 so **a commit touching neither Android nor admin-web passes instantly** — the
-guardrails job checks out with `fetch-depth: 0` so the diff base is available.
+affected admin-web/Android jobs check out with `fetch-depth: 0` so the diff base is available.
 `make telemetry-guard-audit` scans the whole tree to show the current
 backlog. Escape hatch: `// telemetry:exempt <reason>` anywhere in the file.
 
@@ -457,8 +489,10 @@ aggregate-projection-guard   -> changed JOIN + aggregate projections must state
                                 status-matrix, and page-boundary tests.
 ```
 
-Each runs in `make guardrails` (so `make ci-local JOB=guardrails` and the `ci`
-guardrails job run them). A genuinely-bounded case carries an inline
+Each machine guard remains registered in `make guardrails`, while the local/hosted
+CI runner assigns it to common, backend, admin-web, or Android ownership. The
+legacy `make ci-local JOB=guardrails` compatibility mode still runs common,
+backend, and mobile static guards. A genuinely-bounded case carries an inline
 `<guard>:ignore: <reason>`; otherwise fix the code or, for pre-existing debt,
 add it to that guard's baseline with a burn-down note.
 
@@ -483,20 +517,20 @@ Command:
 
 ```text
 cd backend
-GOATOS_REQUIRE_DOCKER=1 go test ./...
+GOATOS_RUN_POSTGRES_TESTS=0 go test ./...
 ```
 
-`GOATOS_REQUIRE_DOCKER=1` (set by `run-local-ci.sh` on this step) makes
-`pgtest.SkipIfNoDocker` FAIL instead of skip when docker is missing, so the
-required Postgres/E2E integration gate can never false-green by silently
-skipping — a runner without docker turns the build red rather than green.
+The default runs package and unit tests while the central `pgtest` policy skips
+all Docker-backed Postgres tests even when Docker is installed. A deliberate DB
+run uses `GOATOS_RUN_POSTGRES_TESTS=1`; `GOATOS_REQUIRE_DOCKER=1` then makes a
+missing Docker runtime fail closed.
 
 Purpose:
 
 ```text
 Compile all backend packages.
-Run unit and integration tests.
-Exercise Docker-backed Postgres tests where available.
+Run package and unit tests.
+Exercise Docker-backed Postgres tests only on explicit opt-in.
 ```
 
 If this fails, the backend code or tests are broken.
@@ -583,7 +617,8 @@ This job makes sure the Mesha admin-web frontend still compiles and keeps server
 secrets out of browser artifacts. It does not start a local backend or run the
 live screenshot smoke; that visual smoke remains a local pre-push requirement
 for frontend work because it needs a seeded backend/admin-web environment and
-real route data.
+real route data. It runs only for admin-web paths, shared API contracts/clients,
+or a classifier-forced full suite.
 
 ### Step 1: Checkout
 
@@ -687,13 +722,12 @@ Runs on:
 ubuntu-latest
 ```
 
-This job makes sure the Goat OS Android app (`apps/goatos-android`) still
-compiles and passes its JVM unit tests on every PR and every push to `main` —
-not only when an Android file changes. It closes ledger finding **C35-008**
-(Android changes could previously merge without a required compile/unit gate in
-`ci.yml`; the compile+unit gate only lived in the path-triggered
-`android-quality.yml`). This job is required on all PRs so a backend or contract
-change that breaks the Android client is caught here too.
+This job makes sure the Goat OS Android app (`apps/goatos-android`) compiles and
+passes its JVM unit tests whenever Android paths or shared API contracts/clients
+change, and whenever the classifier forces the full suite. It still closes
+ledger finding **C35-008** because every Android change selects the required
+compile/unit gate; backend-only changes no longer pay for an unrelated Gradle
+build.
 
 ### Step 1: Checkout
 
@@ -772,6 +806,8 @@ This keeps the guardrail strict while reducing random CI flakes.
 ## Local Equivalents
 
 Before committing, run the narrowest relevant checks for the files changed.
+Before pushing, run `make ci-local`; it computes and records the complete
+affected-component set. Use `make ci-local MODE=all` to force everything.
 
 Backend, schema, sqlc, migration, CI, and workflow changes should run the
 affected build/test/validation commands locally before commit. Documentation-only
@@ -817,8 +853,10 @@ If the docs change agent/build behavior, also run:
 Runs on `pull_request` and `push to main` when `apps/goatos-android/**`,
 `tools/android/**`, or the workflow file itself changes.
 
-One job, `design-system-guard`: installs ripgrep and runs
-`tools/android/check-no-hardcoded-design.sh`, which fails the build if any
+The default run executes `design-system-guard` plus Android compile/unit checks.
+The Postgres-backed `baseline-profile-and-macrobenchmark` job runs only on a
+manual dispatch with `run_postgres_tests=true`. The design guard installs
+ripgrep and runs `tools/android/check-no-hardcoded-design.sh`, which fails if any
 `Color(0x…)` literal or inline `TextStyle(…)` shows up in app/feature UI code
 — color and type must come from `MeshaColors`/`MeshaType` only. A failure here
 means a change introduced a hardcoded design value instead of using (or
@@ -848,9 +886,9 @@ push to main touching apps/goatos-android/**, backend/tests/e2e/**,
   backend/internal/**, scale/perf/E2E report inputs, the nav-graph/gallery
   generator scripts, tools/ci/**, context/execution/**, AGENTS.md, or this
   workflow file
-a daily cron at 03:00 UTC (the screenshot gallery and E2E report are meant
-  to stay fresh even with no code change that day)
-workflow_dispatch (manual run from the Actions tab)
+a daily cron at 03:00 UTC (non-Postgres reports only)
+workflow_dispatch (manual run from the Actions tab; set run_postgres_tests=true
+  to regenerate the vaccination and HRMS DB-backed reports)
 ```
 
 Six report jobs plus one publisher:
@@ -863,10 +901,10 @@ mobile-screenshots  installs a JDK + the Android SDK platform for
                      tools/android/build-screenshot-gallery.py
 nav-graph            tools/android/generate-nav-graph.py — no Android build
                      needed, this one is fast
-e2e-report           starts Docker-based ephemeral Postgres (same pgtest
+e2e-report           manual Postgres opt-in only; starts Docker-based ephemeral Postgres (same pgtest
                      harness the backend integration tests use) via
                      go test ./backend/tests/e2e/... -run TestKernelStor -v
-e2e-hrms-report      runs the HRMS roster/RBAC E2E harness and publishes the
+e2e-hrms-report      manual Postgres opt-in only; runs the HRMS roster/RBAC E2E harness and publishes the
                      generated story report
 scale-audit-e2e-report
                      uses tools/ci/generate-scale-audit-report.py to render
@@ -957,10 +995,11 @@ Jobs:
 ```text
 route                verifies this is a main -> stg PR
 backend-db-api       runs guardrails, aggregate/projection evidence, scale guard,
-                     go test ./..., sqlc,
-                     query plans, hot-index migration validation, migration
-                     validation, vaccination kernel E2E, and HRMS roster/RBAC
-                     E2E against disposable Postgres
+                     Go package/unit tests, and the static hot-index migration
+                     validation. Adding the `run-postgres-tests` PR label is the
+                     explicit opt-in for sqlc, query plans, migration replay,
+                     vaccination kernel E2E, and HRMS roster/RBAC E2E against
+                     disposable Postgres.
 admin-web            runs npm ci, lint, typecheck, mock fidelity, and Next
                      production build with token-leak guard
 android-release-apk  builds :app:assembleStgRelease, runs

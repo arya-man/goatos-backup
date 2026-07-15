@@ -6,8 +6,9 @@
 #      refs/heads/stg. Staging promotion happens in GitHub by merging a same-repository
 #      main -> stg pull request.
 #   2. exact-SHA local-CI evidence guard (check-local-ci-evidence.mjs): blocks every update
-#      to refs/heads/main unless a FULL green `make ci-local` recorded a SHA-bound receipt
-#      for the exact commit being pushed. See docs/runbooks/local-release-evidence.md.
+#      to refs/heads/main unless `make ci-local` recorded a SHA-bound receipt for the exact
+#      commit. Scoped receipts are revalidated against the exact remote-main base and full
+#      classifier-selected job set. See docs/runbooks/local-release-evidence.md.
 # Historically this file only installed guard 1; the name is kept so `make ai-setup` /
 # `make stg-promotion-guard-install` keep working, but it is now a general push-guard installer.
 set -euo pipefail

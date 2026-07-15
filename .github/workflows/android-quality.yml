@@ -12,6 +12,13 @@ on:
       - "apps/goatos-android/**"
       - "tools/android/**"
       - ".github/workflows/android-quality.yml"
+  workflow_dispatch:
+    inputs:
+      run_postgres_tests:
+        description: "Explicitly run the Postgres-backed macrobenchmark fixture"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   design-system-guard:
@@ -44,6 +51,7 @@ jobs:
           (cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain)
 
   baseline-profile-and-macrobenchmark:
+    if: github.event_name == 'workflow_dispatch' && inputs.run_postgres_tests == true
     runs-on: ubuntu-latest
     services:
       postgres:

@@ -674,22 +674,34 @@ Do:
   billing/spending/platform failure — the synthetic `BuildFailed` /
   `(Unknown event)` / zero-job `startup_failure` runs — must NOT be recorded as
   an external blocker or used to defer a fix. When remote GitHub Actions cannot
-  execute, run the SAME required CI gates LOCALLY via `make ci-local` (which
-  mirrors `.github/workflows/ci.yml` job-for-job: agent guardrails, scale-guard +
-  self-test, clinical-defer-guard, mobile-guard, `go test ./...`, sqlc/migration
-  validation, admin-web lint/typecheck/mock-fidelity, and the Android
-  compile/unit gate with mandatory JDK/SDK; no USB device is required) and treat a green `make
-  ci-local` on the exact pushed SHA as the authoritative gate. Record the
+  execute, run the SAME affected-component gates LOCALLY via `make ci-local`.
+  The default classifier compares the candidate to `origin/main`, always runs
+  common repository guards, and adds backend, admin-web, and/or Android jobs only
+  when their owned paths or shared contracts changed. Unmapped paths and changes
+  to CI workflows, CI scripts, agent hooks, or the Makefile force the full suite;
+  `make ci-local MODE=all` is the explicit full-suite command. Treat a green
+  `make ci-local` on the exact pushed SHA as the authoritative gate. Record the
   `make ci-local` SHA + result as the current-SHA proof. Restoring org Actions
   billing stays a separate maintainer task, tracked but never blocking closure.
 
-- **Exact-SHA local-CI push gate (main)**: Only a FULL green `make ci-local` on
-  the exact commit SHA authorizes a push to `main`. The pre-push hook installed by
+- **Postgres tests are explicit opt-in only**: Default `make ci-local`, every
+  `JOB=...`/`MODE=all` invocation, pull-request workflow, push workflow, and
+  scheduled workflow must not start Postgres or run Docker-backed DB tests.
+  A local database run requires `GOATOS_RUN_POSTGRES_TESTS=1`; hosted DB gates
+  require the workflow's manual `run_postgres_tests` input, or the documented
+  `run-postgres-tests` label for the `main -> stg` PR gate. `MODE=all` means all
+  affected component jobs, not Postgres. `GOATOS_REQUIRE_DOCKER=1` may make an
+  explicitly requested DB run fail closed, but it must never opt a default run
+  into Postgres by itself.
+
+- **Exact-SHA local-CI push gate (main)**: Only a complete green `make ci-local`
+  on the exact commit SHA authorizes a push to `main`. The pre-push hook installed by
   `make ai-setup` enforces this via a machine-local SHA-bound receipt
   (`goatos-ci-local-receipt.json` in the worktree git directory). The receipt
-  persists after a full run, binds that SHA to a green result and full-suite mode,
-  and the hook checks it on push: if a receipt exists with matching SHA, green
-  result, and mode `all`, the push is permitted; otherwise rejected. Partial
+  is either mode `all`, or mode `scoped` bound to the exact remote-main base,
+  component-rule hash, and complete classifier-selected job list. The hook
+  recomputes scoped coverage at push time; a changed base, stale rules, missing
+  component, or newly-full diff is rejected. Explicit partial
   `JOB=...` runs intentionally write NO receipt and never authorize a push. Every
   new machine guardrail MUST be registered in `tools/ci/guardrail-manifest.json`
   and wired into both `Makefile:guardrails` and `tools/ci/run-local-ci.sh` (the
@@ -843,9 +855,9 @@ MUST wire:
    submit`, or a future documented funnel).
 
 Run `make telemetry-guard` (or `python3 tools/telemetry-guard/telemetry-guard.py`)
-before committing — it is part of `make guardrails` / `make ci-local
-JOB=guardrails` / the `ci` guardrails job, diff-scoped against `origin/main` so
-unrelated commits pass instantly.
+before committing — it is part of `make guardrails`, the compatibility
+`make ci-local JOB=guardrails`, and the affected admin-web/Android component
+jobs. It is diff-scoped against `origin/main` so unrelated commits pass instantly.
 
 Use `// telemetry:exempt <reason>` only with a real justification (internal
 debug-only screen, pure presentational component, route fully covered by a

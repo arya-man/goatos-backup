@@ -329,12 +329,13 @@ offline-first-guard:
 local-single-db-guard:
 	bash tools/agent-hooks/check-local-single-db.sh
 
-# ci-local: run the SAME required CI gates as .github/workflows/ci.yml locally.
+# ci-local: run the SAME affected-component CI gates as .github/workflows/ci.yml.
 # Per AGENTS.md a GitHub Actions billing/platform failure is NEVER a closure
 # blocker — a green `make ci-local` on the pushed SHA is the authoritative gate.
-# JOB=guardrails|admin-web|android runs one job; default runs all.
+# Default auto-scopes against origin/main. MODE=all forces the full suite.
+# JOB=common|backend|guardrails|admin-web|android is partial and writes no receipt.
 ci-local:
-	bash tools/ci/run-local-ci.sh $(JOB)
+	bash tools/ci/run-local-ci.sh $(if $(JOB),$(JOB),$(MODE))
 
 e2e-integrity-guard:
 	bash tools/agent-hooks/check-e2e-kernel-integrity.sh

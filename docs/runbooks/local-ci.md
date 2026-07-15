@@ -5,10 +5,14 @@ OS defect work. The repository has one CI command surface used by both GitHub
 workflows and local agents:
 
 ```bash
-make ci-local                 # guardrails + admin-web + Android
-make ci-local JOB=guardrails
+make ci-local                 # common + affected components vs origin/main
+make ci-local MODE=all        # force common + backend + admin-web + Android
+make ci-local JOB=common
+make ci-local JOB=backend
+make ci-local JOB=guardrails  # compatibility: common + backend + mobile static guards
 make ci-local JOB=admin-web
 make ci-local JOB=android
+GOATOS_RUN_POSTGRES_TESTS=1 make ci-local  # deliberate DB/Docker integration run
 ```
 
 `.github/workflows/ci.yml` and `.github/workflows/android-quality.yml` invoke
@@ -23,22 +27,24 @@ When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:
 1. Verify the failure happened before any job; do not relabel a real test
    failure as billing trouble.
 2. Check out the exact candidate SHA with a clean tree.
-3. Run `make ci-local`. Missing JDK/SDK, a skipped job, generated-code drift,
-   build failure, or any red sub-step is failure.
+3. Run `make ci-local`. It selects the complete affected-component set from
+   `tools/ci/component-paths.json`; CI/shared-tooling and unmapped runtime paths
+   force all jobs. Missing required tooling, generated-code drift, build failure,
+   or any red selected sub-step is failure.
 4. Record the full SHA and the final `ci-local: GREEN @ <sha>` line in the proof
    packet.
 5. Push that exact SHA through the Mesha credential and re-run locally if a
    rebase changes it.
 
-The guardrails job includes agent boundary/contract/E2E checks, API latency
-policy, scale-guard plus self-tests, natural hot-query planner proofs (including
-the outbox UUID-array release path), clinical and sweeper deployment safety
-(including the adversarial same-block actor-wiring fixture),
-mobile and large-file guards, all Go tests, sqlc generation drift, SQL plan and
-migration validation, and `git diff --check`. Admin-web includes dependency
-install, lint, typecheck, whole-tree request-plan/fidelity guards, and the
-production build with bearer-token leak detection. Android includes the staging
-release compile and unit suite under JDK 21.
+The common job runs repository, agent, contract, large-file, and diff hygiene.
+Backend owns kernel/E2E/scale static guards and Go package/unit tests. Postgres
+containers, DB-backed Go tests, the Docker E2E chain, sqlc schema regeneration,
+SQL plans, migration replay, and live latency are skipped by default. They run
+only with `GOATOS_RUN_POSTGRES_TESTS=1` locally or the hosted workflow's manual
+`run_postgres_tests` input. `MODE=all` does not imply Postgres. Admin-web owns its request-read guard, dependency install,
+lint, tests, typecheck, fidelity gates, and production build. Android owns its
+mobile/offline/telemetry/memory/Room guards plus staging release compile and unit
+suite under JDK 21.
 
 This fallback certifies repository code only. Restoring GitHub billing and
 required-check enforcement remains an operational task, but it never blocks
@@ -54,7 +60,7 @@ a single source of truth: `tools/ci/guardrail-manifest.json`. Each entry declare
 - A self-test command that validates the guard itself works, or an explicit
   `selfTestExemptReason` explaining why the guard is exempt from self-testing
 - The owning documentation (file path or runbook reference)
-- A `requiredInCI` flag: `true` if the guard is part of the full local-CI guardrails
+- A `requiredInCI` flag: `true` if the guard is assigned to a local-CI component
   job, `false` if it's optional or local-only
 
 The `guardrail-registration-guard` (Make target, part of `make guardrails`) is a
@@ -86,11 +92,9 @@ The `guardrail-registration-guard` runs first in `make guardrails`, so registrat
 failures are caught immediately. Silent holes (unregistered/self-test-less/unwired
 guards) are the class of defects this meta-guard prevents.
 
-A full green `make ci-local` (not `JOB=<name>`) writes an exact-SHA receipt into the
-worktree git directory (`goatos-ci-local-receipt.json`): a JSON object binding that
-run's commit SHA, result (`green`), and mode (`all`). This receipt is machine-local,
-never committed, and serves as proof that the exact commit passed the full local-CI
-suite. The pre-push hook (installed by `make ai-setup`) uses this receipt to gate a
-main push: only if a receipt exists, its SHA matches `HEAD`, result is green, and
-mode is `all` does `git push origin HEAD:main` succeed. Partial runs (`JOB=...`)
-intentionally record NOTHING, so they never authorize a push.
+A green default `make ci-local` writes an exact-SHA receipt into the worktree git
+directory (`goatos-ci-local-receipt.json`). A full-classified or `MODE=all` run
+records mode `all`. A narrower run records mode `scoped`, the exact remote-main
+base, component-rule hash, and selected jobs. The pre-push hook recomputes the
+diff and rejects stale/incomplete scoped receipts. Explicit `JOB=...` runs record
+nothing and never authorize a push.

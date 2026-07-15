@@ -20,6 +20,7 @@ import (
 	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/outbox/domain"
 	"github.com/vgoats/goatos/backend/internal/outbox/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 const (
@@ -32,9 +33,7 @@ const (
 var outboxTestNow = time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 
 func TestOutboxRelayWithDockerPostgres(t *testing.T) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	pgtest.SkipIfNoDocker(t)
 
 	ctx := context.Background()
 	pool := startOutboxDB(t, ctx)
@@ -532,9 +531,7 @@ type insertedOutbox struct {
 // it. At 54s / 500 = 108ms per message, and a simulated 15ms Pub/Sub round-trip,
 // the drain finishes with large headroom.
 func TestOutboxRelayStageDrains500WithinFastLaneBudget(t *testing.T) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := startOutboxDB(t, ctx)
 	defer pool.Close()
@@ -577,9 +574,7 @@ func TestOutboxRelayStageDrains500WithinFastLaneBudget(t *testing.T) {
 // This is the KERN-02 mitigation: on ctx cancellation, release unprocessed claimed
 // messages so they're eligible for re-claim on the next 1-minute tick.
 func TestOutboxRelayCancellationRecoversWithoutLoss(t *testing.T) {
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker not available")
-	}
+	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := startOutboxDB(t, ctx)
 	defer pool.Close()

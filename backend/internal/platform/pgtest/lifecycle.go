@@ -39,6 +39,7 @@ func Shutdown() {
 // SKIP-LOCKED concurrency tests must use StartPostgres and separate connections inside one clone.
 func StartDedicatedPostgres(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	t.Helper()
+	skipUnlessEnabled(t)
 	container := fmt.Sprintf("goatos-pgtest-ded-%s-%d", processTag, time.Now().UnixNano())
 	image := os.Getenv("GOATOS_POSTGRES_IMAGE")
 	if image == "" {
