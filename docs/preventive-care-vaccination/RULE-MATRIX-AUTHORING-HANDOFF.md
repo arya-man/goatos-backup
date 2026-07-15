@@ -513,7 +513,7 @@ Hard validation rules for this sample and the production schema:
     {
       "vaccine_code": "ET_TT",
       "label": "ET+TT",
-      "class": "toxoid",
+      "class": "killed",
       "pathogen_class": "bacterial",
       "inventory_item_code": "vaccine.et_tt",
       "dose_amount": 2,

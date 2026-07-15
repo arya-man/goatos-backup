@@ -56,7 +56,8 @@ type vaccineDef struct {
 	Code      string  // protocol_definitions.code suffix (lowercase dotted-safe)
 	Name      string  // human protocol name / vaccine column label
 	Disease   string  // vaccine disease target
-	Type      string  // live | killed | toxoid
+	Type      string  // immunological type: live | killed | toxoid
+	Pathogen  string  // pathogen class: bacterial | viral (NEVER a Type value)
 	ItemCode  string  // inventory item code
 	DoseML    float64 // dose amount (ml) from the source dose table
 	VialDoses int     // doses per vial
@@ -64,14 +65,27 @@ type vaccineDef struct {
 
 // vaccines maps the source-sheet vaccine header -> its definition. Keys are the
 // exact strings that appear in vaccination.json header row 0.
+//
+// Type and Pathogen are two INDEPENDENT medical axes and must never be conflated:
+//   - Type describes the immunological preparation: live | killed | toxoid.
+//   - Pathogen describes the organism class: bacterial | viral.
+//
+// Same-day compatibility and cross-vaccine spacing rules depend on BOTH axes
+// (see internal/vaccination/app/compatibility.go classifyVaccine), so writing a
+// Type value into the pathogen_class field selects the wrong medical rule.
+// The reviewed source of truth for both axes is the V1 preset table in
+// docs/preventive-care-vaccination/vaccination-rules.md.
 var vaccines = map[string]vaccineDef{
-	"ET+TT":       {Code: "et_tt", Name: "ET+TT", Disease: "Enterotoxaemia + Tetanus", Type: "toxoid", ItemCode: "VAC-ET-TT", DoseML: 2, VialDoses: 100},
-	"PPR":         {Code: "ppr", Name: "PPR", Disease: "Peste des Petits Ruminants", Type: "live", ItemCode: "VAC-PPR", DoseML: 1, VialDoses: 100},
-	"Blue tongue": {Code: "blue_tongue", Name: "Blue Tongue", Disease: "Blue Tongue", Type: "killed", ItemCode: "VAC-BT", DoseML: 2, VialDoses: 100},
-	"FMD":         {Code: "fmd", Name: "FMD", Disease: "Foot and Mouth Disease", Type: "killed", ItemCode: "VAC-FMD", DoseML: 1, VialDoses: 30},
-	"HS":          {Code: "hs", Name: "HS", Disease: "Haemorrhagic Septicaemia", Type: "killed", ItemCode: "VAC-HS", DoseML: 2, VialDoses: 100},
-	"Goat Pox":    {Code: "goat_pox", Name: "Goat Pox", Disease: "Goat Pox", Type: "live", ItemCode: "VAC-GP", DoseML: 1, VialDoses: 25},
-	"Sheep Pox":   {Code: "sheep_pox", Name: "Sheep Pox", Disease: "Sheep Pox", Type: "live", ItemCode: "VAC-SP", DoseML: 1, VialDoses: 100},
+	// ET+TT is "bacteria killed" per the wiki source (Vaccination Rules.docx):
+	// vaccine_type=killed, pathogen_class=bacterial. "Booster" is its course type,
+	// not its vaccine type. Do not classify ET+TT as toxoid.
+	"ET+TT":       {Code: "et_tt", Name: "ET+TT", Disease: "Enterotoxaemia + Tetanus", Type: "killed", Pathogen: "bacterial", ItemCode: "VAC-ET-TT", DoseML: 2, VialDoses: 100},
+	"PPR":         {Code: "ppr", Name: "PPR", Disease: "Peste des Petits Ruminants", Type: "live", Pathogen: "viral", ItemCode: "VAC-PPR", DoseML: 1, VialDoses: 100},
+	"Blue tongue": {Code: "blue_tongue", Name: "Blue Tongue", Disease: "Blue Tongue", Type: "killed", Pathogen: "viral", ItemCode: "VAC-BT", DoseML: 2, VialDoses: 100},
+	"FMD":         {Code: "fmd", Name: "FMD", Disease: "Foot and Mouth Disease", Type: "killed", Pathogen: "viral", ItemCode: "VAC-FMD", DoseML: 1, VialDoses: 30},
+	"HS":          {Code: "hs", Name: "HS", Disease: "Haemorrhagic Septicaemia", Type: "killed", Pathogen: "bacterial", ItemCode: "VAC-HS", DoseML: 2, VialDoses: 100},
+	"Goat Pox":    {Code: "goat_pox", Name: "Goat Pox", Disease: "Goat Pox", Type: "live", Pathogen: "viral", ItemCode: "VAC-GP", DoseML: 1, VialDoses: 25},
+	"Sheep Pox":   {Code: "sheep_pox", Name: "Sheep Pox", Disease: "Sheep Pox", Type: "live", Pathogen: "viral", ItemCode: "VAC-SP", DoseML: 1, VialDoses: 100},
 }
 
 // vaccineOrder gives a stable insert order for the 7 protocols.
@@ -2309,6 +2323,12 @@ func jsonSemanticallyEqual(a, b string) bool {
 }
 
 func vaccinationMatrixRuleDSL() (string, error) {
+	// Reject malformed vaccine metadata before building the published matrix so a
+	// wrong pathogen_class (e.g. a leaked vaccine-type value) can never reach the
+	// compatibility engine as seeded truth (BUG1).
+	if err := validateVaccineClassifications(); err != nil {
+		return "", fmt.Errorf("vaccination seed matrix: %w", err)
+	}
 	type scheduleRow struct {
 		DoseCode            string  `json:"dose_code"`
 		SourceDoseCode      string  `json:"source_dose_code"`
@@ -2462,7 +2482,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				Type:               def.Type,
 				Disease:            def.Disease,
 				CompatibilityGroup: strings.ToUpper(def.Code),
-				PathogenClass:      pathogenClass(def.Type),
+				PathogenClass:      def.Pathogen,
 				CourseType:         courseType,
 			},
 			Species:     spec.Species,
@@ -2617,17 +2637,42 @@ func vaccinationSeedEligibilityForSpecies(species []string) map[string]any {
 	return eligibility
 }
 
-func pathogenClass(vaccineType string) string {
-	switch strings.ToLower(strings.TrimSpace(vaccineType)) {
-	case "live":
-		return "live"
-	case "killed":
-		return "killed"
-	case "toxoid":
-		return "bacterial"
-	default:
-		return "unknown_review_needed"
+// validVaccineTypes / validPathogenClasses are the only accepted values for the
+// two independent medical axes. Pathogen class is deliberately disjoint from
+// vaccine type: a "live"/"killed"/"toxoid"/"combo" value in pathogen_class is
+// malformed seed metadata (BUG1) that mis-selects same-day compatibility /
+// spacing rules. Toxoid stays a valid vaccine TYPE for any future reviewed
+// vaccine that needs it; it is simply never a pathogen class.
+var (
+	validVaccineTypes     = map[string]struct{}{"live": {}, "killed": {}, "toxoid": {}}
+	validPathogenClasses  = map[string]struct{}{"bacterial": {}, "viral": {}}
+	forbiddenPathogenVals = map[string]struct{}{"live": {}, "killed": {}, "toxoid": {}, "combo": {}}
+)
+
+// validateVaccineClassifications proves, at seed-build time, that every approved
+// vaccine has a known reviewed classification and that the two axes are stored
+// separately: Type ∈ {live,killed,toxoid}, Pathogen ∈ {bacterial,viral}, and the
+// pathogen field never carries a vaccine-type value. A malformed row fails the
+// seed loudly instead of silently emitting a wrong medical class.
+func validateVaccineClassifications() error {
+	return validateVaccineClassificationsIn(vaccines)
+}
+
+func validateVaccineClassificationsIn(defs map[string]vaccineDef) error {
+	for name, def := range defs {
+		t := strings.ToLower(strings.TrimSpace(def.Type))
+		p := strings.ToLower(strings.TrimSpace(def.Pathogen))
+		if _, ok := validVaccineTypes[t]; !ok {
+			return fmt.Errorf("vaccine %q has invalid immunological type %q (want live|killed|toxoid)", name, def.Type)
+		}
+		if _, bad := forbiddenPathogenVals[p]; bad {
+			return fmt.Errorf("vaccine %q pathogen_class %q is a vaccine-TYPE value; pathogen class must be bacterial|viral (BUG1)", name, def.Pathogen)
+		}
+		if _, ok := validPathogenClasses[p]; !ok {
+			return fmt.Errorf("vaccine %q has unknown pathogen class %q (want bacterial|viral)", name, def.Pathogen)
+		}
 	}
+	return nil
 }
 
 func historyObligationID(tenantID string, c vaccCell, def vaccineDef, sourceDateKey string) string {

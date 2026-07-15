@@ -390,7 +390,7 @@ func TestGenerateForVersionAcceptsMatrixArraySelectors(t *testing.T) {
 			Sequence:        1,
 			TriggerType:     "birth_age",
 			OffsetDays:      28,
-			EligibilityJSON: []byte(`{"matrix_row_id":"kid-goat-primary","eligibility":{"species":["goat"],"animal_stage":["K1","K2"],"sex":["female"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"defer_states":["icu","quarantine"]},"vaccine":{"code":"ET_TT","type":"killed","pathogen_class":"killed"}}`),
+			EligibilityJSON: []byte(`{"matrix_row_id":"kid-goat-primary","eligibility":{"species":["goat"],"animal_stage":["K1","K2"],"sex":["female"],"breed":["all"],"lifecycle":["alive"],"health":["healthy"],"reproductive":["any"],"defer_states":["icu","quarantine"]},"vaccine":{"code":"ET_TT","type":"killed","pathogen_class":"bacterial"}}`),
 		}},
 	}
 	goats := &generationGoatFake{list: []domain.EligibleGoat{
@@ -1607,7 +1607,7 @@ func TestTrustedPreviousCompletionAllowsAfterPreviousCompletionDose(t *testing.T
 	firstDue := dob.AddDate(0, 0, 28)
 	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
-		ruleDSL: []byte(`{"vaccine":{"code":"ET+TT","type":"toxoid","pathogen_class":"bacterial"},"eligibility":{}}`),
+		ruleDSL: []byte(`{"vaccine":{"code":"ET+TT","type":"killed","pathogen_class":"bacterial"},"eligibility":{}}`),
 		rules: []protodomain.Rule{
 			{
 				RuleID: "rule-et-4w", DoseCode: "ET_TT_4W", Sequence: 1,
@@ -1628,7 +1628,7 @@ func TestTrustedPreviousCompletionAllowsAfterPreviousCompletionDose(t *testing.T
 			"kid-1": {{
 				AdministeredAt: firstAdmin,
 				VaccineCode:    "ET+TT",
-				VaccineType:    "toxoid",
+				VaccineType:    "killed",
 				PathogenClass:  "bacterial",
 				DoseCode:       "ET_TT_4W",
 				Sequence:       1,
@@ -1659,7 +1659,7 @@ func TestTrustedAfterPreviousCompletionSuppressesAlreadyAcceptedDose(t *testing.
 	secondDue := businessDayStart(firstAdmin).AddDate(0, 0, 21)
 	asOf := time.Date(2026, time.July, 10, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
-		ruleDSL: []byte(`{"vaccine":{"code":"ET+TT","type":"toxoid","pathogen_class":"bacterial"},"eligibility":{}}`),
+		ruleDSL: []byte(`{"vaccine":{"code":"ET+TT","type":"killed","pathogen_class":"bacterial"},"eligibility":{}}`),
 		rules: []protodomain.Rule{
 			{
 				RuleID: "rule-et-4w", DoseCode: "ET_TT_4W", Sequence: 1,
@@ -1681,7 +1681,7 @@ func TestTrustedAfterPreviousCompletionSuppressesAlreadyAcceptedDose(t *testing.
 			"kid-1": {{
 				AdministeredAt: firstAdmin,
 				VaccineCode:    "ET+TT",
-				VaccineType:    "toxoid",
+				VaccineType:    "killed",
 				PathogenClass:  "bacterial",
 				DoseCode:       "ET_TT_4W",
 				Sequence:       1,
@@ -1709,7 +1709,7 @@ func TestAfterPreviousCompletionFromHistoryRespectsMinGap(t *testing.T) {
 	firstDue := dob.AddDate(0, 0, 28)
 	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
-		ruleDSL: []byte(`{"vaccine":{"code":"ET+TT","type":"toxoid","pathogen_class":"bacterial"},"eligibility":{}}`),
+		ruleDSL: []byte(`{"vaccine":{"code":"ET+TT","type":"killed","pathogen_class":"bacterial"},"eligibility":{}}`),
 		rules: []protodomain.Rule{
 			{
 				RuleID: "rule-et-4w", DoseCode: "ET_TT_4W", Sequence: 1,
@@ -1730,7 +1730,7 @@ func TestAfterPreviousCompletionFromHistoryRespectsMinGap(t *testing.T) {
 			"kid-1": {{
 				AdministeredAt: firstAdmin,
 				VaccineCode:    "ET+TT",
-				VaccineType:    "toxoid",
+				VaccineType:    "killed",
 				PathogenClass:  "bacterial",
 				DoseCode:       "ET_TT_4W",
 				Sequence:       1,

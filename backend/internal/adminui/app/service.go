@@ -2735,7 +2735,7 @@ func configOptionGroups() []domain.OptionGroup {
 		{
 			ID: "source_vaccine_matrix_presets",
 			Options: []domain.Option{
-				option("ET+TT", "ET+TT", "vaccine_type=toxoid|pathogen_class=bacterial|course_type=booster|disease=Enterotoxaemia + Tetanus|compatibility_group=ET+TT|weeks=4,7|revaccination_days=182|dose_amount=2|vial_doses=100|priority=1|species=all", "info"),
+				option("ET+TT", "ET+TT", "vaccine_type=killed|pathogen_class=bacterial|course_type=booster|disease=Enterotoxaemia + Tetanus|compatibility_group=ET+TT|weeks=4,7|revaccination_days=182|dose_amount=2|vial_doses=100|priority=1|species=all", "info"),
 				option("PPR", "PPR", "vaccine_type=live|pathogen_class=viral|course_type=single|disease=Peste des petits ruminants|compatibility_group=PPR|weeks=16|revaccination_days=1095|dose_amount=1|vial_doses=100|priority=2|species=all", "info"),
 				option("Goat Pox", "Goat Pox", "vaccine_type=live|pathogen_class=viral|course_type=single|disease=Goat Pox|compatibility_group=Goat Pox|weeks=16|revaccination_days=365|dose_amount=1|vial_doses=25|species=goat", "goat"),
 				option("FMD", "FMD", "vaccine_type=killed|pathogen_class=viral|course_type=single|disease=Foot and mouth disease|compatibility_group=FMD|weeks=12|revaccination_days=274|dose_amount=1|vial_doses=30|species=all", "info"),
