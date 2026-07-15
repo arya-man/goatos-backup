@@ -359,6 +359,56 @@ func (s *Service) SweepReminderCadence(ctx context.Context, in ports.ReminderCad
 	return fires, nil
 }
 
+// SweepReminderCadencePage is SweepReminderCadence plus the keyset cursor for cross-tick forward
+// progress (CAL-MAIN-02). It validates/defaults the envelope identically and returns both the fires and
+// the ReminderCadenceSweepCursor the caller persists (see kernelstages.ReminderCadenceStage).
+func (s *Service) SweepReminderCadencePage(ctx context.Context, in ports.ReminderCadenceQuery) ([]ports.ReminderCadenceFire, ports.ReminderCadenceSweepCursor, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	if !uuidutil.IsUUIDString(in.TenantID) {
+		return nil, ports.ReminderCadenceSweepCursor{}, BadRequest("invalid_tenant", "tenant id is required")
+	}
+	if in.Now.IsZero() {
+		in.Now = s.now()
+	}
+	if in.Limit <= 0 {
+		in.Limit = 200
+	}
+	if in.Limit > 2000 {
+		in.Limit = 2000
+	}
+	fires, cursor, err := s.repo.SweepReminderCadencePage(ctx, in)
+	if err != nil {
+		return nil, ports.ReminderCadenceSweepCursor{}, mapRepoError(err)
+	}
+	return fires, cursor, nil
+}
+
+// LoadReminderCadenceCursor / SaveReminderCadenceCursor persist the reminder-cadence stage's keyset
+// cursor across ticks so candidates ordered beyond a single tick's per-run page cap are eventually
+// reached (CAL-MAIN-02). LoadReminderCadenceCursor returns (zero time, "") when no cursor is stored yet.
+func (s *Service) LoadReminderCadenceCursor(ctx context.Context, tenantID string) (time.Time, string, error) {
+	if !uuidutil.IsUUIDString(tenantID) {
+		return time.Time{}, "", BadRequest("invalid_tenant", "tenant id is required")
+	}
+	cursorDueAt, cursorEventID, err := s.repo.LoadReminderCadenceCursor(ctx, tenantID)
+	if err != nil {
+		return time.Time{}, "", mapRepoError(err)
+	}
+	return cursorDueAt, cursorEventID, nil
+}
+
+// SaveReminderCadenceCursor upserts the reminder-cadence stage's keyset cursor for this tenant. Passing
+// (zero time, "") resets the tenant to the beginning of the candidate set on the next tick.
+func (s *Service) SaveReminderCadenceCursor(ctx context.Context, tenantID string, cursorDueAt time.Time, cursorEventID string, now time.Time) error {
+	if !uuidutil.IsUUIDString(tenantID) {
+		return BadRequest("invalid_tenant", "tenant id is required")
+	}
+	if err := s.repo.SaveReminderCadenceCursor(ctx, tenantID, cursorDueAt, cursorEventID, now); err != nil {
+		return mapRepoError(err)
+	}
+	return nil
+}
+
 // QueueReminderCadenceBatch validates the envelope and passes already-collapsed, already-audienced
 // cadence fires straight through to the repository's set-based batch insert. No fires is a legitimate
 // no-op (e.g. a tick with nothing currently due, or everything deferred by quiet hours).
@@ -466,25 +516,50 @@ func (s *Service) ResolveVaccinationCompletionContext(ctx context.Context, tenan
 	return s.repo.ResolveVaccinationCompletionContext(ctx, tenantID, completionID)
 }
 
-// ReconcileEventReferencesPage (FINDING 4 fix: migration 000192) surfaces a bounded page of
-// notification_requests/calendar_snoozes rows whose calendar_event_id no longer resolves to any
-// canonical obligation/batch/drive/task/completion. Used by kernelstages.CalendarReconcilerStage
-// to process large orphan sets without loading all into memory.
-func (s *Service) ReconcileEventReferencesPage(ctx context.Context, tenantID string, limit, offset int) ([]ports.OrphanedCalendarEventReference, error) {
+// ReconcileEventReferencesPage (FINDING 4 fix: migration 000192, CAL-MAIN-03 fix: migration 000202)
+// surfaces a bounded page of notification_requests/calendar_snoozes rows whose calendar_event_id
+// no longer resolves to any canonical obligation/batch/drive/task/completion. Uses stable keyset
+// pagination: (cursorSourceTable, cursorRecordID) is the last processed row; pass ("", "") to
+// start from the beginning. Used by kernelstages.CalendarReconcilerStage to process large orphan
+// sets without LIMIT/OFFSET rescanning or loading all into memory.
+func (s *Service) ReconcileEventReferencesPage(ctx context.Context, tenantID, cursorSourceTable, cursorRecordID string, limit int) ([]ports.OrphanedCalendarEventReference, error) {
 	if !uuidutil.IsUUIDString(tenantID) {
 		return nil, BadRequest("invalid_tenant", "tenant id is required")
 	}
 	if limit <= 0 || limit > 10000 {
 		limit = 1000 // default/cap
 	}
-	if offset < 0 {
-		offset = 0
-	}
-	orphans, err := s.repo.ReconcileEventReferencesPage(ctx, tenantID, limit, offset)
+	orphans, err := s.repo.ReconcileEventReferencesPage(ctx, tenantID, cursorSourceTable, cursorRecordID, limit)
 	if err != nil {
 		return nil, mapRepoError(err)
 	}
 	return orphans, nil
+}
+
+// LoadReconcilerCursor / SaveReconcilerCursor persist the reconciler stage's keyset cursor across
+// daily runs so records ordered beyond a single run's per-run cap are eventually inspected
+// (CAL-MAIN-03). LoadReconcilerCursor returns ("", "") when no cursor is stored yet.
+func (s *Service) LoadReconcilerCursor(ctx context.Context, tenantID string) (string, string, error) {
+	if !uuidutil.IsUUIDString(tenantID) {
+		return "", "", BadRequest("invalid_tenant", "tenant id is required")
+	}
+	cursorSourceTable, cursorRecordID, err := s.repo.LoadReconcilerCursor(ctx, tenantID)
+	if err != nil {
+		return "", "", mapRepoError(err)
+	}
+	return cursorSourceTable, cursorRecordID, nil
+}
+
+// SaveReconcilerCursor upserts the reconciler stage's keyset cursor for this tenant. Passing
+// ("", "") resets the tenant to the beginning of the orphan set on the next run.
+func (s *Service) SaveReconcilerCursor(ctx context.Context, tenantID, cursorSourceTable, cursorRecordID string, now time.Time) error {
+	if !uuidutil.IsUUIDString(tenantID) {
+		return BadRequest("invalid_tenant", "tenant id is required")
+	}
+	if err := s.repo.SaveReconcilerCursor(ctx, tenantID, cursorSourceTable, cursorRecordID, now); err != nil {
+		return mapRepoError(err)
+	}
+	return nil
 }
 
 // ReconcileEventReferences (CR-004, calendar-canonical-5k50k review) surfaces every

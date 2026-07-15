@@ -1794,6 +1794,7 @@ paths:
         Open, goat-scoped review items for animals past the 20-week kid cutoff that still carry a
         K1/K2 management-stage tag (generation routed them adult and never generates kid vaccinations).
         Operators use this to discover which animals need their stale tag reconciled.
+        Supports cursor pagination (VACC-REV-10B) to handle >200 items without capping access to older work.
       parameters:
         - name: limit
           in: query
@@ -1802,6 +1803,12 @@ paths:
             type: integer
             minimum: 1
             maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          description: Cursor for keyset pagination (from nextCursor in previous response).
+          schema:
+            type: string
       responses:
         "200":
           description: Open stage/age review items, newest first.
@@ -1817,6 +1824,10 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/VaccinationStageReviewItem"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page (null if no more items).
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

@@ -100,3 +100,30 @@ test("enumerateWeekDays handles year boundaries correctly", () => {
     "2026-01-04",
   ]);
 });
+
+test("CAL-MAIN-01 guard: selecting a different week yields column dates matching the fetched window", () => {
+  // Today is 2026-07-15 (Wednesday)
+  const today = "2026-07-15";
+  const todayWindow = weekWindow(today);
+  const todayDays = enumerateWeekDays(todayWindow.dateFrom);
+
+  // Select previous week (2026-07-08, Wednesday)
+  const prevWeek = "2026-07-08";
+  const prevWindow = weekWindow(prevWeek);
+  const prevDays = enumerateWeekDays(prevWindow.dateFrom);
+
+  // Select next week (2026-07-22, Wednesday)
+  const nextWeek = "2026-07-22";
+  const nextWindow = weekWindow(nextWeek);
+  const nextDays = enumerateWeekDays(nextWindow.dateFrom);
+
+  // Verify each week's displayed days match its window's dateFrom
+  assert.deepEqual(todayDays[0], todayWindow.dateFrom, "today's first column should match its window dateFrom");
+  assert.deepEqual(prevDays[0], prevWindow.dateFrom, "prev week's first column should match its window dateFrom");
+  assert.deepEqual(nextDays[0], nextWindow.dateFrom, "next week's first column should match its window dateFrom");
+
+  // Verify the weeks are different
+  assert.notEqual(todayWindow.dateFrom, prevWindow.dateFrom, "today and prev week should have different dateFrom");
+  assert.notEqual(todayWindow.dateFrom, nextWindow.dateFrom, "today and next week should have different dateFrom");
+  assert.notEqual(prevWindow.dateFrom, nextWindow.dateFrom, "prev and next week should have different dateFrom");
+});

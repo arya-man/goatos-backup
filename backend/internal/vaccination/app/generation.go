@@ -222,6 +222,16 @@ func (s *GenerationService) requireEvidenceReader() error {
 	return nil
 }
 
+// requireReviewRecorder guards generation: without a review recorder, SM-1 cannot durably record
+// operator-visible review items (VACC-REV-10). Refusing ensures generation never reports a review
+// signal without persisting actionable work for operators to discover.
+func (s *GenerationService) requireReviewRecorder() error {
+	if s.review == nil {
+		return fmt.Errorf("vaccination: generation requires a review recorder to persist operator-visible review items (VACC-REV-10); refusing to generate")
+	}
+	return nil
+}
+
 type genEligibility struct {
 	AnimalStage               genStringList `json:"animal_stage"`
 	Stage                     genStringList `json:"stage"`
@@ -1064,13 +1074,16 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		// (no kid vaccinations), and we record ONE durable, goat-scoped review item so an operator can
 		// find and reconcile the stale tag — idempotent on a stable per-goat key so replays add none.
 		res.ReviewSignals++
-		if s.review != nil {
-			observedAgeWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
-			reviewKey := "vacc-stage-review:" + tenantID + ":" + g.GoatID + ":" + strings.ToUpper(strings.TrimSpace(g.Stage))
-			if err := s.review.RecordStageReviewItem(ctx, tenantID, g.GoatID,
-				"kid_stage_past_age_cutoff", strings.TrimSpace(g.Stage), observedAgeWeeks, reviewKey); err != nil {
-				return err
-			}
+		if s.review == nil {
+			// VACC-REV-10A: without a review recorder, we cannot durably persist operator-visible
+			// review items. Fail loudly to avoid silently dropping actionable work.
+			return fmt.Errorf("vaccination: detected stale kid stage for goat %s but review recorder is absent; cannot persist review item (VACC-REV-10A)", g.GoatID)
+		}
+		observedAgeWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
+		reviewKey := "vacc-stage-review:" + tenantID + ":" + g.GoatID + ":" + strings.ToUpper(strings.TrimSpace(g.Stage))
+		if err := s.review.RecordStageReviewItem(ctx, tenantID, g.GoatID,
+			"kid_stage_past_age_cutoff", strings.TrimSpace(g.Stage), observedAgeWeeks, reviewKey); err != nil {
+			return err
 		}
 	}
 	for _, rule := range rules {
@@ -1916,11 +1929,13 @@ func hasVaccineAdministrationHistory(vaccine vaccineProfile, history []domain.Re
 }
 
 // hasSameDoseAdministration reports whether THIS rule's specific dose (its dose_code, or its
-// sequence when dose codes are absent) of THIS vaccine has already been administered. It is the
-// correct anchor-suppression signal: a completed dose must not be regenerated after a DOB/entry
-// correction, but a LATER still-required dose of the same course (ET+TT week-7 booster, adult wave
-// two) — which has no matching administration yet — must still be scheduled. Using any-dose vaccine
-// history here would wrongly suppress those required boosters (VACC-REV-06).
+// sequence when dose codes are absent) of THIS vaccine has already been administered from the SAME
+// protocol lineage. It is the correct anchor-suppression signal: a completed dose must not be
+// regenerated after a DOB/entry correction, but a LATER still-required dose of the same course
+// (ET+TT week-7 booster, adult wave two) — which has no matching administration yet — must still be
+// scheduled. Using any-dose vaccine history here would wrongly suppress those required boosters
+// (VACC-REV-06). Cross-protocol administrations (different version/protocol) MUST NOT suppress work
+// even if dose code or sequence matches (a different protocol's "dose 1" is not the same as ours).
 func hasSameDoseAdministration(rule protodomain.Rule, vaccine vaccineProfile, history []domain.RecentVaccineAdministration) bool {
 	code := strings.TrimSpace(vaccine.Code)
 	if code == "" {
@@ -1929,6 +1944,12 @@ func hasSameDoseAdministration(rule protodomain.Rule, vaccine vaccineProfile, hi
 	ruleDose := strings.ToLower(strings.TrimSpace(rule.DoseCode))
 	for _, admin := range history {
 		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		// VACC-REV-06: protocol lineage must match BEFORE comparing dose code or sequence. A dose
+		// from a different protocol (version) is not the same dose, regardless of matching
+		// dose_code/sequence labels.
+		if !sameProtocolLineage(rule, admin) {
 			continue
 		}
 		if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), code) {

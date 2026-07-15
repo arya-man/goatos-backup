@@ -285,6 +285,10 @@ func (f *fakeRepo) SweepReminderCadence(context.Context, ports.ReminderCadenceQu
 	return nil, nil
 }
 
+func (f *fakeRepo) SweepReminderCadencePage(context.Context, ports.ReminderCadenceQuery) ([]ports.ReminderCadenceFire, ports.ReminderCadenceSweepCursor, error) {
+	return nil, ports.ReminderCadenceSweepCursor{}, nil
+}
+
 func (f *fakeRepo) QueueReminderCadenceBatch(context.Context, ports.QueueReminderCadenceBatch) (int, error) {
 	return 0, nil
 }
@@ -293,6 +297,22 @@ func (f *fakeRepo) ReconcileEventReferences(context.Context, string) ([]ports.Or
 	return nil, nil
 }
 
-func (f *fakeRepo) ReconcileEventReferencesPage(context.Context, string, int, int) ([]ports.OrphanedCalendarEventReference, error) {
+func (f *fakeRepo) ReconcileEventReferencesPage(context.Context, string, string, string, int) ([]ports.OrphanedCalendarEventReference, error) {
 	return nil, nil
+}
+
+func (f *fakeRepo) LoadReconcilerCursor(context.Context, string) (string, string, error) {
+	return "", "", nil
+}
+
+func (f *fakeRepo) SaveReconcilerCursor(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+
+func (f *fakeRepo) LoadReminderCadenceCursor(context.Context, string) (time.Time, string, error) {
+	return time.Time{}, "", nil
+}
+
+func (f *fakeRepo) SaveReminderCadenceCursor(context.Context, string, time.Time, string, time.Time) error {
+	return nil
 }

@@ -9,13 +9,15 @@ import (
 	"testing"
 )
 
-// TestMigration000195DownToleratesIdentityGoatRows is the VACC-REV-13 guard: the DOWN of migration
-// 000195 must SUCCEED even after the feature has produced real identity_decisions rows with
+// TestMigration000201DownToleratesIdentityGoatRows is the VACC-REV-13 guard. The identity_goat
+// decision type is added by the VACC-REV-11 split (000199 ADD → 000200 VALIDATE → 000201 SWAP);
+// migration 000201's DOWN is the phase that restores the narrower canonical constraint. That down
+// must SUCCEED even after the feature has produced real identity_decisions rows with
 // decision_type='identity_goat'. The narrower rolled-back constraint EXCLUDES identity_goat, so a
 // VALIDATE of it would scan those legitimately-produced rows and fail — a down must never fail on data.
-// The down is therefore deliberately NOT VALID (no VALIDATE scan): it tolerates the existing rows while
-// still enforcing the rollback on every NEW identity_goat write.
-func TestMigration000195DownToleratesIdentityGoatRows(t *testing.T) {
+// The down therefore re-adds the narrow constraint NOT VALID (no VALIDATE scan): it tolerates the
+// existing rows while still enforcing the rollback on every NEW identity_goat write.
+func TestMigration000201DownToleratesIdentityGoatRows(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
 	}
@@ -32,10 +34,10 @@ func TestMigration000195DownToleratesIdentityGoatRows(t *testing.T) {
 		t.Fatalf("seed identity_goat decision row: %v", err)
 	}
 
-	// Run the 000195 DOWN section statement-by-statement (it is a NO TRANSACTION migration).
-	for _, stmt := range extract000195Down(t) {
+	// Run the 000201 DOWN section statement-by-statement (it is a NO TRANSACTION migration).
+	for _, stmt := range extract000201Down(t) {
 		if _, err := pool.Exec(ctx, stmt); err != nil {
-			t.Fatalf("000195 down failed with an existing identity_goat row (VACC-REV-13): %v\nstmt: %s", err, stmt)
+			t.Fatalf("000201 down failed with an existing identity_goat row (VACC-REV-13): %v\nstmt: %s", err, stmt)
 		}
 	}
 
@@ -60,14 +62,14 @@ func TestMigration000195DownToleratesIdentityGoatRows(t *testing.T) {
 	}
 }
 
-// extract000195Down returns the executable statements of the 000195 DOWN section, dropping goose
+// extract000201Down returns the executable statements of the 000201 DOWN section, dropping goose
 // directives and comment lines and splitting on the statement terminator.
-func extract000195Down(t *testing.T) []string {
+func extract000201Down(t *testing.T) []string {
 	t.Helper()
-	path := filepath.Join(repoRoot(t), "backend", "migrations", "postgres", "000195_goat_identity_correction_decision.sql")
+	path := filepath.Join(repoRoot(t), "backend", "migrations", "postgres", "000201_goat_identity_swap_constraint.sql")
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read 000195: %v", err)
+		t.Fatalf("read 000201: %v", err)
 	}
 	var body strings.Builder
 	inDown := false
@@ -92,7 +94,7 @@ func extract000195Down(t *testing.T) []string {
 		}
 	}
 	if len(stmts) == 0 {
-		t.Fatal("no down statements extracted from 000195")
+		t.Fatal("no down statements extracted from 000201")
 	}
 	return stmts
 }

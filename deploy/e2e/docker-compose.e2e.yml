@@ -195,6 +195,12 @@ services:
     command: ["-timeout=0s"]
     environment:
       <<: *e2e-environment
+      # E2E exercises the CONSOLIDATED kernel-worker actually running its stages (that is
+      # the whole point of this chain — see the header). There are NO legacy stage jobs in
+      # this topology to double-own a stage, so stages run ENABLED here. In production,
+      # KERN-01 gates GOATOS_WORKER_STAGES_ENABLED on retire_legacy_stage_jobs so phase 1
+      # shadows the stages; e2e is the phase-2 target where they are on.
+      GOATOS_WORKER_STAGES_ENABLED: "true"
     depends_on: *e2e-dependencies
     restart: "no"
 

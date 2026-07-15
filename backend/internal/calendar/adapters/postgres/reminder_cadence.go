@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -34,10 +35,31 @@ type reminderCadenceCandidate struct {
 	TargetID   string
 }
 
-// SweepReminderCadence implements ports.Repository.SweepReminderCadence. Two bounded, indexed,
+// SweepReminderCadence implements ports.Repository.SweepReminderCadence. It is the legacy 2-value
+// wrapper kept for callers that do not thread the keyset cursor (Finding3 target-type test, the
+// scale-cert drain test, the service passthrough): it sweeps one page from wherever in.CursorDueAt/
+// in.CursorEventID point (zero cursor = from the beginning) and discards the returned progress cursor.
+// New code that needs guaranteed cross-run forward progress must call SweepReminderCadencePage and
+// persist the returned cursor (CAL-MAIN-02, see ReminderCadenceStage).
+func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.ReminderCadenceQuery) ([]ports.ReminderCadenceFire, error) {
+	fires, _, err := r.SweepReminderCadencePage(ctx, in)
+	return fires, err
+}
+
+// SweepReminderCadencePage implements ports.Repository.SweepReminderCadencePage. Two bounded, indexed,
 // set-based reads (candidates, then already-fired keys); everything else is pure Go computation over
 // the small in-memory result set (no N+1, no per-row I/O).
-func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.ReminderCadenceQuery) ([]ports.ReminderCadenceFire, error) {
+//
+// CAL-MAIN-02: the candidate scan is a stable keyset page ordered by (due_at, event_id), resumed from
+// in.CursorDueAt/in.CursorEventID (a zero/empty cursor starts from the beginning). The returned
+// ReminderCadenceSweepCursor carries the last (due_at, event_id) scanned this page plus an Exhausted
+// flag (the page came back short of Limit), so the caller can persist the cursor across runs and wrap
+// it back to the start once the tenant's candidate set is fully paged -- guaranteeing later farms are
+// eventually reached instead of being starved behind a LIMIT-full first page. Already-fired candidates
+// are NOT excluded from the scan (that coarse per-park exclusion was removed); the exact per-fire-key
+// dedup below (firedSet + LatestDueReminderFire) already makes re-selecting a fully-fired candidate a
+// harmless no-op that emits no fire.
+func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.ReminderCadenceQuery) ([]ports.ReminderCadenceFire, ports.ReminderCadenceSweepCursor, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -67,21 +89,33 @@ func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.Reminder
 
 	quiet, err := domain.IsQuietHoursIST(now, quietStart, quietEnd)
 	if err != nil {
-		return nil, fmt.Errorf("calendar: reminder cadence quiet hours: %w", err)
+		return nil, ports.ReminderCadenceSweepCursor{}, fmt.Errorf("calendar: reminder cadence quiet hours: %w", err)
 	}
 	if quiet {
-		// Deferred entirely this tick: nothing is marked fired here, so the next non-quiet tick
-		// re-derives the same still-pending fire and queues it then (vaccination-notification-rules.md
-		// §3 quiet-hours rule -- "defers to the next allowed slot").
-		return nil, nil
+		// Deferred entirely this tick: nothing is scanned or marked fired here, so the next non-quiet
+		// tick re-derives the same still-pending fire and queues it then
+		// (vaccination-notification-rules.md §3 quiet-hours rule -- "defers to the next allowed slot").
+		// The zero cursor (empty EventID, Exhausted=false) signals "no page scanned" so the caller
+		// leaves its persisted cursor untouched.
+		return nil, ports.ReminderCadenceSweepCursor{}, nil
 	}
 
-	candidates, err := r.selectReminderCadenceCandidates(ctx, in.TenantID, now, limit)
+	candidates, err := r.selectReminderCadenceCandidates(ctx, in.TenantID, now, in.CursorDueAt, in.CursorEventID, limit)
 	if err != nil {
-		return nil, err
+		return nil, ports.ReminderCadenceSweepCursor{}, err
+	}
+
+	// Keyset progress: the last (due_at, event_id) scanned this page, plus whether the page was the
+	// tail of the candidate set (short of Limit). Computed from the scanned candidates, NOT the
+	// collapsed fires, so it advances even when every candidate on this page was already fired.
+	sweepCursor := ports.ReminderCadenceSweepCursor{Exhausted: len(candidates) < limit}
+	if len(candidates) > 0 {
+		last := candidates[len(candidates)-1]
+		sweepCursor.DueAt = last.DueAt
+		sweepCursor.EventID = last.EventID
 	}
 	if len(candidates) == 0 {
-		return nil, nil
+		return nil, sweepCursor, nil
 	}
 
 	// Pass 1: every fire key that is due as of now for ANY candidate, scoped by that candidate's
@@ -103,7 +137,7 @@ func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.Reminder
 	}
 	firedSet, err := r.selectFiredReminderCadenceKeys(ctx, in.TenantID, allKeys)
 	if err != nil {
-		return nil, err
+		return nil, sweepCursor, err
 	}
 
 	// Pass 2: for each candidate, the LATEST still-pending fire (never a backlog burst -- a sweeper
@@ -164,7 +198,7 @@ func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.Reminder
 	for _, gk := range order {
 		fires = append(fires, *groups[gk])
 	}
-	return fires, nil
+	return fires, sweepCursor, nil
 }
 
 // calendarReminderCadenceCandidatesSQL is the reminder-cadence candidate set, read directly off the
@@ -177,6 +211,16 @@ func (r *Repository) SweepReminderCadence(ctx context.Context, in ports.Reminder
 // (Finding 3): a solo batch -> ('batch', batch_id); an unbatched catch-up -> ('catchup', park_id); a
 // multi-source park-day drive -> ('park_drive', park_id). Selecting the display target_type here
 // mislabeled every batch/park id as an 'obligation'.
+//
+// CAL-MAIN-02 FIX (keyset paging): the candidate scan is a stable keyset page over (due_at, event_id).
+// $5/$6 are the resume cursor (cursorDueAt, cursorEventID); an empty $6 starts from the beginning
+// (same "cursor sentinel = empty" guard the CAL-MAIN-03 reconciler uses). The previous coarse
+// per-park NOT EXISTS exclusion on vaccination_reminder_cadence_fires was REMOVED: it wrongly skipped
+// a park that had ANY historical fire even when it had a fresh pending obligation, and it did not
+// guarantee forward progress. Forward progress is now the caller's keyset cursor (persisted across
+// runs, wrapped to the start on exhaustion). Re-selecting an already-fired candidate is harmless: the
+// exact per-fire-key dedup in SweepReminderCadencePage (firedSet + LatestDueReminderFire) emits no
+// fire for it.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 const calendarReminderCadenceCandidatesSQL = "WITH " + calendarCanonicalEventsCTE + `
 SELECT event_id, park_id::text, due_at, source_target_type, COALESCE(source_target_id::text, '')
@@ -185,15 +229,16 @@ WHERE system = false
   AND event_type <> 'vaccination_dose_due'
   AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rework_due')
   AND park_id IS NOT NULL
+  AND ($6::text = '' OR (due_at, event_id) > ($5::timestamptz, $6::text))
 ORDER BY due_at ASC, event_id ASC
 LIMIT $4`
 
-func (r *Repository) selectReminderCadenceCandidates(ctx context.Context, tenantID string, now time.Time, limit int) ([]reminderCadenceCandidate, error) {
+func (r *Repository) selectReminderCadenceCandidates(ctx context.Context, tenantID string, now, cursorDueAt time.Time, cursorEventID string, limit int) ([]reminderCadenceCandidate, error) {
 	// Bounded window covering the whole ladder lookahead (up to D-7) plus a one-day catch-up buffer
 	// for a late/slow tick.
 	windowStart := biztime.BusinessDayStart(now).AddDate(0, 0, -1)
 	windowEnd := biztime.BusinessDayStart(now).AddDate(0, 0, 9)
-	rows, err := r.pool.Query(ctx, calendarReminderCadenceCandidatesSQL, tenantID, windowStart, windowEnd, limit)
+	rows, err := r.pool.Query(ctx, calendarReminderCadenceCandidatesSQL, tenantID, windowStart, windowEnd, limit, cursorDueAt, cursorEventID)
 	if err != nil {
 		return nil, fmt.Errorf("calendar: select reminder cadence candidates: %w", err)
 	}
@@ -579,4 +624,51 @@ RETURNING notification_request_id::text, idempotency_key`,
 		}
 	}
 	return count, firstReqIDByFireKey, firedFireKeys, nil
+}
+
+// calendarLoadReminderCadenceCursorSQL loads a tenant's persisted reminder-cadence keyset cursor
+// (CAL-MAIN-02, migration 000204).
+const calendarLoadReminderCadenceCursorSQL = `
+SELECT cursor_due_at, cursor_event_id
+FROM reminder_cadence_progress
+WHERE tenant_id = $1::uuid`
+
+// LoadReminderCadenceCursor returns the last (due_at, event_id) the reminder-cadence stage processed
+// for this tenant. An absent row means "start from the beginning" and returns (zero time, "", nil).
+// See CAL-MAIN-02 / migration 000204.
+func (r *Repository) LoadReminderCadenceCursor(ctx context.Context, tenantID string) (time.Time, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var cursorDueAt time.Time
+	var cursorEventID string
+	err := r.pool.QueryRow(ctx, calendarLoadReminderCadenceCursorSQL, tenantID).Scan(&cursorDueAt, &cursorEventID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, "", nil
+	}
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("calendar: load reminder cadence cursor: %w", err)
+	}
+	return cursorDueAt, cursorEventID, nil
+}
+
+// calendarSaveReminderCadenceCursorSQL upserts a tenant's reminder-cadence keyset cursor
+// (CAL-MAIN-02, migration 000204).
+const calendarSaveReminderCadenceCursorSQL = `
+INSERT INTO reminder_cadence_progress (tenant_id, cursor_due_at, cursor_event_id, updated_at)
+VALUES ($1::uuid, $2::timestamptz, $3, $4)
+ON CONFLICT (tenant_id) DO UPDATE
+SET cursor_due_at = EXCLUDED.cursor_due_at,
+    cursor_event_id = EXCLUDED.cursor_event_id,
+    updated_at = EXCLUDED.updated_at`
+
+// SaveReminderCadenceCursor persists the reminder-cadence stage's keyset cursor so the next tick
+// resumes from where this run stopped (or from the beginning when the stage passes (zero time, "")
+// after exhausting the candidate set). See CAL-MAIN-02.
+func (r *Repository) SaveReminderCadenceCursor(ctx context.Context, tenantID string, cursorDueAt time.Time, cursorEventID string, now time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if _, err := r.pool.Exec(ctx, calendarSaveReminderCadenceCursorSQL, tenantID, cursorDueAt, cursorEventID, now); err != nil {
+		return fmt.Errorf("calendar: save reminder cadence cursor: %w", err)
+	}
+	return nil
 }

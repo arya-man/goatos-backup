@@ -82,6 +82,7 @@ run_guardrails() {
   step "clinical-defer-guard"     make clinical-defer-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard
+  step "kernel-worker-cutover-guard" make kernel-worker-cutover-guard
   step "secret-accessors-guard"   make secret-accessors-guard
   step "worker-stage-budgets-guard" make worker-stage-budgets-guard
   step "e2e docker chain (image-build + parity + smoke)" run_e2e_docker_chain

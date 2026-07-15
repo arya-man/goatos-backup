@@ -852,7 +852,7 @@ export interface paths {
         };
         /**
          * List open vaccination stage/age review items.
-         * @description Open, goat-scoped review items for animals past the 20-week kid cutoff that still carry a K1/K2 management-stage tag (generation routed them adult and never generates kid vaccinations). Operators use this to discover which animals need their stale tag reconciled.
+         * @description Open, goat-scoped review items for animals past the 20-week kid cutoff that still carry a K1/K2 management-stage tag (generation routed them adult and never generates kid vaccinations). Operators use this to discover which animals need their stale tag reconciled. Supports cursor pagination (VACC-REV-10B) to handle >200 items without capping access to older work.
          */
         get: operations["listVaccinationStageReviewItems"];
         put?: never;
@@ -5511,6 +5511,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                /** @description Cursor for keyset pagination (from nextCursor in previous response). */
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -5526,6 +5528,8 @@ export interface operations {
                 content: {
                     "application/json": {
                         items: components["schemas"]["VaccinationStageReviewItem"][];
+                        /** @description Cursor for the next page (null if no more items). */
+                        nextCursor?: string | null;
                     };
                 };
             };

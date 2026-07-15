@@ -66,6 +66,8 @@ func (r *Repository) Ping(ctx context.Context) error {
 // RecordStageReviewItem durably records a goat-scoped vaccination stage/age review item (VACC-REV-10).
 // Dedup is scoped to OPEN items (partial unique index): replayed generation never duplicates an open
 // item, but a recurrence AFTER an operator resolved the prior occurrence opens a new actionable one.
+// When replayed with changed observed_stage or observed_age_weeks, the OPEN item is updated so stale
+// payload data is never left behind (VACC-REV-10A).
 func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -73,7 +75,9 @@ func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID
 		INSERT INTO vaccination_stage_review_items
 			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
 		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6)
-		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO NOTHING`,
+		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO UPDATE
+		SET observed_stage = EXCLUDED.observed_stage,
+		    observed_age_weeks = EXCLUDED.observed_age_weeks`,
 		tenantID, goatID, reason, observedStage, observedAgeWeeks, idempotencyKey)
 	if err != nil {
 		return fmt.Errorf("vaccination: record stage review item: %w", err)
@@ -82,32 +86,67 @@ func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID
 }
 
 // ListOpenStageReviewItems returns one keyset-bounded page of OPEN stage review items for the tenant,
-// newest first, so operators can discover the animals needing review.
-func (r *Repository) ListOpenStageReviewItems(ctx context.Context, tenantID string, limit int) ([]domain.StageReviewItem, error) {
+// newest first, so operators can discover the animals needing review. Supports cursor pagination
+// (VACC-REV-10B) to handle >200 items without capping access to older work.
+func (r *Repository) ListOpenStageReviewItems(ctx context.Context, tenantID string, cursor *domain.StageReviewItemCursor, limit int) (domain.StageReviewItemPage, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	if limit <= 0 || limit > 200 {
+	if limit <= 0 {
 		limit = 50
 	}
+	if limit > 200 {
+		limit = 200
+	}
+	var createdAtCursor pgtype.Timestamptz
+	var reviewItemIDCursor string
+	if cursor != nil {
+		createdAtCursor = pgtype.Timestamptz{Time: cursor.CreatedAt.UTC(), Valid: true}
+		reviewItemIDCursor = cursor.ReviewItemID
+	}
+	// Fetch limit+1 to detect if there are more results for NextCursor.
 	rows, err := r.pool.Query(ctx, `
 		SELECT review_item_id::text, goat_id::text, reason, observed_stage, observed_age_weeks, status, created_at
 		FROM vaccination_stage_review_items
-		WHERE tenant_id = $1::uuid AND status = 'open'
+		WHERE tenant_id = $1::uuid
+		  AND status = 'open'
+		  AND (created_at, review_item_id::text) < (COALESCE($2::timestamptz, now()), COALESCE($3, '~'))
 		ORDER BY created_at DESC, review_item_id DESC
-		LIMIT $2`, tenantID, limit)
+		LIMIT $4`, tenantID, createdAtCursor, reviewItemIDCursor, limit+1)
 	if err != nil {
-		return nil, fmt.Errorf("vaccination: list open stage review items: %w", err)
+		return domain.StageReviewItemPage{}, fmt.Errorf("vaccination: list open stage review items: %w", err)
 	}
 	defer rows.Close()
 	var out []domain.StageReviewItem
 	for rows.Next() {
 		var it domain.StageReviewItem
 		if err := rows.Scan(&it.ReviewItemID, &it.GoatID, &it.Reason, &it.ObservedStage, &it.ObservedAgeWeeks, &it.Status, &it.CreatedAt); err != nil {
-			return nil, fmt.Errorf("vaccination: scan stage review item: %w", err)
+			return domain.StageReviewItemPage{}, fmt.Errorf("vaccination: scan stage review item: %w", err)
 		}
 		out = append(out, it)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return domain.StageReviewItemPage{}, err
+	}
+	hasMore := len(out) > limit
+	if hasMore {
+		out = out[:limit]
+	}
+	var nextCursor *string
+	if hasMore && len(out) > 0 {
+		last := out[len(out)-1]
+		encoded, err := domain.EncodeStageReviewItemCursor(domain.StageReviewItemCursor{
+			CreatedAt:    last.CreatedAt,
+			ReviewItemID: last.ReviewItemID,
+		})
+		if err != nil {
+			return domain.StageReviewItemPage{}, fmt.Errorf("vaccination: encode cursor: %w", err)
+		}
+		nextCursor = &encoded
+	}
+	return domain.StageReviewItemPage{
+		Items:      out,
+		NextCursor: nextCursor,
+	}, nil
 }
 
 // ResolveStageReviewItem marks an OPEN stage review item resolved. It returns false (no error) when

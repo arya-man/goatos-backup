@@ -26,7 +26,7 @@ import (
 type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
 	VerificationQueue(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error)
-	ListOpenStageReviewItems(ctx context.Context, tenantID string, limit int) ([]domain.StageReviewItem, error)
+	ListOpenStageReviewItems(ctx context.Context, tenantID string, cursor *domain.StageReviewItemCursor, limit int) (domain.StageReviewItemPage, error)
 	ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error)
 }
 
@@ -381,11 +381,13 @@ func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg s
 }
 
 type stageReviewListResponse struct {
-	Items []domain.StageReviewItem `json:"items"`
+	Items      []domain.StageReviewItem `json:"items"`
+	NextCursor *string                  `json:"nextCursor,omitempty"`
 }
 
 // ListStageReviewItems returns open vaccination stage/age review items for the tenant so operators
 // can discover the animals whose stale K1/K2 tag needs reconciling (VACC-REV-10).
+// Supports cursor pagination (VACC-REV-10B) for >200 items without capping access to older work.
 func (h *Handler) ListStageReviewItems(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
@@ -399,16 +401,25 @@ func (h *Handler) ListStageReviewItems(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	items, err := h.svc.ListOpenStageReviewItems(r.Context(), tenantID(r), limit)
+	var cursor *domain.StageReviewItemCursor
+	if v := strings.TrimSpace(r.URL.Query().Get("cursor")); v != "" {
+		decoded, err := domain.DecodeStageReviewItemCursor(v)
+		if err != nil {
+			h.badRequest(w, r, "invalid_cursor", "cursor is malformed or invalid")
+			return
+		}
+		cursor = &decoded
+	}
+	page, err := h.svc.ListOpenStageReviewItems(r.Context(), tenantID(r), cursor, limit)
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
 		return
 	}
-	if items == nil {
-		items = []domain.StageReviewItem{}
+	if page.Items == nil {
+		page.Items = []domain.StageReviewItem{}
 	}
-	httpresponse.WriteJSON(w, http.StatusOK, stageReviewListResponse{Items: items})
+	httpresponse.WriteJSON(w, http.StatusOK, stageReviewListResponse{Items: page.Items, NextCursor: page.NextCursor})
 }
 
 type resolveStageReviewRequest struct {

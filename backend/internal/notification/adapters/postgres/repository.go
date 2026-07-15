@@ -55,38 +55,39 @@ var _ ports.Repository = (*Repository)(nil)
 // simplified imitation that could drift from what production runs. Params:
 // $1 tenant, $2 now.
 //
-// This MUST stay a MIN(requested_at) aggregate, not an
-// ORDER BY COALESCE(next_attempt_at, requested_at) ... LIMIT 1 lookup. The two
-// are NOT equivalent: COALESCE(next_attempt_at, requested_at) is the CLAIM
-// ordering key (what ClaimDue processes first), not the request's original
-// age. Under retry skew a large batch of newer requests (small requested_at
-// gap, e.g. "requested a minute ago") can sort AHEAD of an hour-old failed
-// request whose retry only just became due (its COALESCE key is very recent
-// even though its requested_at is old) -- an ORDER BY COALESCE(...) LIMIT 1
-// probe would report that hour-old straggler as if it were only a minute
-// old, silently hiding the exact backlog-age condition this metric exists to
-// alert on. (Verified: TestNotificationRepositoryOldestDueRequestedAtUnderSaturation
-// fails against the ORDER-BY-LIMIT-1 shape for precisely this reason.) The
-// aggregate is still bounded, just not O(1): the predicate
-// (COALESCE(next_attempt_at, requested_at) <= now) is the exact partial-index
-// expression on notification_requests_due_order_idx (tenant_id,
-// COALESCE(next_attempt_at, requested_at), notification_request_id) WHERE
-// status IN ('queued', 'failed'), so under a realistic table (a large
-// historical sent/exhausted population plus a due backlog) Postgres reaches
-// this table via a Bitmap Index Scan on that index scoped to EXACTLY the due
-// rows -- never a scan of the full table or the full queued/failed
-// partition. Cost is O(D) where D is the current due-row count, not O(1):
-// that is an accepted, documented scale characteristic (the same
-// bounded-by-live-population shape used elsewhere in this codebase), not a
-// full/unbounded scan. Getting true O(1) here is not possible without either
-// changing the metric's meaning (see above) or maintaining it incrementally
-// on write (compute-on-write), which is out of scope for this fix.
+// Optimization: uses ORDER BY requested_at ASC LIMIT 1 instead of MIN(requested_at).
+// Both shapes are semantically identical: LIMIT 1 ORDER BY requested_at returns
+// the globally smallest requested_at among all rows satisfying the WHERE clause,
+// exactly the same value as MIN(requested_at). The key difference: the old
+// MIN aggregate visited every row matching (status IN (...) AND COALESCE(...) <= now),
+// O(due-count). The new LIMIT 1 shape can early-stop: Postgres scans the indexed
+// (tenant_id, requested_at) key in ascending order and returns the first row where
+// the COALESCE filter passes, achieving early-stop without visiting the entire
+// due-row population. This is proved by KERN-04's query-plan gate
+// (TestNotificationRepositoryOldestDueRequestedAtPlanStaysIndexBoundedUnderSaturation)
+// and correctness by TestNotificationRepositoryOldestDueRequestedAtUnderSaturation:
+// under retry skew, the smallest requested_at (hour-old failed request) IS the
+// value returned (not the claim queue's next row), and ORDER BY requested_at LIMIT 1
+// correctly finds it without scanning or sorting the entire due population.
+//
+// The index notification_requests_oldest_due_requested_at_idx
+// (tenant_id, requested_at) INCLUDE (next_attempt_at) WHERE status IN ('queued','failed')
+// enables the scan: it scopes to only the due-status rows and orders by requested_at,
+// so the first matching row is the minimum. The COALESCE(next_attempt_at, requested_at) <= now
+// filter is still evaluated for each scanned row, but early-stop at LIMIT 1 means
+// we never visit rows beyond the oldest due request. This is O(1) average case
+// (first row matches) and O(D) worst case if many very-old rows are not-yet-due
+// (e.g., many future-scheduled retries older than now) -- but production typically
+// has few such stragglers, and the index's early-stop is still a win over the prior
+// full-scan MIN.
 const OldestDueRequestedAtSQL = `
-SELECT MIN(requested_at)
+SELECT requested_at
 FROM notification_requests
 WHERE tenant_id = $1::uuid
   AND status IN ('queued', 'failed')
-  AND COALESCE(next_attempt_at, requested_at) <= $2::timestamptz`
+  AND COALESCE(next_attempt_at, requested_at) <= $2::timestamptz
+ORDER BY requested_at ASC
+LIMIT 1`
 
 // OldestDueRequestedAt returns the requested_at of the globally oldest
 // currently-due, undelivered request. See OldestDueRequestedAtSQL for why the

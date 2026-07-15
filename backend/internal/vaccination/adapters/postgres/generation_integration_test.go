@@ -1440,14 +1440,14 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 			t.Fatalf("record #%d: %v", i, err)
 		}
 	}
-	open, err := repo.ListOpenStageReviewItems(ctx, impTenant, 50)
+	openPage, err := repo.ListOpenStageReviewItems(ctx, impTenant, nil, 50)
 	if err != nil {
 		t.Fatalf("list open: %v", err)
 	}
-	if len(open) != 1 {
-		t.Fatalf("open items = %d, want 1 (replay deduped)", len(open))
+	if len(openPage.Items) != 1 {
+		t.Fatalf("open items = %d, want 1 (replay deduped)", len(openPage.Items))
 	}
-	it := open[0]
+	it := openPage.Items[0]
 	if it.GoatID != goatID || it.Reason != "kid_stage_past_age_cutoff" || it.ObservedStage != "K1" || it.ObservedAgeWeeks != 26 || it.Status != "open" {
 		t.Fatalf("unexpected review item: %#v", it)
 	}
@@ -1457,8 +1457,9 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 	if err != nil || !resolved {
 		t.Fatalf("resolve: resolved=%v err=%v", resolved, err)
 	}
-	if open, _ := repo.ListOpenStageReviewItems(ctx, impTenant, 50); len(open) != 0 {
-		t.Fatalf("open after resolve = %d, want 0", len(open))
+	openAfterResolve, _ := repo.ListOpenStageReviewItems(ctx, impTenant, nil, 50)
+	if len(openAfterResolve.Items) != 0 {
+		t.Fatalf("open after resolve = %d, want 0", len(openAfterResolve.Items))
 	}
 	if again, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "", time.Now()); err != nil || again {
 		t.Fatalf("re-resolve should be a no-op: again=%v err=%v", again, err)
@@ -1468,12 +1469,12 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 40, key); err != nil {
 		t.Fatalf("recurrence record: %v", err)
 	}
-	openAfter, err := repo.ListOpenStageReviewItems(ctx, impTenant, 50)
+	openAfterPage, err := repo.ListOpenStageReviewItems(ctx, impTenant, nil, 50)
 	if err != nil {
 		t.Fatalf("list after recurrence: %v", err)
 	}
-	if len(openAfter) != 1 || openAfter[0].ReviewItemID == it.ReviewItemID {
-		t.Fatalf("recurrence: want 1 NEW open item distinct from the resolved one, got %#v", openAfter)
+	if len(openAfterPage.Items) != 1 || openAfterPage.Items[0].ReviewItemID == it.ReviewItemID {
+		t.Fatalf("recurrence: want 1 NEW open item distinct from the resolved one, got %#v", openAfterPage.Items)
 	}
 	total := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID)
 	if total != 2 {

@@ -1191,53 +1191,30 @@ $$;
 
 
 --
--- Name: goatos_reconcile_calendar_event_references(uuid); Type: FUNCTION; Schema: public; Owner: -
+-- Name: goatos_reconcile_calendar_event_references(uuid, text, text, integer); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.goatos_reconcile_calendar_event_references(p_tenant_id uuid) RETURNS TABLE(source_table text, record_id uuid, calendar_event_id text, issue text)
+CREATE FUNCTION public.goatos_reconcile_calendar_event_references(p_tenant_id uuid, p_cursor_source_table text DEFAULT ''::text, p_cursor_record_id text DEFAULT ''::text, p_limit integer DEFAULT 1000) RETURNS TABLE(source_table text, record_id uuid, calendar_event_id text, issue text)
     LANGUAGE plpgsql STABLE
     AS $$
+DECLARE
+  v_cursor_record_id uuid;
 BEGIN
-  RETURN QUERY
-  SELECT
-    'notification_requests'::text AS source_table,
-    nr.notification_request_id,
-    nr.calendar_event_id,
-    'orphaned calendar_event_id: does not map to any canonical obligation/batch/drive/task'::text
-  FROM notification_requests nr
-  WHERE nr.tenant_id = p_tenant_id
-    AND nr.calendar_event_id IS NOT NULL
-    AND NOT goatos_calendar_event_reference_valid(p_tenant_id, nr.calendar_event_id);
+  -- Empty/NULL cursor record id means "start of this source_table" (or overall
+  -- start when the source_table cursor is empty too).
+  IF p_cursor_record_id IS NULL OR p_cursor_record_id = '' THEN
+    v_cursor_record_id := NULL;
+  ELSE
+    v_cursor_record_id := p_cursor_record_id::uuid;
+  END IF;
 
-  RETURN QUERY
-  SELECT
-    'calendar_snoozes'::text AS source_table,
-    cs.snooze_id,
-    cs.calendar_event_id,
-    'orphaned calendar_event_id: does not map to any canonical obligation/batch/drive/task'::text
-  FROM calendar_snoozes cs
-  WHERE cs.tenant_id = p_tenant_id
-    AND cs.calendar_event_id IS NOT NULL
-    AND NOT goatos_calendar_event_reference_valid(p_tenant_id, cs.calendar_event_id);
-END;
-$$;
-
-
---
--- Name: goatos_reconcile_calendar_event_references(uuid, integer, integer); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.goatos_reconcile_calendar_event_references(p_tenant_id uuid, p_limit integer DEFAULT 1000, p_offset integer DEFAULT 0) RETURNS TABLE(source_table text, record_id uuid, calendar_event_id text, issue text)
-    LANGUAGE plpgsql STABLE
-    AS $$
-BEGIN
   RETURN QUERY
   SELECT * FROM (
     SELECT
       'notification_requests'::text AS source_table,
-      nr.notification_request_id,
-      nr.calendar_event_id,
-      'orphaned calendar_event_id: does not map to any canonical obligation/batch/drive/task'::text
+      nr.notification_request_id AS record_id,
+      nr.calendar_event_id AS calendar_event_id,
+      'orphaned calendar_event_id: does not map to any canonical obligation/batch/drive/task'::text AS issue
     FROM notification_requests nr
     WHERE nr.tenant_id = p_tenant_id
       AND nr.calendar_event_id IS NOT NULL
@@ -1247,17 +1224,25 @@ BEGIN
 
     SELECT
       'calendar_snoozes'::text AS source_table,
-      cs.snooze_id,
-      cs.calendar_event_id,
-      'orphaned calendar_event_id: does not map to any canonical obligation/batch/drive/task'::text
+      cs.snooze_id AS record_id,
+      cs.calendar_event_id AS calendar_event_id,
+      'orphaned calendar_event_id: does not map to any canonical obligation/batch/drive/task'::text AS issue
     FROM calendar_snoozes cs
     WHERE cs.tenant_id = p_tenant_id
       AND cs.calendar_event_id IS NOT NULL
       AND NOT goatos_calendar_event_reference_valid(p_tenant_id, cs.calendar_event_id)
   ) combined
-  ORDER BY source_table, record_id
-  LIMIT p_limit
-  OFFSET p_offset;
+  WHERE
+    -- Keyset: strictly greater than the cursor in (source_table, record_id) order.
+    p_cursor_source_table = ''
+    OR combined.source_table > p_cursor_source_table
+    OR (
+      combined.source_table = p_cursor_source_table
+      AND v_cursor_record_id IS NOT NULL
+      AND combined.record_id > v_cursor_record_id
+    )
+  ORDER BY combined.source_table, combined.record_id
+  LIMIT p_limit;
 END;
 $$;
 
@@ -2624,6 +2609,18 @@ CREATE TABLE public.bulk_status_job_row (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT bulk_status_job_row_axis_check CHECK ((axis = ANY (ARRAY['reproductive'::text, 'health'::text, 'exit'::text]))),
     CONSTRAINT bulk_status_job_row_state_check CHECK ((row_state = ANY (ARRAY['pending'::text, 'claimed'::text, 'applied'::text, 'skipped'::text, 'error'::text, 'retry'::text])))
+);
+
+
+--
+-- Name: calendar_reconciler_progress; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.calendar_reconciler_progress (
+    tenant_id uuid NOT NULL,
+    cursor_source_table text DEFAULT ''::text NOT NULL,
+    cursor_record_id text DEFAULT ''::text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -4772,6 +4769,18 @@ CREATE TABLE public.protocol_versions (
 
 
 --
+-- Name: reminder_cadence_progress; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.reminder_cadence_progress (
+    tenant_id uuid NOT NULL,
+    cursor_due_at timestamp with time zone DEFAULT to_timestamp((0)::double precision) NOT NULL,
+    cursor_event_id text DEFAULT ''::text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: seed_runs; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6130,6 +6139,14 @@ ALTER TABLE ONLY public.bulk_status_job_row
 
 
 --
+-- Name: calendar_reconciler_progress calendar_reconciler_progress_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.calendar_reconciler_progress
+    ADD CONSTRAINT calendar_reconciler_progress_pkey PRIMARY KEY (tenant_id);
+
+
+--
 -- Name: calendar_snoozes calendar_snoozes_idempotency_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7239,6 +7256,14 @@ ALTER TABLE ONLY public.protocol_versions
 
 ALTER TABLE ONLY public.protocol_versions
     ADD CONSTRAINT protocol_versions_tenant_id_unique UNIQUE (tenant_id, protocol_version_id);
+
+
+--
+-- Name: reminder_cadence_progress reminder_cadence_progress_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reminder_cadence_progress
+    ADD CONSTRAINT reminder_cadence_progress_pkey PRIMARY KEY (tenant_id);
 
 
 --
@@ -9383,6 +9408,13 @@ CREATE INDEX notification_requests_due_order_idx ON public.notification_requests
 --
 
 CREATE INDEX notification_requests_event_idx ON public.notification_requests USING btree (tenant_id, calendar_event_id, requested_at DESC, notification_request_id DESC);
+
+
+--
+-- Name: notification_requests_oldest_due_requested_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_oldest_due_requested_at_idx ON public.notification_requests USING btree (tenant_id, requested_at) INCLUDE (next_attempt_at) WHERE (status = ANY (ARRAY['queued'::text, 'failed'::text]));
 
 
 --

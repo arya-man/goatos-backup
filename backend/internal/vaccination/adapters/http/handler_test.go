@@ -40,8 +40,8 @@ func (f *fakeImpact) VerificationQueue(_ context.Context, _ string, parkID strin
 	return f.queue, nil
 }
 
-func (f *fakeImpact) ListOpenStageReviewItems(_ context.Context, _ string, _ int) ([]domain.StageReviewItem, error) {
-	return f.reviewItems, nil
+func (f *fakeImpact) ListOpenStageReviewItems(_ context.Context, _ string, _ *domain.StageReviewItemCursor, _ int) (domain.StageReviewItemPage, error) {
+	return domain.StageReviewItemPage{Items: f.reviewItems}, nil
 }
 
 func (f *fakeImpact) ResolveStageReviewItem(_ context.Context, _, reviewItemID, resolvedBy, _ string, _ time.Time) (bool, error) {

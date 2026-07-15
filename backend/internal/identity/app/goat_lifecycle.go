@@ -11,6 +11,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 const (
@@ -387,12 +388,21 @@ func (s *Service) IdentityGoat(ctx context.Context, input IdentityGoatInput) (*d
 		effectiveAt = &ea
 	}
 	// VACC-REV-12: a DOB or arrival date cannot be in the future — a future anchor would push the
-	// birth_age/post_arrival vaccination schedule into the future. Reject the correction.
-	if dob != nil && dob.After(serverNow) {
-		return nil, BadRequest("invalid_dob", "dob cannot be in the future")
+	// birth_age/post_arrival vaccination schedule into the future. Reject the correction. Use India
+	// business-calendar dates to avoid boundary issues at IST midnight (UTC 18:30): comparing
+	// "today" as a date in IST, not as a UTC instant.
+	nowBusinessDay := biztime.BusinessDayStart(serverNow)
+	if dob != nil {
+		dobBusinessDay := biztime.BusinessDayStart(*dob)
+		if dobBusinessDay.After(nowBusinessDay) {
+			return nil, BadRequest("invalid_dob", "dob cannot be in the future")
+		}
 	}
-	if entryDate != nil && entryDate.After(serverNow) {
-		return nil, BadRequest("invalid_entry_date", "entry_date cannot be in the future")
+	if entryDate != nil {
+		entryBusinessDay := biztime.BusinessDayStart(*entryDate)
+		if entryBusinessDay.After(nowBusinessDay) {
+			return nil, BadRequest("invalid_entry_date", "entry_date cannot be in the future")
+		}
 	}
 	result, err := s.repo.IdentityGoat(ctx, ports.IdentityGoatCommand{
 		TenantID:             tenantID,

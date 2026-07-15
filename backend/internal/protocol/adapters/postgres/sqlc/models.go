@@ -346,6 +346,13 @@ type BulkStatusJobRow struct {
 	UpdatedAt          pgtype.Timestamptz
 }
 
+type CalendarReconcilerProgress struct {
+	TenantID          pgtype.UUID
+	CursorSourceTable string
+	CursorRecordID    string
+	UpdatedAt         pgtype.Timestamptz
+}
+
 type CalendarSnooze struct {
 	SnoozeID           pgtype.UUID
 	TenantID           pgtype.UUID
@@ -1769,6 +1776,13 @@ type ProtocolVersion struct {
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
 	RowVersion        int32
+}
+
+type ReminderCadenceProgress struct {
+	TenantID      pgtype.UUID
+	CursorDueAt   pgtype.Timestamptz
+	CursorEventID string
+	UpdatedAt     pgtype.Timestamptz
 }
 
 type SeedRun struct {

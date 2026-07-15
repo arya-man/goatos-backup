@@ -80,98 +80,114 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 
 	now := s.now()
 
-	// Drain all eligible reminder cadence fires: loop, each iteration sweeping a bounded page,
-	// resolving recipients, and queueing. A correct queue CLAIMS each fire that produced >=1
-	// notification (QueueReminderCadenceBatch), so the next sweep at the same `now` no longer
-	// re-derives it and the backlog of recipient-backed fires converges to zero — this drains
-	// farms with >200 events (vaccination-notification-rules.md §3).
+	// CAL-MAIN-02: page the candidate scan with a stable keyset cursor persisted across ticks. Each
+	// iteration sweeps ONE bounded page from the cursor, resolves recipients, queues, then advances the
+	// cursor to the last candidate that page scanned. A queue CLAIMS each fire that produced >=1
+	// notification (QueueReminderCadenceBatch) so a re-scan after a wrap never re-fires it. Because the
+	// cursor moves strictly forward, later farms are reached instead of being starved behind a
+	// LIMIT-full first page of already-fired candidates, and the persisted cursor lets a tick that hits
+	// the per-run page cap resume next tick where it stopped (vaccination-notification-rules.md §3).
 	//
-	// Termination is on NO PROGRESS, not on "zero fires returned":
-	//   - a page that returns zero fires  -> fully drained -> stop.
-	//   - a page that CLAIMS zero fires    -> the remaining fires are unclaimable right now
-	//     (no recipient assigned yet: Finding 1 deliberately refuses to burn their marker).
-	//     Re-sweeping would return the SAME fires forever, so we stop and DEFER them to the next
-	//     cadence tick instead of spinning the whole iteration cap doing nothing.
+	// Termination:
+	//   - the page is the tail of the candidate set (Exhausted) -> wrap the cursor to the start and stop;
+	//   - a page CLAIMS zero fires (every fire unclaimable: no recipient yet, Finding 1 refuses to burn
+	//     the marker) -> stop and DEFER to the next tick. The cursor has already advanced PAST that page,
+	//     so this is not a spin: next tick resumes after it (or wraps and retries after a full cycle).
 	const (
 		perTickLimit  = 200 // bounded sweep per tick (avoid loading an unbounded result set into memory)
-		maxIterations = 50  // safety cap; a converging drain typically needs only a handful
+		maxIterations = 50  // per-run page cap; a converging drain typically needs only a handful
 	)
+
+	// Resume from the cursor persisted by the previous tick (CAL-MAIN-02). A zero cursor
+	// (zero time, "") starts from the beginning of the candidate set.
+	cursorDueAt, cursorEventID, err := s.calendar.LoadReminderCadenceCursor(ctx, s.tenantID)
+	if err != nil {
+		return fmt.Errorf("reminder cadence: load cursor: %w", err)
+	}
+
 	iterations := 0
 	runs := 0
 	totalQueued := 0
+	exhausted := false
 	defer func() { s.lastRunIterations = runs }()
 	for iterations = 0; iterations < maxIterations; iterations++ {
 		runs++
-		fires, err := s.calendar.SweepReminderCadence(ctx, calendarports.ReminderCadenceQuery{
-			TenantID: s.tenantID,
-			Now:      now,
-			Limit:    perTickLimit,
+		fires, sweepCursor, err := s.calendar.SweepReminderCadencePage(ctx, calendarports.ReminderCadenceQuery{
+			TenantID:      s.tenantID,
+			Now:           now,
+			Limit:         perTickLimit,
+			CursorDueAt:   cursorDueAt,
+			CursorEventID: cursorEventID,
 		})
 		if err != nil {
 			return fmt.Errorf("sweep reminder cadence (iteration %d): %w", iterations, err)
 		}
 
-		if len(fires) == 0 {
-			// Backlog fully drained; no more fires to process.
+		// No candidate was scanned this page (quiet hours, or the cursor is already past the end without
+		// being flagged exhausted). Nothing to advance or queue; stop and let the next tick retry.
+		if sweepCursor.EventID == "" && !sweepCursor.Exhausted {
 			break
 		}
 
-		// Collect unique parks from all fires so we can batch-resolve recipients once.
-		parkMap := make(map[string]bool)
-		for _, fire := range fires {
-			parkMap[fire.ParkID] = true
-		}
-		var parks []string
-		for parkID := range parkMap {
-			parks = append(parks, parkID)
-		}
+		queued := 0
+		if len(fires) > 0 {
+			// Collect unique parks from all fires so we can batch-resolve recipients once.
+			parkMap := make(map[string]bool)
+			for _, fire := range fires {
+				parkMap[fire.ParkID] = true
+			}
+			var parks []string
+			for parkID := range parkMap {
+				parks = append(parks, parkID)
+			}
 
-		// Resolve recipients for all parks at once (batch query, not per-park N+1). The park is a 'center'
-		// scope in the workforce model; the ladder audience is the park's operator/park-head/PHC-manager
-		// seats (vaccination-notification-rules.md §4a).
-		// Batched resolve for ALL parks in this drain page in one = ANY($parks) round trip.
-		// scale-guard:ignore: per-PAGE batched read in the bounded drain loop, not per-park/per-row.
-		recipientsByParkPosition, err := s.roster.ResolvePositionRecipientsBatch(
-			ctx,
-			s.tenantID,
-			"center", // parks are 'center'-scoped positions
-			parks,
-			reminderCadencePositionCodes,
-			now,
-		)
-		if err != nil {
-			return fmt.Errorf("resolve position recipients batch: %w", err)
-		}
+			// Resolve recipients for all parks at once (batch query, not per-park N+1). The park is a
+			// 'center' scope in the workforce model; the ladder audience is the park's
+			// operator/park-head/PHC-manager seats (vaccination-notification-rules.md §4a).
+			// Batched resolve for ALL parks in this page in one = ANY($parks) round trip.
+			// scale-guard:ignore: per-PAGE batched read in the bounded drain loop, not per-park/per-row.
+			recipientsByParkPosition, err := s.roster.ResolvePositionRecipientsBatch(
+				ctx,
+				s.tenantID,
+				"center", // parks are 'center'-scoped positions
+				parks,
+				reminderCadencePositionCodes,
+				now,
+			)
+			if err != nil {
+				return fmt.Errorf("resolve position recipients batch: %w", err)
+			}
 
-		// ResolvePositionRecipientsBatch keys its result by "<scopeID>|<positionCode>", so a park with
-		// three seats (operator, park_head, phc_manager) yields three separate keys. Fold every seat's
-		// devices back to the bare park id and dedup by device (one member may hold two seats, or one
-		// device serve two members) so a recipient is pushed at most once per fire.
-		recipientsByPark := foldRecipientsByPark(recipientsByParkPosition)
+			// ResolvePositionRecipientsBatch keys its result by "<scopeID>|<positionCode>", so a park with
+			// three seats (operator, park_head, phc_manager) yields three separate keys. Fold every seat's
+			// devices back to the bare park id and dedup by device (one member may hold two seats, or one
+			// device serve two members) so a recipient is pushed at most once per fire.
+			recipientsByPark := foldRecipientsByPark(recipientsByParkPosition)
 
-		// Map fires to fire inputs with resolved recipients.
-		var fireInputs []calendarports.ReminderCadenceFireInput
-		for _, fire := range fires {
-			fireInputs = append(fireInputs, calendarports.ReminderCadenceFireInput{
-				Fire:       fire,
-				Title:      renderReminderTitle(fire),
-				Body:       renderReminderBody(fire),
-				Context:    renderReminderContext(fire),
-				Recipients: recipientsByPark[fire.ParkID],
+			// Map fires to fire inputs with resolved recipients.
+			var fireInputs []calendarports.ReminderCadenceFireInput
+			for _, fire := range fires {
+				fireInputs = append(fireInputs, calendarports.ReminderCadenceFireInput{
+					Fire:       fire,
+					Title:      renderReminderTitle(fire),
+					Body:       renderReminderBody(fire),
+					Context:    renderReminderContext(fire),
+					Recipients: recipientsByPark[fire.ParkID],
+				})
+			}
+
+			// Queue the batch of fires (set-based insert, claims each fire atomically).
+			queued, err = s.calendar.QueueReminderCadenceBatch(ctx, calendarports.QueueReminderCadenceBatch{
+				TenantID: s.tenantID,
+				Channel:  "push_fcm",
+				Fires:    fireInputs,
 			})
+			if err != nil {
+				return fmt.Errorf("queue reminder cadence batch (iteration %d): %w", iterations, err)
+			}
+			totalQueued += queued
 		}
 
-		// Queue the batch of fires (set-based insert, claims each fire atomically).
-		queued, err := s.calendar.QueueReminderCadenceBatch(ctx, calendarports.QueueReminderCadenceBatch{
-			TenantID: s.tenantID,
-			Channel:  "push_fcm",
-			Fires:    fireInputs,
-		})
-		if err != nil {
-			return fmt.Errorf("queue reminder cadence batch (iteration %d): %w", iterations, err)
-		}
-
-		totalQueued += queued
 		if s.logger != nil {
 			s.logger.Debug("reminder_cadence_stage_iteration",
 				"tenant_id", s.tenantID,
@@ -181,11 +197,22 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 			)
 		}
 
-		if queued == 0 {
-			// No fire was claimed this iteration (every returned fire had zero resolvable
-			// recipients). Claiming happens iff >=1 notification is inserted, so queued==0 means
-			// zero progress. Stop and defer these fires to the next cadence tick — re-sweeping now
-			// would just return the same unclaimable fires and spin the iteration cap.
+		// Advance the keyset cursor to the last candidate this page scanned, so the next iteration (and,
+		// once persisted, the next tick) resumes strictly after it.
+		if sweepCursor.EventID != "" {
+			cursorDueAt, cursorEventID = sweepCursor.DueAt, sweepCursor.EventID
+		}
+
+		if sweepCursor.Exhausted {
+			// Reached the tail of the candidate set. Wrap to the start (below) and stop.
+			exhausted = true
+			break
+		}
+
+		if len(fires) > 0 && queued == 0 {
+			// This page produced fires but none were claimable (zero resolvable recipients). The cursor
+			// has already advanced past them, so this is a DEFER, not a spin: stop and let the next tick
+			// resume after them (or retry them after a full cycle wraps the cursor).
 			if s.logger != nil {
 				s.logger.Info("reminder_cadence_stage_deferred_no_recipients",
 					"tenant_id", s.tenantID,
@@ -194,6 +221,22 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 				)
 			}
 			break
+		}
+	}
+
+	// Persist progress across ticks. If we exhausted the candidate set, wrap back to the start so newly
+	// due candidates are re-scanned next tick; otherwise resume from where this run stopped so
+	// candidates beyond the per-run page cap are eventually reached (CAL-MAIN-02). A save failure is
+	// non-fatal: the next tick simply re-processes from the previously stored cursor.
+	if exhausted {
+		cursorDueAt, cursorEventID = time.Time{}, ""
+	}
+	if err := s.calendar.SaveReminderCadenceCursor(ctx, s.tenantID, cursorDueAt, cursorEventID, time.Now()); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("reminder_cadence_cursor_save_failed",
+				"tenant_id", s.tenantID,
+				"error", err.Error(),
+			)
 		}
 	}
 

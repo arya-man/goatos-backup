@@ -389,6 +389,109 @@ WHERE outbox_id IN ($1::uuid, $3::uuid)`, target.OutboxID, outboxTestNow, older.
 			t.Fatalf("limit not respected: result=%#v calls=%#v", result, publisher.Calls())
 		}
 	})
+
+	t.Run("repeated claim+release cycles never dead-letter untouched rows (KERN-FINAL-01 guard)", func(t *testing.T) {
+		// This test proves that repeatedly cancelling a slow 500-row batch
+		// (claim then release untouched tail, N times) never dead-letters
+		// messages that were never actually published. The guard validates
+		// that ReleasePublishingByIDs restores (decrements) attempt_count,
+		// so after claim+release, attempt_count returns to its original value.
+		// Without the fix, attempt_count increments but doesn't decrement on
+		// release, so repeated cycles cause spurious dead-letter moves.
+		const (
+			batchSize   = 500
+			maxAttempts = 5
+			cycleCount  = 4 // Claim+release cycles; messages never published
+		)
+
+		// Insert 500 pending messages with attempt_count=0.
+		ids := make([]string, 0, batchSize)
+		for i := 1; i <= batchSize; i++ {
+			ids = append(ids, insertOutboxMessage(t, pool, outboxRow{
+				Suffix: 900 + i,
+				Status: domain.StatusPending,
+			}).OutboxID)
+		}
+
+		repo := NewRepository(pool, 5*time.Second)
+
+		// Repeatedly claim and release the batch cycleCount times without processing.
+		for cycle := 0; cycle < cycleCount; cycle++ {
+			// Claim the batch.
+			claim, err := repo.ClaimPending(ctx, ports.ClaimParams{
+				Limit:       batchSize,
+				MaxAttempts: maxAttempts,
+				Now:         outboxTestNow,
+			})
+			if err != nil {
+				t.Fatalf("ClaimPending cycle %d: %v", cycle, err)
+			}
+
+			claimedCount := len(claim.Messages)
+			if claimedCount == 0 {
+				// No more pending messages; we've hit dead-letter or all were processed.
+				t.Fatalf("cycle %d: no messages claimed (expected %d or more)", cycle, batchSize)
+			}
+
+			// Record claimed IDs and release them WITHOUT processing.
+			// Each claimed message has its attempt_count incremented by 1 during claim.
+			claimedIDs := make([]string, 0, claimedCount)
+			for _, msg := range claim.Messages {
+				claimedIDs = append(claimedIDs, msg.OutboxID)
+				// Verify that the claim incremented attempt_count (should be 1 per claim,
+				// not cycle+1, because we restore on release each cycle).
+				if msg.AttemptCount != 1 {
+					t.Fatalf("cycle %d msg %s: attempt_count=%d want 1 (claim increments by 1 from pending)",
+						cycle, msg.OutboxID, msg.AttemptCount)
+				}
+			}
+
+			// Release without processing (simulating ctx cancellation mid-drain).
+			// ReleasePublishingByIDs should decrement attempt_count by 1 to restore it.
+			if err := repo.ReleasePublishingByIDs(ctx, claimedIDs, outboxTestNow); err != nil {
+				t.Fatalf("ReleasePublishingByIDs cycle %d: %v", cycle, err)
+			}
+
+			// Verify released messages are back to pending with attempt_count restored to 0.
+			for _, id := range claimedIDs {
+				state := queryOutboxState(t, pool, id)
+				if state.Status != domain.StatusPending {
+					t.Fatalf("cycle %d msg %s: after release status=%s want %s",
+						cycle, id, state.Status, domain.StatusPending)
+				}
+				if state.AttemptCount != 0 {
+					t.Fatalf("cycle %d msg %s: after release attempt_count=%d want 0 (release should restore claim increment)",
+						cycle, id, state.AttemptCount)
+				}
+				if state.NextAttemptAt.Valid {
+					t.Fatalf("cycle %d msg %s: after release next_attempt_at should be NULL", cycle, id)
+				}
+			}
+
+			t.Logf("cycle %d: claimed %d, released all with attempt_count restored to 0", cycle, claimedCount)
+		}
+
+		// Final validation: no message is dead-lettered, and all have attempt_count=0.
+		var dlqCount, zeroCount int
+		if err := pool.QueryRow(ctx, `
+SELECT
+  count(*) FILTER (WHERE status = 'dead_letter'),
+  count(*) FILTER (WHERE status = 'pending' AND attempt_count = 0)
+FROM outbox_messages
+WHERE outbox_id = ANY($1::uuid[])`, ids).Scan(&dlqCount, &zeroCount); err != nil {
+			t.Fatalf("final count query: %v", err)
+		}
+		if dlqCount > 0 {
+			t.Fatalf("KERN-FINAL-01 bug: %d messages spuriously moved to dead_letter after %d claim+release cycles",
+				dlqCount, cycleCount)
+		}
+		if zeroCount != batchSize {
+			t.Fatalf("KERN-FINAL-01 bug: only %d of %d messages have attempt_count=0 (expected all after restoration)",
+				zeroCount, batchSize)
+		}
+
+		t.Logf("KERN-FINAL-01 guard passed: %d cycles × %d messages, no dead-letters, all attempt_counts properly restored", cycleCount, batchSize)
+	})
 }
 
 func countDLQAuditRows(t *testing.T, pool *pgxpool.Pool, outboxID, key, hash string) int {

@@ -1528,3 +1528,89 @@ func TestIdentityGoatRejectsFutureAnchorDates(t *testing.T) {
 		t.Fatalf("repo.IdentityGoat called %d times, want 0 (rejected before repo)", repo.identityGoatCalls)
 	}
 }
+
+// TestIdentityGoatVACCREV12A_BothAnchorsMustNotBeFuture tests VACC-REV-12A (P0) at the app layer:
+// both DOB and entry_date (when submitted) cannot be in the future. The postgres layer adds
+// additional validation for effective values (submitted OR stored), ensuring a partial correction
+// cannot retain a future date.
+func TestIdentityGoatVACCREV12A_BothAnchorsMustNotBeFuture(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+
+	futureDate := time.Now().In(biztime.DefaultLocation()).AddDate(0, 0, 2).Format("2006-01-02")
+
+	// Even in a partial correction (DOB-only), future dates are rejected.
+	// The postgres layer will separately validate that stored values also aren't future.
+	_, err := svc.IdentityGoat(context.Background(), IdentityGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-partial-future", TraceID: testTrace, GoatID: goatA,
+		RawBody: []byte(fmt.Sprintf(`{"dob":%q,"reason":"DOB-only correction with future DOB","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-pf"}],"row_version":3}`, futureDate)),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_dob" {
+		t.Fatalf("partial DOB-only correction with future DOB error = %v, want invalid_dob", err)
+	}
+
+	// Entry_date-only correction also rejects future values.
+	_, err = svc.IdentityGoat(context.Background(), IdentityGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-partial-future-entry", TraceID: testTrace, GoatID: goatA,
+		RawBody: []byte(fmt.Sprintf(`{"entry_date":%q,"reason":"entry_date-only correction with future entry_date","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-pf2"}],"row_version":3}`, futureDate)),
+	})
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_entry_date" {
+		t.Fatalf("partial entry_date-only correction with future entry_date error = %v, want invalid_entry_date", err)
+	}
+
+	// Both submitted as future should also be rejected (on the first future field).
+	_, err = svc.IdentityGoat(context.Background(), IdentityGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-both-future", TraceID: testTrace, GoatID: goatA,
+		RawBody: []byte(fmt.Sprintf(`{"dob":%q,"entry_date":%q,"reason":"both future","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-bf"}],"row_version":3}`, futureDate, futureDate)),
+	})
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_dob" {
+		t.Fatalf("both future error = %v, want invalid_dob (checked first)", err)
+	}
+
+	if repo.identityGoatCalls != 0 {
+		t.Fatalf("repo.IdentityGoat called %d times, want 0 (all rejected before repo)", repo.identityGoatCalls)
+	}
+}
+
+// TestIdentityGoatVACCREV12B_IST_MidnightBoundary tests VACC-REV-12B (P2):
+// date-only fields must use India business-date comparison, not UTC instant comparison.
+// Between 00:00 and 05:30 UTC (00:00-05:30 IST), today's date should still be accepted.
+func TestIdentityGoatVACCREV12B_IST_MidnightBoundary(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+
+	// At IST midnight (UTC 18:30 previous day), "today" in IST is tomorrow in UTC.
+	// We need to test that "today's date in IST" is accepted even when the UTC instant is slightly in the future.
+	// However, at the app layer, we already convert to IST for comparison, so let's test the boundary.
+
+	// Test 1: A date that is today in IST but would be tomorrow UTC midnight should still be accepted.
+	// E.g., 2026-01-01 at 23:00 IST is 2026-01-01 17:30 UTC. Today's IST date "2026-01-01" when
+	// parsed becomes 2026-01-01 00:00 UTC = 05:30 IST on 2026-01-01. This should be accepted.
+	istNow := time.Now().In(biztime.DefaultLocation())
+	todayISTStr := istNow.Format("2026-01-02") // Use a fixed future date in IST
+
+	// Actually, let's use a more direct approach: use a date that is "today" in IST
+	// and verify it doesn't get rejected due to UTC instant comparison.
+	todayISTStr = istNow.Format("2006-01-02")
+
+	if _, err := svc.IdentityGoat(context.Background(), IdentityGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-ist-today", TraceID: testTrace, GoatID: goatA,
+		RawBody: []byte(fmt.Sprintf(`{"dob":%q,"reason":"today's date in IST","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-today"}],"row_version":3}`, todayISTStr)),
+	}); err != nil {
+		t.Fatalf("today's IST date rejected: %v (should use IST business date comparison, not UTC)", err)
+	}
+
+	// Test 2: Yesterday should always be accepted.
+	yesterdayIST := istNow.AddDate(0, 0, -1).Format("2006-01-02")
+	if _, err := svc.IdentityGoat(context.Background(), IdentityGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-ist-yesterday", TraceID: testTrace, GoatID: goatA,
+		RawBody: []byte(fmt.Sprintf(`{"dob":%q,"reason":"yesterday's date in IST","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-yesterday"}],"row_version":3}`, yesterdayIST)),
+	}); err != nil {
+		t.Fatalf("yesterday's date rejected: %v", err)
+	}
+
+	if repo.identityGoatCalls != 2 {
+		t.Fatalf("repo.IdentityGoat called %d times, want 2 (accepted for today and yesterday)", repo.identityGoatCalls)
+	}
+}

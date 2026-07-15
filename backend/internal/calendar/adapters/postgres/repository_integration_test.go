@@ -3587,8 +3587,8 @@ INSERT INTO notification_requests (
 		}
 	}
 
-	// Page 0: fetch first 1000
-	page0, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, 1000, 0)
+	// Page 0: fetch first 1000 (cursor = start)
+	page0, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, "", "", 1000)
 	if err != nil {
 		t.Fatalf("page 0: %v", err)
 	}
@@ -3596,8 +3596,13 @@ INSERT INTO notification_requests (
 		t.Errorf("page 0 returned %d rows, want 1000", len(page0))
 	}
 
-	// Page 1: fetch next 1000
-	page1, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, 1000, 1000)
+	// Page 1: fetch next 1000 (cursor = last row from page 0)
+	var cursor1SourceTable, cursor1RecordID string
+	if len(page0) > 0 {
+		cursor1SourceTable = page0[len(page0)-1].SourceTable
+		cursor1RecordID = page0[len(page0)-1].RecordID
+	}
+	page1, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, cursor1SourceTable, cursor1RecordID, 1000)
 	if err != nil {
 		t.Fatalf("page 1: %v", err)
 	}
@@ -3606,7 +3611,12 @@ INSERT INTO notification_requests (
 	}
 
 	// Page 2: fetch final partial page (2500 total - 2000 = 500)
-	page2, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, 1000, 2000)
+	var cursor2SourceTable, cursor2RecordID string
+	if len(page1) > 0 {
+		cursor2SourceTable = page1[len(page1)-1].SourceTable
+		cursor2RecordID = page1[len(page1)-1].RecordID
+	}
+	page2, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, cursor2SourceTable, cursor2RecordID, 1000)
 	if err != nil {
 		t.Fatalf("page 2: %v", err)
 	}
@@ -3615,7 +3625,12 @@ INSERT INTO notification_requests (
 	}
 
 	// Page 3: should be empty (no more rows)
-	page3, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, 1000, 3000)
+	var cursor3SourceTable, cursor3RecordID string
+	if len(page2) > 0 {
+		cursor3SourceTable = page2[len(page2)-1].SourceTable
+		cursor3RecordID = page2[len(page2)-1].RecordID
+	}
+	page3, err := repo.ReconcileEventReferencesPage(ctx, testTenantID, cursor3SourceTable, cursor3RecordID, 1000)
 	if err != nil {
 		t.Fatalf("page 3: %v", err)
 	}

@@ -34,6 +34,18 @@ function envValue(tf, name) {
   return m ? m[1] : null;
 }
 
+// parseAllEnv returns a Map of every literal env { name = "X" value = "Y" } pair in the tf. Used to
+// resolve durationEnv("X", <default>) explicit timeouts against the deployed value (KERN-06).
+function parseAllEnv(tf) {
+  const map = new Map();
+  const re = /name\s*=\s*"([^"]+)"[\s\S]{0,120}?value\s*=\s*"([^"]*)"/g;
+  let m;
+  while ((m = re.exec(tf)) !== null) {
+    if (!map.has(m[1])) map.set(m[1], m[2]);
+  }
+  return map;
+}
+
 // --- limit checks (pure) ---
 function limitFindings(env, tf) {
   const findings = [];
@@ -61,46 +73,235 @@ function durationToSeconds(expr) {
   return m[2] === "Second" ? n : m[2] === "Minute" ? n * 60 : n * 3600;
 }
 
-// Parses each supervisor.RegisterCadence[WithTimeout]("name", interval, ...) call
-// into { name, intervalSeconds, explicitTimeoutSeconds, body } where body is the source from that call up
-// to the next RegisterCadence (so it contains that cadence's stage constructors).
-// For RegisterCadenceWithTimeout, the 3rd arg is the explicit timeout; for RegisterCadence it's absent (null).
+// Parses Go duration strings like "30s", "1m30s", "2h" into seconds.
+// Returns null if unparseable.
+function parseGoDuration(dur) {
+  if (!dur) return null;
+  dur = dur.trim();
+  let seconds = 0;
+  let matched = false;
+
+  // Match hours (e.g., "2h")
+  let m = dur.match(/(\d+(\.\d+)?)\s*h/);
+  if (m) {
+    seconds += Number(m[1]) * 3600;
+    matched = true;
+  }
+  // Match minutes (e.g., "30m")
+  m = dur.match(/(\d+(\.\d+)?)\s*m(?!s)/);
+  if (m) {
+    seconds += Number(m[1]) * 60;
+    matched = true;
+  }
+  // Match seconds (e.g., "30s")
+  m = dur.match(/(\d+(\.\d+)?)\s*s/);
+  if (m) {
+    seconds += Number(m[1]);
+    matched = true;
+  }
+
+  return matched ? Math.floor(seconds) : null;
+}
+
+// splitTopLevelArgs returns the trimmed top-level argument expressions of the balanced (...) group
+// whose opening '(' is at openParenIdx. Nested parens (e.g. durationEnv("X", 10*time.Second) or a
+// stage constructor) and string literals are respected, so a comma inside them does NOT split.
+function splitTopLevelArgs(src, openParenIdx) {
+  const args = [];
+  let depth = 0;
+  let start = openParenIdx + 1;
+  let inStr = false;
+  let strCh = "";
+  for (let i = openParenIdx; i < src.length; i++) {
+    const ch = src[i];
+    if (inStr) {
+      if (ch === strCh && src[i - 1] !== "\\") inStr = false;
+      continue;
+    }
+    if (ch === '"' || ch === "`") {
+      inStr = true;
+      strCh = ch;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+      if (depth === 1) start = i + 1;
+      continue;
+    }
+    if (ch === ")") {
+      depth--;
+      if (depth === 0) {
+        const last = src.slice(start, i).trim();
+        if (last !== "") args.push(last);
+        break;
+      }
+      continue;
+    }
+    if (ch === "," && depth === 1) {
+      args.push(src.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  return args;
+}
+
+// resolveExplicitTimeout evaluates a RegisterCadenceWithTimeout 3rd argument (the explicit timeout)
+// to seconds. It returns:
+//   - null                       -> no explicit timeout (plain RegisterCadence); caller uses the default formula
+//   - { seconds }                -> a literal duration OR a durationEnv("ENV", <default>) resolved against the
+//                                   deployed env (env value if set, else the Go default literal)
+//   - { unresolvable: reason }   -> the expression is PRESENT but cannot be evaluated -> FAIL CLOSED
+// KERN-06: a durationEnv(...) (or any non-literal) 3rd arg previously parsed as null and was silently
+// treated as "no explicit timeout", so the guard assumed the 90%-of-interval default and could pass a
+// 10s configured budget as 54s. This resolves it or fails closed instead.
+function resolveExplicitTimeout(expr, envMap) {
+  if (expr === null || expr === undefined) return null;
+  const trimmed = expr.trim();
+
+  // Literal N*time.Unit — anchored so it does NOT greedily match the inner default literal of a
+  // durationEnv("X", 60*time.Second) expression (which must go through env resolution below).
+  if (/^[0-9]+\s*\*\s*time\.(?:Second|Minute|Hour)$/.test(trimmed)) {
+    return { seconds: durationToSeconds(trimmed) };
+  }
+
+  // durationEnv("ENV_NAME", <defaultLiteral>) — resolve to the deployed env value or the Go default.
+  const de = trimmed.match(/^durationEnv\(\s*"([^"]+)"\s*,\s*([0-9]+\s*\*\s*time\.(?:Second|Minute|Hour))\s*\)$/);
+  if (de) {
+    const envName = de[1];
+    const defaultSeconds = durationToSeconds(de[2]);
+    const envVal = envMap.get(envName);
+    if (envVal !== undefined && envVal !== null) {
+      const parsed = parseGoDuration(String(envVal));
+      if (parsed !== null) return { seconds: parsed };
+      return {
+        unresolvable: `explicit timeout durationEnv("${envName}", …) is overridden by ${envName}="${envVal}", which is not a valid Go duration`,
+      };
+    }
+    // Env not set (or nonliteral) in the deployed tf -> the Go default literal applies at runtime.
+    if (defaultSeconds !== null) return { seconds: defaultSeconds };
+    return { unresolvable: `explicit timeout durationEnv("${envName}", …) has a non-literal default the guard cannot evaluate` };
+  }
+
+  // Present but neither a literal nor a recognized durationEnv(...) form -> fail closed.
+  return {
+    unresolvable: `explicit timeout expression "${trimmed}" is not a literal duration or durationEnv("ENV", <default>) — the guard cannot evaluate the deployed budget`,
+  };
+}
+
+// Parses each supervisor.RegisterCadence[WithTimeout]("name", interval, ...) call into
+// { name, intervalSeconds, isWithTimeout, explicitTimeoutExpr, body } where body is the source from
+// that call up to the next RegisterCadence (so it contains that cadence's stage constructors).
+// For RegisterCadenceWithTimeout the 3rd top-level arg is the RAW explicit-timeout expression (a
+// literal, a durationEnv(...), or something else — resolved later by resolveExplicitTimeout, which
+// fails closed rather than silently assuming the default). For plain RegisterCadence it is null.
 function parseCadences(mainGo) {
-  const re = /supervisor\.RegisterCadence(WithTimeout)?\(\s*"([^"]+)"\s*,\s*([0-9]+\s*\*\s*time\.(?:Second|Minute|Hour))(?:\s*,\s*([0-9]+\s*\*\s*time\.(?:Second|Minute|Hour)))?/g;
-  const matches = [...mainGo.matchAll(re)];
-  return matches.map((m, i) => ({
-    name: m[2],
-    intervalSeconds: durationToSeconds(m[3]),
-    explicitTimeoutSeconds: m[1] && m[4] ? durationToSeconds(m[4]) : null, // 3rd arg only if WithTimeout variant
-    body: mainGo.slice(m.index, i + 1 < matches.length ? matches[i + 1].index : mainGo.length),
-  }));
+  const re = /supervisor\.RegisterCadence(WithTimeout)?\s*\(/g;
+  const calls = [];
+  let m;
+  while ((m = re.exec(mainGo)) !== null) {
+    calls.push({ isWithTimeout: !!m[1], parenIdx: re.lastIndex - 1, index: m.index });
+  }
+  return calls.map((c, i) => {
+    const args = splitTopLevelArgs(mainGo, c.parenIdx);
+    const name = (args[0] || "").replace(/^"|"$/g, "");
+    const intervalExpr = args[1] || "";
+    const explicitTimeoutExpr = c.isWithTimeout ? (args[2] ?? null) : null;
+    return {
+      name,
+      intervalSeconds: durationToSeconds(intervalExpr),
+      isWithTimeout: c.isWithTimeout,
+      explicitTimeoutExpr,
+      body: mainGo.slice(c.index, i + 1 < calls.length ? calls[i + 1].index : mainGo.length),
+    };
+  });
+}
+
+// Reproduces the supervisor's defaultStageTimeout formula exactly (supervisor.go lines 161-195).
+// Given an interval and queryTimeout, computes the effective per-run budget for a plain cadence.
+function defaultStageTimeout(intervalSeconds, queryTimeoutSeconds) {
+  const minStageTimeout = 1;
+
+  if (intervalSeconds <= 0) {
+    if (queryTimeoutSeconds > 0) {
+      return queryTimeoutSeconds * 2;
+    }
+    return minStageTimeout;
+  }
+
+  let timeoutCap = intervalSeconds - intervalSeconds / 10; // 90% of interval
+  if (timeoutCap <= 0) {
+    timeoutCap = intervalSeconds;
+  }
+
+  let target = queryTimeoutSeconds * 2;
+  const floor = intervalSeconds / 4;
+  if (floor > target) {
+    target = floor;
+  }
+  if (target > timeoutCap) {
+    target = timeoutCap;
+  }
+  if (target < minStageTimeout) {
+    target = minStageTimeout;
+  }
+  if (target >= intervalSeconds) {
+    target = intervalSeconds - 1;
+    if (target <= 0) {
+      target = 1;
+    }
+  }
+  return Math.floor(target);
 }
 
 // Calculates the effective per-run budget for a cadence, reproducing the
-// supervisor's formula exactly (see RegisterCadenceWithTimeout, lines 120-128):
+// supervisor's formula exactly (see RegisterCadenceWithTimeout, supervisor.go lines 121-130):
 //   - If explicit timeout is given (> 0), cap it at 90% of interval
-//   - If explicit timeout is absent/zero, use defaultStageTimeout (which itself caps at 90%)
-// For this guard's purposes, defaultStageTimeout computes to max(interval/4, 2*queryTimeout)
-// capped at 90% of interval. Since we don't have queryTimeout here, we model the 90% cap
-// as the common case for the fast lanes (1-minute cadences: 90% * 60s = 54s).
-function effectiveBudgetSeconds(cadence) {
-  const interval = cadence.intervalSeconds;
-  const explicit = cadence.explicitTimeoutSeconds;
-
-  if (explicit && explicit > 0) {
+//   - If explicit timeout is absent/zero, use defaultStageTimeout
+// explicitSeconds is the RESOLVED explicit timeout (from resolveExplicitTimeout) or null for none.
+function effectiveBudgetSeconds(intervalSeconds, explicitSeconds, queryTimeoutSeconds) {
+  if (explicitSeconds && explicitSeconds > 0) {
     // Cap explicit timeout at 90% of interval (the supervisor's rule).
-    const cap = interval - interval / 10;
-    return Math.min(explicit, Math.floor(cap));
+    const cap = intervalSeconds - intervalSeconds / 10;
+    return Math.min(explicitSeconds, Math.floor(cap));
   }
-
-  // No explicit timeout: fall back to defaultStageTimeout.
-  // defaultStageTimeout computes max(interval/4, 2*queryTimeout) capped at 90%.
-  // Without queryTimeout context, we conservatively use the 90% cap directly.
-  return Math.floor(interval * 0.9);
+  // No explicit timeout: use defaultStageTimeout with the actual queryTimeout.
+  return defaultStageTimeout(intervalSeconds, queryTimeoutSeconds);
 }
 
-function cadenceFindings(mainGo) {
+function cadenceFindings(mainGo, envMap) {
   const findings = [];
+
+  // Read and validate GOATOS_PG_QUERY_TIMEOUT from deployed environment.
+  let queryTimeoutSeconds = null;
+  const queryTimeoutEnv = envMap.get("GOATOS_PG_QUERY_TIMEOUT");
+  if (queryTimeoutEnv === undefined) {
+    findings.push(
+      "cloud_run_worker.tf: GOATOS_PG_QUERY_TIMEOUT is not set — cadence budgets cannot be computed",
+    );
+    return findings; // Stop further checks if queryTimeout is missing.
+  }
+  if (queryTimeoutEnv === null) {
+    // Explicitly null means the expression is nonliteral (e.g., var.something, no quoted value).
+    findings.push(
+      "cloud_run_worker.tf: GOATOS_PG_QUERY_TIMEOUT uses a nonliteral expression — the guard cannot validate the deployed budget. Set an explicit string value (e.g., value = \"30s\").",
+    );
+    return findings;
+  }
+  // Check for interpolated expressions like "${var.timeout}"
+  if (queryTimeoutEnv.includes("${") || queryTimeoutEnv.includes("var.")) {
+    findings.push(
+      `cloud_run_worker.tf: GOATOS_PG_QUERY_TIMEOUT value "${queryTimeoutEnv}" uses variable interpolation — the guard cannot validate the deployed budget. Set an explicit string value (e.g., value = "30s").`,
+    );
+    return findings;
+  }
+  queryTimeoutSeconds = parseGoDuration(queryTimeoutEnv);
+  if (queryTimeoutSeconds === null) {
+    findings.push(
+      `cloud_run_worker.tf: GOATOS_PG_QUERY_TIMEOUT value "${queryTimeoutEnv}" is not a valid Go duration (expected format like "30s", "1m", etc.)`,
+    );
+    return findings;
+  }
+
   const cadences = parseCadences(mainGo);
   const outbox = cadences.find((c) => c.body.includes("NewOutboxRelayStage"));
   const notify = cadences.find((c) => c.body.includes("NewNotificationDispatcherStage"));
@@ -108,14 +309,24 @@ function cadenceFindings(mainGo) {
   if (!outbox) {
     findings.push("backend/cmd/kernel-worker/main.go: NewOutboxRelayStage is not registered on any cadence");
   } else {
-    const effective = effectiveBudgetSeconds(outbox);
-    if (effective < ACCEPTED_OUTBOX_BUDGET_SECONDS) {
-      const explicitNote = outbox.explicitTimeoutSeconds
-        ? ` (explicit timeout ${outbox.explicitTimeoutSeconds}s capped to 90% of interval)`
-        : "";
+    const resolved = resolveExplicitTimeout(outbox.explicitTimeoutExpr, envMap);
+    if (resolved && resolved.unresolvable) {
+      // KERN-06: an explicit timeout the guard cannot evaluate must FAIL CLOSED, never fall back to
+      // the 90%-of-interval default (which could pass a 10s configured budget as 54s).
       findings.push(
-        `backend/cmd/kernel-worker/main.go: outbox cadence "${outbox.name}" interval ${outbox.intervalSeconds}s gives an effective per-run budget of ${effective}s${explicitNote}, below the accepted ${ACCEPTED_OUTBOX_BUDGET_SECONDS}s outbox budget`,
+        `backend/cmd/kernel-worker/main.go: outbox cadence "${outbox.name}" ${resolved.unresolvable}; cannot prove the per-run budget meets the accepted ${ACCEPTED_OUTBOX_BUDGET_SECONDS}s`,
       );
+    } else {
+      const explicitSeconds = resolved ? resolved.seconds : null;
+      const effective = effectiveBudgetSeconds(outbox.intervalSeconds, explicitSeconds, queryTimeoutSeconds);
+      if (effective < ACCEPTED_OUTBOX_BUDGET_SECONDS) {
+        const explicitNote = explicitSeconds
+          ? ` (explicit timeout ${explicitSeconds}s capped to 90% of interval)`
+          : ` (computed from GOATOS_PG_QUERY_TIMEOUT=${queryTimeoutEnv})`;
+        findings.push(
+          `backend/cmd/kernel-worker/main.go: outbox cadence "${outbox.name}" interval ${outbox.intervalSeconds}s gives an effective per-run budget of ${effective}s${explicitNote}, below the accepted ${ACCEPTED_OUTBOX_BUDGET_SECONDS}s outbox budget`,
+        );
+      }
     }
   }
   if (outbox && notify && outbox.name === notify.name) {
@@ -127,7 +338,7 @@ function cadenceFindings(mainGo) {
 }
 
 function selfTest() {
-  const goodTf = `env { name = "GOATOS_OUTBOX_LIMIT" value = "500" } env { name = "GOATOS_NOTIFICATION_LIMIT" value = "100" }`;
+  const goodTf = `env { name = "GOATOS_OUTBOX_LIMIT" value = "500" } env { name = "GOATOS_NOTIFICATION_LIMIT" value = "100" } env { name = "GOATOS_PG_QUERY_TIMEOUT" value = "30s" }`;
   const goodMain = `
   supervisor.RegisterCadence("outbox", 1*time.Minute,
     kernelstages.NewOutboxRelayStage(deps),
@@ -135,24 +346,23 @@ function selfTest() {
   supervisor.RegisterCadence("notify", 1*time.Minute,
     kernelstages.NewNotificationDispatcherStage(deps, tenantID),
   )`;
+  const goodEnvMap = new Map([["GOATOS_PG_QUERY_TIMEOUT", "30s"]]);
 
-  if (limitFindings("x", goodTf).length !== 0 || cadenceFindings(goodMain).length !== 0) {
+  if (limitFindings("x", goodTf).length !== 0 || cadenceFindings(goodMain, goodEnvMap).length !== 0) {
     throw new Error("self-test: a compliant config produced findings");
   }
+
   // 1) outbox limit below 500.
   if (!limitFindings("x", goodTf.replace('"500"', '"400"')).some((f) => f.includes("GOATOS_OUTBOX_LIMIT"))) {
-    throw new Error("self-test: missed outbox limit below 500");
+    throw new Error("self-test (1): missed outbox limit below 500");
   }
+
   // 2) notification limit below 100.
   if (!limitFindings("x", goodTf.replace('"100"', '"50"')).some((f) => f.includes("GOATOS_NOTIFICATION_LIMIT"))) {
-    throw new Error("self-test: missed notification limit below 100");
+    throw new Error("self-test (2): missed notification limit below 100");
   }
-  // 3a) explicit timeout BELOW accepted budget: outbox RegisterCadenceWithTimeout with 10s on 1m
-  //     (capped to 90% of 60s = 54s, so explicit 10s is OK; test the TRUE case where explicit is sub-54)
-  //     (actually, 10s < 54s, so this PASSES; use 30s on 1m: capped to 54s, so 30s < 54s still PASSES.
-  //      to truly test a sub-budget case, use 1m with a 40s explicit: capped to 54s, 40s < 54s PASSES.
-  //      For a real fail, need explicit too close to interval or a shorter interval.
-  //      Use 30s cadence with 20s explicit: capped to 27s, 20s < 54s check fails because effective=20s < 54s)
+
+  // 3a) explicit timeout BELOW accepted budget (30s cadence with 20s explicit: capped to 27s).
   const explicitSubBudget = `
   supervisor.RegisterCadenceWithTimeout("outbox", 30*time.Second, 20*time.Second,
     kernelstages.NewOutboxRelayStage(deps),
@@ -160,9 +370,10 @@ function selfTest() {
   supervisor.RegisterCadence("notify", 1*time.Minute,
     kernelstages.NewNotificationDispatcherStage(deps, tenantID),
   )`;
-  if (!cadenceFindings(explicitSubBudget).some((f) => f.includes("below the accepted") && f.includes("explicit timeout"))) {
+  if (!cadenceFindings(explicitSubBudget, goodEnvMap).some((f) => f.includes("below the accepted") && f.includes("explicit timeout"))) {
     throw new Error("self-test (3a): missed explicit timeout sub-budget case");
   }
+
   // 3b) explicit timeout that is fine: obligation-sweep 180s on 5m, capped to 90% of 5m = 270s, so 180s OK.
   const explicitOk = `
   supervisor.RegisterCadence("outbox", 1*time.Minute,
@@ -171,29 +382,101 @@ function selfTest() {
   supervisor.RegisterCadenceWithTimeout("obligation-sweep", 5*time.Minute, 180*time.Second,
     kernelstages.NewObligationSweeperStage(deps, sweeperCfg),
   )`;
-  if (cadenceFindings(explicitOk).length !== 0) {
+  if (cadenceFindings(explicitOk, goodEnvMap).length !== 0) {
     throw new Error("self-test (3b): compliant explicit timeout (180s on 5m) flagged as error");
   }
+
   // 3c) interval-derived (plain RegisterCadence, no explicit) → existing behavior preserved.
   const intervalDerived = goodMain;
-  if (cadenceFindings(intervalDerived).length !== 0) {
+  if (cadenceFindings(intervalDerived, goodEnvMap).length !== 0) {
     throw new Error("self-test (3c): plain RegisterCadence (interval-derived) flagged as error");
   }
-  // 3d) outbox timeout below the accepted budget (30s cadence -> 27s effective).
+
+  // 3d) outbox timeout below the accepted budget (30s cadence -> 27s effective with 30s queryTimeout).
   const shortCadence = goodMain.replace('"outbox", 1*time.Minute', '"outbox", 30*time.Second');
-  if (!cadenceFindings(shortCadence).some((f) => f.includes("below the accepted"))) {
+  if (!cadenceFindings(shortCadence, goodEnvMap).some((f) => f.includes("below the accepted"))) {
     throw new Error("self-test (3d): missed outbox cadence with sub-budget effective timeout");
   }
+
   // 4) incompatible combination: outbox + notification on the SAME cadence.
   const shared = `
   supervisor.RegisterCadence("fast", 1*time.Minute,
     kernelstages.NewOutboxRelayStage(deps),
     kernelstages.NewNotificationDispatcherStage(deps, tenantID),
   )`;
-  if (!cadenceFindings(shared).some((f) => f.includes("share cadence"))) {
+  if (!cadenceFindings(shared, goodEnvMap).some((f) => f.includes("share cadence"))) {
     throw new Error("self-test (4): missed outbox+notification sharing one cadence");
   }
-  console.error("worker-stage-budgets guard: self-test passed (all 6 cases: limits + explicit-sub-budget + explicit-ok + interval-derived + short-cadence + shared-cadence)");
+
+  // 5) MISSING GOATOS_PG_QUERY_TIMEOUT — guard must FAIL.
+  const missingQueryTimeoutMap = new Map(); // Empty map, no queryTimeout entry
+  if (!cadenceFindings(goodMain, missingQueryTimeoutMap).some((f) => f.includes("GOATOS_PG_QUERY_TIMEOUT is not set"))) {
+    throw new Error("self-test (5): missed missing GOATOS_PG_QUERY_TIMEOUT");
+  }
+
+  // 6) LOWERED GOATOS_PG_QUERY_TIMEOUT below what stages need — with 10s queryTimeout on 1m cadence,
+  //    effective = max(2*10=20, 60/4=15) = 20s < 54s — must FAIL.
+  const lowQueryTimeoutMap = new Map([["GOATOS_PG_QUERY_TIMEOUT", "10s"]]);
+  if (!cadenceFindings(goodMain, lowQueryTimeoutMap).some((f) => f.includes("below the accepted"))) {
+    throw new Error("self-test (6): missed lowered GOATOS_PG_QUERY_TIMEOUT producing sub-budget");
+  }
+
+  // 7) NONLITERAL durationEnv(...) expression — guard must FAIL.
+  const nonliteralMap = new Map([["GOATOS_PG_QUERY_TIMEOUT", null]]); // null = unparseable nonliteral
+  if (!cadenceFindings(goodMain, nonliteralMap).some((f) => f.includes("nonliteral expression"))) {
+    throw new Error("self-test (7): missed nonliteral durationEnv(...) expression");
+  }
+
+  // 8) INVALID Go duration format — guard must FAIL.
+  const invalidDurationMap = new Map([["GOATOS_PG_QUERY_TIMEOUT", "invalid"]]);
+  if (!cadenceFindings(goodMain, invalidDurationMap).some((f) => f.includes("not a valid Go duration"))) {
+    throw new Error("self-test (8): missed invalid Go duration format");
+  }
+
+  // 9) KERN-06: outbox on RegisterCadenceWithTimeout with a durationEnv(...) explicit timeout whose
+  //    DEFAULT meets budget and whose env is unset — must PASS (resolved to the default, not silently
+  //    assumed). 1m interval, durationEnv default 60s -> cap 90% of 60 = 54s == accepted budget.
+  const durEnvDefaultOk = `
+  supervisor.RegisterCadenceWithTimeout("outbox", 1*time.Minute, durationEnv("GOATOS_OUTBOX_TIMEOUT", 60*time.Second),
+    kernelstages.NewOutboxRelayStage(deps),
+  )
+  supervisor.RegisterCadence("notify", 1*time.Minute,
+    kernelstages.NewNotificationDispatcherStage(deps, tenantID),
+  )`;
+  if (cadenceFindings(durEnvDefaultOk, goodEnvMap).length !== 0) {
+    throw new Error("self-test (9): durationEnv explicit timeout (default 60s -> 54s) wrongly flagged");
+  }
+
+  // 10) KERN-06: the SAME durationEnv cadence, but the deployed env OVERRIDES it to a sub-budget value
+  //     — must FAIL (previously the null-parse silently assumed 54s and passed). Env 10s -> 10s < 54s.
+  const durEnvOverrideLow = new Map([
+    ["GOATOS_PG_QUERY_TIMEOUT", "30s"],
+    ["GOATOS_OUTBOX_TIMEOUT", "10s"],
+  ]);
+  if (
+    !cadenceFindings(durEnvDefaultOk, durEnvOverrideLow).some(
+      (f) => f.includes("below the accepted") && f.includes("explicit timeout 10s"),
+    )
+  ) {
+    throw new Error("self-test (10): missed durationEnv env-override below the accepted budget");
+  }
+
+  // 11) KERN-06: an explicit timeout expression the guard cannot evaluate (not a literal, not a
+  //     recognized durationEnv form) must FAIL CLOSED, never fall back to the 90%-of-interval default.
+  const unresolvableExplicit = `
+  supervisor.RegisterCadenceWithTimeout("outbox", 1*time.Minute, someComputedTimeout(cfg),
+    kernelstages.NewOutboxRelayStage(deps),
+  )
+  supervisor.RegisterCadence("notify", 1*time.Minute,
+    kernelstages.NewNotificationDispatcherStage(deps, tenantID),
+  )`;
+  if (!cadenceFindings(unresolvableExplicit, goodEnvMap).some((f) => f.includes("cannot prove the per-run budget"))) {
+    throw new Error("self-test (11): missed unresolvable explicit timeout (must fail closed)");
+  }
+
+  console.error(
+    "worker-stage-budgets guard: self-test passed (11 cases: limits + explicit-sub-budget + explicit-ok + interval-derived + short-cadence + shared-cadence + missing/lowered/nonliteral/invalid queryTimeout + durationEnv default-ok/env-override-low/unresolvable-fail-closed)",
+  );
 }
 
 if (process.argv.includes("--self-test")) {
@@ -202,19 +485,41 @@ if (process.argv.includes("--self-test")) {
 }
 
 const errors = [];
+let allEnvMap = new Map(); // Shared environment map; use the first valid environment's queryTimeout.
+let foundEnv = false;
+
 for (const env of ENVS) {
   const path = resolve(repo, "infra/envs", env, "cloud_run_worker.tf");
   if (!existsSync(path)) {
     errors.push(`infra/envs/${env}/cloud_run_worker.tf: missing (kernel-worker service not defined)`);
     continue;
   }
-  errors.push(...limitFindings(env, readFileSync(path, "utf8")));
+  const tfContent = readFileSync(path, "utf8");
+  errors.push(...limitFindings(env, tfContent));
+
+  // Build the deployed env map from the first available environment's TF. All literal name/value env
+  // pairs are captured so a durationEnv("SOME_ENV", <default>) explicit timeout can be resolved against
+  // the actually-deployed value (KERN-06). GOATOS_PG_QUERY_TIMEOUT keeps its explicit missing/nonliteral
+  // handling (undefined = absent, null = nonliteral) that cadenceFindings depends on.
+  if (!foundEnv) {
+    allEnvMap = parseAllEnv(tfContent);
+    const queryTimeoutValue = envValue(tfContent, "GOATOS_PG_QUERY_TIMEOUT");
+    if (queryTimeoutValue === null) {
+      allEnvMap.set("GOATOS_PG_QUERY_TIMEOUT", undefined);
+    } else if (queryTimeoutValue.includes("env.") || queryTimeoutValue.includes("var.")) {
+      allEnvMap.set("GOATOS_PG_QUERY_TIMEOUT", null);
+    } else {
+      allEnvMap.set("GOATOS_PG_QUERY_TIMEOUT", queryTimeoutValue);
+    }
+    foundEnv = true;
+  }
 }
+
 const mainGoPath = resolve(repo, "backend/cmd/kernel-worker/main.go");
 if (!existsSync(mainGoPath)) {
   errors.push("backend/cmd/kernel-worker/main.go: missing");
 } else {
-  errors.push(...cadenceFindings(readFileSync(mainGoPath, "utf8")));
+  errors.push(...cadenceFindings(readFileSync(mainGoPath, "utf8"), allEnvMap));
 }
 
 if (errors.length > 0) {

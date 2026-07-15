@@ -284,20 +284,18 @@ INSERT INTO notification_requests (
 }
 
 // TestNotificationRepositoryOldestDueRequestedAtPlanStaysIndexBoundedUnderSaturation
-// is the KERN-04 query-plan gate. OldestDueRequestedAtSQL (a MIN(requested_at)
-// aggregate -- see its doc comment for why an ORDER BY COALESCE(...) LIMIT 1
-// rewrite would be WRONG, not just a style choice: it would silently change
-// the metric from "true globally oldest requested_at" to "requested_at of
-// whichever row the claim queue would pick next," which
-// TestNotificationRepositoryOldestDueRequestedAtUnderSaturation proves is not
-// the same value under retry skew) must still reach notification_requests via
-// notification_requests_due_order_idx, scoped to EXACTLY the due-row
-// population -- never a Seq Scan of the whole table. The seed here mirrors a
-// realistic production shape: a large HISTORICAL population (sent, no longer
-// due -- most of a live table over time) plus a smaller due backlog, so the
-// due predicate is genuinely selective against the full table, the condition
-// under which the planner's natural (unforced) choice is the partial index.
-// Proven with sequential scans left ENABLED (no enable_seqscan=off).
+// is the KERN-04 query-plan gate. OldestDueRequestedAtSQL (ORDER BY requested_at
+// ASC LIMIT 1, semantically equivalent to MIN(requested_at) but with early-stop
+// optimization via notification_requests_oldest_due_requested_at_idx) must use
+// that index to achieve O(1) early-stop behavior: scan the index in ascending
+// order of requested_at, return the first row matching the COALESCE filter, and
+// stop immediately (LIMIT 1) instead of visiting all backlog rows. This test runs
+// at the maximum 5k-50k envelope size (40k backlog) to prove the early-stop works
+// under realistic saturation. The seed mirrors production: a large HISTORICAL
+// population (sent, no longer due -- most of a live table over time) plus a
+// smaller due backlog, so the due predicate is genuinely selective against the
+// full table, the condition under which the planner's natural (unforced) choice
+// is the partial index. Proven with sequential scans left ENABLED (no enable_seqscan=off).
 func TestNotificationRepositoryOldestDueRequestedAtPlanStaysIndexBoundedUnderSaturation(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -355,40 +353,40 @@ FROM generate_series(1, $4::int) g`,
 	if len(scans) == 0 {
 		t.Fatalf("no notification_requests scan node in plan: %s", raw)
 	}
-	// (a) The planner NATURALLY reached notification_requests via an index path,
-	// never a Seq Scan of the full (historical + due) table, and the driving
-	// scan's row count matches the due backlog size, not the full table --
-	// proving the index scoped the scan to due rows only. A "Bitmap Index Scan"
-	// node (which drives the index access under a Bitmap Heap Scan) carries no
-	// "Relation Name" of its own, so the index-path check walks the WHOLE plan
-	// tree (anyNodeType), not just the relation-matched nodes.
+	// (a) Planner must use index path, never Seq Scan of full table. Early-stop on
+	// LIMIT 1 ORDER BY requested_at means we only scan ~1 row, not the full backlog.
 	sawIndex := anyNodeType(root, "Index")
 	for _, sc := range scans {
 		if strings.Contains(sc.NodeType, "Seq Scan") {
-			t.Fatalf("notification_requests reached via Seq Scan of the full table under a saturated due backlog (probe regressed off the index): %s", raw)
+			t.Fatalf("notification_requests reached via Seq Scan (probe regressed off index): %s", raw)
 		}
-		if sc.ActualRows > dueBacklog {
-			t.Fatalf("a notification_requests scan read %d rows -- more than the %d-row due backlog, so it touched non-due (historical) rows too: %s", int(sc.ActualRows), dueBacklog, raw)
-		}
-		if sc.ActualRows < dueBacklog {
-			t.Fatalf("a notification_requests scan read only %d of the %d-row due backlog -- the aggregate would be computed over a partial set: %s", int(sc.ActualRows), dueBacklog, raw)
+		if sc.ActualRows > float64(dueBacklog) {
+			t.Fatalf("scan read %.0f rows, more than backlog size %d (touched historical): %s", sc.ActualRows, dueBacklog, raw)
 		}
 	}
 	if !sawIndex {
-		t.Fatalf("no index access path on notification_requests in the plan (probe fell back to scanning the full table): %s", raw)
+		t.Fatalf("no index access path (fell back to full table scan): %s", raw)
 	}
-	if !strings.Contains(root.NodeType, "Aggregate") {
-		t.Fatalf("plan root node type=%q, want an Aggregate computing MIN(requested_at) over the due set: %s", root.NodeType, raw)
+
+	// (b) CRITICAL: Early-stop behavior. Actual rows read should be ~1 (LIMIT 1 returns
+	// after finding first row), not proportional to backlog. This proves the index enables
+	// O(1) behavior instead of O(backlog).
+	for _, sc := range scans {
+		if sc.ActualRows > 10 {
+			t.Fatalf("Index Scan read %.0f rows (want ~1 due to LIMIT 1 early-stop); plan: %s",
+				sc.ActualRows, raw)
+		}
 	}
-	// (b) Buffers stay bounded to roughly the due population's heap pages, not
-	// the full (historical + due) table's pages.
-	if blocks := root.SharedHit + root.SharedRead; blocks > 2000 {
-		t.Fatalf("plan touched %.0f shared blocks -- consistent with scanning the full historical+due table, not the due-only index range: %s", blocks, raw)
+
+	// (c) Execution time must stay constant, not scale with backlog size. With early-stop
+	// at 1 row, latency should be ~constant regardless of backlog size.
+	if plans[0].ExecutionTime > 100 {
+		t.Fatalf("probe executed in %.1fms (want <100ms); early-stop may not be working", plans[0].ExecutionTime)
 	}
-	// (c) Execution time ceiling: bounded (not instant, since this is a real
-	// aggregate over the due population), but far from a full-table scan cost.
-	if plans[0].ExecutionTime > 500 {
-		t.Fatalf("probe executed in %.1fms under a %d-row due backlog (%d historical rows also present) -- too slow for an index-bounded aggregate", plans[0].ExecutionTime, dueBacklog, historical)
+
+	// (d) Buffers stay minimal due to early-stop (just index leaf page + maybe one data page).
+	if blocks := root.SharedHit + root.SharedRead; blocks > 50 {
+		t.Fatalf("probe touched %.0f shared blocks (want ~1-2 due to early-stop): %s", blocks, raw)
 	}
 }
 

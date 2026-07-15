@@ -93,6 +93,16 @@ func run(ctx context.Context, args []string) error {
 
 	supervisor := worker.NewSupervisor(logger, pool, pgCfg.QueryTimeout)
 
+	// KERN-01 SAFETY: worker stages gate. Phase 1 (flag=false): worker deploys but
+	// stages are shadowed, running in health-only mode pending legacy job retirement.
+	// Phase 2 (flag=true): legacy jobs removed and worker stages enabled.
+	// Environment variable GOATOS_WORKER_STAGES_ENABLED is bound to
+	// var.retire_legacy_stage_jobs in terraform, so the two cannot both be active.
+	stagesEnabled := stageShadowEnabled()
+	if !stagesEnabled {
+		logger.Info("kernel_worker_stages_shadowed", "reason", "legacy jobs still active; run health server only")
+	}
+
 	// Continuous: Pub/Sub domain-event consumer. Registered only when Pub/Sub is
 	// configured (staging/production); local/dev in-process dispatch runs through
 	// the outbox eventbus publisher instead.
@@ -100,74 +110,80 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if consumerEnabled {
+	if stagesEnabled && consumerEnabled {
 		supervisor.RegisterContinuous("event-consumer",
 			kernelstages.NewDomainConsumerStage(deps, validator, consumerCfg))
+	} else if !stagesEnabled {
+		logger.Debug("kernel_worker_domain_consumer_shadowed", "reason", "stages not enabled")
 	} else {
 		logger.Info("kernel_worker_domain_consumer_disabled", "reason", "pubsub not configured")
 	}
 
-	// Fast lanes (every minute), on SEPARATE cadences so they run as independent
-	// goroutines. Outbox relay and notification dispatch must not share one
-	// serial lane: a full outbox drain can use most of the ~54s per-run budget
-	// (derived from the 1-minute interval), and if the dispatcher ran after it on
-	// the same lane a slow outbox would delay — or, if it overran the tick, skip
-	// — notification delivery. On their own cadences each gets its own advisory
-	// lock (no self-overlap across the HA pair or across ticks) and its own full
-	// budget, and a slow outbox cannot starve the dispatcher (KERN-REV-05A).
-	//
-	// The ~54s outbox budget is sufficient: RunUntilDrained publishes a claimed
-	// batch (limit GOATOS_OUTBOX_LIMIT=500) serially and loops until drained or
-	// the budget expires; a 500-message batch drains well within 54s (see
-	// TestOutboxRelayStageDrains500WithinFastLaneBudget). Unprocessed claimed
-	// messages (when ctx cancels mid-batch) are released back to pending
-	// immediately via RunOnce's deferred releaseUnprocessedMessages, making them
-	// eligible for re-claim on the next tick (KERN-02 mitigation). At-least-once
-	// with consumer-side dedup, no loss.
-	supervisor.RegisterCadence("outbox", 1*time.Minute,
-		kernelstages.NewOutboxRelayStage(deps, publisher, validator, kernelstages.OutboxRelayConfigFromEnv()),
-	)
-	supervisor.RegisterCadence("notify", 1*time.Minute,
-		kernelstages.NewNotificationDispatcherStage(deps, tenantID),
-	)
+	if stagesEnabled {
+		// Fast lanes (every minute), on SEPARATE cadences so they run as independent
+		// goroutines. Outbox relay and notification dispatch must not share one
+		// serial lane: a full outbox drain can use most of the ~54s per-run budget
+		// (derived from the 1-minute interval), and if the dispatcher ran after it on
+		// the same lane a slow outbox would delay — or, if it overran the tick, skip
+		// — notification delivery. On their own cadences each gets its own advisory
+		// lock (no self-overlap across the HA pair or across ticks) and its own full
+		// budget, and a slow outbox cannot starve the dispatcher (KERN-REV-05A).
+		//
+		// The ~54s outbox budget is sufficient: RunUntilDrained publishes a claimed
+		// batch (limit GOATOS_OUTBOX_LIMIT=500) serially and loops until drained or
+		// the budget expires; a 500-message batch drains well within 54s (see
+		// TestOutboxRelayStageDrains500WithinFastLaneBudget). Unprocessed claimed
+		// messages (when ctx cancels mid-batch) are released back to pending
+		// immediately via RunOnce's deferred releaseUnprocessedMessages, making them
+		// eligible for re-claim on the next tick (KERN-02 mitigation). At-least-once
+		// with consumer-side dedup, no loss.
+		supervisor.RegisterCadence("outbox", 1*time.Minute,
+			kernelstages.NewOutboxRelayStage(deps, publisher, validator, kernelstages.OutboxRelayConfigFromEnv()),
+		)
+		supervisor.RegisterCadence("notify", 1*time.Minute,
+			kernelstages.NewNotificationDispatcherStage(deps, tenantID),
+		)
+	}
 
-	// Obligation sweep (every 5 minutes, isolated on its own lane with an
-	// explicit per-run budget). This is the heaviest operational stage at 5k-50k
-	// scale — mark-missed, escalation, batch + SOP-task creation, reminders — so
-	// it keeps the same headroom the retired goatos-stg obligation-sweeper Cloud
-	// Run Job had (-timeout=180s). On the SHARED operational lane below it would
-	// only get the interval/4 (~75s) default, since that default is sized so
-	// several serial stages fit inside one tick. Isolating it preserves the
-	// budget without shrinking the other stages. Configurable via
-	// GOATOS_OBLIGATION_SWEEP_TIMEOUT.
-	supervisor.RegisterCadenceWithTimeout("obligation-sweep", 5*time.Minute,
-		durationEnv("GOATOS_OBLIGATION_SWEEP_TIMEOUT", 180*time.Second),
-		kernelstages.NewObligationSweeperStage(deps, sweeperCfg),
-	)
+	if stagesEnabled {
+		// Obligation sweep (every 5 minutes, isolated on its own lane with an
+		// explicit per-run budget). This is the heaviest operational stage at 5k-50k
+		// scale — mark-missed, escalation, batch + SOP-task creation, reminders — so
+		// it keeps the same headroom the retired goatos-stg obligation-sweeper Cloud
+		// Run Job had (-timeout=180s). On the SHARED operational lane below it would
+		// only get the interval/4 (~75s) default, since that default is sized so
+		// several serial stages fit inside one tick. Isolating it preserves the
+		// budget without shrinking the other stages. Configurable via
+		// GOATOS_OBLIGATION_SWEEP_TIMEOUT.
+		supervisor.RegisterCadenceWithTimeout("obligation-sweep", 5*time.Minute,
+			durationEnv("GOATOS_OBLIGATION_SWEEP_TIMEOUT", 180*time.Second),
+			kernelstages.NewObligationSweeperStage(deps, sweeperCfg),
+		)
 
-	// Operational (every 5 minutes): queue reminder cadence fires (T-7d, daily,
-	// due-today), reconcile inventory batches, retry SOP review fanout. All light,
-	// so the interval/4 default is ample.
-	supervisor.RegisterCadence("operational", 5*time.Minute,
-		kernelstages.NewReminderCadenceStage(deps, tenantID),
-		kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
-		kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),
-	)
+		// Operational (every 5 minutes): queue reminder cadence fires (T-7d, daily,
+		// due-today), reconcile inventory batches, retry SOP review fanout. All light,
+		// so the interval/4 default is ample.
+		supervisor.RegisterCadence("operational", 5*time.Minute,
+			kernelstages.NewReminderCadenceStage(deps, tenantID),
+			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
+			kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),
+		)
 
-	// Generation (hourly): idempotently generate/recheck effective vaccination
-	// obligations. Event-triggered generation still runs via the domain consumer.
-	supervisor.RegisterCadence("generation", 1*time.Hour,
-		kernelstages.NewVaccinationGenerationStage(deps, tenantID),
-	)
+		// Generation (hourly): idempotently generate/recheck effective vaccination
+		// obligations. Event-triggered generation still runs via the domain consumer.
+		supervisor.RegisterCadence("generation", 1*time.Hour,
+			kernelstages.NewVaccinationGenerationStage(deps, tenantID),
+		)
 
-	// Housekeeping (hourly): processed-event retention + expired idempotency
-	// keys. 1h initially to match the retired jobs; safe to relax to daily once
-	// retention volume at scale is measured.
-	supervisor.RegisterCadence("housekeeping", 1*time.Hour,
-		kernelstages.NewProcessedEventSweeperStage(deps, tenantID),
-		kernelstages.NewIdempotencyKeySweeperStage(deps, tenantID),
-		kernelstages.NewCalendarReconcilerStage(deps, tenantID),
-	)
+		// Housekeeping (hourly): processed-event retention + expired idempotency
+		// keys. 1h initially to match the retired jobs; safe to relax to daily once
+		// retention volume at scale is measured.
+		supervisor.RegisterCadence("housekeeping", 1*time.Hour,
+			kernelstages.NewProcessedEventSweeperStage(deps, tenantID),
+			kernelstages.NewIdempotencyKeySweeperStage(deps, tenantID),
+			kernelstages.NewCalendarReconcilerStage(deps, tenantID),
+		)
+	}
 
 	// Cloud Run lifecycle/health listener on $PORT. Required so a Cloud Run
 	// SERVICE revision (min=2 HA) becomes ready — the worker itself has no
@@ -189,7 +205,17 @@ func run(ctx context.Context, args []string) error {
 		logger.Info("kernel_worker_health_listening", "addr", healthAddr)
 	}
 
-	logger.Info("kernel_worker_starting", "tenant_id", tenantID, "domain_consumer_enabled", consumerEnabled)
+	logger.Info("kernel_worker_starting", "tenant_id", tenantID, "domain_consumer_enabled", consumerEnabled, "stages_enabled", stagesEnabled)
+	if !stagesEnabled {
+		// Shadow mode (phase 1, legacy jobs still own every stage): no stages are
+		// registered, so supervisor.Run would return immediately and the process
+		// would exit the instant it starts — crash-looping a Cloud Run revision and
+		// failing any "worker is up with zero restarts" check. Block on the health
+		// server until shutdown so the worker stays a live health-only instance.
+		<-ctx.Done()
+		logger.Info("kernel_worker_shutdown", "mode", "shadow")
+		return nil
+	}
 	if err := supervisor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
@@ -222,6 +248,16 @@ func durationEnv(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func stageShadowEnabled() bool {
+	// KERN-01 SAFETY: read GOATOS_WORKER_STAGES_ENABLED to gate stage registration.
+	// When false (phase 1), the worker runs in shadow mode (health server only);
+	// legacy jobs are still active on their schedules. When true (phase 2),
+	// worker stages are enabled and legacy jobs are removed. The terraform
+	// binding ensures the two can never both be active.
+	enabled := strings.TrimSpace(os.Getenv("GOATOS_WORKER_STAGES_ENABLED"))
+	return enabled == "true"
 }
 
 func parseFlags(args []string) (cliConfig, error) {

@@ -39,7 +39,8 @@ type Repository interface {
 	// rows actually inserted (0 on an exact replay of every recipient, or when Recipients is empty).
 	QueueRoleNotifications(ctx context.Context, in QueueRoleNotifications) (int, error)
 
-	// SweepReminderCadence computes the vaccination reminder cadence ladder fires
+	// SweepReminderCadence is the legacy 2-value wrapper over SweepReminderCadencePage (it discards the
+	// returned keyset cursor). It computes the vaccination reminder cadence ladder fires
 	// (vaccination-notification-rules.md §3) due as of in.Now, already collapsed per (park, fire
 	// day, notification type, slot) so multiple obligations due the same park the same fire day
 	// batch into ONE fire, and already excluding fires that already exist (idempotency) or that fall
@@ -47,6 +48,16 @@ type Repository interface {
 	// keys) -- no N+1. Returns the fires ready to have their audience resolved and be queued via
 	// QueueReminderCadenceBatch.
 	SweepReminderCadence(ctx context.Context, in ReminderCadenceQuery) ([]ReminderCadenceFire, error)
+
+	// SweepReminderCadencePage is SweepReminderCadence plus a stable keyset cursor for cross-run
+	// forward progress (CAL-MAIN-02, migration 000204). The candidate scan is paged over
+	// (due_at, event_id) resumed from in.CursorDueAt/in.CursorEventID (a zero/empty cursor starts from
+	// the beginning). The returned ReminderCadenceSweepCursor is the last (due_at, event_id) scanned
+	// this page plus an Exhausted flag (the page was short of Limit). Callers persist the cursor and
+	// wrap it back to the start on exhaustion so later farms are eventually reached instead of being
+	// starved behind a LIMIT-full first page (see kernelstages.ReminderCadenceStage). Already-fired
+	// candidates are NOT excluded from the scan; the exact per-fire-key dedup emits no fire for them.
+	SweepReminderCadencePage(ctx context.Context, in ReminderCadenceQuery) ([]ReminderCadenceFire, ReminderCadenceSweepCursor, error)
 
 	// QueueReminderCadenceBatch writes ALL recipient rows for MULTIPLE already-collapsed cadence
 	// fires (from SweepReminderCadence) in one set-based pass: it first claims each fire atomically
@@ -65,12 +76,29 @@ type Repository interface {
 	// obligation.
 	ResolveVaccinationCompletionContext(ctx context.Context, tenantID, completionID string) (VaccinationCompletionContext, error)
 
-	// ReconcileEventReferencesPage (FINDING 4 fix: migration 000192) surfaces a bounded page of
-	// notification_requests/calendar_snoozes rows whose calendar_event_id no longer maps to any
-	// canonical obligation/batch/drive/task/completion. Ordered by (source_table, record_id) for
-	// stable pagination. Used by kernelstages.CalendarReconcilerStage to process large orphan sets
-	// without loading all into memory.
-	ReconcileEventReferencesPage(ctx context.Context, tenantID string, limit, offset int) ([]OrphanedCalendarEventReference, error)
+	// ReconcileEventReferencesPage (FINDING 4 fix: migration 000192, CAL-MAIN-03 fix: migration 000202)
+	// surfaces a bounded page of notification_requests/calendar_snoozes rows whose calendar_event_id
+	// no longer maps to any canonical obligation/batch/drive/task/completion. Uses stable keyset
+	// pagination: (cursorSourceTable, cursorRecordID) is the last processed row; pass ("", "") to
+	// start from the beginning. Ordered by (source_table, record_id) for deterministic keyset
+	// comparison. Used by kernelstages.CalendarReconcilerStage to process large orphan sets without
+	// LIMIT/OFFSET rescanning or loading all into memory.
+	ReconcileEventReferencesPage(ctx context.Context, tenantID, cursorSourceTable, cursorRecordID string, limit int) ([]OrphanedCalendarEventReference, error)
+
+	// LoadReconcilerCursor / SaveReconcilerCursor persist the reconciler stage's keyset cursor across
+	// daily runs (CAL-MAIN-03, migration 000203). LoadReconcilerCursor returns ("", "", nil) when no
+	// cursor is stored yet (start from the beginning). SaveReconcilerCursor upserts the last processed
+	// (source_table, record_id); passing ("", "") resets the tenant to the beginning on the next run.
+	LoadReconcilerCursor(ctx context.Context, tenantID string) (cursorSourceTable, cursorRecordID string, err error)
+	SaveReconcilerCursor(ctx context.Context, tenantID, cursorSourceTable, cursorRecordID string, now time.Time) error
+
+	// LoadReminderCadenceCursor / SaveReminderCadenceCursor persist the reminder-cadence stage's keyset
+	// cursor across ticks (CAL-MAIN-02, migration 000204). LoadReminderCadenceCursor returns
+	// (zero time, "", nil) when no cursor is stored yet (start from the beginning). SaveReminderCadenceCursor
+	// upserts the last processed (due_at, event_id); passing (zero time, "") resets the tenant to the
+	// beginning on the next tick.
+	LoadReminderCadenceCursor(ctx context.Context, tenantID string) (cursorDueAt time.Time, cursorEventID string, err error)
+	SaveReminderCadenceCursor(ctx context.Context, tenantID string, cursorDueAt time.Time, cursorEventID string, now time.Time) error
 
 	// ReconcileEventReferences (CR-004, calendar-canonical-5k50k review) surfaces every
 	// notification_requests/calendar_snoozes row whose calendar_event_id no longer maps to any
@@ -209,7 +237,7 @@ type VaccinationCompletionContext struct {
 	ExecutedBy   string // vaccination_completions.recorded_by (workforce_member_id, may be empty)
 }
 
-// ReminderCadenceQuery is the input to SweepReminderCadence.
+// ReminderCadenceQuery is the input to SweepReminderCadence / SweepReminderCadencePage.
 type ReminderCadenceQuery struct {
 	TenantID string
 	// Now is the as-of instant the cadence is evaluated at (any timezone; converted to IST
@@ -224,6 +252,27 @@ type ReminderCadenceQuery struct {
 	QuietHoursEndIST   string
 	// Limit bounds how many candidate obligations/events are scanned in one sweep tick.
 	Limit int
+	// CursorDueAt/CursorEventID are the keyset resume point for the candidate scan (CAL-MAIN-02): the
+	// scan returns candidates ordered by (due_at, event_id) strictly greater than this cursor. A zero
+	// CursorDueAt with an empty CursorEventID starts from the beginning of the candidate set.
+	CursorDueAt   time.Time
+	CursorEventID string
+}
+
+// ReminderCadenceSweepCursor is the keyset progress of one SweepReminderCadencePage call (CAL-MAIN-02).
+// The caller (kernelstages.ReminderCadenceStage) persists it and resumes from it next tick, wrapping to
+// the zero cursor once Exhausted so no farm is permanently starved behind a LIMIT-full first page. It is
+// derived from the candidates SCANNED this page (not the collapsed fires), so it advances even when
+// every candidate on the page was already fired.
+type ReminderCadenceSweepCursor struct {
+	// DueAt/EventID are the last (due_at, event_id) scanned this page. Zero/empty when no candidate was
+	// scanned (quiet hours, or the cursor was already past the end of the set).
+	DueAt   time.Time
+	EventID string
+	// Exhausted is true when the candidate scan returned fewer than Limit rows -- i.e. this page was the
+	// tail of the set. The caller wraps its persisted cursor back to the start when Exhausted so newly
+	// due candidates are re-scanned on the next full cycle.
+	Exhausted bool
 }
 
 // ReminderCadenceFire is one collapsed, ready-to-queue cadence fire: a batch across every open

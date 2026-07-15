@@ -209,6 +209,18 @@ type StageReviewItem struct {
 	CreatedAt        time.Time `json:"createdAt"`
 }
 
+// StageReviewItemCursor represents a keyset pagination cursor for stage review items (VACC-REV-10B).
+type StageReviewItemCursor struct {
+	CreatedAt    time.Time
+	ReviewItemID string
+}
+
+// StageReviewItemPage holds a paginated result of stage review items (VACC-REV-10B).
+type StageReviewItemPage struct {
+	Items      []StageReviewItem
+	NextCursor *string
+}
+
 type GenerateResult struct {
 	Generated                  int
 	Deferred                   int

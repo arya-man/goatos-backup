@@ -80,7 +80,8 @@ type Repository interface {
 	ListEligibleGoatsForGeneration(ctx context.Context, f domain.ImpactFilter, afterGoatID string, limit int32) ([]domain.EligibleGoat, error)
 
 	// Stage/age review items (VACC-REV-10): operator visibility + resolution for stale-K-stage conflicts.
-	ListOpenStageReviewItems(ctx context.Context, tenantID string, limit int) ([]domain.StageReviewItem, error)
+	// Supports cursor pagination (VACC-REV-10B) for >200 items without capping access to older work.
+	ListOpenStageReviewItems(ctx context.Context, tenantID string, cursor *domain.StageReviewItemCursor, limit int) (domain.StageReviewItemPage, error)
 	ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error)
 
 	// GetGoatForGeneration loads one goat's generation fields (incl sex/breed/stage). found is

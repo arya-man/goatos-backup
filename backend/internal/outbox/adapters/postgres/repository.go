@@ -297,23 +297,32 @@ WHERE outbox_id = $1
 }
 
 // ReleasePublishing releases a message from 'publishing' back to 'pending'
-// with no next_attempt_at (making it immediately available for re-claim).
+// with no next_attempt_at (making it immediately available for re-claim) and
+// restores the attempt_count that was incremented during the claim.
 // Used when ctx cancellation interrupts a drain mid-batch: unprocessed claimed
 // messages are released so the next tick re-claims them immediately instead of
-// waiting ~5 minutes for the lease to expire (KERN-02 mitigation).
+// waiting ~5 minutes for the lease to expire (KERN-02 mitigation). The attempt_count
+// restoration prevents unclaimed claim+release cycles from triggering spurious
+// dead-letter moves (KERN-FINAL-01 fix: only increment attempt_count when publish
+// is actually attempted, not at claim time; release must restore).
 func (r *Repository) ReleasePublishing(ctx context.Context, outboxID string, now time.Time) error {
 	return r.execStatusUpdate(ctx, `
 UPDATE outbox_messages
 SET status = 'pending',
     next_attempt_at = NULL,
+    attempt_count = GREATEST(0, attempt_count - 1),
     updated_at = $2
 WHERE outbox_id = $1
   AND status = 'publishing'`, outboxID, now)
 }
 
 // ReleasePublishingByIDs releases multiple messages from 'publishing' back to 'pending'
-// in a single batch statement, making them immediately available for re-claim.
+// in a single batch statement, making them immediately available for re-claim, and
+// restores the attempt_count that was incremented during the claim.
 // Used as a scale-safe alternative to looping ReleasePublishing calls.
+// Restoring attempt_count prevents unclaimed claim+release cycles from triggering spurious
+// dead-letter moves (KERN-FINAL-01 fix: only increment attempt_count when publish
+// is actually attempted, not at claim time; release must restore).
 func (r *Repository) ReleasePublishingByIDs(ctx context.Context, outboxIDs []string, now time.Time) error {
 	if len(outboxIDs) == 0 {
 		return nil
@@ -324,6 +333,7 @@ func (r *Repository) ReleasePublishingByIDs(ctx context.Context, outboxIDs []str
 UPDATE outbox_messages
 SET status = 'pending',
     next_attempt_at = NULL,
+    attempt_count = GREATEST(0, attempt_count - 1),
     updated_at = $2
 WHERE outbox_id = ANY($1::uuid[])
   AND status = 'publishing'`, outboxIDs, now)

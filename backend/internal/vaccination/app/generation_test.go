@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -2274,5 +2275,139 @@ func (r *generationRunRecorderFake) FinishGenerationRun(_ context.Context, tenan
 		run.LastError = lastError
 		r.byKey[key] = run
 	}
+	return nil
+}
+
+// TestHasSameDoseAdministration_CrossProtocol_EqualDoseCode verifies VACC-REV-06:
+// cross-protocol vaccines with the same dose code must NOT suppress work.
+func TestHasSameDoseAdministration_CrossProtocol_EqualDoseCode(t *testing.T) {
+	rule := protodomain.Rule{
+		RuleID:            "rule-id-1",
+		ProtocolID:        "protocol-v1",
+		ProtocolVersionID: "version-v1",
+		DoseCode:          "dose1",
+		Sequence:          1,
+		TriggerType:       "birth_age",
+	}
+	vaccine := vaccineProfile{Code: "FMD"}
+
+	// Administration from a DIFFERENT protocol with the same dose code should NOT suppress.
+	history := []domain.RecentVaccineAdministration{
+		{
+			VaccineCode:       "FMD",
+			DoseCode:          "dose1",
+			Sequence:          1,
+			ProtocolID:        "protocol-v2", // Different protocol
+			ProtocolVersionID: "version-v2",
+			AdministeredAt:    time.Now().Add(-7 * 24 * time.Hour),
+		},
+	}
+
+	result := hasSameDoseAdministration(rule, vaccine, history)
+	if result {
+		t.Errorf("VACC-REV-06 bug: cross-protocol dose with same code suppressed work; expected false, got true")
+	}
+}
+
+// TestHasSameDoseAdministration_CrossProtocol_EqualSequence verifies VACC-REV-06:
+// cross-protocol vaccines with the same sequence must NOT suppress work.
+func TestHasSameDoseAdministration_CrossProtocol_EqualSequence(t *testing.T) {
+	rule := protodomain.Rule{
+		RuleID:            "rule-id-1",
+		ProtocolID:        "protocol-v1",
+		ProtocolVersionID: "version-v1",
+		DoseCode:          "",      // No dose code
+		Sequence:          1,
+		TriggerType:       "birth_age",
+	}
+	vaccine := vaccineProfile{Code: "FMD"}
+
+	// Administration from a DIFFERENT protocol with the same sequence should NOT suppress.
+	history := []domain.RecentVaccineAdministration{
+		{
+			VaccineCode:       "FMD",
+			DoseCode:          "",
+			Sequence:          1,                 // Same sequence
+			ProtocolID:        "protocol-v2",    // Different protocol
+			ProtocolVersionID: "version-v2",
+			AdministeredAt:    time.Now().Add(-7 * 24 * time.Hour),
+		},
+	}
+
+	result := hasSameDoseAdministration(rule, vaccine, history)
+	if result {
+		t.Errorf("VACC-REV-06 bug: cross-protocol dose with same sequence suppressed work; expected false, got true")
+	}
+}
+
+// TestHasSameDoseAdministration_SameProtocol_EqualDoseCode verifies the normal case:
+// same-protocol vaccines with the same dose code SHOULD suppress work.
+func TestHasSameDoseAdministration_SameProtocol_EqualDoseCode(t *testing.T) {
+	rule := protodomain.Rule{
+		RuleID:            "rule-id-1",
+		ProtocolID:        "protocol-v1",
+		ProtocolVersionID: "version-v1",
+		DoseCode:          "dose1",
+		Sequence:          1,
+		TriggerType:       "birth_age",
+	}
+	vaccine := vaccineProfile{Code: "FMD"}
+
+	// Administration from the SAME protocol with the same dose code SHOULD suppress.
+	history := []domain.RecentVaccineAdministration{
+		{
+			VaccineCode:       "FMD",
+			DoseCode:          "dose1",
+			Sequence:          1,
+			ProtocolID:        "protocol-v1", // Same protocol
+			ProtocolVersionID: "version-v1",
+			AdministeredAt:    time.Now().Add(-7 * 24 * time.Hour),
+		},
+	}
+
+	result := hasSameDoseAdministration(rule, vaccine, history)
+	if !result {
+		t.Errorf("same-protocol dose code should suppress; expected true, got false")
+	}
+}
+
+// TestMissingReviewRecorderFailsOnStaleKidStage verifies VACC-REV-10A:
+// generation fails loudly if it detects a stale kid stage but has no recorder to persist the review item.
+func TestMissingReviewRecorderFailsOnStaleKidStage(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC) // Well past 20-week kid cutoff
+	asOf := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
+	goat := domain.EligibleGoat{
+		GoatID:            "goat-stale-kid",
+		DOB:               &dob,
+		LifecycleStatus:   "alive",
+		Species:           "goat",
+		Stage:             "K1", // Stale kid stage
+	}
+
+	svc := &GenerationService{
+		proto: &generationProtoFake{
+			rules:   []protodomain.Rule{},
+			ruleDSL: []byte(`{"vaccine":{"code":"test","type":"live","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]}}`),
+		},
+		goats: &generationGoatFake{list: []domain.EligibleGoat{goat}},
+		obl:   &generationObligationFake{},
+		// review is nil (missing recorder) - this should cause a failure when stale kid stage is detected
+	}
+
+	res := &domain.GenerateResult{}
+	err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{}, []string{}, genEligibility{}, goat, asOf, generationOptions{}, genVersionPolicies{Procurement: genProcurementPolicy{}}, vaccineProfile{}, []domain.RecentVaccineAdministration{}, newTrustedEvidenceLookup(), res)
+
+	if err == nil {
+		t.Errorf("VACC-REV-10A bug: missing review recorder should fail when stale kid stage detected; expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "review recorder is absent") {
+		t.Errorf("error should mention missing review recorder; got: %v", err)
+	}
+}
+
+type fakeReviewRecorder struct{}
+
+func (f *fakeReviewRecorder) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error {
 	return nil
 }

@@ -386,6 +386,69 @@ def classify_validate_constraint_risk(
         )
 
 
+def classify_lock_timeout_risk(
+    *,
+    path_name: str,
+    version: int,
+    section_text: str,
+    no_transaction: bool,
+) -> None:
+    """
+    Check that NO TRANSACTION migrations with hot-table constraint operations
+    have bounded SET lock_timeout before each operation (VACC-REV-11 P1).
+
+    A NO TRANSACTION migration is only lock-safe if each statement is bounded by
+    a lock_timeout, preventing indefinite hangs on lock contention. This guard
+    enforces that pattern for ADD/VALIDATE/DROP CONSTRAINT on hot tables.
+    """
+    if not no_transaction:
+        return
+
+    # Patterns for lock-timeout-requiring operations on hot tables
+    constraint_ops = re.compile(
+        r"\b(?:ADD|VALIDATE|DROP)\s+CONSTRAINT\b",
+        re.I
+    )
+
+    # Pattern to detect SET lock_timeout in proximity (before the operation)
+    lock_timeout_pattern = re.compile(r"SET\s+lock_timeout\s*=", re.I)
+
+    # Split section into statements (roughly by semicolon, accounting for comments)
+    statements = split_statements(strip_sql_comments(section_text))
+
+    for i, stmt in enumerate(statements):
+        # Check if this statement contains a hot-table constraint operation
+        if not constraint_ops.search(stmt):
+            continue
+
+        # Extract table name from ALTER TABLE statement
+        table_match = alter_table_re.search(stmt)
+        if not table_match:
+            continue
+
+        table = bare_name(table_match.group("table"))
+        if not is_hot_table(table):
+            continue
+
+        # Check if SET lock_timeout appears in this statement
+        has_timeout = bool(lock_timeout_pattern.search(stmt))
+
+        # If not found, look back in the last few statements (up to 5 prior statements)
+        # to account for pattern: SET lock_timeout; ... other statements ... ; constraint op;
+        if not has_timeout:
+            for j in range(max(0, i - 5), i):
+                if lock_timeout_pattern.search(statements[j]):
+                    has_timeout = True
+                    break
+
+        if not has_timeout:
+            suffix = "" if "goose Up" in section_text else "in goose Down"
+            violations.append(
+                f"{path_name}: NO TRANSACTION migration with hot-table constraint operation on {table} "
+                f"is missing bounded 'SET lock_timeout' before the {constraint_ops.search(stmt).group().upper()} statement {suffix}"
+            )
+
+
 violations: list[str] = []
 warnings: list[str] = []
 index_owner: dict[str, str] = {}
@@ -404,6 +467,19 @@ for path in sorted(migration_dir.glob("*.sql")):
         violations.append(
             f"{path.name}: concurrent index statement in goose Down section is missing -- +goose NO TRANSACTION"
         )
+    # Check for lock_timeout on hot-table constraint operations in NO TRANSACTION migrations (VACC-REV-11 P1)
+    classify_lock_timeout_risk(
+        path_name=path.name,
+        version=version,
+        section_text=up_raw,
+        no_transaction=has_no_transaction(up_raw),
+    )
+    classify_lock_timeout_risk(
+        path_name=path.name,
+        version=version,
+        section_text=down_raw,
+        no_transaction=has_no_transaction(down_raw),
+    )
     up_sql = strip_sql_comments(up_raw)
     down_sql = strip_sql_comments(down_raw)
     up_statements = split_statements(up_sql) if up_sql.strip() else []

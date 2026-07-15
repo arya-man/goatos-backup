@@ -261,6 +261,17 @@
       "notes": "Two-phase legacy-job retirement gate. Run explicitly during a cutover; not in the standing run-local-ci.sh guardrails job."
     },
     {
+      "id": "kernel-worker-cutover",
+      "script": "tools/agent-hooks/check-kernel-worker-cutover.mjs",
+      "makeTarget": "kernel-worker-cutover-guard",
+      "realCheck": "node tools/agent-hooks/check-kernel-worker-cutover.mjs",
+      "selfTest": "node tools/agent-hooks/check-kernel-worker-cutover.mjs --self-test",
+      "owningDoc": ".agents/skills/kernel-scale-lens/SKILL.md",
+      "requiredInCI": true,
+      "ciStep": "kernel-worker-cutover-guard",
+      "notes": "KERN-01: asserts exactly one active owner per stage in every terraform phase — legacy jobs (gated present when retire_legacy_stage_jobs=false) and worker stages (GOATOS_WORKER_STAGES_ENABLED bound to the same flag) are mutually exclusive. Standing static check; runs on every guardrails pass."
+    },
+    {
       "id": "mock-clicks",
       "script": "tools/agent-hooks/check-mock-clicks.mjs",
       "makeTarget": null,

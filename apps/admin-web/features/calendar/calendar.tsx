@@ -409,6 +409,7 @@ export async function VaccinationCalendarPage({
         <WeekView
           events={events}
           today={today}
+          selectedWeekAnchor={anchorKey}
           eventHref={eventHref}
           driveHref={driveHref}
           ownerKey={activeOwnerKey}
@@ -451,6 +452,7 @@ export async function VaccinationCalendarPage({
 function WeekView({
   events,
   today,
+  selectedWeekAnchor,
   eventHref,
   driveHref,
   ownerKey,
@@ -464,6 +466,7 @@ function WeekView({
 }: {
   events: CalendarEvent[];
   today: string;
+  selectedWeekAnchor: string;
   eventHref: (id: string) => string;
   driveHref: (id: string) => string;
   ownerKey: CalendarOwnerFilter;
@@ -488,9 +491,10 @@ function WeekView({
   const showFilteredEmpty = byDate.size === 0 && events.length > 0;
   const todayWeekday = weekdayOf(`${today}T00:00:00+05:30`);
 
-  // Enumerate ALL 7 days of the week (Mon..Sun IST) from the window. Uses UTC date arithmetic
-  // to avoid timezone shifts that toISOString() would introduce.
-  const weekWindow_ = weekWindow(today);
+  // Enumerate ALL 7 days of the week (Mon..Sun IST) from the selected week's window, not from today.
+  // This ensures the displayed columns match the date range used for the API fetch.
+  // Uses UTC date arithmetic to avoid timezone shifts that toISOString() would introduce.
+  const weekWindow_ = weekWindow(selectedWeekAnchor);
   const weekDays = enumerateWeekDays(weekWindow_.dateFrom);
 
   return (

@@ -27,8 +27,9 @@ func (s *Service) RecordCompletion(ctx context.Context, in domain.NewCompletion)
 }
 
 // ListOpenStageReviewItems returns open stage/age review items for operator triage (VACC-REV-10).
-func (s *Service) ListOpenStageReviewItems(ctx context.Context, tenantID string, limit int) ([]domain.StageReviewItem, error) {
-	return s.repo.ListOpenStageReviewItems(ctx, tenantID, limit)
+// Supports cursor pagination (VACC-REV-10B) for >200 items without capping access to older work.
+func (s *Service) ListOpenStageReviewItems(ctx context.Context, tenantID string, cursor *domain.StageReviewItemCursor, limit int) (domain.StageReviewItemPage, error) {
+	return s.repo.ListOpenStageReviewItems(ctx, tenantID, cursor, limit)
 }
 
 // ResolveStageReviewItem marks an open review item resolved (idempotent no-op if already resolved).

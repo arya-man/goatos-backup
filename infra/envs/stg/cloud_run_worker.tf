@@ -70,6 +70,11 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
       }
 
       env {
+        name  = "GOATOS_WORKER_STAGES_ENABLED"
+        value = var.retire_legacy_stage_jobs ? "true" : "false"
+      }
+
+      env {
         name  = "GOATOS_PG_QUERY_TIMEOUT"
         value = "30s"
       }

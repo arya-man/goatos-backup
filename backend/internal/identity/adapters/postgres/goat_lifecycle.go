@@ -733,15 +733,39 @@ func (r *Repository) IdentityGoat(ctx context.Context, cmd ports.IdentityGoatCom
 	if cmd.EntryDate != nil {
 		effectiveEntry = pgtype.Date{Time: *cmd.EntryDate, Valid: true}
 	}
-	// VACC-REV-12: a SUBMITTED DOB or arrival date in the future would push the birth_age/post_arrival
-	// vaccination schedule into the future. Reject (defense-in-depth for any non-HTTP caller); cmd.
-	// OccurredAt is the server processing instant. Checked BEFORE chronology so a future anchor is
-	// reported as ErrFutureAnchor rather than being masked by the dob>entry chronology rule.
-	if cmd.DOB != nil && cmd.DOB.After(cmd.OccurredAt) {
-		return nil, ports.ErrFutureAnchor
+	// VACC-REV-12: both SUBMITTED and EFFECTIVE DOB or arrival dates in the future would push the
+	// birth_age/post_arrival vaccination schedule into the future. Reject (defense-in-depth for any
+	// non-HTTP caller); use India business-calendar dates to avoid boundary issues at IST midnight
+	// (UTC 18:30): comparing "today" as a date in IST, not as a UTC instant. On a partial correction,
+	// validate BOTH the stored and submitted values — a DOB-only fix cannot retain an already-corrupt
+	// future entry date. Checked BEFORE chronology so a future anchor is reported as ErrFutureAnchor
+	// rather than being masked by the dob>entry chronology rule.
+	nowBusinessDay := biztime.BusinessDayStart(cmd.OccurredAt)
+	if cmd.DOB != nil {
+		dobBusinessDay := biztime.BusinessDayStart(*cmd.DOB)
+		if dobBusinessDay.After(nowBusinessDay) {
+			return nil, ports.ErrFutureAnchor
+		}
 	}
-	if cmd.EntryDate != nil && cmd.EntryDate.After(cmd.OccurredAt) {
-		return nil, ports.ErrFutureAnchor
+	if cmd.EntryDate != nil {
+		entryBusinessDay := biztime.BusinessDayStart(*cmd.EntryDate)
+		if entryBusinessDay.After(nowBusinessDay) {
+			return nil, ports.ErrFutureAnchor
+		}
+	}
+	// Also validate EFFECTIVE values (submitted OR stored): neither the new nor the retained value
+	// can be in the future (VACC-REV-12A).
+	if effectiveDOB.Valid {
+		effDOBBusinessDay := biztime.BusinessDayStart(effectiveDOB.Time)
+		if effDOBBusinessDay.After(nowBusinessDay) {
+			return nil, ports.ErrFutureAnchor
+		}
+	}
+	if effectiveEntry.Valid {
+		effEntryBusinessDay := biztime.BusinessDayStart(effectiveEntry.Time)
+		if effEntryBusinessDay.After(nowBusinessDay) {
+			return nil, ports.ErrFutureAnchor
+		}
 	}
 	if effectiveDOB.Valid && effectiveEntry.Valid && effectiveDOB.Time.After(effectiveEntry.Time) {
 		return nil, ports.ErrInvalidChronology
