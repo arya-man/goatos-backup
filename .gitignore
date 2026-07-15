@@ -87,6 +87,10 @@ graphify-out/cache/
 # but is machine-specific; never commit
 /ai-telemetry.html
 
+# generated E2E harness report (rendered by backend/tests/e2e/report.go via
+# TestMain; .github/workflows/pages.yml regenerates it in CI before publishing)
+backend/tests/e2e/report/
+
 wiki/
 
 # Claude subagent worktrees (isolation:worktree) — local scratch, never commit
