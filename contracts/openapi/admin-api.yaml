@@ -1784,6 +1784,93 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/vaccination/stage-review-items:
+    get:
+      tags:
+        - Admin Vaccination
+      operationId: listVaccinationStageReviewItems
+      summary: List open vaccination stage/age review items.
+      description: >-
+        Open, goat-scoped review items for animals past the 20-week kid cutoff that still carry a
+        K1/K2 management-stage tag (generation routed them adult and never generates kid vaccinations).
+        Operators use this to discover which animals need their stale tag reconciled.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        "200":
+          description: Open stage/age review items, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VaccinationStageReviewItem"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/vaccination/stage-review-items/{review_item_id}/resolve:
+    post:
+      tags:
+        - Admin Vaccination
+      operationId: resolveVaccinationStageReviewItem
+      summary: Resolve an open vaccination stage/age review item.
+      description: >-
+        Marks an OPEN review item resolved once the operator has reconciled the animal's stage tag.
+        Idempotent: resolving an already-resolved or missing item returns 404 without changing state.
+        A later recurrence of the same conflict opens a NEW item rather than being swallowed.
+      parameters:
+        - name: review_item_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note:
+                  type: string
+                  maxLength: 500
+      responses:
+        "200":
+          description: Review item resolved.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  review_item_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
   /admin/goats/bulk-status/preview:
     post:
       tags:
@@ -5318,6 +5405,37 @@ components:
         row_version:
           type: integer
           minimum: 1
+    VaccinationStageReviewItem:
+      type: object
+      additionalProperties: false
+      description: An open/resolved vaccination stage/age review item for a single goat (VACC-REV-10).
+      required:
+        - reviewItemId
+        - goatId
+        - reason
+        - observedStage
+        - observedAgeWeeks
+        - status
+        - createdAt
+      properties:
+        reviewItemId:
+          type: string
+          format: uuid
+        goatId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+        observedStage:
+          type: string
+        observedAgeWeeks:
+          type: integer
+        status:
+          type: string
+          enum: [open, resolved]
+        createdAt:
+          type: string
+          format: date-time
     RunVaccinationManualCampaignRequest:
       type: object
       additionalProperties: false

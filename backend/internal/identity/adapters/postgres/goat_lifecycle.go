@@ -733,6 +733,16 @@ func (r *Repository) IdentityGoat(ctx context.Context, cmd ports.IdentityGoatCom
 	if cmd.EntryDate != nil {
 		effectiveEntry = pgtype.Date{Time: *cmd.EntryDate, Valid: true}
 	}
+	// VACC-REV-12: a SUBMITTED DOB or arrival date in the future would push the birth_age/post_arrival
+	// vaccination schedule into the future. Reject (defense-in-depth for any non-HTTP caller); cmd.
+	// OccurredAt is the server processing instant. Checked BEFORE chronology so a future anchor is
+	// reported as ErrFutureAnchor rather than being masked by the dob>entry chronology rule.
+	if cmd.DOB != nil && cmd.DOB.After(cmd.OccurredAt) {
+		return nil, ports.ErrFutureAnchor
+	}
+	if cmd.EntryDate != nil && cmd.EntryDate.After(cmd.OccurredAt) {
+		return nil, ports.ErrFutureAnchor
+	}
 	if effectiveDOB.Valid && effectiveEntry.Valid && effectiveDOB.Time.After(effectiveEntry.Time) {
 		return nil, ports.ErrInvalidChronology
 	}

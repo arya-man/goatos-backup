@@ -79,6 +79,10 @@ type Repository interface {
 	// cohort matching the filter; afterGoatID is the cursor ("" starts at the beginning).
 	ListEligibleGoatsForGeneration(ctx context.Context, f domain.ImpactFilter, afterGoatID string, limit int32) ([]domain.EligibleGoat, error)
 
+	// Stage/age review items (VACC-REV-10): operator visibility + resolution for stale-K-stage conflicts.
+	ListOpenStageReviewItems(ctx context.Context, tenantID string, limit int) ([]domain.StageReviewItem, error)
+	ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error)
+
 	// GetGoatForGeneration loads one goat's generation fields (incl sex/breed/stage). found is
 	// false when the goat does not exist.
 	GetGoatForGeneration(ctx context.Context, tenantID, goatID string) (g domain.EligibleGoat, found bool, err error)

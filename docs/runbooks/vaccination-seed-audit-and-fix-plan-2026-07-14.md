@@ -287,6 +287,25 @@ corrected DOB).
   hot-index-migration guard now includes `identity_decisions`, so future validated CHECK additions
   there are rejected (000146 grandfathered as deployed debt).
 
+### G. Round-4 review corrections (2026-07-15)
+
+- **VACC-REV-06 (P0) — dose-code identity is authoritative.** `hasSameDoseAdministration` now
+  requires an EXACT dose-code match when both sides name a dose code; sequence is only a fallback
+  when dose-code identity is unavailable. Two distinct doses of one vaccine reusing sequence 1 can no
+  longer cross-suppress. Guard: `TestSameSequenceDifferentDoseCodeNotCrossSuppressed`.
+- **VACC-REV-10 (P1) — actionable review lifecycle.** `vaccination_stage_review_items` (migration
+  000192) now carries `status` (open/resolved) + `resolved_by`/`resolved_at`/`resolution_note`, dedup
+  scoped to OPEN via a partial unique index (a recurrence after resolution opens a NEW item), plus
+  `GET /admin/vaccination/stage-review-items` (VaccinationRead) and
+  `POST .../{id}/resolve` (VaccinationVerify) with OpenAPI + regenerated client. Guards:
+  `TestStageReviewItemLifecycle` (create/dedupe/list/resolve/re-resolve/recurrence) +
+  `TestStageReviewItemsListAndResolveHTTP`.
+- **VACC-REV-11 (P1) — genuinely lock-safe migration.** 000191 now runs `-- +goose NO TRANSACTION`,
+  so `ADD ... NOT VALID` commits and RELEASES its lock before the separate `VALIDATE` scans — the
+  single-transaction lock-accumulation is gone. 000191 is NO LONGER whitelisted; the hot-index guard
+  exempts NO TRANSACTION constraint statements and still rejects a transactional add+validate on a
+  hot table.
+
 ## Open data caveats
 - `procurement_hf_vaccination_evidence` has **0 rows** — the 498 procured
   animals' procurement primary is not in that table; confirm it is captured in the

@@ -418,3 +418,38 @@ func TestGenerateSuppressesOnlyAdministeredDoseNotLaterBoosters(t *testing.T) {
 		t.Fatalf("inserted rule = %q, want the week-7 booster (et-7w); the administered week-4 dose must be suppressed, its later booster preserved", got.RuleID)
 	}
 }
+
+// TestSameSequenceDifferentDoseCodeNotCrossSuppressed is the VACC-REV-06 sequence-collision guard:
+// two distinct doses of the same vaccine that happen to reuse sequence 1 (distinct dose_codes) must
+// not suppress each other. Administering "et_wave1" must leave the still-required "et_wave2" scheduled.
+func TestSameSequenceDifferentDoseCodeNotCrossSuppressed(t *testing.T) {
+	ctx := context.Background()
+	entry := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"ETTT","type":"killed","pathogen_class":"bacterial"},"eligibility":{"lifecycle":"alive"}}`),
+		rules: []protodomain.Rule{
+			// Both post_arrival waves carry Sequence 1 but DISTINCT dose codes.
+			{RuleID: "et-w1", DoseCode: "et_wave1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 0, DueWindowDays: 7},
+			{RuleID: "et-w2", DoseCode: "et_wave2", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 30, DueWindowDays: 7},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "g-seqcollide", LifecycleStatus: "alive", HealthStatus: "healthy",
+			ReproductiveStatus: "open", OriginType: "procured", EntryDate: &entry,
+		}},
+		// Only wave 1 administered (dose_code et_wave1, sequence 1).
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"g-seqcollide": {{AdministeredAt: entry, VaccineCode: "ETTT", DoseCode: "et_wave1", Sequence: 1}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", entry.AddDate(0, 0, 10))
+	if err != nil {
+		t.Fatalf("generate two-wave (seq-collision) course: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 || obl.inserted[0].RuleID != "et-w2" {
+		t.Fatalf("result=%#v inserted=%#v, want wave 2 (et-w2) still scheduled despite the sequence collision with the administered wave 1", result, obl.inserted)
+	}
+}

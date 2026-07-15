@@ -142,13 +142,10 @@ reviewed_applied_debt = {
     "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct CHECK/FOREIGN KEY constraint without NOT VALID",
     "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct DROP CONSTRAINT in goose Down section",
     "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct CHECK/FOREIGN KEY constraint without NOT VALID in goose Down section",
-    # 000191 (identity_goat decision, VACC-REV-11) adds the value the LOCK-SAFE way: the re-add is
-    # NOT VALID (no "without NOT VALID" finding above), so only the inherent catalog-only DROP + the
-    # concurrent VALIDATE remain — the same reviewed shape as 000166/000179/000181.
-    "000191_goat_identity_correction_decision.sql: identity_decisions_decision_type_check_v2 on hot table identity_decisions uses direct VALIDATE CONSTRAINT",
-    "000191_goat_identity_correction_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct DROP CONSTRAINT",
-    "000191_goat_identity_correction_decision.sql: identity_decisions_decision_type_check_v1 on hot table identity_decisions uses direct VALIDATE CONSTRAINT in goose Down section",
-    "000191_goat_identity_correction_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct DROP CONSTRAINT in goose Down section",
+    # 000191 (identity_goat decision, VACC-REV-11) is NOT whitelisted: it runs -- +goose NO
+    # TRANSACTION, so its ADD ... NOT VALID / VALIDATE / DROP / RENAME each commit independently and
+    # are lock-safe on their own — the guard exempts NO TRANSACTION constraint statements above, so no
+    # entry is needed here. A future TRANSACTIONAL add+validate on identity_decisions is still rejected.
 }
 
 create_table_re = re.compile(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)
@@ -338,12 +335,17 @@ def classify_drop_constraint_risk(
     section: str,
     statement: str,
     created_in_migration: set[str],
+    no_transaction: bool,
 ) -> None:
     table_match = alter_table_re.search(statement)
     if not table_match:
         return
     table = bare_name(table_match.group("table"))
     if table in created_in_migration or not is_hot_table(table):
+        return
+    # A section that runs NO TRANSACTION commits each statement independently, so a DROP CONSTRAINT
+    # is its own brief catalog-only ACCESS EXCLUSIVE with no accumulated lock — lock-safe (VACC-REV-11).
+    if no_transaction:
         return
     suffix = "" if section == "goose Up" else f" in {section} section"
     for match in drop_constraint_re.finditer(statement):
@@ -361,12 +363,19 @@ def classify_validate_constraint_risk(
     section: str,
     statement: str,
     created_in_migration: set[str],
+    no_transaction: bool,
 ) -> None:
     table_match = alter_table_re.search(statement)
     if not table_match:
         return
     table = bare_name(table_match.group("table"))
     if table in created_in_migration or not is_hot_table(table):
+        return
+    # A VALIDATE CONSTRAINT inside a TRANSACTIONAL migration keeps the preceding ADD ... NOT VALID's
+    # ACCESS EXCLUSIVE lock for the whole scan — defeating the lock-safe rollout. Only a NO TRANSACTION
+    # section releases the ADD's lock before the (SHARE UPDATE EXCLUSIVE, concurrent) validate scan, so
+    # a transactional VALIDATE on a hot table is rejected here and NO TRANSACTION is exempt (VACC-REV-11).
+    if no_transaction:
         return
     suffix = "" if section == "goose Up" else f" in {section} section"
     for match in validate_constraint_re.finditer(statement):
@@ -418,6 +427,7 @@ for path in sorted(migration_dir.glob("*.sql")):
             section="goose Up",
             statement=statement,
             created_in_migration=created_in_migration,
+            no_transaction=has_no_transaction(up_raw),
         )
         classify_validate_constraint_risk(
             path_name=path.name,
@@ -425,6 +435,7 @@ for path in sorted(migration_dir.glob("*.sql")):
             section="goose Up",
             statement=statement,
             created_in_migration=created_in_migration,
+            no_transaction=has_no_transaction(up_raw),
         )
 
         drop_match = drop_index_re.search(statement)
@@ -470,6 +481,7 @@ for path in sorted(migration_dir.glob("*.sql")):
             section="goose Down",
             statement=statement,
             created_in_migration=created_in_migration,
+            no_transaction=has_no_transaction(down_raw),
         )
         classify_validate_constraint_risk(
             path_name=path.name,
@@ -477,6 +489,7 @@ for path in sorted(migration_dir.glob("*.sql")):
             section="goose Down",
             statement=statement,
             created_in_migration=created_in_migration,
+            no_transaction=has_no_transaction(down_raw),
         )
 
         drop_match = drop_index_re.search(statement)

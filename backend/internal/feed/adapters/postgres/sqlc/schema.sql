@@ -5409,9 +5409,14 @@ CREATE TABLE public.vaccination_stage_review_items (
     reason text NOT NULL,
     observed_stage text NOT NULL,
     observed_age_weeks integer NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    resolved_by uuid,
+    resolved_at timestamp with time zone,
+    resolution_note text,
     idempotency_key text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_stage_review_items_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text])))
 );
 
 
@@ -7530,14 +7535,6 @@ ALTER TABLE ONLY public.vaccination_source_facts
 
 ALTER TABLE ONLY public.vaccination_source_facts
     ADD CONSTRAINT vaccination_source_facts_pkey PRIMARY KEY (source_fact_id);
-
-
---
--- Name: vaccination_stage_review_items vaccination_stage_review_items_idem_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.vaccination_stage_review_items
-    ADD CONSTRAINT vaccination_stage_review_items_idem_unique UNIQUE (tenant_id, idempotency_key);
 
 
 --
@@ -10453,10 +10450,17 @@ CREATE INDEX vaccination_source_facts_tenant_disposition_idx ON public.vaccinati
 
 
 --
--- Name: vaccination_stage_review_items_tenant_goat_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: vaccination_stage_review_items_open_idem_unique; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX vaccination_stage_review_items_tenant_goat_idx ON public.vaccination_stage_review_items USING btree (tenant_id, goat_id);
+CREATE UNIQUE INDEX vaccination_stage_review_items_open_idem_unique ON public.vaccination_stage_review_items USING btree (tenant_id, idempotency_key) WHERE (status = 'open'::text);
+
+
+--
+-- Name: vaccination_stage_review_items_tenant_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_stage_review_items_tenant_status_idx ON public.vaccination_stage_review_items USING btree (tenant_id, status, created_at DESC);
 
 
 --

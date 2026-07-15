@@ -18,6 +18,7 @@ var (
 	ErrInvalidCursor                  = errors.New("invalid pagination cursor")
 	ErrGuardrailRequired              = errors.New("identity critical transition requires guardrail")
 	ErrInvalidChronology              = errors.New("identity dob must be on or before entry_date")
+	ErrFutureAnchor                   = errors.New("identity dob/entry_date cannot be in the future")
 	ErrCriticalDeathGuardrailRequired = fmt.Errorf("%w: death exit", ErrGuardrailRequired)
 )
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
 const (
@@ -1123,6 +1124,7 @@ type fakeRepo struct {
 	lastHealthGoatCmd           ports.HealthGoatCommand
 	lastReproductiveGoatCmd     ports.ReproductiveGoatCommand
 	lastIdentityGoatCmd         ports.IdentityGoatCommand
+	identityGoatCalls           int
 	validateAdminGoatCreateFunc func(ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error)
 	validateAdminGoatCreateCmds []ports.ValidateAdminGoatCreateCommand
 	createAdminGoatResult       *ports.AdminGoatMutationResult
@@ -1324,6 +1326,7 @@ func (f *fakeRepo) ReproductiveGoat(_ context.Context, cmd ports.ReproductiveGoa
 
 func (f *fakeRepo) IdentityGoat(_ context.Context, cmd ports.IdentityGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	f.lastIdentityGoatCmd = cmd
+	f.identityGoatCalls++
 	out := summary(cmd.GoatID, "G-000001", "clean")
 	return &ports.AdminGoatMutationResult{
 		Goat:        out,
@@ -1464,6 +1467,17 @@ func TestIdentityGoatRejectsFutureOccurredAtAndUsesServerTime(t *testing.T) {
 		t.Fatalf("future occurred_at error = %v, want invalid_occurred_at", err)
 	}
 
+	// VACC-REV-07 (P2): a SLIGHTLY-future occurred_at (inside the retired two-minute skew allowance)
+	// must now also be rejected — there is no future skew grace window.
+	nearFuture := time.Now().UTC().Add(1 * time.Minute).Format(time.RFC3339)
+	_, err = svc.IdentityGoat(context.Background(), IdentityGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-near-future", TraceID: testTrace, GoatID: goatA,
+		RawBody: []byte(fmt.Sprintf(`{"dob":"2026-05-01","occurred_at":%q,"reason":"slightly future timestamp attempt","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-nf"}],"row_version":3}`, nearFuture)),
+	})
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_occurred_at" {
+		t.Fatalf("near-future occurred_at error = %v, want invalid_occurred_at (no skew allowance)", err)
+	}
+
 	// A valid (past) client occurred_at: the command persists/recomputes with SERVER time and keeps
 	// the client value only as the effective date.
 	before := time.Now().UTC()
@@ -1479,5 +1493,38 @@ func TestIdentityGoatRejectsFutureOccurredAtAndUsesServerTime(t *testing.T) {
 	}
 	if repo.lastIdentityGoatCmd.EffectiveAt == nil || repo.lastIdentityGoatCmd.EffectiveAt.Format("2006-01-02") != before.AddDate(-1, 0, 0).Format("2006-01-02") {
 		t.Fatalf("EffectiveAt = %v, want the retained client effective date", repo.lastIdentityGoatCmd.EffectiveAt)
+	}
+}
+
+// TestIdentityGoatRejectsFutureAnchorDates is the VACC-REV-12 guard: a DOB or entry_date in the future
+// is rejected before any repo call — a future birth/arrival anchor would push the birth_age/post_arrival
+// vaccination schedule into the future.
+func TestIdentityGoatRejectsFutureAnchorDates(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+
+	futureDate := time.Now().In(biztime.DefaultLocation()).AddDate(0, 0, 2).Format("2006-01-02")
+
+	// Future DOB rejected.
+	_, err := svc.IdentityGoat(context.Background(), IdentityGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-future-dob", TraceID: testTrace, GoatID: goatA,
+		RawBody: []byte(fmt.Sprintf(`{"dob":%q,"reason":"future dob correction attempt","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-fd"}],"row_version":3}`, futureDate)),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_dob" {
+		t.Fatalf("future dob error = %v, want invalid_dob", err)
+	}
+
+	// Future entry_date rejected.
+	_, err = svc.IdentityGoat(context.Background(), IdentityGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-future-entry", TraceID: testTrace, GoatID: goatA,
+		RawBody: []byte(fmt.Sprintf(`{"entry_date":%q,"reason":"future entry correction attempt","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-fe"}],"row_version":3}`, futureDate)),
+	})
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_entry_date" {
+		t.Fatalf("future entry_date error = %v, want invalid_entry_date", err)
+	}
+
+	if repo.identityGoatCalls != 0 {
+		t.Fatalf("repo.IdentityGoat called %d times, want 0 (rejected before repo)", repo.identityGoatCalls)
 	}
 }

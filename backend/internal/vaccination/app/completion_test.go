@@ -457,3 +457,11 @@ func (s *stockConsumerFake) ConsumeForBatch(_ context.Context, _, _, _, key stri
 	s.consumeCalls++
 	return nil
 }
+
+func (r *completionRepoFake) ListOpenStageReviewItems(context.Context, string, int) ([]domain.StageReviewItem, error) {
+	return nil, nil
+}
+
+func (r *completionRepoFake) ResolveStageReviewItem(context.Context, string, string, string, string, time.Time) (bool, error) {
+	return false, nil
+}

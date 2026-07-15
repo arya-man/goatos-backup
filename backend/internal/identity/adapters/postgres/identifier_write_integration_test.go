@@ -1532,6 +1532,20 @@ func TestIdentityGoatEnforcesChronology(t *testing.T) {
 	}
 	assertNoMutation(t, "two-field")
 
+	// VACC-REV-12: a SUBMITTED DOB or entry_date in the future is rejected at the repo (defense-in-depth
+	// for any non-HTTP caller); a rejection makes no mutation or event. 2999 is safely past cmd.OccurredAt.
+	futureDOB := "2999-01-01"
+	if _, err := repo.IdentityGoat(ctx, identityGoatCommand(t, "idem-identity-future-dob", goatID, rowVersionForGoat(t, pool, goatID), &futureDOB, nil)); !errors.Is(err, ports.ErrFutureAnchor) {
+		t.Fatalf("future dob error = %v, want ErrFutureAnchor", err)
+	}
+	assertNoMutation(t, "future-dob")
+
+	futureEntry := "2999-01-01"
+	if _, err := repo.IdentityGoat(ctx, identityGoatCommand(t, "idem-identity-future-entry", goatID, rowVersionForGoat(t, pool, goatID), nil, &futureEntry)); !errors.Is(err, ports.ErrFutureAnchor) {
+		t.Fatalf("future entry_date error = %v, want ErrFutureAnchor", err)
+	}
+	assertNoMutation(t, "future-entry")
+
 	// A valid DOB-only correction (still on/before entry) succeeds and emits the event.
 	goodDOB := "2025-11-01"
 	res, err := repo.IdentityGoat(ctx, identityGoatCommand(t, "idem-identity-good", goatID, rowVersionForGoat(t, pool, goatID), &goodDOB, nil))

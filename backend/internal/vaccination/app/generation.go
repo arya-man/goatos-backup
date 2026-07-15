@@ -1934,9 +1934,18 @@ func hasSameDoseAdministration(rule protodomain.Rule, vaccine vaccineProfile, hi
 		if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), code) {
 			continue
 		}
-		if ruleDose != "" && strings.EqualFold(strings.TrimSpace(admin.DoseCode), ruleDose) {
-			return true
+		adminDose := strings.ToLower(strings.TrimSpace(admin.DoseCode))
+		// When BOTH sides name a dose code, dose-code identity is authoritative: an exact match is the
+		// same dose; a mismatch is a DIFFERENT dose of the same vaccine, so do NOT fall back to a
+		// sequence match (two distinct doses can reuse sequence 1 and would wrongly suppress each
+		// other — VACC-REV-06).
+		if ruleDose != "" && adminDose != "" {
+			if ruleDose == adminDose {
+				return true
+			}
+			continue
 		}
+		// Sequence is only a fallback when dose-code identity is unavailable on one or both sides.
 		if rule.Sequence != 0 && admin.Sequence == rule.Sequence {
 			return true
 		}

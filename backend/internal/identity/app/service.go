@@ -309,6 +309,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrInvalidChronology) {
 		return BadRequest("invalid_chronology", "dob must be on or before entry_date")
 	}
+	if errors.Is(err, ports.ErrFutureAnchor) {
+		return BadRequest("invalid_anchor_date", "dob and entry_date cannot be in the future")
+	}
 	if errors.Is(err, ports.ErrCriticalDeathGuardrailRequired) {
 		return criticalDeathTransitionError()
 	}

@@ -2182,6 +2182,10 @@ type VaccinationStageReviewItem struct {
 	Reason           string
 	ObservedStage    string
 	ObservedAgeWeeks int32
+	Status           string
+	ResolvedBy       pgtype.UUID
+	ResolvedAt       pgtype.Timestamptz
+	ResolutionNote   pgtype.Text
 	IdempotencyKey   string
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz

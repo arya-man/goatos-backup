@@ -63,8 +63,9 @@ func (r *Repository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
 }
 
-// RecordStageReviewItem durably records a goat-scoped vaccination stage/age review item (VACC-REV-10),
-// idempotent on (tenant_id, idempotency_key) so replayed generation passes never duplicate it.
+// RecordStageReviewItem durably records a goat-scoped vaccination stage/age review item (VACC-REV-10).
+// Dedup is scoped to OPEN items (partial unique index): replayed generation never duplicates an open
+// item, but a recurrence AFTER an operator resolved the prior occurrence opens a new actionable one.
 func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -72,12 +73,65 @@ func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID
 		INSERT INTO vaccination_stage_review_items
 			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
 		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6)
-		ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
+		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO NOTHING`,
 		tenantID, goatID, reason, observedStage, observedAgeWeeks, idempotencyKey)
 	if err != nil {
 		return fmt.Errorf("vaccination: record stage review item: %w", err)
 	}
 	return nil
+}
+
+// ListOpenStageReviewItems returns one keyset-bounded page of OPEN stage review items for the tenant,
+// newest first, so operators can discover the animals needing review.
+func (r *Repository) ListOpenStageReviewItems(ctx context.Context, tenantID string, limit int) ([]domain.StageReviewItem, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT review_item_id::text, goat_id::text, reason, observed_stage, observed_age_weeks, status, created_at
+		FROM vaccination_stage_review_items
+		WHERE tenant_id = $1::uuid AND status = 'open'
+		ORDER BY created_at DESC, review_item_id DESC
+		LIMIT $2`, tenantID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: list open stage review items: %w", err)
+	}
+	defer rows.Close()
+	var out []domain.StageReviewItem
+	for rows.Next() {
+		var it domain.StageReviewItem
+		if err := rows.Scan(&it.ReviewItemID, &it.GoatID, &it.Reason, &it.ObservedStage, &it.ObservedAgeWeeks, &it.Status, &it.CreatedAt); err != nil {
+			return nil, fmt.Errorf("vaccination: scan stage review item: %w", err)
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// ResolveStageReviewItem marks an OPEN stage review item resolved. It returns false (no error) when
+// the item does not exist or was already resolved, so a replayed resolve is a safe no-op.
+func (r *Repository) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE vaccination_stage_review_items
+		SET status = 'resolved', resolved_by = $3::uuid, resolved_at = $4::timestamptz,
+		    resolution_note = $5, updated_at = now()
+		WHERE tenant_id = $1::uuid AND review_item_id = $2::uuid AND status = 'open'`,
+		tenantID, reviewItemID, nullUUID(resolvedBy), resolvedAt, note)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: resolve stage review item: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+func nullUUID(v string) any {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return v
 }
 
 // StartGenerationRun creates or returns the durable status row for an existing-cohort generation

@@ -1420,3 +1420,63 @@ func TestGenerationRecordsStaleKidStageReviewItem(t *testing.T) {
 		t.Fatalf("after replay review items = %d, want still exactly 1 (idempotent)", got)
 	}
 }
+
+// TestStageReviewItemLifecycle is the VACC-REV-10 lifecycle guard: create, replay-dedupe (open),
+// operator listing, resolution, idempotent re-resolve, and a NEW open occurrence after resolution.
+func TestStageReviewItemLifecycle(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const goatID = "40000000-0000-4000-8000-0000000000c1"
+	const key = "vacc-stage-review:t:g:K1"
+	resolver := "40000000-0000-4000-8000-0000000000ff"
+
+	// create + replay dedupe (open).
+	for i := 0; i < 2; i++ {
+		if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 26, key); err != nil {
+			t.Fatalf("record #%d: %v", i, err)
+		}
+	}
+	open, err := repo.ListOpenStageReviewItems(ctx, impTenant, 50)
+	if err != nil {
+		t.Fatalf("list open: %v", err)
+	}
+	if len(open) != 1 {
+		t.Fatalf("open items = %d, want 1 (replay deduped)", len(open))
+	}
+	it := open[0]
+	if it.GoatID != goatID || it.Reason != "kid_stage_past_age_cutoff" || it.ObservedStage != "K1" || it.ObservedAgeWeeks != 26 || it.Status != "open" {
+		t.Fatalf("unexpected review item: %#v", it)
+	}
+
+	// resolve, then list shows none open; re-resolve is an idempotent no-op.
+	resolved, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "tag corrected to adult", time.Now())
+	if err != nil || !resolved {
+		t.Fatalf("resolve: resolved=%v err=%v", resolved, err)
+	}
+	if open, _ := repo.ListOpenStageReviewItems(ctx, impTenant, 50); len(open) != 0 {
+		t.Fatalf("open after resolve = %d, want 0", len(open))
+	}
+	if again, err := repo.ResolveStageReviewItem(ctx, impTenant, it.ReviewItemID, resolver, "", time.Now()); err != nil || again {
+		t.Fatalf("re-resolve should be a no-op: again=%v err=%v", again, err)
+	}
+
+	// recurrence AFTER resolution opens a NEW actionable occurrence (not swallowed by the key).
+	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 40, key); err != nil {
+		t.Fatalf("recurrence record: %v", err)
+	}
+	openAfter, err := repo.ListOpenStageReviewItems(ctx, impTenant, 50)
+	if err != nil {
+		t.Fatalf("list after recurrence: %v", err)
+	}
+	if len(openAfter) != 1 || openAfter[0].ReviewItemID == it.ReviewItemID {
+		t.Fatalf("recurrence: want 1 NEW open item distinct from the resolved one, got %#v", openAfter)
+	}
+	total := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID)
+	if total != 2 {
+		t.Fatalf("total rows = %d, want 2 (one resolved + one new open)", total)
+	}
+}

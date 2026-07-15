@@ -26,6 +26,8 @@ import (
 type Reads interface {
 	ImpactPreview(ctx context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error)
 	VerificationQueue(ctx context.Context, tenantID, parkID string, cursor *domain.RecordedCompletionCursor, limit int32) (domain.RecordedCompletionPage, error)
+	ListOpenStageReviewItems(ctx context.Context, tenantID string, limit int) ([]domain.StageReviewItem, error)
+	ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error)
 }
 
 // ManualCampaignGenerator materializes deliberate manual_campaign schedule rows for a published
@@ -66,6 +68,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /protocols/vaccination/impact-preview", h.ImpactPreview)
 	mux.HandleFunc("POST /vaccination/manual-campaigns", h.RunManualCampaign)
 	mux.HandleFunc("GET /vaccination/verification-queue", h.VerificationQueue)
+	mux.HandleFunc("GET /admin/vaccination/stage-review-items", h.ListStageReviewItems)
+	mux.HandleFunc("POST /admin/vaccination/stage-review-items/{review_item_id}/resolve", h.ResolveStageReviewItem)
 }
 
 const (
@@ -374,6 +378,72 @@ func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {
 func (h *Handler) badRequest(w http.ResponseWriter, r *http.Request, code, msg string) {
 	httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
 		errorEnvelope{Code: code, Message: msg, TraceID: traceID(r)}, nil)
+}
+
+type stageReviewListResponse struct {
+	Items []domain.StageReviewItem `json:"items"`
+}
+
+// ListStageReviewItems returns open vaccination stage/age review items for the tenant so operators
+// can discover the animals whose stale K1/K2 tag needs reconciling (VACC-REV-10).
+func (h *Handler) ListStageReviewItems(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > 200 {
+			n = 200
+		}
+		limit = n
+	}
+	items, err := h.svc.ListOpenStageReviewItems(r.Context(), tenantID(r), limit)
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
+		return
+	}
+	if items == nil {
+		items = []domain.StageReviewItem{}
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, stageReviewListResponse{Items: items})
+}
+
+type resolveStageReviewRequest struct {
+	Note string `json:"note"`
+}
+
+// ResolveStageReviewItem marks an open stage/age review item resolved (VACC-REV-10). Idempotent: a
+// replay on an already-resolved (or missing) item returns 404 without changing state.
+func (h *Handler) ResolveStageReviewItem(w http.ResponseWriter, r *http.Request) {
+	reviewItemID := r.PathValue("review_item_id")
+	if !uuidutil.IsUUIDString(reviewItemID) {
+		h.badRequest(w, r, "invalid_review_item_id", "review_item_id must be a UUID")
+		return
+	}
+	var req resolveStageReviewRequest
+	if r.Body != nil {
+		dec := json.NewDecoder(io.LimitReader(r.Body, 8*1024))
+		if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			h.badRequest(w, r, "invalid_body", "request body must be JSON")
+			return
+		}
+	}
+	resolved, err := h.svc.ResolveStageReviewItem(r.Context(), tenantID(r), reviewItemID,
+		httpmiddleware.ActorIDFromContext(r.Context()), strings.TrimSpace(req.Note), time.Now().In(biztime.DefaultLocation()))
+	if err != nil {
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
+			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
+		return
+	}
+	if !resolved {
+		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
+			errorEnvelope{Code: "not_open", Message: "review item not found or already resolved", TraceID: traceID(r)}, nil)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]string{"review_item_id": reviewItemID, "status": "resolved"})
 }
 
 func validCampaignID(value string) bool {

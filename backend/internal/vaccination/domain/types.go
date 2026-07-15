@@ -197,6 +197,18 @@ type RecentVaccineAdministration struct {
 }
 
 // GenerateResult summarises an SM-1 generation run.
+// StageReviewItem is a goat-scoped vaccination stage/age review item (VACC-REV-10) surfaced to
+// operators: which animal, why, and the observed stage/age, plus its open/resolved lifecycle state.
+type StageReviewItem struct {
+	ReviewItemID     string    `json:"reviewItemId"`
+	GoatID           string    `json:"goatId"`
+	Reason           string    `json:"reason"`
+	ObservedStage    string    `json:"observedStage"`
+	ObservedAgeWeeks int       `json:"observedAgeWeeks"`
+	Status           string    `json:"status"`
+	CreatedAt        time.Time `json:"createdAt"`
+}
+
 type GenerateResult struct {
 	Generated                  int
 	Deferred                   int

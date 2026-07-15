@@ -22,6 +22,10 @@ type fakeImpact struct {
 	gotLimit    int32
 	gotCursor   *domain.RecordedCompletionCursor
 	gotQueuePark string
+	reviewItems  []domain.StageReviewItem
+	resolveResult bool
+	resolvedID   string
+	resolvedBy   string
 }
 
 func (f *fakeImpact) ImpactPreview(_ context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error) {
@@ -34,6 +38,16 @@ func (f *fakeImpact) VerificationQueue(_ context.Context, _ string, parkID strin
 	f.gotCursor = cursor
 	f.gotQueuePark = parkID
 	return f.queue, nil
+}
+
+func (f *fakeImpact) ListOpenStageReviewItems(_ context.Context, _ string, _ int) ([]domain.StageReviewItem, error) {
+	return f.reviewItems, nil
+}
+
+func (f *fakeImpact) ResolveStageReviewItem(_ context.Context, _, reviewItemID, resolvedBy, _ string, _ time.Time) (bool, error) {
+	f.resolvedID = reviewItemID
+	f.resolvedBy = resolvedBy
+	return f.resolveResult, nil
 }
 
 type fakeCampaign struct {
@@ -313,5 +327,58 @@ func TestVerificationQueueShapeAndLimit(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/vaccination/verification-queue?cursor=not-a-real-cursor", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad cursor: want 400, got %d", rec.Code)
+	}
+}
+
+// TestStageReviewItemsListAndResolveHTTP is the VACC-REV-10 operator-visibility guard at the HTTP
+// layer: the list route returns open items and the resolve route resolves (200) or reports
+// not-open (404) idempotently.
+func TestStageReviewItemsListAndResolveHTTP(t *testing.T) {
+	fake := &fakeImpact{
+		reviewItems: []domain.StageReviewItem{{
+			ReviewItemID: "11111111-0000-4000-8000-000000000001", GoatID: "22222222-0000-4000-8000-000000000002",
+			Reason: "kid_stage_past_age_cutoff", ObservedStage: "K1", ObservedAgeWeeks: 26, Status: "open",
+		}},
+		resolveResult: true,
+	}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(fake, nil))
+
+	// list
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/admin/vaccination/stage-review-items", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var list stageReviewListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].Reason != "kid_stage_past_age_cutoff" || list.Items[0].ObservedStage != "K1" {
+		t.Fatalf("unexpected list: %#v", list.Items)
+	}
+
+	// resolve OK
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", strings.NewReader(`{"note":"tag corrected"}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resolve status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if fake.resolvedID != "11111111-0000-4000-8000-000000000001" {
+		t.Fatalf("resolved id = %q", fake.resolvedID)
+	}
+
+	// resolve on already-resolved/missing -> 404
+	fake.resolveResult = false
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("re-resolve status=%d, want 404", rec.Code)
 	}
 }

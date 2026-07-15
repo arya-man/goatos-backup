@@ -378,11 +378,21 @@ func (s *Service) IdentityGoat(ctx context.Context, input IdentityGoatInput) (*d
 	serverNow := time.Now().UTC()
 	var effectiveAt *time.Time
 	if body.OccurredAt != nil {
-		if body.OccurredAt.After(serverNow.Add(2 * time.Minute)) {
+		// VACC-REV-07: reject a strictly-future occurred_at (no skew allowance) — a correction cannot
+		// have "happened" after the server processed it.
+		if body.OccurredAt.After(serverNow) {
 			return nil, BadRequest("invalid_occurred_at", "occurred_at cannot be in the future")
 		}
 		ea := body.OccurredAt.UTC()
 		effectiveAt = &ea
+	}
+	// VACC-REV-12: a DOB or arrival date cannot be in the future — a future anchor would push the
+	// birth_age/post_arrival vaccination schedule into the future. Reject the correction.
+	if dob != nil && dob.After(serverNow) {
+		return nil, BadRequest("invalid_dob", "dob cannot be in the future")
+	}
+	if entryDate != nil && entryDate.After(serverNow) {
+		return nil, BadRequest("invalid_entry_date", "entry_date cannot be in the future")
 	}
 	result, err := s.repo.IdentityGoat(ctx, ports.IdentityGoatCommand{
 		TenantID:             tenantID,

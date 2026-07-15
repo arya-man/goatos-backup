@@ -26,6 +26,16 @@ func (s *Service) RecordCompletion(ctx context.Context, in domain.NewCompletion)
 	return s.repo.RecordCompletion(ctx, in)
 }
 
+// ListOpenStageReviewItems returns open stage/age review items for operator triage (VACC-REV-10).
+func (s *Service) ListOpenStageReviewItems(ctx context.Context, tenantID string, limit int) ([]domain.StageReviewItem, error) {
+	return s.repo.ListOpenStageReviewItems(ctx, tenantID, limit)
+}
+
+// ResolveStageReviewItem marks an open review item resolved (idempotent no-op if already resolved).
+func (s *Service) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (bool, error) {
+	return s.repo.ResolveStageReviewItem(ctx, tenantID, reviewItemID, resolvedBy, note, resolvedAt)
+}
+
 // AcceptCompletion accepts a recorded completion on verification, returning its verification context
 // (idempotent: applied is false on replay).
 func (s *Service) AcceptCompletion(ctx context.Context, tenantID, completionID string, verifiedBy *string, withdrawalUntil *time.Time) (domain.AcceptedCompletion, bool, error) {
