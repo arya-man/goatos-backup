@@ -12,10 +12,10 @@ import (
 
 func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	return s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, make(map[string]int32))
+	return s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, NewSweepSession())
 }
 
-func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, visitShotCounts map[string]int32) (domain.SweepResult, error) {
+func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	settings := cfg.ParkConsolidation
 	if !settings.Enabled {
@@ -69,12 +69,18 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 		remaining := append([]domain.ParkConsolidationCandidate(nil), rows...)
 		for len(remaining) >= int(minMergeTargets) && uniqueShedCount(remaining) >= int(minMergeSheds) {
 			plannedDate, selected := pickBestParkDriveDate(now, remaining)
-			selected = selectParkIDsWithinVisitShotCap(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+			selected, err := selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+			if err != nil {
+				return res, err
+			}
 			if len(selected) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
 				if overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining); overflowDate != nil {
 					plannedDate = overflowDate
 					selected = obligationsFeasibleOnDate(*plannedDate, remaining)
-					selected = selectParkIDsWithinVisitShotCap(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, visitShotCounts)
+					selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+					if err != nil {
+						return res, err
+					}
 				}
 			}
 			if plannedDate == nil || int32(len(selected)) < minMergeTargets || uniqueShedCount(filterRows(remaining, selected)) < int(minMergeSheds) {

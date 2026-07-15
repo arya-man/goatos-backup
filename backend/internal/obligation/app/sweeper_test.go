@@ -216,6 +216,207 @@ func TestSweeperMovesOverflowDoseToNextDriveWhenAnimalShotCapReached(t *testing.
 	}
 }
 
+// obligationIDPlannedDates maps each obligation id attached by CreateBatchWithObligations calls
+// to the planned date of the batch it landed in, using the parallel createdBatches /
+// createdBatchObligationIDs slices recorded by fakeSweepRepo.
+func obligationIDPlannedDates(repo *fakeSweepRepo) map[string]string {
+	out := make(map[string]string)
+	for i, batch := range repo.createdBatches {
+		if batch.PlannedDate == nil {
+			continue
+		}
+		date := batch.PlannedDate.Format("2006-01-02")
+		if i >= len(repo.createdBatchObligationIDs) {
+			continue
+		}
+		for _, id := range repo.createdBatchObligationIDs[i] {
+			out[id] = date
+		}
+	}
+	return out
+}
+
+// TestSweepVersionWithSessionSharesShotCapAcrossVersions covers BUG2 requirement 1: an animal
+// due 3 different vaccines (3 protocol versions) on the same planned date must get exactly
+// MaxShotsPerAnimalPerDrive (2) shots that day when the versions are swept against one shared
+// SweepSession, with the 3rd vaccine's obligation pushed to a later safe date -- not 3 shots in
+// one visit, which is what happened before the cap spanned versions.
+func TestSweepVersionWithSessionSharesShotCapAcrossVersions(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"v-ettt": {{ObligationID: "obl-ettt", RuleID: "rule-ettt", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+			"v-ppr":  {{ObligationID: "obl-ppr", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+			"v-fmd":  {{ObligationID: "obl-fmd", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+		},
+		attachAll: true,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2}
+	session := NewSweepSession()
+
+	// Sweep in ascending priority order (ET+TT=1, PPR=2, FMD=5), as the production caller does
+	// after SortSweepVersionsByPriority.
+	for _, v := range []struct{ versionID, vaccine string }{
+		{"v-ettt", "ET+TT"}, {"v-ppr", "PPR"}, {"v-fmd", "FMD"},
+	} {
+		if _, err := svc.SweepVersionWithSession(context.Background(), "tenant-1", v.versionID, SweepConfig{
+			VaccineCode: v.vaccine, DrivePlanner: planner,
+		}, due, session); err != nil {
+			t.Fatalf("sweep %s: %v", v.versionID, err)
+		}
+	}
+
+	dates := obligationIDPlannedDates(repo)
+	if dates["obl-ettt"] != "2026-07-01" || dates["obl-ppr"] != "2026-07-01" {
+		t.Fatalf("dates=%#v, want ET+TT and PPR both on 2026-07-01", dates)
+	}
+	if dates["obl-fmd"] == "2026-07-01" {
+		t.Fatalf("dates=%#v, want FMD overflowed off 2026-07-01 instead of a 3rd same-day shot", dates)
+	}
+	if dates["obl-fmd"] == "" {
+		t.Fatalf("dates=%#v, want FMD batched on a later safe date, not dropped", dates)
+	}
+}
+
+// TestSweepVersionWithSessionRetainsHighestPriorityPairNotArrivalOrder covers BUG2 requirement
+// 2: when 3 vaccines compete for one animal's over-cap visit, the retained pair is the two
+// highest resolved-priority vaccines -- determined by sweeping in the order
+// SortSweepVersionsByPriority produces, not by whatever order the versions were originally
+// discovered/listed in (here deliberately scrambled: lowest priority first).
+func TestSweepVersionWithSessionRetainsHighestPriorityPairNotArrivalOrder(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"v-fmd":  {{ObligationID: "obl-fmd", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+			"v-ettt": {{ObligationID: "obl-ettt", RuleID: "rule-ettt", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+			"v-ppr":  {{ObligationID: "obl-ppr", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+		},
+		attachAll: true,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2}
+
+	// Discovery/arrival order is deliberately WRONG (lowest priority, FMD, listed first) -- the
+	// production caller must sort by priority before sweeping rather than trust discovery order.
+	plans := []SweepVersionPriority{
+		{VersionID: "v-fmd", Config: SweepConfig{VaccineCode: "FMD", DrivePlanner: planner}},
+		{VersionID: "v-ettt", Config: SweepConfig{VaccineCode: "ET+TT", DrivePlanner: planner}},
+		{VersionID: "v-ppr", Config: SweepConfig{VaccineCode: "PPR", DrivePlanner: planner}},
+	}
+	sorted := SortSweepVersionsByPriority(plans)
+	wantOrder := []string{"v-ettt", "v-ppr", "v-fmd"}
+	for i, p := range sorted {
+		if p.VersionID != wantOrder[i] {
+			t.Fatalf("sorted order = %#v, want %#v (ET+TT=1, PPR=2, FMD=5)", sorted, wantOrder)
+		}
+	}
+
+	session := NewSweepSession()
+	for _, plan := range sorted {
+		if _, err := svc.SweepVersionWithSession(context.Background(), "tenant-1", plan.VersionID, plan.Config, due, session); err != nil {
+			t.Fatalf("sweep %s: %v", plan.VersionID, err)
+		}
+	}
+
+	dates := obligationIDPlannedDates(repo)
+	if dates["obl-ettt"] != "2026-07-01" || dates["obl-ppr"] != "2026-07-01" {
+		t.Fatalf("dates=%#v, want the two highest-priority vaccines (ET+TT, PPR) retained on 2026-07-01", dates)
+	}
+	if dates["obl-fmd"] == "2026-07-01" {
+		t.Fatalf("dates=%#v, want lowest-priority FMD overflowed off 2026-07-01", dates)
+	}
+}
+
+// TestSweepVersionWithSessionBlocksOnUnresolvedPriorityTie covers BUG2 requirement 3: when more
+// than MaxShotsPerAnimalPerDrive vaccines compete for one animal's visit and the deciding
+// (boundary) vaccines resolve to the SAME priority, the sweeper must surface an explicit
+// blocker naming both vaccines instead of silently picking an arrival-order winner. Neither
+// vaccine here is in the source matrix, so both resolve to the same unconfigured default
+// priority -- a genuine, unresolved tie.
+func TestSweepVersionWithSessionBlocksOnUnresolvedPriorityTie(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"v-alpha": {{ObligationID: "obl-alpha", RuleID: "rule-alpha", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+			"v-beta":  {{ObligationID: "obl-beta", RuleID: "rule-beta", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+			"v-gamma": {{ObligationID: "obl-gamma", RuleID: "rule-gamma", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+		},
+		attachAll: true,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2}
+	session := NewSweepSession()
+
+	for _, v := range []struct{ versionID, vaccine string }{
+		{"v-alpha", "Unmapped Vaccine Alpha"}, {"v-beta", "Unmapped Vaccine Beta"},
+	} {
+		if _, err := svc.SweepVersionWithSession(context.Background(), "tenant-1", v.versionID, SweepConfig{
+			VaccineCode: v.vaccine, DrivePlanner: planner,
+		}, due, session); err != nil {
+			t.Fatalf("sweep %s: %v", v.versionID, err)
+		}
+	}
+	// A 3rd unmapped vaccine now competes for the same over-cap visit; its resolved priority
+	// ties with whichever of alpha/beta claimed the visit's last slot.
+	_, err := svc.SweepVersionWithSession(context.Background(), "tenant-1", "v-gamma", SweepConfig{
+		VaccineCode: "Unmapped Vaccine Gamma", DrivePlanner: planner,
+	}, due, session)
+	var tieErr *ShotCapPriorityTieError
+	if err == nil || !errors.As(err, &tieErr) {
+		t.Fatalf("err = %v, want *ShotCapPriorityTieError", err)
+	}
+	if tieErr.TargetID != "goat-1" {
+		t.Fatalf("tie error target = %q, want goat-1", tieErr.TargetID)
+	}
+	if tieErr.VaccineA == "" || tieErr.VaccineB == "" || tieErr.VaccineA == tieErr.VaccineB {
+		t.Fatalf("tie error vaccines = %q/%q, want two distinct named vaccines", tieErr.VaccineA, tieErr.VaccineB)
+	}
+}
+
+// TestSweepVersionWithSessionReplayIsIdempotent covers BUG2's replay/idempotency requirement:
+// re-running the same version sweep against a repo that reports no remaining unbatched rows
+// (simulating the DB no-op once obligations are attached) creates no duplicate batches.
+func TestSweepVersionWithSessionReplayIsIdempotent(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"v-1": {{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+		},
+		attachAll: true,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	cfg := SweepConfig{VaccineCode: "PPR", DrivePlanner: domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2}}
+	session := NewSweepSession()
+
+	first, err := svc.SweepVersionWithSession(context.Background(), "tenant-1", "v-1", cfg, due, session)
+	if err != nil {
+		t.Fatalf("first sweep: %v", err)
+	}
+	if first.Obligations != 1 || len(repo.createdBatches) != 1 {
+		t.Fatalf("first sweep result=%#v batches=%d, want one obligation batched once", first, len(repo.createdBatches))
+	}
+
+	// Simulate the real repo's idempotent behavior once obl-1 has a batch_id: it no longer shows
+	// up as unbatched, so a re-sweep (even against the SAME shared session) finds nothing to do.
+	repo.rowsByVersion["v-1"] = nil
+
+	second, err := svc.SweepVersionWithSession(context.Background(), "tenant-1", "v-1", cfg, due, session)
+	if err != nil {
+		t.Fatalf("replay sweep: %v", err)
+	}
+	if second.Obligations != 0 || second.Batches != 0 {
+		t.Fatalf("replay result=%#v, want no-op", second)
+	}
+	if len(repo.createdBatches) != 1 {
+		t.Fatalf("created batches after replay = %d, want still 1 (no duplicate)", len(repo.createdBatches))
+	}
+}
+
 func TestSweeperFinalizesExistingPlannedBatchMissingTask(t *testing.T) {
 	repo := &fakeSweepRepo{
 		finalizationPages: [][]domain.PlannedBatchFinalization{{
@@ -436,27 +637,29 @@ func TestSweeperMarkMissedPagesUntilDrained(t *testing.T) {
 }
 
 type fakeSweepRepo struct {
-	rows                 []domain.UnbatchedDue
-	parkRows             []domain.ParkConsolidationCandidate
-	createBatchID        string
-	createBatchIDs       []string
-	createBatchAttached  int64
-	attachAll            bool
-	createBatchCalls     int
-	setTaskCalls         int
-	batchSetTaskCalls    int
-	stockBlockCalls      int
-	clearStockBlockCalls int
-	countBatchCalls      int
-	lastTaskID           string
-	missedPages          []int
-	missedCalls          int
-	createdBatches       []domain.NewBatch
-	finalizationPages    [][]domain.PlannedBatchFinalization
-	finalizationCalls    int
-	createdFinalization  []domain.PlannedBatchFinalization
-	parkListCalls        int
-	repeatParkPage       bool
+	rows                      []domain.UnbatchedDue
+	rowsByVersion             map[string][]domain.UnbatchedDue // optional: per-version override for cross-version sweep tests
+	parkRows                  []domain.ParkConsolidationCandidate
+	createBatchID             string
+	createBatchIDs            []string
+	createBatchAttached       int64
+	attachAll                 bool
+	createBatchCalls          int
+	setTaskCalls              int
+	batchSetTaskCalls         int
+	stockBlockCalls           int
+	clearStockBlockCalls      int
+	countBatchCalls           int
+	lastTaskID                string
+	missedPages               []int
+	missedCalls               int
+	createdBatches            []domain.NewBatch
+	createdBatchObligationIDs [][]string // obligation ids attached per createdBatches entry, same index
+	finalizationPages         [][]domain.PlannedBatchFinalization
+	finalizationCalls         int
+	createdFinalization       []domain.PlannedBatchFinalization
+	parkListCalls             int
+	repeatParkPage            bool
 }
 
 func (f *fakeSweepRepo) Ping(context.Context) error { return nil }
@@ -488,6 +691,7 @@ func (f *fakeSweepRepo) CreateBatch(context.Context, domain.NewBatch) (string, e
 func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.NewBatch, ids []string) (string, int64, error) {
 	f.createBatchCalls++
 	f.createdBatches = append(f.createdBatches, in)
+	f.createdBatchObligationIDs = append(f.createdBatchObligationIDs, append([]string(nil), ids...))
 	batchID := f.createBatchID
 	if idx := f.createBatchCalls - 1; idx >= 0 && idx < len(f.createBatchIDs) {
 		batchID = f.createBatchIDs[idx]
@@ -559,7 +763,10 @@ func (f *fakeSweepRepo) ListPlannedBatchesNeedingFinalization(context.Context, s
 	return rows, nil
 }
 
-func (f *fakeSweepRepo) ListUnbatchedDueForVersion(context.Context, string, string, time.Time, int32) ([]domain.UnbatchedDue, error) {
+func (f *fakeSweepRepo) ListUnbatchedDueForVersion(_ context.Context, _, versionID string, _ time.Time, _ int32) ([]domain.UnbatchedDue, error) {
+	if f.rowsByVersion != nil {
+		return f.rowsByVersion[versionID], nil
+	}
 	return f.rows, nil
 }
 

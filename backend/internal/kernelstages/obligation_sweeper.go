@@ -191,6 +191,12 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 			return fmt.Errorf("list published vaccination versions: %w", err)
 		}
 	}
+	// Every version swept in this pass shares ONE SweepSession so MaxShotsPerAnimalPerDrive
+	// spans vaccines/versions instead of resetting per version, and versions are ordered by
+	// resolved vaccine priority (ascending) so higher-priority vaccines claim an
+	// over-subscribed animal's slots first, deterministically. See
+	// cmd/obligation-sweeper/main.go for the same pattern applied to the one-shot binary.
+	plans := make([]obligationapp.SweepVersionPriority, 0, len(versionIDs))
 	for _, versionID := range versionIDs {
 		if strings.TrimSpace(versionID) == "" {
 			continue
@@ -199,13 +205,19 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("sweep config version %s: %w", versionID, err)
 		}
-		result, err := s.sweeper.SweepVersion(ctx, cfg.TenantID, versionID, sweepCfg, dueBefore)
+		plans = append(plans, obligationapp.SweepVersionPriority{VersionID: versionID, Config: sweepCfg})
+	}
+	plans = obligationapp.SortSweepVersionsByPriority(plans)
+
+	session := obligationapp.NewSweepSession()
+	for _, plan := range plans {
+		result, err := s.sweeper.SweepVersionWithSession(ctx, cfg.TenantID, plan.VersionID, plan.Config, dueBefore, session)
 		if err != nil {
-			return fmt.Errorf("sweep version %s: %w", versionID, err)
+			return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
 		}
 		if s.logger != nil {
 			s.logger.Info("obligation_sweep_stage_version",
-				"version_id", versionID,
+				"version_id", plan.VersionID,
 				"batches", result.Batches,
 				"obligations", result.Obligations,
 				"park_batches", result.ParkBatches,
@@ -213,8 +225,9 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 			)
 		}
 	}
-	if len(versionIDs) > 0 {
-		if _, err := s.sweeper.AlignComboDrives(ctx, cfg.TenantID, obligationdomain.DefaultDrivePlannerSettings().ComboAlignWindowDays, dueBefore); err != nil {
+	if len(plans) > 0 {
+		defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
+		if _, err := s.sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, dueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session); err != nil {
 			return fmt.Errorf("align combo drives: %w", err)
 		}
 	}
