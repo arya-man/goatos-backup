@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"sync"
@@ -11,6 +12,33 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
+
+// TestRegisterCadenceWithTimeoutBudget proves the KERN-REV-05 fix: a stage can
+// carry an EXPLICIT per-run budget (so the obligation sweeper keeps its retired
+// 180s job headroom on its own 5-minute lane instead of shrinking to the shared
+// interval/4 default), an over-interval budget is capped below the tick to
+// prevent pileup, and zero still derives the default.
+func TestRegisterCadenceWithTimeoutBudget(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	s := NewSupervisor(logger, nil, 30*time.Second)
+
+	s.RegisterCadenceWithTimeout("obligation-sweep", 5*time.Minute, 180*time.Second, NewNoOpStage(logger, "sweep"))
+	if got := s.cadences["obligation-sweep"].Stages[0].timeout; got != 180*time.Second {
+		t.Fatalf("explicit obligation-sweep timeout = %v, want 180s (retired job budget)", got)
+	}
+
+	// 240s requested on a 60s tick -> capped to 90% (54s), never >= interval.
+	s.RegisterCadenceWithTimeout("too-long", 60*time.Second, 240*time.Second, NewNoOpStage(logger, "x"))
+	if got := s.cadences["too-long"].Stages[0].timeout; got != 54*time.Second {
+		t.Fatalf("over-interval timeout = %v, want capped 54s", got)
+	}
+
+	// Zero -> interval-derived default (interval/4 for a 5m cadence = 75s).
+	s.RegisterCadence("derived", 5*time.Minute, NewNoOpStage(logger, "d"))
+	if got := s.cadences["derived"].Stages[0].timeout; got != 75*time.Second {
+		t.Fatalf("derived timeout = %v, want 75s", got)
+	}
+}
 
 // TestSupervisorPanicIsolation verifies that a panic in one stage does not
 // kill sibling stages or the supervisor.

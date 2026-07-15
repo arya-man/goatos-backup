@@ -99,18 +99,39 @@ func (s *Supervisor) RegisterContinuous(name string, stages ...StageRunner) {
 // — a wedged fast (1-minute) stage can no longer block its own cadence for
 // minutes on end the way a flat 5-minute floor previously allowed.
 func (s *Supervisor) RegisterCadence(name string, interval time.Duration, stages ...StageRunner) {
+	s.RegisterCadenceWithTimeout(name, interval, 0, stages...)
+}
+
+// RegisterCadenceWithTimeout is RegisterCadence with an EXPLICIT per-run stage
+// timeout budget instead of the interval-derived default. Use it for a stage
+// that was retired from a Cloud Run Job whose per-run budget is larger than the
+// interval-derived default would give it on a shared lane (e.g. the obligation
+// sweeper's retired 180s job budget, which the shared operational lane's
+// interval/4 default would shrink to ~75s). A stageTimeout of 0 falls back to
+// the derived default. An explicit budget is capped strictly below the interval
+// so serial stages in a cadence still cannot pile past a tick.
+func (s *Supervisor) RegisterCadenceWithTimeout(name string, interval, stageTimeout time.Duration, stages ...StageRunner) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.cadences[name]; exists {
 		s.logger.Warn("cadence_already_registered", "cadence", name)
 		return
 	}
-	stageTimeout := defaultStageTimeout(interval, s.queryTimeout)
+	effectiveTimeout := stageTimeout
+	if effectiveTimeout <= 0 {
+		effectiveTimeout = defaultStageTimeout(interval, s.queryTimeout)
+	} else if interval > 0 {
+		if cap := interval - interval/10; effectiveTimeout > cap {
+			s.logger.Warn("cadence_stage_timeout_capped",
+				"cadence", name, "requested", effectiveTimeout.String(), "cap", cap.String())
+			effectiveTimeout = cap
+		}
+	}
 	var cadenceStages []CadenceStage
 	for _, stage := range stages {
 		cadenceStages = append(cadenceStages, CadenceStage{
 			stage:   stage,
-			timeout: stageTimeout,
+			timeout: effectiveTimeout,
 		})
 	}
 	s.cadences[name] = CadenceDefinition{

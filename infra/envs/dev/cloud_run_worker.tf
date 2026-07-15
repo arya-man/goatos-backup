@@ -60,6 +60,18 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
         value = "30s"
       }
 
+      # Preserve the retired jobs' per-stage batch budgets (KERN-REV-05): the
+      # consolidated stages must not fall back to the one-shot default of 50.
+      env {
+        name  = "GOATOS_OUTBOX_LIMIT"
+        value = "500"
+      }
+
+      env {
+        name  = "GOATOS_NOTIFICATION_LIMIT"
+        value = "100"
+      }
+
       env {
         name  = "GOATOS_SWEEPER_ACTOR_ID"
         value = var.dev_sweeper_actor_id

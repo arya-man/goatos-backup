@@ -113,13 +113,24 @@ func run(ctx context.Context, args []string) error {
 		kernelstages.NewNotificationDispatcherStage(deps, tenantID),
 	)
 
-	// Operational (every 5 minutes): sweep due/missed obligations, create
-	// batches + SOP tasks, reconcile inventory, queue reminders + escalations,
-	// retry SOP review fanout, and queue reminder cadence fires (T-7d, daily,
-	// due-today). 5m matches the retired Cloud Run job cadence at 5k-50k scale;
-	// relax later after measuring sweeper cost.
-	supervisor.RegisterCadence("operational", 5*time.Minute,
+	// Obligation sweep (every 5 minutes, isolated on its own lane with an
+	// explicit per-run budget). This is the heaviest operational stage at 5k-50k
+	// scale — mark-missed, escalation, batch + SOP-task creation, reminders — so
+	// it keeps the same headroom the retired goatos-stg obligation-sweeper Cloud
+	// Run Job had (-timeout=180s). On the SHARED operational lane below it would
+	// only get the interval/4 (~75s) default, since that default is sized so
+	// several serial stages fit inside one tick. Isolating it preserves the
+	// budget without shrinking the other stages. Configurable via
+	// GOATOS_OBLIGATION_SWEEP_TIMEOUT.
+	supervisor.RegisterCadenceWithTimeout("obligation-sweep", 5*time.Minute,
+		durationEnv("GOATOS_OBLIGATION_SWEEP_TIMEOUT", 180*time.Second),
 		kernelstages.NewObligationSweeperStage(deps, sweeperCfg),
+	)
+
+	// Operational (every 5 minutes): queue reminder cadence fires (T-7d, daily,
+	// due-today), reconcile inventory batches, retry SOP review fanout. All light,
+	// so the interval/4 default is ample.
+	supervisor.RegisterCadence("operational", 5*time.Minute,
 		kernelstages.NewReminderCadenceStage(deps, tenantID),
 		kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 		kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),
@@ -179,6 +190,20 @@ func healthListenAddr() string {
 		return ":" + port
 	}
 	return ":8080"
+}
+
+// durationEnv reads a duration from env, falling back to the default on empty or
+// unparseable input.
+func durationEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
 }
 
 func parseFlags(args []string) (cliConfig, error) {

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,33 @@ func TestNotificationRepositoryOldestDuePendingAge(t *testing.T) {
 	setRequestedAt(t, ctx, pool, deferredID, now.Add(-30*time.Minute))
 	if age, found, err := repo.OldestDuePendingAge(ctx, testTenantID, now); err != nil || found || age != 0 {
 		t.Fatalf("future retry excluded: age=%v found=%v err=%v; want 0,false,nil", age, found, err)
+	}
+}
+
+// TestNotificationRepositoryClaimHonorsBurstLimit proves the KERN-REV-05 batch
+// budget: with the retired job's limit of 100 (not the one-shot default of 50),
+// a burst of 120 due notifications is drained 100 at a time, so the backlog
+// clears in bounded cycles instead of stalling at 50/tick.
+func TestNotificationRepositoryClaimHonorsBurstLimit(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	seedCalendarEvent(t, ctx, pool, testEventID)
+
+	const burst = 120
+	for i := 0; i < burst; i++ {
+		seedNotification(t, ctx, pool, testEventID, fmt.Sprintf("notif-burst-%03d", i), "queued", 0, nil)
+	}
+
+	claimed, err := repo.ClaimDue(ctx, ports.ClaimParams{TenantID: testTenantID, Limit: 100, MaxAttempts: 5, Now: now})
+	if err != nil {
+		t.Fatalf("ClaimDue: %v", err)
+	}
+	if len(claimed) != 100 {
+		t.Fatalf("claimed %d of a 120 burst with limit 100; want 100 (default 50 would stall the backlog)", len(claimed))
 	}
 }
 
