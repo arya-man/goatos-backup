@@ -377,6 +377,10 @@ func (r *serviceFakeRepo) MarkDeadLetter(context.Context, string, string, time.T
 	return nil
 }
 
+func (r *serviceFakeRepo) ReleasePublishing(context.Context, string, time.Time) error {
+	return nil
+}
+
 func (r *serviceFakeRepo) ListDeadLetters(context.Context, ports.DeadLetterQuery) ([]domain.DeadLetterMessage, error) {
 	return nil, nil
 }

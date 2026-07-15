@@ -103,10 +103,27 @@ func (s *Service) RunOnce(ctx context.Context) (result *domain.RunResult, err er
 		ClaimedCount:        len(claim.Messages),
 		DeadLetterCount:     claim.DeadLetterCount,
 	}
+
+	// Track claimed IDs and which ones were successfully processed.
+	// On ctx cancellation mid-batch, release unprocessed messages so the next
+	// tick re-claims them immediately instead of waiting for the lease to expire.
+	claimedIDs := make([]string, 0, len(claim.Messages))
+	processedIDs := make(map[string]bool)
+	for _, msg := range claim.Messages {
+		claimedIDs = append(claimedIDs, msg.OutboxID)
+	}
+	defer func() {
+		// If the run was cancelled mid-batch, release unprocessed messages.
+		if ctx.Err() != nil {
+			s.releaseUnprocessedMessages(claimedIDs, processedIDs, now)
+		}
+	}()
+
 	for _, message := range claim.Messages {
 		if err := s.processMessage(ctx, message, result); err != nil {
 			return result, err
 		}
+		processedIDs[message.OutboxID] = true
 	}
 	return result, nil
 }
@@ -276,6 +293,31 @@ func (s *Service) backoff(attempt int) time.Duration {
 		return s.config.BackoffMax
 	}
 	return delay
+}
+
+// releaseUnprocessedMessages releases claimed messages back to pending status
+// using a fresh short-lived context so the release completes even if the
+// original ctx is cancelled. This ensures unprocessed messages claimed before
+// cancellation are re-available on the next tick rather than staying leased
+// for ~5 minutes (KERN-02 mitigation).
+func (s *Service) releaseUnprocessedMessages(claimedIDs []string, processedIDs map[string]bool, now time.Time) {
+	for _, id := range claimedIDs {
+		if !processedIDs[id] {
+			// Use a fresh context so the release completes even if the
+			// original ctx is cancelled. Use a short timeout (5s) to avoid
+			// holding the operation open indefinitely if the DB is down.
+			releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := s.repo.ReleasePublishing(releaseCtx, id, now); err != nil {
+				if s.log != nil {
+					s.log.Warn("failed_to_release_cancelled_outbox_message",
+						"outbox_id", id,
+						"error", err.Error(),
+					)
+				}
+			}
+			cancel()
+		}
+	}
 }
 
 func (s *Service) now() time.Time {

@@ -296,6 +296,21 @@ WHERE outbox_id = $1
 	AND status = 'publishing'`, outboxID, lastError, now)
 }
 
+// ReleasePublishing releases a message from 'publishing' back to 'pending'
+// with no next_attempt_at (making it immediately available for re-claim).
+// Used when ctx cancellation interrupts a drain mid-batch: unprocessed claimed
+// messages are released so the next tick re-claims them immediately instead of
+// waiting ~5 minutes for the lease to expire (KERN-02 mitigation).
+func (r *Repository) ReleasePublishing(ctx context.Context, outboxID string, now time.Time) error {
+	return r.execStatusUpdate(ctx, `
+UPDATE outbox_messages
+SET status = 'pending',
+    next_attempt_at = NULL,
+    updated_at = $2
+WHERE outbox_id = $1
+  AND status = 'publishing'`, outboxID, now)
+}
+
 func (r *Repository) ListDeadLetters(ctx context.Context, q ports.DeadLetterQuery) ([]domain.DeadLetterMessage, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()

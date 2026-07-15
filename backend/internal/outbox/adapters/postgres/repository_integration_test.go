@@ -467,10 +467,12 @@ func TestOutboxRelayStageDrains500WithinFastLaneBudget(t *testing.T) {
 }
 
 // TestOutboxRelayCancellationRecoversWithoutLoss proves that cancelling a drain
-// mid-batch (the fast-lane budget expiring) loses nothing: messages left
-// unpublished stay leased/pending and a subsequent drain — after the lease
-// expires — reclaims and publishes the entire set. At-least-once with
-// consumer-side dedup, no loss.
+// mid-batch (the fast-lane budget expiring) loses nothing: unprocessed messages
+// are released back to pending immediately (not left in 'publishing' waiting for
+// the 5-minute lease to expire), so a subsequent drain re-claims and publishes
+// the entire set on the next tick. At-least-once with consumer-side dedup, no loss.
+// This is the KERN-02 mitigation: on ctx cancellation, release unprocessed claimed
+// messages so they're eligible for re-claim on the next 1-minute tick.
 func TestOutboxRelayCancellationRecoversWithoutLoss(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker not available")
@@ -488,7 +490,8 @@ func TestOutboxRelayCancellationRecoversWithoutLoss(t *testing.T) {
 
 	// Slow publisher + a short budget: only some messages publish before cancel.
 	slow := &fakePublisher{publishDelay: 30 * time.Millisecond}
-	leaseTimeout := 50 * time.Millisecond
+	// Use the PRODUCTION lease timeout (5 minutes) to test the real scenario.
+	leaseTimeout := 5 * time.Minute
 	svc := newRelayService(t, pool, slow, outboxapp.Config{Limit: total, MaxAttempts: 5, LeaseTimeout: leaseTimeout, Now: time.Now})
 	runCtx, cancelRun := context.WithTimeout(ctx, 120*time.Millisecond)
 	partial, _ := svc.RunUntilDrained(runCtx)
@@ -497,9 +500,10 @@ func TestOutboxRelayCancellationRecoversWithoutLoss(t *testing.T) {
 		t.Fatalf("expected a partial drain, published all %d", total)
 	}
 
-	// Wait past the lease so stale 'publishing' rows can be reclaimed, then drain
-	// with a fast publisher.
-	time.Sleep(2 * leaseTimeout)
+	// With the KERN-02 fix: unprocessed claimed messages are immediately released
+	// back to pending (via deferred releaseUnprocessedMessages), so they should
+	// appear as pending right away — not stuck in 'publishing' waiting 5 minutes.
+	// The next drain immediately re-claims them (no waiting).
 	fast := &fakePublisher{}
 	recoverSvc := newRelayService(t, pool, fast, outboxapp.Config{Limit: total, MaxAttempts: 5, LeaseTimeout: leaseTimeout, Now: time.Now})
 	recoverCtx, cancelRecover := context.WithTimeout(ctx, 30*time.Second)

@@ -119,10 +119,11 @@ func run(ctx context.Context, args []string) error {
 	// The ~54s outbox budget is sufficient: RunUntilDrained publishes a claimed
 	// batch (limit GOATOS_OUTBOX_LIMIT=500) serially and loops until drained or
 	// the budget expires; a 500-message batch drains well within 54s (see
-	// TestOutboxRelayStageDrains500WithinFastLaneBudget), and any batch not
-	// reached before cancellation stays leased and is recovered by
-	// ReclaimStalePublishing on the next tick — at-least-once with consumer-side
-	// dedup, no loss.
+	// TestOutboxRelayStageDrains500WithinFastLaneBudget). Unprocessed claimed
+	// messages (when ctx cancels mid-batch) are released back to pending
+	// immediately via RunOnce's deferred releaseUnprocessedMessages, making them
+	// eligible for re-claim on the next tick (KERN-02 mitigation). At-least-once
+	// with consumer-side dedup, no loss.
 	supervisor.RegisterCadence("outbox", 1*time.Minute,
 		kernelstages.NewOutboxRelayStage(deps, publisher, validator, kernelstages.OutboxRelayConfigFromEnv()),
 	)

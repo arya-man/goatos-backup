@@ -77,6 +77,7 @@ type Repository interface {
 	MarkRetry(ctx context.Context, outboxID string, nextAttemptAt time.Time, lastError string, now time.Time) error
 	MarkFailed(ctx context.Context, outboxID string, lastError string, now time.Time) error
 	MarkDeadLetter(ctx context.Context, outboxID string, lastError string, now time.Time) error
+	ReleasePublishing(ctx context.Context, outboxID string, now time.Time) error
 	ListDeadLetters(ctx context.Context, q DeadLetterQuery) ([]domain.DeadLetterMessage, error)
 	Health(ctx context.Context, tenantID string, now time.Time) (domain.Health, error)
 	ReplayDeadLetters(ctx context.Context, params ReplayDeadLettersParams) (DLQActionResult, error)
