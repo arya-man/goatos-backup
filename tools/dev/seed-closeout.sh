@@ -76,6 +76,12 @@ run_counts_projectors() {
 }
 
 echo "seed-closeout: tenant=${tenant_id}"
+# VACC-REV-02 gate: refuse to run closeout against a RESET_REQUIRED (failed) seed. A half-seeded
+# database must never be dressed up as healthy by rebuilding read models on top of it.
+if [ "$dry_run" -eq 0 ] && [ -d "$repo/backend/cmd/seed-state-check" ]; then
+  echo "==> seed-closeout: seed-state-check (mode=closeout)"
+  (cd "$repo/backend" && go run ./cmd/seed-state-check -tenant-id "$tenant_id" -mode closeout)
+fi
 run_required_projectors
 run_calendar_projectors
 run_counts_projectors

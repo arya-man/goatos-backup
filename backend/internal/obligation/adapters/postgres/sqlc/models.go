@@ -1771,6 +1771,18 @@ type ProtocolVersion struct {
 	RowVersion        int32
 }
 
+type SeedRun struct {
+	SeedRunID  pgtype.UUID
+	TenantID   pgtype.UUID
+	Command    string
+	State      string
+	Detail     []byte
+	Error      string
+	StartedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+	FinishedAt pgtype.Timestamptz
+}
+
 type ShedLifecycleStatusLookup struct {
 	ShedLifecycleStatusID pgtype.UUID
 	TenantID              pgtype.UUID
@@ -2144,6 +2156,23 @@ type VaccinationReminderCadenceFire struct {
 	ObligationCount               int32
 	RepresentativeCalendarEventID string
 	QueuedAt                      pgtype.Timestamptz
+}
+
+type VaccinationSourceFact struct {
+	SourceFactID   pgtype.UUID
+	TenantID       pgtype.UUID
+	SeedRunID      pgtype.UUID
+	LineageKey     string
+	AnimalKey      string
+	VaccineHeader  string
+	DoseCode       string
+	Sequence       int32
+	SourceValue    string
+	SourceDate     pgtype.Date
+	Disposition    string
+	ObligationIdem pgtype.Text
+	CompletionIdem pgtype.Text
+	CreatedAt      pgtype.Timestamptz
 }
 
 type Vaccine struct {

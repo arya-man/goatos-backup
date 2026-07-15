@@ -4772,6 +4772,24 @@ CREATE TABLE public.protocol_versions (
 
 
 --
+-- Name: seed_runs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.seed_runs (
+    seed_run_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    command text NOT NULL,
+    state text NOT NULL,
+    detail jsonb DEFAULT '{}'::jsonb NOT NULL,
+    error text DEFAULT ''::text NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    finished_at timestamp with time zone,
+    CONSTRAINT seed_runs_state_check CHECK ((state = ANY (ARRAY['loading'::text, 'generating'::text, 'verified'::text, 'failed'::text])))
+);
+
+
+--
 -- Name: shed_lifecycle_status_lookup; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5354,6 +5372,29 @@ CREATE TABLE public.vaccination_reminder_cadence_fires (
     representative_calendar_event_id text NOT NULL,
     queued_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT vaccination_reminder_cadence_fires_type_check CHECK ((notification_type = ANY (ARRAY['advance_notice'::text, 'reminder'::text, 'due_today'::text])))
+);
+
+
+--
+-- Name: vaccination_source_facts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_source_facts (
+    source_fact_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    seed_run_id uuid,
+    lineage_key text NOT NULL,
+    animal_key text NOT NULL,
+    vaccine_header text NOT NULL,
+    dose_code text NOT NULL,
+    sequence integer NOT NULL,
+    source_value text NOT NULL,
+    source_date date,
+    disposition text NOT NULL,
+    obligation_idem text,
+    completion_idem text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT vaccination_source_facts_disposition_check CHECK ((disposition = ANY (ARRAY['imported_completion'::text, 'scheduled_obligation'::text, 'later_administration_merge'::text, 'excluded_goat_not_placed'::text, 'excluded_vaccine_unrecognized'::text, 'excluded_lifecycle'::text, 'unresolved'::text])))
 );
 
 
@@ -7179,6 +7220,14 @@ ALTER TABLE ONLY public.protocol_versions
 
 
 --
+-- Name: seed_runs seed_runs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.seed_runs
+    ADD CONSTRAINT seed_runs_pkey PRIMARY KEY (seed_run_id);
+
+
+--
 -- Name: shed_lifecycle_status_lookup shed_lifecycle_status_lookup_code_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7448,6 +7497,22 @@ ALTER TABLE ONLY public.vaccination_generation_runs
 
 ALTER TABLE ONLY public.vaccination_reminder_cadence_fires
     ADD CONSTRAINT vaccination_reminder_cadence_fires_pkey PRIMARY KEY (tenant_id, fire_key);
+
+
+--
+-- Name: vaccination_source_facts vaccination_source_facts_lineage_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_source_facts
+    ADD CONSTRAINT vaccination_source_facts_lineage_unique UNIQUE (tenant_id, lineage_key);
+
+
+--
+-- Name: vaccination_source_facts vaccination_source_facts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_source_facts
+    ADD CONSTRAINT vaccination_source_facts_pkey PRIMARY KEY (source_fact_id);
 
 
 --
@@ -9984,6 +10049,13 @@ CREATE INDEX protocol_versions_lookup_idx ON public.protocol_versions USING btre
 
 
 --
+-- Name: seed_runs_tenant_state_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX seed_runs_tenant_state_idx ON public.seed_runs USING btree (tenant_id, updated_at DESC);
+
+
+--
 -- Name: shed_profiles_animal_stage_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10338,6 +10410,13 @@ CREATE INDEX vaccination_generation_runs_version_idx ON public.vaccination_gener
 --
 
 CREATE INDEX vaccination_reminder_cadence_fires_park_day_idx ON public.vaccination_reminder_cadence_fires USING btree (tenant_id, park_id, fire_day);
+
+
+--
+-- Name: vaccination_source_facts_tenant_disposition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_source_facts_tenant_disposition_idx ON public.vaccination_source_facts USING btree (tenant_id, disposition);
 
 
 --

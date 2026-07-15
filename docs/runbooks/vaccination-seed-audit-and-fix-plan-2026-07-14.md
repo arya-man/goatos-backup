@@ -182,6 +182,54 @@ idempotency lineage), never by adding completion counts to obligation counts.
 - **Do NOT push/reseed until the generation implementation (B) is independently
   reviewed and A's P0/P1 gates pass against a real Postgres seed.**
 
+### D. Implementation status — VACC-REV-01/02 gates (2026-07-15)
+
+Landed on `fix/vaccination-seed-reconcile-dynamic` (foundation A/B = `e4fe81c8` +
+`ab4a2e59`; gates 3–7 in the follow-up commit):
+
+- **Persisted lineage ledger (VACC-REV-01).** New table
+  `vaccination_source_facts` (migration `000189_vaccination_source_facts.sql`* )
+  records one row per DATED source cell keyed by a stable `lineage_key`
+  (`animal_key|vaccine_header|dose_code|sequence|source_value`).
+  `reconcileSourceFactLineage` proves every dated fact is accounted for exactly
+  once by lineage — never by summing completion + obligation counts — and FAILS
+  on any unknown dated vaccine header [P1]. A same-target collapse is recorded
+  explicitly as `later_administration_merge`, never a silent drop. Regression:
+  `TestReconcileSourceFactLineage*`, `TestSourceFactLineageKeyIsUniquePerCell`.
+- **In-txn committed-row verify + rollback (VACC-REV-02 [P0]).**
+  `verifyPersistedSourceFactsInTx` runs in the SAME transaction, BEFORE commit,
+  and compares each non-excluded ledger fact to the row ACTUALLY persisted
+  (set-based `= ANY`, not intended counts). A dropped obligation/completion rolls
+  the whole seed transaction back. Proof (real Postgres):
+  `TestVerifyPersistedSourceFactsRollsBackOnDroppedRow` (+ committed-passes twin).
+- **Seed-run state machine.** New table `seed_runs`
+  (migration `000190_seed_runs.sql`*) + `internal/seedrun`. The seed writes
+  `loading` on a connection OUTSIDE the data tx, `generating` after commit, and
+  `verified` only after the post-generation invariant verification passes; any
+  error return marks it `failed` (RESET_REQUIRED) via defer.
+- **Closeout / promotion rejection.** `cmd/seed-state-check`
+  (`seedrun.EvaluateGate`) rejects a `failed` DB at closeout and a never-verified
+  DB at promotion; wired into `tools/dev/seed-closeout.sh` and
+  `make seed-state-guard`. Decision table: `internal/seedrun` `TestEvaluateGate`.
+- **Event-driven Postgres proof (gate 5).** `tests/e2e`
+  `TestKernelStoryVaccRev_EventDrivenRecomputeCanonicalRead` drives the
+  production `HealthGoat` and `ReproductiveGoat` commands → persisted
+  `outbox_messages` event → registered recheck consumer → canonical obligation
+  `deferred` + `obligation_status_events` history + the canonical, projection-free
+  `/vaccination/sheds` HTTP read (defer → reopen). Not a seeded projection.
+
+*Numbers are branch-local (this branch's max was `000188`). Any later
+integration onto a base that already uses `000189/000190` must renumber these two
+migrations to the next free numbers.
+
+**Gate 7 — DOB / entry-date correction producer stays UNRESOLVED.** No canonical
+identity command emits `goat.identity.changed` today (`MoveGoat`/`ExitGoat`/
+`StageGoat`/`HealthGoat`/`ReproductiveGoat` exist; none corrects DOB/entry_date on
+an existing goat). `EventGoatIdentityChanged` and its subscription only ensure the
+vaccination recompute is READY the moment that producer ships — no synthetic
+producer was wired. The history-triggered recompute path IS proven (gate 5); the
+DOB/entry producer is a tracked follow-up, not claimed complete.
+
 ## Open data caveats
 - `procurement_hf_vaccination_evidence` has **0 rows** — the 498 procured
   animals' procurement primary is not in that table; confirm it is captured in the

@@ -27,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +40,7 @@ import (
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
+	"github.com/vgoats/goatos/backend/internal/seedrun"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -372,9 +374,22 @@ func headerIndex(hdr []interface{}) map[string]int {
 // on the pair.
 type shedKey struct{ farm, shed string }
 
-func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool) (stats, error) {
-	var st stats
+func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool) (st stats, retErr error) {
 	now := time.Now().In(loc)
+
+	// VACC-REV-02: open a persisted seed-run in the `loading` state on the pool (outside the data
+	// tx). Any error return below transitions it to `failed`/reset_required via the defer, so a
+	// half-seeded or aborted database is never promotable. Only a successful post-generation
+	// verification marks it `verified`/ready.
+	seedRunID, err := beginSeedRun(ctx, pool, tenantID)
+	if err != nil {
+		return st, err
+	}
+	defer func() {
+		if retErr != nil {
+			failSeedRun(ctx, pool, seedRunID, retErr)
+		}
+	}()
 
 	// Default custodian party = the Mesha org (goats.custodian_party_id is NOT NULL).
 	var custodianPartyID string
@@ -721,8 +736,37 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 
 	// 5. Obligations-first, then completions. Build the two batches, classifying each cell.
+	//    Alongside them we build the persisted source-fact lineage ledger (VACC-REV-01/02): one
+	//    ledger entry per DATED source cell, keyed by its stable lineage identity, so every dated
+	//    fact is accounted for exactly once by lineage and the in-transaction verify can prove each
+	//    non-excluded fact reconciles against the row ACTUALLY persisted.
 	var obls []oblIns
 	var cmps []cmpIns
+	var facts []sourceFact
+	seenOblIdem := map[string]bool{}
+	seenCmpIdem := map[string]bool{}
+
+	parseFactDate := func(v string) *time.Time {
+		if t, err := time.ParseInLocation("2006-01-02", v, loc); err == nil {
+			d := t
+			return &d
+		}
+		return nil
+	}
+	addFact := func(c vaccCell, val, disposition, oblIdem, cmpIdem string) {
+		facts = append(facts, sourceFact{
+			lineageKey:     sourceFactLineageKey(c),
+			animalKey:      c.AnimalKey,
+			vaccineHeader:  c.Vaccine,
+			doseCode:       sourceDoseCode(c),
+			sequence:       c.Sequence,
+			sourceValue:    val,
+			sourceDate:     parseFactDate(val),
+			disposition:    disposition,
+			obligationIdem: oblIdem,
+			completionIdem: cmpIdem,
+		})
+	}
 
 	vaccMatrixDef := buildCanonicalVaccinationMatrix()
 
@@ -738,6 +782,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if !ok {
 			if isDatedFact {
 				st.GoatNotPlacedDatedFacts++
+				addFact(c, val, dispositionExcludedGoatNotPlaced, "", "")
 			}
 			continue // goat not placed (no shed) or not in herd sheet
 		}
@@ -745,6 +790,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if !ok {
 			if isDatedFact {
 				st.VaccineUnrecognizedDatedFacts++
+				addFact(c, val, dispositionExcludedVaccineUnknown, "", "")
 			}
 			continue
 		}
@@ -768,6 +814,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if err != nil {
 			st.Skipped++
 			st.UnresolvedDatedFacts++
+			addFact(c, val, dispositionUnresolved, "", "")
 			continue
 		}
 
@@ -788,6 +835,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if doseCodeForPath == "" {
 			st.Skipped++
 			st.UnresolvedDatedFacts++
+			addFact(c, val, dispositionUnresolved, "", "")
 			continue
 		}
 
@@ -795,6 +843,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if ruleID == "" {
 			st.Skipped++
 			st.UnresolvedDatedFacts++
+			addFact(c, val, dispositionUnresolved, "", "")
 			continue
 		}
 
@@ -816,6 +865,23 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			completedAt := administeredAt
 			verifiedBy := detUUID("seed-actor", tenantID)
 			sourceDateKey := administeredAt.Format("2006-01-02")
+			historyOblIdem := historyObligationIdem(c, def, sourceDateKey)
+			historyCmpIdem := historyCompletionIdem(c, def, sourceDateKey)
+			// Two distinct source cells that resolve to the SAME committed history row (same
+			// animal/vaccine/dose administered on the same day) collapse onto one row. Record the
+			// second explicitly as a merge instead of appending a duplicate the DB would silently
+			// drop via ON CONFLICT — accounted, never lost.
+			if seenCmpIdem[historyCmpIdem] {
+				addFact(c, val, dispositionLaterAdministrationMerge, historyOblIdem, historyCmpIdem)
+				st.Completed++
+				st.CompletionsHistory++
+				if laterAdministration {
+					st.LaterAdministrationsReconciled++
+				}
+				continue
+			}
+			seenCmpIdem[historyCmpIdem] = true
+			seenOblIdem[historyOblIdem] = true
 			historyOblID := historyObligationID(tenantID, c, def, sourceDateKey)
 			obls = append(obls, oblIns{
 				obligationID: historyOblID,
@@ -828,7 +894,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 				status:       "completed",
 				completedAt:  &completedAt,
 				sequence:     c.Sequence,
-				idem:         historyObligationIdem(c, def, sourceDateKey),
+				idem:         historyOblIdem,
 			})
 			cmps = append(cmps, cmpIns{
 				completionID:   historyCompletionID(tenantID, c, def, sourceDateKey),
@@ -838,8 +904,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 				administeredAt: administeredAt,
 				verifiedAt:     &administeredAt,
 				verifiedBy:     verifiedBy,
-				idem:           historyCompletionIdem(c, def, sourceDateKey),
+				idem:           historyCmpIdem,
 			})
+			addFact(c, val, dispositionImportedCompletion, historyOblIdem, historyCmpIdem)
 			st.Completed++
 			st.CompletionsHistory++
 			if laterAdministration {
@@ -850,14 +917,28 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			if !openEligible {
 				st.Skipped++
 				st.LifecycleExcludedDatedFacts++
+				addFact(c, val, dispositionExcludedLifecycle, "", "")
 				continue
 			}
+			// A single open dose per goat/rule: two future source cells for the same
+			// goat/vaccine/dose collapse onto one scheduled obligation. Record the second as a
+			// merge rather than a duplicate open row.
+			if seenOblIdem[oblIdem] {
+				addFact(c, val, dispositionLaterAdministrationMerge, oblIdem, "")
+				st.Scheduled++
+				if laterAdministration {
+					st.LaterAdministrationsReconciled++
+				}
+				continue
+			}
+			seenOblIdem[oblIdem] = true
 			// Future dose -> scheduled at the sheet date.
 			obls = append(obls, oblIns{
 				obligationID: oblID, versionID: versionID, ruleID: ruleID, goatID: goatID,
 				scopeType: scopeType, scopeID: scopeID,
 				dueAt: administeredAt, status: "scheduled", sequence: c.Sequence, idem: oblIdem,
 			})
+			addFact(c, val, dispositionScheduledObligation, oblIdem, "")
 			st.Scheduled++
 			if laterAdministration {
 				st.LaterAdministrationsReconciled++
@@ -867,6 +948,11 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	st.Obligations = len(obls)
 
 	if err := reconcileDatedFacts(cells, st); err != nil {
+		return st, err
+	}
+	// VACC-REV-01: every dated source fact accounted for exactly once by lineage (not summed
+	// completion + obligation counts), and unknown dated vaccine headers FAIL the seed [P1].
+	if err := reconcileSourceFactLineage(countDatedFacts(cells), facts); err != nil {
 		return st, err
 	}
 
@@ -896,10 +982,27 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, fmt.Errorf("insert completions: %w", err)
 	}
 
+	// Persist the source-fact lineage ledger in the SAME transaction.
+	if err := insertSourceFactLedger(ctx, tx, tenantID, seedRunID, facts); err != nil {
+		return st, fmt.Errorf("insert source-fact ledger: %w", err)
+	}
+
+	// VACC-REV-02 [P0]: reconcile the lineage ledger against the rows ACTUALLY persisted in this
+	// transaction, BEFORE commit. A silent ON CONFLICT DO NOTHING drop leaves an expected
+	// idempotency key absent, which rolls the whole transaction back (deferred Rollback) so a
+	// half-imported source is never committed.
+	if err := verifyPersistedSourceFactsInTx(ctx, tx, tenantID, facts); err != nil {
+		return st, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return st, fmt.Errorf("commit: %w", err)
 	}
 	committed = true
+	// Source committed; move the run into the generating state (kernel derivation runs next).
+	if err := markSeedRunState(ctx, pool, seedRunID, seedRunStateGenerating, false); err != nil {
+		return st, err
+	}
 
 	// Run kernel generation IN THE SEED to produce derived obligations
 	protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
@@ -922,6 +1025,11 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, genErr
 	}
 	if err := verifySeedReconciliation(ctx, pool, tenantID, now, st); err != nil {
+		return st, err
+	}
+
+	// Only a successful post-generation invariant verification marks the run verified/ready.
+	if err := markSeedRunState(ctx, pool, seedRunID, seedRunStateVerified, true); err != nil {
 		return st, err
 	}
 
@@ -1572,6 +1680,240 @@ func reconcileDatedFacts(cells []vaccCell, st stats) error {
 			st.UnresolvedDatedFacts, st.LifecycleExcludedDatedFacts, st.GoatNotPlacedDatedFacts, st.VaccineUnrecognizedDatedFacts)
 	}
 	return nil
+}
+
+// ---- VACC-REV-01/02: persisted source-fact lineage ledger + seed-run state machine ----
+
+// Seed-run states come from the shared seedrun state machine (verified == READY/promotable;
+// failed == RESET_REQUIRED) so the seed and the closeout/promotion gate agree on one vocabulary.
+const (
+	seedRunStateLoading    = seedrun.StateLoading
+	seedRunStateGenerating = seedrun.StateGenerating
+	seedRunStateVerified   = seedrun.StateVerified
+	seedRunStateFailed     = seedrun.StateFailed
+	seedRunCommand         = "seed-vaccination-real"
+)
+
+// Source-fact dispositions. Every DATED source cell lands in exactly one of these, exactly once,
+// keyed by its lineage identity — never by summing completion counts and obligation counts.
+const (
+	dispositionImportedCompletion       = "imported_completion"
+	dispositionScheduledObligation      = "scheduled_obligation"
+	dispositionLaterAdministrationMerge = "later_administration_merge"
+	dispositionExcludedGoatNotPlaced    = "excluded_goat_not_placed"
+	dispositionExcludedVaccineUnknown   = "excluded_vaccine_unrecognized"
+	dispositionExcludedLifecycle        = "excluded_lifecycle"
+	dispositionUnresolved               = "unresolved"
+)
+
+// sourceFact is one dated source vaccination cell, carrying its stable lineage identity and how it
+// was reconciled. It is persisted to vaccination_source_facts and drives the in-transaction
+// committed-row verification.
+type sourceFact struct {
+	lineageKey     string
+	animalKey      string
+	vaccineHeader  string
+	doseCode       string
+	sequence       int
+	sourceValue    string
+	sourceDate     *time.Time
+	disposition    string
+	obligationIdem string
+	completionIdem string
+}
+
+// sourceFactLineageKey is the stable per-source-cell identity used for exactly-once accounting. It
+// is independent of the insert path (completion vs scheduled vs excluded), so two distinct cells can
+// never share a lineage key and one cell can never be counted twice.
+func sourceFactLineageKey(c vaccCell) string {
+	return strings.Join([]string{
+		c.AnimalKey,
+		c.Vaccine,
+		sourceDoseCode(c),
+		strconv.Itoa(c.Sequence),
+		strings.TrimSpace(c.Value),
+	}, "|")
+}
+
+func sourceFactID(tenantID, lineageKey string) string {
+	return detUUID("source-fact", tenantID, lineageKey)
+}
+
+// beginSeedRun records a new seed run in the `loading` state on the pool (outside the data tx) so a
+// data-tx rollback still leaves a durable failure marker.
+func beginSeedRun(ctx context.Context, pool *pgxpool.Pool, tenantID string) (string, error) {
+	runID := detUUID("seed-run", tenantID, seedRunCommand, time.Now().UTC().Format(time.RFC3339Nano))
+	_, err := pool.Exec(ctx, `
+		INSERT INTO seed_runs (seed_run_id, tenant_id, command, state)
+		VALUES ($1, $2, $3, $4)`,
+		runID, tenantID, seedRunCommand, seedRunStateLoading)
+	if err != nil {
+		return "", fmt.Errorf("begin seed run: %w", err)
+	}
+	return runID, nil
+}
+
+func markSeedRunState(ctx context.Context, pool *pgxpool.Pool, runID, state string, terminal bool) error {
+	_, err := pool.Exec(ctx, `
+		UPDATE seed_runs
+		SET state = $2, updated_at = now(), finished_at = CASE WHEN $3 THEN now() ELSE finished_at END
+		WHERE seed_run_id = $1`,
+		runID, state, terminal)
+	if err != nil {
+		return fmt.Errorf("mark seed run %s: %w", state, err)
+	}
+	return nil
+}
+
+// failSeedRun marks a run RESET_REQUIRED. Best-effort: a failure here must not mask the original
+// error, but it is logged so a stuck `loading`/`generating` run is never mistaken for healthy.
+func failSeedRun(ctx context.Context, pool *pgxpool.Pool, runID string, cause error) {
+	if runID == "" {
+		return
+	}
+	msg := ""
+	if cause != nil {
+		msg = cause.Error()
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE seed_runs
+		SET state = $2, error = $3, updated_at = now(), finished_at = now()
+		WHERE seed_run_id = $1`,
+		runID, seedRunStateFailed, msg); err != nil {
+		fmt.Printf("WARN: failed to mark seed run %s as %s: %v\n", runID, seedRunStateFailed, err)
+	}
+}
+
+// insertSourceFactLedger persists the lineage ledger inside the data transaction.
+func insertSourceFactLedger(ctx context.Context, tx pgx.Tx, tenantID, seedRunID string, facts []sourceFact) error {
+	runRef := nullString(seedRunID)
+	return batch(ctx, tx, facts, 500, func(b *pgx.Batch, f sourceFact) {
+		var srcDate *time.Time
+		if f.sourceDate != nil {
+			d := *f.sourceDate
+			srcDate = &d
+		}
+		b.Queue(`
+			INSERT INTO vaccination_source_facts (source_fact_id, tenant_id, seed_run_id, lineage_key,
+				animal_key, vaccine_header, dose_code, sequence, source_value, source_date, disposition,
+				obligation_idem, completion_idem)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			ON CONFLICT (source_fact_id) DO NOTHING`,
+			sourceFactID(tenantID, f.lineageKey), tenantID, runRef, f.lineageKey,
+			f.animalKey, f.vaccineHeader, f.doseCode, f.sequence, f.sourceValue, srcDate, f.disposition,
+			nullString(f.obligationIdem), nullString(f.completionIdem))
+	})
+}
+
+// reconcileSourceFactLineage is the VACC-REV-01 hard gate: every dated source fact is accounted for
+// EXACTLY ONCE by its lineage identity. It counts distinct lineage keys (not summed completion +
+// obligation rows) and asserts each fact carries a known disposition, and — per Fix Plan A1 [P1] —
+// FAILS on any unknown vaccine header that carries a date instead of letting it vanish outside the
+// denominator.
+func reconcileSourceFactLineage(datedFacts int, facts []sourceFact) error {
+	if len(facts) != datedFacts {
+		return fmt.Errorf("source-fact lineage gap: dated_source_facts=%d ledger_facts=%d — every dated cell must produce exactly one ledger fact", datedFacts, len(facts))
+	}
+	seen := make(map[string]struct{}, len(facts))
+	unknownHeaders := 0
+	for _, f := range facts {
+		if _, dup := seen[f.lineageKey]; dup {
+			return fmt.Errorf("source-fact lineage collision: lineage_key=%q accounted more than once", f.lineageKey)
+		}
+		seen[f.lineageKey] = struct{}{}
+		if f.disposition == dispositionExcludedVaccineUnknown {
+			unknownHeaders++
+		}
+	}
+	if unknownHeaders > 0 {
+		return fmt.Errorf("source-fact lineage gate [P1]: %d dated cells carry an unknown vaccine header — a renamed/misspelled source column must FAIL the seed, not vanish outside the denominator", unknownHeaders)
+	}
+	return nil
+}
+
+// verifyPersistedSourceFactsInTx is the VACC-REV-02 [P0] in-transaction check. It runs in the SAME
+// transaction as the obligation/completion inserts, BEFORE commit, and compares each non-excluded
+// ledger fact to the row ACTUALLY persisted (not the intended in-memory count). A silent
+// ON CONFLICT DO NOTHING drop leaves an expected idempotency key absent, which this reports and which
+// rolls the whole seed transaction back.
+func verifyPersistedSourceFactsInTx(ctx context.Context, tx pgx.Tx, tenantID string, facts []sourceFact) error {
+	wantObl := map[string]struct{}{}
+	wantCmp := map[string]struct{}{}
+	for _, f := range facts {
+		switch f.disposition {
+		case dispositionImportedCompletion:
+			if f.obligationIdem != "" {
+				wantObl[f.obligationIdem] = struct{}{}
+			}
+			if f.completionIdem != "" {
+				wantCmp[f.completionIdem] = struct{}{}
+			}
+		case dispositionScheduledObligation:
+			if f.obligationIdem != "" {
+				wantObl[f.obligationIdem] = struct{}{}
+			}
+		}
+	}
+
+	missingObl, err := missingIdempotencyKeys(ctx, tx, `obligation_instances`, tenantID, keysOf(wantObl))
+	if err != nil {
+		return fmt.Errorf("verify committed obligations: %w", err)
+	}
+	missingCmp, err := missingIdempotencyKeys(ctx, tx, `vaccination_completions`, tenantID, keysOf(wantCmp))
+	if err != nil {
+		return fmt.Errorf("verify committed completions: %w", err)
+	}
+	if len(missingObl) > 0 || len(missingCmp) > 0 {
+		return fmt.Errorf("in-transaction source-fact drop detected (rolling back): %d obligation rows and %d completion rows expected by source lineage were not persisted (e.g. obl=%s cmp=%s) — a committed seed must reconcile against PERSISTED rows, not intended counts",
+			len(missingObl), len(missingCmp), sample(missingObl), sample(missingCmp))
+	}
+	return nil
+}
+
+func keysOf(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func sample(keys []string) string {
+	if len(keys) == 0 {
+		return "-"
+	}
+	return keys[0]
+}
+
+// missingIdempotencyKeys returns the subset of want that is NOT present (committed within the tx) in
+// the given table for the tenant. Set-based (= ANY) — no per-key round trip.
+func missingIdempotencyKeys(ctx context.Context, tx pgx.Tx, table, tenantID string, want []string) ([]string, error) {
+	if len(want) == 0 {
+		return nil, nil
+	}
+	// table is a fixed internal literal ('obligation_instances' | 'vaccination_completions'), never
+	// user input, so this is not an injection surface.
+	q := fmt.Sprintf(`
+		SELECT k
+		FROM unnest($2::text[]) AS k
+		WHERE NOT EXISTS (
+			SELECT 1 FROM %s t
+			WHERE t.tenant_id = $1::uuid AND t.idempotency_key = k
+		)`, table)
+	rows, err := tx.Query(ctx, q, tenantID, want)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var missing []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		missing = append(missing, k)
+	}
+	return missing, rows.Err()
 }
 
 func detUUID(kind string, parts ...string) string {
