@@ -59,10 +59,12 @@ resource "google_monitoring_alert_policy" "outbox_relay_dead_letter" {
   conditions {
     display_name = "Outbox relay reported dead-lettered messages"
 
+    # The outbox-relay stage now runs inside the kernel-worker SERVICE, not a
+    # Cloud Run Job, so match the service revision logs instead of job logs.
     condition_matched_log {
       filter = trimspace(<<-EOT
-        resource.type="cloud_run_job"
-        AND resource.labels.job_name="${local.kernel_jobs.outbox_relay.name}"
+        resource.type="cloud_run_revision"
+        AND resource.labels.service_name="${google_cloud_run_v2_service.kernel_worker.name}"
         AND jsonPayload.dead_letter > 0
       EOT
       )
@@ -293,6 +295,52 @@ resource "google_monitoring_alert_policy" "kernel_consumer_lag" {
       comparison      = "COMPARISON_GT"
       duration        = "300s"
       threshold_value = var.consumer_lag_slo_seconds
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MAX"
+      }
+    }
+  }
+
+  alert_strategy {
+    notification_rate_limit {
+      period = "300s"
+    }
+
+    auto_close = "604800s"
+  }
+
+  depends_on = [google_project_service.enabled]
+}
+
+# Backlog-age SLO for the notification delivery path after the sub-minute
+# Cloud Tasks fast path + notification-dispatcher job were retired. Notifications
+# are durable in notification_requests and drained by the kernel worker's
+# 1-minute fast-lane stage; a healthy backlog age is well under two minutes. This
+# fires if the oldest still-undelivered request ages past the threshold, catching
+# a wedged/failing dispatcher stage (delivery stalled, retries exhausted, or DLQ
+# growth) even though no delivery is "lost".
+resource "google_monitoring_alert_policy" "kernel_notification_backlog_age" {
+  display_name          = "goatos-stg notification backlog age"
+  combiner              = "OR"
+  enabled               = true
+  notification_channels = local.monitoring_notification_channel_names
+  user_labels           = local.labels
+
+  conditions {
+    display_name = "kernel.notify.backlog age exceeds the 1-minute fast-lane SLO"
+
+    condition_threshold {
+      filter = join(" ", [
+        "metric.type=\"prometheus.googleapis.com/kernel_notify_backlog_age_seconds/gauge\"",
+        "AND resource.type=\"generic_task\"",
+      ])
+      comparison = "COMPARISON_GT"
+      duration   = "300s"
+      # 600s: healthy backlog age is <2m (1-minute drain). 10 minutes of
+      # oldest-undelivered age means the fast-lane stage is not keeping up.
+      threshold_value = 600
 
       aggregations {
         alignment_period   = "60s"

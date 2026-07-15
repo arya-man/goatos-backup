@@ -17,14 +17,16 @@ resource "google_project_iam_member" "cloudsql_client" {
 resource "google_project_iam_custom_role" "notification_fcm_sender" {
   role_id     = "goatosNotificationFcmSenderStaging"
   title       = "Goat OS staging notification FCM sender"
-  description = "Allows the notification dispatcher to send Firebase Cloud Messaging messages."
+  description = "Allows the kernel worker's notification dispatcher stage to send Firebase Cloud Messaging messages."
   permissions = ["cloudmessaging.messages.create"]
 }
 
-resource "google_project_iam_member" "notification_dispatcher_fcm_sender" {
+# The kernel worker runs the notification-dispatcher stage in-process, so it
+# holds the FCM sender role that the retired notification-dispatcher job used to.
+resource "google_project_iam_member" "kernel_worker_fcm_sender" {
   project = var.project_id
   role    = google_project_iam_custom_role.notification_fcm_sender.name
-  member  = "serviceAccount:${google_service_account.runtime["notification_dispatcher"].email}"
+  member  = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
 }
 
 resource "google_service_account_iam_member" "cloudscheduler_scheduler_token_creator" {
@@ -33,9 +35,8 @@ resource "google_service_account_iam_member" "cloudscheduler_scheduler_token_cre
   member             = "serviceAccount:${google_project_service_identity.cloudscheduler.email}"
 }
 
-resource "google_service_account_iam_member" "cloudtasks_enqueuer_token_creator" {
-  service_account_id = google_service_account.runtime["cloud_tasks_enqueuer"].name
-  role               = "roles/iam.serviceAccountTokenCreator"
-  member             = "serviceAccount:${google_project_service_identity.cloudtasks.email}"
-}
+# The near-term Cloud Tasks enqueuer (which invoked the retired
+# notification-dispatcher job for sub-minute delivery) is gone: notifications
+# now drain via the kernel worker's 1-minute fast-lane stage. No Cloud Tasks
+# OAuth token-creator binding is needed.
 

@@ -6,64 +6,13 @@ locals {
   notification_dispatcher_run_url = "${local.run_job_api_base}/goatos-stg-notification-dispatcher:run"
 
   kernel_jobs = {
-    outbox_relay = {
-      name                = "goatos-stg-outbox-relay"
-      service_account_key = "outbox_relay"
-      command             = ["/app/bin/outbox-relay"]
-      args                = ["-limit=500", "-timeout=240s"]
-      timeout             = "300s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "* * * * *"
-      env = {
-        GOOGLE_CLOUD_PROJECT          = var.project_id
-        GOATOS_OUTBOX_PUBLISHER       = "pubsub"
-        GOATOS_OUTBOX_PUBSUB_TOPIC_ID = google_pubsub_topic.outbox_events.name
-      }
-    }
-    domain_event_consumer = {
-      name                = "goatos-stg-domain-event-consumer"
-      service_account_key = "domain_consumer"
-      command             = ["/app/bin/domain-event-consumer"]
-      args                = ["-timeout=9m"]
-      timeout             = "600s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/10 * * * *"
-      env = {
-        GOOGLE_CLOUD_PROJECT                 = var.project_id
-        GOATOS_DOMAIN_EVENTS_SUBSCRIPTION_ID = google_pubsub_subscription.domain_events.name
-        GOATOS_DOMAIN_EVENT_SCHEMA_PATH      = "/app/contracts/jsonschema/domain-event-envelope.schema.json"
-        GOATOS_PUBSUB_PROJECT_ID             = var.project_id
-      }
-    }
-    domain_event_processed_sweeper = {
-      name                = "goatos-stg-domain-event-processed-sweeper"
-      service_account_key = "domain_event_processed_sweeper"
-      command             = ["/app/bin/domain-event-processed-sweeper"]
-      args                = ["-timeout=45s", "-limit=1000", "-retention=336h"]
-      timeout             = "90s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "37 * * * *"
-      env = {
-        GOATOS_TENANT_ID = var.stg_tenant_id
-      }
-    }
-    vaccination_generator = {
-      name                = "goatos-stg-vaccination-generator"
-      service_account_key = "vaccination_generator"
-      command             = ["/app/bin/generate-vaccination-obligations"]
-      args                = ["-timeout=9m"]
-      timeout             = "600s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "0 * * * *"
-      env = {
-        GOATOS_TENANT_ID        = var.stg_tenant_id
-        GOATOS_PG_QUERY_TIMEOUT = "30s"
-      }
-    }
+    # outbox_relay, domain_event_consumer, domain_event_processed_sweeper, and
+    # vaccination_generator were consolidated into the long-running kernel-worker
+    # SERVICE (infra/envs/stg/cloud_run_worker.tf) as its fast-lane / continuous
+    # / housekeeping / generation stages. Their scheduled jobs are retired so the
+    # worker and a job can never run the same stage concurrently. See
+    # docs/decisions/operational-kernel-5k-50k-scale-envelope.md.
+    #
     # process_integrity_projector, vaccination_execution_projector,
     # vaccination_operations_projector, and vaccination_projection_worker were
     # removed here (KERN-001 follow-up cleanup): their binaries
@@ -76,92 +25,14 @@ locals {
     # to start (container ENTRYPOINT not found). tools/agent-hooks/check-deployed-job-flags.mjs
     # (`make deployed-job-flags-guard`) now fails CI if a job like this is reintroduced without
     # a matching Dockerfile-built binary.
-    obligation_sweeper = {
-      name                = "goatos-stg-obligation-sweeper"
-      service_account_key = "obligation_sweeper"
-      command             = ["/app/bin/obligation-sweeper"]
-      # -project-calendar / -project-vaccination-read-models were retired from
-      # obligation-sweeper's flag parser when the Calendar/vaccination screen projections
-      # were dropped (KERN-001: kernel-worker/calendar reminders+escalations follow-up).
-      # Passing them here made `flag.Parse` fail with
-      # "flag provided but not defined: -project-calendar" on every scheduled run, so the
-      # job exited immediately and neither calendar reminders nor escalations (now handled
-      # by this same binary's -sweep-reminders/-sweep-escalations, default true) ever ran.
-      args     = ["-timeout=180s"]
-      timeout  = "300s"
-      memory   = "512Mi"
-      cpu      = "1"
-      schedule = "*/5 * * * *"
-      env = {
-        GOOGLE_CLOUD_PROJECT                     = var.project_id
-        GOATOS_TENANT_ID                         = var.stg_tenant_id
-        GOATOS_SWEEPER_ACTOR_ID                  = var.stg_sweeper_actor_id
-        GOATOS_CLOUD_TASKS_PROJECT_ID            = var.project_id
-        GOATOS_CLOUD_TASKS_LOCATION              = var.region
-        GOATOS_CLOUD_TASKS_QUEUE_ID              = google_cloud_tasks_queue.near_term_kernel.name
-        GOATOS_CLOUD_TASKS_OAUTH_SERVICE_ACCOUNT = google_service_account.runtime["cloud_tasks_enqueuer"].email
-        GOATOS_NOTIFICATION_DISPATCHER_RUN_URL   = local.notification_dispatcher_run_url
-        GOATOS_PG_QUERY_TIMEOUT                  = "30s"
-      }
-    }
-    notification_dispatcher = {
-      name                = "goatos-stg-notification-dispatcher"
-      service_account_key = "notification_dispatcher"
-      command             = ["/app/bin/notification-dispatcher"]
-      args                = ["-timeout=45s", "-limit=100"]
-      timeout             = "90s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "* * * * *"
-      env = {
-        GOOGLE_CLOUD_PROJECT  = var.project_id
-        GOATOS_FCM_PROJECT_ID = var.project_id
-        GOATOS_TENANT_ID      = var.stg_tenant_id
-      }
-      secret_env = {
-        GOATOS_SLACK_WEBHOOK_URL    = "notification_slack_webhook_url"
-        GOATOS_INCIDENT_WEBHOOK_URL = "notification_incident_webhook_url"
-      }
-    }
-    inventory_batch_reconciler = {
-      name                = "goatos-stg-inventory-batch-reconciler"
-      service_account_key = "inventory_batch_reconciler"
-      command             = ["/app/bin/inventory-batch-reconciler"]
-      args                = ["-timeout=60s", "-limit=100"]
-      timeout             = "120s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
-      env = {
-        GOATOS_TENANT_ID = var.stg_tenant_id
-      }
-    }
-    idempotency_key_sweeper = {
-      name                = "goatos-stg-idempotency-key-sweeper"
-      service_account_key = "idempotency_key_sweeper"
-      command             = ["/app/bin/idempotency-key-sweeper"]
-      args                = ["-timeout=45s", "-limit=1000"]
-      timeout             = "90s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "17 * * * *"
-      env = {
-        GOATOS_TENANT_ID = var.stg_tenant_id
-      }
-    }
-    sop_review_fanout_retry = {
-      name                = "goatos-stg-sop-review-fanout-retry"
-      service_account_key = "sop_review_fanout_retry"
-      command             = ["/app/bin/sop-review-fanout-retry"]
-      args                = ["-timeout=60s", "-limit=100"]
-      timeout             = "120s"
-      memory              = "512Mi"
-      cpu                 = "1"
-      schedule            = "*/5 * * * *"
-      env = {
-        GOATOS_TENANT_ID = var.stg_tenant_id
-      }
-    }
+    # obligation_sweeper, notification_dispatcher, inventory_batch_reconciler,
+    # idempotency_key_sweeper, and sop_review_fanout_retry were consolidated into
+    # the kernel-worker SERVICE (cloud_run_worker.tf) — the 5-minute operational
+    # and 1-minute fast lanes. The near-term Cloud Tasks fast path that the
+    # obligation sweeper used to invoke the notification-dispatcher job for
+    # sub-minute delivery is retired with those jobs (see cloud_tasks.tf):
+    # notifications stay durable in notification_requests and drain via the
+    # worker's 1-minute NotificationDispatcherStage.
     partition_maintainer = {
       name                = "goatos-stg-partition-maintainer"
       service_account_key = "partition_maintainer"
@@ -480,14 +351,6 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker" {
   name     = each.value.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.runtime["scheduler"].email}"
-}
-
-resource "google_cloud_run_v2_job_iam_member" "cloud_tasks_notification_dispatcher_invoker" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_job.kernel["notification_dispatcher"].name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.runtime["cloud_tasks_enqueuer"].email}"
 }
 
 resource "google_cloud_scheduler_job" "kernel" {

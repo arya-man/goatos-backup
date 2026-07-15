@@ -16,46 +16,22 @@ locals {
       account_id   = "goatos-admin-web-stg"
       display_name = "Goat OS staging admin-web runtime"
     }
-    outbox_relay = {
-      account_id   = "goatos-outbox-relay-stg"
-      display_name = "Goat OS staging outbox relay runtime"
+    # kernel_worker: the single consolidated long-running SERVICE that replaces
+    # the retired per-stage scheduled Cloud Run Jobs (outbox relay, domain
+    # consumer, processed-event/idempotency/inventory/SOP sweepers, vaccination
+    # generator, obligation sweeper, notification dispatcher). Its SA holds the
+    # union of those stages' access (Cloud SQL, Pub/Sub publish+subscribe, FCM,
+    # secrets). See docs/decisions/operational-kernel-5k-50k-scale-envelope.md.
+    kernel_worker = {
+      account_id   = "goatos-kernel-worker-stg"
+      display_name = "Goat OS staging kernel worker runtime"
     }
     outbox_dlq = {
       account_id   = "goatos-outbox-dlq-stg"
       display_name = "Goat OS staging outbox DLQ operator runtime"
     }
-    domain_consumer = {
-      account_id   = "goatos-domain-consumer-stg"
-      display_name = "Goat OS staging domain event consumer runtime"
-    }
-    domain_event_processed_sweeper = {
-      account_id   = "goatos-domain-event-sweep-stg"
-      display_name = "Goat OS staging domain processed-event retention sweeper runtime"
-    }
-    vaccination_generator = {
-      account_id   = "goatos-vax-generator-stg"
-      display_name = "Goat OS staging vaccination obligation generator runtime"
-    }
-    obligation_sweeper = {
-      account_id   = "goatos-obligation-sweeper-stg"
-      display_name = "Goat OS staging obligation sweeper runtime"
-    }
-    notification_dispatcher = {
-      account_id   = "goatos-notify-stg"
-      display_name = "Goat OS staging notification dispatcher runtime"
-    }
-    inventory_batch_reconciler = {
-      account_id   = "goatos-inventory-reconcile-stg"
-      display_name = "Goat OS staging inventory batch reconciler runtime"
-    }
-    idempotency_key_sweeper = {
-      account_id   = "goatos-idempotency-sweeper-stg"
-      display_name = "Goat OS staging idempotency key sweeper runtime"
-    }
-    sop_review_fanout_retry = {
-      account_id   = "goatos-sop-review-retry-stg"
-      display_name = "Goat OS staging SOP review fanout retry runtime"
-    }
+    # partition_maintainer retained until the de-partition migration removes the
+    # partitioned event/history tables and this job (tracked as KERN-REV-02).
     partition_maintainer = {
       account_id   = "goatos-partition-maint-stg"
       display_name = "Goat OS staging partition coverage maintainer runtime"
@@ -72,24 +48,12 @@ locals {
       account_id   = "goatos-scheduler-stg"
       display_name = "Goat OS staging scheduler invoker"
     }
-    cloud_tasks_enqueuer = {
-      account_id   = "goatos-cloud-tasks-stg"
-      display_name = "Goat OS staging Cloud Tasks OAuth enqueuer"
-    }
   }
 
   database_clients = toset([
     "api",
-    "outbox_relay",
+    "kernel_worker",
     "outbox_dlq",
-    "domain_consumer",
-    "domain_event_processed_sweeper",
-    "vaccination_generator",
-    "obligation_sweeper",
-    "notification_dispatcher",
-    "inventory_batch_reconciler",
-    "idempotency_key_sweeper",
-    "sop_review_fanout_retry",
     "partition_maintainer",
     "migrate",
     "legacy_sync",

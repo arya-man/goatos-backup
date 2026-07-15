@@ -1,23 +1,9 @@
-resource "google_cloud_tasks_queue" "near_term_kernel" {
-  name     = "goatos-stg-near-term-kernel"
-  location = var.region
-
-  rate_limits {
-    max_dispatches_per_second = 5
-    max_concurrent_dispatches = 20
-  }
-
-  retry_config {
-    max_attempts       = 5
-    min_backoff        = "30s"
-    max_backoff        = "600s"
-    max_doublings      = 5
-    max_retry_duration = "1800s"
-  }
-
-  stackdriver_logging_config {
-    sampling_ratio = 1.0
-  }
-
-  depends_on = [google_project_service.enabled]
-}
+# The near-term Cloud Tasks queue (goatos-stg-near-term-kernel) was retired with
+# the notification-dispatcher Cloud Run Job. That queue enqueued tasks that
+# invoked the job's :run URL for sub-minute notification delivery. Notifications
+# now stay durable in notification_requests and are drained idempotently by the
+# kernel worker's 1-minute fast-lane NotificationDispatcherStage (<=1-minute
+# added latency, no loss). If a real sub-minute SLA is required later, reintroduce
+# a queue that targets a dedicated authenticated dispatch path — never an HTTP
+# work-trigger on the worker service. See
+# docs/decisions/operational-kernel-5k-50k-scale-envelope.md.
