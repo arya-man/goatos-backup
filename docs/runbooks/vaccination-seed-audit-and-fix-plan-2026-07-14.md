@@ -137,7 +137,28 @@ missing-anchor, NOT clinical/pregnancy.
   recompute, obsolete obligations supersede, deferred reopen, projections refresh.
 - B8. Follow the APPROVED matrix, never V2's Crude-Version plan.
 
-### C. Re-seed + re-verify (gates)
+### C. Re-seed + re-verify (gates) — LOCKED (maintainer, 2026-07-15)
+
+**VACC-REV-01 (reconcile by source lineage, not summed totals):** the abandoned
+`verifyCommittedDatedFacts` (which summed accepted completions + completed
+obligations = 2× per past fact) is REMOVED by the clean reset and must NOT be
+reintroduced. A regression test must prove all 3,836 DISTINCT dated source facts
+are accounted for **exactly once by source identity/lineage** (source-fact id /
+idempotency lineage), never by adding completion counts to obligation counts.
+
+**VACC-REV-02 (in-txn source verify + real seed-run state machine):**
+- The persisted source-row check runs in the SAME transaction, BEFORE commit; a
+  source-row drop rolls the whole transaction back.
+- The seed run carries an explicit persisted STATE. It is `loading`/`generating`
+  during insert + kernel generation — NEVER `ready`.
+- Only a SUCCESSFUL post-generation invariant verification may mark the run
+  `verified`/`ready`.
+- A post-generation failure marks the run `failed`/`reset_required`. Doc-only
+  "reset required" is INSUFFICIENT — the state must be persisted and
+  **seed-closeout, CI, and deployment promotion MUST reject a
+  `failed`/`reset_required` database**. No half-seeded DB may appear healthy or
+  promotable.
+
 - **3,836 source facts reconciled with zero silent drops, verified against
   COMMITTED Postgres rows** (not intended counts; correct on replay) — [P0];
 - **raw dated cells counted before vaccine-header filtering; any unknown header
