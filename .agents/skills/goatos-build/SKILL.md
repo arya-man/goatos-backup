@@ -103,6 +103,35 @@ bounded date windows, protected route registration, durable nudge/snooze writes,
 and seeded Postgres E2E proof. Do not treat the full mock Calendar taxonomy as
 built product.
 
+## Before you code: operational-invariant discipline
+
+Before touching code, identify WHICH operational invariant(s) the change touches:
+
+- **pagination forward-progress:** cursor is monotonic, next-page fetch cannot regress
+- **effective-state on partial updates:** a partial edit re-validates the WHOLE effective
+  locked record (not just the changed field), so date/status/rule/version mutations don't
+  create impossible states
+- **retry-attempt accounting:** claiming/leasing work is NOT an attempt; attempts charged
+  only when delivery is actually attempted; cancellation releases untouched work without
+  consuming a retry
+- **durable recorders:** notifications, reminders, escalations, manual-review queues are
+  durable rows, never logs or in-memory state; fail-closed on write failure
+- **worker boundedness & resumability:** every sweeper/worker is keyset-chunked with
+  forward progress, `FOR UPDATE SKIP LOCKED` claim, lease/cursor, and idempotency —
+  never restart permanently at offset zero
+- **migration lock-safety:** hot-table indexes are CONCURRENT in separate migrations,
+  DDL phases (add-nullable → backfill → constrain) are separated, resumable/idempotent
+- **India business-date correctness:** date-only values in business rules (due/missed/
+  recovery windows, eligibility checks) use India/local operational timezone, never UTC
+
+Every bug fix REQUIRES a failing-before regression test added to an existing suite. Run
+the test BEFORE the fix to confirm it fails; after the fix it passes. A fix with no
+failing-before test is unproven.
+
+Before pushing to `main`, a FULL `make ci-local` must pass on the exact commit being
+pushed. Partial `JOB=...` runs are fine while developing; only a full local CI gates
+main push.
+
 ## Reference Guide
 
 | Reference | Load when |

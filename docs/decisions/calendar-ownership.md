@@ -231,6 +231,54 @@ Examples:
 - Sales/Commerce future: dispatch dates, allocation deadlines, payment follow-up
   after the Sales/Commerce slice is active.
 
+## Fetch and Render Window Invariant
+
+The selected date window **must drive BOTH fetching AND rendering** from a single
+source of truth. When a user picks "this week" or "next month" on the top bar,
+that window defines what the backend API call requests and what the frontend
+renders:
+
+- The **fetch range** is the window the user selected (inclusive start, exclusive
+  or inclusive end depending on calendar convention for weeks/months).
+- The **render range** is exactly the same window; the frontend does not fetch
+  less and render expanded, nor fetch more and render a subset.
+- If the fetch response covers the window (possibly with truncation flags), the
+  frontend renders exactly that coverage. Truncated/incomplete pages are marked
+  explicitly (next_cursor exists, or end_of_data is false) and the user can page
+  through the full window.
+- If the UI wants to show partial data with a marker (for example, a date with a
+  dot for "something happened this day"), that partial read (typically from a
+  different canonical source like completed obligations, not a projection) must
+  be clearly separated from the active-work list. A "completed history" timeline
+  may render from one source; the active "due work" pane renders from the
+  obligation/batch fetch.
+
+Gotcha: a user switches from "this week" to "next month"; the same underlying
+data-fetch service is called with a different window. The old "week" page is
+unmounted. If that week page is still accumulating results in an infinite-scroll
+observer or in React state, unmounting must stop that observer or clear the
+state, otherwise the next month's results get polluted with old week data.
+
+## Reminder Processing Completeness
+
+When a reminder (nudge, escalation, recurring check) sweeper or generator
+processes a result set (for example, all due vaccination reminders in the last
+7 days), every candidate row that matches the business rule must eventually be
+reached. Consequence:
+
+- If the generator limits its scan to 100 rows per invocation and there are 500
+  candidates, the generator must be invoked/rescheduled until all 500 are
+  processed, not just the first 100. Use a monotonic cursor or page through the
+  full matched set.
+- If a reminder is triggered by a page-limited obligation list, the reminder
+  count cannot be smaller than the complete matched count just because a page was
+  truncated. Either fetch/count the complete set before creating reminders, or
+  create pagination-aware reminders that say "showing X of Y".
+- A reminder that is keyed by a date window (for example, "reminder for all
+  overdue obligations as of today") must process every obligation in that window,
+  even if earlier reminders were created. Use the same window definition for both
+  generations and for re-triggering on recovery/state change.
+
 ## Implementation Notes
 
 - Persist owner with a stable owner key from this ADR; do not use mock-only keys

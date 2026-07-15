@@ -682,6 +682,24 @@ Do:
   ci-local` on the exact pushed SHA as the authoritative gate. Record the
   `make ci-local` SHA + result as the current-SHA proof. Restoring org Actions
   billing stays a separate maintainer task, tracked but never blocking closure.
+
+- **Exact-SHA local-CI push gate (main)**: Only a FULL green `make ci-local` on
+  the exact commit SHA authorizes a push to `main`. The pre-push hook installed by
+  `make ai-setup` enforces this via a machine-local SHA-bound receipt
+  (`goatos-ci-local-receipt.json` in the worktree git directory). The receipt
+  persists after a full run, binds that SHA to a green result and full-suite mode,
+  and the hook checks it on push: if a receipt exists with matching SHA, green
+  result, and mode `all`, the push is permitted; otherwise rejected. Partial
+  `JOB=...` runs intentionally write NO receipt and never authorize a push. Every
+  new machine guardrail MUST be registered in `tools/ci/guardrail-manifest.json`
+  and wired into both `Makefile:guardrails` and `tools/ci/run-local-ci.sh` (the
+  `guardrail-registration-guard` fails closed if any guardrail is missing,
+  unvalidated, or unwired). See `docs/runbooks/local-release-evidence.md` →
+  "Exact-SHA Local-CI Push Gate (Main)" and `docs/runbooks/local-ci.md` →
+  "Guardrail registration and exact-SHA push evidence" for the full flow. Do not
+  bypass the hook with `--no-verify`: if the receipt is stale or the build broke,
+  re-run `make ci-local` to generate a fresh receipt, then push normally. Install
+  the hook via `make ai-setup` or `make stg-promotion-guard-install`.
 - Treat Goat OS time semantics as India-business-calendar semantics. Physical
   storage may use `timestamptz`/absolute instants, but every business meaning
   derived from those instants — scheduling, due/missed buckets, reminder keys,

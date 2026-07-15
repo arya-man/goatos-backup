@@ -298,6 +298,62 @@ generation:
 - [ ] Completion proof acceptance, rejection/rework, duplicate submit, and
       replay each have tests or live proof evidence when that path changed
 
+## Dose suppression, date corrections, and business-date correctness
+
+### Dose suppression requires matching protocol lineage
+When an obligation is grouped into a drive (batched into `obligation_batches` /
+assigned to a drive), per-animal dose obligations are suppressed from Calendar's
+active work list (visible only in Passport / Protocol Adherence / audit surfaces).
+This suppression is valid ONLY when the drive uses the canonical protocol version
+and the vaccine/dose protocol match the grouped obligation's eligibility protocol
+version. A mismatch (e.g., grouping a dose into a drive that changed protocol
+after the obligation was generated) is a hidden wrong-action bug.
+
+Review checkpoints:
+- [ ] Drive membership includes protocol_version or protocol lineage identity;
+      suppression logic re-checks that the drive's protocol MATCHES the
+      obligation's eligibility protocol before suppressing
+- [ ] A cancelled/revoked drive re-exposes the suppressed per-animal obligations
+      in Calendar and audit (no orphaned hidden work)
+- [ ] Tests cover protocol mismatch (obligation created under protocol v1, drive
+      created under protocol v2) and verify obligations remain visible if protocol
+      is incompatible
+
+### Date corrections validate the entire effective locked record
+When a date field is corrected (due-date shift, recovery-date change, start-date
+recompute), the change must re-validate the whole effective locked record, not
+just the new date. A partial validation that only checks the new date can leave
+the record in an impossible state.
+
+Review checkpoints:
+- [ ] A due-date correction re-validates eligibility windows, delay holds, defer
+      state, animal-stage compatibility, vaccine-schedule gaps, and existing
+      conflicting work — ALL re-checked with the new date
+- [ ] A recovery-date update re-validates the recovery window (not in future,
+      within reopen window, etc.) and recomputes defer reopen / due-date
+      re-projection atomically
+- [ ] A date change to an obligation already in the kernel chain (already due,
+      already in a drive, already completed) follows the existing change/replay
+      contracts (audit row, outbox event, projection refresh) — not a silent
+      in-place update
+- [ ] Tests cover impossible states: a past due-date with future recovery, a
+      recovery date that violates the reopen window, a corrected date that creates
+      a drive-batching conflict
+
+### Business dates use India/local operational calendar
+All date-based decisions (eligibility windows, due bucketing, reminder keys,
+audit-log display) must use the Goat OS operational timezone
+(`Asia/Kolkata` by default via `locations.timezone`), never server UTC.
+
+Review checkpoints:
+- [ ] Due-date windows, missed-marking, recovery reopens, and reminder triggers
+      use location timezone, not `UTC().Date()` / server midnight
+- [ ] Test fixtures exercise a location whose local calendar day differs from UTC
+      (e.g., India/Kolkata evening)
+- [ ] UI labels display business dates in the location timezone, not server time
+- [ ] Config/rule windows (e.g., "2-week recovery window", "hold until week 4")
+      are counted in location-local calendar days, not server days
+
 ## Other domains — one-line rule + doc
 
 - **Calendar** (`docs/decisions/calendar-ownership.md`): admits an event only if it

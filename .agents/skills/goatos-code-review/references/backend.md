@@ -202,6 +202,30 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
 - [ ] Large media is streamed from storage with a signed URL, never proxied as
       bytes through the API process
 
+## Retry-attempt accounting (claiming ≠ attempting)
+
+Claiming or leasing work is NOT an attempt; attempts are charged only when the
+work is actually attempted (sent to a handler, started execution, called a
+provider). Cancellation must release untouched work without consuming a retry.
+This prevents stuck/stale work from wasting all retries on claim failures.
+
+Review checkpoints:
+- [ ] A worker loop that claims work with a lease (`FOR UPDATE SKIP LOCKED` claim,
+      a durable reservation, or a lease table) does NOT increment an attempt
+      counter on claim; it increments only when the work is actually started
+- [ ] Lease expiry + re-claim by a reaper/crash handler releases the work
+      without counting as an attempt (reaper reclaims only if attempt_count has
+      room)
+- [ ] Cancellation of claimed work (operator action, SLA expiry, replaced by
+      newer) releases the work atomically with the cancellation, decrementing the
+      claim count, without consuming an attempt
+- [ ] A retried call (same idempotency key, re-execution after transient failure)
+      DOES increment the attempt counter if the handler/provider was actually
+      invoked, not if the claim itself failed (so a network timeout getting to the
+      claim endpoint does not waste an attempt)
+- [ ] Max-attempts gate is checked before actual execution, not before claiming,
+      so stale claims do not eat retries for work that needs to run
+
 ## Observability & resilience
 
 - [ ] Loggers built via `backend/internal/platform/observability` — never hand-rolled

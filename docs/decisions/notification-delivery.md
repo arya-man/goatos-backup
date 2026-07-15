@@ -74,6 +74,39 @@ notification dispatcher  cmd/notification-dispatcher  ──▶ notification/app
 - **Statuses** (`domain`): `queued → sending → sent | failed → exhausted`,
   plus `suppressed`, `read`.
 
+## Attempt Semantics and Retry Isolation
+
+- **Claiming work is NOT an attempt.** When a dispatcher leases a notification
+  row (marks it `sending` with a `lease_token` and `lease_until`), the row is
+  reserved for this worker, but no attempt counter is incremented yet. A lease is
+  a concurrency guard: only one dispatcher owns a send at a time. An *attempt* is
+  when the dispatcher actually tries to send (calls the Gateway, issues the HTTP
+  POST, enqueues the SMS/FCM). If a dispatcher crashes after leasing but before
+  sending, the row remains unmodified when the lease times out; it is then
+  reclaimed and another worker can lease and try again — without burning a retry
+  budget.
+
+- **Charge an attempt only when delivery is actually attempted.** Call
+  `Service.backoff(attempt)` and increment attempt count only after the send
+  gateway is invoked, not after the row is leased. If the send fails (network
+  timeout, invalid token, rate limit), it is one attempt. If the send succeeds,
+  mark as `sent`. If the send fails after all retries, mark as `exhausted` and
+  record DLQ evidence. An attempt counter that increments on lease instead of on
+  send silently wastes the retry budget on nothing — a crashed/slow dispatcher
+  can burn all retries by leasing rows without sending.
+
+- **Cancellation must release untouched work without consuming retries.** When a
+  notification is cancelled (the triggering obligation is cancelled, the user is
+  no longer interested, or a guard blocks the send), the row must transition to
+  `suppressed` or `cancelled` without incrementing the attempt counter. A cancelled
+  row that has never been leased or sent burns no retries and does not count toward
+  DLQ quota. A row that was already in-flight (leased or partially sent) when
+  cancellation fires must still be handled: if the lease is still active, the
+  dispatcher receives a `MarkCancelled` which releases the lease and changes status
+  to `cancelled` without a send. If the send was already delivered, the row is
+  marked `sent` with a cancellation flag for audit. Never roll-back an in-flight
+  send attempt or re-count a delivered notification as a retry.
+
 ## Hard rule (do not violate)
 
 **Far-future due state lives in Postgres, never in the queue.** Cloud Tasks is

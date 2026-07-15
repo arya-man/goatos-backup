@@ -387,6 +387,28 @@ Deeper source-of-truth docs (not duplicated here — read the doc):
 - Org/species base: `context/source-findings/goats-and-parks-source-findings.md`
 - Repo AGENTS rules: `AGENTS.md`, `backend/AGENTS.md`, `apps/admin-web/AGENTS.md`
 
+## Standalone lens skills — when each applies
+
+These invokable lens skills are **thin entrypoints** (table-of-contents pointers),
+not a second copy of the rules. The detailed rules stay in the review `references/`
+chapters above and the canonical decision docs; each lens links to them. Invoke a
+lens when its trigger matches — it routes you to the same canonical detail this
+skill uses, so Claude and Codex land on one source of truth.
+
+| Lens skill | Invoke when the change touches | Fronts (canonical detail) |
+|---|---|---|
+| `scale-anti-patterns` | `backend/internal/**` query / worker / repo / SQL; hot-path read; dashboard slice | `references/kernel-and-scale.md` + `docs/decisions/scale-anti-patterns.md`, `operational-kernel-5k-50k-scale-envelope.md`, `high-scale-dashboard-projections.md` |
+| `db-migration-safety` | a Postgres migration, hot-path query, read-model, or any mutating write path | `references/backend.md` + `references/aggregates-and-projections.md` + `docs/decisions/scale-anti-patterns.md`, `room-migration-safety.md`, `stale-binary-migration-drift-guard.md` |
+| `kernel-scale-lens` | a trigger / obligation / reminder / sweeper / projection / notification / Calendar / AC / PA / process-integrity path | `context/architecture/operational-kernel.md` + `references/kernel-and-scale.md` + `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, `high-scale-dashboard-projections.md` |
+| `frontend-anti-patterns` | `apps/admin-web/**` page / SSR read / nav / label / dashboard | `references/frontend.md` (+ `references/mobile.md`) + `docs/decisions/calendar-ownership.md`, `high-scale-dashboard-projections.md`, `mobile-data-fetch-anti-patterns.md` |
+| `mobile-anti-patterns` | `apps/goatos-android/**` list fetch / Room / offline / memory / lifecycle | `references/mobile.md` + `docs/decisions/mobile-data-fetch-anti-patterns.md`, `android-offline-first.md`, `room-migration-safety.md` |
+| `nav-composition` | nav rendering, role/module gating, sidebar/bottom-bar composition | `references/frontend.md` + `docs/decisions/role-module-nav-composition.md` |
+
+A multi-layer change invokes multiple lenses — same rule as the reference-routing
+table. Every machine gate a lens names is registered in
+`tools/ci/guardrail-manifest.json` and wired into `make guardrails` /
+`tools/ci/run-local-ci.sh`.
+
 ## Kernel / scale changes — run the scale gate
 
 If the change touches the operational kernel (triggers, obligations, sweepers,
@@ -424,6 +446,32 @@ Surface the conflict (old source vs new change side by side) and require an
 explicit maintainer decision before approving — per `AGENTS.md` "Business and
 medical rule changes." Confirmed override: never accept mother-vaccination-status
 as a scheduling input.
+
+## Mandatory review checklist
+
+Every review MUST verify ALL of the following before approval. This is the bind to
+operational invariants that turn "the build is green" into "this is safe to merge":
+
+- [ ] **Forward-progress pagination:** cursor is monotonic; next page cannot regress;
+      page size never silently changes business completeness of a projection read
+- [ ] **Effective-state validation on partial updates:** a partial edit re-validates
+      the WHOLE effective locked record (not just the changed field); date/status/
+      rule/version mutations are atomic with validation
+- [ ] **Retry-attempt accounting:** claiming/leasing work is NOT an attempt; attempts
+      charged only when delivery is actually attempted; cancellation releases untouched
+      work without consuming a retry
+- [ ] **Durable recorders present & fail-closed:** notifications, reminders, escalations,
+      manual-review queues are persisted rows, not logs; write failure fails closed
+- [ ] **Operator-visible manual-review queues:** durable, paginated, visible in Control
+      Tower / Action Center / Protocol Adherence, resolvable (approved/rejected/waived)
+- [ ] **Guard-to-CI wiring:** any new guardrail is registered in the guardrail manifest
+      AND wired into `make guardrails` / full local CI (not left as diff-only or disabled)
+- [ ] **Guards match deployed configuration:** a guard that reads config must read the
+      real deployed values or require explicit configuration in the rule/test (not default
+      silently to safe-at-code-review, unsafe-at-runtime)
+
+Do not approve if any leg of this checklist is incomplete. A green build without this
+proof is a false-green confidence gate.
 
 ## After the review — commit & push
 

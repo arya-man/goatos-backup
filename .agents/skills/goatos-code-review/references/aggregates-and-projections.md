@@ -56,19 +56,54 @@ Use realistic fixtures and names that make the broken dimension obvious:
 The current status set must be read from the latest migration `CHECK`
 constraint and state-machine docs. Never copy a remembered list into the test.
 
-## Mechanical evidence marker
+## Effective-state validation on partial updates
 
-For a new or changed SQL aggregate/projection, add a nearby comment that records
-the reviewed design:
+When a change allows a partial update to a multi-field record (date change,
+status change, rule/version/config change, or scope reassignment), the update
+must re-validate the WHOLE effective locked record, not just the changed field.
+A partial edit that only re-validates the changed field can leave the record in
+an impossible state.
 
-```text
-projection-review: membership=<canonical source>; group_key=<stable identity>; join_cardinality=<proof/dedup>; pagination=<whole-result and execution bound>; scope=<scope mapping or n/a>
-```
+Review checkpoints:
+- [ ] A date correction validates date ordering, eligibility rules, and conflict
+      windows using the NEW full record, not only the new date
+- [ ] A status transition re-validates the whole record's state for legal
+      transitions (a vaccination status change must re-check eligibility, defer
+      rules, protocol version, location scope — not only that the status change
+      is legal in isolation)
+- [ ] A version/rule/config change to an active record triggers recompute of
+      affected derived fields (capacity, window, obligation dates, projections);
+      the edit and the recompute are atomic in the same transaction
+- [ ] A scope reassignment (move a goat to a different shed/park) re-validates
+      all scope-scoped facts (capacity, permits, privacy, ownership, location
+      rules, drive membership, existing obligations) and updates them atomically
+- [ ] Tests adversarially corrupt a record into a state that would be impossible
+      with re-validation (e.g. a future date where a delay window exists, a status
+      that violates the machine, conflicting fields), then verify the edit rolls
+      back or fails with a clear error
 
-`make aggregate-projection-guard` checks the marker and the changed adversarial
-tests. The marker is a review aid, not a waiver: unsupported claims are a
-finding, and the reviewer must verify them against migrations, query shape, and
-tests.
+## Page-size business completeness (no silent truncation)
+
+When a paginated list or reminder rail truncates at a page size (20, 50, 100
+rows), the business metric or count derived from that page must not change with
+the page size. A silent change in a summary or total when the page size changes
+is a hidden bug.
+
+Review checkpoints:
+- [ ] A paginated feed that shows "today's work" displays ALL work for the day,
+      paginated; if today has 25 items and the page size is 20, the "done/pending
+      count for today" on the page must account for items beyond page one, not
+      just the visible 20
+- [ ] A reminder rail that shows "overdue items" uses a full query for the "overdue
+      count" badge (not just the visible page) and explains pagination to the user
+      (e.g. "15 more overdue" if not shown)
+- [ ] A summary card that groups drive-capacity usage, vaccination completion by
+      vaccine, or adherence buckets by status must sum across ALL matching records,
+      not only the displayed page. If the display is paginated, the totals are
+      computed server-side over the full result set and returned in the contract
+- [ ] Tests cover pagination boundary cases: a summary with counts beyond page one,
+      a metric that changes when page size changes (HIGH finding), and truncated
+      display with correct total in the footer
 
 ## Reject these false greens
 

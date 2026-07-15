@@ -8,16 +8,25 @@
 //   Phase 2 (retire_legacy_stage_jobs = true): legacy jobs removed after service
 //     proven healthy.
 //
-// This guard proves that:
-//   (a) the retire_legacy_stage_jobs variable exists in both dev and stg
-//       variables.tf and defaults to false (prevents accidental early retirement);
-//   (b) if the flag is true, the legacy job specs are not in kernel_jobs
-//       (retirement gate is active);
-//   (c) if the flag is false, the legacy job specs ARE in kernel_jobs
-//       (legacy jobs retained for parity).
+// This guard proves, per env (dev, stg):
+//   (a) the retire_legacy_stage_jobs variable exists and defaults to false
+//       (prevents accidental early retirement);
+//   (b) the legacy_stage_jobs map is gated by var.retire_legacy_stage_jobs;
+//   (c) EVERY legacy stage job spec is present in the gated map (flag-polarity
+//       contract: the jobs exist and are enabled/disabled by the flag, not deleted);
+//   (d) the consolidated kernel-worker SERVICE is declared (the flag retires jobs
+//       INTO this service, so it must exist for retirement to be safe).
+// Cross-env: the flag default must be identical (false) in both envs so a cutover
+// is deliberate and not accidentally half-applied.
 //
-// Deterministic, offline: regex-based text parsing of .tf files.
-// No terraform plan/apply, no cloud calls.
+// Deterministic, offline: regex/text parsing of .tf files. No terraform plan/apply,
+// no cloud calls.
+//
+// NOTE (follow-up): deep service-account + IAM-binding polarity (that a retired job's
+// runtime SA / secret accessors are also removed or re-pointed at kernel-worker) is
+// partially covered today by `make secret-accessors-guard`. Extending THIS guard to
+// assert per-job SA/IAM removal on Phase 2 is tracked in the guardrail manifest owner
+// doc; the checks below cover job specs + flag polarity + service presence.
 
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -37,79 +46,113 @@ const legacyJobNames = [
   "sop_review_fanout_retry",
 ];
 
-function fail(msg) {
-  console.error(`FAIL: ${msg}`);
-  process.exit(1);
-}
+// ── Pure evaluators (all inputs injected so the self-test can feed fixtures) ──
 
-function pass(msg) {
-  console.log(`PASS: ${msg}`);
-}
-
-// Extract the retire_legacy_stage_jobs variable value (default).
-function extractRetireFlag(variablesTf) {
+export function extractRetireFlag(variablesTf) {
   const m = variablesTf.match(
     /variable\s+"retire_legacy_stage_jobs"\s*\{[^}]*default\s*=\s*(true|false)/
   );
-  if (!m) return null;
-  return m[1] === "true";
+  return m ? m[1] === "true" : null;
 }
 
-// Check if a variable exists in variables.tf and defaults to false.
-function checkRetireVariable(env) {
-  const varsPath = resolve(repo, `infra/envs/${env}/variables.tf`);
-  if (!existsSync(varsPath)) {
-    fail(`variables.tf not found: ${varsPath}`);
-  }
-  const vars = readFileSync(varsPath, "utf-8");
-  const defaultVal = extractRetireFlag(vars);
-  if (defaultVal === null) {
-    fail(
-      `retire_legacy_stage_jobs variable not found in infra/envs/${env}/variables.tf`
-    );
-  }
-  if (defaultVal !== false) {
-    fail(
-      `retire_legacy_stage_jobs must default to false in infra/envs/${env}/variables.tf, got ${defaultVal}`
-    );
-  }
-  pass(`${env}: retire_legacy_stage_jobs variable defaults to false`);
-}
+// Returns { flag, problems } for one env's tf pair.
+export function evaluateEnv({ env, variablesTf, jobsTf, jobNames = legacyJobNames }) {
+  const problems = [];
 
-// Check that legacy jobs appear in cloud_run_jobs.tf as part of the gated map.
-function checkLegacyJobsGated(env) {
-  const jobsPath = resolve(repo, `infra/envs/${env}/cloud_run_jobs.tf`);
-  if (!existsSync(jobsPath)) {
-    fail(`cloud_run_jobs.tf not found: ${jobsPath}`);
-  }
-  const jobs = readFileSync(jobsPath, "utf-8");
-
-  // Check that legacy_stage_jobs is a conditional map gated by var.retire_legacy_stage_jobs.
-  if (!jobs.includes("var.retire_legacy_stage_jobs")) {
-    fail(
-      `${env}/cloud_run_jobs.tf: retire_legacy_stage_jobs gate not found in legacy_stage_jobs definition`
-    );
+  const flag = extractRetireFlag(variablesTf);
+  if (flag === null) {
+    problems.push(`${env}: retire_legacy_stage_jobs variable not found in variables.tf`);
+  } else if (flag !== false) {
+    problems.push(`${env}: retire_legacy_stage_jobs must default to false, got ${flag}`);
   }
 
-  // Check that at least a few legacy job specs are defined in the map.
-  for (const jobName of legacyJobNames.slice(0, 3)) {
-    if (!jobs.includes(`${jobName} = {`)) {
-      fail(
-        `${env}/cloud_run_jobs.tf: legacy job spec '${jobName}' not found in legacy_stage_jobs map`
-      );
+  if (!jobsTf.includes("var.retire_legacy_stage_jobs")) {
+    problems.push(`${env}: retire_legacy_stage_jobs gate not found in legacy_stage_jobs definition`);
+  }
+
+  // (c) EVERY legacy job spec must be present in the gated map — not just a sample.
+  for (const jobName of jobNames) {
+    if (!jobsTf.includes(`${jobName} = {`)) {
+      problems.push(`${env}: legacy job spec '${jobName}' missing from legacy_stage_jobs map`);
     }
   }
 
-  pass(`${env}: legacy jobs gated by retire_legacy_stage_jobs variable`);
+  // (d) the consolidated kernel-worker service must be declared.
+  if (!/kernel[_-]worker/.test(jobsTf)) {
+    problems.push(`${env}: kernel-worker service reference not found — retirement target must exist`);
+  }
+
+  return { flag, problems };
 }
 
-// Main.
-try {
-  for (const env of ["dev", "stg"]) {
-    checkRetireVariable(env);
-    checkLegacyJobsGated(env);
+// Cross-env consistency: both envs must carry the SAME (false) default.
+export function evaluateCrossEnv(perEnv) {
+  const problems = [];
+  const flags = perEnv.map((e) => e.flag);
+  const distinct = new Set(flags.filter((f) => f !== null));
+  if (distinct.size > 1) {
+    problems.push(`retire_legacy_stage_jobs default differs across envs (${JSON.stringify(flags)}); a cutover must be applied deliberately to all envs`);
   }
-  pass("All KERN-01 retirement-gate checks passed");
-} catch (err) {
-  fail(err.message);
+  return problems;
 }
+
+function selfTest() {
+  const goodVars = 'variable "retire_legacy_stage_jobs" {\n  default = false\n}';
+  const goodJobs =
+    "var.retire_legacy_stage_jobs\nresource kernel_worker {}\n" +
+    legacyJobNames.map((n) => `${n} = {`).join("\n");
+
+  const clean = evaluateEnv({ env: "dev", variablesTf: goodVars, jobsTf: goodJobs });
+  if (clean.problems.length !== 0) throw new Error(`self-test: expected clean, got ${JSON.stringify(clean.problems)}`);
+
+  // flag defaulting true -> detected.
+  const trueFlag = evaluateEnv({ env: "dev", variablesTf: 'variable "retire_legacy_stage_jobs" {\n  default = true\n}', jobsTf: goodJobs });
+  if (!trueFlag.problems.some((p) => p.includes("must default to false"))) throw new Error("self-test: true default not detected");
+
+  // missing a legacy job spec -> detected.
+  const missingJob = evaluateEnv({ env: "dev", variablesTf: goodVars, jobsTf: goodJobs.replace("outbox_relay = {", "") });
+  if (!missingJob.problems.some((p) => p.includes("outbox_relay"))) throw new Error("self-test: missing job not detected");
+
+  // missing gate var -> detected.
+  const noGate = evaluateEnv({ env: "dev", variablesTf: goodVars, jobsTf: goodJobs.replace("var.retire_legacy_stage_jobs", "") });
+  if (!noGate.problems.some((p) => p.includes("gate not found"))) throw new Error("self-test: missing gate not detected");
+
+  // missing kernel-worker service -> detected.
+  const noService = evaluateEnv({ env: "dev", variablesTf: goodVars, jobsTf: goodJobs.replace("resource kernel_worker {}\n", "") });
+  if (!noService.problems.some((p) => p.includes("kernel-worker service reference not found"))) throw new Error("self-test: missing service not detected");
+
+  // cross-env polarity mismatch -> detected.
+  const mismatch = evaluateCrossEnv([{ flag: false }, { flag: true }]);
+  if (!mismatch.some((p) => p.includes("differs across envs"))) throw new Error("self-test: cross-env mismatch not detected");
+
+  console.log("kernel-worker-retirement-gate guard: self-test passed");
+}
+
+function run() {
+  const problems = [];
+  const perEnv = [];
+  for (const env of ["dev", "stg"]) {
+    const varsPath = resolve(repo, `infra/envs/${env}/variables.tf`);
+    const jobsPath = resolve(repo, `infra/envs/${env}/cloud_run_jobs.tf`);
+    if (!existsSync(varsPath)) { problems.push(`${env}: variables.tf not found (${varsPath})`); continue; }
+    if (!existsSync(jobsPath)) { problems.push(`${env}: cloud_run_jobs.tf not found (${jobsPath})`); continue; }
+    const res = evaluateEnv({
+      env,
+      variablesTf: readFileSync(varsPath, "utf-8"),
+      jobsTf: readFileSync(jobsPath, "utf-8"),
+    });
+    perEnv.push(res);
+    problems.push(...res.problems);
+  }
+  problems.push(...evaluateCrossEnv(perEnv));
+
+  if (problems.length > 0) {
+    console.error("kernel-worker-retirement-gate guard: FAIL");
+    for (const p of problems) console.error(`  - ${p}`);
+    process.exit(1);
+  }
+  console.log("kernel-worker-retirement-gate guard: all KERN-01 checks passed (dev, stg)");
+}
+
+if (process.argv.includes("--self-test")) selfTest();
+else run();

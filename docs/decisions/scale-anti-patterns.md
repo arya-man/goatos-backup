@@ -200,6 +200,53 @@ these issues, commit the report and publish it through the GitHub Pages report
 site. Local-only proof must say that it is local-only and must not be described
 as staging or production certification.
 
+## Bounded Worker and Cursor Progress Invariants
+
+Every sweeper, processor, scheduler, and worker that is designed to terminate or
+scan a scope must follow these non-negotiable rules:
+
+1. **Bounded workers must never restart at zero.** A worker designed to scan a
+   finite set (for example, all due-within-30-days rows) and exit must resume
+   from its last-scanned checkpoint, never restart from offset 0 on the next
+   invocation. An unbounded/infinite worker that polls for new work may restart
+   its polling loop; a bounded worker that scans a defined window must not. Use a
+   keyset cursor stored durably in the result or state row to resume from exactly
+   where the prior scan ended — no re-scanning, no rolling back the cursor.
+
+2. **Cursors and progress markers must be monotonic.** Forward progress is
+   guaranteed only when the cursor or `last_seen_key` always increases or at
+   minimum never goes backwards. A cursor reset to an earlier value, a
+   re-generated keyset that omits processed rows, or a scan loop that resets its
+   `offset` to 0 on error violates monotonicity. Consequence: the same row can be
+   processed twice, or work scheduled twice for the same due date window. Always
+   track the cursor durably so recovery or a manual `--resume` starts exactly
+   where processing left off.
+
+3. **Filter before limit, never after.** A query or loop that LIMIT's N rows and
+   then filters in application code silently drops valid rows that do not match
+   the app-side predicate. It is not possible to know whether all matching rows
+   were processed unless the match is part of the query predicate itself. When a
+   due-window scan limits 100 rows per batch and later app code filters to a
+   subset (for example "only rows with status = pending"), the first batch of 100
+   is fetched, filtered to 50, and then the batch exits — but the next batch
+   starts fresh at offset 100, never at the 50 matching rows from the prior
+   batch. If there are 1000 eligible rows total but the filter reduces each batch
+   to <N result rows, a forward sweep still hits the full 1000 and the work gets
+   done; if the filter is applied *before* the LIMIT in SQL, the sweep is bounded
+   to the actual match set. Gotcha: a list API endpoint that accepts both a filter
+   and a limit parameter must apply the filter to the query, not filter in the
+   calling service/controller, otherwise a paginated consumer gets incomplete
+   results on each page.
+
+4. **Page size must not alter business completeness.** Changing the per-request
+   limit (for example 10 vs 20 vs 100 rows per page) must never result in a set
+   of rows that are ultimately processed being different. A change in page size is
+   a performance and latency tuning; it is not a correctness dimension. If a
+   feature works correctly with 20-row pages and breaks with 100-row pages — or
+   if a "fix" that changes page size accidentally changes which rows are included
+   — the feature is not properly bounded. Consequence: do not use page size to
+   work around incomplete filtering or missing retry/resume logic.
+
 ## Admin-web SSR full-table request reads
 
 `make scale-guard` scans Go (`backend/internal/**`) only. The same compute-on-read

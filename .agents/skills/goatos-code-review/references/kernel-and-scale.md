@@ -259,6 +259,72 @@ read-model note below):
    one row at a time is the same defect as an inline N+1 and must batch to a single
    `*ByIDs` / `= ANY($1)` read.
 
+## Forward-progress pagination, worker resumability, and durable recorders
+
+Three operational invariants must hold for every paginated API, worker loop,
+importer, and notification path:
+
+### Pagination forward-progress (cursor must be monotonic)
+Every paginated read must guarantee forward progress: a cursor from page N cannot
+move backward to request page N-1's rows again. The reviewed pattern is keyset
+pagination (`WHERE id > $cursor ORDER BY id LIMIT $pageSize`), where the cursor
+is the last-seen row's ID and is strictly monotonic. OFFSET pagination violates
+forward-progress; if OFFSET is unavoidable on a small bounded read (≤1K rows),
+annotate and justify the exception.
+
+Review checkpoints:
+- [ ] List endpoints expose `next_cursor` + `has_more`, not `offset`/`page_num`
+- [ ] Cursor value is the primary key / stable row ID, not derived data
+- [ ] Page size is constant across all pages; frontend does not silently change
+      page size mid-scroll (every page reads the same max-row semantics to preserve
+      business completeness)
+- [ ] Consumer loops forward over cursors; a network error or crash resumes from
+      the last-seen cursor, not from an offset
+
+### Worker resumability and boundedness (never restart at zero)
+Every sweeper, importer, and worker loop must claim work durably, advance a
+cursor/shard state, and resume from that state after a crash or exception. Never
+restart a bounded worker permanently at offset zero, and never lose the claim
+state on unhandled failure.
+
+Review checkpoints:
+- [ ] Worker loop uses `FOR UPDATE SKIP LOCKED` or a durable lease to claim work
+      atomically; two instances running at once must not double-claim the same
+      work (a bare `FOR UPDATE` serializes but does not prevent overlapping claims
+      from two instances)
+- [ ] Cursor / last-processed-row-id is persisted in the same transaction as the
+      claimed work or the completion event; a crash during processing resumes from
+      that saved cursor, not from the start
+- [ ] Failure/retry state is durable (a `worker_attempts` / `retry_count` row or
+      similar); attempt count is incremented ONLY when actual work is attempted,
+      not when claiming or leasing work. Cancellation releases the lease/claim
+      without consuming an attempt
+- [ ] Work claim/lease has an expiry and reaper logic; a crashed worker holding a
+      stale lease is reclaimed by a reaper sweeper or a heartbeat timeout, not lost
+      forever
+
+### Required durable recorders (no logs, durable rows)
+Notifications, reminders, escalations, manual-review queues, and operator
+visibility rows must be persisted, not logged. A dropped log = silently missed
+escalation or lost operator context.
+
+Review checkpoints:
+- [ ] Notifications/reminders are persisted rows in a `notification_requests` or
+      `calendar_reminder_requests` table (verify the exact table in the migration);
+      they are sent via a `NotificationGateway` port and acknowledged/resolved, not
+      logged
+- [ ] Escalations (missed deadline, recovery overdue, approval required) are
+      durable rows visible to operators via a manual-review queue in the control
+      tower, action center, or protocol-adherence screens; no escalation is
+      operator-invisible
+- [ ] Manual-review queues (`pending_approvals`, `pending_exceptions`, etc.) are
+      paginated, durable rows with owner/SLA/priority, resolvable (approved/
+      rejected/waived/commented); a queue backed only by logs or in-memory state
+      is a CRITICAL finding
+- [ ] Notification write failure fails closed: if persisting a reminder fails, the
+      work either retries or returns an error to the handler, never silently
+      continues
+
 ## Read-model default & the scoped scale-guard exemption (5k-50k)
 
 Default read model under the 5k-50k envelope: screens read canonical indexed

@@ -1,0 +1,274 @@
+{
+  "$schema": "./guardrail-manifest.schema.notes",
+  "description": "Single source of truth for every machine guardrail. check-guardrail-registration.mjs enforces that this manifest stays in sync with the guard scripts on disk, the Makefile `guardrails:` target, and tools/ci/run-local-ci.sh. Each entry declares: the Make target, the real-check command, the adversarial self-test command (or an explicit exemption reason), the owning documentation, and whether the guard is required by full local CI (tools/ci/run-local-ci.sh run_guardrails).",
+  "conventions": {
+    "requiredInCI": "true => the guard's ciStep MUST appear in tools/ci/run-local-ci.sh AND (when makeTarget is set) the makeTarget MUST appear in the Makefile `guardrails:` target body.",
+    "selfTest": "Every guard MUST declare a selfTest command OR a selfTestExemptReason. A guard with neither fails registration.",
+    "autoEnumerationScope": "check-guardrail-registration.mjs enumerates every check-*.mjs under tools/agent-hooks/ and tools/ci/ and fails if any is absent from `guards[].script`. Shell/Go/Python guards are listed for CI-wiring checks but are not part of the orphan scan."
+  },
+  "guards": [
+    {
+      "id": "guardrail-registration",
+      "script": "tools/ci/check-guardrail-registration.mjs",
+      "makeTarget": "guardrail-registration-guard",
+      "realCheck": "node tools/ci/check-guardrail-registration.mjs",
+      "selfTest": "node tools/ci/check-guardrail-registration.mjs --self-test",
+      "owningDoc": "docs/runbooks/local-ci.md",
+      "requiredInCI": true,
+      "ciStep": "guardrail-registration-guard"
+    },
+    {
+      "id": "local-ci-evidence",
+      "script": "tools/ci/check-local-ci-evidence.mjs",
+      "makeTarget": "local-ci-evidence-guard",
+      "realCheck": "node tools/ci/check-local-ci-evidence.mjs --verify",
+      "selfTest": "node tools/ci/check-local-ci-evidence.mjs --self-test",
+      "owningDoc": "docs/runbooks/local-release-evidence.md",
+      "requiredInCI": true,
+      "ciStep": "local-ci-evidence-guard"
+    },
+    {
+      "id": "stg-promotion",
+      "script": "tools/ci/check-stg-promotion.mjs",
+      "makeTarget": "stg-promotion-guard",
+      "realCheck": "node tools/ci/check-stg-promotion.mjs --repository",
+      "selfTest": "node tools/ci/check-stg-promotion.mjs --self-test",
+      "owningDoc": "docs/runbooks/github-workflows.md",
+      "requiredInCI": true,
+      "ciStep": "stg-promotion-guard"
+    },
+    {
+      "id": "large-files",
+      "script": "tools/ci/check-large-files.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/ci/check-large-files.mjs",
+      "selfTest": "node tools/ci/check-large-files.mjs --self-test",
+      "owningDoc": "docs/runbooks/local-docker-storage.md",
+      "requiredInCI": true,
+      "ciStep": "check-large-files.mjs"
+    },
+    {
+      "id": "refresh-binding",
+      "script": "tools/agent-hooks/check-refresh-binding.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/agent-hooks/check-refresh-binding.mjs",
+      "selfTest": "node tools/agent-hooks/check-refresh-binding.mjs --self-test",
+      "owningDoc": "docs/decisions/calendar-ownership.md",
+      "requiredInCI": true,
+      "ciStep": "check-refresh-binding.mjs"
+    },
+    {
+      "id": "aggregate-projection-review",
+      "script": "tools/agent-hooks/check-aggregate-projection-review.mjs",
+      "makeTarget": "aggregate-projection-guard",
+      "realCheck": "node tools/agent-hooks/check-aggregate-projection-review.mjs",
+      "selfTest": "node tools/agent-hooks/check-aggregate-projection-review.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/aggregates-and-projections.md",
+      "requiredInCI": true,
+      "ciStep": "aggregate-projection-guard"
+    },
+    {
+      "id": "scale-certification-docs",
+      "script": "tools/agent-hooks/check-scale-certification-docs.mjs",
+      "makeTarget": "scale-certification-docs-guard",
+      "realCheck": "node tools/agent-hooks/check-scale-certification-docs.mjs",
+      "selfTest": "node tools/agent-hooks/check-scale-certification-docs.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "scale-certification-docs-guard"
+    },
+    {
+      "id": "clinical-defer-states",
+      "script": "tools/agent-hooks/check-clinical-defer-states.mjs",
+      "makeTarget": "clinical-defer-guard",
+      "realCheck": "node tools/agent-hooks/check-clinical-defer-states.mjs",
+      "selfTest": "node tools/agent-hooks/check-clinical-defer-states.mjs --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
+      "requiredInCI": true,
+      "ciStep": "clinical-defer-guard"
+    },
+    {
+      "id": "sweeper-deployment",
+      "script": "tools/agent-hooks/check-sweeper-deployment.mjs",
+      "makeTarget": "sweeper-deployment-guard",
+      "realCheck": "node tools/agent-hooks/check-sweeper-deployment.mjs",
+      "selfTest": "node tools/agent-hooks/check-sweeper-deployment.mjs --self-test",
+      "owningDoc": "context/architecture/operational-kernel.md",
+      "requiredInCI": true,
+      "ciStep": "sweeper-deployment-guard"
+    },
+    {
+      "id": "deployed-job-flags",
+      "script": "tools/agent-hooks/check-deployed-job-flags.mjs",
+      "makeTarget": "deployed-job-flags-guard",
+      "realCheck": "node tools/agent-hooks/check-deployed-job-flags.mjs",
+      "selfTest": "node tools/agent-hooks/check-deployed-job-flags.mjs --self-test",
+      "owningDoc": "context/architecture/operational-kernel.md",
+      "requiredInCI": true,
+      "ciStep": "deployed-job-flags-guard"
+    },
+    {
+      "id": "secret-accessors",
+      "script": "tools/agent-hooks/check-secret-accessors.mjs",
+      "makeTarget": "secret-accessors-guard",
+      "realCheck": "node tools/agent-hooks/check-secret-accessors.mjs",
+      "selfTest": "node tools/agent-hooks/check-secret-accessors.mjs --self-test",
+      "owningDoc": "docs/runbooks/google-cloud-environments.md",
+      "requiredInCI": true,
+      "ciStep": "secret-accessors-guard"
+    },
+    {
+      "id": "worker-stage-budgets",
+      "script": "tools/agent-hooks/check-worker-stage-budgets.mjs",
+      "makeTarget": "worker-stage-budgets-guard",
+      "realCheck": "node tools/agent-hooks/check-worker-stage-budgets.mjs",
+      "selfTest": "node tools/agent-hooks/check-worker-stage-budgets.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "worker-stage-budgets-guard"
+    },
+    {
+      "id": "idempotency-writes",
+      "script": "tools/agent-hooks/check-idempotency-writes.mjs",
+      "makeTarget": "idempotency-writes-guard",
+      "realCheck": "node tools/agent-hooks/check-idempotency-writes.mjs",
+      "selfTest": "node tools/agent-hooks/check-idempotency-writes.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/backend.md",
+      "requiredInCI": true,
+      "ciStep": "idempotency-writes-guard"
+    },
+    {
+      "id": "atomic-readmodel-sync",
+      "script": "tools/agent-hooks/check-atomic-readmodel-sync.mjs",
+      "makeTarget": "atomic-readmodel-sync-guard",
+      "realCheck": "node tools/agent-hooks/check-atomic-readmodel-sync.mjs",
+      "selfTest": "node tools/agent-hooks/check-atomic-readmodel-sync.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/aggregates-and-projections.md",
+      "requiredInCI": true,
+      "ciStep": "atomic-readmodel-sync-guard"
+    },
+    {
+      "id": "config-validate-or-reject",
+      "script": "tools/agent-hooks/check-config-validate-or-reject.mjs",
+      "makeTarget": "config-validate-guard",
+      "realCheck": "node tools/agent-hooks/check-config-validate-or-reject.mjs",
+      "selfTest": "node tools/agent-hooks/check-config-validate-or-reject.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/backend.md",
+      "requiredInCI": true,
+      "ciStep": "config-validate-guard"
+    },
+    {
+      "id": "seed-migration-coupling",
+      "script": "tools/agent-hooks/check-seed-migration-coupling.mjs",
+      "makeTarget": "seed-migration-guard",
+      "realCheck": "node tools/agent-hooks/check-seed-migration-coupling.mjs",
+      "selfTest": "node tools/agent-hooks/check-seed-migration-coupling.mjs --self-test",
+      "owningDoc": "docs/runbooks/initial-seed-migration-coupling.md",
+      "requiredInCI": true,
+      "ciStep": "seed-migration-guard"
+    },
+    {
+      "id": "india-business-date",
+      "script": "tools/agent-hooks/check-india-business-date.mjs",
+      "makeTarget": "india-date-guard",
+      "realCheck": "node tools/agent-hooks/check-india-business-date.mjs",
+      "selfTest": "node tools/agent-hooks/check-india-business-date.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/business-rules.md",
+      "requiredInCI": true,
+      "ciStep": "india-date-guard"
+    },
+    {
+      "id": "offline-first-reads",
+      "script": "tools/agent-hooks/check-offline-first-reads.mjs",
+      "makeTarget": "offline-first-guard",
+      "realCheck": "node tools/agent-hooks/check-offline-first-reads.mjs",
+      "selfTest": "node tools/agent-hooks/check-offline-first-reads.mjs --self-test",
+      "owningDoc": "docs/decisions/android-offline-first.md",
+      "requiredInCI": true,
+      "ciStep": "offline-first-guard"
+    },
+    {
+      "id": "mobile-list-fetch",
+      "script": "tools/agent-hooks/check-mobile-list-fetch.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-mobile-list-fetch.mjs",
+      "selfTest": "node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
+    },
+    {
+      "id": "admin-web-request-reads",
+      "script": "tools/agent-hooks/check-admin-web-request-reads.mjs",
+      "makeTarget": "admin-web-request-reads-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-request-reads.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-request-reads.mjs --self-test",
+      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-request-reads-guard"
+    },
+    {
+      "id": "android-bounded-memory",
+      "script": "tools/agent-hooks/check-android-bounded-memory.mjs",
+      "makeTarget": "android-bounded-memory-guard",
+      "realCheck": "node tools/agent-hooks/check-android-bounded-memory.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-bounded-memory.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "android-bounded-memory-guard"
+    },
+    {
+      "id": "room-migration-safety",
+      "script": "tools/agent-hooks/check-room-migration-safety.mjs",
+      "makeTarget": "room-migration-guard",
+      "realCheck": "node tools/agent-hooks/check-room-migration-safety.mjs",
+      "selfTest": "node tools/agent-hooks/check-room-migration-safety.mjs --self-test",
+      "owningDoc": ".agents/skills/db-migration-safety/SKILL.md",
+      "requiredInCI": true,
+      "ciStep": "room-migration-guard"
+    },
+    {
+      "id": "nav-composition",
+      "script": "tools/agent-hooks/check-nav-composition.mjs",
+      "makeTarget": "nav-composition-guard",
+      "realCheck": "node tools/agent-hooks/check-nav-composition.mjs",
+      "selfTest": "node tools/agent-hooks/check-nav-composition.mjs --self-test",
+      "owningDoc": ".agents/skills/nav-composition/SKILL.md",
+      "requiredInCI": false,
+      "ciStep": "nav-composition-guard",
+      "notes": "Wired into `make guardrails` and the mobile CI job, not the run-local-ci.sh guardrails job."
+    },
+    {
+      "id": "mobile-contract-ownership",
+      "script": "tools/agent-hooks/check-mobile-contract-ownership.mjs",
+      "makeTarget": "mobile-contract-ownership-guard",
+      "realCheck": "node tools/agent-hooks/check-mobile-contract-ownership.mjs",
+      "selfTest": "node tools/agent-hooks/check-mobile-contract-ownership.mjs --self-test",
+      "owningDoc": ".agents/skills/mobile-anti-patterns/SKILL.md",
+      "requiredInCI": false,
+      "ciStep": "mobile-contract-ownership-guard",
+      "notes": "Wired into `make guardrails` and the mobile CI job, not the run-local-ci.sh guardrails job."
+    },
+    {
+      "id": "kernel-worker-retirement-gate",
+      "script": "tools/agent-hooks/check-kernel-worker-retirement-gate.mjs",
+      "makeTarget": "kernel-worker-retirement-gate-guard",
+      "realCheck": "node tools/agent-hooks/check-kernel-worker-retirement-gate.mjs",
+      "selfTest": "node tools/agent-hooks/check-kernel-worker-retirement-gate.mjs --self-test",
+      "owningDoc": ".agents/skills/kernel-scale-lens/SKILL.md",
+      "requiredInCI": false,
+      "ciStep": "kernel-worker-retirement-gate-guard",
+      "notes": "Two-phase legacy-job retirement gate. Run explicitly during a cutover; not in the standing run-local-ci.sh guardrails job."
+    },
+    {
+      "id": "mock-clicks",
+      "script": "tools/agent-hooks/check-mock-clicks.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/agent-hooks/check-mock-clicks.mjs",
+      "selfTestExemptReason": "Fixture/DOM click integrity checker driven end-to-end by `apps/admin-web` check:mock-fidelity and tools/agent-hooks/check-mock.sh; it has no isolated unit surface to adversarially self-test.",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": false,
+      "ciStep": "check-mock-clicks.mjs"
+    }
+  ]
+}

@@ -89,6 +89,76 @@ the rule source and must stay aligned with Config presets and kernel behavior.
 | Mixed goat + sheep in one park/shed/tag drive plan: one drive or split by species? | Maximize the doctor visit at park level. Kids can be one shared goat+sheep drive group; adults remain species-specific execution groups inside the same park visit. | Drive planning is park-level with shed/tag breakdowns. Mixed-species grouping is kid-only; adult vaccine work is species-safe. |
 | Additional constraints? | Hold bred animals for at least one month from breeding; prioritize breeding-ready animals; avoid vaccinating milking-department animals during milking. | Breeding hold, breeding-ready prioritization, and milking avoidance are V1 policy inputs. |
 
+## Dose Suppression and Protocol Lineage
+
+When a vaccination obligation is suppressed because the animal already has an
+accepted completion for that dose:
+
+- **Dose suppression requires matching protocol lineage.** An accepted completion
+  for vaccine X only suppresses/counts-as-done for the same protocol lineage and
+  dose position. A completion for PPR under "PHC standard kid schedule" does not
+  suppress an obligation for PPR under a different protocol rule (for example,
+  "catch-up adult drive" or "procurement warm-up protocol"). A completion for
+  one dose position (first ET+TT booster at 4 weeks) does not suppress the next
+  position (second ET+TT booster at 7 weeks) even if they are the same vaccine.
+  The rule engine must match the protocol version, rule identity, or lineage key,
+  not just the vaccine name. If a source-backed rule or admin-authored override
+  generates an obligation and the animal already has an accepted completion for
+  that exact rule position, suppress it; otherwise, let the obligation stand.
+
+- **Trusted source suppression is scoped to supervised lifecycle only.** An
+  accepted completion recorded outside our parks and procurement holding parks
+  (for example a vendor claim at the source before arrival) may be a
+  `source_vaccination_evidence` ledger row, but it does NOT suppress GoatOS
+  scheduled work unless it also appears in our supervised history (our parks or
+  our procurement holding-park SOP records). The generation rule engine must
+  distinguish `supervised_completion` (our parks, procurement holding parks under
+  SOP + video validation) from `unsupervised_source_evidence` and only suppress
+  work on the former.
+
+## Date Corrections and Effective Lock
+
+When a user corrects a field on an accepted vaccination completion (for example,
+the administered date was recorded as July 5 but should be July 4):
+
+- **Date corrections validate the ENTIRE effective locked record.** A correction
+  to a single field (administered date, recorded date, witness) must
+  re-validate the whole effective record (the completion row plus any downstream
+  derived state such as pregnancy month exclusion, booster due calculation,
+  sequencing rule adherence) under the corrected values. If the correction
+  makes the record invalid (for example, correcting the date reveals that the
+  dose was given during pregnancy month 4, which is prohibited), the correction
+  must be rejected with a clear reason, not silently applied. The database
+  must enforce this in a transaction: apply the update, re-run the validation
+  check that led to acceptance/publication, and roll back if any check fails.
+  This prevents silent creation of invalid state that breaks downstream
+  assumptions (booster scheduling, protocol sequencing, schedule adherence).
+
+## Business Dates (India Operational)
+
+Every business meaning derived from timestamps — scheduling, due/missed buckets,
+reminder keys, reporting groups, age/stage calculation, pregnancy month clocks —
+must use India/local operational dates:
+
+- **Business dates use India/local operational dates, never raw UTC instants.**
+  When comparing an animal's birth date (e.g., 2024-07-15 in India) to a due-date
+  schedule (e.g., 4 weeks old), calculate the animal's age in India-local days,
+  not UTC days. A kid born at 23:30 on July 15 in India Timezone is still
+  July 15 for scheduling purposes, even if that instant is July 15 22:00 UTC
+  (earlier in UTC). Scheduling, due buckets, missed/overdue/future grouping,
+  and UI labels must all convert timestamps to `Asia/Kolkata` first, then
+  derive the business meaning.
+- **Pregnancy month clocks start from breeding date in local timezone.** If
+  breeding occurred on June 10 (roughly) and pregnancy is 5 months, the calendar
+  for "months 4 and 5 no vaccination" runs from June → July → August →
+  September → October (months 1-5), and no vaccination is allowed in September
+  and October. The month boundaries are defined by calendar month in the
+  operational timezone, not by absolute 30-day windows.
+- **Booster due calculation is based on completion date in local timezone.** If a
+  completion is accepted as of July 15 at 19:00 IST, and the booster interval is
+  6 months, the booster is due on January 15 of the following year (not 180 or
+  181 absolute days). Use calendar month arithmetic in the operational timezone.
+
 ## Additional Rules
 
 ### Spacing, combination, and gaps

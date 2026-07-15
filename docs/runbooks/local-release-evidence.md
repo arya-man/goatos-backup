@@ -139,3 +139,116 @@ else
   exit 1
 fi
 ```
+
+## Exact-SHA Local-CI Push Gate (Main)
+
+Only a FULL green `make ci-local` on the exact commit SHA authorizes a push to
+`main`. A machine-local pre-push hook installed by `make ai-setup` (or
+`make stg-promotion-guard-install`) enforces this gate via a SHA-bound receipt.
+
+### Flow
+
+```
+Developer/Codex/Claude commits on main branch
+    ↓
+    git push origin HEAD:main (or any update to refs/heads/main)
+    ↓
+    Pre-push hook runs check-local-ci-evidence.mjs --pre-push
+    ↓
+    Hook checks: goatos-ci-local-receipt.json exists AND
+                 receipt.sha === commit SHA AND
+                 receipt.result === 'green' AND
+                 receipt.mode === 'all'
+    ↓
+    If YES: push is permitted
+    If NO:  push is rejected (hook exits 1)
+```
+
+### Recording the Receipt
+
+The receipt is written automatically by a full `make ci-local`:
+
+```bash
+# Run the complete local-CI suite (all jobs: guardrails, admin-web, android)
+make ci-local
+
+# If all gates pass, the script runs:
+# tools/ci/check-local-ci-evidence.mjs --record <current-sha>
+# which writes: <git-dir>/goatos-ci-local-receipt.json
+
+# The receipt is machine-local and never committed
+# It binds the EXACT SHA with a green result and full-suite mode
+```
+
+The receipt contains:
+
+```json
+{
+  "sha": "<commit-sha>",
+  "result": "green",
+  "mode": "all",
+  "timestamp": "<iso-8601>"
+}
+```
+
+### Partial Runs Do NOT Authorize a Push
+
+If you run `make ci-local JOB=<job-name>` (a partial job):
+
+```bash
+make ci-local JOB=guardrails
+make ci-local JOB=admin-web
+make ci-local JOB=android
+```
+
+The partial run **intentionally writes NO receipt**. It passes or fails the single
+job for development iteration, but it does NOT authorize a `main` push. A partial
+run is for local validation only. Only a full `make ci-local` (all jobs in one
+run) writes the receipt.
+
+### How to Install the Hook
+
+The pre-push hook is installed by:
+
+```bash
+make ai-setup
+# or
+make stg-promotion-guard-install
+```
+
+Both commands invoke `tools/agent-hooks/install-stg-push-guard.sh`, which chains:
+
+1. The existing staging-promotion block (prevents direct pushes to remote `stg`)
+2. The new exact-SHA main-CI-evidence gate (this new feature)
+
+The hook is scoped to the `vgoats/goatos` origin. It applies to ALL updates to
+`refs/heads/main` including `HEAD:main`, `main:main`, local branch `main`, and
+branch deletes. Non-main pushes and branch deletes to other refs are not gated.
+
+### Bypassing the Hook
+
+Do NOT bypass the hook with `git push --no-verify`. The hook is a governance layer:
+
+- It enforces that every `main` push has passed a full local-CI suite on the exact
+  commit.
+- Skipping it with `--no-verify` is a circumvention, not a valid escape hatch.
+- If the receipt is stale or the build genuinely broke, re-run `make ci-local` to
+  produce a fresh receipt, then push normally.
+
+If you absolutely must override in an emergency (rare, maintainer-only):
+
+1. Have a CLEAR, documented reason (e.g., production incident, data loss)
+2. Coordinate with other maintainers to ensure the bypassed commit is later
+   certified or rolled back
+3. Document the override in the incident record
+
+### Receipt State Management
+
+- **Machine-local only**: `goatos-ci-local-receipt.json` lives in the worktree git
+  directory (`.git/`) and is NEVER committed
+- **Per-machine, per-clone**: Each developer or CI agent build has its own receipt
+- **Stale receipt**: If you rebase or reset `HEAD` after a previous `make ci-local`,
+  the old receipt's SHA no longer matches; you must re-run `make ci-local` on the
+  new SHA to generate a fresh receipt before pushing
+- **No global receipt store**: The receipt is ephemeral and machine-local; it does
+  not sync between developers or persist after a clone/checkout

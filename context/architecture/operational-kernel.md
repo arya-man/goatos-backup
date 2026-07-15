@@ -202,6 +202,54 @@ counts) are the first projection candidates because, unlike keyset list reads,
 their cost grows with open-obligation count; query-plan validation must cover
 them at the upper-bound row count, not only the 5k list case.
 
+## Worker Topology and Durability Rules
+
+Every sweeper, scheduler, reminder, obligation-generator, projector, and
+notification dispatcher must satisfy these non-negotiable rules:
+
+1. **Every worker must be bounded, resumable, and forward-progressing.**
+   - Bounded: processes a finite window or page of work per invocation (not
+     infinite until shutdown). Use `limit N` rows, `ORDER BY cursor DESC LIMIT
+     N`, or a time window.
+   - Resumable: tracks its progress durably (a `last_cursor` or
+     `last_processed_key` in the result row or in a per-worker state table).
+     The next invocation starts from `WHERE cursor > last_cursor`, never from
+     `WHERE cursor >= MIN(cursor)` or from zero.
+   - Forward-progressing: the cursor always increases or at minimum never goes
+     backwards. A reset of the cursor or a re-generated sorted set that omits
+     already-processed rows is a defect. Idempotency guards against re-processing
+     the same row twice, but monotonic cursors prevent silent skips.
+
+2. **Required recorders fail closed.** Audit writes, outbox events, domain events,
+   and durable notification rows that are required for a feature to function must
+   be written in the same transaction as the canonical state change, not as a
+   best-effort side effect. If a mandatory recorder (e.g., the outbox or
+   notification_requests table) cannot write, the operation fails rather than
+   silently proceeding without that record. A `ServiceError` that includes the
+   recorder error (not a swallowed log) must surface to the caller. Consequence:
+   no silent loss of audit, no unrecorded state changes, no notifications that
+   were meant to fire but got dropped during a DB outage.
+
+3. **Manual-review queues must be durable, paginated, visible, and resolvable.**
+   When a feature creates work that requires human review or intervention — a
+   deferred obligation, a rework task, a config-approval step, or an audit
+   follow-up — the queue must:
+   - Live as durable rows in Postgres (never as in-memory lists or frontend state).
+   - Be visible through a paginated operator screen (e.g., Action Center or a
+     dedicated "Review Pending" list), keyset-paginated, bounded to ~20 rows per
+     page.
+   - Include explicit status (pending, in_review, approved, rejected, closed),
+     owner (who is responsible for review), and due/SLA date (when it is
+     overdue).
+   - Be resolvable: an operator can mark an item approved/rejected with a reason,
+     and that decision is persisted and visible in audit/history. A "cleared from
+     the queue" state is not an escape hatch; it is a resolved state recorded with
+     evidence.
+   - If a queue item is associated with a user-assigned task (e.g., a Preventive
+     Care director's due review), cancelling the parent trigger (e.g., cancelling
+     a vaccine hold) must explicitly cancel or mark the queue item as no longer
+     applicable, never silently leave it orphaned.
+
 ## Feature Design Checklist
 
 Operational, mutating, scheduled, or process-integrity features must answer

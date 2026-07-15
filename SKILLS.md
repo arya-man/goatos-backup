@@ -153,9 +153,24 @@ After implementing any phase:
   `docs/observability/TELEMETRY_GUARDRAILS.md`.
 
 ## Lens / anti-pattern skills (invokable by Claude + Codex)
-- `scale-anti-patterns` — backend 1M-scale: the 7 banned patterns + fixes + latency bar + scale-guard/validate-sqlc-plans.
-- `mobile-anti-patterns` — Android: Room-SSOT offline-first, ~20-row keyset paging, bounded memory, off-main, lifecycle, stable keys + mobile-guard.
-- `kernel-scale-lens` — operational-kernel golden chain + 1M kernel-scale bar (bounded/resumable/idempotent/leased, atomic transition+read-model, e2e-integrity).
-- `nav-composition` — job-driven, module-grant-composed, reusable-across-modules nav; blocks hardcoded per-role/per-module nav templates + `make nav-composition-guard`.
-- `frontend-anti-patterns` — admin-web: backend-owns-contract, no SSR full-table reads, mock-fidelity, projection dashboards + check:mock-fidelity/admin-web-request-reads-guard.
-- `db-migration-safety` — Postgres: lock-safe concurrent migrations, query-plan proof, idempotency, atomic transition+read-model + validate-migrations/sqlc-plans/hot-index guards.
+
+These are **thin entrypoints** — a table of contents that routes to the canonical
+detail. The detailed rules live in `.agents/skills/goatos-code-review/references/`
+(the review chapters) and `docs/decisions/` (the decision records); the lens skills
+link there and do NOT duplicate them. `goatos-code-review/SKILL.md` →
+"Standalone lens skills — when each applies" is the full routing table. Invoke a
+lens when its trigger matches:
+
+| Lens skill | Invoke when | Canonical detail it fronts |
+|---|---|---|
+| `scale-anti-patterns` | writing/reviewing `backend/internal/**` query, worker, repo, SQL, or a hot-path/dashboard read | `references/kernel-and-scale.md`; `docs/decisions/scale-anti-patterns.md`, `operational-kernel-5k-50k-scale-envelope.md`, `high-scale-dashboard-projections.md` |
+| `db-migration-safety` | a Postgres migration, hot-path query, read-model, or any mutating write path | `references/backend.md`, `references/aggregates-and-projections.md`; `docs/decisions/scale-anti-patterns.md`, `room-migration-safety.md`, `stale-binary-migration-drift-guard.md` |
+| `kernel-scale-lens` | a trigger/obligation/reminder/sweeper/projection/notification/Calendar/AC/PA/process-integrity path | `context/architecture/operational-kernel.md`; `references/kernel-and-scale.md`; `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, `high-scale-dashboard-projections.md` |
+| `frontend-anti-patterns` | an `apps/admin-web/**` page, SSR read, nav, label, or dashboard | `references/frontend.md`, `references/mobile.md`; `docs/decisions/calendar-ownership.md`, `high-scale-dashboard-projections.md`, `mobile-data-fetch-anti-patterns.md` |
+| `mobile-anti-patterns` | `apps/goatos-android/**` list fetch, Room, offline, memory, lifecycle | `references/mobile.md`; `docs/decisions/mobile-data-fetch-anti-patterns.md`, `android-offline-first.md`, `room-migration-safety.md` |
+| `nav-composition` | nav rendering, role/module gating, sidebar/bottom-bar composition | `references/frontend.md`; `docs/decisions/role-module-nav-composition.md` |
+
+Machine gates each lens names (`make scale-guard`, `validate-hot-index-migrations`,
+`mobile-guard`, `admin-web-request-reads-guard`, `nav-composition-guard`, …) are
+registered in `tools/ci/guardrail-manifest.json` and wired into `make guardrails`
+/ `tools/ci/run-local-ci.sh`.

@@ -63,8 +63,13 @@ make ai-doctor
 - `code-review-graph` for code structure.
 - `graphify` for local docs graph generation/querying.
 - `rtk` when Homebrew is available, otherwise it prints the install instruction.
-- the Goat OS direct-`stg` pre-push guard without replacing an existing
-  machine hook.
+- Both machine-local Git pre-push guards via `tools/agent-hooks/install-stg-push-guard.sh`:
+  - **Direct staging-promotion block**: prevents pushes to remote `stg`; only GitHub
+    merging a `main → stg` PR is authorized.
+  - **Exact-SHA local-CI main push gate**: only a full green `make ci-local` on the
+    exact commit SHA authorizes a `main` push; enforced via a machine-local receipt
+    in the worktree git directory. See
+    `docs/runbooks/local-release-evidence.md` for the full flow.
 
 `ai-rebuild` creates local generated artifacts:
 
@@ -79,6 +84,24 @@ make ai-rebuild-docs AI_BACKEND=codex
 ```
 
 `AI_BACKEND=auto` chooses `claude` if installed, then `codex`.
+
+### Guardrail Registration and Exact-SHA Push Gate (in Guardrails & CI-Local)
+
+Both `make guardrails` and `make ci-local JOB=guardrails` now include two new
+guards (running first):
+
+- **`guardrail-registration-guard`**: validates that every machine guardrail is
+  registered in `tools/ci/guardrail-manifest.json`, has a self-test or exemption
+  reason, and is correctly wired into the Makefile and CI script. Prevents silent
+  guardrail holes. See `docs/runbooks/local-ci.md` → "Guardrail registration and
+  exact-SHA push evidence" for details.
+
+- **`local-ci-evidence-guard`**: records an exact-SHA receipt (`goatos-ci-local-receipt.json`)
+  after a full green `make ci-local` (not partial `JOB=...` runs). The pre-push
+  hook installed by `make ai-setup` uses this receipt to gate a `main` push: only
+  if the receipt SHA matches `HEAD`, result is green, and mode is `all`. See
+  `docs/runbooks/local-release-evidence.md` → "Exact-SHA Local-CI Push Gate (Main)"
+  for the full flow and how to use it.
 
 ## Why This Exists
 

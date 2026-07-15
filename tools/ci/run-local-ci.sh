@@ -65,6 +65,8 @@ run_e2e_docker_chain() {
 }
 
 run_guardrails() {
+  step "guardrail-registration-guard" make guardrail-registration-guard
+  step "local-ci-evidence-guard"   make local-ci-evidence-guard
   step "agent: ai-doctor"          make ai-doctor
   step "agent: stg-promotion"      make stg-promotion-guard
   step "agent: boundaries self-test" bash tools/agent-hooks/check-boundaries.sh --self-test
@@ -146,6 +148,15 @@ echo "════════ ci-local summary @ ${sha} ═══════�
 for r in "${RESULTS[@]}"; do echo "  $r"; done
 if [ "$fail" -eq 0 ]; then
   echo "ci-local: GREEN @ ${sha}"
+  # Exact-SHA push evidence: only a FULL green run (job "all") records the receipt the
+  # pre-push hook checks before it allows an update to refs/heads/main. A partial
+  # `JOB=...` run intentionally records nothing. See docs/runbooks/local-release-evidence.md.
+  if [ "$only" = "all" ]; then
+    node tools/ci/check-local-ci-evidence.mjs --record "$sha" || \
+      echo "!! warning: could not record local-CI evidence receipt for ${sha}" >&2
+  else
+    echo "ci-local: partial run (job '${only}') — no main-push evidence receipt written."
+  fi
 else
   echo "ci-local: RED @ ${sha}"
 fi

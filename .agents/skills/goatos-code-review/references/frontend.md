@@ -178,6 +178,27 @@ the current set against `apps/admin-web/AGENTS.md` and
       to the Vaccination module); Control Tower shows gaps/adherence/exceptions,
       not raw census KPIs (Counts is a separate vertical)
 
+## Selected date window drives fetch AND render (no mismatch)
+
+When a page has a date-range picker (week view, 45-day filter, month picker), the
+SAME window selected by the user must drive BOTH the API fetch and the UI render.
+A mismatch where fetch uses one range and render another creates silent wrong-
+empty states or missed-work visibility.
+
+Review checkpoints:
+- [ ] A week picker / month picker / date-range input sets a window (start/end dates or `date_from`/`date_to`)
+- [ ] That EXACT window is sent to the API fetch (`?date_from=...&date_to=...` or `?window=...`)
+- [ ] The rendered calendar/grid covers the SAME window — no off-by-one days, no
+      implicit `today` assumption that diverges from the selected window
+- [ ] If the backend returns data from a slightly-different window than requested
+      (e.g. aligned to week boundaries), the contract exposes the actual returned
+      window, and the UI renders only that actual window (not the requested one)
+- [ ] Tests cover window mismatches: select a past week, verify fetch uses that
+      week, verify no today-hardcoded data is shown, verify a future-scheduled item
+      does not appear
+- [ ] Pagination / scroll-more uses the same window boundary, not an implicit
+      `date_to: now` that grows during scroll
+
 ## State
 
 - [ ] TanStack Query for server state; React local state for UI-only (open drawer, selected row)
