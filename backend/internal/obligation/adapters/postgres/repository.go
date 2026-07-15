@@ -1952,6 +1952,7 @@ func (r *Repository) ListPlannedComboBatches(ctx context.Context, tenantID strin
 	// AlignComboDrives can enforce MaxShotsPerAnimalPerDrive when co-locating combo batches
 	// onto a shared date without an N+1 fan-out over the (typically small) combo batch set.
 	rows, err := r.pool.Query(ctx, `
+-- projection-review: membership=planned combo:% batches with sop_task_id IS NULL and no stock_reservation context, plus their obligation_instances target_ids via the LATERAL array_agg(DISTINCT target_id); group_key=batch_id (one row per batch); join_cardinality=LATERAL pre-aggregates the 1:N obligation_instances so the outer grain stays one-row-per-batch with no JOIN fan-out; pagination=single LIMIT page here, exhaustive keyset over (scope_type,scope_id,session,planned_date,batch_id) lives in ListPlannedComboBatchesKeyset so groups never split across pages; scope=batch scope_type/scope_id (park or shed)
 SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
@@ -2028,9 +2029,12 @@ func (r *Repository) ListPlannedComboBatchesKeyset(ctx context.Context, tenantID
 		// For tuples (a, b, c, d, e) ordered ASC, we want:
 		// (scope_type, scope_id, session, planned_date, batch_id) > (cursor.scope_type, cursor.scope_id, cursor.session, cursor.planned_date, cursor.batch_id)
 		// This expands to: (a > a') OR (a = a' AND b > b') OR (a = a' AND b = b' AND c > c') OR ...
+		// NULL planned_date maps to 'infinity' so it sorts LAST, matching the ORDER BY
+		// b.planned_date ASC default (NULLS LAST). 'infinity' is a valid Postgres date
+		// literal; a year-zero sentinel like '0000-01-01' is NOT and would error at plan time.
 		whereClause += `
-  AND (b.scope_type, b.scope_id, b.session, COALESCE(b.planned_date, '0000-01-01'::date), b.batch_id) >
-      ($` + strconv.Itoa(argIdx) + `, $` + strconv.Itoa(argIdx+1) + `, $` + strconv.Itoa(argIdx+2) + `, COALESCE($` + strconv.Itoa(argIdx+3) + `::date, '0000-01-01'::date), $` + strconv.Itoa(argIdx+4) + `)`
+  AND (b.scope_type, b.scope_id, b.session, COALESCE(b.planned_date, 'infinity'::date), b.batch_id) >
+      ($` + strconv.Itoa(argIdx) + `, $` + strconv.Itoa(argIdx+1) + `, $` + strconv.Itoa(argIdx+2) + `, COALESCE($` + strconv.Itoa(argIdx+3) + `::date, 'infinity'::date), $` + strconv.Itoa(argIdx+4) + `)`
 
 		batchID, err := pgconv.UUID(after.BatchID)
 		if err != nil {
@@ -2047,6 +2051,7 @@ func (r *Repository) ListPlannedComboBatchesKeyset(ctx context.Context, tenantID
 	}
 
 	query := `
+-- projection-review: membership=planned combo:% batches with sop_task_id IS NULL and no stock_reservation context, plus their obligation_instances target_ids via the LATERAL array_agg(DISTINCT target_id); group_key=batch_id (one row per batch); join_cardinality=LATERAL pre-aggregates the 1:N obligation_instances so the outer grain stays one-row-per-batch with no JOIN fan-out; pagination=keyset over (scope_type,scope_id,session,planned_date,batch_id) matching ORDER BY, cursor tuple > last row, so groups are contiguous and never split across pages; scope=batch scope_type/scope_id (park or shed)
 SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
