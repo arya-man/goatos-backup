@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -32,12 +33,38 @@ func (s *Service) ListOpenStageReviewItems(ctx context.Context, tenantID string,
 	return s.repo.ListOpenStageReviewItems(ctx, tenantID, cursor, limit)
 }
 
+// ErrStageReviewStillActive is returned when a 'corrected' resolution is attempted but the goat still
+// trips the stale-stage/age condition — i.e. the conflict was NOT actually corrected. The caller must
+// correct the goat's stage/DOB first, or resolve as an explicit 'exception'. Mapped to HTTP 409.
+var ErrStageReviewStillActive = errors.New("vaccination: stage/age mismatch is still active")
+
 // ResolveStageReviewItem marks an open review item resolved (idempotent no-op if already resolved).
 // resolutionMode ('corrected' | 'exception') and a non-empty note are required and enforced at the
 // HTTP boundary (VACC-REV-10): an operator must declare whether the stage/DOB conflict was actually
 // corrected or is being left as an explicit reviewed exception, so an active mismatch cannot be
-// silently hidden.
+// silently hidden. For 'corrected', the goat is reloaded and the stale-stage condition re-evaluated;
+// if it is still active the resolution is rejected (ErrStageReviewStillActive) so a truly-uncorrected
+// mismatch cannot be closed as corrected.
 func (s *Service) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error) {
+	if resolutionMode == "corrected" {
+		goatID, found, err := s.repo.GetOpenStageReviewItemGoat(ctx, tenantID, reviewItemID)
+		if err != nil {
+			return false, err
+		}
+		if !found {
+			return false, nil // not open -> idempotent 404, nothing to re-verify
+		}
+		g, gfound, err := s.repo.GetGoatForGeneration(ctx, tenantID, goatID)
+		if err != nil {
+			return false, err
+		}
+		// The default procurement policy uses the standard 20-week cutoff; a flagged goat is past its
+		// configured cutoff (>= default), and a genuine correction advances the goat off a K-stage, so
+		// this correctly returns false only once the conflict is actually resolved.
+		if gfound && staleKidStageAfterCutoff(g, genProcurementPolicy{}, resolvedAt) {
+			return false, ErrStageReviewStillActive
+		}
+	}
 	return s.repo.ResolveStageReviewItem(ctx, tenantID, reviewItemID, resolvedBy, note, resolutionMode, resolvedAt)
 }
 

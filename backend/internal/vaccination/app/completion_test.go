@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -263,6 +264,12 @@ type completionRepoFake struct {
 	rollupAgg   domain.EligibilityRollupAggregate
 	dailyCap    int64
 	goatScanned bool // set true if any live goat-count method is ever called (impact must not scan goats)
+	// stage-review re-verify doubles (VACC-REV-10).
+	srGoatID        string
+	srGoatFound     bool
+	srGoat          domain.EligibleGoat
+	srGoatLoadFound bool
+	srResolved      bool
 }
 
 type completionRowFake struct {
@@ -409,7 +416,11 @@ func (r *completionRepoFake) ListEligibleGoatsForGeneration(context.Context, dom
 }
 
 func (r *completionRepoFake) GetGoatForGeneration(context.Context, string, string) (domain.EligibleGoat, bool, error) {
-	return domain.EligibleGoat{}, false, nil
+	return r.srGoat, r.srGoatLoadFound, nil
+}
+
+func (r *completionRepoFake) GetOpenStageReviewItemGoat(context.Context, string, string) (string, bool, error) {
+	return r.srGoatID, r.srGoatFound, nil
 }
 
 type obligationCompleterFake struct {
@@ -463,5 +474,33 @@ func (r *completionRepoFake) ListOpenStageReviewItems(context.Context, string, *
 }
 
 func (r *completionRepoFake) ResolveStageReviewItem(context.Context, string, string, string, string, string, time.Time) (bool, error) {
-	return false, nil
+	return r.srResolved, nil
+}
+
+// TestResolveStageReviewItemCorrectedReverify is the VACC-REV-10 guard: a 'corrected' resolution is
+// rejected (ErrStageReviewStillActive) while the goat still trips the stale-stage/age condition, but
+// succeeds once the goat is off a K-stage; an 'exception' resolution is not re-verified.
+func TestResolveStageReviewItemCorrectedReverify(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Now().AddDate(0, 0, -30*7) // ~30 weeks old -> past the 20-week cutoff
+	stale := domain.EligibleGoat{GoatID: "g", DOB: &dob, Stage: "K2"}     // still a kid stage -> still stale
+	corrected := domain.EligibleGoat{GoatID: "g", DOB: &dob, Stage: "adult"} // stage advanced -> not stale
+
+	// corrected but goat still stale -> rejected.
+	svc := NewService(&completionRepoFake{srGoatID: "g", srGoatFound: true, srGoat: stale, srGoatLoadFound: true, srResolved: true})
+	if _, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "fixed", "corrected", time.Now()); !errors.Is(err, ErrStageReviewStillActive) {
+		t.Fatalf("corrected-while-stale err = %v, want ErrStageReviewStillActive", err)
+	}
+
+	// corrected and goat now adult -> resolves.
+	svc = NewService(&completionRepoFake{srGoatID: "g", srGoatFound: true, srGoat: corrected, srGoatLoadFound: true, srResolved: true})
+	if ok, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "advanced to adult", "corrected", time.Now()); err != nil || !ok {
+		t.Fatalf("corrected-after-fix ok=%v err=%v, want true/nil", ok, err)
+	}
+
+	// exception on a still-stale goat -> resolves without re-verification.
+	svc = NewService(&completionRepoFake{srGoatID: "g", srGoatFound: true, srGoat: stale, srGoatLoadFound: true, srResolved: true})
+	if ok, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "already vaccinated; tag fix scheduled", "exception", time.Now()); err != nil || !ok {
+		t.Fatalf("exception ok=%v err=%v, want true/nil", ok, err)
+	}
 }

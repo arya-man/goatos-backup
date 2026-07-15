@@ -64,26 +64,74 @@ func (r *Repository) Ping(ctx context.Context) error {
 }
 
 // RecordStageReviewItem durably records a goat-scoped vaccination stage/age review item (VACC-REV-10).
-// Dedup is scoped to OPEN items (partial unique index): replayed generation never duplicates an open
-// item, but a recurrence AFTER an operator resolved the prior occurrence opens a new actionable one.
-// When replayed with changed observed_stage or observed_age_weeks, the OPEN item is updated so stale
-// payload data is never left behind (VACC-REV-10A).
+// One OPEN item per (tenant, goat): a replay updates the existing open item's observed stage/age;
+// a recurrence AFTER a resolution opens a new actionable one.
+//
+// BRIDGE WRITER (migrate-first safety): this does NOT use `ON CONFLICT` on any unique index. Adjacent
+// releases have shipped different conflict targets ((tenant, idempotency_key) vs (tenant, goat_id)),
+// and in a migrate-first rollout a still-live previous-release binary runs against the newly-migrated
+// schema. Depending on either specific index/constraint breaks that binary ("no unique or exclusion
+// constraint matching the ON CONFLICT specification") or lets a stage-keyed writer insert a duplicate.
+// Instead we take a per-(tenant, goat) transaction advisory lock and UPDATE-open-else-INSERT, which is
+// independent of every index and enforces exactly one open item per goat regardless of which index
+// exists. A hard (tenant, goat) unique index can be added in a later release once every writer is this
+// bridge writer.
 func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO vaccination_stage_review_items
-			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
-		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6)
-		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO UPDATE
-		SET observed_stage = EXCLUDED.observed_stage,
-		    observed_age_weeks = EXCLUDED.observed_age_weeks,
-		    updated_at = now()`,
-		tenantID, goatID, reason, observedStage, observedAgeWeeks, idempotencyKey)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("vaccination: record stage review item: %w", err)
+		return fmt.Errorf("vaccination: record stage review item: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize concurrent recorders for the same goat (held until commit) so the update-else-insert
+	// below cannot race a second open row in.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))`, tenantID, goatID); err != nil {
+		return fmt.Errorf("vaccination: record stage review item: lock: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE vaccination_stage_review_items
+		SET observed_stage = $3, observed_age_weeks = $4, updated_at = now()
+		WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND status = 'open'`,
+		tenantID, goatID, observedStage, observedAgeWeeks)
+	if err != nil {
+		return fmt.Errorf("vaccination: record stage review item: update: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO vaccination_stage_review_items
+				(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
+			VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6)`,
+			tenantID, goatID, reason, observedStage, observedAgeWeeks, idempotencyKey); err != nil {
+			return fmt.Errorf("vaccination: record stage review item: insert: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("vaccination: record stage review item: commit: %w", err)
 	}
 	return nil
+}
+
+// GetOpenStageReviewItemGoat returns the goat_id of an OPEN stage/age review item (VACC-REV-10). found
+// is false when the item does not exist or is already resolved. Used by the resolve path to re-verify
+// a 'corrected' resolution against the goat's current stage/age.
+func (r *Repository) GetOpenStageReviewItemGoat(ctx context.Context, tenantID, reviewItemID string) (string, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	var goatID string
+	err := r.pool.QueryRow(ctx, `
+		SELECT goat_id::text FROM vaccination_stage_review_items
+		WHERE tenant_id = $1::uuid AND review_item_id = $2::uuid AND status = 'open'`,
+		tenantID, reviewItemID).Scan(&goatID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("vaccination: get open stage review item goat: %w", err)
+	}
+	return goatID, true, nil
 }
 
 // ListOpenStageReviewItems returns one keyset-bounded page of OPEN stage review items for the tenant,

@@ -1482,11 +1482,12 @@ func TestStageReviewItemLifecycle(t *testing.T) {
 	}
 }
 
-// TestStageReviewItemOpenUniquePerGoat is the VACC-REV-10 defect guard (migrations 000207/000208): a
-// goat moving from a stale K1 to a stale K2 must keep exactly ONE open review item, updated in place.
-// The fix is a STAGE-FREE idempotency key (vacc-stage-review:<tenant>:<goat>) that generation now
-// emits regardless of the observed stage, so both records collapse onto the same open row. Before the
-// fix the key embedded the stage, so K1 and K2 minted two open items for the same goat.
+// TestStageReviewItemOpenUniquePerGoat is the VACC-REV-10 defect + rollout-compat guard: the bridge
+// writer keeps exactly ONE open review item per goat, updated in place, REGARDLESS of the idempotency
+// key. It records the goat with two DIFFERENT keys (as a stage-suffixed old-binary writer would emit)
+// and asserts a single open row — proving the writer depends on the (tenant, goat) identity via its
+// advisory lock + update-else-insert, not on any ON CONFLICT target / unique index. That is what makes
+// it migrate-first-safe across releases that shipped different conflict targets.
 func TestStageReviewItemOpenUniquePerGoat(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -1495,13 +1496,12 @@ func TestStageReviewItemOpenUniquePerGoat(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 
 	const goatID = "40000000-0000-4000-8000-0000000000d2"
-	// The stage-free per-goat key generation emits — the SAME string for K1 and K2.
-	key := "vacc-stage-review:" + impTenant + ":" + goatID
 
-	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 22, key); err != nil {
+	// Two DIFFERENT keys, as a stage-suffixed old-binary writer emitted for K1 vs K2.
+	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 22, "vacc-stage-review:"+impTenant+":"+goatID+":K1"); err != nil {
 		t.Fatalf("record K1: %v", err)
 	}
-	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K2", 30, key); err != nil {
+	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K2", 30, "vacc-stage-review:"+impTenant+":"+goatID+":K2"); err != nil {
 		t.Fatalf("record K2: %v", err)
 	}
 

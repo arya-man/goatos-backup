@@ -83,6 +83,9 @@ type Repository interface {
 	// Supports cursor pagination (VACC-REV-10B) for >200 items without capping access to older work.
 	ListOpenStageReviewItems(ctx context.Context, tenantID string, cursor *domain.StageReviewItemCursor, limit int) (domain.StageReviewItemPage, error)
 	ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error)
+	// GetOpenStageReviewItemGoat returns the goat_id of an OPEN review item (found=false if missing or
+	// already resolved). Used to re-verify a 'corrected' resolution against the goat's current state.
+	GetOpenStageReviewItemGoat(ctx context.Context, tenantID, reviewItemID string) (goatID string, found bool, err error)
 
 	// GetGoatForGeneration loads one goat's generation fields (incl sex/breed/stage). found is
 	// false when the goat does not exist.

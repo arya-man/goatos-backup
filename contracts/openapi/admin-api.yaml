@@ -1897,6 +1897,24 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          description: >-
+            resolution was 'corrected' but the stage/age mismatch is still active
+            (the goat's stage/DOB was not actually corrected). Correct the goat
+            first or resolve as 'exception'.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  code:
+                    type: string
+                    example: still_in_conflict
+                  message:
+                    type: string
+                  trace_id:
+                    type: string
   /admin/goats/bulk-status/preview:
     post:
       tags:

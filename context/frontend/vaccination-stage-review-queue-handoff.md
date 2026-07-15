@@ -77,10 +77,12 @@ marks the item resolved. The server now **requires** `resolution` = `corrected`
 (the stage/DOB conflict was fixed) or `exception` (explicit reviewed exception),
 plus a non-empty `note` — so an active mismatch cannot be silently hidden. The UI
 must not imply one click fixes the goat. Label the action **"Mark resolved"** with
-a mode selector + required note — never "Reconcile" (which implies auto-fix).
-NOTE: the server records the declared mode; it does **not yet** re-verify that the
-goat's stage/DOB is actually corrected (that server-side auto-check is a
-follow-up — today `corrected` is operator-attested).
+a mode selector + required note (≤500 chars) — never "Reconcile" (which implies
+auto-fix). For `resolution=corrected`, the server **reloads the goat and re-runs
+the stale-stage check**; if the mismatch is still active it returns **409
+`still_in_conflict`** — so a `corrected` claim that didn't actually fix the goat
+is rejected. The UI should surface that 409 and steer the operator to correct the
+stage first or choose `exception`.
 
 ## Admin-web design (to build)
 
@@ -130,8 +132,8 @@ Backend done: the list endpoint (cursor-paged), resolve with required
 required before the lane can be built:** (1) per-row **enrichment** — goat
 tag/identity, owner, and per-goat vaccination coverage are not in the list
 response and the coverage API is aggregate-only, so add them to the page response
-or a single batch enrichment endpoint (no N+1); (2) optional server-side
-re-verification that a `corrected` resolution actually cleared the stage/DOB
-conflict (today the mode is operator-attested); (3) the admin-web lane itself;
-(4) if the business wants it, a separate missing-dose coverage alert. Related:
+or a single batch enrichment endpoint (no N+1); (2) the admin-web lane itself;
+(3) if the business wants it, a separate missing-dose coverage alert. (Resolve
+already re-verifies a `corrected` conflict server-side and 409s if still active.)
+Related:
 `vaccination-process-integrity-frontend-handoff.md`, `current-admin-web-scope.md`.

@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
+	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccports "github.com/vgoats/goatos/backend/internal/vaccination/ports"
 )
@@ -456,9 +457,18 @@ func (h *Handler) ResolveStageReviewItem(w http.ResponseWriter, r *http.Request)
 		h.badRequest(w, r, "invalid_note", "note is required: record what was corrected or why this is an accepted exception")
 		return
 	}
+	if len(note) > 500 {
+		h.badRequest(w, r, "invalid_note", "note may not exceed 500 characters")
+		return
+	}
 	resolved, err := h.svc.ResolveStageReviewItem(r.Context(), tenantID(r), reviewItemID,
 		httpmiddleware.ActorIDFromContext(r.Context()), note, resolution, time.Now().In(biztime.DefaultLocation()))
 	if err != nil {
+		if errors.Is(err, vaccinationapp.ErrStageReviewStillActive) {
+			httpresponse.WriteError(w, r, h.log, http.StatusConflict,
+				errorEnvelope{Code: "still_in_conflict", Message: "stage/age mismatch is still active; correct the goat's stage/DOB first or resolve as an exception", TraceID: traceID(r)}, nil)
+			return
+		}
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
 			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
 		return

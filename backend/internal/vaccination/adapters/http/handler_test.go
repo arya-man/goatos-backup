@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	vaccports "github.com/vgoats/goatos/backend/internal/vaccination/ports"
 )
@@ -24,6 +25,7 @@ type fakeImpact struct {
 	gotQueuePark string
 	reviewItems  []domain.StageReviewItem
 	resolveResult bool
+	resolveErr   error
 	resolvedID   string
 	resolvedBy   string
 }
@@ -47,7 +49,7 @@ func (f *fakeImpact) ListOpenStageReviewItems(_ context.Context, _ string, _ *do
 func (f *fakeImpact) ResolveStageReviewItem(_ context.Context, _, reviewItemID, resolvedBy, _, _ string, _ time.Time) (bool, error) {
 	f.resolvedID = reviewItemID
 	f.resolvedBy = resolvedBy
-	return f.resolveResult, nil
+	return f.resolveResult, f.resolveErr
 }
 
 type fakeCampaign struct {
@@ -377,6 +379,27 @@ func TestStageReviewItemsListAndResolveHTTP(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("resolve without note status=%d, want 400", rec.Code)
 	}
+
+	// note over 500 chars -> 400.
+	rec = httptest.NewRecorder()
+	longNote := strings.Repeat("x", 501)
+	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", strings.NewReader(`{"resolution":"exception","note":"`+longNote+`"}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("resolve with 501-char note status=%d, want 400", rec.Code)
+	}
+
+	// corrected while the mismatch is still active -> 409 (service returns ErrStageReviewStillActive).
+	fake.resolveErr = vaccinationapp.ErrStageReviewStillActive
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", strings.NewReader(`{"resolution":"corrected","note":"claims fixed but not"}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("corrected-while-active status=%d, want 409", rec.Code)
+	}
+	fake.resolveErr = nil
 
 	// resolve OK: corrected + note.
 	rec = httptest.NewRecorder()

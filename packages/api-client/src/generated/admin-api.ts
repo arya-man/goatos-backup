@@ -5577,6 +5577,20 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
+            /** @description resolution was 'corrected' but the stage/age mismatch is still active (the goat's stage/DOB was not actually corrected). Correct the goat first or resolve as 'exception'. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @example still_in_conflict */
+                        code?: string;
+                        message?: string;
+                        trace_id?: string;
+                    };
+                };
+            };
         };
     };
     previewBulkStatusUpdate: {
