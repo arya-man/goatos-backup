@@ -325,7 +325,7 @@ UPDATE outbox_messages
 SET status = 'pending',
     next_attempt_at = NULL,
     updated_at = $2
-WHERE outbox_id::text = ANY($1::text[])
+WHERE outbox_id = ANY($1::uuid[])
   AND status = 'publishing'`, outboxIDs, now)
 	if err != nil {
 		return err
@@ -477,7 +477,7 @@ SET status = 'pending',
     last_error = $3,
     updated_at = $4::timestamptz
 WHERE tenant_id = $1::uuid
-  AND outbox_id::text = ANY($2::text[])
+  AND outbox_id = ANY($2::uuid[])
   AND status IN ('dead_letter', 'failed')
   AND replay_count < $5`,
 		MaxReplays: maxDeadLetterReplays,
@@ -506,7 +506,7 @@ SET status = 'discarded',
     last_error = $3,
     updated_at = $4::timestamptz
 WHERE tenant_id = $1::uuid
-  AND outbox_id::text = ANY($2::text[])
+  AND outbox_id = ANY($2::uuid[])
   AND status IN ('dead_letter', 'failed')`,
 	})
 }

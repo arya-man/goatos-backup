@@ -1145,7 +1145,7 @@ WHERE oi.tenant_id = $1::uuid
   AND pv.tenant_id = oi.tenant_id
   AND pv.protocol_version_id = oi.protocol_version_id
   AND pd.category = 'vaccination'
-  AND NOT (oi.protocol_version_id::text = ANY($3::text[]))
+  AND NOT (oi.protocol_version_id = ANY($3::uuid[]))
 RETURNING oi.obligation_id::text, COALESCE(oi.batch_id::text, '')`, tenantID, goatID, effectiveVersionIDs)
 	if err != nil {
 		return 0, fmt.Errorf("obligation: cancel non-effective vaccination obligations: %w", err)

@@ -48,7 +48,8 @@ Did we accidentally commit a huge/private file?
 Did we accidentally add a new million-animal scale anti-pattern?
 Can a brand-new Postgres database be built from our migrations?
 Can sqlc regenerate typed DB code from that schema?
-Do important SQL queries still use the expected indexes?
+Do important SQL queries still use the expected indexes, including natural
+planner proof for typed UUID-array predicates?
 Do migration invariants still hold?
 ```
 
@@ -185,6 +186,8 @@ aggregate-projection guard inspects committed, staged, unstaged, and untracked
 work so a dirty checkout cannot report a false no-change pass.
 Make sure rendered/admin-web-facing code uses Mesha visible branding instead of
 old or internal product labels.
+Make sure static deployment guards validate related Terraform/HCL fields within
+the same block and include adversarial sibling-block self-tests.
 ```
 
 The admin-web visible-branding guard is case-insensitive for rendered app,

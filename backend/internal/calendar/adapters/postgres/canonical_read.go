@@ -1303,7 +1303,7 @@ canonical_selected AS (
     AND ($6::text = '' OR park_id::text = nullif($6::text, ''))
     AND ($7::text = '' OR shed_id::text = nullif($7::text, ''))
     AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))
-    AND ($11::bool OR park_id::text = ANY($12::text[]) OR shed_id::text = ANY($13::text[]))
+    AND ($11::bool OR park_id = ANY($12::uuid[]) OR shed_id = ANY($13::uuid[]))
   ORDER BY due_at ASC, event_id ASC
   LIMIT $10
 )
@@ -1351,7 +1351,7 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
        detail
 FROM source_events
 WHERE event_id = $4
-  AND ($5::bool OR park_id::text = ANY($6::text[]) OR shed_id::text = ANY($7::text[]))
+  AND ($5::bool OR park_id = ANY($6::uuid[]) OR shed_id = ANY($7::uuid[]))
 LIMIT 1`
 
 // listEventsCanonical runs the canonical read-through page for ListEvents. Params mirror the projector

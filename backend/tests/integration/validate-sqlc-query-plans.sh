@@ -81,6 +81,28 @@ explain_must_use_named_index() {
   echo "Named-index plan observed: $label -> $required_index"
 }
 
+# Natural-plan proof for a hot update: unlike explain_must_use_index, this does
+# not disable sequential scans. The fixture below gives PostgreSQL enough rows
+# and fresh statistics to choose the real primary-key access path on its own.
+explain_natural_index() {
+  local label="$1"
+  local forbidden="$2"
+  local sql="$3"
+  local plan
+  plan="$(printf '%s\n' "$sql" | run_psql)"
+  if grep -E "$forbidden" <<<"$plan" >/dev/null; then
+    echo "$plan"
+    echo "Unexpected sequential scan in $label" >&2
+    exit 1
+  fi
+  if ! grep -E '(Index Scan|Index Only Scan|Bitmap Index Scan)' <<<"$plan" >/dev/null; then
+    echo "$plan"
+    echo "Expected natural indexed plan in $label" >&2
+    exit 1
+  fi
+  echo "Natural indexed plan observed: $label"
+}
+
 validate_identity_lookup_plans() {
   explain_must_use_index "GoatByID" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
 SELECT goat_id
@@ -123,6 +145,62 @@ WHERE status = 'pending'
 ORDER BY created_at, outbox_id
 LIMIT 10
 FOR UPDATE SKIP LOCKED;"
+}
+
+# KERN-FIX-01: ReleasePublishingByIDs must keep the UUID column bare so the
+# outbox primary-key index remains usable. Seed a realistic hot-table shape and
+# assert the natural planner choice; a forced-index EXPLAIN alone is too weak.
+validate_outbox_release_plan() {
+  printf '%s\n' "
+INSERT INTO tenants (tenant_id, name, status)
+VALUES ('00000000-0000-4000-8000-000000000001', 'sqlc-plan-tenant', 'active')
+ON CONFLICT (tenant_id) DO NOTHING;
+INSERT INTO parties (party_id, party_type, display_name, status)
+VALUES ('00000000-0000-4000-8000-000000001001', 'system', 'sqlc-plan-system', 'active')
+ON CONFLICT (party_id) DO NOTHING;
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, lifecycle_status, custodian_party_id)
+VALUES ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'G-990001', 'female', 'alive', '00000000-0000-4000-8000-000000001001')
+ON CONFLICT (goat_id) DO NOTHING;
+INSERT INTO goat_identity_events (
+  identity_event_id, tenant_id, goat_id, event_type, event_version,
+  occurred_at, recorded_at, payload, idempotency_key
+)
+SELECT
+  ('20000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  'goat.created', 1,
+  TIMESTAMPTZ '2026-07-01 00:00:00+00' + i * INTERVAL '1 second',
+  TIMESTAMPTZ '2026-07-01 00:00:00+00' + i * INTERVAL '1 second',
+  '{}'::jsonb, 'sqlc-plan-event-' || i::text
+FROM generate_series(1, 10000) AS s(i)
+ON CONFLICT DO NOTHING;
+INSERT INTO outbox_messages (
+  outbox_id, tenant_id, event_id, event_type, schema_version,
+  aggregate_type, aggregate_id, topic, payload, headers,
+  idempotency_key, status
+)
+SELECT
+  ('30000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  ('20000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+  'goat.created', 'v1', 'goat_identity_event',
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  'sqlc-plan-topic', '{}'::jsonb, '{}'::jsonb,
+  'sqlc-plan-outbox-' || i::text, 'publishing'
+FROM generate_series(1, 10000) AS s(i)
+ON CONFLICT DO NOTHING;
+ANALYZE outbox_messages;
+" | run_psql
+
+  explain_natural_index "OutboxReleasePublishingByIDs" 'Seq Scan on outbox_messages' "EXPLAIN (COSTS OFF)
+UPDATE outbox_messages
+SET status = 'pending', next_attempt_at = NULL, updated_at = TIMESTAMPTZ '2026-07-15 12:00:00+00'
+WHERE outbox_id = ANY(ARRAY[
+  '30000000-0000-4000-8000-000000000001'::uuid,
+  '30000000-0000-4000-8000-000000000002'::uuid
+]::uuid[])
+  AND status = 'publishing';"
 }
 
 # KERN-REV-06B: the notification dispatcher claim (ClaimDue / ClaimDueSQL) selects
@@ -1197,6 +1275,7 @@ done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name
 
 validate_identity_lookup_plans
 validate_outbox_claim_plan
+validate_outbox_release_plan
 validate_notification_claim_plan
 validate_auth_grant_lookup_plan
 validate_obligation_due_window_plan

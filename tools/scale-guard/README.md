@@ -28,6 +28,7 @@ Exit 1 on any NEW violation. Green when every offender is baselined or ignored.
 | `offset-pagination` | `OFFSET <bind>` in a SQL literal |
 | `full-mv-refresh` | whole-tenant projection delete with no `projection_version` guard |
 | `non-sargable-like` | `lower(col) LIKE '%..%'` |
+| `non-sargable-cast` | indexed column cast to text in an `ANY` predicate (`id::text = ANY(...)`); cast the typed bind array instead |
 | `god-cte` | > 8 `x AS (` CTEs in one request-path SQL literal |
 | `read-rollup-truth` | request-path/service rollup that bumps a raw list limit or clears `NextCursor` after in-memory aggregation |
 

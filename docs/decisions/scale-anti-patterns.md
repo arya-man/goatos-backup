@@ -40,6 +40,27 @@ resumable, and measurable.
   app/service/frontend state, then hide pagination/truncation and present the
   collapsed result as business truth
 
+## Indexed predicates and guard-authoring safety
+
+Two recurrence classes are prohibited on every hot path:
+
+- **Column-side type casts in predicates.** Do not write `indexed_uuid::text =
+  ANY($1::text[])` (or the equivalent cast on another indexed column). Casting
+  the stored column can prevent PostgreSQL from using its ordinary index. Keep
+  the column bare and bind a typed array: `indexed_uuid = ANY($1::uuid[])`.
+  The query must have a natural `EXPLAIN` proof on a realistic row count; an
+  `EXPLAIN` that forces `enable_seqscan = off` is not sufficient.
+- **Unbounded configuration-block matching.** A Terraform/HCL guard must bind
+  related fields to the same parsed block. A file-wide regex may combine a bad
+  value from one `env {}` block with a good value from a later sibling and go
+  green. Every guard must include an adversarial self-test for that bypass and
+  the self-test plus the real check must run in `ci-local`.
+
+These are recurrence rules, not one-off review advice: `make scale-guard`,
+`make validate-sqlc-plans`, and deployment-guard self-tests are the
+machine-enforced backstops. Review skills for both Claude and Codex must still
+require the same evidence when a new hot query or configuration guard is added.
+
 Existing debt is tracked in `tools/scale-guard/baseline.txt`. Do not add a new
 baseline count for new work. Fix the query, batch the writes, add a real
 projection/read model, use keyset cursors, prove loop progress, or add a narrow

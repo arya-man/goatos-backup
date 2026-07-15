@@ -132,6 +132,10 @@ memory — the allowed set changes by migration (states get added over time).
 - [ ] Keyset pagination + explicit `LIMIT` on list queries; no unbounded scans
 - [ ] Hot-path queries have an indexed access path; `make validate-sqlc-plans`
       updated when the query touches import/animal/event/counter rows at scale
+- [ ] Indexed UUID/text columns remain bare in predicates. A shape such as
+      `id::text = ANY($1::text[])` can disable the ordinary index; use a typed
+      bind array (`id = ANY($1::uuid[])`) and require a natural planner proof on
+      a realistic row count.
 
 ### Hot-table migration lock safety (populated tables → CRITICAL if unsafe)
 
@@ -308,7 +312,10 @@ TTL (illustratively ~15 min — verify `defaultSignedURLTTL` in
       correctness and for lock-safety of the rollout
 - [ ] **Query-plan / load test class (required for scale-sensitive paths):**
       changes to import/animal/event/counter queries carry query-plan evidence
-      (`make validate-sqlc-plans`) and/or a load test, not only unit tests
+      (`make validate-sqlc-plans`) and/or a load test, not only unit tests. If a
+      predicate touches an indexed UUID/text column, the column stays uncast and
+      the plan proof uses a natural planner choice on a realistic row count;
+      forcing `enable_seqscan=off` alone is insufficient.
 - [ ] Rate-limit / backpressure behavior on expensive or auth-adjacent endpoints
       is covered by a test where one exists
 - [ ] Tests run with `-race`; use CRG `query_graph_tool tests_for` to confirm the change is covered

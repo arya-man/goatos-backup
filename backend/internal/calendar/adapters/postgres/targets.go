@@ -135,7 +135,7 @@ WHERE oi.tenant_id = $1::uuid
       )
     )
   )
-  AND ($9::bool OR g.park_id::text = ANY($10::text[]) OR g.shed_id::text = ANY($11::text[]))
+  AND ($9::bool OR g.park_id = ANY($10::uuid[]) OR g.shed_id = ANY($11::uuid[]))
 ),
 animal_targets AS (
   SELECT DISTINCT ON (animal_id)

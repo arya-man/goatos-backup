@@ -31,7 +31,9 @@ When GitHub creates only a zero-job `startup_failure`/`BuildFailed` run:
    rebase changes it.
 
 The guardrails job includes agent boundary/contract/E2E checks, API latency
-policy, scale-guard plus self-tests, clinical and sweeper deployment safety,
+policy, scale-guard plus self-tests, natural hot-query planner proofs (including
+the outbox UUID-array release path), clinical and sweeper deployment safety
+(including the adversarial same-block actor-wiring fixture),
 mobile and large-file guards, all Go tests, sqlc generation drift, SQL plan and
 migration validation, and `git diff --check`. Admin-web includes dependency
 install, lint, typecheck, whole-tree request-plan/fidelity guards, and the

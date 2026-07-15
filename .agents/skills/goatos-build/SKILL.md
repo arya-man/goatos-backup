@@ -76,6 +76,19 @@ mock/goatos-dashboard-mock.html
 Use older `docs/phases/*` docs for existing built repo patterns and historical
 status only. They do not override the protocol-engine Phase 0 contract above.
 
+Permanent scale and guard-authoring rules:
+
+- Keep indexed predicate columns bare. Never cast an indexed UUID/text column in
+  a predicate (for example `id::text = ANY($1::text[])`); bind a typed array on
+  the parameter side and prove the natural planner choice on a realistic row
+  count.
+- Configuration guards must parse/bound the resource and validate related
+  fields inside the same block. Every guard needs an adversarial sibling-block
+  self-test, and both its self-test and real check belong in `ci-local`.
+- A green unit test or checker is not recurrence protection until the failing
+  fixture is run by the local/hosted CI entrypoint and the shared anti-pattern
+  is recorded in `AGENTS.md` and the relevant reference doc.
+
 Operational kernel golden rule: every feature must plug into the shared
 trigger -> obligation -> sweeper/reminder -> notification/escalation -> proof ->
 verification -> read-model chain from

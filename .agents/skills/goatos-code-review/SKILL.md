@@ -142,7 +142,9 @@ finding. For each fix, answer:
       report / gate that reads green without proving the fix — a baseline-
       grandfathered scale guard, a diff-scoped mobile guard on a backend change, a
       prose scale report not tied to the current SHA, a test asserting the wrong
-      response key, a skipped/never-started CI job?
+      response key, a skipped/never-started CI job? For static Terraform/HCL
+      guards, require block-bounded matching and an adversarial sibling-block
+      fixture; a file-wide regex is not proof.
 - [ ] **Closure-ledger fixes** additionally run the
       `consolidated-ledger-defect-closure-program.md` proof-packet gate (see
       "Consolidated-ledger closure gate" below) and require independent

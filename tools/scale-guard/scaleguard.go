@@ -21,6 +21,8 @@
 //     rebuild. A version-scoped prune (projection_version <>)
 //     is fine and is NOT flagged.
 //   - non-sargable-like   : lower(col) LIKE '%..%' (unindexable leading wildcard).
+//   - non-sargable-cast   : casts an indexed column to text in an ANY predicate
+//     (e.g. `id::text = ANY(...)`); bind a typed UUID/text array instead.
 //   - god-cte             : a single SQL literal with too many "x AS (" CTEs on a
 //     request path (compute-on-read; move to a read model).
 //   - read-rollup-truth   : request-path/service-layer rollup that bumps a raw
@@ -75,12 +77,16 @@ var (
 	// "offset must be a non-negative integer" error string or a param name.
 	offsetRe = regexp.MustCompile(`(?i)\bOFFSET\s+[\$:@%\d(]`)
 	// Gate SQL-shaped rules on the literal actually looking like a query.
-	sqlishRe        = regexp.MustCompile(`(?i)\b(SELECT|LIMIT|INSERT|UPDATE)\b`)
-	sargableRe      = regexp.MustCompile(`(?is)lower\s*\([^)]*\)\s+LIKE\s+'%`)
-	delProjRe       = regexp.MustCompile(`(?is)DELETE\s+FROM\s+[a-z_]*projection[a-z_]*\b[^;]*\btenant_id`)
-	readRollupFnRe  = regexp.MustCompile(`(?i)\b(aggregate|group|rollup)\w*(List|Events)\b`)
-	rawLimitBumpRe  = regexp.MustCompile(`(?i)\.Limit\s*=\s*\w*(aggregate|raw|rollup)\w*Limit`)
-	nextCursorNilRe = regexp.MustCompile(`(?i)\bNextCursor\s*=\s*nil`)
+	sqlishRe   = regexp.MustCompile(`(?i)\b(SELECT|LIMIT|INSERT|UPDATE)\b`)
+	sargableRe = regexp.MustCompile(`(?is)lower\s*\([^)]*\)\s+LIKE\s+'%`)
+	// A cast on the column side of an equality/ANY predicate prevents the
+	// ordinary index on the underlying UUID/text column from being used directly.
+	// Cast the bind array instead: `id = ANY($1::uuid[])`.
+	nonSargableCastRe = regexp.MustCompile(`(?is)\b(?:[a-z_][a-z0-9_]*\.)?[a-z_][a-z0-9_]*\s*::\s*(?:text|varchar)\s*=\s*ANY\s*\(`)
+	delProjRe         = regexp.MustCompile(`(?is)DELETE\s+FROM\s+[a-z_]*projection[a-z_]*\b[^;]*\btenant_id`)
+	readRollupFnRe    = regexp.MustCompile(`(?i)\b(aggregate|group|rollup)\w*(List|Events)\b`)
+	rawLimitBumpRe    = regexp.MustCompile(`(?i)\.Limit\s*=\s*\w*(aggregate|raw|rollup)\w*Limit`)
+	nextCursorNilRe   = regexp.MustCompile(`(?i)\bNextCursor\s*=\s*nil`)
 	// A version-scoped prune (build-new / flip / drop-old generations) is the
 	// APPROVED pattern, not a whole-tenant wipe. Do not treat range predicates
 	// like projection_version > 0 as safe; those can still delete the serving set.
@@ -372,6 +378,10 @@ func scanFile(repo, path string) []finding {
 		if sargableRe.MatchString(v) {
 			add("non-sargable-like", lit.Pos(),
 				"lower(col) LIKE '%..%' is unindexable. Add a normalized column / expression index or trigram")
+		}
+		if nonSargableCastRe.MatchString(v) {
+			add("non-sargable-cast", lit.Pos(),
+				"casting an indexed column to text in an ANY predicate can disable its index; cast the bind array instead (column = ANY($1::uuid[]))")
 		}
 		if c := len(cteRe.FindAllString(v, -1)); c > godCTELimit {
 			add("god-cte", lit.Pos(),

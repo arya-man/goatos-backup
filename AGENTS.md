@@ -469,6 +469,11 @@ Do:
   - **OFFSET pagination** — `LIMIT/OFFSET` with a growable offset. Use keyset/cursor.
   - **non-SARGable predicate** — `lower(col) LIKE '%x%'` / function on an indexed
     column. Use a normalized column, expression index, or `pg_trgm` GIN.
+  - **column-side type cast in a predicate** — `indexed_uuid::text =
+    ANY($1::text[])` can disable the ordinary index on the stored column. Keep
+    the column bare and cast the typed bind array (`indexed_uuid =
+    ANY($1::uuid[])`). Add a natural planner proof at a realistic row count;
+    forcing `enable_seqscan=off` is not sufficient.
   - **polling full scan / unbounded worker tick** — copy the keyset-chunked
     `FOR UPDATE SKIP LOCKED` claim used by the obligation/idempotency sweepers.
   - **non-terminating pagination loop** — a read-page loop with no cursor advance.
@@ -476,6 +481,11 @@ Do:
   If a case is genuinely bounded, annotate it `// scale-guard:ignore: <reason>`;
   do not disable the guard. A green latency gate today means "correct shape", not
   "1M-proven" (gates run at ~1k rows — see the ADR's runtime-gap section).
+  - **guard false-green across configuration blocks** — a static Terraform/HCL
+    guard must parse/bound the resource and require related `name`/`value` (or
+    equivalent) fields in the same block. Every guard self-test must include an
+    adversarial sibling-block fixture, and `ci-local` must run both the
+    self-test and the real check.
   The admin-web twin lives in `apps/admin-web/**`: a Next.js SSR helper that drains
   a paginated endpoint cursor-by-cursor into one array to compute a KPI (the
   `searchAllGoats` full-herd walk, removed in `810bc1b3`) is machine-blocked by

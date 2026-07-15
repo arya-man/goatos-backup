@@ -205,6 +205,13 @@ read-model note below):
    `EXPLAIN (ANALYZE, BUFFERS)` at realistic row counts proving the planner
    chooses the index/projection path **without** `enable_seqscan=off` (see
    `docs/protocol-engine/high-scale-kernel-validation-plan.md`).
+   A predicate that casts the indexed column (`id::text = ANY(...)`) is
+   non-sargable even when its result is correct: keep the column bare, cast the
+   typed bind array, and prove the natural planner choice against a realistic
+   fixture. Disabling sequential scans is not sufficient evidence.
+   Terraform/HCL guards receive the same false-green treatment: parse/bound the
+   resource and require related fields in one block, with an adversarial
+   sibling-block self-test run by the same CI target as the real guard.
 6. **Read-time process state instead of persisted.** Computing durable status
    (missed/overdue/escalation level) at read time when the sweeper should
    materialize it. Read-time compute is non-durable and inconsistent across

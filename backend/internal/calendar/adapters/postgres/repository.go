@@ -1552,7 +1552,7 @@ const calendarCanonicalExistsSQL = "WITH " + calendarCanonicalEventsCTE + `
 SELECT EXISTS (
   SELECT 1 FROM source_events
   WHERE event_id = $4
-    AND ($5::bool OR park_id::text = ANY($6::text[]) OR shed_id::text = ANY($7::text[]))
+    AND ($5::bool OR park_id = ANY($6::uuid[]) OR shed_id = ANY($7::uuid[]))
 )`
 
 func (r *Repository) eventExists(ctx context.Context, tenantID, eventID string, scope domain.ScopeFilter) error {
@@ -1662,7 +1662,7 @@ SELECT event_id, event_type, title, source_target_type, COALESCE(source_target_i
        source_backed, system
 FROM source_events
 WHERE event_id = $4
-  AND ($5::bool OR park_id::text = ANY($6::text[]) OR shed_id::text = ANY($7::text[]))
+  AND ($5::bool OR park_id = ANY($6::uuid[]) OR shed_id = ANY($7::uuid[]))
 LIMIT 1`
 
 func loadActionTarget(ctx context.Context, tx pgx.Tx, tenantID, eventID string, scope domain.ScopeFilter) (actionTarget, error) {
@@ -1817,7 +1817,7 @@ marker_rows AS (
     AND ($5::text <> '' OR status NOT IN ('completed', 'canceled'))
     AND ($6::text = '' OR park_id::text = nullif($6::text, ''))
     AND ($7::text = '' OR shed_id::text = nullif($7::text, ''))
-    AND ($8::bool OR park_id::text = ANY($9::text[]) OR shed_id::text = ANY($10::text[]))
+    AND ($8::bool OR park_id = ANY($9::uuid[]) OR shed_id = ANY($10::uuid[]))
   GROUP BY (due_at AT TIME ZONE 'Asia/Kolkata')::date
 
   UNION ALL
@@ -1851,7 +1851,7 @@ marker_rows AS (
     AND ($7::text = '' OR COALESCE(g.shed_id, ob.scope_id, oi.scope_id)::text = nullif($7::text, ''))
     AND (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
     AND (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date < ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
-    AND ($8::bool OR COALESCE(g.park_id, ob.scope_id, oi.scope_id)::text = ANY($9::text[]) OR COALESCE(g.shed_id, ob.scope_id, oi.scope_id)::text = ANY($10::text[]))
+    AND ($8::bool OR COALESCE(g.park_id, ob.scope_id, oi.scope_id) = ANY($9::uuid[]) OR COALESCE(g.shed_id, ob.scope_id, oi.scope_id) = ANY($10::uuid[]))
   GROUP BY (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date
 )
 SELECT marker_date,
@@ -1895,7 +1895,7 @@ candidates AS (
     AND ($5::text = '' OR status = $5::text)
     AND ($6::text = '' OR park_id::text = nullif($6::text, ''))
     AND ($7::text = '' OR shed_id::text = nullif($7::text, ''))
-    AND ($8::bool OR park_id::text = ANY($9::text[]) OR shed_id::text = ANY($10::text[]))
+    AND ($8::bool OR park_id = ANY($9::uuid[]) OR shed_id = ANY($10::uuid[]))
 ),
 active_snooze AS (
   SELECT DISTINCT cs.calendar_event_id
