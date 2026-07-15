@@ -69,30 +69,28 @@ func TestServiceDoesNotRetryPermanentChannelMisconfiguration(t *testing.T) {
 	}
 }
 
-// TestServiceRunOnceExportsBacklogAgeBestEffort proves the dispatcher stage
-// queries the backlog age every run (so the 1-minute fast-lane SLO metric is
-// exported after the near-term Cloud Tasks path + notification-dispatcher job
-// were retired), and that a backlog-age read error is best-effort — it must
-// never fail the dispatch run or drop the delivery that already happened.
-func TestServiceRunOnceExportsBacklogAgeBestEffort(t *testing.T) {
+// TestBacklogAgeFromClaimedBatch proves the KERN-REV-06 redesign: the backlog
+// age is derived from the batch ClaimDue already returned (most-overdue first),
+// with NO extra MIN(requested_at) scan. Empty backlog is not-found; the oldest
+// (index-0) request drives the age; a clock-skewed future timestamp clamps to 0.
+func TestBacklogAgeFromClaimedBatch(t *testing.T) {
 	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
-	repo := &fakeRepo{
-		requests: []domain.Request{
-			{TenantID: testTenant, NotificationRequestID: "86000000-0000-4000-8000-000000000010", LeaseToken: "86000000-0000-4000-8000-000000000110", Channel: "local-stub", DeliveryAttempts: 1},
-		},
-		backlogErr: errors.New("backlog probe unavailable"),
-	}
-	service := NewService(repo, &fakeGateway{}, Config{Limit: 10, MaxAttempts: 5, Now: func() time.Time { return now }}, nil)
 
-	result, err := service.RunOnce(context.Background(), testTenant)
-	if err != nil {
-		t.Fatalf("RunOnce must not fail on a backlog-age read error (best-effort): %v", err)
+	if _, found := backlogAge(nil, now); found {
+		t.Fatal("empty backlog must be not-found")
 	}
-	if result.SentCount != 1 {
-		t.Fatalf("delivery lost: result=%#v", result)
+
+	// ClaimDue returns most-overdue first, so index 0 is the oldest.
+	claimed := []domain.Request{
+		{RequestedAt: now.Add(-8 * time.Minute)},
+		{RequestedAt: now.Add(-2 * time.Minute)},
 	}
-	if repo.backlogCalls != 1 {
-		t.Fatalf("backlog age not queried exactly once: calls=%d", repo.backlogCalls)
+	if age, found := backlogAge(claimed, now); !found || age != 8*time.Minute {
+		t.Fatalf("age=%v found=%v; want 8m,true", age, found)
+	}
+
+	if age, _ := backlogAge([]domain.Request{{RequestedAt: now.Add(time.Minute)}}, now); age != 0 {
+		t.Fatalf("clock skew not clamped: age=%v want 0", age)
 	}
 }
 
@@ -102,16 +100,6 @@ type fakeRepo struct {
 	requests []domain.Request
 	sent     []string
 	failed   []failedMark
-
-	backlogAge   time.Duration
-	backlogFound bool
-	backlogErr   error
-	backlogCalls int
-}
-
-func (f *fakeRepo) OldestDuePendingAge(context.Context, string, time.Time) (time.Duration, bool, error) {
-	f.backlogCalls++
-	return f.backlogAge, f.backlogFound, f.backlogErr
 }
 
 type failedMark struct {

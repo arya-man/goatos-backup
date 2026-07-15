@@ -50,35 +50,6 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 
 var _ ports.Repository = (*Repository)(nil)
 
-// OldestDuePendingAge returns how long the oldest currently-due, still-undelivered
-// notification request (status queued/failed with next_attempt_at null or past)
-// has been waiting since it was requested. The aggregate always returns one row;
-// an empty backlog yields a NULL, surfaced as (0, false, nil).
-func (r *Repository) OldestDuePendingAge(ctx context.Context, tenantID string, now time.Time) (time.Duration, bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	var ageSeconds pgtype.Float8
-	err := r.pool.QueryRow(ctx, `
-SELECT EXTRACT(EPOCH FROM ($2::timestamptz - MIN(requested_at)))
-FROM notification_requests
-WHERE tenant_id = $1::uuid
-  AND status IN ('queued', 'failed')
-  AND (next_attempt_at IS NULL OR next_attempt_at <= $2::timestamptz)`, tenantID, now).Scan(&ageSeconds)
-	if err != nil {
-		return 0, false, fmt.Errorf("notification: oldest due pending age: %w", err)
-	}
-	if !ageSeconds.Valid {
-		return 0, false, nil
-	}
-	secs := ageSeconds.Float64
-	if secs < 0 {
-		// Clock skew / a request timestamped slightly in the future: clamp to 0
-		// rather than report a negative backlog age.
-		secs = 0
-	}
-	return time.Duration(secs * float64(time.Second)), true, nil
-}
-
 func (r *Repository) ReclaimStaleSending(ctx context.Context, tenantID string, now time.Time, leaseTimeout time.Duration) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -118,7 +89,12 @@ WITH candidates AS (
   FROM notification_requests
   WHERE tenant_id = $1::uuid
     AND status IN ('queued', 'failed')
-    AND (next_attempt_at IS NULL OR next_attempt_at <= $2::timestamptz)
+    -- Equivalent to (next_attempt_at IS NULL OR next_attempt_at <= now) because
+    -- requested_at is never in the future, but written as the index expression
+    -- so notification_requests_queue_idx (tenant_id, status,
+    -- COALESCE(next_attempt_at, requested_at)) can RANGE-scan due rows and stop
+    -- at now — future-scheduled retries are not scanned even under heavy skew.
+    AND COALESCE(next_attempt_at, requested_at) <= $2::timestamptz
     AND delivery_attempts < $4
   ORDER BY COALESCE(next_attempt_at, requested_at), notification_request_id
   LIMIT $3

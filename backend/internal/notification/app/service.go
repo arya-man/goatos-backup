@@ -69,25 +69,40 @@ func (s *Service) RunOnce(ctx context.Context, tenantID string) (domain.Dispatch
 	if err != nil {
 		return domain.DispatchResult{}, err
 	}
+	// Backlog age for the 1-minute fast-lane SLO alert, derived from the batch
+	// ClaimDue already returned — NO extra query/scan. ClaimDue returns due
+	// requests (future-scheduled retries excluded) ordered by their scheduled
+	// time ascending and claims the top Limit, so requests[0] is the
+	// most-overdue request even when the backlog exceeds Limit. Recorded before
+	// dispatch mutates delivery state; RequestedAt is unchanged by dispatch.
+	if age, found := backlogAge(requests, now); found {
+		kmetrics.RecordNotifyBacklogAge(ctx, int64(age.Seconds()))
+	} else {
+		kmetrics.RecordNotifyBacklogAge(ctx, 0)
+	}
+
 	result := domain.DispatchResult{ReclaimedStaleCount: reclaimed, ClaimedCount: len(requests)}
 	for _, request := range requests {
 		if err := s.dispatchOne(ctx, request, &result); err != nil {
 			return result, err
 		}
 	}
-
-	// Export the post-drain backlog age for the 1-minute fast-lane SLO alert.
-	// Best-effort: a metrics read must never fail the dispatch run. Records 0
-	// when the backlog is empty so the gauge resets once delivery catches up.
-	if age, found, ageErr := s.repo.OldestDuePendingAge(ctx, tenantID, s.now()); ageErr != nil {
-		s.log.Warn("notification_backlog_age_query_failed", "error", ageErr.Error())
-	} else if found {
-		kmetrics.RecordNotifyBacklogAge(ctx, int64(age.Seconds()))
-	} else {
-		kmetrics.RecordNotifyBacklogAge(ctx, 0)
-	}
-
 	return result, nil
+}
+
+// backlogAge returns how long the oldest currently-due request has been waiting
+// since it was requested, using the batch ClaimDue already claimed (its rows are
+// ordered most-overdue first). Returns (0, false) for an empty backlog. A
+// clock-skewed future RequestedAt is clamped to 0.
+func backlogAge(claimed []domain.Request, now time.Time) (time.Duration, bool) {
+	if len(claimed) == 0 {
+		return 0, false
+	}
+	age := now.Sub(claimed[0].RequestedAt)
+	if age < 0 {
+		age = 0
+	}
+	return age, true
 }
 
 func (s *Service) dispatchOne(ctx context.Context, request domain.Request, result *domain.DispatchResult) error {

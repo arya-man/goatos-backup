@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -64,50 +65,105 @@ WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
 	assertNotificationState(t, ctx, pool, failedID, "queued", 1, true)
 }
 
-// TestNotificationRepositoryOldestDuePendingAge proves the backlog-age signal
-// the kernel worker's 1-minute fast-lane stage exports: it measures the oldest
-// currently-due, undelivered request's wait, ignores future-scheduled retries
-// (they are intentionally deferred, not backlog), and reports an empty backlog.
-func TestNotificationRepositoryOldestDuePendingAge(t *testing.T) {
+// TestNotificationRepositoryClaimDuePlanSkipsFutureRetriesUnderSkew is the
+// KERN-REV-06 query-plan gate. Under heavy future-retry skew (thousands of
+// failed rows scheduled to retry later, a handful actually due), the claim
+// predicate must let notification_requests_queue_idx RANGE-scan only the due
+// rows and stop at now — never scan every future-scheduled row to fill the
+// LIMIT. Because the predicate is the index expression
+// (COALESCE(next_attempt_at, requested_at) <= now), the index scan is bounded:
+// the executed plan reaches notification_requests via an index path and its
+// actual rows read stay far below the skew population.
+func TestNotificationRepositoryClaimDuePlanSkipsFutureRetriesUnderSkew(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
-	repo := NewRepository(pool, 5*time.Second)
 	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
 	seedCalendarEvent(t, ctx, pool, testEventID)
 
-	// Empty backlog: no rows -> found=false, zero age.
-	if age, found, err := repo.OldestDuePendingAge(ctx, testTenantID, now); err != nil || found || age != 0 {
-		t.Fatalf("empty backlog: age=%v found=%v err=%v; want 0,false,nil", age, found, err)
+	// 8000 failed rows scheduled to retry in the future (NOT due) + 15 due queued.
+	const futureSkew = 8000
+	if _, err := pool.Exec(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, notification_type, channel, title, body,
+  status, idempotency_key, request_fingerprint, context, delivery_attempts, next_attempt_at, requested_at
+)
+SELECT $1::uuid, $2, 'cohort', 'reminder', 'local-stub', 't', 'b',
+  'failed', 'skew-' || g, 'skew-' || g || ':fp', '{}'::jsonb, 1,
+  $3::timestamptz, $4::timestamptz
+FROM generate_series(1, $5::int) g`,
+		testTenantID, testEventID, now.Add(time.Hour), now.Add(-2*time.Hour), futureSkew); err != nil {
+		t.Fatalf("seed future-retry skew: %v", err)
+	}
+	for i := 0; i < 15; i++ {
+		seedNotification(t, ctx, pool, testEventID, fmt.Sprintf("due-%02d", i), "queued", 0, nil)
+	}
+	if _, err := pool.Exec(ctx, `ANALYZE notification_requests`); err != nil {
+		t.Fatalf("analyze: %v", err)
 	}
 
-	// A due queued request waiting 5 minutes.
-	newerID := seedNotification(t, ctx, pool, testEventID, "notif-backlog-newer", "queued", 0, nil)
-	setRequestedAt(t, ctx, pool, newerID, now.Add(-5*time.Minute))
-	if age, found, err := repo.OldestDuePendingAge(ctx, testTenantID, now); err != nil || !found || age != 5*time.Minute {
-		t.Fatalf("single due: age=%v found=%v err=%v; want 5m,true,nil", age, found, err)
+	// Force the index path so the assertion isolates whether the predicate lets
+	// the index BOUND the scan (skip future rows), independent of small-fixture
+	// planner cost preferences.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
+		t.Fatalf("disable seqscan: %v", err)
 	}
 
-	// An older due request must win (oldest wait, not newest).
-	olderID := seedNotification(t, ctx, pool, testEventID, "notif-backlog-older", "queued", 0, nil)
-	setRequestedAt(t, ctx, pool, olderID, now.Add(-12*time.Minute))
-	if age, found, err := repo.OldestDuePendingAge(ctx, testTenantID, now); err != nil || !found || age != 12*time.Minute {
-		t.Fatalf("oldest-wins: age=%v found=%v err=%v; want 12m,true,nil", age, found, err)
+	var raw []byte
+	if err := tx.QueryRow(ctx, `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+SELECT notification_request_id
+FROM notification_requests
+WHERE tenant_id = $1::uuid
+  AND status IN ('queued', 'failed')
+  AND COALESCE(next_attempt_at, requested_at) <= $2::timestamptz
+  AND delivery_attempts < $3
+ORDER BY COALESCE(next_attempt_at, requested_at), notification_request_id
+LIMIT $4`, testTenantID, now, 5, 100).Scan(&raw); err != nil {
+		t.Fatalf("explain: %v", err)
 	}
 
-	// A far-future-scheduled retry is NOT backlog: mark both existing due rows
-	// sent, seed one more request scheduled to retry in an hour, and expect an
-	// empty backlog again.
-	if _, err := pool.Exec(ctx, `UPDATE notification_requests SET status='sent' WHERE tenant_id=$1::uuid`, testTenantID); err != nil {
-		t.Fatalf("mark all sent: %v", err)
+	var plans []struct {
+		Plan planNode `json:"Plan"`
 	}
-	future := now.Add(time.Hour)
-	deferredID := seedNotification(t, ctx, pool, testEventID, "notif-backlog-deferred", "failed", 1, &future)
-	setRequestedAt(t, ctx, pool, deferredID, now.Add(-30*time.Minute))
-	if age, found, err := repo.OldestDuePendingAge(ctx, testTenantID, now); err != nil || found || age != 0 {
-		t.Fatalf("future retry excluded: age=%v found=%v err=%v; want 0,false,nil", age, found, err)
+	if err := json.Unmarshal(raw, &plans); err != nil || len(plans) == 0 {
+		t.Fatalf("parse explain json: %v (%s)", err, raw)
 	}
+	scans := collectRelationScans(plans[0].Plan, "notification_requests")
+	if len(scans) == 0 {
+		t.Fatalf("no notification_requests scan node in plan: %s", raw)
+	}
+	for _, s := range scans {
+		if strings.Contains(s.NodeType, "Seq Scan") {
+			t.Fatalf("notification_requests reached via Seq Scan under skew: %s", raw)
+		}
+		if s.ActualRows > 500 {
+			t.Fatalf("index scan read %d rows (of %d skew) — predicate did not bound the scan to due rows", int(s.ActualRows), futureSkew)
+		}
+	}
+}
+
+type planNode struct {
+	NodeType     string     `json:"Node Type"`
+	RelationName string     `json:"Relation Name"`
+	ActualRows   float64    `json:"Actual Rows"`
+	Plans        []planNode `json:"Plans"`
+}
+
+func collectRelationScans(n planNode, rel string) []planNode {
+	var out []planNode
+	if n.RelationName == rel {
+		out = append(out, n)
+	}
+	for _, c := range n.Plans {
+		out = append(out, collectRelationScans(c, rel)...)
+	}
+	return out
 }
 
 // TestNotificationRepositoryClaimHonorsBurstLimit proves the KERN-REV-05 batch
@@ -134,14 +190,6 @@ func TestNotificationRepositoryClaimHonorsBurstLimit(t *testing.T) {
 	}
 	if len(claimed) != 100 {
 		t.Fatalf("claimed %d of a 120 burst with limit 100; want 100 (default 50 would stall the backlog)", len(claimed))
-	}
-}
-
-func setRequestedAt(t *testing.T, ctx context.Context, pool *pgxpool.Pool, requestID string, at time.Time) {
-	t.Helper()
-	if _, err := pool.Exec(ctx, `UPDATE notification_requests SET requested_at=$3::timestamptz WHERE tenant_id=$1::uuid AND notification_request_id=$2::uuid`,
-		testTenantID, requestID, at); err != nil {
-		t.Fatalf("set requested_at: %v", err)
 	}
 }
 
@@ -281,11 +329,15 @@ func seedNotification(t *testing.T, ctx context.Context, pool *pgxpool.Pool, eve
 INSERT INTO notification_requests (
   tenant_id, calendar_event_id, target_type, target_id, notification_type, channel,
   title, body, status, idempotency_key, request_fingerprint, context,
-  delivery_attempts, next_attempt_at, trace_id
+  delivery_attempts, next_attempt_at, trace_id, requested_at
 ) VALUES (
   $1::uuid, $2, 'cohort', NULL, 'reminder', 'local-stub',
   'Notification repo test', 'Notification repo body', $3, $4, $5, '{}'::jsonb,
-  $6, $7::timestamptz, $8
+  $6, $7::timestamptz, $8,
+  -- A fixed past request time (before the tests' fixed clock) so a queued row is
+  -- due under the index-bounded predicate COALESCE(next_attempt_at, requested_at)
+  -- <= now, mirroring production where a request always precedes its claim.
+  TIMESTAMPTZ '2026-06-01 00:00:00+00'
 )
 RETURNING notification_request_id::text`,
 		testTenantID, eventID, status, key, key+":fingerprint", attempts, nextAttemptAt, "trace-"+key).Scan(&requestID); err != nil {
