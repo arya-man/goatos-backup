@@ -355,13 +355,22 @@ worker's 1-minute fast-lane `NotificationDispatcherStage` (leases, per-attempt
 backoff/retry, and terminal `exhausted`/DLQ handling are unchanged). The only
 behavioral change is delivery latency: up to ~1 minute instead of sub-minute —
 no delivery is lost. The worker exports `kernel_notify_backlog_age_seconds` (the
-oldest currently-due, still-undelivered request's wait; the `oldest_request`
-column above is its ad-hoc equivalent), and the goatos-{dev,stg} notification
-backlog-age alert fires if that age crosses the 1-minute-fast-lane SLO — catching
-a wedged/behind dispatcher even though nothing is dropped. A sub-minute path may
-be reintroduced later only if a real business SLA requires under 60 seconds, and
-only via a dedicated authenticated dispatch target — never an HTTP work-trigger
-on the worker service.
+oldest currently-due, still-undelivered request's wait, computed as a bounded
+index-backed global query — not the claimed batch; the `oldest_request` column
+above is its ad-hoc equivalent). This is monitored in **staging only**: two
+staging policies — a threshold alert (age above the 1-minute-fast-lane SLO) and
+an independent metric-absence deadman (a dead worker or exporter makes the series
+disappear, which a threshold-only policy reads as OK) — filter the exported GMP
+series (`prometheus.googleapis.com/kernel_notify_backlog_age_seconds/gauge`,
+`resource.type="generic_task"`, matching every other kernel GMP alert routed
+through the `googlemanagedprometheus` collector). Dev intentionally has **no**
+notification backlog alert: dev runs no OTel collector / observability_config, so
+the worker stays on `stdout_json` and never exports the metric — an enabled dev
+alert on a never-sampled series would be false-green. A dev alert returns only
+alongside a real dev metrics exporter. A sub-minute delivery path may be
+reintroduced later only if a real business SLA requires under 60 seconds, and only
+via a dedicated authenticated dispatch target — never an HTTP work-trigger on the
+worker service.
 
 ### Event and retry backlog
 
