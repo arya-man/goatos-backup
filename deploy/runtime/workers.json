@@ -61,9 +61,9 @@
       "kind": "service",
       "args": ["-timeout=0s"],
       "health_signal": "process stays running (no restarts); structured logs kernel_worker_starting then per-cadence stage logs (fast/operational/generation/housekeeping) and, when Pub/Sub is configured, no domain_consumer_disabled log",
-      "deployed_environments": [],
-      "deployed_to_cloud_run": false,
-      "notes": "Fully implemented (backend/cmd/kernel-worker/main.go, backend/internal/kernelstages, backend/internal/platform/worker) and built by backend/Dockerfile, per docs/decisions/operational-kernel-5k-50k-scale-envelope.md. NOT YET wired into infra/envs/*/cloud_run_jobs.tf or cloud_run_services.tf — the infra cutover that retires the scheduled-job fleet below is still pending (ADR status: 'documentation complete, implementation pending'). Exercised by deploy/e2e/docker-compose.e2e.yml and make e2e-parity/e2e-smoke NOW, ahead of that infra cutover, so kernel-worker's flags/binary/startup are proven working before the Terraform change ships — this is exactly the gap that let KERN-001 ship undetected."
+      "deployed_environments": ["dev", "stg"],
+      "service_tf_files": { "dev": "infra/envs/dev/cloud_run_worker.tf", "stg": "infra/envs/stg/cloud_run_worker.tf" },
+      "notes": "Consolidated long-running kernel worker (backend/cmd/kernel-worker/main.go, backend/internal/kernelstages, backend/internal/platform/worker; built by backend/Dockerfile). Deployed as a Cloud Run SERVICE (min=2/max=2, CPU always-on, /readyz+/livez probes) in dev and stg via infra/envs/{dev,stg}/cloud_run_worker.tf, replacing the retired per-stage scheduled jobs. command+args here (/app/bin/kernel-worker -timeout=0s) are reconciled bidirectionally against those Terraform services by check-deployed-job-flags.mjs, and exercised by deploy/e2e/docker-compose.e2e.yml + make e2e-parity/e2e-smoke."
     }
   ],
 

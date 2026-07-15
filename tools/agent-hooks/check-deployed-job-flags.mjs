@@ -81,6 +81,109 @@ function extractJobs(tfText) {
   return jobs;
 }
 
+// Returns the inner text of a `{ ... }` block, brace-matched from the `{` at
+// openBraceIdx. Handles nested braces (a Cloud Run service has containers { },
+// resources { }, env { } ... inside it).
+function braceBlockFrom(text, openBraceIdx) {
+  let depth = 0;
+  for (let i = openBraceIdx; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) return text.slice(openBraceIdx + 1, i);
+    }
+  }
+  return "";
+}
+
+// Extracts { binary, argsRaw }[] for every google_cloud_run_v2_service whose
+// container overrides the image ENTRYPOINT with a literal command =
+// ["/app/bin/NAME"]. Unlike jobs, a service's command and args sit in the same
+// `containers { }` block but are separated by ports/resources/env blocks, so
+// this brace-matches the container rather than relying on adjacency. Services
+// that run the Dockerfile ENTRYPOINT (no command, e.g. api) are intentionally
+// not extracted — their deployment is not command-reconciled here.
+function extractServices(tfText) {
+  const services = [];
+  const re = /resource\s+"google_cloud_run_v2_service"\s+"[a-zA-Z0-9_]+"\s*\{/g;
+  let m;
+  while ((m = re.exec(tfText))) {
+    const body = braceBlockFrom(tfText, tfText.indexOf("{", m.index + m[0].length - 1));
+    const cre = /containers\s*\{/g;
+    let cm;
+    while ((cm = cre.exec(body))) {
+      const cbody = braceBlockFrom(body, body.indexOf("{", cm.index + cm[0].length - 1));
+      const cmd = cbody.match(/command\s*=\s*\[\s*"\/app\/bin\/([a-zA-Z0-9_-]+)"/);
+      if (!cmd) continue;
+      const argsM = cbody.match(/args\s*=\s*\[([^\]]*)\]/);
+      services.push({ binary: cmd[1], argsRaw: argsM ? argsM[1] : "" });
+    }
+  }
+  return services;
+}
+
+// serviceFindings is the pure reconciliation core (no file IO, so it is
+// self-testable). tfServicesByEnv maps env -> [{binary, argsRaw}] extracted from
+// that env's Terraform service files.
+function serviceFindings(tfServicesByEnv, manifestServices) {
+  const findings = [];
+  const withCommand = (manifestServices || []).filter(
+    (s) => !s.uses_dockerfile_default_entrypoint && Array.isArray(s.args),
+  );
+  const byBinary = new Map(withCommand.map((s) => [s.binary, s]));
+
+  for (const env of Object.keys(tfServicesByEnv)) {
+    const tfServices = tfServicesByEnv[env];
+    const tfBinaries = new Set(tfServices.map((s) => s.binary));
+
+    // A: every TF command-service is in the manifest, deployed for this env, args match.
+    for (const tf of tfServices) {
+      const ms = byBinary.get(tf.binary);
+      if (!ms) {
+        findings.push(
+          `infra/envs/${env}: a Cloud Run service runs /app/bin/${tf.binary} but deploy/runtime/workers.json services[] has no command-override entry for it (manifest drift)`,
+        );
+        continue;
+      }
+      if (!(ms.deployed_environments || []).includes(env)) {
+        findings.push(
+          `deploy/runtime/workers.json: service "${ms.name}" is deployed in infra/envs/${env} but its deployed_environments ${JSON.stringify(ms.deployed_environments || [])} omit "${env}"`,
+        );
+      }
+      const tfArgs = argTokensFromArgsRaw(tf.argsRaw).join(" ");
+      const manifestArgs = (ms.args || []).join(" ");
+      if (tfArgs !== manifestArgs) {
+        findings.push(
+          `infra/envs/${env}: service "${ms.name}" terraform args [${tfArgs}] do not match deploy/runtime/workers.json args [${manifestArgs}]`,
+        );
+      }
+    }
+
+    // B: every manifest command-service claiming this env actually exists in TF.
+    for (const ms of withCommand) {
+      if ((ms.deployed_environments || []).includes(env) && !tfBinaries.has(ms.binary)) {
+        findings.push(
+          `deploy/runtime/workers.json: service "${ms.name}" claims deployed_environments includes "${env}" but no Cloud Run service runs /app/bin/${ms.binary} in infra/envs/${env}`,
+        );
+      }
+    }
+  }
+  return findings;
+}
+
+// reconcileServices does the file IO (extract each env's TF services) and
+// delegates to the pure serviceFindings core.
+function reconcileServices(repoRoot, manifestServices) {
+  const tfServicesByEnv = {};
+  for (const env of ["dev", "stg"]) {
+    const files = ["cloud_run_worker.tf", "cloud_run_services.tf"]
+      .map((f) => resolve(repoRoot, "infra/envs", env, f))
+      .filter((p) => existsSync(p));
+    tfServicesByEnv[env] = files.flatMap((p) => extractServices(readFileSync(p, "utf8")));
+  }
+  return serviceFindings(tfServicesByEnv, manifestServices);
+}
+
 // Parses a Terraform `args = [...]` raw inner-string, or a JSON string array,
 // into a normalized array of flag tokens (e.g. `-timeout=180s`). Order-preserving.
 function argTokensFromArgsRaw(argsRaw) {
@@ -247,6 +350,59 @@ function selfTest() {
     throw new Error("self-test missed tf-vs-manifest arg drift");
   }
 
+  // 8) SERVICE reconciliation (KERN-REV-08).
+  const serviceTf = `
+resource "google_cloud_run_v2_service" "kernel_worker" {
+  name = "goatos-kernel-worker-stg"
+  template {
+    containers {
+      name = "kernel-worker"
+      image = local.backend_image
+      command = ["/app/bin/kernel-worker"]
+      ports { container_port = 8080 }
+      resources { limits = { cpu = "1" } }
+      env { name = "GOATOS_ENV" value = "stg" }
+      args = ["-timeout=0s"]
+    }
+    containers {
+      name = "otel-collector"
+      image = var.otel_collector_image
+      args = ["--config=/etc/otelcol-contrib/config.yaml"]
+    }
+  }
+}`;
+  const extracted = extractServices(serviceTf);
+  if (extracted.length !== 1 || extracted[0].binary !== "kernel-worker") {
+    throw new Error("self-test: extractServices did not find the command-override service (got " + JSON.stringify(extracted) + ")");
+  }
+  if (argTokensFromArgsRaw(extracted[0].argsRaw).join(" ") !== "-timeout=0s") {
+    throw new Error("self-test: extractServices grabbed the sidecar args instead of the app container's");
+  }
+
+  const goodManifest = [{ name: "kernel_worker", binary: "kernel-worker", args: ["-timeout=0s"], deployed_environments: ["dev", "stg"] }];
+  const tfBoth = { dev: [{ binary: "kernel-worker", argsRaw: '"-timeout=0s"' }], stg: [{ binary: "kernel-worker", argsRaw: '"-timeout=0s"' }] };
+  if (serviceFindings(tfBoth, goodManifest).length !== 0) {
+    throw new Error("self-test: a fully-consistent service produced findings");
+  }
+  // (a) TF service present but manifest marks it undeployed for stg.
+  const undeployed = [{ name: "kernel_worker", binary: "kernel-worker", args: ["-timeout=0s"], deployed_environments: ["dev"] }];
+  if (!serviceFindings(tfBoth, undeployed).some((f) => f.includes("omit"))) {
+    throw new Error("self-test: missed a TF service whose manifest deployed_environments omit the env");
+  }
+  // (b) TF service present but missing entirely from the manifest.
+  if (!serviceFindings(tfBoth, []).some((f) => f.includes("no command-override entry"))) {
+    throw new Error("self-test: missed a TF service with no manifest entry");
+  }
+  // (c) TF service present but differently configured (args) in the manifest.
+  const wrongArgs = [{ name: "kernel_worker", binary: "kernel-worker", args: ["-timeout=9m"], deployed_environments: ["dev", "stg"] }];
+  if (!serviceFindings(tfBoth, wrongArgs).some((f) => f.includes("do not match"))) {
+    throw new Error("self-test: missed a TF-vs-manifest service arg mismatch");
+  }
+  // (d) manifest claims deployment in an env where no TF service exists.
+  if (!serviceFindings({ dev: [], stg: [{ binary: "kernel-worker", argsRaw: '"-timeout=0s"' }] }, goodManifest).some((f) => f.includes("claims deployed_environments includes"))) {
+    throw new Error("self-test: missed a manifest service claiming an env with no TF service");
+  }
+
   console.log("deployed-job-flags guard: self-test passed");
 }
 
@@ -359,6 +515,14 @@ for (const [envName, envDef] of Object.entries(manifest.environments || {})) {
       );
     }
   }
+}
+
+// --- Check (a) for SERVICES: every command-override Cloud Run service is
+// reconciled bidirectionally with the manifest (deployed env + args), closing
+// the gap where a service could stay "forward-looking / undeployed" in the
+// manifest while Terraform actually creates it. ---
+for (const finding of reconcileServices(repo, manifest.services)) {
+  allFindings.push(finding);
 }
 
 if (allFindings.length) {

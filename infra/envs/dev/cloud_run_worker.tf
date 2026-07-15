@@ -25,8 +25,10 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
     containers {
       name = "kernel-worker"
 
-      image   = local.backend_image
+      image = local.backend_image
+      # -timeout=0s explicit so it matches deploy/runtime/workers.json + e2e-parity.
       command = ["/app/bin/kernel-worker"]
+      args    = ["-timeout=0s"]
 
       ports {
         container_port = 8080

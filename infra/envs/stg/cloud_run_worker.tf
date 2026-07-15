@@ -34,7 +34,10 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
 
       image = local.backend_image
       # Override the image's ENTRYPOINT (/app/bin/api) — run the worker binary.
+      # -timeout=0s (no forced run deadline; runs for the service lifetime) is
+      # explicit so it matches deploy/runtime/workers.json + make e2e-parity.
       command = ["/app/bin/kernel-worker"]
+      args    = ["-timeout=0s"]
 
       ports {
         container_port = 8080
