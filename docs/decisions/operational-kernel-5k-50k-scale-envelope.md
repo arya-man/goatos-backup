@@ -21,8 +21,8 @@ Goat OS will optimize its first operational-kernel deployment for:
   paths required by that population.
 
 The current fleet of independently scheduled Cloud Run Jobs is not the target
-runtime for this envelope. It will be replaced by one modular kernel worker
-process next to the API and Postgres.
+runtime for this envelope. It will be replaced by one deployable kernel worker
+service, replicated across at least two instances, next to the API and Postgres.
 
 This decision changes the active deployment scale target. One-million-animal
 deployment topology is future work, not a present release requirement. Existing
@@ -175,12 +175,12 @@ tag and may be reintroduced for the first measured history/event-table hotspot.
 Goat OS API
     -> canonical Postgres transaction + audit + outbox
 
-One kernel worker process
+One kernel worker service (>= 2 instances, advisory-lock-serialized)
     -> continuous domain-event consumer
     -> one-minute fast-delivery cadence
-    -> fifteen-minute operational cadence
+    -> five-minute operational cadence
     -> hourly obligation-generation cadence
-    -> daily housekeeping cadence
+    -> hourly housekeeping cadence
 
 Postgres
     -> canonical business tables
@@ -193,7 +193,7 @@ Postgres
 
 - Cloud Scheduler cron jobs in the normal topology: **0**.
 - Scheduled Cloud Run Jobs in the normal topology: **0**.
-- Long-running kernel worker processes: **1**.
+- Long-running kernel worker services: **1** (deployed as **>= 2** instances for HA).
 - Continuous subscriber loops: **1**.
 - Logical cadence classes inside the worker: **4**.
 - Non-projection, non-partition one-shot commands retained for manual repair/backfill: **11**.
@@ -201,10 +201,14 @@ Postgres
 - Projection tables retained in the active runtime: **0**.
 - Partition-maintenance commands retained in the active runtime: **0**.
 
-The worker uses one supervisor with isolated stage runners. A panic or timeout in
-one stage is recovered and reported without terminating unrelated stages. Each
-stage has its own timeout and Postgres advisory lock so a rolling deployment
-cannot run the same stage twice concurrently.
+The worker uses one supervisor with isolated stage runners. A panic, timeout, or
+error in one stage is recovered and reported without terminating unrelated
+stages, and a continuous stage that errors or exits is restarted under a
+supervised backoff loop rather than taking down the kernel. Each stage has its
+own timeout and a Postgres advisory lock whose key is derived from the stage
+name (`hashtext('goatos:kernel:stage:'+name)`), computed server-side so it is
+identical across worker builds and registration order — a rolling deployment of
+two different worker versions therefore cannot run the same stage concurrently.
 
 ### Availability model (single worker is not a single point of failure)
 
