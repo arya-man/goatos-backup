@@ -1134,7 +1134,10 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			return fmt.Errorf("vaccination: detected stale kid stage for goat %s but review recorder is absent; cannot persist review item (VACC-REV-10A)", g.GoatID)
 		}
 		observedAgeWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
-		reviewKey := "vacc-stage-review:" + tenantID + ":" + g.GoatID + ":" + strings.ToUpper(strings.TrimSpace(g.Stage))
+		// One open review item per goat: the key is stable per (tenant, goat), NOT per stage. A goat
+		// moving from a stale K1 to a stale K2 must update the SAME open item, not mint a second one
+		// (open uniqueness is enforced per goat by migration 000207).
+		reviewKey := "vacc-stage-review:" + tenantID + ":" + g.GoatID
 		if err := s.review.RecordStageReviewItem(ctx, tenantID, g.GoatID,
 			"kid_stage_past_age_cutoff", strings.TrimSpace(g.Stage), observedAgeWeeks, reviewKey); err != nil {
 			return err

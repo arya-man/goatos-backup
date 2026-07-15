@@ -75,9 +75,10 @@ func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID
 		INSERT INTO vaccination_stage_review_items
 			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
 		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6)
-		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO UPDATE
+		ON CONFLICT (tenant_id, goat_id) WHERE status = 'open' DO UPDATE
 		SET observed_stage = EXCLUDED.observed_stage,
-		    observed_age_weeks = EXCLUDED.observed_age_weeks`,
+		    observed_age_weeks = EXCLUDED.observed_age_weeks,
+		    updated_at = now()`,
 		tenantID, goatID, reason, observedStage, observedAgeWeeks, idempotencyKey)
 	if err != nil {
 		return fmt.Errorf("vaccination: record stage review item: %w", err)
