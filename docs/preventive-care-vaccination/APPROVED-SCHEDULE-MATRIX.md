@@ -20,7 +20,7 @@ seed data unless Ravi explicitly reopens that branch.
 
 ## Binding Rules (govern ALL vaccination work)
 
-These two rules are non-negotiable and MUST be honored by every piece of
+These rules are non-negotiable and MUST be honored by every piece of
 vaccination authoring, review, seed data, config, obligation/rule generation,
 tests, drive planning, and admin-web/operator UI. They are stated in full in the
 sections below; this block makes them binding law, not commentary.
@@ -51,10 +51,19 @@ sections below; this block makes them binding law, not commentary.
    standard kid schedule. Mothers use the standard adult/mother schedule because
    the operating policy is to keep them vaccinated.
 
+4. **Per-vaccine anchor precedence.** For each vaccine independently, the latest
+   accepted administration of that same vaccine is the authoritative anchor for
+   its next dose or repeat. DOB and herd-entry date are fallback anchors only
+   when that vaccine has no accepted administration history. Adding or correcting
+   DOB/entry later must not cancel, replace, duplicate, or move an obligation
+   already anchored to accepted same-vaccine history. One vaccine's history must
+   never anchor another vaccine. See "Per-Vaccine Anchor Precedence".
+
 ## Operating Rules
 
-- Tags are housing/lifecycle context; vaccine due dates are driven by DOB or
-  herd-entry date plus the last accepted vaccination completion.
+- Tags are housing/lifecycle context. A same-vaccine accepted administration
+  takes precedence over DOB and herd-entry date; DOB/entry are fallback anchors
+  only when that vaccine has no accepted history.
 - If a tag and age disagree, review the animal; do not blindly schedule only
   from shed tag text.
 - Repeat cycles start from the actual accepted vaccination date, or from the
@@ -65,6 +74,52 @@ sections below; this block makes them binding law, not commentary.
 - Pregnancy is evaluated by gestation month. Vaccines are allowed up to about
   three months of pregnancy; during months 4 and 5, skip and catch up within two
   weeks after delivery.
+
+## Per-Vaccine Anchor Precedence
+
+Anchor selection is evaluated separately for every vaccine family. It is never
+a single goat-wide date and it must never infer a DOB from field vaccination
+history.
+
+| Evidence available for the vaccine being scheduled | Required behavior |
+| --- | --- |
+| Accepted administration history for the same vaccine | Use the latest accepted administration (or accepted course completion where the matrix defines a course) plus that vaccine's configured next-dose/repeat interval. Ignore DOB/entry as due-date anchors for that vaccine. |
+| No same-vaccine history, but trusted DOB is available | Use DOB only for an eligible new age-based course. Do not fabricate historical administrations. |
+| No same-vaccine history or DOB, but trusted herd-entry date is available | Use entry date only for the applicable procurement/adult-primary path and its warmup constraints. |
+| No same-vaccine history, DOB, or entry date | Create the approved adult catch-up/primary action for the next compatible drive. Missing identity dates alone must not defer vaccination. |
+
+Examples:
+
+- A goat has an accepted FMD administration on `2026-03-20`. Its next FMD due
+  date is calculated from `2026-03-20` using the FMD repeat interval. Entering a
+  DOB tomorrow must not change that FMD due date.
+- The same goat has never received PPR. Its FMD date cannot anchor PPR. PPR uses
+  a trusted DOB/entry fallback when applicable; if neither exists, PPR enters
+  the approved adult catch-up path.
+- A DOB/entry correction may supersede an obligation only when that obligation
+  was actually anchored to the old DOB/entry value (or was a no-date catch-up
+  placeholder) and there is still no accepted same-vaccine history.
+
+Forbidden behavior:
+
+- deriving or back-calculating DOB from vaccination dates;
+- using an administration of one vaccine to anchor another vaccine;
+- regenerating a DOB/entry-based primary after same-vaccine history exists;
+- moving, canceling, or duplicating a completion-anchored obligation when DOB or
+  entry date is later added or corrected;
+- deferring vaccination solely because DOB and entry date are missing.
+
+Required regression proof:
+
+1. Seed a goat with no DOB/entry and an accepted same-vaccine administration.
+2. Generate the next obligation from that administration date.
+3. Correct DOB/entry through the canonical identity command and deliver the
+   durable recheck event.
+4. Assert the due date and active obligation identity remain unchanged and no
+   DOB/entry-based primary or duplicate is created.
+5. Separately prove that a vaccine with no history may use DOB/entry, and that a
+   vaccine with none of the three anchors enters adult catch-up without a
+   missing-date defer.
 
 ## Kid Course Rendering Rule
 

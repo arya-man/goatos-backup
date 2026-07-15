@@ -86,6 +86,47 @@ DOB, `post_arrival` rules need entry date, and `after_previous_completion`
 rules need accepted completion evidence. Do not treat an unrelated missing
 field as a blocker for a rule that does not use that field.
 
+### Authoritative Per-Vaccine Anchor Order
+
+The kernel selects an anchor independently for each vaccine. The order is
+binding for seed, runtime generation, identity correction, imported-history
+replay, and dynamic recomputation:
+
+1. **Latest accepted same-vaccine administration.** This is the authoritative
+   anchor for that vaccine's next dose/repeat. Where the matrix defines a
+   multi-dose course, use the accepted course completion required by that rule.
+2. **Trusted DOB**, only when the vaccine has no accepted administration
+   history and the animal is eligible to start an age-based course.
+3. **Trusted herd-entry date**, only when the vaccine has no accepted
+   administration history and the applicable path is procurement/adult primary.
+4. **Adult catch-up/primary at the next compatible drive** when that vaccine has
+   no accepted history and neither DOB nor entry date is available. Missing
+   identity dates alone are not a clinical defer reason.
+
+This is per vaccine, not per goat. An ET+TT date cannot anchor FMD, PPR, pox,
+HS, or Blue Tongue. The kernel must never reverse-engineer or infer DOB from a
+field vaccination date.
+
+Identity corrections are recomputation signals, not authority to overwrite
+completion history. When DOB or entry date is added or corrected:
+
+- obligations anchored to accepted same-vaccine history keep the same due date
+  and active identity;
+- the kernel must not recreate a DOB/entry primary already satisfied or
+  superseded by same-vaccine history;
+- only obligations that actually depended on the prior DOB/entry value (or a
+  no-date catch-up placeholder) may be replaced, and only while same-vaccine
+  history remains absent;
+- accepted completions and superseded rows remain auditable; recomputation must
+  not delete history.
+
+The required event-driven regression is: no DOB/entry + accepted same-vaccine
+administration -> completion-anchored future obligation -> canonical DOB/entry
+correction -> durable outbox/recheck -> unchanged due date, unchanged active
+obligation, and no duplicate primary. A separate case must prove that a vaccine
+with no history may use DOB/entry, while a vaccine with none of the three source
+anchors enters adult catch-up instead of `missing_due_date` defer.
+
 Example with backend business date `2026-07-11`:
 
 - `2026-06-21` in the sheet means the vaccine was already administered on
@@ -346,7 +387,13 @@ At minimum, this contract is guarded by:
   dates do not; open work materialized by the seed is strictly future-only.
 - `backend/internal/vaccination/app/generation_test.go`: a recurring completion
   advances to a due date strictly after the backend business date, including
-  when the preceding historical window would still be open.
+  when the preceding historical window would still be open; a later DOB/entry
+  correction cannot replace or duplicate a same-vaccine completion-anchored
+  obligation.
+- Event-driven identity-recompute E2E: the canonical identity command emits its
+  durable event and the registered vaccination recheck handler preserves a
+  same-vaccine completion-anchored due date. A separate no-history fixture proves
+  that DOB/entry may re-anchor only the fallback path.
 - `backend/internal/calendar/adapters/postgres/repository_integration_test.go`:
   accepted historical doses remain listable and drillable without a retained
   hot projection row.
