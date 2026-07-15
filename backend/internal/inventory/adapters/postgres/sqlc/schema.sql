@@ -583,7 +583,7 @@ DECLARE
   is_vaccination boolean;
 BEGIN
   IF NEW.target_type <> 'goat'
-     OR NEW.status NOT IN ('scheduled', 'due', 'in_progress', 'missed', 'waived') THEN
+     OR NEW.status NOT IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed', 'waived') THEN
     RETURN NEW;
   END IF;
 
