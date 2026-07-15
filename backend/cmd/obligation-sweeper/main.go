@@ -143,6 +143,14 @@ func run(args []string) error {
 		}
 		plans = obligationapp.SortSweepVersionsByPriority(plans)
 
+		// VAX-REV-04: detect a cross-version shot-cap priority tie BEFORE sweeping a single plan
+		// for real. Without this, a later plan's tie aborted the loop below while earlier plans'
+		// batches/SOP tasks/stock reservations were already committed -- a silent, arbitrary
+		// partial commit. See obligationapp.PreflightVisitShotCapTies.
+		if err := sweeper.PreflightVisitShotCapTies(ctx, cfg.TenantID, plans, cfg.DueBefore); err != nil {
+			return fmt.Errorf("preflight shot-cap ties: %w", err)
+		}
+
 		session := obligationapp.NewSweepSession()
 		for _, plan := range plans {
 			sweepStart := time.Now()

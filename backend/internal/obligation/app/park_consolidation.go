@@ -68,55 +68,97 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 		parkID := rows[0].ParkID
 		remaining := append([]domain.ParkConsolidationCandidate(nil), rows...)
 		for len(remaining) >= int(minMergeTargets) && uniqueShedCount(remaining) >= int(minMergeSheds) {
-			plannedDate, selected := pickBestParkDriveDate(now, remaining)
-			selected, err := selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+			next, attached, stop, err := s.parkMergeStep(ctx, tenantID, versionID, cfg, planner, now, dueBefore, session, parkID, remaining, minMergeTargets, minMergeSheds)
 			if err != nil {
 				return res, err
 			}
-			if len(selected) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
-				if overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining); overflowDate != nil {
-					plannedDate = overflowDate
-					selected = obligationsFeasibleOnDate(*plannedDate, remaining)
-					selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
-					if err != nil {
-						return res, err
-					}
-				}
+			remaining = next
+			if attached > 0 {
+				res.ParkBatches++
+				res.ParkObligations += int(attached)
 			}
-			if plannedDate == nil || int32(len(selected)) < minMergeTargets || uniqueShedCount(filterRows(remaining, selected)) < int(minMergeSheds) {
+			if stop {
 				break
 			}
-			selectedRows := filterRows(remaining, selected)
-			windowStart, windowEnd := parkDriveWindow(selectedRows, selected)
-			_, n, err := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
-				TenantID:          tenantID,
-				ProtocolVersionID: versionID,
-				ScopeType:         "park",
-				ScopeID:           parkID,
-				Session:           parkConsolidationSession(selected),
-				PlannedDate:       plannedDate,
-				WindowStart:       windowStart,
-				WindowEnd:         windowEnd,
-				Status:            "planned",
-				EstimatedTargets:  int32(len(selected)),
-				PlannedQuantity:   parkDrivePlannedQuantity(cfg, selectedRows),
-				QuantityUnit:      "dose",
-			}, selected)
-			if err != nil {
-				return res, err
-			}
-			if n == 0 {
-				break
-			}
-			if err := s.recordParkBatchingHoldIfNeeded(ctx, tenantID, selected, selectedRows, plannedDate, dueBefore); err != nil {
-				return res, err
-			}
-			res.ParkBatches++
-			res.ParkObligations += int(n)
-			remaining = removeRows(remaining, selected)
 		}
 	}
 	return res, nil
+}
+
+// parkMergeStep performs one park-consolidation merge attempt: picks the best shared drive date
+// for remaining, shot-cap-selects the animals that fit (with an overflow-date retry identical to
+// the shed-batching path), and creates one park batch from the result. It seeds session with the
+// persisted, cross-pass shot count for every candidate target before selecting (VAX-REV-01), and --
+// when the repo supports it -- holds a per-visit advisory lock across the select+create sequence
+// so a concurrent sweeper worker cannot commit a conflicting claim for the same visit in between.
+// stop is true when the caller's merge loop should not attempt another iteration for this park
+// (nothing left to merge, or a hard cap/error condition), whether or not this call itself attached
+// anything.
+func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, dueBefore time.Time, session *SweepSession, parkID string, remaining []domain.ParkConsolidationCandidate, minMergeTargets, minMergeSheds int32) (newRemaining []domain.ParkConsolidationCandidate, attached int64, stop bool, err error) {
+	plannedDate, selected := pickBestParkDriveDate(now, remaining)
+	targetIDs := distinctParkTargetIDs(remaining)
+	release, err := s.seedAndLockVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+	if err != nil {
+		return remaining, 0, true, err
+	}
+	selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+	if err != nil {
+		_ = release(ctx)
+		return remaining, 0, true, err
+	}
+	if len(selected) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
+		if overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining); overflowDate != nil {
+			if relErr := release(ctx); relErr != nil {
+				return remaining, 0, true, relErr
+			}
+			plannedDate = overflowDate
+			selected = obligationsFeasibleOnDate(*plannedDate, remaining)
+			release, err = s.seedAndLockVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+			if err != nil {
+				return remaining, 0, true, err
+			}
+			selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+			if err != nil {
+				_ = release(ctx)
+				return remaining, 0, true, err
+			}
+		}
+	}
+	defer func() {
+		if relErr := release(ctx); relErr != nil && err == nil {
+			err = relErr
+		}
+	}()
+
+	if plannedDate == nil || int32(len(selected)) < minMergeTargets || uniqueShedCount(filterRows(remaining, selected)) < int(minMergeSheds) {
+		return remaining, 0, true, nil
+	}
+	selectedRows := filterRows(remaining, selected)
+	windowStart, windowEnd := parkDriveWindow(selectedRows, selected)
+	_, n, createErr := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		ScopeType:         "park",
+		ScopeID:           parkID,
+		Session:           parkConsolidationSession(selected),
+		PlannedDate:       plannedDate,
+		WindowStart:       windowStart,
+		WindowEnd:         windowEnd,
+		Status:            "planned",
+		EstimatedTargets:  int32(len(selected)),
+		PlannedQuantity:   parkDrivePlannedQuantity(cfg, selectedRows),
+		QuantityUnit:      "dose",
+	}, selected)
+	if createErr != nil {
+		return remaining, 0, true, createErr
+	}
+	if n == 0 {
+		return remaining, 0, true, nil
+	}
+	if holdErr := s.recordParkBatchingHoldIfNeeded(ctx, tenantID, selected, selectedRows, plannedDate, dueBefore); holdErr != nil {
+		return remaining, 0, true, holdErr
+	}
+	return removeRows(remaining, selected), n, false, nil
 }
 
 func parkConsolidationCursorKey(cursor *domain.ParkConsolidationCursor) string {

@@ -61,6 +61,16 @@ func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, 
 			if batch.PlannedDate != nil && businessDate(*batch.PlannedDate).Equal(*target) {
 				continue
 			}
+			// Seed session with the persisted, cross-pass shot count for this batch's animals on
+			// the target date BEFORE checking the cap (VAX-REV-01): without this, a fresh session
+			// (a new sweep pass, or AlignComboDrives running standalone) would wrongly assume 0
+			// shots already exist on target for these animals and could align a batch onto a visit
+			// that a PRIOR pass already filled, exceeding MaxShotsPerAnimalPerDrive.
+			if maxShotsPerAnimalPerDrive > 0 {
+				if err := s.seedVisitShotCounts(ctx, tenantID, batch.TargetIDs, target, maxShotsPerAnimalPerDrive, session); err != nil {
+					return aligned, err
+				}
+			}
 			if maxShotsPerAnimalPerDrive > 0 && comboBatchExceedsShotCapAtDate(batch, *target, maxShotsPerAnimalPerDrive, session) {
 				// Aligning would push a member animal past the shot cap on the target date;
 				// leave this batch on its own already-safe planned date (overflow).

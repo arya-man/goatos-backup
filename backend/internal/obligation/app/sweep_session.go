@@ -22,6 +22,13 @@ import (
 type SweepSession struct {
 	visitShotCounts map[string]int32
 	visitClaims     map[string]shotCapClaim
+	// loaded marks every visitShotCountKey whose starting count has already been resolved once
+	// in this session -- either seeded from the persisted, cross-pass/cross-worker committed
+	// shot count (see seedResolved/SweeperService.seedAndLockVisitShots, VAX-REV-01) or, for a
+	// repo that doesn't support that seed (e.g. a pure in-memory test fake), explicitly marked
+	// resolved-at-zero so every group only pays the seed cost once per key per session, not once
+	// per group that happens to share a (date, target) visit.
+	loaded map[string]struct{}
 }
 
 // shotCapClaim records the vaccine/priority that most recently filled a visit's LAST cap slot,
@@ -37,6 +44,51 @@ func NewSweepSession() *SweepSession {
 	return &SweepSession{
 		visitShotCounts: make(map[string]int32),
 		visitClaims:     make(map[string]shotCapClaim),
+		loaded:          make(map[string]struct{}),
+	}
+}
+
+// unresolvedTargets returns the distinct, non-blank target IDs in targetIDs whose (date, target)
+// visit-shot-count key has NOT already been resolved in this session (seeded from a persisted
+// count, or explicitly marked zero -- see seedResolved), preserving first-seen order. Callers use
+// this to seed only the keys that actually need a DB round trip, so a session shared across many
+// due-obligation groups on the same visit date pays the seed cost once per key, not once per
+// group.
+func (s *SweepSession) unresolvedTargets(date time.Time, targetIDs []string) []string {
+	out := make([]string, 0, len(targetIDs))
+	seen := make(map[string]struct{}, len(targetIDs))
+	for _, targetID := range targetIDs {
+		targetID = strings.TrimSpace(targetID)
+		if targetID == "" {
+			continue
+		}
+		if _, dup := seen[targetID]; dup {
+			continue
+		}
+		seen[targetID] = struct{}{}
+		key := visitShotCountKey(date, targetID)
+		if _, ok := s.loaded[key]; ok {
+			continue
+		}
+		out = append(out, targetID)
+	}
+	return out
+}
+
+// seedResolved merges a persisted per-target shot count (already committed by a prior sweep pass
+// or a concurrent worker, read fresh from Postgres -- see SweeperService.seedAndLockVisitShots)
+// into this session's in-memory counts, for every target in targetIDs not already resolved. A
+// target with no entry in persisted is seeded at zero. Idempotent per (date, target) key: calling
+// this twice for the same key is a no-op the second time, so an already-claimed in-memory count
+// from earlier in this SAME pass is never clobbered.
+func (s *SweepSession) seedResolved(date time.Time, targetIDs []string, persisted map[string]int32) {
+	for _, targetID := range targetIDs {
+		key := visitShotCountKey(date, targetID)
+		if _, ok := s.loaded[key]; ok {
+			continue
+		}
+		s.loaded[key] = struct{}{}
+		s.visitShotCounts[key] += persisted[targetID]
 	}
 }
 
