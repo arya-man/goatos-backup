@@ -53,7 +53,7 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
         <span style={{ color: "var(--muted)", fontSize: "12px" }}>{fmtIstDate(summary.due_date)}</span>
       </div>
       <div className="prow">
-        <svg className="ring" viewBox="0 0 70 70" width="64" height="64" aria-hidden="true">
+        <svg className="dring" viewBox="0 0 70 70" width="64" height="64" aria-hidden="true">
           <circle className="rbg" cx="35" cy="35" r={ringRadius} />
           <circle
             className="rfg"

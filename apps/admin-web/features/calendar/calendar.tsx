@@ -132,11 +132,18 @@ export async function VaccinationCalendarPage({
   const targetsPage = boundedInt(one(sp, "targets_page"), 1, 1, 1000);
   const today = istToday();
   const dayFilter = one(sp, "day") || undefined;
-  const effectiveDayFilter = historyMode ? undefined : dayFilter;
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
 
   const anchorKey = asOf ? asOf.slice(0, 10) : today;
+  // Day-wise week view: the rhythm strip is the day selector. A specific day shows ONLY that
+  // day's drives (no redundant day heading — the strip already names the day). "All week"
+  // (day=all) opts into the 7-day vertical, day-separated list. Default = single day, defaulted
+  // to the anchor day's weekday (the as-of / picked date). History never defaults a day.
+  const anchorWeekday = weekdayOf(`${anchorKey}T00:00:00+05:30`);
+  const allWeek = !historyMode && dayFilter === "all";
+  const effectiveDayFilter = historyMode || allWeek ? undefined : dayFilter ?? anchorWeekday;
+  const dayForHref = allWeek ? "all" : effectiveDayFilter;
   const pickerWindow = monthWindow(anchorKey);
   const agendaWindow = weekWindow(anchorKey);
   const completedWindow = historyWindow(anchorKey);
@@ -188,7 +195,7 @@ export async function VaccinationCalendarPage({
       view: datePickerOpen ? "month" : undefined,
       owner_key: activeOwnerKey === "all" ? undefined : activeOwnerKey,
       status: requestedStatus,
-      day: effectiveDayFilter,
+      day: dayForHref,
       cursor: listCursor,
       page: listPage > 1 ? String(listPage) : undefined,
       ...overrides,
@@ -409,7 +416,8 @@ export async function VaccinationCalendarPage({
         <WeekView
           events={events}
           today={today}
-          selectedWeekAnchor={anchorKey}
+          anchorDay={anchorKey}
+          allWeek={allWeek}
           eventHref={eventHref}
           driveHref={driveHref}
           ownerKey={activeOwnerKey}
@@ -417,6 +425,7 @@ export async function VaccinationCalendarPage({
           ownerMeta={ownerMeta}
           clearOwnerHref={hrefWith({ owner_key: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           dayFilter={effectiveDayFilter}
+          allWeekHref={hrefWith({ day: "all", event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           clearDayHref={hrefWith({ day: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           rhythmDayHref={(day) =>
             hrefWith({ ...presentationQueryToSearch(day.query), event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })
@@ -452,7 +461,8 @@ export async function VaccinationCalendarPage({
 function WeekView({
   events,
   today,
-  selectedWeekAnchor,
+  anchorDay,
+  allWeek,
   eventHref,
   driveHref,
   ownerKey,
@@ -460,13 +470,15 @@ function WeekView({
   ownerMeta,
   clearOwnerHref,
   dayFilter,
+  allWeekHref,
   clearDayHref,
   rhythmDayHref,
   pageContract,
 }: {
   events: CalendarEvent[];
   today: string;
-  selectedWeekAnchor: string;
+  anchorDay: string;
+  allWeek: boolean;
   eventHref: (id: string) => string;
   driveHref: (id: string) => string;
   ownerKey: CalendarOwnerFilter;
@@ -474,12 +486,25 @@ function WeekView({
   ownerMeta: OwnerPresentationMap;
   clearOwnerHref: string;
   dayFilter?: string;
+  allWeekHref: string;
   clearDayHref: string;
   rhythmDayHref: (day: CalendarRhythmDay) => string;
   pageContract: AdminUiPageContract;
 }) {
+  // Rhythm strip is the day selector. A specific weekday shows ONLY that day's drives, with NO
+  // day heading in the body (the strip already names the day). "All week" (allWeek) opts into the
+  // 7-day, day-separated vertical list with per-day headings.
   const scoped = dayFilter ? events.filter((event) => weekdayOf(event.due_at) === dayFilter) : events;
   const sorted = [...scoped].sort((a, b) => a.due_at.localeCompare(b.due_at));
+  const selectedOwnerLabel = ownerScopeLabel(ownerKey, ownerMeta);
+  const todayWeekday = weekdayOf(`${today}T00:00:00+05:30`);
+  const weekDays = enumerateWeekDays(weekWindow(anchorDay).dateFrom);
+  // Selected-day Sunday check drives the rest-day empty copy — derived from the actual date,
+  // not a weekday string literal (which the admin-ui contract-literal guard forbids).
+  const selectedDate = dayFilter ? weekDays.find((d) => weekdayOf(`${d}T00:00:00+05:30`) === dayFilter) : undefined;
+  const selectedIsSunday = selectedDate ? new Date(`${selectedDate}T00:00:00+05:30`).getDay() === 0 : false;
+
+  // Per-day buckets — only consumed by the all-week vertical list.
   const byDate = new Map<string, CalendarEvent[]>();
   for (const event of sorted) {
     const key = dateKey(event.due_at);
@@ -487,15 +512,6 @@ function WeekView({
     bucket.push(event);
     byDate.set(key, bucket);
   }
-  const selectedOwnerLabel = ownerScopeLabel(ownerKey, ownerMeta);
-  const showFilteredEmpty = byDate.size === 0 && events.length > 0;
-  const todayWeekday = weekdayOf(`${today}T00:00:00+05:30`);
-
-  // Enumerate ALL 7 days of the week (Mon..Sun IST) from the selected week's window, not from today.
-  // This ensures the displayed columns match the date range used for the API fetch.
-  // Uses UTC date arithmetic to avoid timezone shifts that toISOString() would introduce.
-  const weekWindow_ = weekWindow(selectedWeekAnchor);
-  const weekDays = enumerateWeekDays(weekWindow_.dateFrom);
 
   return (
     <>
@@ -505,7 +521,13 @@ function WeekView({
           <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
           <h3>{presentation.week.title}</h3>
           <Tag tone={ownerKey === "all" ? "mut" : "info"}>{selectedOwnerLabel}</Tag>
-          {dayFilter ? <Tag tone="info">{dayFilter}</Tag> : null}
+          {allWeek ? (
+            <Tag tone="info">{presentation.week.all_days_selected_label}</Tag>
+          ) : (
+            <Link href={allWeekHref} replace scroll={false} className="lenslink">
+              {presentation.week.all_days_selected_label}
+            </Link>
+          )}
           <span className="sp" />
           <OwnerLegend ownerMeta={ownerMeta} />
         </div>
@@ -522,39 +544,15 @@ function WeekView({
               </Link>
             </div>
           ) : null}
-          <div className="fchipsbar calband">
-            {dayFilter ? (
-              <>
-                {copy(pageContract, "week.showing_prefix")} <b>{dayFilter}</b> {copy(pageContract, "week.only_suffix")}
-                <Link href={clearDayHref} replace scroll={false} className="lenslink">
-                  ↺ {presentation.week.clear_day_label}
-                </Link>
-              </>
-            ) : (
-              <>
-                {presentation.week.whole_period_message}
-                <span className="lenslink mutedlink" aria-disabled="true">
-                  {presentation.week.all_days_selected_label}
-                </span>
-              </>
-            )}
-          </div>
           <div className="agenda">
-            {byDate.size === 0 && showFilteredEmpty ? (
-              <p className="muted small" style={{ margin: "4px 2px" }}>
-                {presentation.week.empty_message}
-                {dayFilter ? ` ${copy(pageContract, "week.empty_day_prefix")} ${dayFilter}` : ""} {copy(pageContract, "week.empty_scope_suffix")}
-              </p>
-            ) : (
-              // Render ALL 7 days Mon..Sun, showing cards or empty state for each
+            {allWeek ? (
               weekDays.map((dayDate) => {
                 const rows = byDate.get(dateKey(dayDate)) ?? [];
                 const isSunday = new Date(`${dayDate}T00:00:00+05:30`).getDay() === 0;
-                const isEmpty = rows.length === 0;
                 return (
                   <div key={dayDate}>
                     <div className={dayDate === today ? "dh today" : "dh"}>{dateHeading(dateKey(dayDate), today, pageContract)}</div>
-                    {isEmpty ? (
+                    {rows.length === 0 ? (
                       <div className="cal-empty">
                         {copy(pageContract, isSunday ? "calendar.week.rest_day" : "calendar.week.day_empty")}
                       </div>
@@ -566,6 +564,14 @@ function WeekView({
                   </div>
                 );
               })
+            ) : sorted.length === 0 ? (
+              <div className="cal-empty">
+                {copy(pageContract, selectedIsSunday ? "calendar.week.rest_day" : "calendar.week.day_empty")}
+              </div>
+            ) : (
+              sorted.map((event) => (
+                <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} driveHref={driveHref} ownerMeta={ownerMeta} pageContract={pageContract} />
+              ))
             )}
           </div>
         </div>
