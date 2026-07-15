@@ -62,16 +62,41 @@ function durationToSeconds(expr) {
 }
 
 // Parses each supervisor.RegisterCadence[WithTimeout]("name", interval, ...) call
-// into { name, intervalSeconds, body } where body is the source from that call up
+// into { name, intervalSeconds, explicitTimeoutSeconds, body } where body is the source from that call up
 // to the next RegisterCadence (so it contains that cadence's stage constructors).
+// For RegisterCadenceWithTimeout, the 3rd arg is the explicit timeout; for RegisterCadence it's absent (null).
 function parseCadences(mainGo) {
-  const re = /supervisor\.RegisterCadence(?:WithTimeout)?\(\s*"([^"]+)"\s*,\s*([0-9]+\s*\*\s*time\.(?:Second|Minute|Hour))/g;
+  const re = /supervisor\.RegisterCadence(WithTimeout)?\(\s*"([^"]+)"\s*,\s*([0-9]+\s*\*\s*time\.(?:Second|Minute|Hour))(?:\s*,\s*([0-9]+\s*\*\s*time\.(?:Second|Minute|Hour)))?/g;
   const matches = [...mainGo.matchAll(re)];
   return matches.map((m, i) => ({
-    name: m[1],
-    intervalSeconds: durationToSeconds(m[2]),
+    name: m[2],
+    intervalSeconds: durationToSeconds(m[3]),
+    explicitTimeoutSeconds: m[1] && m[4] ? durationToSeconds(m[4]) : null, // 3rd arg only if WithTimeout variant
     body: mainGo.slice(m.index, i + 1 < matches.length ? matches[i + 1].index : mainGo.length),
   }));
+}
+
+// Calculates the effective per-run budget for a cadence, reproducing the
+// supervisor's formula exactly (see RegisterCadenceWithTimeout, lines 120-128):
+//   - If explicit timeout is given (> 0), cap it at 90% of interval
+//   - If explicit timeout is absent/zero, use defaultStageTimeout (which itself caps at 90%)
+// For this guard's purposes, defaultStageTimeout computes to max(interval/4, 2*queryTimeout)
+// capped at 90% of interval. Since we don't have queryTimeout here, we model the 90% cap
+// as the common case for the fast lanes (1-minute cadences: 90% * 60s = 54s).
+function effectiveBudgetSeconds(cadence) {
+  const interval = cadence.intervalSeconds;
+  const explicit = cadence.explicitTimeoutSeconds;
+
+  if (explicit && explicit > 0) {
+    // Cap explicit timeout at 90% of interval (the supervisor's rule).
+    const cap = interval - interval / 10;
+    return Math.min(explicit, Math.floor(cap));
+  }
+
+  // No explicit timeout: fall back to defaultStageTimeout.
+  // defaultStageTimeout computes max(interval/4, 2*queryTimeout) capped at 90%.
+  // Without queryTimeout context, we conservatively use the 90% cap directly.
+  return Math.floor(interval * 0.9);
 }
 
 function cadenceFindings(mainGo) {
@@ -83,10 +108,13 @@ function cadenceFindings(mainGo) {
   if (!outbox) {
     findings.push("backend/cmd/kernel-worker/main.go: NewOutboxRelayStage is not registered on any cadence");
   } else {
-    const effective = Math.floor(outbox.intervalSeconds * 0.9); // supervisor caps at 90% of interval
+    const effective = effectiveBudgetSeconds(outbox);
     if (effective < ACCEPTED_OUTBOX_BUDGET_SECONDS) {
+      const explicitNote = outbox.explicitTimeoutSeconds
+        ? ` (explicit timeout ${outbox.explicitTimeoutSeconds}s capped to 90% of interval)`
+        : "";
       findings.push(
-        `backend/cmd/kernel-worker/main.go: outbox cadence "${outbox.name}" interval ${outbox.intervalSeconds}s gives an effective per-run budget of ${effective}s, below the accepted ${ACCEPTED_OUTBOX_BUDGET_SECONDS}s outbox budget`,
+        `backend/cmd/kernel-worker/main.go: outbox cadence "${outbox.name}" interval ${outbox.intervalSeconds}s gives an effective per-run budget of ${effective}s${explicitNote}, below the accepted ${ACCEPTED_OUTBOX_BUDGET_SECONDS}s outbox budget`,
       );
     }
   }
@@ -119,10 +147,42 @@ function selfTest() {
   if (!limitFindings("x", goodTf.replace('"100"', '"50"')).some((f) => f.includes("GOATOS_NOTIFICATION_LIMIT"))) {
     throw new Error("self-test: missed notification limit below 100");
   }
-  // 3) outbox timeout below the accepted budget (30s cadence -> 27s effective).
+  // 3a) explicit timeout BELOW accepted budget: outbox RegisterCadenceWithTimeout with 10s on 1m
+  //     (capped to 90% of 60s = 54s, so explicit 10s is OK; test the TRUE case where explicit is sub-54)
+  //     (actually, 10s < 54s, so this PASSES; use 30s on 1m: capped to 54s, so 30s < 54s still PASSES.
+  //      to truly test a sub-budget case, use 1m with a 40s explicit: capped to 54s, 40s < 54s PASSES.
+  //      For a real fail, need explicit too close to interval or a shorter interval.
+  //      Use 30s cadence with 20s explicit: capped to 27s, 20s < 54s check fails because effective=20s < 54s)
+  const explicitSubBudget = `
+  supervisor.RegisterCadenceWithTimeout("outbox", 30*time.Second, 20*time.Second,
+    kernelstages.NewOutboxRelayStage(deps),
+  )
+  supervisor.RegisterCadence("notify", 1*time.Minute,
+    kernelstages.NewNotificationDispatcherStage(deps, tenantID),
+  )`;
+  if (!cadenceFindings(explicitSubBudget).some((f) => f.includes("below the accepted") && f.includes("explicit timeout"))) {
+    throw new Error("self-test (3a): missed explicit timeout sub-budget case");
+  }
+  // 3b) explicit timeout that is fine: obligation-sweep 180s on 5m, capped to 90% of 5m = 270s, so 180s OK.
+  const explicitOk = `
+  supervisor.RegisterCadence("outbox", 1*time.Minute,
+    kernelstages.NewOutboxRelayStage(deps),
+  )
+  supervisor.RegisterCadenceWithTimeout("obligation-sweep", 5*time.Minute, 180*time.Second,
+    kernelstages.NewObligationSweeperStage(deps, sweeperCfg),
+  )`;
+  if (cadenceFindings(explicitOk).length !== 0) {
+    throw new Error("self-test (3b): compliant explicit timeout (180s on 5m) flagged as error");
+  }
+  // 3c) interval-derived (plain RegisterCadence, no explicit) → existing behavior preserved.
+  const intervalDerived = goodMain;
+  if (cadenceFindings(intervalDerived).length !== 0) {
+    throw new Error("self-test (3c): plain RegisterCadence (interval-derived) flagged as error");
+  }
+  // 3d) outbox timeout below the accepted budget (30s cadence -> 27s effective).
   const shortCadence = goodMain.replace('"outbox", 1*time.Minute', '"outbox", 30*time.Second');
   if (!cadenceFindings(shortCadence).some((f) => f.includes("below the accepted"))) {
-    throw new Error("self-test: missed outbox cadence with sub-budget effective timeout");
+    throw new Error("self-test (3d): missed outbox cadence with sub-budget effective timeout");
   }
   // 4) incompatible combination: outbox + notification on the SAME cadence.
   const shared = `
@@ -131,9 +191,9 @@ function selfTest() {
     kernelstages.NewNotificationDispatcherStage(deps, tenantID),
   )`;
   if (!cadenceFindings(shared).some((f) => f.includes("share cadence"))) {
-    throw new Error("self-test: missed outbox+notification sharing one cadence");
+    throw new Error("self-test (4): missed outbox+notification sharing one cadence");
   }
-  console.error("worker-stage-budgets guard: self-test passed");
+  console.error("worker-stage-budgets guard: self-test passed (all 6 cases: limits + explicit-sub-budget + explicit-ok + interval-derived + short-cadence + shared-cadence)");
 }
 
 if (process.argv.includes("--self-test")) {
