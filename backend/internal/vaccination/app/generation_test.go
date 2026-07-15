@@ -597,7 +597,7 @@ func TestGenerateForVersionHonorsProcurementWarmupOffset(t *testing.T) {
 	ctx := context.Background()
 	entryDate := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
-		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_source_vaccination_allowed":true}}`),
+		ruleDSL: []byte(`{"eligibility":{"animal_stage":"adult","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"procurement_policy":{"warmup_no_vaccination_days":7,"kids_normal_schedule_until_weeks":16,"adult_prior_vaccination_allowed":true}}`),
 		rules: []protodomain.Rule{{
 			RuleID: "rule-et-ppr-wave", DoseCode: "source_warmup_wave_1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 7, DueWindowDays: 2,
 		}},
@@ -2650,5 +2650,84 @@ func TestGenerateEffectiveForAllGoatsMixedCohortNoCutoverScope(t *testing.T) {
 	}
 	if result.SuppressedByTrustedHistory < 1 {
 		t.Fatalf("result=%#v, want the already-dosed goat's exact dose suppressed by its own recorded history", result)
+	}
+}
+
+// BUG #2: test that two co-due pending vaccines (both becoming due on the same day in this pass)
+// are spaced against each other by the cross-vaccine compatibility policy, not left same-day.
+func TestGenerateForVersionSpacesCoDuePendingVaccines(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	kidDOB := asOf.AddDate(0, 0, -84) // 12 weeks old: eligible for both PPR and Goat Pox at 12w
+
+	proto := &generationProtoFake{
+		// Two rules for live vaccines that are both due at 12 weeks. Both should be live-viral, so they
+		// should be spaced LiveToLiveGapDays (28 days) apart when generated in the same pass.
+		// No prior history for either vaccine.
+		ruleDSL: []byte(`{
+			"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"},
+			"eligibility":{},
+			"compatibility_policy":{"live_to_live_gap_days":28}
+		}`),
+		rules: []protodomain.Rule{
+			{
+				RuleID: "ppr-12w", DoseCode: "ppr_kid_12w", Sequence: 1,
+				TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7,
+			},
+			{
+				RuleID: "gpox-12w", DoseCode: "gpox_kid_12w", Sequence: 2,
+				TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7,
+			},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{
+			{GoatID: "kid-goat", LifecycleStatus: "alive", DOB: &kidDOB, Stage: "K1", Species: "goat"},
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"kid-goat": {}, // no prior history
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+	gen := NewGenerationService(proto, goats, obl)
+
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if result.Generated != 2 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%#v, want both PPR and Goat Pox generated", result, obl.inserted)
+	}
+
+	// Both should be due on the same business day (12 weeks from DOB).
+	expectedDue := businessDayStart(kidDOB.AddDate(0, 0, 84))
+
+	// Find PPR and Goat Pox obligations.
+	var pprObl, gpoxObl *obldomain.NewObligation
+	for i := range obl.inserted {
+		if obl.inserted[i].RuleID == "ppr-12w" {
+			pprObl = &obl.inserted[i]
+		}
+		if obl.inserted[i].RuleID == "gpox-12w" {
+			gpoxObl = &obl.inserted[i]
+		}
+	}
+
+	if pprObl == nil || gpoxObl == nil {
+		t.Fatalf("inserted=%#v, want both PPR and Goat Pox obligations", obl.inserted)
+	}
+
+	// Both base due is the same (12 weeks from DOB).
+	if !pprObl.DueAt.Equal(expectedDue) {
+		t.Errorf("PPR due=%s, want %s", pprObl.DueAt.Format(time.RFC3339), expectedDue.Format(time.RFC3339))
+	}
+
+	// Goat Pox should be floored out by LiveToLiveGapDays (28 days) after PPR.
+	// Since PPR has sequence 1 (processed first) and Goat Pox has sequence 2 (processed second),
+	// Goat Pox should be floored to PPR's due + 28 days.
+	expectedGpoxDue := businessDayStart(expectedDue).AddDate(0, 0, 28)
+	if !gpoxObl.DueAt.Equal(expectedGpoxDue) {
+		t.Errorf("Goat Pox due=%s, want %s (should be floored 28 days after PPR)",
+			gpoxObl.DueAt.Format(time.RFC3339), expectedGpoxDue.Format(time.RFC3339))
 	}
 }

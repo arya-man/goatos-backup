@@ -122,20 +122,37 @@ func isKilledClass(c vaccineImmunoClass) bool {
 }
 
 // crossVaccineGapDays returns the minimum whole-day wait after a prior vaccine before scheduling
-// another vaccine product. Same-day allowed pairs (bacterial+viral, live viral+killed viral) return 0.
+// another vaccine product. Same-day allowed pairs (bacterial+viral, live viral+killed viral) return 0
+// only when their corresponding policy switch is true. Unknown vaccine classes fail-closed by returning
+// the strictest configured gap (LiveToLiveGapDays); unknown classifications should have been rejected
+// upstream during configuration/publishing (no vaccine with unknown type/pathogen_class should be scheduled).
 func crossVaccineGapDays(prior, next vaccineImmunoClass, policy genCompatibilityPolicy) int32 {
 	policy = policy.withDefaults()
+	// BUG #4: unknown immunoclass fails-closed (returns strictest gap, not 0).
+	// Unknown is not a valid classification and must never be persisted or scheduled — it represents
+	// a data integrity error at the protocol/seed layer. We do not silently allow same-day but instead
+	// return the strictest gap to fail-closed. If this path executes, a defect exists upstream.
 	if prior == immunoUnknown || next == immunoUnknown {
-		return 0
+		return policy.LiveToLiveGapDays // strictest default gap
 	}
+	// BUG #3: respect the policy switches for same-day allowed pairs.
 	if prior == immunoKilledBacterial && (next == immunoLiveViral || next == immunoKilledViral) {
-		return 0
+		if policy.BacterialViralSameDayAllowed {
+			return 0
+		}
+		// bacterial + viral not allowed same-day: fall through to class-based gap.
 	}
 	if next == immunoKilledBacterial && (prior == immunoLiveViral || prior == immunoKilledViral) {
-		return 0
+		if policy.BacterialViralSameDayAllowed {
+			return 0
+		}
+		// viral + bacterial not allowed same-day: fall through to class-based gap.
 	}
 	if (prior == immunoLiveViral && next == immunoKilledViral) || (prior == immunoKilledViral && next == immunoLiveViral) {
-		return 0
+		if policy.LiveKilledViralSameDayAllowed {
+			return 0
+		}
+		// live viral + killed viral not allowed same-day: fall through to class-based gap.
 	}
 	if isLiveClass(prior) && isLiveClass(next) {
 		return policy.LiveToLiveGapDays

@@ -28,11 +28,11 @@ type genCompatibilityPolicy struct {
 type genProcurementPolicy struct {
 	WarmupNoVaccinationDays       int32 `json:"warmup_no_vaccination_days"`
 	KidsNormalScheduleUntilWeeks  int32 `json:"kids_normal_schedule_until_weeks"`
-	AdultSourceVaccinationAllowed bool  `json:"adult_source_vaccination_allowed"`
+	AdultPriorVaccinationAllowed  bool  `json:"adult_prior_vaccination_allowed"`
 }
 
 func (p genProcurementPolicy) active() bool {
-	return p.WarmupNoVaccinationDays > 0 || p.KidsNormalScheduleUntilWeeks > 0 || p.AdultSourceVaccinationAllowed
+	return p.WarmupNoVaccinationDays > 0 || p.KidsNormalScheduleUntilWeeks > 0 || p.AdultPriorVaccinationAllowed
 }
 
 type genPregnancyPolicy struct {
