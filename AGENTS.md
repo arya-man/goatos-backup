@@ -709,9 +709,20 @@ Do:
   unvalidated, or unwired). See `docs/runbooks/local-release-evidence.md` →
   "Exact-SHA Local-CI Push Gate (Main)" and `docs/runbooks/local-ci.md` →
   "Guardrail registration and exact-SHA push evidence" for the full flow. Do not
-  bypass the hook with `--no-verify`: if the receipt is stale or the build broke,
-  re-run `make ci-local` to generate a fresh receipt, then push normally. Install
-  the hook via `make ai-setup` or `make stg-promotion-guard-install`.
+  bypass the hook with `--no-verify`.
+- **Mandatory automatic main landing (Codex and Claude)**: When the requested
+  outcome includes pushing to `main`, run **`make land-main`** instead of composing
+  `git fetch` / `git rebase` / `make ci-local` / `git mesha-push` by hand. The
+  target refuses a dirty worktree, fetches fresh `origin/main`, rebases the
+  candidate before CI, runs the complete affected-component `make ci-local`,
+  fetches main again, and reruns rebase + CI if main moved before pushing the
+  exact certified SHA. Agent hooks block direct agent-issued pushes to `main`,
+  and the Git pre-push hook independently rejects a candidate that does not
+  contain the current remote-main SHA. Do not auto-rebase at session start:
+  sessions may open on dirty/shared worktrees with other agents' changes. Commit
+  only the scoped work and use a clean isolated worktree for landing. Standalone
+  `make ci-local` remains valid for development/hosted CI; `make land-main` is
+  the release path that mutates history and pushes.
 - Treat Goat OS time semantics as India-business-calendar semantics. Physical
   storage may use `timestamptz`/absolute instants, but every business meaning
   derived from those instants — scheduling, due/missed buckets, reminder keys,

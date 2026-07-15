@@ -12,9 +12,11 @@
 //   which writes a SHA-bound receipt to the worktree git dir (never committed).
 //   The installed pre-push hook calls
 //     node tools/ci/check-local-ci-evidence.mjs --pre-push   (git push payload on stdin)
-//   which blocks any update to refs/heads/main whose local SHA has no matching green receipt.
+//   which blocks any update to refs/heads/main whose local SHA is not based on the
+//   current remote main or has no matching green receipt. Claude/Codex agent hooks
+//   also block direct main-push commands and route agents through `make land-main`.
 //
-// Modes: --record <sha> | --verify | --pre-push | --self-test
+// Modes: --record <sha> | --verify | --pre-push | --agent-hook | --self-test
 // Deterministic, offline. No network.
 
 import { execFileSync } from "node:child_process";
@@ -52,6 +54,70 @@ function currentRulesHash() {
   return createHash("sha256").update(readFileSync("tools/ci/component-paths.json")).digest("hex");
 }
 
+function computeMainFreshness({ localSha, remoteSha }) {
+  if (!remoteSha || remoteSha === ZERO_SHA) return { ok: true };
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", remoteSha, localSha], { stdio: "ignore" });
+    return { ok: true };
+  } catch {
+    return {
+      ok: false,
+      reason: `candidate ${localSha.slice(0, 12)} is not based on current remote main ${remoteSha.slice(0, 12)}; run \`make land-main\``,
+    };
+  }
+}
+
+function unquote(token) {
+  return token.replace(/^["']+|["',)]+$/g, "");
+}
+
+function isMainDestination(token) {
+  const value = unquote(token);
+  return (
+    value === "main" ||
+    value === MAIN_REF ||
+    value.endsWith(":main") ||
+    value.endsWith(`:${MAIN_REF}`)
+  );
+}
+
+export function commandAttemptsDirectMainPush(command) {
+  if (typeof command !== "string" || !command.trim()) return false;
+  const matcher =
+    /\bgit(?:\s+(?:-c|-C)\s+\S+|\s+--(?:git-dir|work-tree|namespace)(?:=\S+|\s+\S+)|\s+--(?:bare|no-pager|literal-pathspecs|glob-pathspecs|noglob-pathspecs|icase-pathspecs))*\s+(mesha-push|push)\b([^;&|\n]*)/g;
+  for (const match of command.matchAll(matcher)) {
+    const verb = match[1];
+    const args = match[2].trim().split(/\s+/).filter(Boolean);
+    if (args.some(isMainDestination)) return true;
+    if (verb === "mesha-push" && args.length === 0) return true; // alias defaults to main
+    if (verb === "push") {
+      const positional = args.filter((arg) => !arg.startsWith("-"));
+      if (positional.length < 2) return true; // implicit current/upstream ref may be main
+    }
+  }
+  return false;
+}
+
+function commandFromHookPayload(raw) {
+  let payload;
+  try {
+    payload = JSON.parse(raw || "{}");
+  } catch {
+    return raw || "";
+  }
+  const input = payload?.tool_input ?? payload?.input ?? payload?.arguments ?? {};
+  if (typeof input === "string") return input;
+  if (input && typeof input === "object") {
+    const command = input.command ?? input.cmd ?? input.argv ?? input.source;
+    if (Array.isArray(command)) return command.join(" ");
+    if (typeof command === "string") return command;
+  }
+  const command = payload?.command ?? payload?.cmd ?? payload?.argv;
+  if (Array.isArray(command)) return command.join(" ");
+  if (typeof command === "string") return command;
+  return raw || "";
+}
+
 function computeScopedCoverage({ localSha, remoteSha, receipt }) {
   try {
     if (!receipt.base || receipt.base !== remoteSha) {
@@ -79,7 +145,12 @@ function computeScopedCoverage({ localSha, remoteSha, receipt }) {
 
 // Pure: given the git push payload lines and the current receipt, decide whether the push is
 // blocked. Only pushes that UPDATE refs/heads/main are gated; deletes and other refs pass.
-export function evaluatePush({ pushLines, receipt, scopedCoverage = () => ({ ok: false, reason: "scoped coverage was not revalidated" }) }) {
+export function evaluatePush({
+  pushLines,
+  receipt,
+  scopedCoverage = () => ({ ok: false, reason: "scoped coverage was not revalidated" }),
+  mainFreshness = () => ({ ok: true }),
+}) {
   const reasons = [];
   for (const raw of pushLines) {
     const line = raw.trim();
@@ -87,8 +158,10 @@ export function evaluatePush({ pushLines, receipt, scopedCoverage = () => ({ ok:
     const [localRef, localSha, remoteRef, remoteSha] = line.split(/\s+/);
     if (remoteRef !== MAIN_REF) continue; // only gate main
     if (localSha === ZERO_SHA) continue; // branch delete — not a content push
+    const freshness = mainFreshness({ localSha, remoteSha });
+    if (!freshness.ok) reasons.push(freshness.reason);
     if (!receipt) {
-      reasons.push(`no local-CI receipt found; run \`make ci-local\` on ${localSha.slice(0, 12)} before pushing main`);
+      reasons.push(`no local-CI receipt found for ${localSha.slice(0, 12)}; run \`make land-main\``);
       continue;
     }
     if (receipt.result !== "green") {
@@ -167,14 +240,23 @@ function prePush() {
     pushLines: payload.split("\n"),
     receipt: readReceipt(),
     scopedCoverage: computeScopedCoverage,
+    mainFreshness: computeMainFreshness,
   });
   if (blocked) {
-    console.error("╔══ push to main BLOCKED — missing exact-SHA local-CI evidence ══╗");
+    console.error("╔══ push to main BLOCKED — use the fresh-main landing gate ══╗");
     for (const r of reasons) console.error(`  ✗ ${r}`);
-    console.error("  Run:  make ci-local   (complete affected-component green on the exact commit) then push again.");
+    console.error("  Run:  make land-main   (fetch + rebase + exact-SHA CI + guarded push).");
     console.error("╚════════════════════════════════════════════════════════════════╝");
     process.exit(1);
   }
+}
+
+function agentHook() {
+  const command = commandFromHookPayload(readFileSync(0, "utf8"));
+  if (!commandAttemptsDirectMainPush(command)) return;
+  console.error("GOATOS MAIN LANDING BLOCKED FOR AGENT");
+  console.error("Codex and Claude must run `make land-main`; it refreshes and rebases origin/main before CI, reruns CI if main moves, then pushes the exact green SHA.");
+  process.exit(2);
 }
 
 function selfTest() {
@@ -185,6 +267,10 @@ function selfTest() {
 
   // matching green full receipt -> allowed
   if (evaluatePush({ pushLines: mainPush, receipt: green }).blocked) throw new Error("self-test: matching receipt should allow");
+  // a full receipt never authorizes a stale/non-rebased candidate
+  if (!evaluatePush({ pushLines: mainPush, receipt: green, mainFreshness: () => ({ ok: false, reason: "stale main" }) }).blocked) {
+    throw new Error("self-test: stale main should block even with a full receipt");
+  }
   // no receipt -> blocked
   if (!evaluatePush({ pushLines: mainPush, receipt: null }).blocked) throw new Error("self-test: missing receipt should block");
   // explicit partial run -> blocked
@@ -202,6 +288,29 @@ function selfTest() {
   // deleting main (zero local sha) -> allowed
   if (evaluatePush({ pushLines: [`(delete) ${ZERO_SHA} ${MAIN_REF} ${other}`], receipt: null }).blocked) throw new Error("self-test: main delete should not be gated");
 
+  for (const command of [
+    "git mesha-push main",
+    "git mesha-push HEAD:main",
+    "zsh -ic 'git mesha-push HEAD:refs/heads/main'",
+    "git push origin main",
+    "git push origin HEAD:main",
+    "git push --force origin HEAD:refs/heads/main",
+    "git push --delete origin main",
+    "git push",
+    "git push origin",
+  ]) {
+    if (!commandAttemptsDirectMainPush(command)) throw new Error(`self-test: direct main push escaped agent gate: ${command}`);
+  }
+  for (const command of [
+    "make land-main",
+    "bash tools/ci/land-main.sh",
+    "git fetch origin main",
+    "git push origin feature/example",
+    "git mesha-push feature/example",
+  ]) {
+    if (commandAttemptsDirectMainPush(command)) throw new Error(`self-test: safe command was blocked: ${command}`);
+  }
+
   console.log("local-ci-evidence guard: self-test passed");
 }
 
@@ -214,7 +323,8 @@ else if (args.includes("--record")) record(argValue(args, "--record"), {
 });
 else if (args.includes("--verify")) verify();
 else if (args.includes("--pre-push")) prePush();
+else if (args.includes("--agent-hook")) agentHook();
 else {
-  console.error("usage: check-local-ci-evidence.mjs --record <sha> [--mode all|scoped --base <sha> --jobs <csv>] | --verify | --pre-push | --self-test");
+  console.error("usage: check-local-ci-evidence.mjs --record <sha> [--mode all|scoped --base <sha> --jobs <csv>] | --verify | --pre-push | --agent-hook | --self-test");
   process.exit(2);
 }

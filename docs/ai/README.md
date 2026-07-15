@@ -49,6 +49,11 @@ stack before doing the actual work:
   `HEAD:stg`, `main:stg`, local `stg`, deletions, and forced updates. Human and
   agent pushes are both covered. The only staging promotion path is a merged
   same-repository `main -> stg` pull request in GitHub.
+- Codex and Claude hook configs reject direct agent-issued pushes to `main` and
+  route the landing through `make land-main`. That target performs fresh-main
+  fetch + rebase before local CI and retries the sequence if main moves. This is
+  intentionally a landing command, not a session-start hook: an arbitrary
+  session may be attached to a dirty/shared worktree that must not be rewritten.
 
 Run from the repository root:
 
@@ -67,8 +72,10 @@ make ai-doctor
   - **Direct staging-promotion block**: prevents pushes to remote `stg`; only GitHub
     merging a `main → stg` PR is authorized.
   - **Exact-SHA local-CI main push gate**: only a full green `make ci-local` on the
-    exact commit SHA authorizes a `main` push; enforced via a machine-local receipt
-    in the worktree git directory. See
+    exact commit SHA that contains current remote main authorizes a `main` push;
+    enforced via a machine-local receipt in the worktree git directory. Agents
+    use `make land-main` so fetch, rebase, CI, refetch, and push happen in the
+    enforced order. See
     `docs/runbooks/local-release-evidence.md` for the full flow.
 
 `ai-rebuild` creates local generated artifacts:

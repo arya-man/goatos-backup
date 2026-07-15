@@ -180,6 +180,14 @@ one product; this skill is the navigation layer.
   `stg-pr-gate`, and merge it in GitHub. Manual workflow dispatch is only a
   rerun of the exact current `stg` SHA already produced by such a merge. Never
   use `--no-verify` to bypass the installed pre-push guard.
+- **Land main through `make land-main` (Codex and Claude).** Do not issue a
+  direct `git push` / `git mesha-push` to `main`, and do not run CI before
+  refreshing main during a landing. The target requires a clean worktree,
+  fetches and rebases onto fresh `origin/main`, runs complete affected-component
+  `make ci-local`, refetches main, retries rebase + CI if main moved, then pushes
+  and verifies the exact green SHA. Use a clean isolated worktree when the
+  development checkout is dirty or shared; never auto-rebase unrelated local
+  changes merely because an agent session started.
 - For any consolidated-ledger fix, read
   `context/repo-audits/last-35-commits-consolidated-bug-ledger.md` and obey
   `context/repo-audits/consolidated-ledger-defect-closure-program.md`. Work one

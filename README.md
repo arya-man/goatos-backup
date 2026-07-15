@@ -312,23 +312,28 @@ be logged in (a machine may also carry unrelated org accounts).
    ```
 
 3. Add the `mesha-push` git alias once (injects the token at push time and
-   updates the `origin/main` tracking ref):
+   accepts the explicit refspec used by `make land-main`):
 
    ```bash
    git config --global alias.mesha-push '!f() { \
      url="https://x-access-token:${MESHA_GITHUB_PAT}@github.com/vgoats/goatos.git"; \
-     git push "$url" "${1:-main}" && \
-     git fetch "$url" "${1:-main}:refs/remotes/origin/${1:-main}"; }; f'
+     git push "$url" "${1:-HEAD:main}"; }; f'
    ```
 
-4. Push:
+4. Land a committed change on fresh `main` (the required Codex/Claude path):
 
    ```bash
-   git mesha-push main
+   make land-main
    ```
 
+   This single command fetches and rebases onto current `origin/main`, runs
+   `make ci-local` on the rebased SHA, checks main again, and only then invokes
+   the `mesha-push` credential path. It refuses dirty worktrees; use a clean
+   isolated worktree when other work is in progress.
+
 If `MESHA_GITHUB_PAT` is unset the alias fails fast. The plain `origin` URL will
-404/401 without the token — that is expected; use `git mesha-push`.
+404/401 without the token — that is expected. `make land-main` calls the
+`git mesha-push HEAD:main` alias after the rebase and CI gates pass.
 
 ## Local Development Storage
 
