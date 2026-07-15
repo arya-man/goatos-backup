@@ -1517,6 +1517,138 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 	return out, nil
 }
 
+// ListUnbatchedDueForVersionKeyset pages through the same unbatched-due rows as
+// ListUnbatchedDueForVersion, but keysets on obligation_id (globally unique, stable) instead of
+// relying on rows becoming batched, so a read-only caller (the tie preflight) can drain every page
+// without any write. after == nil starts from the beginning; rows are returned ordered by
+// obligation_id. Callers re-sort into the canonical sweep order in Go.
+func (r *Repository) ListUnbatchedDueForVersionKeyset(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32) ([]domain.UnbatchedDue, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	version, err := pgconv.UUID(versionID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: version id: %w", err)
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	// Same membership/eligibility predicate and projected columns as the sqlc
+	// ListUnbatchedDueForVersion query, but keyset-ordered by obligation_id so a write-free caller
+	// can page it exhaustively (that query's own "cursor" is rows becoming batched, which a
+	// read-only preflight never triggers).
+	args := []interface{}{tenant, version, pgconv.Timestamptz(dueBefore)}
+	afterClause := ""
+	if after != nil && after.ObligationID != "" {
+		afterID, err := pgconv.UUID(after.ObligationID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: cursor obligation id: %w", err)
+		}
+		afterClause = " AND oi.obligation_id > $5"
+		args = append(args, afterID)
+	}
+	args = append(args, limit)
+	limitPos := len(args)
+	query := fmt.Sprintf(`
+-- projection-review: membership=unbatched scheduled/due/missed obligations for one version within the window (batch_id IS NULL), same eligibility filter as ListUnbatchedDueForVersion; group_key=obligation_id (one row per obligation); join_cardinality=LEFT JOINs to goats/location/shed/stage are 1:1 lookups, no fan-out; pagination=keyset over obligation_id (oi.obligation_id > cursor) so a read-only preflight drains every page without rows becoming batched; scope=obligation scope_type/scope_id
+SELECT oi.obligation_id::text AS obligation_id,
+       oi.rule_id::text AS rule_id,
+       oi.scope_type,
+       COALESCE(oi.scope_id::text, '')::text AS scope_id,
+       COALESCE(oi.target_id::text, '')::text AS target_id,
+       CASE
+         WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text
+         ELSE ''
+       END AS target_species,
+       CASE
+         WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text
+         ELSE ''
+       END AS target_animal_stage,
+       CASE
+         WHEN oi.target_type = 'goat' THEN COALESCE(g.reproductive_status, '')::text
+         ELSE ''
+       END AS target_reproductive_status,
+       oi.due_at,
+       oi.window_start,
+       oi.window_end,
+       COALESCE(oi.batching_hold_count, 0)::int AS batching_hold_count,
+       oi.first_batching_hold_until
+FROM obligation_instances oi
+LEFT JOIN goats g
+  ON g.tenant_id = oi.tenant_id
+ AND g.goat_id = oi.target_id
+ AND oi.target_type = 'goat'
+LEFT JOIN location_operational_attributes loa
+  ON loa.tenant_id = g.tenant_id
+ AND loa.location_id = g.current_location_id
+LEFT JOIN shed_profiles sp
+  ON sp.tenant_id = g.tenant_id
+ AND sp.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+LEFT JOIN animal_stage_lookup asl
+  ON asl.tenant_id = sp.tenant_id
+ AND asl.animal_stage_id = sp.animal_stage_id
+ AND asl.status = 'active'
+WHERE oi.tenant_id = $1
+  AND oi.protocol_version_id = $2
+  AND oi.status IN ('scheduled', 'due', 'missed')
+  AND oi.batch_id IS NULL
+  AND oi.due_at <= $3%s
+  AND (
+    oi.target_type <> 'goat'
+    OR (
+      g.goat_id IS NOT NULL
+      AND g.lifecycle_status = 'alive'
+      AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      AND COALESCE(loa.usable_for_vaccination, true)
+      AND NOT COALESCE(loa.is_quarantine, false)
+      AND NOT COALESCE(loa.is_icu, false)
+    )
+  )
+ORDER BY oi.obligation_id
+LIMIT $%d`, afterClause, limitPos)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list unbatched due keyset: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.UnbatchedDue, 0)
+	for rows.Next() {
+		var row domain.UnbatchedDue
+		var windowStart, windowEnd, firstHold pgtype.Timestamptz
+		var dueAt pgtype.Timestamptz
+		if err := rows.Scan(
+			&row.ObligationID,
+			&row.RuleID,
+			&row.ScopeType,
+			&row.ScopeID,
+			&row.TargetID,
+			&row.TargetSpecies,
+			&row.TargetAnimalStage,
+			&row.TargetReproductiveStatus,
+			&dueAt,
+			&windowStart,
+			&windowEnd,
+			&row.BatchingHoldCount,
+			&firstHold,
+		); err != nil {
+			return nil, fmt.Errorf("obligation: scan unbatched due keyset: %w", err)
+		}
+		row.DueAt = dueAt.Time
+		row.WindowStart = timestamptzValue(windowStart)
+		row.WindowEnd = timestamptzValue(windowEnd)
+		row.FirstBatchingHoldUntil = timestamptzValue(firstHold)
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: list unbatched due keyset: %w", err)
+	}
+	return out, nil
+}
+
 // ListUnbatchedShedDueForParkConsolidation lists shed-scoped unbatched obligations with their park
 // parent location for the second-pass park drive planner.
 func (r *Repository) ListUnbatchedShedDueForParkConsolidation(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor) ([]domain.ParkConsolidationCandidate, error) {

@@ -38,84 +38,49 @@ func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, 
 	session = sessionOrNew(session)
 	aligned := 0
 	window := time.Duration(alignWindowDays) * 24 * time.Hour
-	// Keyset pagination: track the last-seen (scope_type, scope_id, session, planned_date, batch_id)
-	// to avoid re-processing batches across pages. Groups are ordered by (scope_type, scope_id, session),
-	// so a group never spans a page boundary and is always processed as a whole.
+	// Keyset pagination ordered by (scope_type, scope_id, session, planned_date, batch_id), so a
+	// group's rows are contiguous in the stream. But a single group can still STRADDLE a page
+	// boundary (a group of 5 batches over pages of 2), so we cannot rebuild groups per-page and
+	// process them there -- that fragments the straddling group and aligns each page-fragment to
+	// its own local target date instead of the group's single true target. Instead we carry the
+	// last (tail) group across pages and only process a group once we have seen a row with a
+	// DIFFERENT group key (proving the group is complete) or reached EOF.
 	var after *domain.ComboBatchCursor
-	for pages := 0; pages < 10000; pages++ {
+	var pending []domain.ComboDriveBatch // accumulated rows of the group currently being read
+	var pendingKey comboGroupKey
+	havePending := false
+	for pages := 0; pages < maxComboAlignPagesPerRun; pages++ {
 		rows, err := aligner.ListPlannedComboBatchesKeyset(ctx, tenantID, dueBefore, after, s.page)
 		if err != nil {
 			return aligned, err
 		}
 		if len(rows) == 0 {
-			return aligned, nil
+			break
 		}
 
-		type groupKey struct {
-			scopeType string
-			scopeID   string
-			session   string
-		}
-		groups := make(map[groupKey][]domain.ComboDriveBatch)
 		for _, row := range rows {
 			if !strings.HasPrefix(row.Session, "combo:") {
 				continue
 			}
-			key := groupKey{scopeType: row.ScopeType, scopeID: row.ScopeID, session: row.Session}
-			groups[key] = append(groups[key], row)
-		}
-
-		for _, batches := range groups {
-			if len(batches) < 2 {
-				continue
-			}
-			target := pickComboAlignDate(batches, dueBefore, window)
-			if target == nil {
-				continue
-			}
-			for _, batch := range batches {
-				if batch.PlannedDate != nil && businessDate(*batch.PlannedDate).Equal(*target) {
-					continue
-				}
-				// Lock this batch's animals on the target date and refresh their persisted shot count
-				// BEFORE the cap check, and HOLD the lock across UpdateBatchPlannedDate (RV-02): the old
-				// read-only seed released immediately, leaving a read-then-write window in which a
-				// concurrent worker (or an earlier-aligned batch that this session did not re-lock) could
-				// fill the remaining slot, after which this align would push a member animal past
-				// MaxShotsPerAnimalPerDrive. lockAndRefreshVisitShots also seeds a fresh session correctly
-				// (a new sweep pass, or AlignComboDrives running standalone) instead of assuming 0 shots
-				// already exist on the target date.
-				release := noopRelease
-				if maxShotsPerAnimalPerDrive > 0 {
-					rel, err := s.lockAndRefreshVisitShots(ctx, tenantID, batch.TargetIDs, target, maxShotsPerAnimalPerDrive, session)
-					if err != nil {
-						return aligned, err
-					}
-					release = rel
-				}
-				if maxShotsPerAnimalPerDrive > 0 && comboBatchExceedsShotCapAtDate(batch, *target, maxShotsPerAnimalPerDrive, session) {
-					// Aligning would push a member animal past the shot cap on the target date;
-					// leave this batch on its own already-safe planned date (overflow).
-					if err := release(ctx); err != nil {
-						return aligned, err
-					}
-					continue
-				}
-				if err := aligner.UpdateBatchPlannedDate(ctx, tenantID, batch.BatchID, *target); err != nil {
-					_ = release(ctx)
+			key := comboGroupKey{scopeType: row.ScopeType, scopeID: row.ScopeID, session: row.Session}
+			if havePending && key != pendingKey {
+				// The previous group is now fully read (this row belongs to a different group):
+				// flush it. The flush is synchronous, so reusing pending's backing array after it
+				// returns is safe.
+				n, err := s.alignComboGroup(ctx, tenantID, aligner, pending, dueBefore, window, maxShotsPerAnimalPerDrive, session)
+				if err != nil {
 					return aligned, err
 				}
-				session.claimComboBatchTargets(batch.TargetIDs, *target)
-				aligned++
-				if err := release(ctx); err != nil {
-					return aligned, err
-				}
+				aligned += n
+				pending = pending[:0]
 			}
+			pending = append(pending, row)
+			pendingKey = key
+			havePending = true
 		}
 
-		// Move to the next page using the last row's keyset cursor.
 		if int32(len(rows)) < s.page {
-			return aligned, nil
+			break
 		}
 		last := rows[len(rows)-1]
 		after = &domain.ComboBatchCursor{
@@ -125,8 +90,84 @@ func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, 
 			PlannedDate: last.PlannedDate,
 			BatchID:     last.BatchID,
 		}
+		if pages == maxComboAlignPagesPerRun-1 {
+			return aligned, fmt.Errorf("obligation: combo batch alignment exceeded %d pages without draining", maxComboAlignPagesPerRun)
+		}
 	}
-	return aligned, fmt.Errorf("obligation: combo batch alignment exceeded 10000 pages without draining")
+	// Flush the final group accumulated at EOF.
+	if havePending && len(pending) > 0 {
+		n, err := s.alignComboGroup(ctx, tenantID, aligner, pending, dueBefore, window, maxShotsPerAnimalPerDrive, session)
+		if err != nil {
+			return aligned, err
+		}
+		aligned += n
+	}
+	return aligned, nil
+}
+
+// maxComboAlignPagesPerRun bounds the keyset pagination in AlignComboDrives so a repo bug that
+// fails to advance the cursor cannot loop forever.
+const maxComboAlignPagesPerRun = 10000
+
+// comboGroupKey identifies one combo-alignment group: batches sharing a scope and combo session
+// are aligned onto a single shared drive date.
+type comboGroupKey struct {
+	scopeType string
+	scopeID   string
+	session   string
+}
+
+// alignComboGroup aligns one complete combo group (all its batches, possibly gathered across
+// several pagination pages) onto a single shared target date, honoring the per-animal shot cap.
+// Returns the number of batches actually moved.
+func (s *SweeperService) alignComboGroup(ctx context.Context, tenantID string, aligner ComboDriveAligner, batches []domain.ComboDriveBatch, dueBefore time.Time, window time.Duration, maxShotsPerAnimalPerDrive int32, session *SweepSession) (int, error) {
+	if len(batches) < 2 {
+		return 0, nil
+	}
+	target := pickComboAlignDate(batches, dueBefore, window)
+	if target == nil {
+		return 0, nil
+	}
+	aligned := 0
+	for _, batch := range batches {
+		if batch.PlannedDate != nil && businessDate(*batch.PlannedDate).Equal(*target) {
+			continue
+		}
+		// Lock this batch's animals on the target date and refresh their persisted shot count
+		// BEFORE the cap check, and HOLD the lock across UpdateBatchPlannedDate (RV-02): the old
+		// read-only seed released immediately, leaving a read-then-write window in which a
+		// concurrent worker (or an earlier-aligned batch that this session did not re-lock) could
+		// fill the remaining slot, after which this align would push a member animal past
+		// MaxShotsPerAnimalPerDrive. lockAndRefreshVisitShots also seeds a fresh session correctly
+		// (a new sweep pass, or AlignComboDrives running standalone) instead of assuming 0 shots
+		// already exist on the target date.
+		release := noopRelease
+		if maxShotsPerAnimalPerDrive > 0 {
+			rel, err := s.lockAndRefreshVisitShots(ctx, tenantID, batch.TargetIDs, target, maxShotsPerAnimalPerDrive, session)
+			if err != nil {
+				return aligned, err
+			}
+			release = rel
+		}
+		if maxShotsPerAnimalPerDrive > 0 && comboBatchExceedsShotCapAtDate(batch, *target, maxShotsPerAnimalPerDrive, session) {
+			// Aligning would push a member animal past the shot cap on the target date;
+			// leave this batch on its own already-safe planned date (overflow).
+			if err := release(ctx); err != nil {
+				return aligned, err
+			}
+			continue
+		}
+		if err := aligner.UpdateBatchPlannedDate(ctx, tenantID, batch.BatchID, *target); err != nil {
+			_ = release(ctx)
+			return aligned, err
+		}
+		session.claimComboBatchTargets(batch.TargetIDs, *target)
+		aligned++
+		if err := release(ctx); err != nil {
+			return aligned, err
+		}
+	}
+	return aligned, nil
 }
 
 // comboBatchExceedsShotCapAtDate reports whether moving batch onto target would push any of its

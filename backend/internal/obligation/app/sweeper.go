@@ -159,8 +159,16 @@ func (s *SweeperService) SweepVersionWithSessionNoFinalize(ctx context.Context, 
 
 func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, finalizeTasks bool) (domain.SweepResult, error) {
 	var res domain.SweepResult
-	if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
-		return res, err
+	// BUG #6/combo-align: in no-finalize mode the caller runs AlignComboDrives after this sweep,
+	// and the combo-alignment query only lists batches that are still task-unlinked AND
+	// stock-unreserved. Finalizing at the start of the sweep would task-link any pre-existing
+	// (crash/replay) combo batches, filtering them OUT of alignment forever. So the start-of-sweep
+	// finalize (which drains batches left planned by a crashed prior run) runs ONLY in the
+	// finalize path; the no-finalize path defers ALL finalization to FinalizePlannedBatchesAfterAlignment.
+	if finalizeTasks {
+		if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
+			return res, err
+		}
 	}
 	if err := s.deferBlockedSweepCandidates(ctx, tenantID, versionID, dueBefore); err != nil {
 		return res, err
@@ -217,14 +225,15 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	res.Batches += fallbackRes.Batches
 	res.Obligations += fallbackRes.Obligations
 
-	// BUG #6: when finalizeTasks is false (kernel stage), defer SOP-task finalization to after
-	// AlignComboDrives runs. Stock is still finalized here.
+	// BUG #6/combo-align: when finalizeTasks is false (kernel stage), defer ALL finalization --
+	// stock AND SOP tasks -- to FinalizePlannedBatchesAfterAlignment, which the caller invokes
+	// AFTER AlignComboDrives has moved combo batches onto their shared date. Reserving stock here
+	// (before alignment) would set the stock_reservation context on combo batches, filtering them
+	// OUT of the combo-alignment query (which requires no stock_reservation), so they would never
+	// be aligned. The normal SweepVersion/SweepVersionWithSession path (finalizeTasks=true) has no
+	// alignment step after it, so it finalizes stock+tasks here exactly as before.
 	if finalizeTasks {
 		if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
-			return res, err
-		}
-	} else {
-		if err := s.finalizePlannedBatchStockOnly(ctx, tenantID, versionID, cfg); err != nil {
 			return res, err
 		}
 	}
@@ -520,58 +529,16 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 	return fmt.Errorf("obligation: planned batch finalization exceeded %d pages without draining", maxPlannedFinalizationPagesPerSweep)
 }
 
-// finalizePlannedBatchStockOnly finalizes stock reservations for all planned batches in a version.
-// Used to defer SOP-task finalization until after AlignComboDrives has run (BUG #6 fix).
-func (s *SweeperService) finalizePlannedBatchStockOnly(ctx context.Context, tenantID, versionID string, cfg SweepConfig) error {
-	if s.reserver == nil || !cfg.needsStock() {
-		return nil
-	}
-	var after *domain.PlannedBatchFinalizationCursor
-	for pages := 0; pages < maxPlannedFinalizationPagesPerSweep; pages++ {
-		batches, err := s.repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, false, true, after, s.page)
-		if err != nil {
-			return err
-		}
-		if len(batches) == 0 {
-			return nil
-		}
-		if err := s.finalizePlannedBatchStock(ctx, tenantID, batches, cfg); err != nil {
-			return err
-		}
-		if int32(len(batches)) < s.page {
-			return nil
-		}
-		last := batches[len(batches)-1]
-		after = &domain.PlannedBatchFinalizationCursor{CreatedAt: last.CreatedAt, BatchID: last.BatchID}
-	}
-	return fmt.Errorf("obligation: planned batch stock finalization exceeded %d pages without draining", maxPlannedFinalizationPagesPerSweep)
-}
-
-// FinalizePlannedBatchesTasksOnly finalizes SOP-task creation and linking for all planned batches
-// in a version. Used after AlignComboDrives has run to defer task finalization (BUG #6 fix).
-func (s *SweeperService) FinalizePlannedBatchesTasksOnly(ctx context.Context, tenantID, versionID string, cfg SweepConfig) error {
-	if s.tasks == nil || !cfg.needsTask() {
-		return nil
-	}
-	var after *domain.PlannedBatchFinalizationCursor
-	for pages := 0; pages < maxPlannedFinalizationPagesPerSweep; pages++ {
-		batches, err := s.repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, true, false, after, s.page)
-		if err != nil {
-			return err
-		}
-		if len(batches) == 0 {
-			return nil
-		}
-		if err := s.finalizePlannedBatchTasks(ctx, tenantID, batches, cfg); err != nil {
-			return err
-		}
-		if int32(len(batches)) < s.page {
-			return nil
-		}
-		last := batches[len(batches)-1]
-		after = &domain.PlannedBatchFinalizationCursor{CreatedAt: last.CreatedAt, BatchID: last.BatchID}
-	}
-	return fmt.Errorf("obligation: planned batch tasks finalization exceeded %d pages without draining", maxPlannedFinalizationPagesPerSweep)
+// FinalizePlannedBatchesAfterAlignment finalizes BOTH stock reservations and SOP tasks for all
+// planned batches in a version. It is the explicit post-alignment finalization the no-finalize
+// kernel path invokes AFTER AlignComboDrives has moved combo batches onto their shared date
+// (BUG #6/combo-align fix). Deferring the WHOLE finalization (not just tasks) is what keeps combo
+// batches visible to the combo-alignment query, which lists only batches that have neither a
+// linked SOP task nor a stock_reservation context: reserving stock before alignment would exclude
+// them just as task-linking would. It reuses finalizePlannedBatches so the finalize logic stays
+// single-sourced with the normal SweepVersion path.
+func (s *SweeperService) FinalizePlannedBatchesAfterAlignment(ctx context.Context, tenantID, versionID string, cfg SweepConfig) error {
+	return s.finalizePlannedBatches(ctx, tenantID, versionID, cfg)
 }
 
 func (s *SweeperService) finalizePlannedBatchTasks(ctx context.Context, tenantID string, batches []domain.PlannedBatchFinalization, cfg SweepConfig) error {

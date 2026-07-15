@@ -221,8 +221,21 @@ func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDa
 }
 
 // selectParkIDsWithinVisitShotCapForSession is the park-consolidation sibling of
-// selectIDsWithinVisitShotCapForSession (see its docs).
-func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, vaccineCode string, priority int32, session *SweepSession) ([]string, error) {
+// selectIDsWithinVisitShotCapForSession (see its docs). Unlike its earlier form, which credited
+// EVERY selected park row with the version-level vaccine code/priority, it resolves the vaccine
+// identity PER ROW via resolveVaccine(row.RuleID) -- so a park consolidation group that mixes
+// several rules/vaccines (each shed group deferred here can be a different vaccine) is shot-capped
+// the SAME row-aware way the main shed batching path already is (see batchDueGroup's
+// cfg.getRuleVaccineIdentity). Without this, two same-priority, DIFFERENT-vaccine rows for one
+// animal both looked like the same vaccine to rejectOrTie, so a genuine cross-vaccine tie was
+// silently swallowed as ordinary overflow instead of raising *ShotCapPriorityTieError.
+//
+// Candidates are claimed in per-row vaccine-priority order (ascending; higher-priority vaccine
+// first) so an over-subscribed animal's slots are filled by the higher-priority vaccine first --
+// the same deterministic priority ordering the main path gets from SortSweepVersionsByPriority --
+// while the returned id list preserves the original selection order (keeping park batch session
+// naming and downstream set operations stable).
+func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, resolveVaccine func(ruleID string) RuleVaccineIdentity, session *SweepSession) ([]string, error) {
 	if maxShots <= 0 || plannedDate == nil || len(selected) == 0 {
 		return selected, nil
 	}
@@ -230,24 +243,42 @@ func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCa
 	for _, id := range selected {
 		selectedSet[id] = struct{}{}
 	}
-	out := make([]string, 0, len(selected))
+	// Gather the selected rows in input order, then claim them in per-row priority order.
+	candidates := make([]domain.ParkConsolidationCandidate, 0, len(selected))
 	for _, row := range rows {
-		if _, ok := selectedSet[row.ObligationID]; !ok {
-			continue
+		if _, ok := selectedSet[row.ObligationID]; ok {
+			candidates = append(candidates, row)
 		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return resolveVaccine(candidates[i].RuleID).VaccinePriority < resolveVaccine(candidates[j].RuleID).VaccinePriority
+	})
+	claimed := make(map[string]struct{}, len(candidates))
+	for _, row := range candidates {
 		if strings.TrimSpace(row.TargetID) == "" {
-			out = append(out, row.ObligationID)
+			claimed[row.ObligationID] = struct{}{}
 			continue
 		}
+		id := resolveVaccine(row.RuleID)
 		key := visitShotCountKey(*plannedDate, row.TargetID)
 		if session.visitShotCounts[key] >= maxShots {
-			if err := session.rejectOrTie(key, vaccineCode, priority, row.TargetID, *plannedDate); err != nil {
+			if err := session.rejectOrTie(key, id.VaccineCode, id.VaccinePriority, row.TargetID, *plannedDate); err != nil {
 				return nil, err
 			}
 			continue
 		}
-		session.claim(key, vaccineCode, priority)
-		out = append(out, row.ObligationID)
+		session.claim(key, id.VaccineCode, id.VaccinePriority)
+		claimed[row.ObligationID] = struct{}{}
+	}
+	// Return in the original selection order for stable session naming / set ops downstream.
+	out := make([]string, 0, len(claimed))
+	for _, row := range rows {
+		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		if _, ok := claimed[row.ObligationID]; ok {
+			out = append(out, row.ObligationID)
+		}
 	}
 	return out, nil
 }

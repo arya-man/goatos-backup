@@ -234,17 +234,20 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 			)
 		}
 	}
-	// VAX-REV-04 (BUG #6): align combo drives BEFORE SOP-task finalization, so AlignComboDrives can find
-	// and move batches with sop_task_id IS NULL. After alignment, finalize SOP tasks for all swept versions.
+	// VAX-REV-04 (BUG #6/combo-align): align combo drives BEFORE any finalization, so
+	// AlignComboDrives can find and move batches that have neither a linked SOP task nor a
+	// stock_reservation context. The no-finalize sweep above deferred ALL finalization (stock AND
+	// tasks) precisely so alignment is not shut out by an early stock reservation. After alignment,
+	// finalize stock + tasks for all swept versions.
 	if len(plans) > 0 {
 		defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
 		if _, err := s.sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, dueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session); err != nil {
 			return fmt.Errorf("align combo drives: %w", err)
 		}
-		// Now finalize SOP tasks for all versions swept (batches have already had stock reserved in sweepVersion).
+		// Now finalize stock reservations + SOP tasks for all versions swept, once combo dates are stable.
 		for _, plan := range plans {
-			if err := s.sweeper.FinalizePlannedBatchesTasksOnly(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
-				return fmt.Errorf("finalize batch tasks version %s: %w", plan.VersionID, err)
+			if err := s.sweeper.FinalizePlannedBatchesAfterAlignment(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
+				return fmt.Errorf("finalize batches version %s: %w", plan.VersionID, err)
 			}
 		}
 	}

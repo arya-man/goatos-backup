@@ -101,7 +101,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 	if err != nil {
 		return remaining, 0, true, err
 	}
-	selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+	selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 	if err != nil {
 		_ = release(ctx)
 		return remaining, 0, true, err
@@ -117,7 +117,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 			if err != nil {
 				return remaining, 0, true, err
 			}
-			selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+			selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 			if err != nil {
 				_ = release(ctx)
 				return remaining, 0, true, err

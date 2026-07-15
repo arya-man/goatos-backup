@@ -120,6 +120,16 @@ type ParkConsolidationCandidate struct {
 	FirstBatchingHoldUntil   *time.Time
 }
 
+// UnbatchedDueCursor is the keyset cursor for ListUnbatchedDueForVersionKeyset. It keysets on
+// obligation_id alone (globally unique and stable), so the write-free tie preflight can page
+// through EVERY due row read-only. The plain ListUnbatchedDueForVersion cursor only advances as
+// rows become batched, which a preflight never does -- so without this it could only ever see the
+// first page. Callers re-sort the accumulated rows into the canonical sweep order in Go before
+// grouping, so the fetch order here only needs to be stable, not the final sweep order.
+type UnbatchedDueCursor struct {
+	ObligationID string
+}
+
 // ParkConsolidationCursor is the keyset cursor for the park-consolidation candidate query. Its
 // fields must stay in the same order as the repository ORDER BY.
 type ParkConsolidationCursor struct {
