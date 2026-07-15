@@ -209,48 +209,65 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 	}
 	plans = obligationapp.SortSweepVersionsByPriority(plans)
 
-	// VAX-REV-04: detect a cross-version shot-cap priority tie BEFORE sweeping a single plan for
-	// real. Without this, a later plan's tie aborted the loop below while earlier plans' batches/
-	// SOP tasks/stock reservations were already committed -- a silent, arbitrary partial commit.
-	// See obligationapp.PreflightVisitShotCapTies.
-	if err := s.sweeper.PreflightVisitShotCapTies(ctx, cfg.TenantID, plans, dueBefore); err != nil {
-		return fmt.Errorf("preflight shot-cap ties: %w", err)
+	// RV-03: hold ONE per-tenant advisory lock across the whole batch-writing sweep so it is the
+	// single priority-ordered writer for the tenant. Without it, a second sweeper process (a kernel
+	// replica, or cmd/obligation-sweeper run alongside this stage) can commit a lower-priority shot
+	// into an animal's last cap slot while this run refreshes only persisted counts -- inverting the
+	// medical plan by lock-acquisition order rather than vaccine priority. If another sweeper already
+	// owns the tenant, skip the batch sweep entirely (it will do this work); MarkMissed / reminder /
+	// escalation sweeps below are idempotent and non-shot-cap, so they still run.
+	acquired, releaseSweep, err := s.sweeper.LockTenantSweep(ctx, cfg.TenantID)
+	if err != nil {
+		return fmt.Errorf("acquire tenant sweep lock: %w", err)
 	}
+	defer func() { _ = releaseSweep(context.Background()) }()
 
-	session := obligationapp.NewSweepSession()
-	// BUG #6 / R2-04: use SweepVersionWithSessionNoFinalize so AlignComboDrives can run BEFORE any
-	// stock is reserved or SOP task is created -- reserving/tasking a combo batch on its
-	// pre-alignment planned_date would permanently exclude it from the alignment candidate query
-	// (sop_task_id IS NULL AND NOT context ? 'stock_reservation').
-	for _, plan := range plans {
-		result, err := s.sweeper.SweepVersionWithSessionNoFinalize(ctx, cfg.TenantID, plan.VersionID, plan.Config, dueBefore, session)
-		if err != nil {
-			return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
+	if acquired {
+		// VAX-REV-04: detect a cross-version shot-cap priority tie BEFORE sweeping a single plan for
+		// real. Without this, a later plan's tie aborted the loop below while earlier plans' batches/
+		// SOP tasks/stock reservations were already committed -- a silent, arbitrary partial commit.
+		// See obligationapp.PreflightVisitShotCapTies.
+		if err := s.sweeper.PreflightVisitShotCapTies(ctx, cfg.TenantID, plans, dueBefore); err != nil {
+			return fmt.Errorf("preflight shot-cap ties: %w", err)
 		}
-		if s.logger != nil {
-			s.logger.Info("obligation_sweep_stage_version",
-				"version_id", plan.VersionID,
-				"batches", result.Batches,
-				"obligations", result.Obligations,
-				"park_batches", result.ParkBatches,
-				"park_obligations", result.ParkObligations,
-			)
-		}
-	}
-	// VAX-REV-04 (BUG #6 / R2-04): align combo drives BEFORE any finalization, so AlignComboDrives can
-	// find and move every still-planned combo batch (fresh or retry). After alignment, finalize BOTH
-	// stock reservation and SOP-task creation for all swept versions in one pass, against each
-	// batch's FINAL (aligned) planned_date.
-	if len(plans) > 0 {
-		defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
-		if _, err := s.sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, dueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session); err != nil {
-			return fmt.Errorf("align combo drives: %w", err)
-		}
+
+		session := obligationapp.NewSweepSession()
+		// BUG #6 / R2-04: use SweepVersionWithSessionNoFinalize so AlignComboDrives can run BEFORE any
+		// stock is reserved or SOP task is created -- reserving/tasking a combo batch on its
+		// pre-alignment planned_date would permanently exclude it from the alignment candidate query
+		// (sop_task_id IS NULL AND NOT context ? 'stock_reservation').
 		for _, plan := range plans {
-			if err := s.sweeper.FinalizePlannedBatches(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
-				return fmt.Errorf("finalize batches version %s: %w", plan.VersionID, err)
+			result, err := s.sweeper.SweepVersionWithSessionNoFinalize(ctx, cfg.TenantID, plan.VersionID, plan.Config, dueBefore, session)
+			if err != nil {
+				return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
+			}
+			if s.logger != nil {
+				s.logger.Info("obligation_sweep_stage_version",
+					"version_id", plan.VersionID,
+					"batches", result.Batches,
+					"obligations", result.Obligations,
+					"park_batches", result.ParkBatches,
+					"park_obligations", result.ParkObligations,
+				)
 			}
 		}
+		// VAX-REV-04 (BUG #6 / R2-04): align combo drives BEFORE any finalization, so AlignComboDrives can
+		// find and move every still-planned combo batch (fresh or retry). After alignment, finalize BOTH
+		// stock reservation and SOP-task creation for all swept versions in one pass, against each
+		// batch's FINAL (aligned) planned_date.
+		if len(plans) > 0 {
+			defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
+			if _, err := s.sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, dueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session); err != nil {
+				return fmt.Errorf("align combo drives: %w", err)
+			}
+			for _, plan := range plans {
+				if err := s.sweeper.FinalizePlannedBatches(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
+					return fmt.Errorf("finalize batches version %s: %w", plan.VersionID, err)
+				}
+			}
+		}
+	} else if s.logger != nil {
+		s.logger.Info("obligation_sweep_stage_skipped_tenant_locked", "tenant_id", cfg.TenantID)
 	}
 	if cfg.MarkMissed {
 		if _, err := s.sweeper.MarkMissed(ctx, cfg.TenantID, missedBefore); err != nil {

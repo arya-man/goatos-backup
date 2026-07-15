@@ -151,6 +151,37 @@ func (r *Repository) LockVisitShots(ctx context.Context, tenantID string, target
 	return counts, release, nil
 }
 
+// tenantSweepLockNamespace prefixes the single per-tenant whole-sweep advisory-lock key so it
+// cannot collide with the per-visit locks or any other advisory-lock user.
+const tenantSweepLockNamespace = "goatos:obligation:tenant-sweep:"
+
+// LockTenantSweep takes ONE tenant-scoped session advisory lock that serializes the ENTIRE
+// obligation sweep (preflight + every version) for a tenant across processes (RV-03). It uses
+// pg_try_advisory_lock (non-blocking): if another sweeper already holds it -- a second kernel-worker
+// replica, or the standalone cmd/obligation-sweeper running alongside the kernel stage -- acquired
+// is false and the caller SKIPS this run, since the in-progress writer already covers the tenant.
+// When acquired, this sweep is the single priority-ordered writer for the tenant, so its in-memory
+// priority arbitration (SortSweepVersionsByPriority + SweepSession.visitClaims) is authoritative and
+// no concurrent lower-priority writer can commit a competing shot mid-sweep and invert the medical
+// plan by lock-acquisition order. The caller MUST call the returned release exactly once.
+func (r *Repository) LockTenantSweep(ctx context.Context, tenantID string) (bool, func(context.Context) error, error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return false, nil, fmt.Errorf("obligation: acquire tenant-sweep lock connection: %w", err)
+	}
+	var acquired bool
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext($1))", tenantSweepLockNamespace+tenantID).Scan(&acquired); err != nil {
+		conn.Release()
+		return false, nil, fmt.Errorf("obligation: try tenant-sweep lock: %w", err)
+	}
+	if !acquired {
+		// No advisory lock is held on this connection, so a plain Release (no unlock) is correct.
+		conn.Release()
+		return false, func(context.Context) error { return nil }, nil
+	}
+	return true, func(releaseCtx context.Context) error { return releaseVisitShotConn(releaseCtx, conn) }, nil
+}
+
 // visitShotUnlockTimeout bounds the independent cleanup context releaseVisitShotConn uses so a
 // canceled caller context can never skip pg_advisory_unlock_all and leak session locks (RV-05).
 const visitShotUnlockTimeout = 5 * time.Second

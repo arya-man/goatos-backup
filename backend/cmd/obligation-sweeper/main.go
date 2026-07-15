@@ -143,51 +143,62 @@ func run(args []string) error {
 		}
 		plans = obligationapp.SortSweepVersionsByPriority(plans)
 
-		// VAX-REV-04: detect a cross-version shot-cap priority tie BEFORE sweeping a single plan
-		// for real. Without this, a later plan's tie aborted the loop below while earlier plans'
-		// batches/SOP tasks/stock reservations were already committed -- a silent, arbitrary
-		// partial commit. See obligationapp.PreflightVisitShotCapTies.
-		if err := sweeper.PreflightVisitShotCapTies(ctx, cfg.TenantID, plans, cfg.DueBefore); err != nil {
-			return fmt.Errorf("preflight shot-cap ties: %w", err)
-		}
-
-		session := obligationapp.NewSweepSession()
-		// R2-04 fix: use SweepVersionWithSessionNoFinalize so AlignComboDrives (below) runs BEFORE any
-		// stock is reserved or SOP task is created. Finalizing a combo batch on its pre-alignment
-		// planned_date would permanently exclude it from AlignComboDrives' candidate query
-		// (sop_task_id IS NULL AND NOT context ? 'stock_reservation'), so this one-shot used to have
-		// the same defect the kernel stage's ObligationSweeperStage.Run fixes.
-		for _, plan := range plans {
-			sweepStart := time.Now()
-			result, err := sweeper.SweepVersionWithSessionNoFinalize(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.DueBefore, session)
-			// tasksCreated approximates 1 SOP batch task per obligation batch -
-			// obligationapp.SweepResult does not return a distinct
-			// tasks-created count, and batches are only task-bearing when a
-			// TaskCreator (creator, gated on --actor-id) is configured.
-			tasksCreated := 0
-			if creator != nil {
-				tasksCreated = result.Batches + result.ParkBatches
-			}
-			kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, tasksCreated)
-			if err != nil {
-				return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
-			}
-			fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
-				plan.VersionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
-		}
-		defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
-		aligned, err := sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, cfg.DueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session)
+		// RV-03: serialize the whole batch sweep per tenant so this run is the single priority-ordered
+		// writer. If another sweeper (the kernel obligation-sweeper stage, or a second replica) already
+		// owns the tenant, skip -- otherwise both could commit into an animal's last cap slot and let
+		// lock-acquisition order, not vaccine priority, decide the medical plan.
+		acquired, releaseSweep, err := sweeper.LockTenantSweep(ctx, cfg.TenantID)
 		if err != nil {
-			return fmt.Errorf("align combo drives: %w", err)
+			return fmt.Errorf("acquire tenant sweep lock: %w", err)
 		}
-		if aligned > 0 {
-			fmt.Printf("combo drive dates aligned=%d\n", aligned)
-		}
-		// Finalize stock reservation + SOP-task creation for every swept version now that alignment
-		// has settled each planned batch's final date.
-		for _, plan := range plans {
-			if err := sweeper.FinalizePlannedBatches(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
-				return fmt.Errorf("finalize batches version %s: %w", plan.VersionID, err)
+		defer func() { _ = releaseSweep(context.Background()) }()
+		if !acquired {
+			fmt.Printf("obligation sweep skipped: tenant %s already locked by another sweeper\n", cfg.TenantID)
+		} else {
+			// VAX-REV-04: detect a cross-version shot-cap priority tie BEFORE sweeping a single plan
+			// for real. Without this, a later plan's tie aborted the loop below while earlier plans'
+			// batches/SOP tasks/stock reservations were already committed -- a silent, arbitrary
+			// partial commit. See obligationapp.PreflightVisitShotCapTies.
+			if err := sweeper.PreflightVisitShotCapTies(ctx, cfg.TenantID, plans, cfg.DueBefore); err != nil {
+				return fmt.Errorf("preflight shot-cap ties: %w", err)
+			}
+
+			session := obligationapp.NewSweepSession()
+			// R2-04 fix: use SweepVersionWithSessionNoFinalize so AlignComboDrives (below) runs BEFORE any
+			// stock is reserved or SOP task is created. Finalizing a combo batch on its pre-alignment
+			// planned_date would permanently exclude it from AlignComboDrives' candidate query
+			// (sop_task_id IS NULL AND NOT context ? 'stock_reservation').
+			for _, plan := range plans {
+				sweepStart := time.Now()
+				result, err := sweeper.SweepVersionWithSessionNoFinalize(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.DueBefore, session)
+				// tasksCreated approximates 1 SOP batch task per obligation batch -
+				// obligationapp.SweepResult does not return a distinct tasks-created count, and batches
+				// are only task-bearing when a TaskCreator (creator, gated on --actor-id) is configured.
+				tasksCreated := 0
+				if creator != nil {
+					tasksCreated = result.Batches + result.ParkBatches
+				}
+				kmetrics.RecordSweeperBatch(ctx, "version", time.Since(sweepStart).Seconds(), result.Obligations+result.ParkObligations, tasksCreated)
+				if err != nil {
+					return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
+				}
+				fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
+					plan.VersionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
+			}
+			defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
+			aligned, err := sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, cfg.DueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session)
+			if err != nil {
+				return fmt.Errorf("align combo drives: %w", err)
+			}
+			if aligned > 0 {
+				fmt.Printf("combo drive dates aligned=%d\n", aligned)
+			}
+			// R2-04: finalize stock reservation + SOP-task creation for every swept version now that
+			// alignment has settled each planned batch's final date.
+			for _, plan := range plans {
+				if err := sweeper.FinalizePlannedBatches(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
+					return fmt.Errorf("finalize batches version %s: %w", plan.VersionID, err)
+				}
 			}
 		}
 	}

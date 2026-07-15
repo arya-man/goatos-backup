@@ -9,6 +9,17 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
+// unbatchedDueKeysetLister is implemented by the production Postgres repo so the preflight can
+// keyset-scan EVERY unbatched-due candidate (RV-02), not just the first page. A repo that does not
+// implement it (a simple in-memory test fake) gets the first-page-only fallback.
+type unbatchedDueKeysetLister interface {
+	ListUnbatchedDueForVersionKeyset(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32) ([]domain.UnbatchedDue, error)
+}
+
+// maxPreflightUnbatchedPages backstops the keyset scan against a runaway loop (the cursor strictly
+// advances by unique obligation_id, so this is only a safety ceiling, never hit in practice).
+const maxPreflightUnbatchedPages = 100000
+
 // PreflightVisitShotCapTies is the VAX-REV-04 / RV-01 fix: a write-free dry run over every plan
 // (already priority-sorted -- see SortSweepVersionsByPriority) that surfaces a cross-version
 // *ShotCapPriorityTieError BEFORE the caller sweeps a single plan for real.
@@ -59,36 +70,66 @@ import (
 // SweepSession and pass it to the subsequent SweepVersionWithSession calls only after this
 // preflight returns nil.
 func (s *SweeperService) PreflightVisitShotCapTies(ctx context.Context, tenantID string, plans []SweepVersionPriority, dueBefore time.Time) error {
-	if len(plans) < 2 {
-		// A tie needs two DIFFERENT vaccine codes competing for the same visit; a single plan can
-		// never trip rejectOrTie against itself (see SweepSession.rejectOrTie).
+	if len(plans) == 0 {
 		return nil
 	}
+	// RV-01: do NOT skip a single plan. One protocol version can carry several per-rule vaccines
+	// (round-2 per-rule identity, cfg.getRuleVaccineIdentity), so three equal-priority vaccines in
+	// ONE plan can still tie for a two-shot visit -- equating plan count with vaccine count let that
+	// single-version matrix tie slip past the gate and partial-commit at real-sweep time.
 	preflight := NewSweepSession()
 	// Obligation IDs the main-loop replay has already claimed onto preflight; the park replay must
 	// skip them so a shed obligation batched by the main loop is not counted twice (which would
 	// fabricate a tie that the real, write-advancing sweep never hits).
 	claimed := make(map[string]struct{})
+	// RV-02: page ALL unbatched-due candidates via keyset, not just the first page. The real sweep
+	// drains its pages by batching rows out of the unbatched set; a write-free preflight cannot, so
+	// it advances a stable ORDER-BY-tuple cursor and replays each page's groups exactly as the real
+	// sweep replays each of its own pages -- a conflicting obligation beyond page one is now caught
+	// here instead of committed-then-aborted at real-sweep time. A repo that does not implement the
+	// keyset lister (simple test fakes) falls back to the pre-RV-02 first-page-only coverage.
+	keysetLister, keyset := s.repo.(unbatchedDueKeysetLister)
 	for _, plan := range plans {
 		planner := normalizedDrivePlannerSettings(plan.Config.DrivePlanner, plan.Config.VaccineCode)
-		// One read per published vaccination version for one tenant (a small fixed set), not per-row;
-		// mirrors the real sweep's own per-version list in ObligationSweeperStage.Run.
-		// scale-guard:ignore: bounded per published vaccination version, one read per version, not per-row.
-		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, plan.VersionID, dueBefore, s.page)
-		if err != nil {
-			return fmt.Errorf("obligation: preflight list unbatched due for version %s: %w", plan.VersionID, err)
-		}
-		if len(rows) == 0 {
-			continue
-		}
-		order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
-		for _, k := range order {
-			g := groups[k]
-			if deferShedGroupToPark(plan.Config, g.scopeType, len(g.ids)) {
-				continue
+		var after *domain.UnbatchedDueCursor
+		for page := 0; page < maxPreflightUnbatchedPages; page++ {
+			var rows []domain.UnbatchedDue
+			var err error
+			if keyset {
+				// scale-guard:ignore: keyset pagination, bounded to s.page rows per read; mirrors the real sweep's own paged unbatched-due scan.
+				rows, err = keysetLister.ListUnbatchedDueForVersionKeyset(ctx, tenantID, plan.VersionID, dueBefore, after, s.page)
+			} else {
+				// scale-guard:ignore: fallback for non-keyset repos; one bounded read, first page only.
+				rows, err = s.repo.ListUnbatchedDueForVersion(ctx, tenantID, plan.VersionID, dueBefore, s.page)
 			}
-			if err := s.preflightGroup(ctx, tenantID, plan.Config, planner, dueBefore, preflight, g, claimed); err != nil {
-				return err
+			if err != nil {
+				return fmt.Errorf("obligation: preflight list unbatched due for version %s: %w", plan.VersionID, err)
+			}
+			if len(rows) == 0 {
+				break
+			}
+			order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
+			for _, k := range order {
+				g := groups[k]
+				if deferShedGroupToPark(plan.Config, g.scopeType, len(g.ids)) {
+					continue
+				}
+				if err := s.preflightGroup(ctx, tenantID, plan.Config, planner, dueBefore, preflight, g, claimed); err != nil {
+					return err
+				}
+			}
+			if !keyset || int32(len(rows)) < s.page {
+				break
+			}
+			last := rows[len(rows)-1]
+			after = &domain.UnbatchedDueCursor{
+				ScopeType:         last.ScopeType,
+				ScopeID:           last.ScopeID,
+				RuleID:            last.RuleID,
+				TargetSpecies:     last.TargetSpecies,
+				TargetAnimalStage: last.TargetAnimalStage,
+				DueAt:             last.DueAt,
+				ObligationID:      last.ObligationID,
 			}
 		}
 	}

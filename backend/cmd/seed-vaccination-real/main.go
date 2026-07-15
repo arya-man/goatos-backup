@@ -1220,19 +1220,54 @@ const missingAnchorReconcilePageSize = 5000
 // vs fabricated due) happens in Go against the generator's own key derivation so the two can never
 // drift.
 //
-// RV-04: it classifies each row on the fly and keeps only a running count — it NEVER accumulates the
-// candidate rows into a slice — and pages through the cohort with a stable keyset cursor on the
-// obligation_instances primary key (oi.obligation_id), bounded to missingAnchorReconcilePageSize per
-// query. Memory is O(page), not O(cohort), and each query is bounded and resumable rather than one
-// unbounded scan that can OOM or time out at 1-5M animals. Ordering/filtering on the native uuid PK
-// keeps every page index-eligible (no per-row text cast in the WHERE/ORDER BY).
+// RV-04: work is bounded by DATABASE examination, not by matches. Each page keyset-scans exactly
+// missingAnchorReconcilePageSize BASE obligation_ids off the obligation_instances primary key
+// (step 1), then joins/filters only that bounded id set (step 2) to classify fabricated vs routed
+// §89 catch-up in Go against the generator's own key derivation. The cursor advances by the last
+// EXAMINED base row, not the last matched candidate, and the loop ends when a base page returns
+// fewer than a full page. A sparse or zero-candidate tenant therefore examines at most one page of
+// PK-index entries per query instead of scanning every obligation to find a full page of matches --
+// the earlier "LIMIT after the selective join/NOT EXISTS" shape could examine the whole table for a
+// healthy tenant and time out at 1-5M animals. Memory stays O(page): only ids and the running count
+// are held, never the cohort.
 func countFabricatedMissingAnchorWorkPaged(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, error) {
 	fabricated := 0
 	afterID := "00000000-0000-0000-0000-000000000000"
 	for {
+		// Step 1: bounded keyset page of BASE obligation ids off the PK. Examines exactly one page of
+		// index entries regardless of how many (if any) turn out to be missing-anchor candidates.
+		baseRows, err := pool.Query(ctx, `
+SELECT obligation_id::text
+FROM obligation_instances
+WHERE tenant_id = $1::uuid
+  AND obligation_id > $2::uuid
+ORDER BY obligation_id
+LIMIT $3`, tenantID, afterID, missingAnchorReconcilePageSize)
+		if err != nil {
+			return 0, err
+		}
+		ids := make([]string, 0, missingAnchorReconcilePageSize)
+		for baseRows.Next() {
+			var id string
+			if err := baseRows.Scan(&id); err != nil {
+				baseRows.Close()
+				return 0, err
+			}
+			ids = append(ids, id)
+		}
+		if err := baseRows.Err(); err != nil {
+			baseRows.Close()
+			return 0, err
+		}
+		baseRows.Close()
+		if len(ids) == 0 {
+			return fabricated, nil
+		}
+
+		// Step 2: classify only this bounded id set. The join/filter/NOT-EXISTS runs against at most
+		// one page of ids resolved by PK, so it cannot fan out to a full-table scan.
 		rows, err := pool.Query(ctx, `
-SELECT oi.obligation_id::text,
-       oi.idempotency_key,
+SELECT oi.idempotency_key,
        oi.tenant_id::text,
        oi.protocol_version_id::text,
        oi.rule_id::text,
@@ -1245,7 +1280,7 @@ JOIN protocol_rules pr
  AND pr.rule_id = oi.rule_id
 JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
 WHERE oi.tenant_id = $1::uuid
-  AND oi.obligation_id > $2::uuid
+  AND oi.obligation_id = ANY($2::uuid[])
   AND oi.status NOT IN ('completed', 'canceled', 'superseded', 'waived')
   AND oi.status <> 'deferred'
   AND oi.target_type = 'goat'
@@ -1263,23 +1298,16 @@ WHERE oi.tenant_id = $1::uuid
     WHERE history_oi.tenant_id = oi.tenant_id
       AND history_oi.target_id = oi.target_id
       AND history_oi.rule_id = oi.rule_id
-  )
-ORDER BY oi.obligation_id
-LIMIT $3`, tenantID, afterID, missingAnchorReconcilePageSize)
+  )`, tenantID, ids)
 		if err != nil {
 			return 0, err
 		}
-		n := 0
-		lastID := afterID
 		for rows.Next() {
-			var obligationID string
 			var c missingAnchorCandidate
-			if err := rows.Scan(&obligationID, &c.idempotencyKey, &c.tenantID, &c.protocolVersionID, &c.ruleID, &c.goatID, &c.sequence, &c.triggerType); err != nil {
+			if err := rows.Scan(&c.idempotencyKey, &c.tenantID, &c.protocolVersionID, &c.ruleID, &c.goatID, &c.sequence, &c.triggerType); err != nil {
 				rows.Close()
 				return 0, err
 			}
-			n++
-			lastID = obligationID
 			if !c.isRoutedCatchUp() {
 				fabricated++
 			}
@@ -1289,10 +1317,11 @@ LIMIT $3`, tenantID, afterID, missingAnchorReconcilePageSize)
 			return 0, err
 		}
 		rows.Close()
-		if n < missingAnchorReconcilePageSize {
+
+		if len(ids) < missingAnchorReconcilePageSize {
 			return fabricated, nil
 		}
-		afterID = lastID
+		afterID = ids[len(ids)-1]
 	}
 }
 

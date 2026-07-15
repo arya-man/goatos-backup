@@ -145,6 +145,23 @@ func (s *SweeperService) SetPageSize(n int32) {
 	}
 }
 
+// tenantSweepLocker is implemented by the production Postgres repo to serialize the whole sweep per
+// tenant (RV-03). Test fakes need not implement it -- single-process tests have no second writer.
+type tenantSweepLocker interface {
+	LockTenantSweep(ctx context.Context, tenantID string) (bool, func(context.Context) error, error)
+}
+
+// LockTenantSweep acquires the per-tenant whole-sweep advisory lock so the sweep is the single
+// priority-ordered writer for the tenant (RV-03). acquired=false means another sweeper already owns
+// the tenant and this run must skip. A repo that does not implement tenantSweepLocker (test fakes)
+// always "acquires" a noop lock, preserving single-process test behavior.
+func (s *SweeperService) LockTenantSweep(ctx context.Context, tenantID string) (bool, func(context.Context) error, error) {
+	if locker, ok := s.repo.(tenantSweepLocker); ok {
+		return locker.LockTenantSweep(ctx, tenantID)
+	}
+	return true, func(context.Context) error { return nil }, nil
+}
+
 // SweepVersion batches all currently-unbatched due obligations for a version (due_at <= dueBefore).
 // It uses a private, single-call shot-cap session: MaxShotsPerAnimalPerDrive is enforced only
 // within this one version's own obligations. A caller sweeping multiple protocol
