@@ -83,7 +83,7 @@ func calendarWeekPresentation(active ownerPresentationConfig) CalendarViewPresen
 		ScopeOnlyMessage:     active.scopeMessage,
 		ClearScopeLabel:      "all owner lanes",
 		WholePeriodMessage:   "Showing whole week.",
-		AllDaysSelectedLabel: "all days selected",
+		AllDaysSelectedLabel: "All week",
 		ClearDayLabel:        "whole week",
 		EmptyMessage:         "No due work scheduled",
 		ReminderTitle:        "Reminders & escalation",

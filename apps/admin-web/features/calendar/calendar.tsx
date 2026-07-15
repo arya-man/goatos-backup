@@ -138,12 +138,14 @@ export async function VaccinationCalendarPage({
   const anchorKey = asOf ? asOf.slice(0, 10) : today;
   // Day-wise week view: the rhythm strip is the day selector. A specific day shows ONLY that
   // day's drives (no redundant day heading — the strip already names the day). "All week"
-  // (day=all) opts into the 7-day vertical, day-separated list. Default = single day, defaulted
+  // (day=week) opts into the 7-day, day-separated vertical list. Default = single day, defaulted
   // to the anchor day's weekday (the as-of / picked date). History never defaults a day.
+  // NB: the sentinel is "week", NOT "all" — scopeHref() drops any query value equal to "all",
+  // so an "all" sentinel would be silently stripped and the toggle would never engage.
   const anchorWeekday = weekdayOf(`${anchorKey}T00:00:00+05:30`);
-  const allWeek = !historyMode && dayFilter === "all";
+  const allWeek = !historyMode && dayFilter === "week";
   const effectiveDayFilter = historyMode || allWeek ? undefined : dayFilter ?? anchorWeekday;
-  const dayForHref = allWeek ? "all" : effectiveDayFilter;
+  const dayForHref = allWeek ? "week" : effectiveDayFilter;
   const pickerWindow = monthWindow(anchorKey);
   const agendaWindow = weekWindow(anchorKey);
   const completedWindow = historyWindow(anchorKey);
@@ -425,7 +427,7 @@ export async function VaccinationCalendarPage({
           ownerMeta={ownerMeta}
           clearOwnerHref={hrefWith({ owner_key: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           dayFilter={effectiveDayFilter}
-          allWeekHref={hrefWith({ day: "all", event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
+          allWeekHref={hrefWith({ day: "week", event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           clearDayHref={hrefWith({ day: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           rhythmDayHref={(day) =>
             hrefWith({ ...presentationQueryToSearch(day.query), event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })
@@ -515,19 +517,18 @@ function WeekView({
 
   return (
     <>
-      <RhythmCard rhythmDayHref={rhythmDayHref} todayWeekday={todayWeekday} dayFilter={dayFilter} presentation={presentation} />
+      <RhythmCard
+        rhythmDayHref={rhythmDayHref}
+        todayWeekday={todayWeekday}
+        dayFilter={dayFilter}
+        allWeek={allWeek}
+        allWeekHref={allWeekHref}
+        presentation={presentation}
+      />
       <div className="card">
         <div className="hd">
           <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
           <h3>{presentation.week.title}</h3>
-          <Tag tone={ownerKey === "all" ? "mut" : "info"}>{selectedOwnerLabel}</Tag>
-          {allWeek ? (
-            <Tag tone="info">{presentation.week.all_days_selected_label}</Tag>
-          ) : (
-            <Link href={allWeekHref} replace scroll={false} className="lenslink">
-              {presentation.week.all_days_selected_label}
-            </Link>
-          )}
           <span className="sp" />
           <OwnerLegend ownerMeta={ownerMeta} />
         </div>

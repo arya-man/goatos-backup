@@ -755,7 +755,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.week.scope_only.admin_data_ops": "Showing Admin / Data Ops work only.",
 			"calendar.week.clear_scope":               "all owner lanes",
 			"calendar.week.whole_period":              "Showing whole week.",
-			"calendar.week.all_days_selected":         "all days selected",
+			"calendar.week.all_days_selected":         "All week",
 			"calendar.week.clear_day":                 "whole week",
 			"calendar.week.empty":                     "No due work scheduled",
 			"calendar.week.day_empty":                 "No drives scheduled",

@@ -33,11 +33,15 @@ export function RhythmCard({
   rhythmDayHref,
   todayWeekday,
   dayFilter,
+  allWeek,
+  allWeekHref,
   presentation,
 }: {
   rhythmDayHref: (day: CalendarRhythmDay) => string;
   todayWeekday: string;
   dayFilter?: string;
+  allWeek: boolean;
+  allWeekHref: string;
   presentation: CalendarPresentation;
 }) {
   const days = presentation.rhythm.days;
@@ -49,13 +53,23 @@ export function RhythmCard({
           {presentation.rhythm.title} <span className="muted small">— {presentation.rhythm.note}</span>
         </div>
         <div className="rhythm">
+          {/* Leading "All week" selector: highlighted when the whole-week vertical list is active;
+              otherwise a specific day chip carries the highlight. This is the day/week selector. */}
+          <Link
+            href={allWeekHref}
+            replace
+            scroll={false}
+            className={`rday rday-all${allWeek ? " included" : ""}`}
+          >
+            {presentation.week.all_days_selected_label}
+          </Link>
           {days.map((day) => (
             <Link
               key={day.day}
               href={rhythmDayHref(day)}
               replace
               scroll={false}
-              className={`rday${day.day === dayFilter ? " included" : ""}${day.day === todayWeekday ? " today" : ""}`}
+              className={`rday${!allWeek && day.day === dayFilter ? " included" : ""}${day.day === todayWeekday ? " today" : ""}`}
               aria-disabled={day.enabled ? undefined : "true"}
             >
               <div className="d">{day.day}</div>
