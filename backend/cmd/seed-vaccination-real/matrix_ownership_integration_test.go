@@ -104,7 +104,10 @@ func TestForeignPublishedVaccinationMatricesDetectsNonSeedOwned(t *testing.T) {
 	}
 	seedActor := seedActorID
 	check("seed-owned (drafted_by=seed actor)", &seedActor, seedProtocolID, false)
-	check("legacy unstamped (drafted_by NULL)", nil, seedProtocolID, false)
+	// A PUBLISHED matrix with no provenance stamp cannot be positively identified as the seed's (it is
+	// immutable and NULL is schema-permitted), so it is flagged — the seed refuses rather than clobber
+	// it (VAX-SEED-R1). Legacy seed DRAFTS are back-stamped before publish and so never reach here.
+	check("unstamped published (drafted_by NULL) is NOT provably seed", nil, seedProtocolID, true)
 	userA := detUUID("user", tenantID, "alice")
 	check("user-authored under SAME seed protocol (VAX-SEED-01)", &userA, seedProtocolID, true)
 
@@ -165,6 +168,44 @@ func TestSeedGuardedPublishRefusesUserMatrixUnderSameProtocol(t *testing.T) {
 	}
 }
 
+// TestSeedGuardedPublishRefusesUserDraftedTarget covers VAX-SEED-R2: a seed-guarded publish must
+// verify the TARGET version is seed-drafted. Pointing it at a user-drafted draft (as any internal
+// caller could) must fail closed and leave that draft untouched, never laundering it into a seed op.
+func TestSeedGuardedPublishRefusesUserDraftedTarget(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedProtocolID, seedActorID, sopVersionID := setupSeedMatrixFixture(t, ctx, pool)
+	tenantID := matrixOwnerTenant
+
+	userA := detUUID("user", tenantID, "alice")
+	userDraft := detUUID("pv", tenantID, "user_draft")
+	correctDSL, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("build matrix dsl: %v", err)
+	}
+	mustExec(t, ctx, pool, `
+		INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+			version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id, drafted_by)
+		VALUES ($1,$2,$3,'tenant',NULL,1,'Alice Draft','draft',DATE '2026-01-01',NULL,$4::jsonb,
+			'{"required_proofs":["shed","vial_lot","administration"]}'::jsonb,$5,$6)`,
+		userDraft, tenantID, seedProtocolID, correctDSL, sopVersionID, userA)
+
+	svc := protocolapp.NewService(protocolpg.NewRepository(pool, 10*time.Second))
+	perr := svc.PublishSeedOwnedVaccinationMatrixVersion(ctx, tenantID, userDraft, seedActorID, "seed-vaccination-real:"+userDraft)
+	if perr == nil || !errors.Is(perr, protocolpg.ErrVaccinationMatrixOwnershipConflict) {
+		t.Fatalf("publish err = %v, want ErrVaccinationMatrixOwnershipConflict", perr)
+	}
+	var status string
+	if err := pool.QueryRow(ctx, `SELECT status FROM protocol_versions WHERE tenant_id=$1 AND protocol_version_id=$2`, tenantID, userDraft).Scan(&status); err != nil {
+		t.Fatalf("read user draft: %v", err)
+	}
+	if status != "draft" {
+		t.Fatalf("user draft status = %s, want draft (untouched)", status)
+	}
+}
+
 // TestSeedMatrixReconcilePublishReplayDoesNotChurn (VAX-SEED-02) starts from a faulty published SEED
 // matrix and runs the real reconcile+guarded-publish correction twice: no version churn, ownership
 // preserved, correct statuses, exactly one retire event. Also proves the guard lets the seed supersede
@@ -180,10 +221,10 @@ func TestSeedMatrixReconcilePublishReplayDoesNotChurn(t *testing.T) {
 	faultyVersion := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
 	mustExec(t, ctx, pool, `
 		INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-			version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id)
+			version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id, drafted_by)
 		VALUES ($1,$2,$3,'tenant',NULL,1,$4,'published',DATE '2026-01-01',NULL,
-			'{"ruleset_family":"vaccination.matrix","matrix_rows":[],"_seed_variant":"faulty"}'::jsonb,'{}'::jsonb,$5)`,
-		faultyVersion, tenantID, seedProtocolID, matrixVersionLabel, sopVersionID)
+			'{"ruleset_family":"vaccination.matrix","matrix_rows":[],"_seed_variant":"faulty"}'::jsonb,'{}'::jsonb,$5,$6)`,
+		faultyVersion, tenantID, seedProtocolID, matrixVersionLabel, sopVersionID, seedActorID)
 
 	correctDSL, err := vaccinationMatrixRuleDSL()
 	if err != nil {

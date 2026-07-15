@@ -2374,15 +2374,28 @@ type seedQuerier interface {
 // creates versions itself — publishing (retire-overlap) is the caller's next step. Extracted from the
 // seed's config transaction so a Postgres regression can drive it twice and assert no version churn.
 func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, protocolID, ruleDSL, sopVersionID, seedActorID string) (string, error) {
+	// Back-stamp any legacy seed DRAFT (seed label, no provenance yet) with the seed actor before we
+	// adopt it, so an adopted draft is never published without its provenance stamp (VAX-SEED-R1).
+	// Drafts are mutable; a NULL author under the seed label is only ever the seed's own pre-provenance
+	// draft (Config authoring always stamps drafted_by with the acting user). PUBLISHED versions are
+	// immutable and cannot be back-stamped — an overlapping published version whose author is not the
+	// seed actor (including a NULL author that cannot be positively identified) is treated as an
+	// ownership conflict by the publish guard rather than retired.
+	if _, err := tx.Exec(ctx, `
+		UPDATE protocol_versions SET drafted_by=$1::uuid, updated_at=now()
+		WHERE tenant_id=$2::uuid AND protocol_id=$3::uuid AND scope_type='tenant' AND scope_id IS NULL
+		  AND version_label=$4 AND status='draft' AND drafted_by IS NULL`,
+		seedActorID, tenantID, protocolID, matrixVersionLabel); err != nil {
+		return "", fmt.Errorf("stamp legacy seed matrix drafts: %w", err)
+	}
+
 	versionID := detUUID("protocol_version", tenantID, "vaccination_matrix", "v1_real")
 	var status, existingRuleDSL, existingSOPVersionID string
 	var existingVersion int
-	// Only ever adopt/refresh SEED-OWNED versions: this run's provenance stamp (drafted_by = seed
-	// actor) OR a legacy seed row with no stamp (drafted_by IS NULL — published versions are immutable
-	// so old rows cannot be back-stamped; Config authoring always stamps drafted_by with the acting
-	// user, so a NULL stamp under the seed label is only ever the seed's own pre-provenance row). A
-	// user-authored version that happens to share the seed label (drafted_by = a real user) is never
-	// adopted here; the publish guard refuses to retire it.
+	// Only ever adopt/refresh versions positively identified as seed-owned (drafted_by = seed actor);
+	// after the draft back-stamp above this includes legacy seed drafts. A user-authored version that
+	// shares the seed label (drafted_by = a real user) and any unidentifiable NULL row are never
+	// adopted here; the publish guard refuses to retire them.
 	qerr := tx.QueryRow(ctx, `
 		SELECT protocol_version_id, status, version, rule_dsl::text, COALESCE(sop_version_id::text, '')
 		FROM protocol_versions
@@ -2392,7 +2405,7 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 		  AND scope_id IS NULL
 		  AND version_label=$3
 		  AND status <> 'retired'
-		  AND (drafted_by=$4::uuid OR drafted_by IS NULL)
+		  AND drafted_by=$4::uuid
 		ORDER BY version DESC
 		LIMIT 1`,
 		tenantID, protocolID, matrixVersionLabel, seedActorID).Scan(&versionID, &status, &existingVersion, &existingRuleDSL, &existingSOPVersionID)
@@ -2442,9 +2455,11 @@ func reconcileSeedMatrixDraftVersion(ctx context.Context, tx pgx.Tx, tenantID, p
 // protocol_id: Config authoring publishes under the SAME canonical protocol, so a protocol_id check
 // misses user versions. Legacy seed rows (drafted_by IS NULL under the seed label) are tolerated here
 // because reconcileSeedMatrixDraftVersion claims them just before publish; a genuine other-author row
-// (drafted_by set to a non-seed actor) is flagged so the seed refuses rather than overwrite it. This
-// is the friendly early check; the authoritative TOCTOU-safe enforcement is the atomic guard inside
-// the publish transaction (assertOnlySeedOwnedMatrixOverlapsTx).
+// (drafted_by set to a non-seed actor) is flagged so the seed refuses rather than overwrite it — as is
+// any published overlap whose author cannot be positively identified as the seed (drafted_by NULL),
+// since published versions are immutable and cannot be back-stamped. This is the friendly early check;
+// the authoritative TOCTOU-safe enforcement is the atomic guard inside the publish transaction
+// (assertOnlySeedOwnedMatrixOverlapsTx).
 func foreignPublishedVaccinationMatrices(ctx context.Context, q seedQuerier, tenantID, seedActorID string) ([]string, error) {
 	rows, err := q.Query(ctx, `
 SELECT pv.protocol_version_id::text, pd.code, COALESCE(pv.version_label, '')
@@ -2461,8 +2476,7 @@ WHERE pv.tenant_id = $1::uuid
     OR lower(COALESCE(pv.rule_dsl->'vaccine'->>'code', '')) = 'vaccination.matrix'
     OR pv.rule_dsl ? 'matrix_rows'
   )
-  AND pv.drafted_by IS NOT NULL
-  AND pv.drafted_by <> $2::uuid
+  AND pv.drafted_by IS DISTINCT FROM $2::uuid
 ORDER BY pd.code, pv.protocol_version_id`, tenantID, seedActorID)
 	if err != nil {
 		return nil, fmt.Errorf("query non-seed-owned vaccination matrices: %w", err)

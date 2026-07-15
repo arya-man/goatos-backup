@@ -725,13 +725,13 @@ func (r *Repository) PublishVersionWithDerivedRules(ctx context.Context, tenantI
 		return nil
 	}
 
-	var status, scopeType, scopeID string
+	var status, scopeType, scopeID, targetDraftedBy string
 	err = tx.QueryRow(ctx, `
-SELECT status, scope_type, COALESCE(scope_id::text, '')
+SELECT status, scope_type, COALESCE(scope_id::text, ''), COALESCE(drafted_by::text, '')
 FROM protocol_versions
 WHERE tenant_id = $1
   AND protocol_version_id = $2
-FOR UPDATE`, tenant, vid).Scan(&status, &scopeType, &scopeID)
+FOR UPDATE`, tenant, vid).Scan(&status, &scopeType, &scopeID, &targetDraftedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound
 	}
@@ -754,13 +754,19 @@ FOR UPDATE`, tenant, vid).Scan(&status, &scopeType, &scopeID)
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, lockKey); err != nil {
 		return fmt.Errorf("protocol: lock vaccination matrix scope: %w", err)
 	}
-	// VAX-SEED-01/03 ownership safety: a seed-owned publish may retire ONLY seed-owned overlapping
-	// matrices. This runs INSIDE the publish transaction, after the vaccination-matrix advisory lock and
-	// BEFORE the overlap-retire, so it is atomic with the retire — a matrix published concurrently (or
-	// authored via Config under the SAME protocol) is seen here and blocks the retire (fail closed)
-	// instead of being silently retired. seedOwnedGuardActor is empty for ordinary/Config publishes,
-	// which keep the normal supersede-on-publish behavior.
+	// VAX-SEED-01/03/R2 ownership safety: a seed-owned publish may (a) publish ONLY a target the seed
+	// itself drafted, and (b) retire ONLY seed-owned overlapping matrices. Both checks run INSIDE the
+	// publish transaction, after the vaccination-matrix advisory lock and BEFORE the overlap-retire, so
+	// they are atomic with the retire — a matrix published concurrently (or authored via Config under
+	// the SAME protocol) is seen here and blocks the retire (fail closed) instead of being silently
+	// retired. seedOwnedGuardActor is empty for ordinary/Config publishes, which keep the normal
+	// supersede-on-publish behavior.
 	if seedOwnedGuardActor != "" {
+		// R2: the caller supplied a seed actor, so the target being published must itself be seed-drafted;
+		// a seed publish must never launder a user-drafted (or unstamped) target into a seed operation.
+		if targetDraftedBy != seedOwnedGuardActor {
+			return fmt.Errorf("%w: target version %s is drafted_by %q, not the seed actor", ErrVaccinationMatrixOwnershipConflict, v.ProtocolVersionID, targetDraftedBy)
+		}
 		if err := assertOnlySeedOwnedMatrixOverlapsTx(ctx, tx, tenant, vid, seedOwnedGuardActor); err != nil {
 			return err
 		}
@@ -984,11 +990,12 @@ var ErrVaccinationMatrixOwnershipConflict = errors.New("protocol: seed vaccinati
 // vaccination-matrix advisory lock, that no published matrix version overlapping the one being
 // published is authored by anyone other than the seed. It uses the SAME overlap predicate as
 // retirePublishedVaccinationMatrixOverlapsTx, so it flags exactly the versions the retire would
-// clear. An overlap is "seed-owned" when drafted_by = seedGuardActor OR drafted_by IS NULL (a legacy
-// seed row: published versions are immutable and cannot be back-stamped, and Config authoring always
-// stamps drafted_by with the acting user, so a NULL author under the seed's label is only ever the
-// seed's own pre-provenance row). Any overlap with a real, different author (drafted_by set and not
-// the seed) makes it fail closed with ErrVaccinationMatrixOwnershipConflict.
+// clear. An overlap is seed-owned ONLY when drafted_by = seedGuardActor. Any overlap whose author is
+// different OR cannot be positively identified as the seed (drafted_by NULL — published versions are
+// immutable and cannot be back-stamped, and NULL is a schema-permitted value that is not provably the
+// seed) makes it fail closed with ErrVaccinationMatrixOwnershipConflict. Legacy seed DRAFTS are
+// back-stamped before publish (see reconcileSeedMatrixDraftVersion), so a legitimate reseed only ever
+// supersedes its own stamped versions.
 func assertOnlySeedOwnedMatrixOverlapsTx(ctx context.Context, tx pgx.Tx, tenant pgtype.UUID, versionID pgtype.UUID, seedGuardActor string) error {
 	actor, err := pgconv.UUID(seedGuardActor)
 	if err != nil {
@@ -1012,8 +1019,7 @@ WHERE other.tenant_id = target.tenant_id
     OR lower(COALESCE(other.rule_dsl->'vaccine'->>'code', '')) = 'vaccination.matrix'
     OR other.rule_dsl ? 'matrix_rows'
   )
-  AND other.drafted_by IS NOT NULL
-  AND other.drafted_by <> $3::uuid
+  AND other.drafted_by IS DISTINCT FROM $3::uuid
 ORDER BY other.protocol_version_id`, tenant, versionID, actor)
 	if err != nil {
 		return fmt.Errorf("protocol: check seed-owned matrix overlaps: %w", err)
