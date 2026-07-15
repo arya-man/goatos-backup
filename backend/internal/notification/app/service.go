@@ -59,22 +59,18 @@ func (s *Service) RunOnce(ctx context.Context, tenantID string) (domain.Dispatch
 	if err != nil {
 		return domain.DispatchResult{}, err
 	}
-	requests, err := s.repo.ClaimDue(ctx, ports.ClaimParams{
-		TenantID:     tenantID,
-		Limit:        s.config.Limit,
-		MaxAttempts:  s.config.MaxAttempts,
-		Now:          now,
-		LeaseTimeout: s.config.LeaseTimeout,
-	})
-	if err != nil {
-		return domain.DispatchResult{}, err
-	}
+
 	// Backlog age for the 1-minute fast-lane SLO alert: the GLOBALLY oldest
 	// currently-due request's wait since it was requested (ADR definition), not
-	// the oldest of the claimed batch. Under saturation a full batch of newer
-	// requests could sort ahead of an hour-old failed request whose retry just
-	// became due, hiding it; a bounded index-backed query (due rows only) reports
-	// the true global oldest. Best-effort: a probe error must never fail dispatch.
+	// the oldest of the claimed batch. This MUST run before ClaimDue: ClaimDue
+	// flips the claimed batch's status to 'sending', which removes those rows
+	// from the queued/failed partition this probe scans. Probing after the
+	// claim would report the age of whatever due work is left over -- a
+	// backlog that fits entirely in one claim batch would report age 0, and a
+	// larger backlog would report a newer row than the true oldest, hiding the
+	// exact condition the alert exists to catch. Probing here, before the
+	// claim mutates anything, measures the true backlog as it stood at tick
+	// start. Best-effort: a probe error must never fail dispatch.
 	if oldest, found, ageErr := s.repo.OldestDueRequestedAt(ctx, tenantID, now); ageErr != nil {
 		s.log.Warn("notification_backlog_age_query_failed", "error", ageErr.Error())
 	} else if found {
@@ -85,6 +81,17 @@ func (s *Service) RunOnce(ctx context.Context, tenantID string) (domain.Dispatch
 		kmetrics.RecordNotifyBacklogAge(ctx, int64(age.Seconds()))
 	} else {
 		kmetrics.RecordNotifyBacklogAge(ctx, 0)
+	}
+
+	requests, err := s.repo.ClaimDue(ctx, ports.ClaimParams{
+		TenantID:     tenantID,
+		Limit:        s.config.Limit,
+		MaxAttempts:  s.config.MaxAttempts,
+		Now:          now,
+		LeaseTimeout: s.config.LeaseTimeout,
+	})
+	if err != nil {
+		return domain.DispatchResult{}, err
 	}
 
 	result := domain.DispatchResult{ReclaimedStaleCount: reclaimed, ClaimedCount: len(requests)}

@@ -190,6 +190,23 @@ func collectRelationScans(n planNode, rel string) []planNode {
 	return out
 }
 
+// anyNodeType reports whether any node in the plan tree (rooted at n) has a
+// "Node Type" containing substr. Needed for bitmap plans: a "Bitmap Index
+// Scan" node drives the index access but carries no "Relation Name" of its
+// own (only its parent "Bitmap Heap Scan" does), so collectRelationScans
+// alone cannot see it.
+func anyNodeType(n planNode, substr string) bool {
+	if strings.Contains(n.NodeType, substr) {
+		return true
+	}
+	for _, c := range n.Plans {
+		if anyNodeType(c, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 // TestNotificationRepositoryClaimHonorsBurstLimit proves the KERN-REV-05 batch
 // budget: with the retired job's limit of 100 (not the one-shot default of 50),
 // a burst of 120 due notifications is drained 100 at a time, so the backlog
@@ -263,6 +280,115 @@ INSERT INTO notification_requests (
 	}
 	if want := now.Add(-1 * time.Hour); !oldest.Equal(want) {
 		t.Fatalf("oldest due requested_at = %v; want %v (the hour-old failed request — not a newer batch row, not the future-excluded 2h row)", oldest, want)
+	}
+}
+
+// TestNotificationRepositoryOldestDueRequestedAtPlanStaysIndexBoundedUnderSaturation
+// is the KERN-04 query-plan gate. OldestDueRequestedAtSQL (a MIN(requested_at)
+// aggregate -- see its doc comment for why an ORDER BY COALESCE(...) LIMIT 1
+// rewrite would be WRONG, not just a style choice: it would silently change
+// the metric from "true globally oldest requested_at" to "requested_at of
+// whichever row the claim queue would pick next," which
+// TestNotificationRepositoryOldestDueRequestedAtUnderSaturation proves is not
+// the same value under retry skew) must still reach notification_requests via
+// notification_requests_due_order_idx, scoped to EXACTLY the due-row
+// population -- never a Seq Scan of the whole table. The seed here mirrors a
+// realistic production shape: a large HISTORICAL population (sent, no longer
+// due -- most of a live table over time) plus a smaller due backlog, so the
+// due predicate is genuinely selective against the full table, the condition
+// under which the planner's natural (unforced) choice is the partial index.
+// Proven with sequential scans left ENABLED (no enable_seqscan=off).
+func TestNotificationRepositoryOldestDueRequestedAtPlanStaysIndexBoundedUnderSaturation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	seedCalendarEvent(t, ctx, pool, testEventID)
+
+	const historical = 300000
+	const dueBacklog = 40000
+	if _, err := pool.Exec(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, notification_type, channel, title, body,
+  status, idempotency_key, request_fingerprint, context, delivery_attempts, next_attempt_at, requested_at
+)
+SELECT $1::uuid, $2, 'cohort', 'reminder', 'local-stub', 't', 'b',
+  'sent', 'oldest-due-hist-' || g, 'oldest-due-hist-' || g || ':fp', '{}'::jsonb, 1,
+  NULL, $3::timestamptz - (g || ' seconds')::interval
+FROM generate_series(1, $4::int) g`,
+		testTenantID, testEventID, now, historical); err != nil {
+		t.Fatalf("seed historical population: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, notification_type, channel, title, body,
+  status, idempotency_key, request_fingerprint, context, delivery_attempts, next_attempt_at, requested_at
+)
+SELECT $1::uuid, $2, 'cohort', 'reminder', 'local-stub', 't', 'b',
+  'queued', 'oldest-due-backlog-' || g, 'oldest-due-backlog-' || g || ':fp', '{}'::jsonb, 0,
+  NULL, $3::timestamptz - (g || ' seconds')::interval
+FROM generate_series(1, $4::int) g`,
+		testTenantID, testEventID, now, dueBacklog); err != nil {
+		t.Fatalf("seed due backlog: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `ANALYZE notification_requests`); err != nil {
+		t.Fatalf("analyze: %v", err)
+	}
+
+	// EXPLAIN (ANALYZE) the EXACT production probe query (OldestDueRequestedAtSQL,
+	// the same string OldestDueRequestedAt runs).
+	var raw []byte
+	if err := pool.QueryRow(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\n"+OldestDueRequestedAtSQL, testTenantID, now).Scan(&raw); err != nil {
+		t.Fatalf("explain: %v", err)
+	}
+
+	var plans []struct {
+		Plan          planNode `json:"Plan"`
+		ExecutionTime float64  `json:"Execution Time"`
+	}
+	if err := json.Unmarshal(raw, &plans); err != nil || len(plans) == 0 {
+		t.Fatalf("parse explain json: %v (%s)", err, raw)
+	}
+	root := plans[0].Plan
+	scans := collectRelationScans(root, "notification_requests")
+	if len(scans) == 0 {
+		t.Fatalf("no notification_requests scan node in plan: %s", raw)
+	}
+	// (a) The planner NATURALLY reached notification_requests via an index path,
+	// never a Seq Scan of the full (historical + due) table, and the driving
+	// scan's row count matches the due backlog size, not the full table --
+	// proving the index scoped the scan to due rows only. A "Bitmap Index Scan"
+	// node (which drives the index access under a Bitmap Heap Scan) carries no
+	// "Relation Name" of its own, so the index-path check walks the WHOLE plan
+	// tree (anyNodeType), not just the relation-matched nodes.
+	sawIndex := anyNodeType(root, "Index")
+	for _, sc := range scans {
+		if strings.Contains(sc.NodeType, "Seq Scan") {
+			t.Fatalf("notification_requests reached via Seq Scan of the full table under a saturated due backlog (probe regressed off the index): %s", raw)
+		}
+		if sc.ActualRows > dueBacklog {
+			t.Fatalf("a notification_requests scan read %d rows -- more than the %d-row due backlog, so it touched non-due (historical) rows too: %s", int(sc.ActualRows), dueBacklog, raw)
+		}
+		if sc.ActualRows < dueBacklog {
+			t.Fatalf("a notification_requests scan read only %d of the %d-row due backlog -- the aggregate would be computed over a partial set: %s", int(sc.ActualRows), dueBacklog, raw)
+		}
+	}
+	if !sawIndex {
+		t.Fatalf("no index access path on notification_requests in the plan (probe fell back to scanning the full table): %s", raw)
+	}
+	if !strings.Contains(root.NodeType, "Aggregate") {
+		t.Fatalf("plan root node type=%q, want an Aggregate computing MIN(requested_at) over the due set: %s", root.NodeType, raw)
+	}
+	// (b) Buffers stay bounded to roughly the due population's heap pages, not
+	// the full (historical + due) table's pages.
+	if blocks := root.SharedHit + root.SharedRead; blocks > 2000 {
+		t.Fatalf("plan touched %.0f shared blocks -- consistent with scanning the full historical+due table, not the due-only index range: %s", blocks, raw)
+	}
+	// (c) Execution time ceiling: bounded (not instant, since this is a real
+	// aggregate over the due population), but far from a full-table scan cost.
+	if plans[0].ExecutionTime > 500 {
+		t.Fatalf("probe executed in %.1fms under a %d-row due backlog (%d historical rows also present) -- too slow for an index-bounded aggregate", plans[0].ExecutionTime, dueBacklog, historical)
 	}
 }
 

@@ -50,23 +50,53 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 
 var _ ports.Repository = (*Repository)(nil)
 
-// OldestDueRequestedAt returns the requested_at of the globally oldest
-// currently-due, undelivered request. The predicate is written as the index
-// expression (COALESCE(next_attempt_at, requested_at) <= now) so
-// notification_requests_queue_idx range-scans ONLY the due rows and stops at now
-// — future-scheduled retries are excluded and never scanned, so the aggregate is
-// bounded to the live backlog (not the full queued/failed partition). MIN over
-// no due rows yields NULL, surfaced as (_, false, nil).
-func (r *Repository) OldestDueRequestedAt(ctx context.Context, tenantID string, now time.Time) (time.Time, bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	var oldest pgtype.Timestamptz
-	err := r.pool.QueryRow(ctx, `
+// OldestDueRequestedAtSQL is the exact production backlog-age probe query,
+// exported so the query-plan gate exercises the REAL statement instead of a
+// simplified imitation that could drift from what production runs. Params:
+// $1 tenant, $2 now.
+//
+// This MUST stay a MIN(requested_at) aggregate, not an
+// ORDER BY COALESCE(next_attempt_at, requested_at) ... LIMIT 1 lookup. The two
+// are NOT equivalent: COALESCE(next_attempt_at, requested_at) is the CLAIM
+// ordering key (what ClaimDue processes first), not the request's original
+// age. Under retry skew a large batch of newer requests (small requested_at
+// gap, e.g. "requested a minute ago") can sort AHEAD of an hour-old failed
+// request whose retry only just became due (its COALESCE key is very recent
+// even though its requested_at is old) -- an ORDER BY COALESCE(...) LIMIT 1
+// probe would report that hour-old straggler as if it were only a minute
+// old, silently hiding the exact backlog-age condition this metric exists to
+// alert on. (Verified: TestNotificationRepositoryOldestDueRequestedAtUnderSaturation
+// fails against the ORDER-BY-LIMIT-1 shape for precisely this reason.) The
+// aggregate is still bounded, just not O(1): the predicate
+// (COALESCE(next_attempt_at, requested_at) <= now) is the exact partial-index
+// expression on notification_requests_due_order_idx (tenant_id,
+// COALESCE(next_attempt_at, requested_at), notification_request_id) WHERE
+// status IN ('queued', 'failed'), so under a realistic table (a large
+// historical sent/exhausted population plus a due backlog) Postgres reaches
+// this table via a Bitmap Index Scan on that index scoped to EXACTLY the due
+// rows -- never a scan of the full table or the full queued/failed
+// partition. Cost is O(D) where D is the current due-row count, not O(1):
+// that is an accepted, documented scale characteristic (the same
+// bounded-by-live-population shape used elsewhere in this codebase), not a
+// full/unbounded scan. Getting true O(1) here is not possible without either
+// changing the metric's meaning (see above) or maintaining it incrementally
+// on write (compute-on-write), which is out of scope for this fix.
+const OldestDueRequestedAtSQL = `
 SELECT MIN(requested_at)
 FROM notification_requests
 WHERE tenant_id = $1::uuid
   AND status IN ('queued', 'failed')
-  AND COALESCE(next_attempt_at, requested_at) <= $2::timestamptz`, tenantID, now).Scan(&oldest)
+  AND COALESCE(next_attempt_at, requested_at) <= $2::timestamptz`
+
+// OldestDueRequestedAt returns the requested_at of the globally oldest
+// currently-due, undelivered request. See OldestDueRequestedAtSQL for why the
+// query is a MIN(...) aggregate rather than an ORDER BY ... LIMIT 1 lookup.
+// MIN over no due rows yields NULL, surfaced as (_, false, nil).
+func (r *Repository) OldestDueRequestedAt(ctx context.Context, tenantID string, now time.Time) (time.Time, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var oldest pgtype.Timestamptz
+	err := r.pool.QueryRow(ctx, OldestDueRequestedAtSQL, tenantID, now).Scan(&oldest)
 	if err != nil {
 		return time.Time{}, false, fmt.Errorf("notification: oldest due requested_at: %w", err)
 	}

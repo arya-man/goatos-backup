@@ -220,6 +220,89 @@ WHERE tenant_id = $1::uuid AND aggregate_id = $2::uuid AND event_type = 'notific
 		0, testTenantID, requestID)
 }
 
+// TestNotificationDeliveryBacklogAgeProbedBeforeClaim is the KERN-03
+// regression: the backlog-age probe (OldestDueRequestedAt) must run BEFORE
+// ClaimDue transitions the claimed batch to 'sending', or a backlog that fits
+// entirely inside one claim batch reports age 0 -- hiding exactly the
+// condition the 1-minute fast-lane alert exists to catch. One request, whose
+// requested_at (fixed by seedNotification, see its doc comment) is months
+// before `now`, is seeded as the WHOLE backlog -- well within the default
+// claim limit, so RunOnce's ClaimDue claims it entirely. If the probe ran
+// AFTER the claim (the pre-fix order), by the time it queried status IN
+// ('queued','failed') this row would already be 'sending', so
+// OldestDueRequestedAt would see no due rows (found=false) and the service
+// would emit a backlog age of 0. Wrapping the REAL repository with a spy that
+// records exactly what OldestDueRequestedAt returned -- without altering
+// behavior -- proves the probe instead saw the row still 'queued' and
+// reported its true multi-month age.
+func TestNotificationDeliveryBacklogAgeProbedBeforeClaim(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	now := time.Date(2026, 7, 1, 11, 0, 0, 0, time.UTC)
+	eventID := "calendar:87000000-0000-4000-8000-000000020004"
+	requestKey := "notification-backlog-age-preclaim"
+	seedCalendarEvent(t, ctx, pool, eventID)
+	seedNotification(t, ctx, pool, eventID, requestKey, "queued", 0, nil)
+
+	spy := &backlogAgeSpyRepo{Repository: NewRepository(pool, 5*time.Second)}
+	gateway := &ledgerTestGateway{}
+	service := notificationapp.NewService(spy, gateway, notificationapp.Config{
+		Limit:       10,
+		MaxAttempts: 5,
+		BackoffBase: time.Second,
+		BackoffMax:  time.Second,
+		Now:         func() time.Time { return now },
+	}, nil)
+
+	result, err := service.RunOnce(ctx, testTenantID)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if result.ClaimedCount != 1 || result.SentCount != 1 {
+		t.Fatalf("result=%#v want the sole backlog row claimed+sent", result)
+	}
+	if !spy.captured {
+		t.Fatalf("OldestDueRequestedAt was never called")
+	}
+	if spy.err != nil {
+		t.Fatalf("OldestDueRequestedAt returned an error: %v", spy.err)
+	}
+	if !spy.found {
+		t.Fatalf("OldestDueRequestedAt found=false -- the probe ran AFTER ClaimDue already flipped the sole backlog row to 'sending' (KERN-03 regression)")
+	}
+	// seedNotification pins requested_at to a fixed past timestamp (see its doc
+	// comment) so a queued row is always due under the tests' fixed clock.
+	wantRequestedAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	if !spy.oldest.Equal(wantRequestedAt) {
+		t.Fatalf("OldestDueRequestedAt returned %v, want %v (seedNotification's fixed requested_at)", spy.oldest, wantRequestedAt)
+	}
+	if age := now.Sub(spy.oldest); age < 30*24*time.Hour {
+		t.Fatalf("backlog age = %v, want at least a month (the probe must have run before the claim, not after)", age)
+	}
+}
+
+// backlogAgeSpyRepo wraps the REAL repository and records exactly what
+// OldestDueRequestedAt returned, without altering behavior, so
+// TestNotificationDeliveryBacklogAgeProbedBeforeClaim can assert on the value
+// the probe saw without reaching into OpenTelemetry metric internals.
+type backlogAgeSpyRepo struct {
+	*Repository
+	captured bool
+	oldest   time.Time
+	found    bool
+	err      error
+}
+
+func (s *backlogAgeSpyRepo) OldestDueRequestedAt(ctx context.Context, tenantID string, now time.Time) (time.Time, bool, error) {
+	oldest, found, err := s.Repository.OldestDueRequestedAt(ctx, tenantID, now)
+	s.captured = true
+	s.oldest, s.found, s.err = oldest, found, err
+	return oldest, found, err
+}
+
 type deliveryAttemptExpectation struct {
 	attemptNo int
 	result    string
