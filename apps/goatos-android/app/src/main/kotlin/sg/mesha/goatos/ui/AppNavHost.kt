@@ -524,7 +524,10 @@ fun AppNavHost(
         }
 
         // Record — read-only; Close pops back. Optional shedId arg selects WHICH shed's
-        // record loads (RecordViewModel reads it from SavedStateHandle).
+        // record loads (RecordViewModel reads it from SavedStateHandle). The record surface
+        // is display-only and has NO verify/rework capability (leadership verify/rework is
+        // in the VERIFY_DETAIL surface). When a shed lacks scannable tasks, the record
+        // honestly shows "awaiting task assignment" instead of a dead-end.
         composable(
             route = "${Routes.RECORD}?${Routes.RECORD_SHED_ARG}={${Routes.RECORD_SHED_ARG}}",
             arguments = listOf(
@@ -542,14 +545,6 @@ fun AppNavHost(
                 onEvent = { event ->
                     when (event) {
                         RecordEvent.Close -> navController.popBackStack()
-                        is RecordEvent.Verify -> {
-                            // ViewModel handles Verify event (enqueues to outbox).
-                            // No nav change needed; event carries task metadata.
-                        }
-                        is RecordEvent.Rework -> {
-                            // ViewModel handles Rework event (enqueues to outbox).
-                            // No nav change needed; event carries task metadata.
-                        }
                     }
                 },
             )

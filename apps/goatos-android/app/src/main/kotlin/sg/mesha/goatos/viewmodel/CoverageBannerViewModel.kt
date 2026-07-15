@@ -7,9 +7,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.data.RosterRepository
+import sg.mesha.goatos.core.network.dto.MyCoverageResponseDto
 import sg.mesha.goatos.core.ui.CoverageBannerUiState
 import javax.inject.Inject
 
@@ -43,48 +47,36 @@ class CoverageBannerViewModel @Inject constructor(
     private val repo: RosterRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow<CoverageBannerUiState?>(null)
-    val state: StateFlow<CoverageBannerUiState?> = _state.asStateFlow()
-
-    // Internal state tracking for offline/error handling
-    private val _coverageState = MutableStateFlow<CoverageState>(CoverageState.Unknown)
-    val coverageState: StateFlow<CoverageState> = _coverageState.asStateFlow()
-
     // Track refresh state so we can distinguish "I've never refreshed" from "I tried and failed"
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
-    init {
-        load()
-    }
+    // Mirrors the classification computed inside [state]'s pipeline below, updated as a side
+    // effect of that SAME Room subscription (never a second, independent one) so its `.value`
+    // reflects the latest computation without requiring its own separate collector.
+    private val _coverageState = MutableStateFlow<CoverageState>(CoverageState.Unknown)
+    val coverageState: StateFlow<CoverageState> = _coverageState.asStateFlow()
+
+    /**
+     * MOB-010 fix: [state] is the SOLE subscriber of the Room [RosterRepository.observeCoverage]
+     * flow — it is fed directly by `stateIn(...WhileSubscribed(5_000)...)` with no permanent
+     * secondary `.collect` underneath it, so backgrounding the screen for 5s truly stops
+     * collecting Room (the prior forever-`collect` inside a `viewModelScope.launch` made
+     * `WhileSubscribed` a no-op). [onStart] on the observed flow fires exactly once per
+     * subscription activation (not once per Room emission), so a successful background
+     * refresh's Room re-emit no longer re-triggers another refresh — the old
+     * refresh -> Room re-emit -> refresh forever loop is gone.
+     */
+    val state: StateFlow<CoverageBannerUiState?> = repo.observeCoverage()
+        .onStart { refreshInBackground() }
+        .map { dto -> dto.toCoverageState() }
+        .onEach { _coverageState.value = it }
+        .map { it.toBannerUiState() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Re-fetches the current coverage status. Safe to call again on refresh/retry. */
-    fun load() = viewModelScope.launch {
-        // Lifecycle-safe observer (MOB-010): stateIn(...WhileSubscribed...) stops collecting
-        // when unsubscribed for 5s, releasing Room streams when backgrounded.
-        // Start observing Room cache immediately (stale-while-revalidate)
-        repo.observeCoverage()
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-            .collect { dto ->
-                val newState = if (dto?.coverage?.hasCoverage == true) {
-                    dto.coverage.bannerText?.ifBlank { null }?.let { CoverageState.HasCoverage(it) }
-                        ?: CoverageState.NoCoverage
-                } else if (dto != null) {
-                    // Cached or fresh response with has_coverage=false
-                    CoverageState.NoCoverage
-                } else {
-                    // No cache yet; will refresh to get real state
-                    CoverageState.Unknown
-                }
-
-                _coverageState.value = newState
-                updateBannerState(newState)
-
-                // Trigger background refresh on first load if no cache
-                if (_isRefreshing.value.not()) {
-                    refreshInBackground()
-                }
-            }
+    fun load() {
+        if (_isRefreshing.value.not()) refreshInBackground()
     }
 
     private fun refreshInBackground() = viewModelScope.launch {
@@ -97,10 +89,16 @@ class CoverageBannerViewModel @Inject constructor(
         _isRefreshing.value = false
     }
 
-    private fun updateBannerState(state: CoverageState) {
-        _state.value = when (state) {
-            is CoverageState.HasCoverage -> CoverageBannerUiState(text = state.text)
-            else -> null  // NoCoverage and Unknown both hide the banner
-        }
+    private fun MyCoverageResponseDto?.toCoverageState(): CoverageState = when {
+        this?.coverage?.hasCoverage == true ->
+            coverage.bannerText?.ifBlank { null }?.let { CoverageState.HasCoverage(it) }
+                ?: CoverageState.NoCoverage
+        this != null -> CoverageState.NoCoverage
+        else -> CoverageState.Unknown  // No cache yet; will refresh to get real state
+    }
+
+    private fun CoverageState.toBannerUiState(): CoverageBannerUiState? = when (this) {
+        is CoverageState.HasCoverage -> CoverageBannerUiState(text = text)
+        else -> null  // NoCoverage and Unknown both hide the banner
     }
 }

@@ -6,7 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -36,19 +36,26 @@ class ProfileViewModel @Inject constructor(
     private val logoutCoordinator: LogoutCoordinator,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(placeholder())
-    val state: StateFlow<ProfileUiState> = _state.asStateFlow()
+    // Imperatively-updated profile/settings data (load/signOut/setLanguage/cycleLanguage). The
+    // RFID row's live status is NOT folded in here — it is derived once, below, in [state] — so
+    // there is a single application point for [reader.status] instead of two.
+    private val _profileState = MutableStateFlow(placeholder())
+
+    /**
+     * Combines [_profileState] with the live RFID hardware status (MOB-010). This combine — and
+     * therefore the [RfidReaderPort.status] collection — is COLD: it only runs
+     * while [state] itself has an active subscriber, via the single WhileSubscribed(5_000)
+     * below (same reference pattern as [AlertsViewModel.state]). The previous approach launched
+     * a permanent forever-`collect` inside [init] around an inner `stateIn(WhileSubscribed)`,
+     * which defeated it — that inner flow never saw zero subscribers, so the RFID hardware
+     * stream was collected forever, never released when the screen was backgrounded.
+     */
+    val state: StateFlow<ProfileUiState> = combine(_profileState, reader.status) { profile, rfidStatus ->
+        profile.copy(rows = profile.rows.withRfid(rfidStatus))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), placeholder())
 
     init {
         load()
-        // Lifecycle-safe observer (MOB-010): stateIn(...WhileSubscribed...) stops collecting
-        // the RFID hardware status stream when unsubscribed for 5s, releasing hardware
-        // resources when the screen is backgrounded.
-        viewModelScope.launch {
-            reader.status
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), reader.status.value)
-                .collect { status -> _state.update { it.copy(rows = it.rows.withRfid(status)) } }
-        }
     }
 
     private fun load() = viewModelScope.launch {
@@ -62,13 +69,13 @@ class ProfileViewModel @Inject constructor(
         val name = profile?.displayName?.ifBlank { profile.displayCode }?.ifBlank { null } ?: "Signed in"
         val role = profile?.primaryRoleHint?.ifBlank { "" } ?: ""
         val location = profile?.primaryLocation?.ifBlank { "" } ?: ""
-        _state.value = ProfileUiState(
+        _profileState.value = ProfileUiState(
             name = name,
             roleLabel = role,
             // Mock subtitle is "role · location" (e.g. "Health Asst Mgr · CBE").
             scopeLabel = listOf(role, location).filter { it.isNotBlank() }.joinToString(" · "),
             initials = initialsOf(name),
-            rows = baseRows(langCode).withRfid(reader.status.value),
+            rows = baseRows(langCode),
         )
     }
 
@@ -96,7 +103,7 @@ class ProfileViewModel @Inject constructor(
     fun setLanguage(code: String) {
         val label = LANGUAGES[code] ?: return
         AppLocaleState.set(code)
-        _state.update { current ->
+        _profileState.update { current ->
             current.copy(
                 rows = current.rows.map {
                     if (it.kind == SettingKind.LANGUAGE) it.copy(value = label) else it
@@ -107,7 +114,7 @@ class ProfileViewModel @Inject constructor(
 
     /** Cycles en → hi → kn → te → en (interim, until a real language picker sheet exists). */
     fun cycleLanguage() {
-        val current = _state.value.rows.firstOrNull { it.kind == SettingKind.LANGUAGE }?.value
+        val current = _profileState.value.rows.firstOrNull { it.kind == SettingKind.LANGUAGE }?.value
         val currentCode = LANGUAGES.entries.firstOrNull { it.value == current }?.key ?: "en"
         val order = LANGUAGES.keys.toList()
         setLanguage(order[(order.indexOf(currentCode) + 1) % order.size])

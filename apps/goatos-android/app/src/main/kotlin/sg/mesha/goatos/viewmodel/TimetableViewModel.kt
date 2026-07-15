@@ -3,12 +3,16 @@ package sg.mesha.goatos.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.RosterRepository
@@ -46,72 +50,76 @@ class TimetableViewModel @Inject constructor(
     private val bootstrap: BootstrapRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(TimetableUiState())
-    val state: StateFlow<TimetableUiState> = _state.asStateFlow()
-
     // Track refresh state separately so we can show "syncing" while cached data persists
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
-    init {
-        load()
-    }
+    // A background refresh failed; folded into [state] below via [combine]. Reset to false
+    // whenever a refresh succeeds.
+    private val _isOffline = MutableStateFlow(false)
+
+    // Resolved once [state]'s flow starts running (see [roomFlow]); lets a manual
+    // [TimetableEvent.Refresh] target the same center without re-resolving the bootstrap
+    // profile mid-subscription.
+    @Volatile
+    private var resolvedCenterId: String? = null
+
+    /**
+     * MOB-010 fix: [state] is the SOLE subscriber of the Room [RosterRepository.observeTimetable]
+     * flow — it is fed directly by `stateIn(...WhileSubscribed(5_000)...)` with no permanent
+     * secondary `.collect` underneath it, so backgrounding the screen for 5s truly stops
+     * collecting Room (the prior forever-`collect` inside a `viewModelScope.launch` made
+     * `WhileSubscribed` a no-op). [onStart] on the observed flow fires exactly once per
+     * subscription activation (not once per Room emission), so a successful background
+     * refresh's Room re-emit no longer re-triggers another refresh — the old
+     * refresh -> Room re-emit -> refresh forever loop is gone.
+     */
+    val state: StateFlow<TimetableUiState> = roomFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TimetableUiState())
 
     fun onEvent(event: TimetableEvent) {
         when (event) {
-            TimetableEvent.Refresh -> load()
+            TimetableEvent.Refresh -> resolvedCenterId?.let { centerId ->
+                if (_isRefreshing.value.not()) refreshInBackground(centerId)
+            }
         }
     }
 
-    private fun load() = viewModelScope.launch {
+    /**
+     * Resolves the operator's center, then observes Room cache for that center
+     * (stale-while-revalidate). A principal with no center assigned gets an honest
+     * `no_center` error and the flow completes without ever touching [repo].
+     */
+    private fun roomFlow(): Flow<TimetableUiState> = flow {
         val centerId = runCatching { bootstrap.operatorProfile()?.primaryLocationId }.getOrNull()
         if (centerId.isNullOrBlank()) {
-            _state.value = TimetableUiState(errorCode = "no_center")
-            return@launch
+            emit(TimetableUiState(errorCode = "no_center"))
+            return@flow
         }
+        resolvedCenterId = centerId
 
-        // Lifecycle-safe observer (MOB-010): stateIn(...WhileSubscribed...) stops collecting
-        // when unsubscribed for 5s, releasing Room streams when backgrounded.
-        // Start observing Room cache immediately (stale-while-revalidate)
-        repo.observeTimetable(centerId)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-            .collect { dto ->
-                _state.update { current ->
-                    if (dto != null) {
-                        // Cache hit: render cached data (refresh flag is separate)
-                        dto.toTimetableUiState()
-                    } else if (current.rows.isEmpty() && _isRefreshing.value.not()) {
-                        // Cache miss on first load and not currently refreshing: show empty
-                        TimetableUiState(errorCode = null)
-                    } else {
-                        // Keep prior state while refreshing
-                        current
-                    }
-                }
-
-                // Trigger background refresh (stale-while-revalidate pattern)
-                if (_isRefreshing.value.not()) {
-                    refreshInBackground(centerId)
+        emitAll(
+            combine(
+                repo.observeTimetable(centerId).onStart { refreshInBackground(centerId) },
+                _isOffline,
+            ) { dto, isOffline ->
+                when {
+                    // Cache hit: render cached/fresh data; isOffline reflects the last refresh.
+                    dto != null -> dto.toTimetableUiState().copy(isOffline = isOffline)
+                    // Cache miss and the background refresh failed: honest load error.
+                    isOffline -> TimetableUiState(errorCode = "load_failed")
+                    // Cache miss, refresh pending or succeeded with nothing to show: honest empty.
+                    else -> TimetableUiState(errorCode = null)
                 }
             }
+        )
     }
 
     private fun refreshInBackground(centerId: String) = viewModelScope.launch {
         _isRefreshing.value = true
         // refreshTimetable never throws; it returns false on a network failure (cache kept).
         val refreshed = repo.refreshTimetable(centerId)
-        if (!refreshed) {
-            // Keep cached data on screen, set offline flag for the sync indicator.
-            _state.update { current ->
-                if (current.rows.isNotEmpty()) {
-                    // Refresh failed but we have cached rows: show as stale/offline.
-                    current.copy(isOffline = true, errorCode = null)
-                } else {
-                    // No cached data and refresh failed: show honest error.
-                    TimetableUiState(errorCode = "load_failed")
-                }
-            }
-        }
+        _isOffline.value = !refreshed
         _isRefreshing.value = false
     }
 }

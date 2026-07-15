@@ -10,11 +10,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
-import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.feature.record.RecordEvent
 import sg.mesha.goatos.feature.record.RecordTone
@@ -33,12 +31,15 @@ import javax.inject.Inject
  * ever observed shows an honest error state; a refresh failure WITH cached data keeps rendering
  * that cache and only flips [RecordUiState.isOffline] — never a blank/loading wall.
  *
- * Verify/Rework actions (C35-011) are enqueued to the outbox for offline-first delivery.
+ * This surface is READ-ONLY and has NO verify/rework capability. Leadership verify/rework is
+ * fully implemented in the VERIFY_DETAIL surface (VerifyDetailViewModel + approve/reject flow).
+ * When a shed has due work but no scannable task yet (all rows lack sopTaskId), the record
+ * honestly displays "No scannable task yet — awaiting task assignment" instead of a silent
+ * dead-end, making clear why no scan/submit is possible.
  */
 @HiltViewModel
 class RecordViewModel @Inject constructor(
     private val repo: ExecutionRepository,
-    private val syncRepo: SyncRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -97,18 +98,6 @@ class RecordViewModel @Inject constructor(
     fun onEvent(event: RecordEvent) {
         when (event) {
             RecordEvent.Close -> Unit // navigation — handled by the nav host.
-            is RecordEvent.Verify -> {
-                // Enqueue verify task to outbox for offline-first delivery.
-                viewModelScope.launch {
-                    syncRepo.enqueueVerifyTask(event.taskId, event.reason, event.rowVersion)
-                }
-            }
-            is RecordEvent.Rework -> {
-                // Enqueue rework task to outbox for offline-first delivery.
-                viewModelScope.launch {
-                    syncRepo.enqueueReworkTask(event.taskId, event.reason, event.rowVersion)
-                }
-            }
         }
     }
 
@@ -123,14 +112,29 @@ class RecordViewModel @Inject constructor(
             )
         }
         val complete = summary.total > 0 && summary.completed >= summary.total
+
+        // BUG-001: Detect shed with due work but no scannable task (all rows have blank sopTaskId).
+        // In this case, show an explicit "awaiting task assignment" message instead of a silent dead-end.
+        val hasWorkDue = summary.total > summary.completed
+        val allRowsLackTaskId = rows.isNotEmpty() && rows.all { it.sopTaskId.isNullOrBlank() }
+        val hasNoScannableTask = hasWorkDue && allRowsLackTaskId
+
         return base.copy(
             title = "$shedName · record",
             subtitle = "${summary.completed} / ${summary.total} done",
             // Real drives only — a shed with no drives renders empty, never the sample rows.
             groups = groups,
             countLabel = "${summary.completed} doses",
-            statusLabel = if (complete) "Done" else "In progress",
-            statusTone = if (complete) RecordTone.OK else RecordTone.WARN,
+            statusLabel = when {
+                hasNoScannableTask -> "No scannable task yet — awaiting task assignment"
+                complete -> "Done"
+                else -> "In progress"
+            },
+            statusTone = when {
+                hasNoScannableTask -> RecordTone.WARN
+                complete -> RecordTone.OK
+                else -> RecordTone.WARN
+            },
         )
     }
 

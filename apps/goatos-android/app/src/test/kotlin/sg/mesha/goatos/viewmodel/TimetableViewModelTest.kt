@@ -2,8 +2,10 @@ package sg.mesha.goatos.viewmodel
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -58,6 +60,9 @@ class TimetableViewModelTest {
         val bootstrap = FakeBootstrapRepository(centerId = "center1")
 
         val vm = TimetableViewModel(repo, bootstrap)
+        // [state] is now the sole subscriber that activates the Room flow (MOB-010 fix);
+        // it must be collected to make the pipeline hot before reading `.value`.
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         val state = vm.state.value
@@ -65,6 +70,7 @@ class TimetableViewModelTest {
         assertEquals("P1", state.rows.first().positionLabel)
         assertNull(state.errorCode)
         assertFalse("cache is not offline; it is just cached", state.isOffline)
+        job.cancelAndJoin()
     }
 
     /** Cold start with no cache (first load): honest empty state, not an error. */
@@ -74,12 +80,14 @@ class TimetableViewModelTest {
         val bootstrap = FakeBootstrapRepository(centerId = "center1")
 
         val vm = TimetableViewModel(repo, bootstrap)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         val state = vm.state.value
         assertTrue("cache miss shows empty", state.rows.isEmpty())
         // The default fake refresh is a no-op success, so the empty cache stays honest.
         assertNull("not an error; just empty", state.errorCode)
+        job.cancelAndJoin()
     }
 
     /** No center assigned: explicit "no_center" error (not a network error). */
@@ -89,11 +97,13 @@ class TimetableViewModelTest {
         val bootstrap = FakeBootstrapRepository(centerId = null)
 
         val vm = TimetableViewModel(repo, bootstrap)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         val state = vm.state.value
         assertEquals("no_center", state.errorCode)
         assertTrue(state.rows.isEmpty())
+        job.cancelAndJoin()
     }
 
     /** Refresh fails with cached data: keep data on screen, set isOffline=true. */
@@ -106,6 +116,7 @@ class TimetableViewModelTest {
         val bootstrap = FakeBootstrapRepository(centerId = "center1")
 
         val vm = TimetableViewModel(repo, bootstrap)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         val state = vm.state.value
@@ -113,6 +124,7 @@ class TimetableViewModelTest {
         assertEquals("P1", state.rows.first().positionLabel)
         assertTrue("offline flag set after failed refresh", state.isOffline)
         assertNull("not an error; data exists", state.errorCode)
+        job.cancelAndJoin()
     }
 
     /** Refresh fails with NO cached data: show load_failed error. */
@@ -125,11 +137,13 @@ class TimetableViewModelTest {
         val bootstrap = FakeBootstrapRepository(centerId = "center1")
 
         val vm = TimetableViewModel(repo, bootstrap)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         val state = vm.state.value
         assertEquals("no cache and refresh failed", "load_failed", state.errorCode)
         assertTrue(state.rows.isEmpty())
+        job.cancelAndJoin()
     }
 
     /** Successful refresh updates cached data and clears offline flag (Room re-emit). */
@@ -142,12 +156,14 @@ class TimetableViewModelTest {
         val bootstrap = FakeBootstrapRepository(centerId = "center1")
 
         val vm = TimetableViewModel(repo, bootstrap)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         val state = vm.state.value
         assertEquals("refreshed data re-emitted via Room flow", "NEW", state.rows.first().positionLabel)
         assertFalse(state.isOffline)
         assertNull(state.errorCode)
+        job.cancelAndJoin()
     }
 
     /**
@@ -163,12 +179,14 @@ class TimetableViewModelTest {
         val bootstrap = FakeBootstrapRepository(centerId = "center1")
 
         val vm = TimetableViewModel(repo, bootstrap)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         val state = vm.state.value
         assertEquals("timetable restored from Room cache after process death", "P1", state.rows.first().positionLabel)
         assertTrue("offline surfaced distinctly from a load error", state.isOffline)
         assertNull(state.errorCode)
+        job.cancelAndJoin()
     }
 }
 

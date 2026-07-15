@@ -6,6 +6,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -52,6 +53,9 @@ class SubmitViewModelIdentityTest {
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             savedStateHandle = SavedStateHandle(mapOf("taskId" to "task-selected")),
         )
+        // MOB-010: the Room task-detail observer is now gated on `state` having a subscriber —
+        // keep it hot for the duration of the test the same way a real screen would.
+        backgroundScope.launch { viewModel.state.collect {} }
 
         advanceUntilIdle()
 

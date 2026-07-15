@@ -2,8 +2,10 @@ package sg.mesha.goatos.viewmodel
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -51,10 +53,14 @@ class CoverageBannerViewModelTest {
         val repo = FakeCoverageRepository().apply { setCachedCoverage(coverage(true, "Covering PM1")) }
 
         val vm = CoverageBannerViewModel(repo)
+        // [state] is now the sole subscriber that activates the Room flow (MOB-010 fix);
+        // it must be collected to make the pipeline (and [coverageState]) hot.
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         assertEquals("Covering PM1", vm.state.value?.text)
         assertTrue(vm.coverageState.value is CoverageState.HasCoverage)
+        job.cancelAndJoin()
     }
 
     /** Cold start with no coverage cached: banner hidden, state is NoCoverage (not Unknown). */
@@ -63,6 +69,7 @@ class CoverageBannerViewModelTest {
         val repo = FakeCoverageRepository().apply { setCachedCoverage(coverage(false)) }
 
         val vm = CoverageBannerViewModel(repo)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         assertNull("banner hidden", vm.state.value)
@@ -71,6 +78,7 @@ class CoverageBannerViewModelTest {
             CoverageState.NoCoverage,
             vm.coverageState.value,
         )
+        job.cancelAndJoin()
     }
 
     /** Cold start with no cache: banner hidden, state is Unknown (awaiting first refresh). */
@@ -82,6 +90,7 @@ class CoverageBannerViewModelTest {
         }
 
         val vm = CoverageBannerViewModel(repo)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         assertNull("banner hidden on Unknown", vm.state.value)
@@ -90,6 +99,7 @@ class CoverageBannerViewModelTest {
             CoverageState.Unknown,
             vm.coverageState.value,
         )
+        job.cancelAndJoin()
     }
 
     /**
@@ -104,10 +114,12 @@ class CoverageBannerViewModelTest {
         }
 
         val vm = CoverageBannerViewModel(repo)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         assertEquals("keep showing cached coverage", "Covering PM1", vm.state.value?.text)
         assertTrue(vm.coverageState.value is CoverageState.HasCoverage)
+        job.cancelAndJoin()
     }
 
     /** Failed refresh with no-coverage cached: keep NoCoverage (distinct from Unknown/offline). */
@@ -119,6 +131,7 @@ class CoverageBannerViewModelTest {
         }
 
         val vm = CoverageBannerViewModel(repo)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         assertNull("banner stays hidden", vm.state.value)
@@ -127,6 +140,7 @@ class CoverageBannerViewModelTest {
             CoverageState.NoCoverage,
             vm.coverageState.value,
         )
+        job.cancelAndJoin()
     }
 
     /** Successful refresh moves state from NoCoverage to HasCoverage (Room re-emit). */
@@ -138,10 +152,12 @@ class CoverageBannerViewModelTest {
         }
 
         val vm = CoverageBannerViewModel(repo)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         assertEquals("Now covering PM1", vm.state.value?.text)
         assertTrue(vm.coverageState.value is CoverageState.HasCoverage)
+        job.cancelAndJoin()
     }
 
     /**
@@ -156,6 +172,7 @@ class CoverageBannerViewModelTest {
         }
 
         val vm = CoverageBannerViewModel(repo)
+        val job = launch { vm.state.collect {} }
         advanceUntilIdle()
 
         assertEquals(
@@ -164,6 +181,7 @@ class CoverageBannerViewModelTest {
             vm.state.value?.text,
         )
         assertTrue(vm.coverageState.value is CoverageState.HasCoverage)
+        job.cancelAndJoin()
     }
 }
 

@@ -104,15 +104,25 @@ class SubmitViewModel @Inject constructor(
     private val _state = MutableStateFlow(loadingState())
     val state: StateFlow<SubmitUiState> = _state.asStateFlow()
 
+    // MOB-010: true while [state] has at least one active UI subscriber. `_state.subscriptionCount`
+    // is the SAME counter `state` (its `asStateFlow()` view) increments/decrements — asStateFlow()
+    // is a read-only wrapper over the identical underlying shared flow, it does not fork a second
+    // counter. The three Room observers below (`observeCaptureState`'s two flows + `load()`'s task
+    // detail flow) each gate their collection on this via collectLatest, so upstream collection
+    // starts the moment the UI subscribes to [state] and is cancelled the moment it unsubscribes
+    // (collectLatest cancels the previous branch before running the next) — replacing the
+    // previous forever-collectors that permanently subscribed to an inner
+    // stateIn(WhileSubscribed(5_000)), defeating it: that inner flow never saw zero subscribers,
+    // so the Room streams were collected forever, never released when the screen backgrounded.
+    private val uiSubscribed = _state.subscriptionCount.map { it > 0 }.distinctUntilChanged()
+
     private var currentTask: TaskSummaryDto? = null
     private var currentForm: FormSpec = FormSpec.Empty
     private val selectedTaskId: String? = savedStateHandle.get<String>("taskId")
     private var statusJob: Job? = null
     private var scanTagJob: Job? = null
 
-    // Lifecycle-safe StateFlow observers (MOB-010): these expose the Room observers via
-    // stateIn(...WhileSubscribed...) so they stop collecting when unsubscribed for 5s,
-    // releasing hardware/DB streams when the screen is backgrounded.
+    // Room-first capture caches driven by the gated observers in [observeCaptureState] (MOB-010).
     private var currentScans: List<ScannedGoatRow> = emptyList()
     private var currentProofs: List<ProofCaptureRow> = emptyList()
     private var scanningFieldKey: String? = null
@@ -188,12 +198,16 @@ class SubmitViewModel @Inject constructor(
         // refresh below — never blank on re-entry once a row exists for this task id.
         refreshFailedForTaskId = null
         observeCaptureState(taskId)
-        // Lifecycle-safe observer (MOB-010): stateIn(...WhileSubscribed...) stops collecting
-        // when unsubscribed for 5s, releasing Room streams when backgrounded.
+        // Lifecycle-safe observer (MOB-010): gated on [uiSubscribed] so the Room task-detail
+        // stream is collected only while [state] has a subscriber — collectLatest cancels the
+        // previous branch the instant `subscribed` flips, releasing the stream the moment the
+        // screen backgrounds instead of running forever.
         viewModelScope.launch {
-            repo.observeTaskDetail(taskId)
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
-                .collect { resource -> applyTaskResource(resource) }
+            uiSubscribed.collectLatest { subscribed ->
+                if (subscribed) {
+                    repo.observeTaskDetail(taskId).collect { resource -> applyTaskResource(resource) }
+                }
+            }
         }
         val refreshResult = repo.refreshTaskDetail(taskId)
         if (refreshResult.isFailure && currentTask == null) {
@@ -209,24 +223,29 @@ class SubmitViewModel @Inject constructor(
 
     /** Wires lifecycle-safe Room-first scan/proof observers for [taskId] (MOB-010) — every
      *  emission re-renders the draft so the scan count / proof-item list the operator sees is
-     *  always exactly what Room holds, never a stale in-memory echo. Uses stateIn(...WhileSubscribed...)
-     *  so collection stops when unsubscribed for 5s, releasing DB streams when backgrounded. */
+     *  always exactly what Room holds, never a stale in-memory echo. Gated on [uiSubscribed] so
+     *  collection runs only while [state] has a subscriber, releasing the DB streams the instant
+     *  the screen backgrounds instead of running forever. */
     private fun observeCaptureState(taskId: String) {
         viewModelScope.launch {
-            scanCaptureRepository.observeAllForTask(taskId)
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-                .collect { rows ->
-                    currentScans = rows
-                    renderDraft()
+            uiSubscribed.collectLatest { subscribed ->
+                if (subscribed) {
+                    scanCaptureRepository.observeAllForTask(taskId).collect { rows ->
+                        currentScans = rows
+                        renderDraft()
+                    }
                 }
+            }
         }
         viewModelScope.launch {
-            proofCaptureRepository.observeProofs(taskId)
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-                .collect { rows ->
-                    currentProofs = rows
-                    renderDraft()
+            uiSubscribed.collectLatest { subscribed ->
+                if (subscribed) {
+                    proofCaptureRepository.observeProofs(taskId).collect { rows ->
+                        currentProofs = rows
+                        renderDraft()
+                    }
                 }
+            }
         }
     }
 

@@ -109,8 +109,6 @@ data class RecordUiState(
 
 sealed interface RecordEvent {
     data object Close : RecordEvent
-    data class Verify(val taskId: String, val reason: String, val rowVersion: Int) : RecordEvent
-    data class Rework(val taskId: String, val reason: String, val rowVersion: Int) : RecordEvent
 }
 
 @Composable

@@ -6,6 +6,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -102,6 +103,9 @@ class SubmitViewModelFormTest {
         val repository = FakeFormTasksRepository(task, form)
         val sync = CapturingSyncRepository()
         val viewModel = viewModel(repository, sync, "task-1")
+        // MOB-010: the Room task-detail/scan/proof observers are now gated on `state` having a
+        // subscriber — keep it hot for the duration of the test the same way a real screen would.
+        backgroundScope.launch { viewModel.state.collect {} }
 
         advanceUntilIdle()
         assertFalse("submit must stay blocked while a required field is unanswered", viewModel.state.value.canSubmit)
@@ -135,6 +139,7 @@ class SubmitViewModelFormTest {
         val sync = CapturingSyncRepository()
         val scanSource = FakeScanSource()
         val viewModel = viewModel(repository, sync, "task-scan", scanSource = scanSource)
+        backgroundScope.launch { viewModel.state.collect {} }
 
         advanceUntilIdle()
         assertFalse(viewModel.state.value.canSubmit)
@@ -177,6 +182,7 @@ class SubmitViewModelFormTest {
         val sync = CapturingSyncRepository()
         val proofCaptureSource = FakeProofCaptureSource()
         val viewModel = viewModel(repository, sync, "task-2", proofCaptureSource = proofCaptureSource)
+        backgroundScope.launch { viewModel.state.collect {} }
 
         advanceUntilIdle()
         assertFalse(viewModel.state.value.canSubmit)
@@ -219,12 +225,14 @@ class SubmitViewModelFormTest {
             override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = Result.failure(IllegalStateException("offline"))
         }
         val coldCacheVm = viewModel(stuckRepository, CapturingSyncRepository(), "task-x")
+        backgroundScope.launch { coldCacheVm.state.collect {} }
         advanceUntilIdle()
         assertFixtureFree(coldCacheVm.state.value)
         assertTrue(coldCacheVm.state.value.isTaskLoadFailed)
 
         // No task assigned: taskId is blank.
         val noTaskVm = viewModel(stuckRepository, CapturingSyncRepository(), null)
+        backgroundScope.launch { noTaskVm.state.collect {} }
         advanceUntilIdle()
         assertFixtureFree(noTaskVm.state.value)
         assertTrue(noTaskVm.state.value.isNoTaskAssigned)
@@ -245,6 +253,7 @@ class SubmitViewModelFormTest {
             "task-role",
             bootstrapRepository = FakeCaptureBootstrapRepository(profile = null),
         )
+        backgroundScope.launch { viewModel.state.collect {} }
 
         advanceUntilIdle()
         assertTrue(viewModel.state.value.isCaptureRoleBlocked)
