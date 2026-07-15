@@ -400,6 +400,10 @@ func validRetireIdentifierBody() string {
 	return `{"reason":"synthetic retire reason","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":2}`
 }
 
+func validIdentityGoatBody() string {
+	return `{"dob":"2026-05-01","reason":"synthetic dob correction","evidence_refs":[{"evidence_type":"source_record","evidence_id":"synthetic-row-1","source_system":"synthetic_import"}],"row_version":1}`
+}
+
 type handlerRepo struct {
 	addIdentifierResult    *ports.AdminGoatMutationResult
 	retireIdentifierResult *ports.AdminGoatMutationResult

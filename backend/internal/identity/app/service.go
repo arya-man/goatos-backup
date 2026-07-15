@@ -306,6 +306,9 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrInvalidReference) {
 		return BadRequest("invalid_reference", "referenced identity data is missing, inactive, or outside tenant scope")
 	}
+	if errors.Is(err, ports.ErrInvalidChronology) {
+		return BadRequest("invalid_chronology", "dob must be on or before entry_date")
+	}
 	if errors.Is(err, ports.ErrCriticalDeathGuardrailRequired) {
 		return criticalDeathTransitionError()
 	}

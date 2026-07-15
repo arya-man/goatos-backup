@@ -259,6 +259,34 @@ corrected DOB).
   reschedule HTTP future-check uses the handler's injectable clock, removing the
   date-relative flakiness in the reschedule stories.
 
+### F. Round-3 review corrections (2026-07-15)
+
+- **VACC-REV-06 — per-DOSE suppression (P0).** History suppression now matches the SPECIFIC
+  administered dose (`hasSameDoseAdministration` on dose_code/sequence), not any dose of the
+  vaccine, so a completed ET+TT week-4 dose no longer suppresses the still-required week-7 booster
+  (or adult wave two). Guard: `TestGenerateSuppressesOnlyAdministeredDoseNotLaterBoosters`.
+- **VACC-REV-07 — server time for recompute (P0).** `IdentityGoat` uses the SERVER processing
+  instant for the recompute as_of + persisted `updated_at`; a client `occurred_at` is retained only
+  as the business effective date and a FUTURE value is rejected. A backdated correction can no
+  longer sort before an accepted completion's `verified_at` and regenerate anchored work. Guards:
+  `TestIdentityGoatRejectsFutureOccurredAtAndUsesServerTime`, and the history story now BACKDATES
+  the correction and still asserts suppression.
+- **VACC-REV-08 — chronology (P0).** `Repository.IdentityGoat` validates `dob <= entry_date` on the
+  EFFECTIVE pair (submitted-or-stored) under the row lock; a violation returns
+  `ErrInvalidChronology` with no mutation/decision/outbox. Guard: `TestIdentityGoatEnforcesChronology`.
+- **VACC-REV-09 — route permission (P1).** `POST /admin/goats/{goat_id}/identity` registered in the
+  permissions registry with `GoatWriteIdentity` (was 403 route_not_registered through real auth).
+  Guard: the `TestPhase1BWriteRoutesUseExpectedPermissions` identity case.
+- **VACC-REV-10 — durable review item (P1).** A stale K-stage past the cutoff now records ONE
+  goat-scoped `vaccination_stage_review_items` row (reason + observed stage/age; migration 000192),
+  idempotent via `ReviewItemRecorder`, so operators can find the animals — not just a counter. Guard:
+  `TestGenerationRecordsStaleKidStageReviewItem`.
+- **VACC-REV-11 — lock-safe CHECK migration (P1).** Migration 000191 now adds the `identity_goat`
+  decision type the lock-safe way (NOT VALID + separate VALIDATE + catalog swap) instead of a
+  validated CHECK re-add that scans `identity_decisions` under ACCESS EXCLUSIVE. The
+  hot-index-migration guard now includes `identity_decisions`, so future validated CHECK additions
+  there are rejected (000146 grandfathered as deployed debt).
+
 ## Open data caveats
 - `procurement_hf_vaccination_evidence` has **0 rows** — the 498 procured
   animals' procurement primary is not in that table; confirm it is captured in the

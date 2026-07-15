@@ -17,6 +17,7 @@ var (
 	ErrInvalidReference               = errors.New("identity referenced record is invalid")
 	ErrInvalidCursor                  = errors.New("invalid pagination cursor")
 	ErrGuardrailRequired              = errors.New("identity critical transition requires guardrail")
+	ErrInvalidChronology              = errors.New("identity dob must be on or before entry_date")
 	ErrCriticalDeathGuardrailRequired = fmt.Errorf("%w: death exit", ErrGuardrailRequired)
 )
 
@@ -192,9 +193,13 @@ type IdentityGoatCommand struct {
 	DOB                  *time.Time
 	EntryDate            *time.Time
 	Reason               string
-	OccurredAt           time.Time
-	EvidenceRefs         []domain.EvidenceRef
-	RowVersion           int
+	// OccurredAt is the SERVER processing instant used for recomputation, decision, and updated_at.
+	// EffectiveAt is the optional client-supplied business effective date, retained for audit only —
+	// it never drives the generation as_of or persisted timestamps (VACC-REV-07).
+	OccurredAt   time.Time
+	EffectiveAt  *time.Time
+	EvidenceRefs []domain.EvidenceRef
+	RowVersion   int
 }
 
 type AdminGoatCreateIdentifier struct {

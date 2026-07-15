@@ -1446,3 +1446,38 @@ func conflictForTest(name string) string {
 	}
 	return ""
 }
+
+// TestIdentityGoatRejectsFutureOccurredAtAndUsesServerTime is the VACC-REV-07 guard: a future
+// occurred_at is rejected, and a valid (past) client occurred_at never becomes the recompute/persist
+// instant — the command carries server time as OccurredAt and retains the client value as EffectiveAt.
+func TestIdentityGoatRejectsFutureOccurredAtAndUsesServerTime(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
+	svc := NewService(repo)
+
+	// Future occurred_at is rejected before any repo call.
+	_, err := svc.IdentityGoat(context.Background(), IdentityGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-future", TraceID: testTrace, GoatID: goatA,
+		RawBody: []byte(`{"dob":"2026-05-01","occurred_at":"2999-01-01T00:00:00Z","reason":"backdated correction attempt","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-1"}],"row_version":3}`),
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.Code != "invalid_occurred_at" {
+		t.Fatalf("future occurred_at error = %v, want invalid_occurred_at", err)
+	}
+
+	// A valid (past) client occurred_at: the command persists/recomputes with SERVER time and keeps
+	// the client value only as the effective date.
+	before := time.Now().UTC()
+	backdated := before.AddDate(-1, 0, 0).Format(time.RFC3339)
+	if _, err := svc.IdentityGoat(context.Background(), IdentityGoatInput{
+		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-past", TraceID: testTrace, GoatID: goatA,
+		RawBody: []byte(fmt.Sprintf(`{"dob":"2026-05-01","occurred_at":%q,"reason":"correction with a backdated effective date","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-2"}],"row_version":3}`, backdated)),
+	}); err != nil {
+		t.Fatalf("valid backdated correction rejected: %v", err)
+	}
+	if repo.lastIdentityGoatCmd.OccurredAt.Before(before) {
+		t.Fatalf("command OccurredAt = %s, want server time >= %s (never the backdated client value)", repo.lastIdentityGoatCmd.OccurredAt, before)
+	}
+	if repo.lastIdentityGoatCmd.EffectiveAt == nil || repo.lastIdentityGoatCmd.EffectiveAt.Format("2006-01-02") != before.AddDate(-1, 0, 0).Format("2006-01-02") {
+		t.Fatalf("EffectiveAt = %v, want the retained client effective date", repo.lastIdentityGoatCmd.EffectiveAt)
+	}
+}

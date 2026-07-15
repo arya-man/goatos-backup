@@ -369,9 +369,20 @@ func (s *Service) IdentityGoat(ctx context.Context, input IdentityGoatInput) (*d
 	if err != nil {
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
-	occurredAt := time.Now().UTC()
+	// VACC-REV-07: recomputation + persistence use the SERVER processing instant, never a
+	// client-supplied occurred_at. A backdated occurred_at must not become the generation as_of (it
+	// would sort before an accepted completion's verified_at and let already-anchored work be
+	// regenerated); a future occurred_at is rejected (it would evaluate schedules ahead of time and
+	// stamp a future updated_at). Any client-supplied value is retained only as the business
+	// effective date for audit.
+	serverNow := time.Now().UTC()
+	var effectiveAt *time.Time
 	if body.OccurredAt != nil {
-		occurredAt = body.OccurredAt.UTC()
+		if body.OccurredAt.After(serverNow.Add(2 * time.Minute)) {
+			return nil, BadRequest("invalid_occurred_at", "occurred_at cannot be in the future")
+		}
+		ea := body.OccurredAt.UTC()
+		effectiveAt = &ea
 	}
 	result, err := s.repo.IdentityGoat(ctx, ports.IdentityGoatCommand{
 		TenantID:             tenantID,
@@ -385,7 +396,8 @@ func (s *Service) IdentityGoat(ctx context.Context, input IdentityGoatInput) (*d
 		DOB:                  dob,
 		EntryDate:            entryDate,
 		Reason:               strings.TrimSpace(body.Reason),
-		OccurredAt:           occurredAt,
+		OccurredAt:           serverNow,
+		EffectiveAt:          effectiveAt,
 		EvidenceRefs:         body.EvidenceRefs,
 		RowVersion:           body.RowVersion,
 	})

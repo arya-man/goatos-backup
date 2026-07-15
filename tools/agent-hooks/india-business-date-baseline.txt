@@ -75,7 +75,6 @@ backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:363
 backend/internal/obligation/adapters/postgres/reschedule_integration_test.go:373
 backend/internal/proof/app/service_test.go:190
 backend/internal/proof/app/service_test.go:191
-backend/internal/identity/adapters/http/handler_test.go:541
 backend/internal/identity/app/service_test.go:1186
 backend/internal/identity/app/service_test.go:1194
 backend/internal/identity/app/service_test.go:1227
@@ -91,3 +90,5 @@ backend/internal/identity/app/service_test.go:224
 backend/internal/identity/app/service_test.go:231
 backend/internal/identity/app/service_test.go:287
 backend/internal/identity/app/service_test.go:294
+backend/internal/identity/adapters/http/handler_test.go:545
+backend/internal/identity/adapters/postgres/identifier_write_integration_test.go:1472

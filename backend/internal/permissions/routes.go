@@ -26,6 +26,7 @@ var protectedRoutes = []Route{
 	{OperationID: "stageGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/stage", Permissions: []string{GoatWriteIdentity}},
 	{OperationID: "healthGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/health", Permissions: []string{GoatWriteHealth}},
 	{OperationID: "reproductiveGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/reproductive", Permissions: []string{GoatWriteHealth}},
+	{OperationID: "identityGoat", Method: "POST", Pattern: "/admin/goats/{goat_id}/identity", Permissions: []string{GoatWriteIdentity}},
 	// Bulk status-update kernel spans the reproductive/health/exit axes, so it
 	// requires both the identity and health write grants (superuser data op).
 	{OperationID: "previewBulkStatusUpdate", Method: "POST", Pattern: "/admin/goats/bulk-status/preview", Permissions: []string{GoatWriteIdentity, GoatWriteHealth}},

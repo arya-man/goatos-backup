@@ -34,6 +34,7 @@ hot_tables = {
     "goat_identity_counter_projection_state",
     "goat_identity_counters",
     "goat_identity_events",
+    "identity_decisions",
     "goat_identifiers",
     "goat_location_history",
     "goat_ownership",
@@ -133,6 +134,21 @@ reviewed_applied_debt = {
     # since-dropped table.
     "000189_drop_calendar_projection.sql: notification_requests_event_identity_fk on hot table notification_requests uses direct DROP CONSTRAINT",
     "000189_drop_calendar_projection.sql: calendar_snoozes_event_identity_fk on hot table calendar_snoozes uses direct DROP CONSTRAINT",
+    # identity_decisions is added to the hot-table set by VACC-REV-11 so future validated CHECK
+    # additions there are rejected. 000146 (reproductive_goat decision) is a DEPLOYED,
+    # checksum-tracked migration that predates this rule and used the direct drop + re-add-VALIDATED
+    # CHECK shape; it is grandfathered as reviewed debt (identical to 000152) and must not be edited.
+    "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct DROP CONSTRAINT",
+    "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct CHECK/FOREIGN KEY constraint without NOT VALID",
+    "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct DROP CONSTRAINT in goose Down section",
+    "000146_goat_reproductive_identity_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct CHECK/FOREIGN KEY constraint without NOT VALID in goose Down section",
+    # 000191 (identity_goat decision, VACC-REV-11) adds the value the LOCK-SAFE way: the re-add is
+    # NOT VALID (no "without NOT VALID" finding above), so only the inherent catalog-only DROP + the
+    # concurrent VALIDATE remain — the same reviewed shape as 000166/000179/000181.
+    "000191_goat_identity_correction_decision.sql: identity_decisions_decision_type_check_v2 on hot table identity_decisions uses direct VALIDATE CONSTRAINT",
+    "000191_goat_identity_correction_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct DROP CONSTRAINT",
+    "000191_goat_identity_correction_decision.sql: identity_decisions_decision_type_check_v1 on hot table identity_decisions uses direct VALIDATE CONSTRAINT in goose Down section",
+    "000191_goat_identity_correction_decision.sql: identity_decisions_decision_type_check on hot table identity_decisions uses direct DROP CONSTRAINT in goose Down section",
 }
 
 create_table_re = re.compile(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)

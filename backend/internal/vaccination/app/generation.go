@@ -87,6 +87,13 @@ type GenerationRunRecorder interface {
 	HeartbeatGenerationRun(ctx context.Context, tenantID, runID string) error
 }
 
+// ReviewItemRecorder durably records a goat-scoped vaccination review item (VACC-REV-10). It is an
+// optional generation dependency: the vaccination read/write repo implements it, so no constructor
+// change is needed. Idempotent on the supplied key — replayed generation never duplicates the item.
+type ReviewItemRecorder interface {
+	RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error
+}
+
 // CompletionEvidenceReader checks reviewed imported/HF completion evidence before SM-1 materializes
 // a matching post-arrival obligation. Only trusted evidence may suppress due work.
 type CompletionEvidenceReader interface {
@@ -172,6 +179,7 @@ type GenerationService struct {
 	crossVaccineGap CrossVaccineGapReader
 	crossHistory    CrossVaccineGapHistoryReader
 	runs            GenerationRunRecorder
+	review          ReviewItemRecorder
 	page            int32
 }
 
@@ -191,6 +199,9 @@ func NewGenerationService(proto ProtocolReader, goats GoatLister, obl Obligation
 	}
 	if recorder, ok := goats.(GenerationRunRecorder); ok {
 		s.runs = recorder
+	}
+	if reviewer, ok := goats.(ReviewItemRecorder); ok {
+		s.review = reviewer
 	}
 	return s
 }
@@ -1049,9 +1060,18 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf, vaccineHistory)
 	if staleKidStageAfterCutoff(g, policies.Procurement, asOf) {
-		// Tag/age conflict: live K-stage past the 20-week cutoff. Record a review signal; the goat
-		// is on the adult path above, so no kid vaccinations are generated for it.
+		// Tag/age conflict: live K-stage past the 20-week cutoff. The goat is on the adult path above
+		// (no kid vaccinations), and we record ONE durable, goat-scoped review item so an operator can
+		// find and reconcile the stale tag — idempotent on a stable per-goat key so replays add none.
 		res.ReviewSignals++
+		if s.review != nil {
+			observedAgeWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
+			reviewKey := "vacc-stage-review:" + tenantID + ":" + g.GoatID + ":" + strings.ToUpper(strings.TrimSpace(g.Stage))
+			if err := s.review.RecordStageReviewItem(ctx, tenantID, g.GoatID,
+				"kid_stage_past_age_cutoff", strings.TrimSpace(g.Stage), observedAgeWeeks, reviewKey); err != nil {
+				return err
+			}
+		}
 	}
 	for _, rule := range rules {
 		ruleEligibility, ruleVaccine, err := ruleGenerationContext(rule, versionEligibility, vaccineProf)
@@ -1064,17 +1084,16 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ruleMatchesSchedulePath(rule, path) {
 			continue
 		}
-		// History outranks DOB/arrival, per vaccine: once an accepted administration of this rule's
-		// own vaccine exists, the after_previous_completion rule owns all future scheduling for that
-		// vaccine. The birth_age/post_arrival PRIMARY must be suppressed whenever same-vaccine history
-		// exists — even AFTER a DOB/entry-date correction makes dueAt resolvable — so a later identity
-		// correction can never replace, duplicate, or replay the completion-anchored schedule. (When
-		// dueAt skips because the anchor is missing, the skip branch below also handles this; this
-		// early guard additionally covers the anchor-now-available case.)
-		if isPrimaryAnchorRule(rule) && hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
+		// History outranks DOB/arrival, per DOSE: once THIS rule's own dose has been administered, it
+		// must not be regenerated — even AFTER a DOB/entry-date correction makes dueAt resolvable — so
+		// a later identity correction can never replace, duplicate, or replay that already-given dose.
+		// Match the SPECIFIC dose (not any dose of the vaccine): a still-required later dose of the
+		// same course (ET+TT week-7 booster, adult wave two) has no matching administration yet and
+		// must still be scheduled from its own anchor (VACC-REV-06).
+		if isPrimaryAnchorRule(rule) && hasSameDoseAdministration(rule, ruleVaccine, vaccineHistory) {
 			res.SuppressedByTrustedHistory++
-			// Supersede any stale no-anchor catch-up placeholder from an earlier pass so history +
-			// a later DOB fix never leave a duplicate primary behind.
+			// Supersede any stale no-anchor catch-up placeholder for THIS dose from an earlier pass so
+			// history + a later DOB fix never leave a duplicate of the already-given dose behind.
 			if staleKey := missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType)); staleKey != "" {
 				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "vaccine_history_outranks_anchor", asOf); err != nil {
 					return err
@@ -1890,6 +1909,35 @@ func hasVaccineAdministrationHistory(vaccine vaccineProfile, history []domain.Re
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(admin.VaccineCode), code) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSameDoseAdministration reports whether THIS rule's specific dose (its dose_code, or its
+// sequence when dose codes are absent) of THIS vaccine has already been administered. It is the
+// correct anchor-suppression signal: a completed dose must not be regenerated after a DOB/entry
+// correction, but a LATER still-required dose of the same course (ET+TT week-7 booster, adult wave
+// two) — which has no matching administration yet — must still be scheduled. Using any-dose vaccine
+// history here would wrongly suppress those required boosters (VACC-REV-06).
+func hasSameDoseAdministration(rule protodomain.Rule, vaccine vaccineProfile, history []domain.RecentVaccineAdministration) bool {
+	code := strings.TrimSpace(vaccine.Code)
+	if code == "" {
+		return false
+	}
+	ruleDose := strings.ToLower(strings.TrimSpace(rule.DoseCode))
+	for _, admin := range history {
+		if admin.AdministeredAt.IsZero() {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), code) {
+			continue
+		}
+		if ruleDose != "" && strings.EqualFold(strings.TrimSpace(admin.DoseCode), ruleDose) {
+			return true
+		}
+		if rule.Sequence != 0 && admin.Sequence == rule.Sequence {
 			return true
 		}
 	}

@@ -380,3 +380,41 @@ func TestImportedVaccinationHistorySupersedesNoHistoryCatchUp(t *testing.T) {
 		t.Fatalf("inserted=%#v, want the revac continuation anchored to the imported administration %s", got, wantDue)
 	}
 }
+
+// TestGenerateSuppressesOnlyAdministeredDoseNotLaterBoosters is the VACC-REV-06 guard: after the
+// week-4 ET+TT dose (sequence 1) is administered, only that dose is suppressed — the still-required
+// week-7 booster (sequence 2) of the same course must remain scheduled from its own DOB anchor.
+func TestGenerateSuppressesOnlyAdministeredDoseNotLaterBoosters(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{"vaccine":{"code":"ETTT","type":"killed","pathogen_class":"bacterial"},"eligibility":{"animal_stage":"K1","lifecycle":"alive","defer_states":["icu","quarantine"]}}`),
+		rules: []protodomain.Rule{
+			{RuleID: "et-4w", DoseCode: "et_4w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28, DueWindowDays: 7},
+			{RuleID: "et-7w", DoseCode: "et_7w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 49, DueWindowDays: 7},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "g-boost", LifecycleStatus: "alive", HealthStatus: "healthy",
+			ReproductiveStatus: "open", Stage: "K1", OriginType: "birth", DOB: &dob,
+		}},
+		// Only the week-4 dose (sequence 1) has been administered.
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"g-boost": {{AdministeredAt: dob.AddDate(0, 0, 28), VaccineCode: "ETTT", DoseCode: "et_4w", Sequence: 1}},
+		},
+	}
+	obl := &generationObligationFake{seen: map[string]bool{}}
+
+	// asOf at 6 weeks: the week-7 booster (DOB+49) is still in the future and must be scheduled.
+	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", dob.AddDate(0, 0, 42))
+	if err != nil {
+		t.Fatalf("generate two-wave course: %v", err)
+	}
+	if result.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want only the week-7 booster generated", result, obl.inserted)
+	}
+	if got := obl.inserted[0]; got.RuleID != "et-7w" {
+		t.Fatalf("inserted rule = %q, want the week-7 booster (et-7w); the administered week-4 dose must be suppressed, its later booster preserved", got.RuleID)
+	}
+}

@@ -1352,3 +1352,71 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 1, $4::timestamptz, $5, $6::timestamptz, $
 		t.Fatalf("seed completion: %v", err)
 	}
 }
+
+// TestGenerationRecordsStaleKidStageReviewItem is the VACC-REV-10 guard: a goat past the 20-week kid
+// cutoff that still carries a K1/K2 tag creates exactly ONE identifiable, goat-scoped review item
+// (reason + observed stage/age), and a replayed generation pass creates no duplicate.
+func TestGenerationRecordsStaleKidStageReviewItem(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.stale.review", Name: "StaleReview", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	ruleDSL := []byte(`{"eligibility":{"animal_stage":"K1"},"source":{"source_system":"pc","source_ref":"PC §6","review_status":"approved","approved_by":"Reviewer"}}`)
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), RuleDsl: ruleDSL, ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", OffsetDays: 21, Repeat: "none", CatchUp: "pc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	}); err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+	if err := proto.PublishVersion(ctx, impTenant, versionID, nil); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	// K1-tagged goat born 2026-05-01, evaluated 2026-11-01 (~26 weeks) — well past the 20-week cutoff.
+	const staleGoat = "30000000-0000-4000-8000-0000000000f7"
+	seedGenGoatWithStage(t, ctx, pool, staleGoat, "alive", "K1")
+	gen := vaccapp.NewGenerationService(proto, vacc, obl)
+	asOf := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+
+	if _, err := gen.GenerateForVersion(ctx, impTenant, versionID, asOf); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2`, impTenant, staleGoat); got != 1 {
+		t.Fatalf("stale K-stage goat review items = %d, want exactly 1", got)
+	}
+	var reason, stage string
+	var ageWeeks int
+	if err := pool.QueryRow(ctx, `SELECT reason, observed_stage, observed_age_weeks FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2`, impTenant, staleGoat).Scan(&reason, &stage, &ageWeeks); err != nil {
+		t.Fatalf("read review item: %v", err)
+	}
+	if reason != "kid_stage_past_age_cutoff" || stage != "K1" || ageWeeks < 21 {
+		t.Fatalf("review item reason=%q stage=%q ageWeeks=%d, want kid_stage_past_age_cutoff/K1/>20w", reason, stage, ageWeeks)
+	}
+
+	// Replayed generation must not duplicate the review item.
+	if _, err := gen.GenerateForVersion(ctx, impTenant, versionID, asOf); err != nil {
+		t.Fatalf("regenerate: %v", err)
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2`, impTenant, staleGoat); got != 1 {
+		t.Fatalf("after replay review items = %d, want still exactly 1 (idempotent)", got)
+	}
+}

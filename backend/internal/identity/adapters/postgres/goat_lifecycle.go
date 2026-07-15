@@ -721,6 +721,22 @@ func (r *Repository) IdentityGoat(ctx context.Context, cmd ports.IdentityGoatCom
 		return nil, err
 	}
 
+	// VACC-REV-08: enforce dob <= entry_date on the EFFECTIVE pair (submitted value where given,
+	// stored value otherwise) — creation enforces this, and a partial correction must not be able to
+	// move DOB after arrival (or arrival before DOB) and corrupt the kid/adult vaccination anchors.
+	// Validated under the same row lock before any mutation, so a rejection makes no change.
+	effectiveDOB := prevDOB
+	if cmd.DOB != nil {
+		effectiveDOB = pgtype.Date{Time: *cmd.DOB, Valid: true}
+	}
+	effectiveEntry := prevEntry
+	if cmd.EntryDate != nil {
+		effectiveEntry = pgtype.Date{Time: *cmd.EntryDate, Valid: true}
+	}
+	if effectiveDOB.Valid && effectiveEntry.Valid && effectiveDOB.Time.After(effectiveEntry.Time) {
+		return nil, ports.ErrInvalidChronology
+	}
+
 	if _, err := tx.Exec(ctx, `
 UPDATE goats
 SET dob = COALESCE($3, dob),
@@ -753,6 +769,10 @@ WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
 	}
 	if cmd.EntryDate != nil {
 		payload["entry_date"] = biztime.BusinessDate(*cmd.EntryDate)
+	}
+	// Client-supplied effective date is audit metadata only; server time drove the recompute/persist.
+	if cmd.EffectiveAt != nil {
+		payload["effective_date"] = biztime.BusinessDate(*cmd.EffectiveAt)
 	}
 	return r.finishGoatLifecycleMutation(ctx, tx, qtx, &committed, goatLifecycleFinish{
 		TenantUUID:     tenantUUID,

@@ -63,6 +63,23 @@ func (r *Repository) Ping(ctx context.Context) error {
 	return r.pool.Ping(ctx)
 }
 
+// RecordStageReviewItem durably records a goat-scoped vaccination stage/age review item (VACC-REV-10),
+// idempotent on (tenant_id, idempotency_key) so replayed generation passes never duplicate it.
+func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO vaccination_stage_review_items
+			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
+		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6)
+		ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
+		tenantID, goatID, reason, observedStage, observedAgeWeeks, idempotencyKey)
+	if err != nil {
+		return fmt.Errorf("vaccination: record stage review item: %w", err)
+	}
+	return nil
+}
+
 // StartGenerationRun creates or returns the durable status row for an existing-cohort generation
 // pass. The idempotency key prevents replayed publish hooks from launching duplicate herd scans.
 func (r *Repository) StartGenerationRun(ctx context.Context, in domain.GenerationRunInput) (domain.GenerationRun, bool, error) {

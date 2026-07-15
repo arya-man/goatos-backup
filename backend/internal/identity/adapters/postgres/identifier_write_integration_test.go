@@ -1429,3 +1429,116 @@ func hasFieldError(errors []domain.FieldError, field, code string) bool {
 	}
 	return false
 }
+
+// identityGoatCommand builds a DOB/entry-date correction command. dob/entry are optional YYYY-MM-DD.
+func identityGoatCommand(t *testing.T, key, goatID string, rowVersion int, dob, entry *string) ports.IdentityGoatCommand {
+	t.Helper()
+	sourceSystem := "synthetic_admin_register"
+	body := map[string]any{
+		"reason":        "Synthetic identity correction for vaccination anchors.",
+		"evidence_refs": []domain.EvidenceRef{{EvidenceType: "source_record", EvidenceID: "synthetic-identity-" + key, SourceSystem: &sourceSystem}},
+		"row_version":   rowVersion,
+	}
+	var dobT, entryT *time.Time
+	if dob != nil {
+		body["dob"] = *dob
+		d, _ := time.Parse("2006-01-02", *dob)
+		dobT = &d
+	}
+	if entry != nil {
+		body["entry_date"] = *entry
+		e, _ := time.Parse("2006-01-02", *entry)
+		entryT = &e
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := app.CanonicalRequestHashWithSubject(meshaTenant, "identityGoat", "/admin/goats/{goat_id}/identity", goatID, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ports.IdentityGoatCommand{
+		TenantID:             meshaTenant,
+		ActorID:              correctionActor,
+		ClientIdempotencyKey: key,
+		StoredIdempotencyKey: meshaTenant + ":identityGoat:" + goatID + ":" + key,
+		IdempotencyScope:     "identityGoat",
+		RequestHash:          hash,
+		GoatID:               goatID,
+		DOB:                  dobT,
+		EntryDate:            entryT,
+		Reason:               "Synthetic identity correction for vaccination anchors.",
+		OccurredAt:           time.Now().UTC(),
+		RowVersion:           rowVersion,
+	}
+}
+
+// TestIdentityGoatEnforcesChronology is the VACC-REV-08 guard: a correction must never move DOB after
+// entry_date (or entry before DOB) on the EFFECTIVE pair, and a rejection makes no mutation, decision,
+// or outbox event. The created goat has dob=2025-12-15, entry_date=2026-06-25.
+func TestIdentityGoatEnforcesChronology(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+	ctx := context.Background()
+	pool, repo := startCorrectionWriteDB(t, ctx)
+	defer pool.Close()
+	seedAdminCreateLocations(t, pool)
+
+	create := adminGoatCreateCommand(t, "idem-create-identity-chrono", "aid1-identity-chrono", "aid2-identity-chrono")
+	created, err := repo.CreateAdminGoat(ctx, create)
+	if err != nil {
+		t.Fatalf("CreateAdminGoat: %v", err)
+	}
+	goatID := created.Goat.GoatID
+
+	assertNoMutation := func(t *testing.T, name string) {
+		t.Helper()
+		var dob, entry string
+		if err := pool.QueryRow(ctx, `SELECT to_char(dob,'YYYY-MM-DD'), to_char(entry_date,'YYYY-MM-DD') FROM goats WHERE tenant_id=$1 AND goat_id=$2`, meshaTenant, goatID).Scan(&dob, &entry); err != nil {
+			t.Fatalf("%s: read goat: %v", name, err)
+		}
+		if dob != "2025-12-15" || entry != "2026-06-25" {
+			t.Fatalf("%s: goat mutated on a rejected correction: dob=%s entry=%s", name, dob, entry)
+		}
+		n := 0
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM goat_identity_events WHERE tenant_id=$1 AND goat_id=$2 AND event_type='goat.identity.changed'`, meshaTenant, goatID).Scan(&n); err != nil {
+			t.Fatalf("%s: count events: %v", name, err)
+		}
+		if n != 0 {
+			t.Fatalf("%s: a rejected correction emitted %d identity events", name, n)
+		}
+	}
+
+	// DOB-only correction moving DOB after the stored arrival date.
+	badDOB := "2026-07-01"
+	if _, err := repo.IdentityGoat(ctx, identityGoatCommand(t, "idem-identity-bad-dob", goatID, rowVersionForGoat(t, pool, goatID), &badDOB, nil)); !errors.Is(err, ports.ErrInvalidChronology) {
+		t.Fatalf("DOB-after-entry error = %v, want ErrInvalidChronology", err)
+	}
+	assertNoMutation(t, "dob-only")
+
+	// Entry-only correction moving arrival before the stored DOB.
+	badEntry := "2025-11-01"
+	if _, err := repo.IdentityGoat(ctx, identityGoatCommand(t, "idem-identity-bad-entry", goatID, rowVersionForGoat(t, pool, goatID), nil, &badEntry)); !errors.Is(err, ports.ErrInvalidChronology) {
+		t.Fatalf("entry-before-dob error = %v, want ErrInvalidChronology", err)
+	}
+	assertNoMutation(t, "entry-only")
+
+	// Two-field correction with an inverted pair.
+	twoDOB, twoEntry := "2026-03-01", "2026-01-01"
+	if _, err := repo.IdentityGoat(ctx, identityGoatCommand(t, "idem-identity-bad-both", goatID, rowVersionForGoat(t, pool, goatID), &twoDOB, &twoEntry)); !errors.Is(err, ports.ErrInvalidChronology) {
+		t.Fatalf("inverted two-field error = %v, want ErrInvalidChronology", err)
+	}
+	assertNoMutation(t, "two-field")
+
+	// A valid DOB-only correction (still on/before entry) succeeds and emits the event.
+	goodDOB := "2025-11-01"
+	res, err := repo.IdentityGoat(ctx, identityGoatCommand(t, "idem-identity-good", goatID, rowVersionForGoat(t, pool, goatID), &goodDOB, nil))
+	if err != nil {
+		t.Fatalf("valid correction rejected: %v", err)
+	}
+	if len(res.Events) == 0 || res.Events[0].EventType != "goat.identity.changed" {
+		t.Fatalf("valid correction did not emit goat.identity.changed: %#v", res)
+	}
+}

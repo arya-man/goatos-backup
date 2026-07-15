@@ -5399,6 +5399,23 @@ CREATE TABLE public.vaccination_source_facts (
 
 
 --
+-- Name: vaccination_stage_review_items; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vaccination_stage_review_items (
+    review_item_id uuid NOT NULL,
+    tenant_id uuid NOT NULL,
+    goat_id uuid NOT NULL,
+    reason text NOT NULL,
+    observed_stage text NOT NULL,
+    observed_age_weeks integer NOT NULL,
+    idempotency_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: vaccines; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -7513,6 +7530,22 @@ ALTER TABLE ONLY public.vaccination_source_facts
 
 ALTER TABLE ONLY public.vaccination_source_facts
     ADD CONSTRAINT vaccination_source_facts_pkey PRIMARY KEY (source_fact_id);
+
+
+--
+-- Name: vaccination_stage_review_items vaccination_stage_review_items_idem_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_stage_review_items
+    ADD CONSTRAINT vaccination_stage_review_items_idem_unique UNIQUE (tenant_id, idempotency_key);
+
+
+--
+-- Name: vaccination_stage_review_items vaccination_stage_review_items_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vaccination_stage_review_items
+    ADD CONSTRAINT vaccination_stage_review_items_pkey PRIMARY KEY (review_item_id);
 
 
 --
@@ -10417,6 +10450,13 @@ CREATE INDEX vaccination_reminder_cadence_fires_park_day_idx ON public.vaccinati
 --
 
 CREATE INDEX vaccination_source_facts_tenant_disposition_idx ON public.vaccination_source_facts USING btree (tenant_id, disposition);
+
+
+--
+-- Name: vaccination_stage_review_items_tenant_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX vaccination_stage_review_items_tenant_goat_idx ON public.vaccination_stage_review_items USING btree (tenant_id, goat_id);
 
 
 --

@@ -110,6 +110,16 @@ func TestPhase1BWriteRoutesUseExpectedPermissions(t *testing.T) {
 			allowedRoles: productWriteAllowed,
 			deniedRoles:  productWriteDenied,
 		},
+		{
+			// VACC-REV-09: the identity correction route must be registered in the permissions
+			// registry — otherwise every authenticated request 403s with route_not_registered.
+			name:         "correct goat identity",
+			path:         "/admin/goats/10000000-0000-4000-8000-000000000001/identity",
+			body:         validIdentityGoatBody(),
+			wantStatus:   http.StatusOK,
+			allowedRoles: productWriteAllowed,
+			deniedRoles:  productWriteDenied,
+		},
 	}
 
 	for _, route := range routes {

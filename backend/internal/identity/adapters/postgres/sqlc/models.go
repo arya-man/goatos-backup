@@ -2175,6 +2175,18 @@ type VaccinationSourceFact struct {
 	CreatedAt      pgtype.Timestamptz
 }
 
+type VaccinationStageReviewItem struct {
+	ReviewItemID     pgtype.UUID
+	TenantID         pgtype.UUID
+	GoatID           pgtype.UUID
+	Reason           string
+	ObservedStage    string
+	ObservedAgeWeeks int32
+	IdempotencyKey   string
+	CreatedAt        pgtype.Timestamptz
+	UpdatedAt        pgtype.Timestamptz
+}
+
 type Vaccine struct {
 	VaccineID      pgtype.UUID
 	TenantID       pgtype.UUID

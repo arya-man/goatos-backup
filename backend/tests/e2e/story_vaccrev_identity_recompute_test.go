@@ -169,7 +169,11 @@ func TestKernelStoryVaccRev_HistoryOutranksDOBCorrection(t *testing.T) {
 		"IdentityGoat supplies a DOB and emits goat.identity.changed; the recheck runs, but vaccination "+
 			"history still outranks the anchor, so the birth_age primary stays suppressed and the revac is unchanged.")
 	dob := serverNow.AddDate(0, 0, -45) // a recent kid DOB; history must still outrank it
-	fx.ChangeGoatIdentity(goatID, &dob, nil, "story-vaccrev-history-dob", laterAsOf)
+	// VACC-REV-07: BACKDATE the correction (occurred_at a year before the accepted completion). A
+	// client-supplied timestamp must NOT become the recompute as_of — recomputation uses server time,
+	// so the just-verified completion stays visible and history still outranks the anchor.
+	backdated := serverNow.AddDate(-1, 0, 0)
+	fx.ChangeGoatIdentity(goatID, &dob, nil, "story-vaccrev-history-dob", backdated)
 
 	story.Assert("IdentityGoat persisted a durable goat.identity.changed outbox event",
 		fx.countOutbox(goatID, vaccapp.EventGoatIdentityChanged) >= 1,
