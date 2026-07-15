@@ -1194,22 +1194,34 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			// set, computed straight from vaccineHistory — never by reverse-
 			// engineering a DOB. Suppress this specific primary/wave rule instance
 			// instead of flagging a fabricated blocker.
+			// R2-03: For rules on the adult procurement path, respect the AdultPriorVaccinationAllowed flag:
+			// when false in an active procurement policy, adult prior vaccination history must NOT suppress.
+			// Default (when policy not active) is to allow adult prior vaccination for backward compat.
 			if hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
-				res.SuppressedByTrustedHistory++
-				// B7 (dynamic recompute): imported vaccination history triggers
-				// recomputation even when DOB/entry-date is STILL unknown. A B3
-				// no-anchor catch-up placeholder created on an earlier pass (before
-				// this vaccine's history existed) is now obsolete — supersede it here
-				// too, not only when the anchor itself later resolves (the
-				// missingKey/previousMissingDueDateKey path below only fires once
-				// DOB/entry-date becomes known, which is a DIFFERENT recompute
-				// trigger from "history just got imported").
-				if staleKey := missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType)); staleKey != "" {
-					if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "vaccine_history_now_available", asOf); err != nil {
-						return err
-					}
+				shouldSuppressByHistory := true
+				if path == schedulePathAdultProcurement && policies.Procurement.active() &&
+					!policies.Procurement.AdultPriorVaccinationAllowed {
+					// Adult prior vaccination is disabled: schedule the full course
+					// as if this vaccine has no prior history.
+					shouldSuppressByHistory = false
 				}
-				continue
+				if shouldSuppressByHistory {
+					res.SuppressedByTrustedHistory++
+					// B7 (dynamic recompute): imported vaccination history triggers
+					// recomputation even when DOB/entry-date is STILL unknown. A B3
+					// no-anchor catch-up placeholder created on an earlier pass (before
+					// this vaccine's history existed) is now obsolete — supersede it here
+					// too, not only when the anchor itself later resolves (the
+					// missingKey/previousMissingDueDateKey path below only fires once
+					// DOB/entry-date becomes known, which is a DIFFERENT recompute
+					// trigger from "history just got imported").
+					if staleKey := missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType)); staleKey != "" {
+						if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "vaccine_history_now_available", asOf); err != nil {
+							return err
+						}
+					}
+					continue
+				}
 			}
 			switch rule.TriggerType {
 			case "birth_age", "post_arrival":
@@ -1245,9 +1257,19 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			}
 		}
 		if !ok {
-			if historyDue, found := dueAfterPreviousCompletion(rule, ruleVaccine, vaccineHistory); found {
-				baseDue = historyDue
-				ok = true
+			// R2-03: For rules on the adult procurement path, respect the AdultPriorVaccinationAllowed flag:
+			// when false in an active procurement policy, do not use adult prior vaccination history.
+			// Default (when policy not active) is to allow adult prior vaccination for backward compat.
+			allowHistoryDue := true
+			if path == schedulePathAdultProcurement && policies.Procurement.active() &&
+				!policies.Procurement.AdultPriorVaccinationAllowed {
+				allowHistoryDue = false
+			}
+			if allowHistoryDue {
+				if historyDue, found := dueAfterPreviousCompletion(rule, ruleVaccine, vaccineHistory); found {
+					baseDue = historyDue
+					ok = true
+				}
 			}
 		}
 		if !ok {
@@ -1340,6 +1362,16 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			return err
 		}
 		if !applied {
+			// BUG #2 (R2-01): even on replay (applied==false), append to pending so that
+			// subsequent vaccines in this pass respect cross-vaccine spacing against
+			// already-persisted obligations. Without this, idempotent replay loses the spacing
+			// floor when vaccine A was inserted in a prior attempt and B is generated on retry
+			// without knowing about A's due date.
+			pending = append(pending, pendingVaccine{
+				code:  ruleVaccine.Code,
+				class: ruleVaccine.Class,
+				due:   due,
+			})
 			if missingKey != "" {
 				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
 					return err

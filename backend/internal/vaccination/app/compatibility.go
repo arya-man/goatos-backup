@@ -160,6 +160,10 @@ func crossVaccineGapDays(prior, next vaccineImmunoClass, policy genCompatibility
 	if isLiveClass(prior) && isKilledClass(next) {
 		return policy.LiveToKilledGapDays
 	}
+	if isKilledClass(prior) && isLiveClass(next) {
+		// Symmetric with live→killed: killed→live also requires the gap
+		return policy.LiveToKilledGapDays
+	}
 	if isKilledClass(prior) && isKilledClass(next) {
 		return policy.KilledToKilledGapDays
 	}

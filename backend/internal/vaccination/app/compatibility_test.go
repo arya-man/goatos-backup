@@ -166,11 +166,11 @@ func TestCrossVaccineGapDaysLiveKilledViralSameDaySwitch(t *testing.T) {
 			wantGap: 0,
 		},
 		{
-			name:    "killed viral→live viral same-day allowed=false returns live-to-live gap (no killed→live gap defined)",
+			name:    "killed viral→live viral same-day allowed=false returns live-to-killed gap (symmetric)",
 			prior:   immunoKilledViral,
 			next:    immunoLiveViral,
 			policy:  genCompatibilityPolicy{LiveKilledViralSameDayAllowed: false, LiveToKilledGapDays: 14, LiveToLiveGapDays: 28},
-			wantGap: 0, // no killed→live gap defined, so returns 0
+			wantGap: 14, // killed→live is symmetric with live→killed
 		},
 	}
 	for _, tt := range tests {
@@ -218,5 +218,50 @@ func TestCrossVaccineGapDaysUnknownClassFailsClosed(t *testing.T) {
 				t.Errorf("gap = %d, want %d (should be strictest gap, not 0)", got, tt.wantGap)
 			}
 		})
+	}
+}
+
+// R2-02: Verify that cross-class gaps are symmetric (prior/next swapped with both switches false).
+func TestCrossVaccineGapDaysSymmetricLiveKilled(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy genCompatibilityPolicy
+	}{
+		{
+			name:   "live-to-killed=14, switches false",
+			policy: genCompatibilityPolicy{LiveToKilledGapDays: 14, BacterialViralSameDayAllowed: false, LiveKilledViralSameDayAllowed: false},
+		},
+		{
+			name:   "live-to-killed=21, switches false",
+			policy: genCompatibilityPolicy{LiveToKilledGapDays: 21, BacterialViralSameDayAllowed: false, LiveKilledViralSameDayAllowed: false},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Live viral → Killed viral should return LiveToKilledGapDays
+			liveToKilled := crossVaccineGapDays(immunoLiveViral, immunoKilledViral, tt.policy)
+			// Killed viral → Live viral should return the same (symmetric)
+			killedToLive := crossVaccineGapDays(immunoKilledViral, immunoLiveViral, tt.policy)
+			if liveToKilled != killedToLive {
+				t.Errorf("live→killed gap = %d, killed→live gap = %d; gaps should be symmetric", liveToKilled, killedToLive)
+			}
+			if liveToKilled != tt.policy.LiveToKilledGapDays {
+				t.Errorf("live→killed gap = %d, want %d", liveToKilled, tt.policy.LiveToKilledGapDays)
+			}
+		})
+	}
+}
+
+// R2-02: Verify that killed→live gap is correctly applied when same-day switch is false.
+func TestCrossVaccineGapDaysKilledToLiveSwitchFalse(t *testing.T) {
+	policy := genCompatibilityPolicy{
+		LiveToKilledGapDays:           14,
+		BacterialViralSameDayAllowed:  false,
+		LiveKilledViralSameDayAllowed: false,
+	}
+	// When LiveKilledViralSameDayAllowed=false, killed viral → live viral must return the gap
+	got := crossVaccineGapDays(immunoKilledViral, immunoLiveViral, policy)
+	if got != 14 {
+		t.Errorf("killed viral→live viral gap (switch false) = %d, want 14", got)
 	}
 }

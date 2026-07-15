@@ -2764,3 +2764,209 @@ func TestGenerateForVersionSpacesCoDuePendingVaccines(t *testing.T) {
 			gpoxObl.DueAt.Format(time.RFC3339), expectedGpoxDue.Format(time.RFC3339))
 	}
 }
+
+// R2-01: Verify that pending spacing is preserved on idempotent replay.
+// When generation inserts vaccine A successfully but then fails before inserting vaccine B,
+// the retry must still floor B against A's already-committed due date, not treat A as if
+// it never existed just because A returns applied=false on replay.
+func TestGenerateForVersionPendingSpacingPreservedOnIdempotentReplay(t *testing.T) {
+	ctx := context.Background()
+	asOf := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	kidDOB := asOf.AddDate(0, 0, -84) // 12 weeks old: eligible for both PPR and Goat Pox at 12w
+
+	proto := &generationProtoFake{
+		// Two DIFFERENT live-viral vaccines (PPR and Goat Pox), each with its OWN vaccine code,
+		// both due at 12 weeks. live-viral→live-viral requires a 28-day gap.
+		// This test verifies that on idempotent replay, PPR's already-inserted obligation still
+		// floors Goat Pox even though PPR's second insert returns applied=false.
+		ruleDSL: []byte(`{
+			"eligibility":{},
+			"compatibility_policy":{"live_to_live_gap_days":28}
+		}`),
+		rules: []protodomain.Rule{
+			{
+				RuleID: "ppr-12w", DoseCode: "ppr_kid_12w", Sequence: 1,
+				TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+			},
+			{
+				RuleID: "gpox-12w", DoseCode: "gpox_kid_12w", Sequence: 2,
+				TriggerType: "birth_age", OffsetDays: 84, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"Goat Pox","type":"live","pathogen_class":"viral"}}`),
+			},
+		},
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{
+			{GoatID: "kid-goat", LifecycleStatus: "alive", DOB: &kidDOB, Stage: "K1", Species: "goat"},
+		},
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"kid-goat": {}, // no prior history
+		},
+	}
+
+	// FIRST ATTEMPT: fail after the first obligation is inserted (simulating partial failure).
+	obl := &generationObligationFake{seen: map[string]bool{}, failOnceAfterInserted: 1}
+	gen := NewGenerationService(proto, goats, obl)
+
+	_, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err == nil {
+		t.Fatalf("first generate: expected error after partial insert, got nil")
+	}
+	if len(obl.inserted) != 1 {
+		t.Fatalf("first attempt inserted=%d, want 1 (PPR only before failure)", len(obl.inserted))
+	}
+
+	// SECOND ATTEMPT: retry generation without clearing the obligation cache.
+	// The fake will see PPR's idempotency key again and return applied=false.
+	// Goat Pox should STILL be floored 28 days after PPR's already-inserted due date,
+	// NOT treated as if PPR never existed.
+	obl.failOnceAfterInserted = 0 // don't fail again
+	obl.failed = false              // reset failure flag
+	result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+
+	// Both insertions should succeed on the second attempt (one was already-seen/applied=false, one new).
+	if len(obl.inserted) != 2 {
+		t.Fatalf("second attempt inserted=%d, want 2 (PPR replay + Goat Pox new)", len(obl.inserted))
+	}
+
+	// result.Generated should count only the newly-inserted one (Goat Pox).
+	if result.Generated != 1 {
+		t.Fatalf("result.Generated=%d, want 1 (only Goat Pox is newly generated)", result.Generated)
+	}
+
+	// Both should be due on the same business day (12 weeks from DOB).
+	expectedDue := businessDayStart(kidDOB.AddDate(0, 0, 84))
+
+	// Find PPR and Goat Pox obligations from the final set.
+	var pprObl, gpoxObl *obldomain.NewObligation
+	for i := range obl.inserted {
+		if obl.inserted[i].RuleID == "ppr-12w" {
+			pprObl = &obl.inserted[i]
+		}
+		if obl.inserted[i].RuleID == "gpox-12w" {
+			gpoxObl = &obl.inserted[i]
+		}
+	}
+
+	if pprObl == nil || gpoxObl == nil {
+		t.Fatalf("inserted=%#v, want both PPR and Goat Pox obligations", obl.inserted)
+	}
+
+	if !pprObl.DueAt.Equal(expectedDue) {
+		t.Errorf("PPR due=%s, want %s", pprObl.DueAt.Format(time.RFC3339), expectedDue.Format(time.RFC3339))
+	}
+
+	// Goat Pox should be floored 28 days after PPR, even though PPR was a replay (applied=false).
+	// This is the key bug fix: pending spacing must account for already-persisted obligations.
+	expectedGpoxDue := businessDayStart(expectedDue).AddDate(0, 0, 28)
+	if !gpoxObl.DueAt.Equal(expectedGpoxDue) {
+		t.Errorf("Goat Pox due=%s, want %s (should be floored 28 days after PPR on replay)",
+			gpoxObl.DueAt.Format(time.RFC3339), expectedGpoxDue.Format(time.RFC3339))
+	}
+}
+
+// R2-03: Verify that AdultPriorVaccinationAllowed flag controls whether adult prior vaccination
+// history is used for revac (after_previous_completion) scheduling.
+// When false: adult prior vaccination history must NOT be used to schedule revac doses
+// When true: adult prior vaccination history MAY be used for revac scheduling
+func TestGenerateForVersionAdultPriorVaccinationAllowedFlag(t *testing.T) {
+	ctx := context.Background()
+	entryDate := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC) // 30 days after entry
+	// Adult animal (no DOB), post_arrival trigger
+	adult := domain.EligibleGoat{
+		GoatID:         "adult-goat",
+		LifecycleStatus: "alive",
+		EntryDate:      &entryDate,
+		Species:        "goat",
+	}
+
+	// This adult already has a PPR vaccination history from before entry.
+	priorPPRAt := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	vaccineHistory := []domain.RecentVaccineAdministration{{
+		AdministeredAt: priorPPRAt,
+		VaccineCode:    "PPR",
+		VaccineType:    "live",
+		PathogenClass:  "viral",
+	}}
+
+	// Revac rule: after_previous_completion, 3-year gap (PPR revacs every 3 years)
+	// Set warmup_no_vaccination_days to make the procurement policy active so the flag takes effect.
+	proto := &generationProtoFake{
+		ruleDSL: []byte(`{
+			"eligibility":{},
+			"compatibility_policy":{"live_to_live_gap_days":28},
+			"procurement_policy":{"warmup_no_vaccination_days":7,"adult_prior_vaccination_allowed":true}
+		}`),
+		rules: []protodomain.Rule{{
+			RuleID: "ppr-revac", DoseCode: "ppr_revac_yearly", Sequence: 1,
+			TriggerType: "after_previous_completion", Repeat: "yearly",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+		}},
+	}
+
+	// TEST 1: When AdultPriorVaccinationAllowed=true, revac is scheduled based on prior history.
+	{
+		goats := &generationGoatFake{
+			list: []domain.EligibleGoat{adult},
+			vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+				"adult-goat": vaccineHistory,
+			},
+		}
+		obl := &generationObligationFake{}
+		gen := NewGenerationService(proto, goats, obl)
+
+		result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate with flag=true: %v", err)
+		}
+		if result.Generated != 1 {
+			t.Errorf("with AdultPriorVaccinationAllowed=true: Generated=%d, want 1 (revac should be scheduled from history)",
+				result.Generated)
+		}
+		if len(obl.inserted) != 1 {
+			t.Errorf("with flag=true: inserted=%d obligations, want 1", len(obl.inserted))
+		}
+		// Revac should be due 1 year after prior PPR (using after_previous_completion)
+		expectedRevacDue := businessDayStart(priorPPRAt).AddDate(1, 0, 0) // 1 year later
+		if len(obl.inserted) > 0 && !obl.inserted[0].DueAt.Equal(expectedRevacDue) {
+			t.Errorf("revac due with flag=true: %s, want %s (1 year after prior PPR)",
+				obl.inserted[0].DueAt.Format(time.RFC3339), expectedRevacDue.Format(time.RFC3339))
+		}
+	}
+
+	// TEST 2: When AdultPriorVaccinationAllowed=false in an active procurement policy, revac is NOT scheduled.
+	// We need to set warmup_no_vaccination_days to make the policy active (it checks active() to gate the flag).
+	proto.ruleDSL = []byte(`{
+		"eligibility":{},
+		"compatibility_policy":{"live_to_live_gap_days":28},
+		"procurement_policy":{"warmup_no_vaccination_days":7,"adult_prior_vaccination_allowed":false}
+	}`)
+
+	{
+		goats := &generationGoatFake{
+			list: []domain.EligibleGoat{adult},
+			vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+				"adult-goat": vaccineHistory,
+			},
+		}
+		obl := &generationObligationFake{}
+		gen := NewGenerationService(proto, goats, obl)
+
+		result, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+		if err != nil {
+			t.Fatalf("generate with flag=false: %v", err)
+		}
+		if result.Generated != 0 {
+			t.Errorf("with AdultPriorVaccinationAllowed=false: Generated=%d, want 0 (revac should NOT be scheduled when flag=false)",
+				result.Generated)
+		}
+		if len(obl.inserted) != 0 {
+			t.Errorf("with flag=false: inserted=%d obligations, want 0 (revac scheduling disabled by flag)", len(obl.inserted))
+		}
+	}
+}
