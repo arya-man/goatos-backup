@@ -62,18 +62,12 @@ locals {
   secret_containers = {
     database_url = {
       secret_id = "goatos-stg-database-url"
+      # The consolidated kernel_worker replaces the 9 retired per-stage jobs that
+      # each used to read the DB secret; keep it aligned with local.database_clients.
       accessors = [
         "api",
-        "outbox_relay",
+        "kernel_worker",
         "outbox_dlq",
-        "domain_consumer",
-        "domain_event_processed_sweeper",
-        "vaccination_generator",
-        "obligation_sweeper",
-        "notification_dispatcher",
-        "inventory_batch_reconciler",
-        "idempotency_key_sweeper",
-        "sop_review_fanout_retry",
         "partition_maintainer",
         "migrate",
         "legacy_sync",
@@ -149,13 +143,13 @@ locals {
     notification_slack_webhook_url = {
       secret_id = "goatos-stg-notification-slack-webhook-url"
       accessors = [
-        "notification_dispatcher",
+        "kernel_worker",
       ]
     }
     notification_incident_webhook_url = {
       secret_id = "goatos-stg-notification-incident-webhook-url"
       accessors = [
-        "notification_dispatcher",
+        "kernel_worker",
       ]
     }
   }
