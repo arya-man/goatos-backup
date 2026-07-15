@@ -618,6 +618,26 @@ var forbiddenPathogenClassValues = map[string]struct{}{
 	"combo":  {},
 }
 
+// validVaccineTypes are the only accepted immunological types.
+// Note: "matrix" is valid only for the wrapper vaccine (vaccination.matrix), not for individual vaccines.
+var validVaccineTypes = map[string]struct{}{
+	"live":   {},
+	"killed": {},
+	"toxoid": {},
+}
+
+// validPathogenClasses are the only accepted organism classes.
+var validPathogenClasses = map[string]struct{}{
+	"viral":     {},
+	"bacterial": {},
+}
+
+// validCourseTypes are the only accepted course types.
+var validCourseTypes = map[string]struct{}{
+	"single":  {},
+	"booster": {},
+}
+
 func rejectVaccineTypeValueInPathogenClass(pathogenClass, label string) error {
 	v := strings.ToLower(strings.TrimSpace(pathogenClass))
 	if v == "" {
@@ -625,6 +645,46 @@ func rejectVaccineTypeValueInPathogenClass(pathogenClass, label string) error {
 	}
 	if _, bad := forbiddenPathogenClassValues[v]; bad {
 		return fmt.Errorf("%w: %s %q is a vaccine-type value; pathogen class must describe the organism (bacterial/viral), not the vaccine type", ErrNotPublishable, label, pathogenClass)
+	}
+	return nil
+}
+
+// validateVaccineType ensures vaccine type is valid (live, killed, toxoid, or matrix for wrapper).
+// allowMatrix should be true only for the top-level vaccine (wrapper), not for individual vaccines.
+func validateVaccineType(vaccineType, label string, allowMatrix bool) error {
+	v := strings.ToLower(strings.TrimSpace(vaccineType))
+	if v == "" {
+		return fmt.Errorf("%w: %s vaccine type required", ErrNotPublishable, label)
+	}
+	if v == "matrix" && allowMatrix {
+		return nil
+	}
+	if _, ok := validVaccineTypes[v]; !ok {
+		return fmt.Errorf("%w: %s vaccine type %q is invalid; must be live, killed, or toxoid", ErrNotPublishable, label, vaccineType)
+	}
+	return nil
+}
+
+// validatePathogenClass ensures pathogen class is valid (viral or bacterial).
+func validatePathogenClass(pathogenClass, label string) error {
+	v := strings.ToLower(strings.TrimSpace(pathogenClass))
+	if v == "" {
+		return fmt.Errorf("%w: %s pathogen class required", ErrNotPublishable, label)
+	}
+	if _, ok := validPathogenClasses[v]; !ok {
+		return fmt.Errorf("%w: %s pathogen class %q is invalid; must be viral or bacterial", ErrNotPublishable, label, pathogenClass)
+	}
+	return nil
+}
+
+// validateCourseType ensures course type is valid (single or booster).
+func validateCourseType(courseType, label string) error {
+	v := strings.ToLower(strings.TrimSpace(courseType))
+	if v == "" {
+		return fmt.Errorf("%w: %s course type required", ErrNotPublishable, label)
+	}
+	if _, ok := validCourseTypes[v]; !ok {
+		return fmt.Errorf("%w: %s course type %q is invalid; must be single or booster", ErrNotPublishable, label, courseType)
 	}
 	return nil
 }
@@ -639,8 +699,26 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 	if strings.TrimSpace(env.Vaccine.Type) == "" {
 		return fmt.Errorf("%w: vaccine.type required for vaccination matrix", ErrNotPublishable)
 	}
+	// For the wrapper vaccine, "matrix" is allowed; for individual vaccines it is not.
+	// isVaccinationMatrixRuleset() will tell us later if this is the matrix wrapper.
+	// For now, validate that if it's not "matrix", it must be one of the valid immunological types.
+	if err := validateVaccineType(env.Vaccine.Type, "rule_dsl.vaccine", strings.ToLower(strings.TrimSpace(env.Vaccine.Type)) == "matrix" || env.Vaccine.Code == "vaccination.matrix"); err != nil {
+		return err
+	}
 	if err := rejectVaccineTypeValueInPathogenClass(env.Vaccine.PathogenClass, "rule_dsl.vaccine.pathogen_class"); err != nil {
 		return err
+	}
+	// Validate pathogen_class only if it's present (matrix wrapper may not have it)
+	if strings.TrimSpace(env.Vaccine.PathogenClass) != "" {
+		if err := validatePathogenClass(env.Vaccine.PathogenClass, "rule_dsl.vaccine"); err != nil {
+			return err
+		}
+	}
+	// Validate course_type only if it's present
+	if strings.TrimSpace(env.Vaccine.CourseType) != "" {
+		if err := validateCourseType(env.Vaccine.CourseType, "rule_dsl.vaccine"); err != nil {
+			return err
+		}
 	}
 	if len(env.Schedule) == 0 {
 		return fmt.Errorf("%w: vaccination matrix requires at least one schedule row", ErrNotPublishable)
@@ -698,13 +776,33 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 		}
 		if len(row.Vaccine) > 0 {
 			var rowVaccine struct {
+				Type          string `json:"type"`
 				PathogenClass string `json:"pathogen_class"`
+				CourseType    string `json:"course_type"`
 			}
 			if err := json.Unmarshal(row.Vaccine, &rowVaccine); err != nil {
 				return fmt.Errorf("%w: matrix_rows[%d].vaccine is not a valid object", ErrNotPublishable, idx)
 			}
 			if err := rejectVaccineTypeValueInPathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine.pathogen_class", idx)); err != nil {
 				return err
+			}
+			// Validate vaccine type (must be live, killed, or toxoid; never "matrix" for individual vaccines)
+			if strings.TrimSpace(rowVaccine.Type) != "" {
+				if err := validateVaccineType(rowVaccine.Type, fmt.Sprintf("matrix_rows[%d].vaccine", idx), false); err != nil {
+					return err
+				}
+			}
+			// Validate pathogen class (required for individual vaccines)
+			if strings.TrimSpace(rowVaccine.PathogenClass) != "" {
+				if err := validatePathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
+					return err
+				}
+			}
+			// Validate course type (required for individual vaccines)
+			if strings.TrimSpace(rowVaccine.CourseType) != "" {
+				if err := validateCourseType(rowVaccine.CourseType, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
+					return err
+				}
 			}
 		}
 	}

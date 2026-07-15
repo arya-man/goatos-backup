@@ -1086,8 +1086,8 @@ export function RuleEditorModal({
     return {
       code: option.key,
       name: option.label,
-      vaccineType: meta.vaccine_type ?? "unknown_review_needed",
-      pathogenClass: meta.pathogen_class ?? "unknown_review_needed",
+      vaccineType: meta.vaccine_type ?? "",
+      pathogenClass: meta.pathogen_class ?? "",
       courseType: meta.course_type ?? "single",
       disease: meta.disease ?? option.label,
       compatibilityGroup: meta.compatibility_group ?? option.key,
@@ -1426,6 +1426,45 @@ export function RuleEditorModal({
       });
       return;
     }
+
+    // Validate vaccine type, pathogen class, and course type for all matrix rows
+    const validVaccineTypes = ["live", "killed", "toxoid", "matrix"];
+    const validPathogenClasses = ["viral", "bacterial"];
+    const validCourseTypes = ["single", "booster"];
+
+    for (const row of activeScopedMatrixRows) {
+      const vaccine = row.vaccine;
+
+      // Check vaccine type
+      if (!vaccine.type || !validVaccineTypes.includes(vaccine.type.toLowerCase())) {
+        setNotice({
+          ok: false,
+          message: `Vaccine type is required and must be one of: live, killed, or toxoid`,
+        });
+        return;
+      }
+
+      // Check pathogen class (for non-matrix vaccines)
+      if (vaccine.type.toLowerCase() !== "matrix") {
+        if (!vaccine.pathogenClass || !validPathogenClasses.includes(vaccine.pathogenClass.toLowerCase())) {
+          setNotice({
+            ok: false,
+            message: `Pathogen class is required and must be one of: viral or bacterial`,
+          });
+          return;
+        }
+
+        // Check course type
+        if (!vaccine.courseType || !validCourseTypes.includes(vaccine.courseType.toLowerCase())) {
+          setNotice({
+            ok: false,
+            message: `Course type is required and must be one of: single or booster`,
+          });
+          return;
+        }
+      }
+    }
+
     startTransition(async () => {
       const res = await saveDraftBatch(
         input,

@@ -1139,3 +1139,122 @@ func (f *fakeProtocolRepo) ListActiveAnimalStages(context.Context, string) ([]do
 func (f *fakeProtocolRepo) CreateTrigger(context.Context, domain.NewTrigger) (string, error) {
 	return "", nil
 }
+
+// TestPublishMatrixRejectsUnknownVaccineType verifies that unknown vaccine types are rejected.
+func TestPublishMatrixRejectsUnknownVaccineType(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(strings.Replace(validVaccinationMatrixRuleDSL(), `"type":"killed"`, `"type":"unknown"`, 1))
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("unknown vaccine type should be not publishable, got %v", err)
+	}
+	if repo.publishCalls > 0 {
+		t.Fatalf("unknown vaccine type must not be published, but publishCalls=%d", repo.publishCalls)
+	}
+}
+
+// TestPublishMatrixRejectsUnknownPathogenClass verifies that unknown pathogen classes are rejected.
+func TestPublishMatrixRejectsUnknownPathogenClass(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(strings.Replace(validVaccinationMatrixRuleDSL(), `"pathogen_class":"bacterial"`, `"pathogen_class":"unknown"`, 1))
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("unknown pathogen class should be not publishable, got %v", err)
+	}
+	if repo.publishCalls > 0 {
+		t.Fatalf("unknown pathogen class must not be published, but publishCalls=%d", repo.publishCalls)
+	}
+}
+
+// TestPublishMatrixRejectsUnknownCourseType verifies that unknown course types are rejected.
+func TestPublishMatrixRejectsUnknownCourseType(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(strings.Replace(validVaccinationMatrixRuleDSL(), `"course_type":"booster"`, `"course_type":"unknown"`, 1))
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("unknown course type should be not publishable, got %v", err)
+	}
+	if repo.publishCalls > 0 {
+		t.Fatalf("unknown course type must not be published, but publishCalls=%d", repo.publishCalls)
+	}
+}
+
+// TestPublishMatrixRowRejectsUnknownVaccineType verifies that matrix rows with unknown vaccine types are rejected.
+func TestPublishMatrixRowRejectsUnknownVaccineType(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(strings.Replace(validVaccinationMatrixRulesetDSL(), `"type":"live"`, `"type":"unknown"`, 1))
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("matrix row with unknown vaccine type should be not publishable, got %v", err)
+	}
+	if repo.publishCalls > 0 {
+		t.Fatalf("matrix row with unknown vaccine type must not be published, but publishCalls=%d", repo.publishCalls)
+	}
+}
+
+// TestPublishMatrixRowRejectsUnknownPathogenClass verifies that matrix rows with unknown pathogen classes are rejected.
+func TestPublishMatrixRowRejectsUnknownPathogenClass(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(strings.Replace(validVaccinationMatrixRulesetDSL(), `"pathogen_class":"viral"`, `"pathogen_class":"unknown"`, 1))
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("matrix row with unknown pathogen class should be not publishable, got %v", err)
+	}
+	if repo.publishCalls > 0 {
+		t.Fatalf("matrix row with unknown pathogen class must not be published, but publishCalls=%d", repo.publishCalls)
+	}
+}
+
+// TestPublishMatrixRowRejectsUnknownCourseType verifies that matrix rows with unknown course types are rejected.
+func TestPublishMatrixRowRejectsUnknownCourseType(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(strings.Replace(validVaccinationMatrixRulesetDSL(), `"course_type":"single"`, `"course_type":"unknown"`, 1))
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("matrix row with unknown course type should be not publishable, got %v", err)
+	}
+	if repo.publishCalls > 0 {
+		t.Fatalf("matrix row with unknown course type must not be published, but publishCalls=%d", repo.publishCalls)
+	}
+}
+
+// TestPublishMatrixAcceptsValidVaccineValues verifies that valid vaccine type, pathogen class, and course type are accepted.
+func TestPublishMatrixAcceptsValidVaccineValues(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	repo.version.RuleDsl = []byte(validVaccinationMatrixRulesetDSL())
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if err != nil {
+		t.Fatalf("valid vaccine values should be publishable, got %v", err)
+	}
+	if repo.publishCalls != 1 {
+		t.Fatalf("valid vaccine values must be published, but publishCalls=%d", repo.publishCalls)
+	}
+}

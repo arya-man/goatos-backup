@@ -2824,15 +2824,17 @@ func vaccinationSeedEligibilityForSpecies(species []string) map[string]any {
 	return eligibility
 }
 
-// validVaccineTypes / validPathogenClasses are the only accepted values for the
-// two independent medical axes. Pathogen class is deliberately disjoint from
+// validVaccineTypes / validPathogenClasses / validCourseTypes are the only accepted values for the
+// three independent vaccine classification axes. Pathogen class is deliberately disjoint from
 // vaccine type: a "live"/"killed"/"toxoid"/"combo" value in pathogen_class is
 // malformed seed metadata (BUG1) that mis-selects same-day compatibility /
 // spacing rules. Toxoid stays a valid vaccine TYPE for any future reviewed
 // vaccine that needs it; it is simply never a pathogen class.
+// Course type (single/booster) is determined from the number of doses in the schedule.
 var (
 	validVaccineTypes     = map[string]struct{}{"live": {}, "killed": {}, "toxoid": {}}
 	validPathogenClasses  = map[string]struct{}{"bacterial": {}, "viral": {}}
+	validCourseTypes      = map[string]struct{}{"single": {}, "booster": {}}
 	forbiddenPathogenVals = map[string]struct{}{"live": {}, "killed": {}, "toxoid": {}, "combo": {}}
 )
 
