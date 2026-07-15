@@ -78,11 +78,12 @@ marks the item resolved. The server now **requires** `resolution` = `corrected`
 plus a non-empty `note` — so an active mismatch cannot be silently hidden. The UI
 must not imply one click fixes the goat. Label the action **"Mark resolved"** with
 a mode selector + required note (≤500 chars) — never "Reconcile" (which implies
-auto-fix). For `resolution=corrected`, the server **reloads the goat and re-runs
-the stale-stage check**; if the mismatch is still active it returns **409
-`still_in_conflict`** — so a `corrected` claim that didn't actually fix the goat
-is rejected. The UI should surface that 409 and steer the operator to correct the
-stage first or choose `exception`.
+auto-fix). For `resolution=corrected`, the server re-evaluates the goat against the
+**same invariant that raised the item** (the tenant's configured kid cutoff) in one
+atomic, row-locked statement, and **fails closed** if the goat is missing; if the
+mismatch is still active it returns **409 `still_in_conflict`**. The UI should
+surface that 409 and steer the operator to correct the stage first or choose
+`exception`. Note limit is 500 characters (runes, not bytes).
 
 ## Admin-web design (to build)
 

@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -457,7 +458,7 @@ func (h *Handler) ResolveStageReviewItem(w http.ResponseWriter, r *http.Request)
 		h.badRequest(w, r, "invalid_note", "note is required: record what was corrected or why this is an accepted exception")
 		return
 	}
-	if len(note) > 500 {
+	if utf8.RuneCountInString(note) > 500 {
 		h.badRequest(w, r, "invalid_note", "note may not exceed 500 characters")
 		return
 	}

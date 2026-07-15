@@ -91,6 +91,24 @@ func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID
 		return fmt.Errorf("vaccination: record stage review item: lock: %w", err)
 	}
 
+	// Self-heal: if a mixed-version rollout (an older writer with a different conflict target running
+	// concurrently) left more than one OPEN row for this goat, collapse to the newest and resolve the
+	// rest. This converges any transient rollout duplicate back to one open item per goat.
+	if _, err := tx.Exec(ctx, `
+		UPDATE vaccination_stage_review_items
+		SET status = 'resolved', resolved_at = now(),
+		    resolution_note = 'auto-resolved: superseded by newest open stage/age mismatch (per-goat uniqueness)',
+		    updated_at = now()
+		WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND status = 'open'
+		  AND review_item_id <> (
+		    SELECT review_item_id FROM vaccination_stage_review_items
+		    WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND status = 'open'
+		    ORDER BY created_at DESC, review_item_id DESC
+		    LIMIT 1
+		  )`, tenantID, goatID); err != nil {
+		return fmt.Errorf("vaccination: record stage review item: collapse: %w", err)
+	}
+
 	tag, err := tx.Exec(ctx, `
 		UPDATE vaccination_stage_review_items
 		SET observed_stage = $3, observed_age_weeks = $4, updated_at = now()
@@ -114,24 +132,77 @@ func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID
 	return nil
 }
 
-// GetOpenStageReviewItemGoat returns the goat_id of an OPEN stage/age review item (VACC-REV-10). found
-// is false when the item does not exist or is already resolved. Used by the resolve path to re-verify
-// a 'corrected' resolution against the goat's current stage/age.
-func (r *Repository) GetOpenStageReviewItemGoat(ctx context.Context, tenantID, reviewItemID string) (string, bool, error) {
+// StaleKidFinishWeeks returns the effective stale-stage cutoff (in weeks) for the tenant: the smallest
+// configured kids_normal_schedule_until_weeks across published vaccination versions, plus the 4-week
+// grace — i.e. the same finishWeeks staleKidStageAfterCutoff uses. MIN is fail-closed (the shortest
+// configured cutoff makes a mismatch look active for longer). Defaults to 16+4=20 when unset.
+func (r *Repository) StaleKidFinishWeeks(ctx context.Context, tenantID string) (int, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
-	var goatID string
+	var kidWeeks int
 	err := r.pool.QueryRow(ctx, `
-		SELECT goat_id::text FROM vaccination_stage_review_items
-		WHERE tenant_id = $1::uuid AND review_item_id = $2::uuid AND status = 'open'`,
-		tenantID, reviewItemID).Scan(&goatID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", false, nil
-	}
+		SELECT COALESCE(MIN((pv.rule_dsl -> 'procurement_policy' ->> 'kids_normal_schedule_until_weeks')::int), 16)
+		FROM protocol_versions pv
+		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+		WHERE pv.tenant_id = $1::uuid AND pv.status = 'published' AND pd.category = 'vaccination'
+		  AND (pv.rule_dsl -> 'procurement_policy' ->> 'kids_normal_schedule_until_weeks') ~ '^[0-9]+$'`,
+		tenantID).Scan(&kidWeeks)
 	if err != nil {
-		return "", false, fmt.Errorf("vaccination: get open stage review item goat: %w", err)
+		return 0, fmt.Errorf("vaccination: stale kid finish weeks: %w", err)
 	}
-	return goatID, true, nil
+	if kidWeeks <= 0 {
+		kidWeeks = 16
+	}
+	return kidWeeks + 4, nil
+}
+
+// ResolveStageReviewItemCorrected atomically resolves an OPEN review item as 'corrected' ONLY IF the
+// goat still exists AND no longer trips the stale-stage/age condition (effective stage is a kid stage
+// K* AND DOB-derived age > finishWeeks). The check and the resolve are a single locked statement
+// (FOR UPDATE on the item), so a concurrent goat/item change cannot slip a stale mismatch closed.
+// Fails CLOSED when the goat is missing (no goat row -> not resolved). Returns resolved and wasOpen so
+// the caller distinguishes 200 (resolved), 409 (open but still active / goat missing), and 404 (not
+// open). finishWeeks is the tenant's configured cutoff from StaleKidFinishWeeks.
+func (r *Repository) ResolveStageReviewItemCorrected(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time, finishWeeks int) (resolved bool, wasOpen bool, err error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	err = r.pool.QueryRow(ctx, `
+		WITH target AS (
+		  SELECT review_item_id, goat_id
+		  FROM vaccination_stage_review_items
+		  WHERE tenant_id = $1::uuid AND review_item_id = $2::uuid AND status = 'open'
+		  FOR UPDATE
+		),
+		goatrow AS (
+		  SELECT COALESCE(asl.stage_code, g.management_stage, '') AS stage, g.dob
+		  FROM target t
+		  JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = t.goat_id
+		  LEFT JOIN shed_profiles sp ON sp.tenant_id = g.tenant_id AND sp.location_id = g.shed_id
+		  LEFT JOIN animal_stage_lookup asl
+		    ON asl.tenant_id = sp.tenant_id AND asl.animal_stage_id = sp.animal_stage_id AND asl.status = 'active'
+		),
+		upd AS (
+		  UPDATE vaccination_stage_review_items v
+		  SET status = 'resolved', resolved_by = $3::uuid, resolved_at = $4::timestamptz,
+		      resolution_note = $5, resolution_mode = 'corrected', updated_at = now()
+		  WHERE v.tenant_id = $1::uuid AND v.review_item_id = $2::uuid AND v.status = 'open'
+		    AND EXISTS (SELECT 1 FROM goatrow)
+		    AND NOT EXISTS (
+		      SELECT 1 FROM goatrow
+		      WHERE length(btrim(stage)) >= 2
+		        AND upper(btrim(stage)) LIKE 'K%'
+		        AND dob IS NOT NULL
+		        AND (((now() AT TIME ZONE 'Asia/Kolkata')::date - dob) / 7) > $6
+		    )
+		  RETURNING 1
+		)
+		SELECT (SELECT count(*) FROM target) > 0 AS was_open,
+		       (SELECT count(*) FROM upd) > 0 AS resolved`,
+		tenantID, reviewItemID, nullUUID(resolvedBy), resolvedAt, note, finishWeeks).Scan(&wasOpen, &resolved)
+	if err != nil {
+		return false, false, fmt.Errorf("vaccination: resolve stage review item (corrected): %w", err)
+	}
+	return resolved, wasOpen, nil
 }
 
 // ListOpenStageReviewItems returns one keyset-bounded page of OPEN stage review items for the tenant,

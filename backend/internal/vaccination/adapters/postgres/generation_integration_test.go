@@ -1521,3 +1521,120 @@ func TestStageReviewItemOpenUniquePerGoat(t *testing.T) {
 		t.Fatalf("total rows = %d, want 1 (single open item, no stage-keyed duplicate)", total)
 	}
 }
+
+// TestStageReviewBridgeCollapsesMixedVersionDuplicate is the VACC-REV-10 migrate-first guard: an OLD
+// stage-keyed predecessor writer (running concurrently during a rollout) inserts TWO open rows for one
+// goat via its exact `ON CONFLICT (tenant_id, idempotency_key)` SQL with two different keys. The bridge
+// writer, on its next pass, self-heals: it collapses to a single open row (resolving the superseded
+// one). This is the actual-predecessor-SQL + convergence coverage the earlier tests lacked.
+func TestStageReviewBridgeCollapsesMixedVersionDuplicate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const goatID = "40000000-0000-4000-8000-0000000000d3"
+
+	// Exact SQL the old stage-keyed writer shipped (ON CONFLICT on the idempotency-key index). Two
+	// different keys -> no conflict -> two open rows for the same goat.
+	oldWriterSQL := `
+		INSERT INTO vaccination_stage_review_items
+			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
+		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'kid_stage_past_age_cutoff', $3, $4, $5)
+		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO UPDATE
+		SET observed_stage = EXCLUDED.observed_stage, observed_age_weeks = EXCLUDED.observed_age_weeks`
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K1", 22, "vacc-stage-review:"+impTenant+":"+goatID+":K1"); err != nil {
+		t.Fatalf("old writer K1: %v", err)
+	}
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K2", 30, "vacc-stage-review:"+impTenant+":"+goatID+":K2"); err != nil {
+		t.Fatalf("old writer K2: %v", err)
+	}
+	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2 AND status='open'`, impTenant, goatID); got != 2 {
+		t.Fatalf("precondition: want 2 open rows from the mixed-version writer, got %d", got)
+	}
+
+	// Bridge writer (new binary) runs -> self-heals to exactly one open row.
+	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K2", 31, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
+		t.Fatalf("bridge writer: %v", err)
+	}
+	if open := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2 AND status='open'`, impTenant, goatID); open != 1 {
+		t.Fatalf("open rows after bridge = %d, want 1 (collapsed)", open)
+	}
+	if total := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID); total != 2 {
+		t.Fatalf("total rows = %d, want 2 (1 open + 1 auto-resolved)", total)
+	}
+}
+
+// TestResolveStageReviewItemCorrectedAtomicReverify is the VACC-REV-10 guard for the atomic, fail-closed
+// 'corrected' re-check: a still-stale goat is NOT resolved, a goat whose stage is advanced IS resolved,
+// and a review item whose goat no longer exists fails closed (not resolved). The re-check runs against
+// the goat's live state in one locked statement.
+func TestResolveStageReviewItemCorrectedAtomicReverify(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	vacc := NewRepository(pool, 5*time.Second)
+
+	const goatID = "30000000-0000-4000-8000-0000000000f8"
+	const actor = "40000000-0000-4000-8000-0000000000ff"
+	seedGenGoatWithStage(t, ctx, pool, goatID, "alive", "K1")
+	// The re-check uses now(); make the goat ~30 weeks old so it is genuinely past the 20-week cutoff.
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob = (now() AT TIME ZONE 'Asia/Kolkata')::date - 210 WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, impTenant, goatID); err != nil {
+		t.Fatalf("age goat: %v", err)
+	}
+
+	if err := vacc.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 30, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	var reviewID string
+	if err := pool.QueryRow(ctx, `SELECT review_item_id::text FROM vaccination_stage_review_items WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND status='open'`, impTenant, goatID).Scan(&reviewID); err != nil {
+		t.Fatalf("load review id: %v", err)
+	}
+	finishWeeks, err := vacc.StaleKidFinishWeeks(ctx, impTenant)
+	if err != nil {
+		t.Fatalf("finish weeks: %v", err)
+	}
+	if finishWeeks != 20 {
+		t.Fatalf("finishWeeks = %d, want 20 (default 16+4)", finishWeeks)
+	}
+
+	// 1) still stale (K1 + past cutoff) -> not resolved, but was open.
+	resolved, wasOpen, err := vacc.ResolveStageReviewItemCorrected(ctx, impTenant, reviewID, actor, "claims fixed", time.Now(), finishWeeks)
+	if err != nil {
+		t.Fatalf("resolve #1: %v", err)
+	}
+	if resolved || !wasOpen {
+		t.Fatalf("still-stale: resolved=%v wasOpen=%v, want false/true", resolved, wasOpen)
+	}
+
+	// 2) advance the stage off K, then corrected -> resolved.
+	if _, err := pool.Exec(ctx, `UPDATE goats SET management_stage='adult' WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, impTenant, goatID); err != nil {
+		t.Fatalf("advance stage: %v", err)
+	}
+	resolved, wasOpen, err = vacc.ResolveStageReviewItemCorrected(ctx, impTenant, reviewID, actor, "advanced to adult", time.Now(), finishWeeks)
+	if err != nil {
+		t.Fatalf("resolve #2: %v", err)
+	}
+	if !resolved {
+		t.Fatalf("after-fix: resolved=%v, want true", resolved)
+	}
+
+	// 3) fail closed when the goat is missing: an item for a non-existent goat is NOT resolved.
+	const ghost = "30000000-0000-4000-8000-0000000000f9"
+	if err := vacc.RecordStageReviewItem(ctx, impTenant, ghost, "kid_stage_past_age_cutoff", "K1", 30, "vacc-stage-review:"+impTenant+":"+ghost); err != nil {
+		t.Fatalf("record ghost: %v", err)
+	}
+	var ghostID string
+	if err := pool.QueryRow(ctx, `SELECT review_item_id::text FROM vaccination_stage_review_items WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND status='open'`, impTenant, ghost).Scan(&ghostID); err != nil {
+		t.Fatalf("load ghost review id: %v", err)
+	}
+	resolved, wasOpen, err = vacc.ResolveStageReviewItemCorrected(ctx, impTenant, ghostID, actor, "x", time.Now(), finishWeeks)
+	if err != nil {
+		t.Fatalf("resolve #3: %v", err)
+	}
+	if resolved || !wasOpen {
+		t.Fatalf("missing-goat: resolved=%v wasOpen=%v, want false/true (fail closed)", resolved, wasOpen)
+	}
+}

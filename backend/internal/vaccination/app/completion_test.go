@@ -265,11 +265,12 @@ type completionRepoFake struct {
 	dailyCap    int64
 	goatScanned bool // set true if any live goat-count method is ever called (impact must not scan goats)
 	// stage-review re-verify doubles (VACC-REV-10).
-	srGoatID        string
-	srGoatFound     bool
-	srGoat          domain.EligibleGoat
-	srGoatLoadFound bool
-	srResolved      bool
+	srGoat              domain.EligibleGoat
+	srGoatLoadFound     bool
+	srResolved          bool
+	srFinishWeeks       int
+	srCorrectedResolved bool
+	srCorrectedWasOpen  bool
 }
 
 type completionRowFake struct {
@@ -419,8 +420,15 @@ func (r *completionRepoFake) GetGoatForGeneration(context.Context, string, strin
 	return r.srGoat, r.srGoatLoadFound, nil
 }
 
-func (r *completionRepoFake) GetOpenStageReviewItemGoat(context.Context, string, string) (string, bool, error) {
-	return r.srGoatID, r.srGoatFound, nil
+func (r *completionRepoFake) StaleKidFinishWeeks(context.Context, string) (int, error) {
+	if r.srFinishWeeks == 0 {
+		return 20, nil
+	}
+	return r.srFinishWeeks, nil
+}
+
+func (r *completionRepoFake) ResolveStageReviewItemCorrected(context.Context, string, string, string, string, time.Time, int) (bool, bool, error) {
+	return r.srCorrectedResolved, r.srCorrectedWasOpen, nil
 }
 
 type obligationCompleterFake struct {
@@ -477,29 +485,33 @@ func (r *completionRepoFake) ResolveStageReviewItem(context.Context, string, str
 	return r.srResolved, nil
 }
 
-// TestResolveStageReviewItemCorrectedReverify is the VACC-REV-10 guard: a 'corrected' resolution is
-// rejected (ErrStageReviewStillActive) while the goat still trips the stale-stage/age condition, but
-// succeeds once the goat is off a K-stage; an 'exception' resolution is not re-verified.
+// TestResolveStageReviewItemCorrectedReverify is the VACC-REV-10 service-branching guard: a 'corrected'
+// resolution maps the atomic repo outcome to 200 (resolved), 409 (open but re-check blocked — still
+// stale or goat missing), or 404 (not open); an 'exception' resolution skips the re-check entirely.
+// The actual stale re-check SQL is exercised by the Postgres integration test.
 func TestResolveStageReviewItemCorrectedReverify(t *testing.T) {
 	ctx := context.Background()
-	dob := time.Now().AddDate(0, 0, -30*7) // ~30 weeks old -> past the 20-week cutoff
-	stale := domain.EligibleGoat{GoatID: "g", DOB: &dob, Stage: "K2"}     // still a kid stage -> still stale
-	corrected := domain.EligibleGoat{GoatID: "g", DOB: &dob, Stage: "adult"} // stage advanced -> not stale
 
-	// corrected but goat still stale -> rejected.
-	svc := NewService(&completionRepoFake{srGoatID: "g", srGoatFound: true, srGoat: stale, srGoatLoadFound: true, srResolved: true})
-	if _, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "fixed", "corrected", time.Now()); !errors.Is(err, ErrStageReviewStillActive) {
-		t.Fatalf("corrected-while-stale err = %v, want ErrStageReviewStillActive", err)
+	// corrected + repo says still-open-but-not-resolved (re-check blocked) -> 409.
+	svc := NewService(&completionRepoFake{srCorrectedResolved: false, srCorrectedWasOpen: true})
+	if _, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "claims fixed", "corrected", time.Now()); !errors.Is(err, ErrStageReviewStillActive) {
+		t.Fatalf("corrected-blocked err = %v, want ErrStageReviewStillActive", err)
 	}
 
-	// corrected and goat now adult -> resolves.
-	svc = NewService(&completionRepoFake{srGoatID: "g", srGoatFound: true, srGoat: corrected, srGoatLoadFound: true, srResolved: true})
+	// corrected + repo resolved -> ok.
+	svc = NewService(&completionRepoFake{srCorrectedResolved: true, srCorrectedWasOpen: true})
 	if ok, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "advanced to adult", "corrected", time.Now()); err != nil || !ok {
-		t.Fatalf("corrected-after-fix ok=%v err=%v, want true/nil", ok, err)
+		t.Fatalf("corrected-resolved ok=%v err=%v, want true/nil", ok, err)
 	}
 
-	// exception on a still-stale goat -> resolves without re-verification.
-	svc = NewService(&completionRepoFake{srGoatID: "g", srGoatFound: true, srGoat: stale, srGoatLoadFound: true, srResolved: true})
+	// corrected + item not open -> 404 (false, nil), not an error.
+	svc = NewService(&completionRepoFake{srCorrectedResolved: false, srCorrectedWasOpen: false})
+	if ok, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "x", "corrected", time.Now()); err != nil || ok {
+		t.Fatalf("corrected-not-open ok=%v err=%v, want false/nil", ok, err)
+	}
+
+	// exception -> plain resolve, no re-check.
+	svc = NewService(&completionRepoFake{srResolved: true})
 	if ok, err := svc.ResolveStageReviewItem(ctx, "t", "ri", "actor", "already vaccinated; tag fix scheduled", "exception", time.Now()); err != nil || !ok {
 		t.Fatalf("exception ok=%v err=%v, want true/nil", ok, err)
 	}

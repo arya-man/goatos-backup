@@ -47,23 +47,25 @@ var ErrStageReviewStillActive = errors.New("vaccination: stage/age mismatch is s
 // mismatch cannot be closed as corrected.
 func (s *Service) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error) {
 	if resolutionMode == "corrected" {
-		goatID, found, err := s.repo.GetOpenStageReviewItemGoat(ctx, tenantID, reviewItemID)
+		// Re-evaluate against the SAME persisted invariant that raised the item: the tenant's configured
+		// kid cutoff. The re-check and the resolve happen atomically in one locked statement, and fail
+		// closed when the goat is missing.
+		finishWeeks, err := s.repo.StaleKidFinishWeeks(ctx, tenantID)
 		if err != nil {
 			return false, err
 		}
-		if !found {
-			return false, nil // not open -> idempotent 404, nothing to re-verify
-		}
-		g, gfound, err := s.repo.GetGoatForGeneration(ctx, tenantID, goatID)
+		resolved, wasOpen, err := s.repo.ResolveStageReviewItemCorrected(ctx, tenantID, reviewItemID, resolvedBy, note, resolvedAt, finishWeeks)
 		if err != nil {
 			return false, err
 		}
-		// The default procurement policy uses the standard 20-week cutoff; a flagged goat is past its
-		// configured cutoff (>= default), and a genuine correction advances the goat off a K-stage, so
-		// this correctly returns false only once the conflict is actually resolved.
-		if gfound && staleKidStageAfterCutoff(g, genProcurementPolicy{}, resolvedAt) {
+		if resolved {
+			return true, nil
+		}
+		if wasOpen {
+			// Item was open but the re-check blocked the resolve (still stale, or goat missing).
 			return false, ErrStageReviewStillActive
 		}
+		return false, nil // not open -> idempotent 404
 	}
 	return s.repo.ResolveStageReviewItem(ctx, tenantID, reviewItemID, resolvedBy, note, resolutionMode, resolvedAt)
 }

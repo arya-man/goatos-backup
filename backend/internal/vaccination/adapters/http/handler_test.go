@@ -390,6 +390,17 @@ func TestStageReviewItemsListAndResolveHTTP(t *testing.T) {
 		t.Fatalf("resolve with 501-char note status=%d, want 400", rec.Code)
 	}
 
+	// 400 multibyte runes (800 bytes) is under the 500-CHARACTER limit -> accepted (guards against a
+	// byte-length check rejecting valid multilingual notes).
+	rec = httptest.NewRecorder()
+	multibyteNote := strings.Repeat("é", 400) // 400 runes, 800 bytes
+	req = httptest.NewRequest(http.MethodPost, "/admin/vaccination/stage-review-items/11111111-0000-4000-8000-000000000001/resolve", strings.NewReader(`{"resolution":"exception","note":"`+multibyteNote+`"}`))
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resolve with 400-rune (800-byte) note status=%d, want 200", rec.Code)
+	}
+
 	// corrected while the mismatch is still active -> 409 (service returns ErrStageReviewStillActive).
 	fake.resolveErr = vaccinationapp.ErrStageReviewStillActive
 	rec = httptest.NewRecorder()
