@@ -298,7 +298,6 @@ func (s *Service) SweepEscalations(ctx context.Context, in ports.SweepEscalation
 	return n, nil
 }
 
-
 // QueueRoleNotifications validates the envelope and passes an already-resolved recipient list
 // straight through to the repository's set-based insert. No recipients is a legitimate no-op (e.g. a
 // verification_pending event where no position currently holds the verify duty for that park) --
@@ -465,6 +464,22 @@ func mapRepoError(err error) error {
 // to its obligation context. Used by the notification layer to decouple from importing internal/vaccination.
 func (s *Service) ResolveVaccinationCompletionContext(ctx context.Context, tenantID, completionID string) (ports.VaccinationCompletionContext, error) {
 	return s.repo.ResolveVaccinationCompletionContext(ctx, tenantID, completionID)
+}
+
+// ReconcileEventReferences (CR-004, calendar-canonical-5k50k review) surfaces every
+// notification_requests/calendar_snoozes row whose calendar_event_id no longer resolves to any
+// canonical obligation/batch/drive/task/completion. It is a read-only integrity check -- see
+// adapters/postgres/reconciler.go's doc comment for the callable's housekeeping-stage wiring seam
+// (this package does not own cmd/kernel-worker/internal/kernelstages, so it is not scheduled here).
+func (s *Service) ReconcileEventReferences(ctx context.Context, tenantID string) ([]ports.OrphanedCalendarEventReference, error) {
+	if !uuidutil.IsUUIDString(tenantID) {
+		return nil, BadRequest("invalid_tenant", "tenant id is required")
+	}
+	orphans, err := s.repo.ReconcileEventReferences(ctx, tenantID)
+	if err != nil {
+		return nil, mapRepoError(err)
+	}
+	return orphans, nil
 }
 
 func mustCalendarLocation() *time.Location {

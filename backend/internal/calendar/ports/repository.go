@@ -64,6 +64,24 @@ type Repository interface {
 	// queuing. Returns ErrNotFound if the completion does not exist or is not linked to a recorded
 	// obligation.
 	ResolveVaccinationCompletionContext(ctx context.Context, tenantID, completionID string) (VaccinationCompletionContext, error)
+
+	// ReconcileEventReferences (CR-004, calendar-canonical-5k50k review) surfaces every
+	// notification_requests/calendar_snoozes row whose calendar_event_id no longer maps to any
+	// canonical obligation/batch/drive/task/completion (the referential integrity check migration
+	// 000189 introduced when those columns' FKs were dropped -- see
+	// goatos_reconcile_calendar_event_references / goatos_calendar_event_reference_valid in
+	// migration 000191). This is a callable integrity check, not yet on any recurring schedule --
+	// see adapters/postgres/reconciler.go's doc comment for the housekeeping-stage wiring seam.
+	ReconcileEventReferences(ctx context.Context, tenantID string) ([]OrphanedCalendarEventReference, error)
+}
+
+// OrphanedCalendarEventReference is one row ReconcileEventReferences flags: a notification_requests
+// or calendar_snoozes row whose calendar_event_id does not resolve to any canonical record.
+type OrphanedCalendarEventReference struct {
+	SourceTable     string // "notification_requests" | "calendar_snoozes"
+	RecordID        string
+	CalendarEventID string
+	Issue           string
 }
 
 type SendNudge struct {

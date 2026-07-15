@@ -28,13 +28,20 @@ func TestValidateEventID(t *testing.T) {
 		"batch:86000000-0000-4000-8000-000000001003:rule:86000000-0000-4000-8000-000000001004:shed:86000000-0000-4000-8000-000000001005",
 		"catchup:park:86000000-0000-4000-8000-000000001006:due:2026-07-17",
 		"history:2025-12-09:86000000-0000-4000-8000-000000001006:86000000-0000-4000-8000-000000001007:86000000-0000-4000-8000-000000001008",
+		"parkdrive:park:86000000-0000-4000-8000-000000001006:date:2026-07-17",
+		"parkdrive:tenant:86000000-0000-4000-8000-000000001002:date:2026-07-17",
 	}
 	for _, id := range valid {
 		if err := ValidateEventID(id); err != nil {
 			t.Fatalf("ValidateEventID(%q) unexpected err: %v", id, err)
 		}
 	}
-	invalid := []string{"", "reminder:86000000-0000-4000-8000-000000001001", "batch:bad"}
+	invalid := []string{
+		"", "reminder:86000000-0000-4000-8000-000000001001", "batch:bad",
+		"parkdrive:park:bad-uuid:date:2026-07-17",
+		"parkdrive:park:86000000-0000-4000-8000-000000001006:date:not-a-date",
+		"parkdrive:shed:86000000-0000-4000-8000-000000001006:date:2026-07-17",
+	}
 	for _, id := range invalid {
 		if err := ValidateEventID(id); err == nil {
 			t.Fatalf("ValidateEventID(%q) succeeded, want error", id)

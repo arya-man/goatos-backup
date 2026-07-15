@@ -11,8 +11,40 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 )
 
+// calendarDriveTargetsSQL resolves the animal roster for a drive event_id, in three mutually
+// exclusive branches selected by which parameters are bound (batchID / dueDay+park+shed+tenant+rule /
+// isParkDrive):
+//   - $2 (batchID) set: a single batch's own obligations (also used as the internal membership
+//     lookup for one member batch of a park-drive aggregate -- see matched_batches below).
+//   - $2 unset, $12 (isParkDrive) false: the legacy unbatched catch-up lookup (due day + park/shed/
+//     tenant + optional rule), open work only (excludes 'completed').
+//   - $12 true (CR-002): the STABLE park-drive roster for a park+business-date identity
+//     (parkdrive:park:<uuid>:date:<day> / parkdrive:tenant:<uuid>:date:<day>) -- the union of every
+//     unbatched obligation due that park+day AND every obligation whose batch resolves to that
+//     park+day (matched_batches), across ALL member batches/sources, matching the SAME (park_id,
+//     due_date) membership grain canonical_read.go's obligation_drive_membership CTE aggregates for
+//     the list/detail drive_summary counts. Batch scope is resolved from obligation_batches/locations
+//     directly (NOT from the member obligation's own oi.scope_type/scope_id) because
+//     AttachObligationsToBatch only sets batch_id -- it does not sync the obligation's own scope
+//     columns to the batch's scope, so an obligation's own scope can be stale once batched. Includes
+//     'completed' (unlike the catch-up branch) so the full roster -- done and pending -- is visible,
+//     matching drive_summary's total_count = completed + due + overdue + deferred invariant.
 const calendarDriveTargetsSQL = `
-WITH matched_obligations AS (
+WITH matched_batches AS (
+  SELECT ob.batch_id
+  FROM obligation_batches ob
+  LEFT JOIN locations shed_loc
+    ON shed_loc.tenant_id = ob.tenant_id AND shed_loc.location_id = ob.scope_id
+  WHERE ob.tenant_id = $1::uuid
+    AND $12::bool
+    AND ob.status NOT IN ('superseded', 'canceled')
+    AND to_char((COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
+    AND (
+      ($4::uuid IS NOT NULL AND shed_loc.parent_location_id = $4::uuid)
+      OR ($6::uuid IS NOT NULL AND shed_loc.parent_location_id IS NULL)
+    )
+),
+matched_obligations AS (
 SELECT
   oi.obligation_id,
   oi.target_id AS animal_id,
@@ -76,6 +108,7 @@ WHERE oi.tenant_id = $1::uuid
     )
     OR (
       $2::uuid IS NULL
+      AND NOT $12::bool
       AND oi.batch_id IS NULL
       AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
       AND to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
@@ -85,6 +118,21 @@ WHERE oi.tenant_id = $1::uuid
         OR ($6::uuid IS NOT NULL AND oi.tenant_id = $6::uuid AND loc.park_id IS NULL AND loc.shed_id IS NULL)
       )
       AND ($7::uuid IS NULL OR oi.rule_id = $7::uuid)
+    )
+    OR (
+      $12::bool
+      AND oi.status NOT IN ('waived', 'canceled', 'superseded')
+      AND (
+        oi.batch_id IN (SELECT batch_id FROM matched_batches)
+        OR (
+          oi.batch_id IS NULL
+          AND to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
+          AND (
+            ($4::uuid IS NOT NULL AND loc.park_id = $4::uuid)
+            OR ($6::uuid IS NOT NULL AND oi.tenant_id = $6::uuid AND loc.park_id IS NULL AND loc.shed_id IS NULL)
+          )
+        )
+      )
     )
   )
   AND ($9::bool OR g.park_id::text = ANY($10::text[]) OR g.shed_id::text = ANY($11::text[]))
@@ -114,7 +162,7 @@ SELECT
 FROM animal_targets
 WHERE ($8::uuid IS NULL OR obligation_id > $8::uuid)
 ORDER BY obligation_id ASC
-LIMIT $12`
+LIMIT $13`
 
 func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQuery) (domain.CalendarDriveTargetListResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -170,10 +218,15 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 		cursorID = q.Cursor.ObligationID
 	}
 
+	// CR-002: a stable park-drive identity (parkdrive:park:.../parkdrive:tenant:...) resolves the
+	// FULL aggregated roster -- every member batch's obligations plus any unbatched obligations --
+	// for that park+business-date, not just one batch or the legacy unbatched catch-up set.
+	isParkDrive := parsed.ParkDrive
+
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	rows, err := r.pool.Query(ctx, calendarDriveTargetsSQL,
 		q.TenantID, batchID, dueDay, parkID, shedID, tenantID, ruleID, cursorID,
-		tenantWide, parkIDs, shedIDs, fetchLimit)
+		tenantWide, parkIDs, shedIDs, isParkDrive, fetchLimit)
 	if err != nil {
 		return domain.CalendarDriveTargetListResponse{}, fmt.Errorf("calendar: list drive targets: %w", err)
 	}

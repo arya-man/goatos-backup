@@ -71,12 +71,12 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
         <div className="ptx">
           <div>
             <span className="big">{coverage.completed}</span>
-            <span className="u"> / {coverage.total} {coverage.usesAnimals ? "animals" : "doses"}</span>
+            <span className="u"> / {coverage.total} {copy(pageContract, coverage.usesAnimals ? "calendar.drive.animals" : "calendar.drive.doses")}</span>
           </div>
           <div className="metric">
-            <b>{summary.sheds_completed}</b> of {summary.shed_count} sheds done
+            <b>{summary.sheds_completed}</b> {copy(pageContract, "calendar.drive.of")} {summary.shed_count} {copy(pageContract, "calendar.drive.sheds_done_suffix")}
           </div>
-          <span className="pill">{summary.vaccine_labels.length} vaccines</span>
+          <span className="pill">{summary.vaccine_labels.length} {copy(pageContract, "calendar.drive.vaccines_suffix")}</span>
         </div>
       </div>
       {chips.length > 0 ? (

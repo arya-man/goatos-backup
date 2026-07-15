@@ -557,7 +557,6 @@ park_drive_groups AS (
     sum(COALESCE((detail->'summary'->>'queue_count')::int, 0))::int AS queue_count,
     bool_or(source_target_type = 'catchup') AS has_catch_up,
     sum(target_count) FILTER (WHERE status = 'deferred')::int AS deferred_count,
-    min(event_id) AS single_event_id,
     min(source_target_type) AS single_source_target_type,
     min(source_target_id::text)::uuid AS single_source_target_id,
     bool_or(status = 'completed') AND bool_and(status IN ('completed', 'canceled')) AS all_completed,
@@ -769,9 +768,31 @@ obligation_drive_summary AS (
     ON vl.park_id IS NOT DISTINCT FROM g.park_id AND vl.due_date = g.due_date
 ),
 park_drive_events AS (
+  -- CR-002/CR-003 (calendar-canonical-5k50k review): the event_id is the STABLE park+business-date
+  -- identity from the moment a drive exists -- NEVER the underlying single source's own batch:/
+  -- catchup: id, even when drive_count = 1. Two related bugs this fixes together:
+  --   CR-002 (aggregated ids were unparseable): a drive_count > 1 row already emitted
+  --     'parkdrive:park:...'/'parkdrive:tenant:...', but domain.ParseDriveEventID only accepted
+  --     batch:/catchup: -- so GetEventDetail/ListDriveTargets 400'd on every real multi-source drive.
+  --     Fixed on the domain side (event_id.go now parses this form too); this CTE's shape was already
+  --     the target the fix aligns to.
+  --   CR-003 (identity instability across membership change): the OLD CASE below collapsed
+  --     drive_count = 1 to grouped.single_event_id (the lone source's own batch:<id>/catchup:... id),
+  --     so a solo drive's event_id MUTATED to parkdrive:... the moment a second same-day source
+  --     joined the same park+day. calendar_snoozes/notification_requests key on the exact
+  --     calendar_event_id text (see repository.go's loadActionTarget/activeSnoozeIDs/
+  --     calendarReminderRailSQL, which all join by plain string equality against source_events.
+  --     event_id -- no FK, no ID-shape awareness since migration 000189) -- so that mutation silently
+  --     detached any existing snooze/reminder/escalation state and could let a reminder rearm/dup.
+  --     Removing the drive_count = 1 branch means a solo drive is ALREADY parkdrive:-identified from
+  --     day one: adding a second source never changes event_id, so state keyed on it never detaches.
+  --     batch:/catchup: ids remain valid, independently resolvable MEMBERSHIP identities (still parsed
+  --     by domain.ParseDriveEventID, still usable for e.g. legacy/internal lookups) -- they are simply
+  --     no longer the identity ANY drive is first assigned or ever mutates through; grouped.
+  --     single_source_target_type/single_source_target_id (below) still carry that membership detail
+  --     into source_target_type/source_target_id for a drive_count = 1 row.
   SELECT
     CASE
-      WHEN grouped.drive_count = 1 THEN grouped.single_event_id
       WHEN grouped.park_id IS NOT NULL THEN 'parkdrive:park:' || grouped.park_id::text || ':date:' || grouped.due_day
       ELSE 'parkdrive:tenant:' || $1::text || ':date:' || grouped.due_day
     END AS event_id,

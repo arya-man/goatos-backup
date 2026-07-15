@@ -64,11 +64,13 @@ function dateHeading(key: string, today: string, pageContract: AdminUiPageContra
 function EventRow({
   event,
   href,
+  driveHref,
   ownerMeta,
   pageContract,
 }: {
   event: CalendarEvent;
   href: string;
+  driveHref?: (id: string) => string;
   ownerMeta: OwnerPresentationMap;
   pageContract: AdminUiPageContract;
 }) {
@@ -87,9 +89,10 @@ function EventRow({
   const showTertiary = event.summary_tertiary && event.summary_tertiary !== event.subtitle && event.summary_tertiary !== event.shed_name;
 
   if (event.aggregated) {
-    // Drive rows: render the card as a link (NO wrapping in .ev/.et/.eb)
+    // Drive rows: render the card as a link (NO wrapping in .ev/.et/.eb).
+    // Navigate to the drive detail page with scope (park/shed/as_of) preserved.
     return (
-      <Link href={`/calendar/drive/${encodeURIComponent(event.event_id)}`} replace scroll={false} className="drivelink">
+      <Link href={driveHref ? driveHref(event.event_id) : ""} replace scroll={false} className="drivelink">
         <DriveProgressCard event={event} pageContract={pageContract} />
       </Link>
     );
@@ -215,6 +218,7 @@ export async function VaccinationCalendarPage({
       targets_cursor_stack: undefined,
     });
   const eventHref = (id: string) => hrefWith({ event: id, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
+  const driveHref = (id: string) => scopeHref(`/calendar/drive/${encodeURIComponent(id)}`, scope);
   const closeHref = hrefWith({ event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
   const weekHref = hrefWith({
     status: undefined,
@@ -395,6 +399,7 @@ export async function VaccinationCalendarPage({
           events={events}
           today={today}
           eventHref={eventHref}
+          driveHref={driveHref}
           ownerKey={activeOwnerKey}
           ownerMeta={ownerMeta}
           pageContract={pageContract}
@@ -405,6 +410,7 @@ export async function VaccinationCalendarPage({
           events={events}
           today={today}
           eventHref={eventHref}
+          driveHref={driveHref}
           ownerKey={activeOwnerKey}
           presentation={presentation}
           ownerMeta={ownerMeta}
@@ -446,6 +452,7 @@ function WeekView({
   events,
   today,
   eventHref,
+  driveHref,
   ownerKey,
   presentation,
   ownerMeta,
@@ -458,6 +465,7 @@ function WeekView({
   events: CalendarEvent[];
   today: string;
   eventHref: (id: string) => string;
+  driveHref: (id: string) => string;
   ownerKey: CalendarOwnerFilter;
   presentation: CalendarPresentation;
   ownerMeta: OwnerPresentationMap;
@@ -548,7 +556,7 @@ function WeekView({
                       </div>
                     ) : (
                       rows.map((event) => (
-                        <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
+                        <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} driveHref={driveHref} ownerMeta={ownerMeta} pageContract={pageContract} />
                       ))
                     )}
                   </div>
@@ -566,6 +574,7 @@ function HistoryView({
   events,
   today,
   eventHref,
+  driveHref,
   ownerKey,
   ownerMeta,
   pageContract,
@@ -574,6 +583,7 @@ function HistoryView({
   events: CalendarEvent[];
   today: string;
   eventHref: (id: string) => string;
+  driveHref: (id: string) => string;
   ownerKey: CalendarOwnerFilter;
   ownerMeta: OwnerPresentationMap;
   pageContract: AdminUiPageContract;
@@ -600,7 +610,7 @@ function HistoryView({
             <div key={key}>
               <div className="dh">{dateHeading(key, today, pageContract)}</div>
               {rows.map((event) => (
-                <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} ownerMeta={ownerMeta} pageContract={pageContract} />
+                <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} driveHref={driveHref} ownerMeta={ownerMeta} pageContract={pageContract} />
               ))}
             </div>
           ))}

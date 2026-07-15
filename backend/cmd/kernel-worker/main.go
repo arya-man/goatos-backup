@@ -113,9 +113,10 @@ func run(ctx context.Context, args []string) error {
 
 	// Operational (every 15 minutes): sweep due/missed obligations, create
 	// batches + SOP tasks, reconcile inventory, queue reminders + escalations,
-	// retry SOP review fanout.
+	// retry SOP review fanout, and queue reminder cadence fires (T-7d, daily, due-today).
 	supervisor.RegisterCadence("operational", 15*time.Minute,
 		kernelstages.NewObligationSweeperStage(deps, sweeperCfg),
+		kernelstages.NewReminderCadenceStage(deps, tenantID),
 		kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 		kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),
 	)
@@ -130,6 +131,7 @@ func run(ctx context.Context, args []string) error {
 	supervisor.RegisterCadence("housekeeping", 24*time.Hour,
 		kernelstages.NewProcessedEventSweeperStage(deps, tenantID),
 		kernelstages.NewIdempotencyKeySweeperStage(deps, tenantID),
+		kernelstages.NewCalendarReconcilerStage(deps, tenantID),
 	)
 
 	logger.Info("kernel_worker_starting", "tenant_id", tenantID, "domain_consumer_enabled", consumerEnabled)

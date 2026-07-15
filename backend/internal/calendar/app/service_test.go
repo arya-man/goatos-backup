@@ -288,3 +288,7 @@ func (f *fakeRepo) SweepReminderCadence(context.Context, ports.ReminderCadenceQu
 func (f *fakeRepo) QueueReminderCadenceBatch(context.Context, ports.QueueReminderCadenceBatch) (int, error) {
 	return 0, nil
 }
+
+func (f *fakeRepo) ReconcileEventReferences(context.Context, string) ([]ports.OrphanedCalendarEventReference, error) {
+	return nil, nil
+}

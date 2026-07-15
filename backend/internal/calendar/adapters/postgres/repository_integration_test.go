@@ -90,12 +90,16 @@ func TestCalendarPostgresListDetailActionsAndHistory(t *testing.T) {
 	reminderBatchID := "86000000-0000-4000-8000-000000001107"
 	// Real canonical batches (5k-50k envelope: canonical is the only serving path), one per park so
 	// the park-day drive grouping keeps them as two distinct list items.
-	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, time.Now().UTC().Add(2*time.Hour))
-	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, time.Now().UTC().Add(2*time.Hour), obligationID)
-	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, reminderObligationID, time.Now().UTC().Add(30*time.Minute))
-	seedVaccinationBatchForShed(t, ctx, pool, reminderBatchID, versionID, testParkB, testShedB, time.Now().UTC().Add(30*time.Minute), reminderObligationID)
-	testCalendarEvent := batchEventID(batchID)
-	testReminderEvent := batchEventID(reminderBatchID)
+	dueAt := time.Now().UTC().Add(2 * time.Hour)
+	reminderDueAt := time.Now().UTC().Add(30 * time.Minute)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, dueAt, obligationID)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, reminderObligationID, reminderDueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, reminderBatchID, versionID, testParkB, testShedB, reminderDueAt, reminderObligationID)
+	// CR-002/CR-003: the stable park-drive identity (parkdrive:park:...:date:...), not the
+	// underlying batch's own batch:<id>.
+	testCalendarEvent := parkDriveEventID(testParkA, dueAt)
+	testReminderEvent := parkDriveEventID(testParkB, reminderDueAt)
 
 	repo := NewRepository(pool, 5*time.Second)
 	from := time.Now().UTC().Add(-24 * time.Hour)
@@ -226,9 +230,11 @@ func TestCalendarReminderSweepRearmsOpenWorkDaily(t *testing.T) {
 	ruleID := "86000000-0000-4000-8000-000000001213"
 	obligationID := "86000000-0000-4000-8000-000000001214"
 	batchID := "86000000-0000-4000-8000-000000001215"
-	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, time.Now().UTC().Add(30*time.Minute))
-	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, time.Now().UTC().Add(30*time.Minute), obligationID)
-	eventID := batchEventID(batchID)
+	dueAt := time.Now().UTC().Add(30 * time.Minute)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, dueAt, obligationID)
+	// CR-002/CR-003: the stable park-drive identity, not batch:<id>.
+	eventID := parkDriveEventID(testParkA, dueAt)
 	yesterdayKey := testTenantID + ":calendar.reminder:" + eventID + ":" + calendarBusinessDate(time.Now().In(biztime.DefaultLocation()).Add(-24*time.Hour))
 	if _, err := pool.Exec(ctx, `
 INSERT INTO notification_requests (
@@ -290,8 +296,9 @@ func TestCalendarPostgresAppliesParkShedScope(t *testing.T) {
 	seedVaccinationBatchForShed(t, ctx, pool, batchA, versionID, testParkA, testShedA, dueAt, obligationA)
 	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, obligationB, dueAt)
 	seedVaccinationBatchForShed(t, ctx, pool, batchB, versionID, testParkB, testShedB, dueAt, obligationB)
-	eventA := batchEventID(batchA)
-	eventB := batchEventID(batchB)
+	// CR-002/CR-003: the stable park-drive identity, not batch:<id>.
+	eventA := parkDriveEventID(testParkA, dueAt)
+	eventB := parkDriveEventID(testParkB, dueAt)
 
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID,
@@ -371,11 +378,12 @@ func TestCalendarListExcludesClosedEventsByDefault(t *testing.T) {
 	// canceled batch never reaches canonical_selected, by default or under any status filter.
 	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, activeObligation, dueAt)
 	seedVaccinationBatchForShed(t, ctx, pool, activeBatch, versionID, testParkA, testShedA, dueAt, activeObligation)
-	activeID := batchEventID(activeBatch)
+	// CR-002/CR-003: the stable park-drive identity, not batch:<id>.
+	activeID := parkDriveEventID(testParkA, dueAt)
 
 	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, completedObligation, dueAt.Add(time.Minute))
 	seedVaccinationBatchForShed(t, ctx, pool, completedBatch, versionID, completedParkID, completedShedID, dueAt.Add(time.Minute), completedObligation)
-	completedID := batchEventID(completedBatch)
+	completedID := parkDriveEventID(completedParkID, dueAt.Add(time.Minute))
 	if _, err := pool.Exec(ctx, `
 UPDATE obligation_batches SET status='completed', updated_at=now()
 WHERE tenant_id=$1::uuid AND batch_id=$2::uuid`, testTenantID, completedBatch); err != nil {
@@ -466,7 +474,8 @@ func TestCalendarVaccinationProjectionRefreshBackfillsObligations(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(list.Items) != 1 || list.Items[0].EventID != catchupEventID(testTenantID, dueAt) || list.Items[0].EventType != domain.EventVaccinationDrive {
+	// CR-002/CR-003: the stable tenant-wide park-drive identity, not catchup:tenant:...
+	if len(list.Items) != 1 || list.Items[0].EventID != parkDriveTenantEventID(testTenantID, dueAt) || list.Items[0].EventType != domain.EventVaccinationDrive {
 		t.Fatalf("list items=%#v, want one visible catch-up drive", list.Items)
 	}
 }
@@ -518,11 +527,13 @@ func TestCalendarVaccinationProjectionCollapsesBatchedGoatDosesToDrive(t *testin
 	if err != nil {
 		t.Fatalf("ListEvents after batch: %v", err)
 	}
-	if len(list.Items) != 1 || list.Items[0].EventID != batchEventID(batchID) ||
+	// CR-002/CR-003: the stable park-drive identity, not batch:<id>.
+	wantID := parkDriveEventID(testParkA, dueAt)
+	if len(list.Items) != 1 || list.Items[0].EventID != wantID ||
 		list.Items[0].EventType != domain.EventVaccinationDrive || list.Items[0].TargetCount != len(obligationIDs) {
 		t.Fatalf("list after batch=%#v, want one batch drive with %d goats", list.Items, len(obligationIDs))
 	}
-	assertDriveTargets(t, ctx, repo, batchEventID(batchID), obligationIDs)
+	assertDriveTargets(t, ctx, repo, wantID, obligationIDs)
 }
 
 func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDayParkDrive(t *testing.T) {
@@ -538,17 +549,25 @@ func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDa
 		ruleA       = "86000000-0000-4000-8000-00000000c103"
 		batchA      = "86000000-0000-4000-8000-00000000c104"
 		obligationA = "86000000-0000-4000-8000-00000000c105"
+		animalA     = "86000000-0000-4000-8000-00000000c106"
 		protocolB   = "86000000-0000-4000-8000-00000000c201"
 		versionB    = "86000000-0000-4000-8000-00000000c202"
 		ruleB       = "86000000-0000-4000-8000-00000000c203"
 		batchB      = "86000000-0000-4000-8000-00000000c204"
 		obligationB = "86000000-0000-4000-8000-00000000c205"
+		animalB     = "86000000-0000-4000-8000-00000000c206"
 	)
 	seedVaccinationObligation(t, ctx, pool, protocolA, versionA, ruleA, obligationA, dueAt)
+	attachObligationToGoatScope(t, ctx, pool, obligationA, animalA, "shed", testShedA)
 	seedProtocolRuleVaccineName(t, ctx, pool, versionA, ruleA, "ET+TT")
 	seedVaccinationBatchForShed(t, ctx, pool, batchA, versionA, testParkA, testShedA, dueAt, obligationA)
 
-	// A single source for the park/day keeps the plain batch event id (canonical is live, no refresh).
+	// CR-002/CR-003 (calendar-canonical-5k50k review): a solo source for the park/day now ALREADY
+	// carries the STABLE parkdrive:park:...:date:... identity -- never the underlying batch's own
+	// batch:<id> -- so the identity never mutates once a second source joins the same park+day below,
+	// and existing snooze/reminder/escalation state keyed on it never detaches (see
+	// TestCalendarParkDriveIdentityAndSnoozeStateSurviveMembershipChange for the state-survival case).
+	wantID := parkDriveEventID(testParkA, dueAt)
 	soloList, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
 		Scope: domain.ScopeFilter{TenantWide: true},
@@ -556,15 +575,28 @@ func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDa
 	if err != nil {
 		t.Fatalf("ListEvents single batch: %v", err)
 	}
-	if len(soloList.Items) != 1 || soloList.Items[0].EventID != batchEventID(batchA) || soloList.Items[0].Status == domain.StatusCanceled {
-		t.Fatalf("ListEvents single batch=%#v, want stable batch event %s", soloList.Items, batchEventID(batchA))
+	if len(soloList.Items) != 1 || soloList.Items[0].EventID != wantID || soloList.Items[0].Status == domain.StatusCanceled {
+		t.Fatalf("ListEvents single batch=%#v, want stable park-drive event %s", soloList.Items, wantID)
 	}
 
+	// CR-002: the stable park-drive id must resolve on BOTH GetEventDetail and ListDriveTargets --
+	// not just ListEvents -- even for a solo (drive_count = 1) drive.
+	soloDetail, err := repo.GetEventDetail(ctx, domain.EventQuery{
+		TenantID: testTenantID, EventID: wantID, Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("GetEventDetail solo park drive: %v", err)
+	}
+	if soloDetail.Event.EventID != wantID || soloDetail.Event.TargetCount != 1 {
+		t.Fatalf("GetEventDetail solo park drive=%#v, want id=%s targets=1", soloDetail.Event, wantID)
+	}
+	assertDriveTargets(t, ctx, repo, wantID, []string{animalA})
+
 	seedVaccinationObligation(t, ctx, pool, protocolB, versionB, ruleB, obligationB, dueAt.Add(10*time.Minute))
+	attachObligationToGoatScope(t, ctx, pool, obligationB, animalB, "shed", testShedB)
 	seedProtocolRuleVaccineName(t, ctx, pool, versionB, ruleB, "PPR")
 	seedVaccinationBatchForShed(t, ctx, pool, batchB, versionB, testParkA, testShedB, dueAt.Add(10*time.Minute), obligationB)
 
-	wantID := parkDriveEventID(testParkA, dueAt)
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
 		Scope: domain.ScopeFilter{TenantWide: true},
@@ -585,6 +617,20 @@ func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDa
 	if !slices.Equal(got.ShedLabels, []string{"Test Shed 0711", "Test Shed 0712"}) || !slices.Equal(got.VaccineLabels, []string{"ET+TT", "PPR"}) {
 		t.Fatalf("grouped labels sheds=%v vaccines=%v", got.ShedLabels, got.VaccineLabels)
 	}
+
+	// CR-002 (the primary multi-shed/multi-vaccine flow): once a second batch aggregates onto the
+	// SAME park-drive identity, GetEventDetail and ListDriveTargets must both still succeed (not
+	// 400 invalid_event_id) against that generated id, and the roster must span EVERY member batch.
+	detail, err := repo.GetEventDetail(ctx, domain.EventQuery{
+		TenantID: testTenantID, EventID: wantID, Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("GetEventDetail aggregated park drive: %v", err)
+	}
+	if detail.Event.EventID != wantID || detail.Event.TargetCount != 2 || detail.Event.ShedCount != 2 {
+		t.Fatalf("GetEventDetail aggregated park drive=%#v, want id=%s targets=2 sheds=2", detail.Event, wantID)
+	}
+	assertDriveTargets(t, ctx, repo, wantID, []string{animalA, animalB})
 }
 
 func TestCalendarVaccinationProjectionDoesNotReclassifyDeferredCatchupAsOverdue(t *testing.T) {
@@ -663,7 +709,8 @@ func TestCalendarVaccinationProjectionCollapsesMultipleRulesIntoSingleCatchupDri
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(list.Items) != 1 || list.Items[0].EventID != catchupEventID(testTenantID, dueAt) ||
+	// CR-002/CR-003: the stable tenant-wide park-drive identity, not catchup:tenant:...
+	if len(list.Items) != 1 || list.Items[0].EventID != parkDriveTenantEventID(testTenantID, dueAt) ||
 		list.Items[0].EventType != domain.EventVaccinationDrive || list.Items[0].Status == domain.StatusCanceled ||
 		list.Items[0].TargetCount != 2 {
 		t.Fatalf("list=%#v, want one multi-rule catchup drive with target_count=2", list.Items)
@@ -710,7 +757,8 @@ func TestCalendarCatchupDriveTargetsUseVaccinationAnimalAndQueueSemantics(t *tes
 		dueAt.Add(30*time.Minute),
 	)
 
-	catchupID := catchupParkEventID(testParkA, dueAt)
+	// CR-002/CR-003: the stable park-drive identity, not catchup:park:...
+	catchupID := parkDriveEventID(testParkA, dueAt)
 	detail, err := repo.GetEventDetail(ctx, domain.EventQuery{
 		TenantID: testTenantID, EventID: catchupID, Scope: domain.ScopeFilter{TenantWide: true},
 	})
@@ -783,7 +831,8 @@ func TestCalendarReminderSweepTargetsCatchupSummaryNotHiddenDose(t *testing.T) {
 	if queued != 1 {
 		t.Fatalf("queued reminders = %d, want visible catch-up summary only", queued)
 	}
-	catchupID := catchupEventID(testTenantID, dueAt)
+	// CR-002/CR-003: the stable tenant-wide park-drive identity, not catchup:tenant:...
+	catchupID := parkDriveTenantEventID(testTenantID, dueAt)
 	assertCount(t, ctx, pool, "catch-up reminder request", `
 SELECT count(*)
 FROM notification_requests
@@ -834,7 +883,8 @@ func TestCalendarVaccinationProjectionCollapsesMultipleRulesInBatchIntoSingleDri
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	if len(list.Items) != 1 || list.Items[0].EventID != batchEventID(batchID) ||
+	// CR-002/CR-003: the stable park-drive identity, not batch:<id>.
+	if len(list.Items) != 1 || list.Items[0].EventID != parkDriveEventID(testParkA, dueAt) ||
 		list.Items[0].EventType != domain.EventVaccinationDrive || list.Items[0].Status == domain.StatusCanceled ||
 		list.Items[0].TargetCount != 2 {
 		t.Fatalf("list=%#v, want one multi-rule batch drive with target_count=2", list.Items)
@@ -914,7 +964,8 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, testTenantID, obligati
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	eventID := catchupEventID(testTenantID, oldDueAt)
+	// CR-002/CR-003: the stable tenant-wide park-drive identity, not catchup:tenant:...
+	eventID := parkDriveTenantEventID(testTenantID, oldDueAt)
 	var found *domain.CalendarEvent
 	for i := range list.Items {
 		if list.Items[i].EventID == eventID {
@@ -963,7 +1014,8 @@ func TestCalendarListSurfacesPastDueOpenExceptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
-	eventID := catchupEventID(testTenantID, oldDueAt)
+	// CR-002/CR-003: the stable tenant-wide park-drive identity, not catchup:tenant:...
+	eventID := parkDriveTenantEventID(testTenantID, oldDueAt)
 	var found *domain.CalendarEvent
 	for i := range list.Items {
 		if list.Items[i].EventID == eventID {
@@ -1005,7 +1057,8 @@ func TestCalendarEscalationSweepQueuesNotificationAndObligationEscalation(t *tes
 	if queued != 1 {
 		t.Fatalf("queued escalations = %d, want 1", queued)
 	}
-	eventID := catchupEventID(testTenantID, dueAt)
+	// CR-002/CR-003: the stable tenant-wide park-drive identity, not catchup:tenant:...
+	eventID := parkDriveTenantEventID(testTenantID, dueAt)
 	assertCount(t, ctx, pool, "escalation notifications", `
 SELECT count(*)
 FROM notification_requests
@@ -1112,9 +1165,11 @@ func TestCalendarReminderRailDerivesFromCanonicalNotificationsNotProjectionColum
 	reminderBatch := "86000000-0000-4000-8000-000000009022"
 	reminderParkID := "86000000-0000-4000-8000-000000009023"
 	reminderShedID := "86000000-0000-4000-8000-000000009024"
-	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, reminderObligation, time.Now().UTC().Add(30*time.Minute))
-	seedVaccinationBatchForShed(t, ctx, pool, reminderBatch, versionID, reminderParkID, reminderShedID, time.Now().UTC().Add(30*time.Minute), reminderObligation)
-	reminderEvent := batchEventID(reminderBatch)
+	reminderDueAt := time.Now().UTC().Add(30 * time.Minute)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, reminderObligation, reminderDueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, reminderBatch, versionID, reminderParkID, reminderShedID, reminderDueAt, reminderObligation)
+	// CR-002/CR-003: the stable park-drive identity, not batch:<id>.
+	reminderEvent := parkDriveEventID(reminderParkID, reminderDueAt)
 	if queued, err := repo.SweepDueReminders(ctx, testTenantID, 10); err != nil {
 		t.Fatalf("SweepDueReminders: %v", err)
 	} else if queued != 1 {
@@ -1126,9 +1181,11 @@ func TestCalendarReminderRailDerivesFromCanonicalNotificationsNotProjectionColum
 	nudgeBatch := "86000000-0000-4000-8000-000000009032"
 	nudgeParkID := "86000000-0000-4000-8000-000000009033"
 	nudgeShedID := "86000000-0000-4000-8000-000000009034"
-	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, nudgeObligation, time.Now().UTC().Add(45*time.Minute))
-	seedVaccinationBatchForShed(t, ctx, pool, nudgeBatch, versionID, nudgeParkID, nudgeShedID, time.Now().UTC().Add(45*time.Minute), nudgeObligation)
-	nudgeEvent := batchEventID(nudgeBatch)
+	nudgeDueAt := time.Now().UTC().Add(45 * time.Minute)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, nudgeObligation, nudgeDueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, nudgeBatch, versionID, nudgeParkID, nudgeShedID, nudgeDueAt, nudgeObligation)
+	// CR-002/CR-003: the stable park-drive identity, not batch:<id>.
+	nudgeEvent := parkDriveEventID(nudgeParkID, nudgeDueAt)
 	if _, err := repo.SendNudge(ctx, ports.SendNudge{
 		TenantID: testTenantID, EventID: nudgeEvent, ActorID: testActorID,
 		IdempotencyKey: "rail-nudge-key", Channel: "local-stub", Message: "please act",
@@ -1142,9 +1199,11 @@ func TestCalendarReminderRailDerivesFromCanonicalNotificationsNotProjectionColum
 	snoozeBatch := "86000000-0000-4000-8000-000000009042"
 	snoozeParkID := "86000000-0000-4000-8000-000000009043"
 	snoozeShedID := "86000000-0000-4000-8000-000000009044"
-	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, snoozeObligation, time.Now().UTC().Add(50*time.Minute))
-	seedVaccinationBatchForShed(t, ctx, pool, snoozeBatch, versionID, snoozeParkID, snoozeShedID, time.Now().UTC().Add(50*time.Minute), snoozeObligation)
-	snoozeEvent := batchEventID(snoozeBatch)
+	snoozeDueAt := time.Now().UTC().Add(50 * time.Minute)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, snoozeObligation, snoozeDueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, snoozeBatch, versionID, snoozeParkID, snoozeShedID, snoozeDueAt, snoozeObligation)
+	// CR-002/CR-003: the stable park-drive identity, not batch:<id>.
+	snoozeEvent := parkDriveEventID(snoozeParkID, snoozeDueAt)
 	if _, err := repo.Snooze(ctx, ports.Snooze{
 		TenantID: testTenantID, EventID: snoozeEvent, ActorID: testActorID,
 		IdempotencyKey: "rail-snooze-key", SnoozeUntil: time.Now().UTC().Add(2 * time.Hour),
@@ -1168,7 +1227,7 @@ func TestCalendarReminderRailDerivesFromCanonicalNotificationsNotProjectionColum
 	}); err != nil {
 		t.Fatalf("SweepEscalations (catch-up): %v", err)
 	}
-	catchupEvent := catchupEventID(testTenantID, catchupDueAt)
+	catchupEvent := parkDriveTenantEventID(testTenantID, catchupDueAt)
 	assertCount(t, ctx, pool, "no canonical escalation ladder for catch-up event", `
 SELECT count(*) FROM obligation_escalations WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`,
 		0, testTenantID, catchupObligationID)
@@ -1718,34 +1777,245 @@ SET rule_dsl = EXCLUDED.rule_dsl, status='draft', updated_at=now()`,
 	}
 }
 
-func batchEventID(batchID string) string {
-	return fmt.Sprintf("batch:%s", batchID)
-}
+// TestCalendarParkDriveIdentityAndSnoozeStateSurviveMembershipChange is the CR-003 regression guard:
+// a solo drive's snooze + reminder state must stay attached to the SAME event_id after a second
+// same-day batch joins the same park+day, because canonical_read.go's park_drive_events now assigns
+// the STABLE parkdrive:park:...:date:... identity from the moment the drive exists (never the
+// underlying batch's own batch:<id>). Before that fix, a solo drive's event_id WAS batch:<id> and
+// mutated to parkdrive:... only once aggregated -- silently detaching any calendar_snoozes/
+// notification_requests row keyed on the old id (repository.go's activeSnoozeIDs/
+// calendarReminderCandidatesSQL/calendarReminderRailSQL all join by exact calendar_event_id string
+// equality, with no FK and no ID-shape awareness since migration 000189) and letting a reminder
+// silently rearm despite an active snooze.
+func TestCalendarParkDriveIdentityAndSnoozeStateSurviveMembershipChange(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	const (
+		protocolA   = "86000000-0000-4000-8000-00000000d101"
+		versionA    = "86000000-0000-4000-8000-00000000d102"
+		ruleA       = "86000000-0000-4000-8000-00000000d103"
+		batchA      = "86000000-0000-4000-8000-00000000d104"
+		obligationA = "86000000-0000-4000-8000-00000000d105"
+		animalA     = "86000000-0000-4000-8000-00000000d106"
+		protocolB   = "86000000-0000-4000-8000-00000000d201"
+		versionB    = "86000000-0000-4000-8000-00000000d202"
+		ruleB       = "86000000-0000-4000-8000-00000000d203"
+		batchB      = "86000000-0000-4000-8000-00000000d204"
+		obligationB = "86000000-0000-4000-8000-00000000d205"
+		animalB     = "86000000-0000-4000-8000-00000000d206"
+	)
+	dueAt := time.Now().UTC().Add(30 * time.Minute)
+	seedVaccinationObligation(t, ctx, pool, protocolA, versionA, ruleA, obligationA, dueAt)
+	attachObligationToGoatScope(t, ctx, pool, obligationA, animalA, "shed", testShedA)
+	seedVaccinationBatchForShed(t, ctx, pool, batchA, versionA, testParkA, testShedA, dueAt, obligationA)
 
-func catchupEventID(tenantID string, dueAt time.Time) string {
-	loc, err := time.LoadLocation("Asia/Kolkata")
+	wantID := parkDriveEventID(testParkA, dueAt)
+	solo, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true},
+	})
 	if err != nil {
-		loc = time.FixedZone("IST", 5*60*60+30*60)
+		t.Fatalf("ListEvents solo: %v", err)
 	}
-	day := dueAt.In(loc).Format("2006-01-02")
-	return fmt.Sprintf("catchup:tenant:%s:due:%s", tenantID, day)
-}
+	if len(solo.Items) != 1 || solo.Items[0].EventID != wantID {
+		t.Fatalf("ListEvents solo=%#v, want stable park-drive event %s", solo.Items, wantID)
+	}
 
-func catchupParkEventID(parkID string, dueAt time.Time) string {
-	loc, err := time.LoadLocation("Asia/Kolkata")
+	// Queue a reminder BEFORE snoozing (the sweep skips events with an active snooze) so there is
+	// real reminder history keyed on wantID to prove doesn't duplicate later.
+	queued, err := repo.SweepDueReminders(ctx, testTenantID, 10)
 	if err != nil {
-		loc = time.FixedZone("IST", 5*60*60+30*60)
+		t.Fatalf("SweepDueReminders (pre-snooze): %v", err)
 	}
-	day := dueAt.In(loc).Format("2006-01-02")
-	return fmt.Sprintf("catchup:park:%s:due:%s", parkID, day)
+	if queued != 1 {
+		t.Fatalf("queued reminders = %d, want 1", queued)
+	}
+	assertCount(t, ctx, pool, "reminder keyed on stable id (pre-aggregation)", `
+SELECT count(*) FROM notification_requests
+WHERE tenant_id=$1::uuid AND calendar_event_id=$2 AND notification_type='reminder'`, 1, testTenantID, wantID)
+
+	snoozeUntil := time.Now().UTC().Add(6 * time.Hour)
+	snooze, err := repo.Snooze(ctx, ports.Snooze{
+		TenantID: testTenantID, EventID: wantID, ActorID: testActorID,
+		IdempotencyKey: "park-drive-stability-snooze", SnoozeUntil: snoozeUntil,
+		Reason: "waiting on stock before this park's drive", Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("Snooze solo drive: %v", err)
+	}
+	assertCount(t, ctx, pool, "active snooze keyed on stable id (pre-aggregation)", `
+SELECT count(*) FROM calendar_snoozes
+WHERE tenant_id=$1::uuid AND calendar_event_id=$2 AND status='active' AND snooze_id=$3::uuid`,
+		1, testTenantID, wantID, snooze.ActionID)
+
+	// A second same-day batch now joins the SAME park+day.
+	seedVaccinationObligation(t, ctx, pool, protocolB, versionB, ruleB, obligationB, dueAt.Add(10*time.Minute))
+	attachObligationToGoatScope(t, ctx, pool, obligationB, animalB, "shed", testShedB)
+	seedVaccinationBatchForShed(t, ctx, pool, batchB, versionB, testParkA, testShedB, dueAt.Add(10*time.Minute), obligationB)
+
+	// Identity must be UNCHANGED: same park+day, same wantID, now aggregating two batches.
+	aggregated, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents aggregated: %v", err)
+	}
+	if len(aggregated.Items) != 1 || aggregated.Items[0].EventID != wantID || aggregated.Items[0].DriveCount != 2 {
+		t.Fatalf("ListEvents aggregated=%#v, want SAME stable id %s now aggregating 2 drives", aggregated.Items, wantID)
+	}
+
+	// The pre-existing snooze row must still be attached (not detached/orphaned) to the identity the
+	// aggregated drive now carries -- because it never changed.
+	assertCount(t, ctx, pool, "active snooze survives aggregation", `
+SELECT count(*) FROM calendar_snoozes
+WHERE tenant_id=$1::uuid AND calendar_event_id=$2 AND status='active' AND snooze_id=$3::uuid`,
+		1, testTenantID, wantID, snooze.ActionID)
+
+	// The reminder rail must derive "snoozed" for wantID post-aggregation (read-derived state,
+	// joined purely by event_id equality against the still-active snooze row).
+	railResp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,
+		IncludeReminderRail: true, Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents with reminder rail: %v", err)
+	}
+	if railResp.ReminderRail == nil {
+		t.Fatalf("reminder rail missing")
+	}
+	var railItem *domain.CalendarReminderRailItem
+	for i := range railResp.ReminderRail.Items {
+		if railResp.ReminderRail.Items[i].EventID == wantID {
+			railItem = &railResp.ReminderRail.Items[i]
+		}
+	}
+	if railItem == nil || railItem.ReminderLabel != "Reminder snoozed" {
+		t.Fatalf("reminder rail item=%#v, want Reminder snoozed still attached to %s", railItem, wantID)
+	}
+
+	// No rearm/duplicate: had the identity mutated, the still-active snooze would no longer match
+	// the (new) event_id and the sweep would incorrectly queue a second reminder. It must not.
+	replaySweep, err := repo.SweepDueReminders(ctx, testTenantID, 10)
+	if err != nil {
+		t.Fatalf("SweepDueReminders (post-aggregation): %v", err)
+	}
+	if replaySweep != 0 {
+		t.Fatalf("post-aggregation sweep queued=%d, want 0 (active snooze must still block it, no rearm)", replaySweep)
+	}
+	assertCount(t, ctx, pool, "reminder history not duplicated", `
+SELECT count(*) FROM notification_requests
+WHERE tenant_id=$1::uuid AND calendar_event_id=$2 AND notification_type='reminder'`, 1, testTenantID, wantID)
 }
 
+// TestCalendarReconcileEventReferencesFlagsOnlyRealOrphans is the CR-004 regression guard: the
+// integrity check (goatos_reconcile_calendar_event_references, fixed by migration 000191) must
+// parse each of the real, currently-in-use typed calendar_event_id shapes (obligation:/batch:/
+// parkdrive:park:.../parkdrive:tenant:.../completion:/calendar:) and resolve each one against its
+// real canonical row -- not compare raw UUID text, which flagged every valid row as an orphan
+// (migration 000189's original bug). Seeds one VALID notification_requests row per supported shape
+// plus exactly one genuine orphan, and asserts ONLY the orphan comes back.
+func TestCalendarReconcileEventReferencesFlagsOnlyRealOrphans(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		protocolID            = "86000000-0000-4000-8000-00000000e101"
+		versionID             = "86000000-0000-4000-8000-00000000e102"
+		ruleID                = "86000000-0000-4000-8000-00000000e103"
+		obligationID          = "86000000-0000-4000-8000-00000000e104"
+		batchID               = "86000000-0000-4000-8000-00000000e105"
+		batchOnlyObligationID = "86000000-0000-4000-8000-00000000e106"
+		draftVersionID        = "86000000-0000-4000-8000-00000000e107"
+		completionGoatID      = "86000000-0000-4000-8000-00000000e108"
+	)
+	dueAt := time.Now().UTC().Add(2 * time.Hour)
+	// obligation: -- a real, unbatched obligation.
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	// batch: -- a real batch (legacy membership id, still independently resolvable).
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, batchOnlyObligationID, dueAt.Add(5*time.Minute))
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, dueAt.Add(5*time.Minute), batchOnlyObligationID)
+	// parkdrive:park:...:date:... -- the stable identity the batch above ALSO resolves under.
+	parkDriveID := parkDriveEventID(testParkA, dueAt.Add(5*time.Minute))
+	// parkdrive:tenant:...:date:... -- a real tenant-wide catch-up (obligationID above, tenant-scoped
+	// by seedVaccinationObligation's default scope_type='tenant').
+	parkDriveTenantID := parkDriveTenantEventID(testTenantID, dueAt)
+	// completion: -- a real accepted vaccination completion, recorded against obligationID.
+	completionID := "86000000-0000-4000-8000-00000000e201"
+	seedVaccinationCompletion(t, ctx, pool, obligationID, completionGoatID, completionID)
+	// calendar: -- overloaded prefix; a draft protocol_version (config_events' shape) is the simplest
+	// real backing row -- sop_events shares the same prefix but needs a heavier sop_definitions/
+	// sop_versions/sop_tasks FK chain the reconciler validity check does not otherwise exercise here.
+	seedDraftProtocolVersion(t, ctx, pool, protocolID, draftVersionID, dueAt)
+
+	validIDs := []string{
+		"obligation:" + obligationID,
+		"batch:" + batchID,
+		parkDriveID,
+		parkDriveTenantID,
+		"completion:" + completionID,
+		"calendar:" + draftVersionID,
+	}
+	orphanID := "obligation:" + "86000000-0000-4000-8000-00000000e999"
+	for i, id := range append(append([]string{}, validIDs...), orphanID) {
+		notificationID := fmt.Sprintf("86000000-0000-4000-8000-00000000e3%02d", i)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO notification_requests (
+  notification_request_id, tenant_id, calendar_event_id, target_type, notification_type, channel,
+  title, body, status, idempotency_key, request_fingerprint, context
+) VALUES (
+  $1::uuid, $2::uuid, $3, 'calendar_event', 'reminder', 'local-stub',
+  'Reconciler fixture', 'reconciler fixture body', 'sent', $4, $4 || ':fingerprint', '{}'::jsonb
+)`, notificationID, testTenantID, id, "reconciler-fixture-"+notificationID); err != nil {
+			t.Fatalf("seed notification %s for %s: %v", notificationID, id, err)
+		}
+	}
+
+	orphans, err := repo.ReconcileEventReferences(ctx, testTenantID)
+	if err != nil {
+		t.Fatalf("ReconcileEventReferences: %v", err)
+	}
+	var flagged []string
+	for _, o := range orphans {
+		if o.SourceTable == "notification_requests" {
+			flagged = append(flagged, o.CalendarEventID)
+		}
+	}
+	if len(flagged) != 1 || flagged[0] != orphanID {
+		t.Fatalf("flagged orphans=%#v, want exactly [%s] (every valid typed id must resolve)", flagged, orphanID)
+	}
+}
+
+// parkDriveEventID builds the stable park-drive identity (CR-002/CR-003) via domain.
+// FormatParkDriveEventID -- the SAME Go-side constructor callers/tests should use -- so the test
+// fixture and the domain-layer format can never silently drift apart.
 func parkDriveEventID(parkID string, dueAt time.Time) string {
 	loc, err := time.LoadLocation("Asia/Kolkata")
 	if err != nil {
 		loc = time.FixedZone("IST", 5*60*60+30*60)
 	}
-	return fmt.Sprintf("parkdrive:park:%s:date:%s", parkID, dueAt.In(loc).Format("2006-01-02"))
+	return domain.FormatParkDriveEventID(parkID, "", dueAt.In(loc).Format("2006-01-02"))
+}
+
+// parkDriveTenantEventID is the stable park-drive identity (CR-002/CR-003) for a tenant-wide drive
+// with no resolvable park (canonical_read.go's park_drive_events falls back to
+// 'parkdrive:tenant:...' whenever grouped.park_id IS NULL -- e.g. an unbatched catch-up obligation
+// scoped directly to the tenant rather than any park/shed).
+func parkDriveTenantEventID(tenantID string, dueAt time.Time) string {
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		loc = time.FixedZone("IST", 5*60*60+30*60)
+	}
+	return domain.FormatParkDriveEventID("", tenantID, dueAt.In(loc).Format("2006-01-02"))
 }
 
 func stableSameLocalDayDueAt(now time.Time) time.Time {
@@ -2070,6 +2340,48 @@ INSERT INTO protocol_rule_dimensions (
 ON CONFLICT (tenant_id, protocol_version_id, rule_id, selector_key) DO UPDATE
 SET vaccine_json = EXCLUDED.vaccine_json`, testTenantID, versionID, ruleID, vaccineName); err != nil {
 		t.Fatalf("seed protocol rule vaccine dimension: %v", err)
+	}
+}
+
+// seedVaccinationCompletion inserts a real, ACCEPTED vaccination_completions row for the CR-004
+// reconciler test's 'completion:<uuid>' fixture (canonical_read.go's vaccination_history_events CTE
+// / goatos_calendar_event_reference_valid's completion: branch).
+func seedVaccinationCompletion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, obligationID, goatID, completionID string) {
+	t.Helper()
+	seedCalendarGoat(t, ctx, pool, goatID)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, $4::uuid, now(), 'accepted', $5
+)
+ON CONFLICT (completion_id) DO UPDATE
+SET status = 'accepted',
+    updated_at = now()`,
+		completionID, testTenantID, obligationID, goatID, "reconciler-fixture-completion-"+completionID); err != nil {
+		t.Fatalf("seed vaccination completion: %v", err)
+	}
+}
+
+// seedDraftProtocolVersion inserts a real draft, vaccination-category protocol_version under an
+// EXISTING protocol_definitions row -- the simplest real backing row for the overloaded 'calendar:'
+// prefix (config_events' shape; mirrors TestCalendarConfigActivationReviewNudgeIsActionable's fixture).
+func seedDraftProtocolVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, protocolID, versionID string, activationDueAt time.Time) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO protocol_versions (
+  protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+  version_label, status, effective_from, effective_to, rule_dsl, proof_policy, published_at
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'tenant', NULL, 2,
+  'Reconciler draft fixture', 'draft', DATE '2026-01-01', DATE '2028-01-01',
+  jsonb_build_object('activation_due_at', to_char($4::timestamptz, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+  '{}'::jsonb, NULL
+)
+ON CONFLICT (protocol_version_id) DO UPDATE
+SET rule_dsl = EXCLUDED.rule_dsl, status='draft', updated_at=now()`,
+		versionID, testTenantID, protocolID, activationDueAt); err != nil {
+		t.Fatalf("seed draft protocol version: %v", err)
 	}
 }
 

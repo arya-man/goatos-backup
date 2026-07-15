@@ -36,10 +36,19 @@ const ALLOW_LINE = [
   /const\s+PATH\s*=/,
   /AppApiComponents\["schemas"\]/,
   /Vaccine facts/, // accordion UI section label (documented exception in admin-web-backend-ui-contract.md)
+  /["']use client["']/,  // Next.js use client directive
+  /["']use server["']/,  // Next.js use server directive
+  /\bid\s*=\s*["']/,  // HTML id attributes (technical identifiers, not UI copy)
+  /\bclassName\s*=\s*["']/,  // className attributes
+  /\bdata-\w+\s*=\s*["']/,  // data-* attributes
+  /\bkey\s*=\s*["']/,  // React key attributes
+  /\bnoun\s*=\s*["']/,  // technical parameters like noun="animal"
 ];
 const JSX_TEXT = />\s*[A-Z][^<{}`]{2,}\s*</;
 const VISIBLE_ATTR = /\b(?:placeholder|aria-label|title)=["'][A-Z][^"']{2,}["']/;
 const CAPITAL_STRING = /["'][A-Z][^"']{2,}["']/;
+// Lowercase UI copy: multi-word phrases and specific UI terms that should use contract (not technical parameters)
+const LOWERCASE_UI_COPY = /["'](?:animals|doses|sheds done|vaccines|vaccines_suffix)\s*["']/;
 const FORBIDDEN_RENDER_META = /\b(?:SEVERITY_META|WORK_STATE_META|PROC_[A-Z_]+_META)\b/;
 const STRICT_OPTION_LOOKUP = /\boption(?:Label|Tone|Title)\s*\(/;
 const LIVE_ENTITY_ID = /\.(?:park|location|vendor|operator|supplier|farm|shed|goat|lot)_id\b/;
@@ -101,7 +110,7 @@ for (const file of files) {
       }
       return;
     }
-    if (!JSX_TEXT.test(code) && !VISIBLE_ATTR.test(code) && !CAPITAL_STRING.test(code)) return;
+    if (!JSX_TEXT.test(code) && !VISIBLE_ATTR.test(code) && !CAPITAL_STRING.test(code) && !LOWERCASE_UI_COPY.test(code)) return;
     findings.push(`${rel}:${index + 1}  visible/admin text literal should come from AdminWebPageContract.copy or option_groups`);
   });
 }
