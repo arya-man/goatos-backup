@@ -1024,7 +1024,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
 	gen := vaccinationapp.NewGenerationService(protocolRepo, vaccinationRepo, obligationRepo)
 
-	genRes, err := gen.GenerateEffectiveForAllGoats(ctx, tenantID, now)
+	genRes, err := gen.GenerateSeedCutoverForAllGoats(ctx, tenantID, now)
 	st.KernelGenerated = genRes.Generated
 	st.KernelDeferred = genRes.Deferred
 	st.KernelSuppressed = genRes.SuppressedByTrustedHistory

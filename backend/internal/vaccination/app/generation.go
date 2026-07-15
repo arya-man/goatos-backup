@@ -428,6 +428,20 @@ func (s *GenerationService) GenerateManualCampaignForVersion(ctx context.Context
 // version per goat/park. This is the safe no-version backfill path; it does not loop every published
 // version and therefore cannot double-materialize tenant defaults plus park overrides.
 func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, tenantID string, asOf time.Time) (domain.GenerateResult, error) {
+	return s.generateEffectiveForAllGoats(ctx, tenantID, asOf, generationOptions{healthRecoveryAlign: true})
+}
+
+// GenerateSeedCutoverForAllGoats is the reviewed source-import backfill path (VAX-SEED-01). Every
+// goat in the imported cohort is treated as already enrolled in the vaccination programme as of the
+// cutover checkpoint, so this pass reconstructs NO birth_age/post_arrival primary or catch-up work
+// from DOB/entry anchors (including blank vaccine families); it materializes only future recurrence
+// from vaccine families that carry real dated history, each anchored on that family's own latest
+// administration. Ordinary runtime generation uses GenerateEffectiveForAllGoats.
+func (s *GenerationService) GenerateSeedCutoverForAllGoats(ctx context.Context, tenantID string, asOf time.Time) (domain.GenerateResult, error) {
+	return s.generateEffectiveForAllGoats(ctx, tenantID, asOf, generationOptions{healthRecoveryAlign: true, seedCutoverCohort: true})
+}
+
+func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, tenantID string, asOf time.Time, baseOpts generationOptions) (domain.GenerateResult, error) {
 	var res domain.GenerateResult
 	if err := s.requireEvidenceReader(); err != nil {
 		return res, err
@@ -465,7 +479,7 @@ func (s *GenerationService) GenerateEffectiveForAllGoats(ctx context.Context, te
 					rules:          p.rules,
 					deferState:     p.deferState,
 					goat:           g,
-					opts:           generationOptions{healthRecoveryAlign: true},
+					opts:           baseOpts,
 					eligibility:    p.eligibility,
 					policies:       p.policies,
 					vaccineProfile: p.vaccineProfile,
@@ -748,6 +762,13 @@ type generationOptions struct {
 	// healthRecoveryAlign enables sick/ICU/quarantine recovery replanning: align to a nearby planned
 	// drive within recovery_policy.max_nearby_drive_align_days (default 7), else micro-drive now.
 	healthRecoveryAlign bool
+	// seedCutoverCohort marks a reviewed source-import cohort whose dated vaccination facts are the
+	// goat-wide enrollment checkpoint (VAX-SEED-01). For these goats the import itself proves the
+	// animals are already enrolled in the programme, so no birth_age/post_arrival primary or catch-up
+	// obligation may be reconstructed from a DOB/entry anchor (blank vaccine cells are NOT proof of a
+	// missed earlier dose). Future recurrence for a family with real dated history still generates via
+	// its own after_previous_completion rule anchored on that family's own latest administration.
+	seedCutoverCohort bool
 	// heartbeat, when set, is invoked once per cohort page so a long run keeps its generation-run row
 	// fresh and is not reclaimed mid-flight. Best-effort: errors are intentionally swallowed by the
 	// caller closure so a transient heartbeat failure never aborts a multi-minute generation pass.
@@ -1097,6 +1118,25 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if !ruleMatchesSchedulePath(rule, path) {
 			continue
 		}
+		// VAX-SEED-01 goat-wide enrollment checkpoint (reviewed source-import cohort only): the import
+		// itself proves every goat is already enrolled, so NO birth_age/post_arrival primary or catch-up
+		// dose is reconstructed from a DOB/entry anchor — including for blank vaccine families (a blank
+		// cell is not proof of a missed earlier dose). Every dated family is already committed as
+		// accepted history and its future recurrence flows through its own after_previous_completion
+		// rule below. Runtime generation keeps the narrower per-catch-up enrollment guard further down;
+		// this suppression is upstream of insert and never weakens the seed postflight verifier.
+		if opts.seedCutoverCohort && isPrimaryAnchorRule(rule) {
+			res.SuppressedByTrustedHistory++
+			// Supersede any stale no-anchor catch-up placeholder for THIS dose left by a pre-checkpoint
+			// pass so an enrolled goat never keeps an orphaned reconstructed obligation. No-op when no
+			// such placeholder exists (safe idempotent replay).
+			if staleKey := missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType)); staleKey != "" {
+				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "seed_cutover_checkpoint", asOf); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		// History outranks DOB/arrival, per DOSE: once THIS rule's own dose has been administered, it
 		// must not be regenerated — even AFTER a DOB/entry-date correction makes dueAt resolvable — so
 		// a later identity correction can never replace, duplicate, or replay that already-given dose.
@@ -1152,6 +1192,20 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			}
 			switch rule.TriggerType {
 			case "birth_age", "post_arrival":
+				// VAX-SEED-01 runtime enrollment guard: a missing-anchor catch-up reconstructs a
+				// possibly-missed earlier dose. It is allowed only when the goat has ZERO accepted
+				// vaccination history; once the goat is enrolled (>=1 accepted dose in ANY family) a
+				// blank family with no resolvable DOB/entry anchor is not proof of a missed dose, so
+				// suppress it rather than fabricate catch-up work (and clear any stale placeholder).
+				if goatHasAnyAcceptedVaccination(vaccineHistory) {
+					res.SuppressedByTrustedHistory++
+					if staleKey := missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType)); staleKey != "" {
+						if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "enrolled_no_missing_anchor_catchup", asOf); err != nil {
+							return err
+						}
+					}
+					continue
+				}
 				// B3 (never-received vaccine + no anchor): route to the adult
 				// catch-up/primary path at the next compatible drive instead of
 				// deferring merely because DOB/entry-date is unknown. due=asOf lets
@@ -1214,6 +1268,15 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			continue
 		}
 		if limitsHistoricalCatchUp(rule, baseDue, due, asOf, opts) {
+			// VAX-SEED-01 runtime enrollment guard: an anchored historical catch-up (its due window has
+			// already elapsed) for a family the goat has no dated history of reconstructs a
+			// possibly-missed earlier dose. Allowed only for a zero-history goat; suppress it for an
+			// enrolled goat with a blank family. A family WITH its own dated history is course
+			// continuation and is left untouched (hasVaccineAdministrationHistory guards it).
+			if isPrimaryAnchorRule(rule) && goatHasAnyAcceptedVaccination(vaccineHistory) && !hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
+				res.SuppressedByTrustedHistory++
+				continue
+			}
 			if historicalCatchUpMaterialized {
 				continue
 			}
@@ -1922,6 +1985,17 @@ func hasVaccineAdministrationHistory(vaccine vaccineProfile, history []domain.Re
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(admin.VaccineCode), code) {
+			return true
+		}
+	}
+	return false
+}
+
+// goatHasAnyAcceptedVaccination reports whether the goat carries at least one accepted/trusted
+// dated administration of ANY vaccine family — i.e. it is already enrolled in the programme.
+func goatHasAnyAcceptedVaccination(history []domain.RecentVaccineAdministration) bool {
+	for _, admin := range history {
+		if !admin.AdministeredAt.IsZero() && strings.TrimSpace(admin.VaccineCode) != "" {
 			return true
 		}
 	}
