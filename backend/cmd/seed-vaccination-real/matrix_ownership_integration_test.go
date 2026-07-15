@@ -206,6 +206,35 @@ func TestSeedGuardedPublishRefusesUserDraftedTarget(t *testing.T) {
 	}
 }
 
+// TestSeedGuardedPublishRefusesUserPublishedTargetOnReplay covers the VAX-SEED-R2 already-published
+// replay path: pointing a seed-guarded publish at a user-authored PUBLISHED matrix must NOT be accepted
+// as a successful "seed replay". It fails closed and leaves the user's version published and unchanged.
+func TestSeedGuardedPublishRefusesUserPublishedTargetOnReplay(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedProtocolID, seedActorID, _ := setupSeedMatrixFixture(t, ctx, pool)
+	tenantID := matrixOwnerTenant
+
+	userA := detUUID("user", tenantID, "alice")
+	userPublished := detUUID("pv", tenantID, "user_published")
+	insertPublishedMatrix(t, ctx, pool, tenantID, seedProtocolID, userPublished, "Alice Published Matrix", 5, &userA)
+
+	svc := protocolapp.NewService(protocolpg.NewRepository(pool, 10*time.Second))
+	perr := svc.PublishSeedOwnedVaccinationMatrixVersion(ctx, tenantID, userPublished, seedActorID, "seed-vaccination-real:"+userPublished)
+	if perr == nil || !errors.Is(perr, protocolpg.ErrVaccinationMatrixOwnershipConflict) {
+		t.Fatalf("replay publish err = %v, want ErrVaccinationMatrixOwnershipConflict", perr)
+	}
+	var status, drafted string
+	if err := pool.QueryRow(ctx, `SELECT status, COALESCE(drafted_by::text,'') FROM protocol_versions WHERE tenant_id=$1 AND protocol_version_id=$2`, tenantID, userPublished).Scan(&status, &drafted); err != nil {
+		t.Fatalf("read user version: %v", err)
+	}
+	if status != "published" || drafted != userA {
+		t.Fatalf("user version status=%s drafted_by=%s, want published/%s (unchanged)", status, drafted, userA)
+	}
+}
+
 // TestSeedMatrixReconcilePublishReplayDoesNotChurn (VAX-SEED-02) starts from a faulty published SEED
 // matrix and runs the real reconcile+guarded-publish correction twice: no version churn, ownership
 // preserved, correct statuses, exactly one retire event. Also proves the guard lets the seed supersede

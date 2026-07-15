@@ -980,11 +980,36 @@ func derivedDimensionsFingerprint(dimensions []domain.RuleDimension) string {
 	return protocolFingerprint(parts...)
 }
 
-// ErrVaccinationMatrixOwnershipConflict is returned when a seed-owned matrix publish would retire an
-// overlapping published matrix that is NOT seed-owned (a different-author version, including one
-// authored via Config under the same canonical vaccination.matrix protocol). The publish is refused
-// (fail closed) rather than silently retiring user-authored configuration.
-var ErrVaccinationMatrixOwnershipConflict = errors.New("protocol: seed vaccination matrix publish would retire a non-seed-owned overlapping matrix")
+// ErrVaccinationMatrixOwnershipConflict aliases the ports sentinel so existing callers/tests that
+// reference the postgres symbol keep working; the canonical definition lives in ports so the app layer
+// can also return it (e.g. the seed-owned publish target-ownership check before dispatch).
+var ErrVaccinationMatrixOwnershipConflict = ports.ErrVaccinationMatrixOwnershipConflict
+
+// VaccinationMatrixVersionDraftedBy returns the target version's drafted_by (empty string when NULL).
+// The app's seed-owned publish uses it to verify a seed publish only ever targets a seed-drafted
+// version, closing the already-published replay path where PublishPublishedMatrixReplay would otherwise
+// return success without an ownership check.
+func (r *Repository) VaccinationMatrixVersionDraftedBy(ctx context.Context, tenantID, versionID string) (string, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return "", fmt.Errorf("protocol: tenant id: %w", err)
+	}
+	vid, err := pgconv.UUID(versionID)
+	if err != nil {
+		return "", fmt.Errorf("protocol: version id: %w", err)
+	}
+	var draftedBy string
+	err = r.pool.QueryRow(ctx, `SELECT COALESCE(drafted_by::text, '') FROM protocol_versions WHERE tenant_id = $1 AND protocol_version_id = $2`, tenant, vid).Scan(&draftedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ports.ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("protocol: read version drafted_by: %w", err)
+	}
+	return draftedBy, nil
+}
 
 // assertOnlySeedOwnedMatrixOverlapsTx enforces, inside the publish transaction and under the
 // vaccination-matrix advisory lock, that no published matrix version overlapping the one being

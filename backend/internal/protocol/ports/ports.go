@@ -28,6 +28,11 @@ var ErrActiveVersionOverlap = errors.New("protocol: active version overlaps exis
 // is rolled back (the version stays draft); the app layer maps this to ErrNotPublishable.
 var ErrCapacityParityMismatch = errors.New("protocol: capacity parity mismatch after publish")
 
+// ErrVaccinationMatrixOwnershipConflict is returned when a seed-owned vaccination matrix publish
+// targets, or would retire, a version that is not provably seed-owned (drafted_by != the seed actor,
+// including an unstamped NULL author). The publish fails closed and mutates nothing.
+var ErrVaccinationMatrixOwnershipConflict = errors.New("protocol: seed vaccination matrix publish would touch a non-seed-owned version")
+
 // Repository is the persistence boundary for protocol config. Implementations wrap generated
 // sqlc queries; no hand-written SQL leaks above this interface.
 type Repository interface {

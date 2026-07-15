@@ -55,6 +55,13 @@ type protocolPublishedMatrixReplayer interface {
 	PublishPublishedMatrixReplay(ctx context.Context, tenantID string, v domain.Version, publishedBy *string, idempotencyKey ...string) error
 }
 
+// matrixTargetOwnershipReader reads a version's drafted_by so a seed-owned publish can verify its
+// target is seed-drafted BEFORE dispatching — closing the already-published replay path where the
+// per-transaction retire guard never runs.
+type matrixTargetOwnershipReader interface {
+	VaccinationMatrixVersionDraftedBy(ctx context.Context, tenantID, versionID string) (string, error)
+}
+
 type ruleDSLEnvelope struct {
 	Category            string          `json:"category"`
 	RulesetFamily       string          `json:"ruleset_family"`
@@ -1091,6 +1098,25 @@ func (s *Service) publishVersion(ctx context.Context, tenantID, versionID string
 	}
 	if v.Status != "draft" && v.Status != "published" {
 		return fmt.Errorf("%w: status=%q", ports.ErrVersionNotDraft, v.Status)
+	}
+	// VAX-SEED-R2: a seed-owned publish must only ever target a version the seed itself drafted. Verify
+	// this BEFORE any dispatch so the already-published replay path (which never reaches the
+	// per-transaction retire guard) cannot accept a user-drafted published target as a "successful seed
+	// replay". The target-ownership authority for the draft path stays the atomic under-lock check in
+	// PublishVersionWithDerivedRules; this early check additionally covers the published/replay path,
+	// where the target is immutable so a pre-dispatch read is sufficient.
+	if seedGuardActor != "" {
+		reader, ok := s.repo.(matrixTargetOwnershipReader)
+		if !ok {
+			return fmt.Errorf("protocol: repository cannot verify seed matrix target ownership")
+		}
+		draftedBy, err := reader.VaccinationMatrixVersionDraftedBy(ctx, tenantID, versionID)
+		if err != nil {
+			return err
+		}
+		if draftedBy != seedGuardActor {
+			return fmt.Errorf("%w: target version %s is drafted_by %q, not the seed actor", ports.ErrVaccinationMatrixOwnershipConflict, versionID, draftedBy)
+		}
 	}
 	if v.Status == "published" {
 		if publishedVersionLooksLikeVaccinationMatrix(v) {
