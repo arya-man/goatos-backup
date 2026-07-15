@@ -252,6 +252,17 @@ type ReproductiveGoatRequest struct {
 	RowVersion       int           `json:"row_version"`
 }
 
+// IdentityGoatRequest corrects a goat's DOB and/or entry_date (later data entry). At least one of
+// DOB / EntryDate must be present; an absent field leaves the stored value untouched.
+type IdentityGoatRequest struct {
+	DOB          *string       `json:"dob,omitempty"`
+	EntryDate    *string       `json:"entry_date,omitempty"`
+	Reason       string        `json:"reason"`
+	OccurredAt   *time.Time    `json:"occurred_at,omitempty"`
+	EvidenceRefs []EvidenceRef `json:"evidence_refs"`
+	RowVersion   int           `json:"row_version"`
+}
+
 type AdminGoatBulkRowResult struct {
 	RowNumber        int                     `json:"row_number"`
 	Decision         string                  `json:"decision"`

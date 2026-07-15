@@ -1069,6 +1069,7 @@ type seedReconciliation struct {
 // off as partially healthy.
 func verifySeedReconciliation(ctx context.Context, pool *pgxpool.Pool, tenantID string, asOf time.Time, st stats) error {
 	var got seedReconciliation
+	// projection-review: membership=obligation_instances (active, non-terminal) + vaccination_completions (accepted); group_key=(tenant_id, target_id, rule_id) for the duplicate-active grain; join_cardinality=protocol_rules joined 1:1 per (tenant_id, rule_id) so the COUNT/GROUP BY never fans out; pagination=none — a whole-tenant one-shot seed invariant, not a paged user projection; scope=tenant-invariant with an explicit target_type='goat' filter (park/shed/cohort not aggregated here)
 	err := pool.QueryRow(ctx, `
 WITH active AS (
   SELECT oi.*

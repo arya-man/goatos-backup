@@ -176,6 +176,27 @@ type ReproductiveGoatCommand struct {
 	RowVersion       int
 }
 
+// IdentityGoatCommand corrects a goat's DOB and/or entry_date (a later data-entry fix). At least
+// one of DOB / EntryDate must be set; nil means "leave the stored value untouched". Correcting these
+// anchors changes vaccination age-routing (schedulePathForGoat) and post_arrival/birth_age due dates,
+// so this command durably emits goat.identity.changed for the vaccination recheck consumer.
+type IdentityGoatCommand struct {
+	TenantID             string
+	ActorID              string
+	ClientIdempotencyKey string
+	StoredIdempotencyKey string
+	IdempotencyScope     string
+	RequestHash          string
+	TraceID              string
+	GoatID               string
+	DOB                  *time.Time
+	EntryDate            *time.Time
+	Reason               string
+	OccurredAt           time.Time
+	EvidenceRefs         []domain.EvidenceRef
+	RowVersion           int
+}
+
 type AdminGoatCreateIdentifier struct {
 	IdentifierType  string
 	IdentifierValue string
@@ -281,5 +302,6 @@ type Repository interface {
 	StageGoat(ctx context.Context, cmd StageGoatCommand) (*AdminGoatMutationResult, error)
 	HealthGoat(ctx context.Context, cmd HealthGoatCommand) (*AdminGoatMutationResult, error)
 	ReproductiveGoat(ctx context.Context, cmd ReproductiveGoatCommand) (*AdminGoatMutationResult, error)
+	IdentityGoat(ctx context.Context, cmd IdentityGoatCommand) (*AdminGoatMutationResult, error)
 	Ping(ctx context.Context) error
 }

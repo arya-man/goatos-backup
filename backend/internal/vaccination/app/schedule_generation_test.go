@@ -64,7 +64,7 @@ func TestGenerateForVersionSkipsAdultRulesForKidPath(t *testing.T) {
 	}
 }
 
-func TestGenerateForVersionDefersPregnantWithoutBreedingDate(t *testing.T) {
+func TestGenerateForVersionSchedulesPregnantWithoutBreedingDate(t *testing.T) {
 	ctx := context.Background()
 	dob := time.Date(2026, time.May, 1, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
@@ -84,7 +84,9 @@ func TestGenerateForVersionDefersPregnantWithoutBreedingDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if result.Generated != 1 || result.Deferred != 1 || len(obl.inserted) != 1 {
-		t.Fatalf("result=%#v inserted=%#v, want pregnant goat deferred for month review", result, obl.inserted)
+	// Locked rule: pregnant with an unknown month (no breeding date) schedules normally — it is NOT
+	// deferred. Only a proven pregnancy month 4-5 defers.
+	if result.Generated != 1 || result.Deferred != 0 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%#v, want pregnant-unknown-month scheduled normally (not deferred)", result, obl.inserted)
 	}
 }

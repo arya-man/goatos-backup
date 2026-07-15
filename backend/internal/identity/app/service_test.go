@@ -1122,6 +1122,7 @@ type fakeRepo struct {
 	lastStageGoatCmd            ports.StageGoatCommand
 	lastHealthGoatCmd           ports.HealthGoatCommand
 	lastReproductiveGoatCmd     ports.ReproductiveGoatCommand
+	lastIdentityGoatCmd         ports.IdentityGoatCommand
 	validateAdminGoatCreateFunc func(ports.ValidateAdminGoatCreateCommand) (ports.AdminGoatCreateValidation, error)
 	validateAdminGoatCreateCmds []ports.ValidateAdminGoatCreateCommand
 	createAdminGoatResult       *ports.AdminGoatMutationResult
@@ -1318,6 +1319,24 @@ func (f *fakeRepo) ReproductiveGoat(_ context.Context, cmd ports.ReproductiveGoa
 			CreatedAt:      time.Now().UTC(),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000205", EventType: "goat.reproductive.changed"}},
+	}, nil
+}
+
+func (f *fakeRepo) IdentityGoat(_ context.Context, cmd ports.IdentityGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	f.lastIdentityGoatCmd = cmd
+	out := summary(cmd.GoatID, "G-000001", "clean")
+	return &ports.AdminGoatMutationResult{
+		Goat:        out,
+		Identifiers: []domain.GoatIdentifier{},
+		Decision: domain.DecisionRecordSummary{
+			DecisionID:     "50000000-0000-4000-8000-000000000206",
+			DecisionType:   "identity_goat",
+			DecisionResult: "goat_identity_changed",
+			DecisionState:  "approved",
+			PolicyVersion:  "goat-lifecycle-v1",
+			CreatedAt:      time.Now().UTC(),
+		},
+		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000206", EventType: "goat.identity.changed"}},
 	}, nil
 }
 

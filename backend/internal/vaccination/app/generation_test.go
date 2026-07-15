@@ -17,7 +17,7 @@ import (
 
 func TestGenerateForVersionAppliesCrossVaccineGap(t *testing.T) {
 	ctx := context.Background()
-	dob := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC) // ~14w at asOf: inside the kid start window
 	pprAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
 	proto := &generationProtoFake{
@@ -57,7 +57,7 @@ func TestGenerateForVersionAppliesCrossVaccineGap(t *testing.T) {
 
 func TestGenerateForVersionChecksAllRecentVaccinesForCrossGap(t *testing.T) {
 	ctx := context.Background()
-	dob := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC) // ~14w at asOf: inside the kid start window
 	pprAt := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	killedAt := time.Date(2026, 6, 8, 0, 0, 0, 0, time.UTC)
 	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)

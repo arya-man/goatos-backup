@@ -78,7 +78,7 @@ func TestKernelStoryAI_DomainConsumerNacksAndSafelyReplaysFinalizationFailure(t 
 		goatID  = "83000000-0000-4000-8000-000000000003"
 	)
 	fx.SeedShed(shedID, "E2E-AI", stageID)
-	dob := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	dob := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC) // ~10w at the recheck instant: a kid on the birth_age course
 	fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedID, DOB: &dob})
 	versionID, _ := fx.PublishSimpleProtocol("vaccination.e2e.story_ai", 21, 7, nil)
 	occurredAt := time.Date(2026, 7, 12, 5, 0, 0, 0, time.UTC)

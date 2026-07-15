@@ -39,12 +39,25 @@ import (
 
 const defaultPostgresImage = "postgres:16.9-alpine"
 
-// SkipIfNoDocker skips the test when the docker CLI is unavailable.
+// SkipIfNoDocker skips the test when the docker CLI is unavailable — EXCEPT when the required-gate
+// flag GOATOS_REQUIRE_DOCKER is set (the CI Postgres gate), where a missing docker FAILS the test
+// instead of silently skipping. This closes the CI false-green hole: a required Postgres integration
+// gate that cannot run its container must turn the build red, never pass by skipping.
 func SkipIfNoDocker(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("docker"); err != nil {
+		if requireDocker() {
+			t.Fatalf("GOATOS_REQUIRE_DOCKER is set but docker is unavailable: the required Postgres integration gate must run, not skip")
+		}
 		t.Skip("docker not available")
 	}
+}
+
+// requireDocker reports whether the CI required-gate flag is set. When true, SkipIfNoDocker fails
+// rather than skips, so the Postgres gate cannot silently pass without actually running.
+func requireDocker() bool {
+	v := strings.TrimSpace(os.Getenv("GOATOS_REQUIRE_DOCKER"))
+	return v == "1" || strings.EqualFold(v, "true")
 }
 
 // processTag returns a collision-resistant identity for this test binary/process, combining the

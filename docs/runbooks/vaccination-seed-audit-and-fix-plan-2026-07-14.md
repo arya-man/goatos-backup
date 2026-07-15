@@ -222,13 +222,42 @@ Landed on `fix/vaccination-seed-reconcile-dynamic` (foundation A/B = `e4fe81c8` 
 integration onto a base that already uses `000189/000190` must renumber these two
 migrations to the next free numbers.
 
-**Gate 7 — DOB / entry-date correction producer stays UNRESOLVED.** No canonical
-identity command emits `goat.identity.changed` today (`MoveGoat`/`ExitGoat`/
-`StageGoat`/`HealthGoat`/`ReproductiveGoat` exist; none corrects DOB/entry_date on
-an existing goat). `EventGoatIdentityChanged` and its subscription only ensure the
-vaccination recompute is READY the moment that producer ships — no synthetic
-producer was wired. The history-triggered recompute path IS proven (gate 5); the
-DOB/entry producer is a tracked follow-up, not claimed complete.
+**Gate 7 — DOB / entry-date correction producer (RESOLVED, 2026-07-15).** The
+canonical `IdentityGoat` command now corrects DOB/entry_date on an existing goat
+and durably emits `goat.identity.changed` through `goat_identity_events` + the
+outbox (`POST /admin/goats/{goat_id}/identity`; port `ports.IdentityGoatCommand`;
+repo `Repository.IdentityGoat`; migration `000191_goat_identity_correction_decision.sql`
+adds the `identity_goat` decision type; `goat.identity.changed` added to the
+domain-event-envelope enum). The registered `GoatRecheckHandler` consumes it.
+Proven E2E (`tests/e2e/story_vaccrev_identity_recompute_test.go`): the production
+command → persisted outbox event → registered handler → obligation recompute
+(supersedes the obsolete generation-time-anchored obligation, re-anchors to the
+corrected DOB).
+
+### E. Business-rule corrections (2026-07-15 review)
+
+- **VACC-RULE-01 — pregnant, unknown month schedules normally.**
+  `pregnancyDeferReason` no longer defers a pregnant goat that has no breeding
+  date (was `pregnancy_month_review`). Missing gestation is not proof of a
+  late-pregnancy window; only a PROVEN month 4-5 (a known breeding date) defers.
+- **VACC-RULE-02 — kid/adult cutoff.** `schedulePathForGoat`: a new kid course may
+  START only ≤16 wk; 16-20 wk is continuation-only (a fresh K-stage tag OR recorded
+  kid-course history — an untagged/no-history goat cannot start a new course); past
+  20 wk the goat is ALWAYS adult and a now-stale K1/K2 tag never generates kid
+  vaccinations (surfaced as a `GenerateResult.ReviewSignals` review signal instead).
+- **History outranks DOB/arrival, per vaccine.** Once an accepted same-vaccine
+  administration exists, `after_previous_completion` owns future scheduling and the
+  `birth_age`/`post_arrival` PRIMARY is suppressed — EVEN AFTER a later DOB/arrival
+  correction makes the anchor resolvable — so an identity correction can never
+  replace, duplicate, or replay the completion-anchored schedule. Proven E2E
+  (`TestKernelStoryVaccRev_HistoryOutranksDOBCorrection`). If neither history nor
+  DOB/arrival exists, the adult catch-up obligation is created at the next
+  compatible drive (not deferred).
+- **CI no-false-green.** `pgtest.SkipIfNoDocker` FAILS instead of skips when
+  `GOATOS_REQUIRE_DOCKER=1` (set on the `make ci-local` `go test ./...` step), so a
+  required Postgres/E2E gate that cannot run its container turns the build red. The
+  reschedule HTTP future-check uses the handler's injectable clock, removing the
+  date-relative flakiness in the reschedule stories.
 
 ## Open data caveats
 - `procurement_hf_vaccination_evidence` has **0 rows** — the 498 procured

@@ -210,9 +210,16 @@ func TestInCourseKidFinishesTwentyWeekDose(t *testing.T) {
 			TriggerType: "birth_age", OffsetDays: 140, DueWindowDays: 7, CatchUp: "immediate",
 		}},
 	}
-	goats := &generationGoatFake{list: []domain.EligibleGoat{
-		{GoatID: "in-course-kid", LifecycleStatus: "alive", DOB: &dob, Stage: "adult"},
-	}}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{
+			{GoatID: "in-course-kid", LifecycleStatus: "alive", DOB: &dob, Stage: "adult"},
+		},
+		// The goat is genuinely in-course: it already received an earlier kid-course dose, so the
+		// 16-20w window is a continuation, not a new start.
+		vaccineHistory: map[string][]domain.RecentVaccineAdministration{
+			"in-course-kid": {{AdministeredAt: dob.AddDate(0, 0, 28), VaccineCode: "ET_TT", DoseCode: "et_tt_kid_4w"}},
+		},
+	}
 	obl := &generationObligationFake{seen: map[string]bool{}}
 
 	result, err := NewGenerationService(proto, goats, obl).GenerateForVersion(ctx, "tenant-1", "version-1", asOf)

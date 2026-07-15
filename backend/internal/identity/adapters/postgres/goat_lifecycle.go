@@ -36,6 +36,9 @@ const (
 	goatHealthChangedDecisionResult       = "goat_health_changed"
 	goatReproductiveChangedDecisionType   = "reproductive_goat"
 	goatReproductiveChangedDecisionResult = "goat_reproductive_changed"
+	goatIdentityChangedEventType          = "goat.identity.changed"
+	goatIdentityChangedDecisionType       = "identity_goat"
+	goatIdentityChangedDecisionResult     = "goat_identity_changed"
 	goatLocationHistoryReasonMove         = "admin_goat_move"
 )
 
@@ -643,6 +646,137 @@ func goatLifecycleCommandFromStage(cmd ports.StageGoatCommand) goatLifecycleComm
 }
 
 func goatLifecycleCommandFromHealth(cmd ports.HealthGoatCommand) goatLifecycleCommand {
+	return goatLifecycleCommand{
+		TenantID:             cmd.TenantID,
+		ActorID:              cmd.ActorID,
+		ClientIdempotencyKey: cmd.ClientIdempotencyKey,
+		StoredIdempotencyKey: cmd.StoredIdempotencyKey,
+		IdempotencyScope:     cmd.IdempotencyScope,
+		TraceID:              cmd.TraceID,
+		GoatID:               cmd.GoatID,
+		Reason:               cmd.Reason,
+		EvidenceRefs:         cmd.EvidenceRefs,
+	}
+}
+
+// IdentityGoat corrects a goat's DOB and/or entry_date and durably emits goat.identity.changed so
+// the vaccination recheck consumer recomputes obligations (age-routing + birth_age/post_arrival
+// anchors depend on these). Mirrors the HealthGoat/ReproductiveGoat mutation contract: idempotent,
+// row-version guarded, exit/merge guarded, single event on the outbox.
+func (r *Repository) IdentityGoat(ctx context.Context, cmd ports.IdentityGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+
+	tenantUUID, err := uuidParam(cmd.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	actorUUID, err := uuidParam(cmd.ActorID)
+	if err != nil {
+		return nil, err
+	}
+	goatUUID, err := uuidParam(cmd.GoatID)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	qtx := r.queries.WithTx(tx)
+	if _, err = qtx.InsertIdempotencyStarted(ctx, identitydb.InsertIdempotencyStartedParams{
+		IdempotencyKey: cmd.StoredIdempotencyKey,
+		TenantID:       tenantUUID,
+		Scope:          cmd.IdempotencyScope,
+		RequestHash:    cmd.RequestHash,
+	}); errors.Is(err, pgx.ErrNoRows) {
+		return r.replayGoatLifecycleMutation(ctx, tx, qtx, tenantUUID, goatUUID, cmd.StoredIdempotencyKey, cmd.RequestHash)
+	} else if err != nil {
+		return nil, err
+	}
+
+	state, err := lockGoatForLifecycleMutation(ctx, tx, cmd.TenantID, cmd.GoatID)
+	if err != nil {
+		return nil, err
+	}
+	if state.RowVersion != cmd.RowVersion || state.MergedIntoGoatID != nil || exitedLifecycleStatus(state.LifecycleStatus) {
+		return nil, ports.ErrWriteConflict
+	}
+	// At least one anchor must be supplied — a bare no-op is rejected.
+	if cmd.DOB == nil && cmd.EntryDate == nil {
+		return nil, ports.ErrWriteConflict
+	}
+
+	var prevDOB, prevEntry pgtype.Date
+	if err := tx.QueryRow(ctx,
+		`SELECT dob, entry_date FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		cmd.TenantID, cmd.GoatID).Scan(&prevDOB, &prevEntry); err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.Exec(ctx, `
+UPDATE goats
+SET dob = COALESCE($3, dob),
+    entry_date = COALESCE($4, entry_date),
+    updated_at = $5::timestamptz,
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		cmd.TenantID, cmd.GoatID, nullableDate(cmd.DOB), nullableDate(cmd.EntryDate), cmd.OccurredAt); err != nil {
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"goat_id":             cmd.GoatID,
+		"reason":              cmd.Reason,
+		"row_version_from":    cmd.RowVersion,
+		"current_location_id": stringValue(state.CurrentLocation),
+		"current_park_id":     stringValue(state.ParkID),
+		"current_shed_id":     stringValue(state.ShedID),
+		"scope_type":          "goat",
+		"scope_id":            cmd.GoatID,
+	}
+	if prevDOB.Valid {
+		payload["previous_dob"] = biztime.BusinessDate(prevDOB.Time)
+	}
+	if prevEntry.Valid {
+		payload["previous_entry_date"] = biztime.BusinessDate(prevEntry.Time)
+	}
+	if cmd.DOB != nil {
+		payload["dob"] = biztime.BusinessDate(*cmd.DOB)
+	}
+	if cmd.EntryDate != nil {
+		payload["entry_date"] = biztime.BusinessDate(*cmd.EntryDate)
+	}
+	return r.finishGoatLifecycleMutation(ctx, tx, qtx, &committed, goatLifecycleFinish{
+		TenantUUID:     tenantUUID,
+		ActorUUID:      actorUUID,
+		GoatUUID:       goatUUID,
+		AggregateUUID:  goatUUID,
+		Command:        goatLifecycleCommandFromIdentity(cmd),
+		DecisionType:   goatIdentityChangedDecisionType,
+		DecisionResult: goatIdentityChangedDecisionResult,
+		EventType:      goatIdentityChangedEventType,
+		OccurredAt:     cmd.OccurredAt,
+		Payload:        payload,
+		Scope: domain.LocationScope{
+			FarmID: state.FarmID,
+			ParkID: state.ParkID,
+			ShedID: state.ShedID,
+		},
+		AggregateType: goatLifecycleAggregate,
+		SubjectType:   goatLifecycleSubject,
+		SubjectID:     cmd.GoatID,
+	})
+}
+
+func goatLifecycleCommandFromIdentity(cmd ports.IdentityGoatCommand) goatLifecycleCommand {
 	return goatLifecycleCommand{
 		TenantID:             cmd.TenantID,
 		ActorID:              cmd.ActorID,

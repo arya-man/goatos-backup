@@ -1745,6 +1745,45 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "409":
           $ref: "#/components/responses/WriteConflict"
+  /admin/goats/{goat_id}/identity:
+    post:
+      tags:
+        - Admin Goats
+      operationId: identityGoat
+      summary: Correct goat DOB and/or entry_date and queue goat.identity.changed rechecks.
+      description: >-
+        Corrects a goat's date of birth and/or arrival (entry) date — a later data-entry fix. At
+        least one of dob or entry_date must be provided; an absent field is left untouched. The
+        correction durably emits goat.identity.changed so the vaccination recheck consumer recomputes
+        obligations. Vaccination history outranks these anchors per vaccine: where a same-vaccine
+        accepted administration already exists, after_previous_completion continues to own scheduling
+        and the correction never replaces or duplicates that completion-anchored dose.
+      parameters:
+        - $ref: "#/components/parameters/GoatId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdentityGoatRequest"
+      responses:
+        "200":
+          description: Goat identity anchors corrected or idempotently replayed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminGoatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
   /admin/goats/bulk-status/preview:
     post:
       tags:
@@ -5230,6 +5269,40 @@ components:
           type: string
           format: date
           description: Optional YYYY-MM-DD last delivery date. Absent leaves the stored value untouched.
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+        occurred_at:
+          type: string
+          format: date-time
+        evidence_refs:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EvidenceRef"
+        row_version:
+          type: integer
+          minimum: 1
+    IdentityGoatRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reason
+        - evidence_refs
+        - row_version
+      description: >-
+        DOB/entry-date correction. At least one of dob or entry_date must be provided; an absent
+        field leaves the stored value untouched.
+      properties:
+        dob:
+          type: string
+          format: date
+          description: Optional YYYY-MM-DD corrected date of birth. Absent leaves the stored value untouched.
+        entry_date:
+          type: string
+          format: date
+          description: Optional YYYY-MM-DD corrected arrival/entry date. Absent leaves the stored value untouched.
         reason:
           type: string
           minLength: 3

@@ -515,6 +515,16 @@ func (h handlerRepo) ReproductiveGoat(_ context.Context, cmd ports.ReproductiveG
 	}, nil
 }
 
+func (h handlerRepo) IdentityGoat(_ context.Context, cmd ports.IdentityGoatCommand) (*ports.AdminGoatMutationResult, error) {
+	goat := handlerPassport().Summary
+	return &ports.AdminGoatMutationResult{
+		Goat:        goat,
+		Identifiers: []domain.GoatIdentifier{},
+		Decision:    identifierDecisionFixture("50000000-0000-4000-8000-000000000206", "identity_goat", "goat_identity_changed"),
+		Events:      []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000206", EventType: "goat.identity.changed"}},
+	}, nil
+}
+
 func (handlerRepo) Ping(context.Context) error { return nil }
 
 func strPtr(value string) *string {

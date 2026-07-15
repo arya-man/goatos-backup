@@ -87,3 +87,80 @@ func TestReconcileSourceFactLineageFailsOnUnknownVaccineHeader(t *testing.T) {
 		t.Fatalf("expected unknown-header failure, got %v", err)
 	}
 }
+
+// The following adversarial tests cover the seed reconciliation aggregate
+// (verifySeedReconciliation, grain (tenant_id, target_id, rule_id)) across the
+// dimensions required by the aggregate-projection review: cardinality/one-to-many,
+// page-boundary totals, date-shifted buckets, scope, and the status matrix. They
+// exercise validateSeedReconciliation, the pure invariant gate the aggregate feeds.
+
+func cleanReconciliation() seedReconciliation {
+	return seedReconciliation{SourceAcceptedHistory: 10}
+}
+
+// cardinality dimension.
+func TestSeedReconciliationOneToManyDuplicateActiveFails(t *testing.T) {
+	if err := validateSeedReconciliation(cleanReconciliation(), 10); err != nil {
+		t.Fatalf("clean reconciliation rejected: %v", err)
+	}
+	got := cleanReconciliation()
+	got.DuplicateActiveRuleTargets = 1 // one goat/rule fanned out to >1 active obligation
+	if err := validateSeedReconciliation(got, 10); err == nil {
+		t.Fatal("expected failure when a goat/rule grain has duplicate active obligations")
+	}
+}
+
+// pagination dimension: the totals are whole-set persisted counts, never a page.
+func TestSeedReconciliationPageBoundaryTotalsUsePersistedCounts(t *testing.T) {
+	got := cleanReconciliation() // SourceAcceptedHistory=10
+	if err := validateSeedReconciliation(got, 10); err != nil {
+		t.Fatalf("matching whole-set totals rejected: %v", err)
+	}
+	// A short (paged) accepted-history count must fail — the invariant compares the full committed
+	// count to the source total, independent of any page size.
+	if err := validateSeedReconciliation(got, 11); err == nil {
+		t.Fatal("expected failure when accepted history count differs from the source total")
+	}
+}
+
+// date dimension: repeat + schedulable open work must be strictly future.
+func TestSeedReconciliationDateShiftNonFutureWorkFails(t *testing.T) {
+	got := cleanReconciliation()
+	got.RepeatObligationsNotFuture = 1
+	if err := validateSeedReconciliation(got, 10); err == nil {
+		t.Fatal("expected failure when a repeat obligation is not strictly future")
+	}
+	got = cleanReconciliation()
+	got.SchedulableOpenWorkNotFuture = 1
+	if err := validateSeedReconciliation(got, 10); err == nil {
+		t.Fatal("expected failure when schedulable open work is dated in the past")
+	}
+}
+
+// scope dimension: per-goat scope integrity (breed FK + primary identifier).
+func TestSeedReconciliationScopeHierarchyIntegrityFails(t *testing.T) {
+	got := cleanReconciliation()
+	got.MissingBreedForeignKeys = 1
+	if err := validateSeedReconciliation(got, 10); err == nil {
+		t.Fatal("expected failure when a goat is missing its species-owned breed FK")
+	}
+	got = cleanReconciliation()
+	got.MissingPrimaryIdentifiers = 1
+	if err := validateSeedReconciliation(got, 10); err == nil {
+		t.Fatal("expected failure when a goat is missing its primary identifier")
+	}
+}
+
+// status dimension: the status matrix (accepted vs obligation status).
+func TestSeedReconciliationStatusMatrixMismatchFails(t *testing.T) {
+	got := cleanReconciliation()
+	got.AcceptedStatusMismatches = 1
+	if err := validateSeedReconciliation(got, 10); err == nil {
+		t.Fatal("expected failure when an accepted completion's obligation is not completed")
+	}
+	got = cleanReconciliation()
+	got.ActivePrimaryAfterHistory = 1
+	if err := validateSeedReconciliation(got, 10); err == nil {
+		t.Fatal("expected failure when a primary stays active after accepted history exists")
+	}
+}

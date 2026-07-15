@@ -25,16 +25,20 @@ func TestKernelStoryS_LatePregnancyHold(t *testing.T) {
 
 	fx.SeedShed(shedID, "E2E-S", stageID)
 	pregnancyDSL := `{"pregnancy_policy":{"allow_until_pregnancy_month":3,"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5,"post_delivery_catch_up_days":14}}`
+	// A pregnant doe is an ADULT, so her vaccination obligation comes from the adult (post_arrival)
+	// path, not a kid (birth_age) dose — a 2.5-year-old must never be routed to kid vaccines
+	// (VACC-RULE-02). The late-pregnancy hold applies to that adult obligation.
 	_, ruleIDs := fx.PublishScheduleProtocol("vaccination.e2e.story_s", pregnancyDSL,
-		[]RuleSpec{{DoseCode: "primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 14}})
+		[]RuleSpec{{DoseCode: "primary", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 21, DueWindowDays: 14}})
 	ruleID := ruleIDs["primary"]
 
 	dob := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	entry := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	breeding := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC) // month ~5 at asOf below
 	asOf := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
 	fx.SeedGoat(GoatSpec{
-		GoatID: goatID, ShedID: shedID, DOB: &dob,
-		ReproductiveStatus: "pregnant", BreedingDate: &breeding, OriginType: "birth",
+		GoatID: goatID, ShedID: shedID, DOB: &dob, EntryDate: &entry, Stage: "adult",
+		ReproductiveStatus: "pregnant", BreedingDate: &breeding, OriginType: "procured",
 	})
 
 	story.Step("Generate during late pregnancy",

@@ -1048,6 +1048,11 @@ func (s *GenerationService) recentVaccineAdminsForPlans(ctx context.Context, ten
 func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf, vaccineHistory)
+	if staleKidStageAfterCutoff(g, policies.Procurement, asOf) {
+		// Tag/age conflict: live K-stage past the 20-week cutoff. Record a review signal; the goat
+		// is on the adult path above, so no kid vaccinations are generated for it.
+		res.ReviewSignals++
+	}
 	for _, rule := range rules {
 		ruleEligibility, ruleVaccine, err := ruleGenerationContext(rule, versionEligibility, vaccineProf)
 		if err != nil {
@@ -1057,6 +1062,24 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			continue
 		}
 		if !ruleMatchesSchedulePath(rule, path) {
+			continue
+		}
+		// History outranks DOB/arrival, per vaccine: once an accepted administration of this rule's
+		// own vaccine exists, the after_previous_completion rule owns all future scheduling for that
+		// vaccine. The birth_age/post_arrival PRIMARY must be suppressed whenever same-vaccine history
+		// exists — even AFTER a DOB/entry-date correction makes dueAt resolvable — so a later identity
+		// correction can never replace, duplicate, or replay the completion-anchored schedule. (When
+		// dueAt skips because the anchor is missing, the skip branch below also handles this; this
+		// early guard additionally covers the anchor-now-available case.)
+		if isPrimaryAnchorRule(rule) && hasVaccineAdministrationHistory(ruleVaccine, vaccineHistory) {
+			res.SuppressedByTrustedHistory++
+			// Supersede any stale no-anchor catch-up placeholder from an earlier pass so history +
+			// a later DOB fix never leave a duplicate primary behind.
+			if staleKey := missingDueDateKey(tenantID, versionID, rule, g, anchorMissingReason(rule.TriggerType)); staleKey != "" {
+				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, staleKey, "vaccine_history_outranks_anchor", asOf); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		anchorCatchUpKey := ""

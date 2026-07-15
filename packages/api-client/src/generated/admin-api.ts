@@ -823,6 +823,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/goats/{goat_id}/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Correct goat DOB and/or entry_date and queue goat.identity.changed rechecks.
+         * @description Corrects a goat's date of birth and/or arrival (entry) date — a later data-entry fix. At least one of dob or entry_date must be provided; an absent field is left untouched. The correction durably emits goat.identity.changed so the vaccination recheck consumer recomputes obligations. Vaccination history outranks these anchors per vaccine: where a same-vaccine accepted administration already exists, after_previous_completion continues to own scheduling and the correction never replaces or duplicates that completion-anchored dose.
+         */
+        post: operations["identityGoat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/goats/bulk-status/preview": {
         parameters: {
             query?: never;
@@ -2059,6 +2079,24 @@ export interface components {
              * @description Optional YYYY-MM-DD last delivery date. Absent leaves the stored value untouched.
              */
             last_delivery_date?: string;
+            reason: string;
+            /** Format: date-time */
+            occurred_at?: string;
+            evidence_refs: components["schemas"]["EvidenceRef"][];
+            row_version: number;
+        };
+        /** @description DOB/entry-date correction. At least one of dob or entry_date must be provided; an absent field leaves the stored value untouched. */
+        IdentityGoatRequest: {
+            /**
+             * Format: date
+             * @description Optional YYYY-MM-DD corrected date of birth. Absent leaves the stored value untouched.
+             */
+            dob?: string;
+            /**
+             * Format: date
+             * @description Optional YYYY-MM-DD corrected arrival/entry date. Absent leaves the stored value untouched.
+             */
+            entry_date?: string;
             reason: string;
             /** Format: date-time */
             occurred_at?: string;
@@ -5367,6 +5405,39 @@ export interface operations {
         };
         responses: {
             /** @description Goat reproductive status changed or idempotently replayed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminGoatResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            409: components["responses"]["WriteConflict"];
+        };
+    };
+    identityGoat: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                goat_id: components["parameters"]["GoatId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentityGoatRequest"];
+            };
+        };
+        responses: {
+            /** @description Goat identity anchors corrected or idempotently replayed. */
             200: {
                 headers: {
                     [name: string]: unknown;

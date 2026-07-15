@@ -20,6 +20,7 @@ const (
 	stageGoatCommand         = "stageGoat"
 	healthGoatCommand        = "healthGoat"
 	reproductiveGoatCommand  = "reproductiveGoat"
+	identityGoatCommand      = "identityGoat"
 )
 
 type MoveGoatInput struct {
@@ -59,6 +60,15 @@ type HealthGoatInput struct {
 }
 
 type ReproductiveGoatInput struct {
+	TenantID       string
+	ActorID        string
+	IdempotencyKey string
+	TraceID        string
+	GoatID         string
+	RawBody        []byte
+}
+
+type IdentityGoatInput struct {
 	TenantID       string
 	ActorID        string
 	IdempotencyKey string
@@ -328,6 +338,103 @@ func (s *Service) ReproductiveGoat(ctx context.Context, input ReproductiveGoatIn
 		return nil, mapRepoErr(err)
 	}
 	return adminGoatResponse(result, clientKey, input.TraceID), nil
+}
+
+// IdentityGoat corrects a goat's DOB and/or entry_date. It emits goat.identity.changed so the
+// vaccination recheck consumer recomputes obligations (the anchor of age-routing + birth_age/
+// post_arrival due dates).
+func (s *Service) IdentityGoat(ctx context.Context, input IdentityGoatInput) (*domain.AdminGoatResponse, error) {
+	tenantID, actorID, clientKey, err := validateWriteHeaders(input.TenantID, input.ActorID, input.IdempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	goatID := strings.TrimSpace(input.GoatID)
+	if !uuidPattern.MatchString(goatID) {
+		return nil, BadRequest("invalid_goat_id", "goat_id must be a valid UUID")
+	}
+	body, err := decodeIdentityGoat(input.RawBody)
+	if err != nil {
+		return nil, err
+	}
+	dob, entryDate, err := validateIdentityGoat(body)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, Internal("identity goat request normalization failed")
+	}
+	route := "/admin/goats/{goat_id}/identity"
+	requestHash, err := CanonicalRequestHashWithSubject(tenantID, identityGoatCommand, route, goatID, raw)
+	if err != nil {
+		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+	}
+	occurredAt := time.Now().UTC()
+	if body.OccurredAt != nil {
+		occurredAt = body.OccurredAt.UTC()
+	}
+	result, err := s.repo.IdentityGoat(ctx, ports.IdentityGoatCommand{
+		TenantID:             tenantID,
+		ActorID:              actorID,
+		ClientIdempotencyKey: clientKey,
+		StoredIdempotencyKey: fmt.Sprintf("%s:%s:%s:%s", tenantID, identityGoatCommand, goatID, clientKey),
+		IdempotencyScope:     identityGoatCommand,
+		RequestHash:          requestHash,
+		TraceID:              input.TraceID,
+		GoatID:               goatID,
+		DOB:                  dob,
+		EntryDate:            entryDate,
+		Reason:               strings.TrimSpace(body.Reason),
+		OccurredAt:           occurredAt,
+		EvidenceRefs:         body.EvidenceRefs,
+		RowVersion:           body.RowVersion,
+	})
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return adminGoatResponse(result, clientKey, input.TraceID), nil
+}
+
+func decodeIdentityGoat(raw []byte) (*domain.IdentityGoatRequest, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, BadRequest("invalid_json", "request body is required")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var body domain.IdentityGoatRequest
+	if err := decoder.Decode(&body); err != nil {
+		return nil, BadRequest("invalid_json", "request body must match IdentityGoatRequest")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, BadRequest("invalid_json", "request body must contain a single JSON object")
+	}
+	return &body, nil
+}
+
+func validateIdentityGoat(body *domain.IdentityGoatRequest) (*time.Time, *time.Time, error) {
+	body.Reason = strings.TrimSpace(body.Reason)
+	if len(body.Reason) < 3 || len(body.Reason) > 500 {
+		return nil, nil, BadRequest("invalid_reason", "reason must be between 3 and 500 characters")
+	}
+	if body.RowVersion < 1 {
+		return nil, nil, BadRequest("invalid_row_version", "row_version must be positive")
+	}
+	dob, err := optionalDateField("dob", body.DOB)
+	if err != nil {
+		return nil, nil, err
+	}
+	entryDate, err := optionalDateField("entry_date", body.EntryDate)
+	if err != nil {
+		return nil, nil, err
+	}
+	if dob == nil && entryDate == nil {
+		return nil, nil, BadRequest("missing_correction", "at least one of dob or entry_date must be provided")
+	}
+	if err := validateEvidenceRefs(body.EvidenceRefs, true); err != nil {
+		return nil, nil, err
+	}
+	return dob, entryDate, nil
 }
 
 func decodeMoveGoat(raw []byte) (*domain.MoveGoatRequest, error) {

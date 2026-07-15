@@ -204,6 +204,10 @@ type GenerateResult struct {
 	FailedGoats                int
 	SkippedNoDueDate           int
 	SuppressedByTrustedHistory int
+	// ReviewSignals counts non-blocking tag/age conflicts surfaced for human review (e.g. a live
+	// K1/K2 stage tag on a goat proven past the 20-week kid cutoff). These animals are scheduled on
+	// the adult path; the signal never generates kid vaccinations.
+	ReviewSignals int
 }
 
 // GenerationRun is the durable operator-visible status row for an existing-cohort

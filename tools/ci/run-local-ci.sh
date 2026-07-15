@@ -95,7 +95,10 @@ run_guardrails() {
   step "room-migration-guard"     make room-migration-guard
   step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
   step "large-file guard"         node tools/ci/check-large-files.mjs
-  step "go test ./..."            bash -c 'cd backend && go test ./...'
+  # GOATOS_REQUIRE_DOCKER=1: the required Postgres integration gate must RUN, not skip. A missing
+  # docker turns SkipIfNoDocker into a hard failure so CI can never false-green by skipping the
+  # kernel Postgres/E2E tests (VACC-REV-04).
+  step "go test ./... (docker-required)" bash -c 'cd backend && GOATOS_REQUIRE_DOCKER=1 go test ./...'
   step "sqlc-check"               make sqlc-check
   step "validate-sqlc-plans"      make validate-sqlc-plans
   step "validate-migrations"      make validate-migrations

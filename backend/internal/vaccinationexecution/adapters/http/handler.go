@@ -462,7 +462,7 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 		h.badRequest(w, r, "invalid_due_at", "due_at is required and must be RFC3339")
 		return
 	}
-	if req.DueAt.Before(time.Now()) {
+	if req.DueAt.Before(h.now()) {
 		h.badRequest(w, r, "due_at_in_past", "due_at must be in the future")
 		return
 	}
@@ -492,7 +492,7 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=reschedule-decision-comparison-instant expiry=2026-12-31
-	id, isReplay, err := h.writer.RescheduleObligationByID(r.Context(), requestTenantID, obligationID, idempotencyKey, authorizedParkIDs, req.DueAt, windowStart, req.WindowEnd, time.Now().UTC())
+	id, isReplay, err := h.writer.RescheduleObligationByID(r.Context(), requestTenantID, obligationID, idempotencyKey, authorizedParkIDs, req.DueAt, windowStart, req.WindowEnd, h.now().UTC())
 	if err != nil {
 		if errors.Is(err, obligationports.ErrNotFound) {
 			httpresponse.WriteError(w, r, h.log, http.StatusNotFound,

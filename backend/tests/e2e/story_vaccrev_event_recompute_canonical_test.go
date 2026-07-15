@@ -98,9 +98,11 @@ func TestKernelStoryVaccRev_EventDrivenRecomputeCanonicalRead(t *testing.T) {
 		ok && reopenedRow.NextDue != nil, "found=%v next_due=%v", ok, reopenedRow.NextDue)
 
 	// ---- Reproductive path: ReproductiveGoat command defers via pregnancy month 4-5. ----
+	// A pregnant doe is an ADULT, so her obligation comes from the adult (post_arrival) path — never
+	// a kid dose (VACC-RULE-02) — and the pregnancy hold applies to that adult obligation.
 	const pregnancyRuleDSL = `{"pregnancy_policy":{"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5}}`
 	reproVersionID, _ := fx.PublishScheduleProtocol("vaccination.e2e.story_vaccrev_repro", pregnancyRuleDSL,
-		[]RuleSpec{{DoseCode: "primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 0}})
+		[]RuleSpec{{DoseCode: "primary", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 21, DueWindowDays: 0}})
 
 	// Reuse the health shed's stage lookup (shared animal_stage_lookup; stage_code 'K1' is unique per
 	// tenant, so a second distinct stage id would collide).
@@ -109,10 +111,11 @@ func TestKernelStoryVaccRev_EventDrivenRecomputeCanonicalRead(t *testing.T) {
 
 	const goatRepro = "e9000000-0000-4000-8000-000000000020"
 	dobRepro := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
-	fx.SeedGoat(GoatSpec{GoatID: goatRepro, ShedID: shedReproID, DOB: &dobRepro})
+	reproEntry := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	fx.SeedGoat(GoatSpec{GoatID: goatRepro, ShedID: shedReproID, DOB: &dobRepro, EntryDate: &reproEntry, Stage: "adult", OriginType: "procured"})
 
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
-	genAsOf := dobRepro.AddDate(0, 0, 21)
+	genAsOf := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC) // adult, not yet pregnant
 	if _, err := gen.GenerateForGoat(fx.Ctx, fxTenant, goatRepro, genAsOf); err != nil {
 		t.Fatalf("generate reproductive goat obligation: %v", err)
 	}

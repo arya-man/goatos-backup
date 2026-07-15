@@ -164,14 +164,23 @@ func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf 
 	if g.DOB != nil {
 		ageWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
 		if ageWeeks <= int(kidWeeks) {
+			// A NEW kid course may only START through kidWeeks (default 16).
 			return schedulePathKid
 		}
 		if ageWeeks <= int(finishWeeks) {
-			return schedulePathKid
+			// 16-20w is CONTINUATION-ONLY: a kid already in the course may finish its
+			// spacing-shifted dose, but a new course may NOT start here. "Already in the course"
+			// = a kid-management stage tag (still a FRESH signal at this age) or a recorded
+			// kid-course administration. A goat with neither cannot start a new course and routes
+			// adult (fixes the "16-20w always kid even if never started" defect).
+			if isKidManagementStage(g.Stage) || hasKidCourseHistory(vaccineHistory) {
+				return schedulePathKid
+			}
+			return schedulePathAdultProcurement
 		}
-		if isKidManagementStage(g.Stage) {
-			return schedulePathKid
-		}
+		// Past finishWeeks (20w) the goat is ALWAYS adult. A K1/K2 stage tag is now STALE and no
+		// longer overrides age — it must never generate kid vaccinations (confirmed defect #5). The
+		// tag/age conflict is surfaced as a review signal in genOneGoat, not by routing kid.
 		return schedulePathAdultProcurement
 	}
 
@@ -182,6 +191,23 @@ func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf 
 		return schedulePathKid
 	}
 	return schedulePathAdultProcurement
+}
+
+// staleKidStageAfterCutoff reports a tag/age conflict: the goat has a live kid-management stage tag
+// but its DOB proves it is past the 20-week kid-course finishing window. Per Operating Rules ("if a
+// tag and age disagree, review the animal") this is a REVIEW signal only — the goat is scheduled on
+// the adult path and NO kid vaccinations are generated.
+func staleKidStageAfterCutoff(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time) bool {
+	if g.DOB == nil || !isKidManagementStage(g.Stage) {
+		return false
+	}
+	kidWeeks := int32(16)
+	if proc.KidsNormalScheduleUntilWeeks > 0 {
+		kidWeeks = proc.KidsNormalScheduleUntilWeeks
+	}
+	finishWeeks := kidWeeks + 4
+	ageWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
+	return ageWeeks > int(finishWeeks)
 }
 
 func isKidManagementStage(stage string) bool {
@@ -211,6 +237,14 @@ func hasKidCourseHistory(history []domain.RecentVaccineAdministration) bool {
 		}
 	}
 	return false
+}
+
+// isPrimaryAnchorRule reports whether a rule schedules a primary dose off a birth/arrival anchor
+// (DOB or entry_date). These are exactly the rules that vaccination history outranks: once a
+// same-vaccine administration exists, after_previous_completion owns future scheduling and these
+// anchor-based primaries must be suppressed.
+func isPrimaryAnchorRule(rule protodomain.Rule) bool {
+	return rule.TriggerType == "birth_age" || rule.TriggerType == "post_arrival"
 }
 
 func ruleMatchesSchedulePath(rule protodomain.Rule, path string) bool {
@@ -277,7 +311,11 @@ func pregnancyDeferReason(g domain.EligibleGoat, preg genPregnancyPolicy, asOf t
 	switch status {
 	case "pregnant":
 		if g.BreedingDate == nil {
-			return "pregnancy_month_review"
+			// Locked rule (section 5): "Pregnant, month unknown -> schedule normally".
+			// Missing/unknown gestation must NOT block — only a PROVEN pregnancy month 4-5
+			// (a known breeding date) defers. A missing breeding date is not proof of a
+			// late-pregnancy window, so scheduling proceeds.
+			return ""
 		}
 		month := pregnancyMonth(*g.BreedingDate, asOf)
 		if preg.SkipFromPregnancyMonth > 0 && month >= int(preg.SkipFromPregnancyMonth) {

@@ -47,6 +47,7 @@
         "goat.stage_changed",
         "goat.health.changed",
         "goat.reproductive.changed",
+        "goat.identity.changed",
         "goat.shifted",
         "identity.correction_request.created",
         "identity.correction_request.updated",

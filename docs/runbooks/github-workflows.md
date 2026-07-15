@@ -480,8 +480,13 @@ Command:
 
 ```text
 cd backend
-go test ./...
+GOATOS_REQUIRE_DOCKER=1 go test ./...
 ```
+
+`GOATOS_REQUIRE_DOCKER=1` (set by `run-local-ci.sh` on this step) makes
+`pgtest.SkipIfNoDocker` FAIL instead of skip when docker is missing, so the
+required Postgres/E2E integration gate can never false-green by silently
+skipping — a runner without docker turns the build red rather than green.
 
 Purpose:
 

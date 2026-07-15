@@ -34,8 +34,11 @@ func TestKernelStoryR_PregnancyAndMilkingDefer(t *testing.T) {
 	story.Certify("backend kernel")
 
 	const pregnancyRuleDSL = `{"pregnancy_policy":{"skip_from_pregnancy_month":4,"skip_through_pregnancy_month":5}}`
+	// Pregnant/milking does are ADULTS, so their obligations come from the adult (post_arrival) path
+	// — an adult must never be routed to a kid (birth_age) dose (VACC-RULE-02). The pregnancy/milking
+	// holds apply to that adult obligation.
 	versionID, ruleIDs := fx.PublishScheduleProtocol("vaccination.e2e.story_r", pregnancyRuleDSL,
-		[]RuleSpec{{DoseCode: "primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 21, DueWindowDays: 0}})
+		[]RuleSpec{{DoseCode: "primary", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 21, DueWindowDays: 0}})
 	primaryRuleID := ruleIDs["primary"]
 	_ = primaryRuleID
 
@@ -45,15 +48,18 @@ func TestKernelStoryR_PregnancyAndMilkingDefer(t *testing.T) {
 
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
 
+	// Generate while the does are already adults and not yet pregnant/milking.
+	entry := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	genAsOf := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+
 	// ---- G-Pregnant: pregnancy month 4-5 hold, then resume once past the window. ----
 	const goatPregnant = "e5000000-0000-4000-8000-000000000010"
 	dobPregnant := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
-	fx.SeedGoat(GoatSpec{GoatID: goatPregnant, ShedID: shedID, DOB: &dobPregnant})
+	fx.SeedGoat(GoatSpec{GoatID: goatPregnant, ShedID: shedID, DOB: &dobPregnant, EntryDate: &entry, Stage: "adult", OriginType: "procured"})
 
 	story.Step("G-Pregnant: generate the primary dose before pregnancy is recorded",
-		"Generate obligations for G-Pregnant as of 2025-10-22 (21 days after birth). One scheduled "+
-			"obligation, reproductive_status not yet pregnant.")
-	genAsOf := dobPregnant.AddDate(0, 0, 21)
+		"Generate the adult post_arrival obligation as of 2026-03-01, while she is adult and not yet "+
+			"pregnant. One scheduled obligation.")
 	pregGen1, err := gen.GenerateForGoat(fx.Ctx, fxTenant, goatPregnant, genAsOf)
 	story.Assert("G-Pregnant generation ran without error", err == nil, "err=%v", err)
 	story.Assert("G-Pregnant: exactly one obligation was generated", pregGen1.Generated == 1, "generated=%d", pregGen1.Generated)
@@ -92,7 +98,7 @@ func TestKernelStoryR_PregnancyAndMilkingDefer(t *testing.T) {
 	// ---- G-Milking: milking-window hold, independent of the pregnancy policy. ----
 	const goatMilking = "e5000000-0000-4000-8000-000000000020"
 	dobMilking := time.Date(2025, 10, 1, 0, 0, 0, 0, time.UTC)
-	fx.SeedGoat(GoatSpec{GoatID: goatMilking, ShedID: shedID, DOB: &dobMilking})
+	fx.SeedGoat(GoatSpec{GoatID: goatMilking, ShedID: shedID, DOB: &dobMilking, EntryDate: &entry, Stage: "adult", OriginType: "procured"})
 
 	story.Step("G-Milking: generate the primary dose before entering the milking state",
 		"Generate obligations for G-Milking as of 2025-10-22, same rule. One scheduled obligation, "+
