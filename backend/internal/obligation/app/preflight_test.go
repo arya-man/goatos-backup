@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 	"time"
 
@@ -114,5 +115,96 @@ func TestPreflightVisitShotCapTiesCleanWhenNoConflict(t *testing.T) {
 	}
 	if dates["obl-fmd"] == "2026-07-01" {
 		t.Fatalf("dates=%#v, want FMD overflowed off 2026-07-01", dates)
+	}
+}
+
+// fakePagedDueRepo models the PRODUCTION unbatched-due read paths for the tie preflight: the plain
+// ListUnbatchedDueForVersion respects LIMIT (returns only the first page, in canonical ORDER BY
+// order), while ListUnbatchedDueForVersionKeyset drains EVERY page keyset by obligation_id. The
+// stock in-memory fakeSweepRepo.ListUnbatchedDueForVersion ignores the limit and returns all rows,
+// which would hide the beyond-first-page bug, so this fake overrides it to page like Postgres.
+type fakePagedDueRepo struct {
+	*fakeSweepRepo
+	dueByVersion map[string][]domain.UnbatchedDue // stored in canonical ORDER BY order per version
+}
+
+func (f *fakePagedDueRepo) ListUnbatchedDueForVersion(_ context.Context, _, versionID string, _ time.Time, limit int32) ([]domain.UnbatchedDue, error) {
+	rows := f.dueByVersion[versionID]
+	if limit > 0 && int(limit) < len(rows) {
+		return append([]domain.UnbatchedDue(nil), rows[:limit]...), nil
+	}
+	return append([]domain.UnbatchedDue(nil), rows...), nil
+}
+
+func (f *fakePagedDueRepo) ListUnbatchedDueForVersionKeyset(_ context.Context, _, versionID string, _ time.Time, after *domain.UnbatchedDueCursor, limit int32) ([]domain.UnbatchedDue, error) {
+	rows := append([]domain.UnbatchedDue(nil), f.dueByVersion[versionID]...)
+	sort.Slice(rows, func(i, j int) bool { return rows[i].ObligationID < rows[j].ObligationID })
+	out := make([]domain.UnbatchedDue, 0, len(rows))
+	for _, r := range rows {
+		if after != nil && r.ObligationID <= after.ObligationID {
+			continue
+		}
+		out = append(out, r)
+		if limit > 0 && int32(len(out)) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// TestPreflightDetectsTieBeyondFirstPage is the FINDING 3 (P1) regression: a same-priority,
+// cross-vaccine shot-cap tie among a version's due rows that lie BEYOND the first page must be
+// surfaced by the write-free preflight. One animal (goat-1) is due three DIFFERENT same-priority
+// vaccines the same day (MaxShotsPerAnimalPerDrive=2); the third, conflicting obligation
+// (rule-c/obl-c) only appears on the second keyset page. The preflight must drain all pages,
+// detect the tie, and touch ZERO write paths.
+//
+// FAILING-FIRST: on origin/main PreflightVisitShotCapTies read only ListUnbatchedDueForVersion's
+// FIRST page (s.page rows). With s.page=2 that returned rule-a and rule-b only -- which legitimately
+// fill goat-1's two slots -- so the preflight saw no tie and returned nil, letting the real sweep
+// abort mid-run when it later hit rule-c. This fix drains ListUnbatchedDueForVersionKeyset to
+// exhaustion, so rule-c is seen and the tie is caught up front.
+func TestPreflightDetectsTieBeyondFirstPage(t *testing.T) {
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	// Three obligations for goat-1, same shed/date, three distinct rules -> three distinct
+	// same-priority vaccines. Stored in canonical (rule_id) order so the first-page LIMIT returns
+	// rule-a, rule-b and leaves rule-c on page 2.
+	v1 := []domain.UnbatchedDue{
+		{ObligationID: "obl-a", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+		{ObligationID: "obl-b", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+		{ObligationID: "obl-c", RuleID: "rule-c", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+	}
+	repo := &fakePagedDueRepo{
+		fakeSweepRepo: &fakeSweepRepo{attachAll: true},
+		dueByVersion:  map[string][]domain.UnbatchedDue{"v-1": v1, "v-2": nil},
+	}
+	tasks := &fakeSweepTaskCreator{id: "task-1"}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, tasks, reserver)
+	svc.page = 2 // force rule-c beyond the first page
+
+	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2}
+	// All three rules map to distinct vaccine codes at EQUAL priority -> a genuine unresolved tie.
+	ruleIDs := map[string]RuleVaccineIdentity{
+		"rule-a": {VaccineCode: "Vaccine A", VaccinePriority: 50},
+		"rule-b": {VaccineCode: "Vaccine B", VaccinePriority: 50},
+		"rule-c": {VaccineCode: "Vaccine C", VaccinePriority: 50},
+	}
+	plans := []SweepVersionPriority{
+		{VersionID: "v-1", Config: SweepConfig{VaccineCode: "Vaccine A", DrivePlanner: planner, RuleVaccineIDs: ruleIDs}},
+		{VersionID: "v-2", Config: SweepConfig{VaccineCode: "Vaccine Z", DrivePlanner: planner}},
+	}
+
+	err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due)
+	var tieErr *ShotCapPriorityTieError
+	if err == nil || !errors.As(err, &tieErr) {
+		t.Fatalf("err = %v, want *ShotCapPriorityTieError from a tie beyond the first page", err)
+	}
+	if tieErr.TargetID != "goat-1" {
+		t.Fatalf("tie target = %q, want goat-1", tieErr.TargetID)
+	}
+	if repo.createBatchCalls != 0 || tasks.calls != 0 || reserver.calls != 0 {
+		t.Fatalf("preflight side effects: batches=%d tasks=%d stock=%d, want 0/0/0", repo.createBatchCalls, tasks.calls, reserver.calls)
 	}
 }

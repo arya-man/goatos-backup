@@ -960,3 +960,135 @@ func qtyKeys(values []int64) string {
 	}
 	return out
 }
+
+// fakeStockAwareComboRepo models the production combo-alignment predicate: a planned combo batch
+// is visible to AlignComboDrives ONLY while it has neither a linked SOP task nor a
+// stock_reservation context. It is BOTH the repo (embedding fakeSweepRepo + ComboDriveAligner) and
+// the StockReserver, so it can track exactly WHEN stock gets reserved relative to alignment -- the
+// crux of FINDING 1. Reserving stock during the no-finalize sweep (before AlignComboDrives) would
+// flip these combo batches invisible and they would never align.
+type fakeStockAwareComboRepo struct {
+	*fakeSweepRepo
+	comboBatches      []domain.ComboDriveBatch
+	updates           []comboPlannedDateUpdate
+	reserved          map[string]bool
+	reserveCalls      int
+	reserveBeforeAny  int // reservations that happened while ZERO align updates had occurred
+	aligned           int
+}
+
+func newStockAwareComboRepo() *fakeStockAwareComboRepo {
+	return &fakeStockAwareComboRepo{reserved: map[string]bool{}}
+}
+
+func (f *fakeStockAwareComboRepo) ListPlannedComboBatches(context.Context, string, time.Time, int32) ([]domain.ComboDriveBatch, error) {
+	return f.visibleComboBatches(), nil
+}
+
+func (f *fakeStockAwareComboRepo) ListPlannedComboBatchesKeyset(_ context.Context, _ string, _ time.Time, after *domain.ComboBatchCursor, _ int32) ([]domain.ComboDriveBatch, error) {
+	if after != nil {
+		return []domain.ComboDriveBatch{}, nil
+	}
+	return f.visibleComboBatches(), nil
+}
+
+// visibleComboBatches returns only combo batches whose stock has NOT been reserved, mirroring the
+// real query's `NOT (b.context ? 'stock_reservation')` predicate.
+func (f *fakeStockAwareComboRepo) visibleComboBatches() []domain.ComboDriveBatch {
+	out := make([]domain.ComboDriveBatch, 0, len(f.comboBatches))
+	for _, b := range f.comboBatches {
+		if f.reserved[b.BatchID] {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+func (f *fakeStockAwareComboRepo) UpdateBatchPlannedDate(_ context.Context, _, batchID string, plannedDate time.Time) error {
+	f.updates = append(f.updates, comboPlannedDateUpdate{BatchID: batchID, PlannedDate: plannedDate})
+	f.aligned++
+	return nil
+}
+
+func (f *fakeStockAwareComboRepo) ReserveForBatch(_ context.Context, _, batchID, _, _ string, _ int64, _ time.Time) error {
+	f.reserveCalls++
+	if f.aligned == 0 {
+		f.reserveBeforeAny++
+	}
+	f.reserved[batchID] = true
+	return nil
+}
+
+// TestNoFinalizeSweepDefersStockUntilAfterComboAlignment is the FINDING 1 (P0) regression: the
+// no-finalize kernel sweep path must NOT reserve stock (or link tasks) before AlignComboDrives
+// runs, because reserving stock stamps a stock_reservation context onto a combo batch that
+// permanently filters it OUT of the combo-alignment query. Two pre-existing, unfinalized combo
+// batches (sop_task_id NULL, no stock) for one shed/session on Aug 1 and Aug 5 must still be
+// aligned onto their single shared target date (Aug 5), and stock must be reserved ONLY afterward
+// via FinalizePlannedBatchesAfterAlignment.
+//
+// FAILING-FIRST: on origin/main the no-finalize path (SweepVersionWithSessionNoFinalize) called
+// finalizePlannedBatchStockOnly at the END of the sweep, reserving stock for these pre-existing
+// combo batches BEFORE AlignComboDrives -- so visibleComboBatches() (modeling the real predicate)
+// returned nothing and NO alignment happened (aligned=0). This fix defers ALL finalization to
+// FinalizePlannedBatchesAfterAlignment, so alignment runs on the still-visible combo batches first.
+func TestNoFinalizeSweepDefersStockUntilAfterComboAlignment(t *testing.T) {
+	d1 := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	d5 := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	base := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{"version-1": nil}, // no new main-loop work
+		finalizationPages: [][]domain.PlannedBatchFinalization{{
+			{BatchID: "combo-a", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", PlannedDate: &d1, EstimatedTargets: 1, AttachedObligations: 1},
+			{BatchID: "combo-b", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", PlannedDate: &d5, EstimatedTargets: 1, AttachedObligations: 1},
+		}},
+	}
+	repo := newStockAwareComboRepo()
+	repo.fakeSweepRepo = base
+	repo.comboBatches = []domain.ComboDriveBatch{
+		{BatchID: "combo-a", ScopeType: "shed", ScopeID: "shed-1", Session: "combo:FMD+HS", PlannedDate: &d1, TargetIDs: []string{"goat-1"}},
+		{BatchID: "combo-b", ScopeType: "shed", ScopeID: "shed-1", Session: "combo:FMD+HS", PlannedDate: &d5, TargetIDs: []string{"goat-2"}},
+	}
+
+	svc := NewSweeperService(repo, nil, repo) // repo is also the StockReserver
+	cfg := SweepConfig{VaccineItemID: "vaccine-1", DosesPerGoat: 1}
+	ctx := context.Background()
+	session := NewSweepSession()
+	dueBefore := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+
+	// Step 1: no-finalize sweep. Part (a): it must NOT reserve any stock yet.
+	if _, err := svc.SweepVersionWithSessionNoFinalize(ctx, "tenant-1", "version-1", cfg, dueBefore, session); err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalize: %v", err)
+	}
+	if repo.reserveCalls != 0 {
+		t.Fatalf("stock reserved during no-finalize sweep = %d, want 0 (must defer until after alignment)", repo.reserveCalls)
+	}
+
+	// Step 2: align combo drives. Both pre-existing combo batches are still visible (no stock yet),
+	// so they align onto the single shared target date Aug 5. maxShots=0 (cap disabled here).
+	aligned, err := svc.AlignComboDrives(ctx, "tenant-1", 7, dueBefore, 0, session)
+	if err != nil {
+		t.Fatalf("AlignComboDrives: %v", err)
+	}
+	if aligned != 1 {
+		t.Fatalf("aligned = %d, want 1 (combo-a moves onto combo-b's Aug 5 date)", aligned)
+	}
+	if len(repo.updates) != 1 || repo.updates[0].BatchID != "combo-a" {
+		t.Fatalf("updates = %#v, want combo-a aligned onto Aug 5", repo.updates)
+	}
+	if !businessDate(repo.updates[0].PlannedDate).Equal(businessDate(d5)) {
+		t.Fatalf("combo-a aligned to %s, want %s", repo.updates[0].PlannedDate, businessDate(d5))
+	}
+
+	// Step 3: finalize AFTER alignment. Stock is reserved now, and every reservation happened
+	// strictly after at least one align update.
+	if err := svc.FinalizePlannedBatchesAfterAlignment(ctx, "tenant-1", "version-1", cfg); err != nil {
+		t.Fatalf("FinalizePlannedBatchesAfterAlignment: %v", err)
+	}
+	if repo.reserveCalls == 0 {
+		t.Fatalf("stock never reserved, want reservation after alignment")
+	}
+	if repo.reserveBeforeAny != 0 {
+		t.Fatalf("reservations before any alignment = %d, want 0 (all stock must be reserved post-alignment)", repo.reserveBeforeAny)
+	}
+}

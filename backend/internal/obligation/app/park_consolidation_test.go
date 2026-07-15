@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -316,4 +317,88 @@ func TestPickBestParkDriveDateIteratesRemainder(t *testing.T) {
 
 func ptrTime(v time.Time) *time.Time {
 	return &v
+}
+
+// TestParkConsolidationRaisesTieForSamePriorityDifferentVaccines is the FINDING 4 (P1) regression:
+// when a park-consolidation merge co-locates obligations for one animal from MULTIPLE rules that
+// resolve to DIFFERENT vaccines at EQUAL priority, and the drive would exceed
+// MaxShotsPerAnimalPerDrive, the sweeper must raise *ShotCapPriorityTieError instead of silently
+// dropping the overflow -- exactly as the main shed-batching path already does. Here goat-1 is due
+// three distinct same-priority vaccines (rule-a/rule-b/rule-c) in three sheds of one park, and the
+// cap is 2. The 3rd same-target obligation must tie. This is asserted in BOTH the real park merge
+// path (SweepVersion) AND the write-free preflight park replay (PreflightVisitShotCapTies).
+//
+// FAILING-FIRST: on origin/main selectParkIDsWithinVisitShotCapForSession credited EVERY selected
+// park row with the single VERSION-level vaccine code/priority, so the three different-vaccine rows
+// all looked like the SAME vaccine to rejectOrTie -- which then treated the 3rd as an ordinary
+// same-vaccine overflow (returns nil) and silently swallowed the tie. This fix resolves vaccine
+// identity per row via cfg.getRuleVaccineIdentity(row.RuleID), so the genuine cross-vaccine tie is
+// surfaced.
+func TestParkConsolidationRaisesTieForSamePriorityDifferentVaccines(t *testing.T) {
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	parkRows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-a", RuleID: "rule-a", ParkID: "park-1", ShedID: "shed-1", TargetID: "goat-1", TargetSpecies: "goat", DueAt: due, WindowEnd: &winEnd},
+		{ObligationID: "obl-b", RuleID: "rule-b", ParkID: "park-1", ShedID: "shed-2", TargetID: "goat-1", TargetSpecies: "goat", DueAt: due, WindowEnd: &winEnd},
+		{ObligationID: "obl-c", RuleID: "rule-c", ParkID: "park-1", ShedID: "shed-3", TargetID: "goat-1", TargetSpecies: "goat", DueAt: due, WindowEnd: &winEnd},
+	}
+	// Three rule IDs -> three distinct vaccine codes at EQUAL priority: a genuine unresolved tie.
+	ruleIDs := map[string]RuleVaccineIdentity{
+		"rule-a": {VaccineCode: "Vaccine A", VaccinePriority: 50},
+		"rule-b": {VaccineCode: "Vaccine B", VaccinePriority: 50},
+		"rule-c": {VaccineCode: "Vaccine C", VaccinePriority: 50},
+	}
+	park := domain.ParkConsolidationSettings{Enabled: true, MinShedDriveTargets: 5, MinParkMergeTargets: 1, MinParkMergeSheds: 1}
+	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2}
+	cfg := SweepConfig{VaccineCode: "Vaccine A", ParkConsolidation: park, DrivePlanner: planner, RuleVaccineIDs: ruleIDs}
+	ctx := context.Background()
+
+	// Part 1: the REAL park merge path (SweepVersion) must return the tie.
+	t.Run("real_park_merge", func(t *testing.T) {
+		repo := &fakeSweepRepo{
+			parkRows:  append([]domain.ParkConsolidationCandidate(nil), parkRows...),
+			attachAll: true,
+		}
+		svc := NewSweeperService(repo, nil, nil)
+		_, err := svc.SweepVersion(ctx, "tenant-1", "v-1", cfg, due)
+		var tieErr *ShotCapPriorityTieError
+		if err == nil || !errors.As(err, &tieErr) {
+			t.Fatalf("SweepVersion err = %v, want *ShotCapPriorityTieError", err)
+		}
+		if tieErr.TargetID != "goat-1" {
+			t.Fatalf("tie target = %q, want goat-1", tieErr.TargetID)
+		}
+		if repo.createBatchCalls != 0 {
+			t.Fatalf("createBatchCalls = %d, want 0 (merge must abort on the tie, not batch a partial drive)", repo.createBatchCalls)
+		}
+	})
+
+	// Part 2: the write-free preflight park replay must ALSO surface the same tie, write-free.
+	t.Run("preflight_park_replay", func(t *testing.T) {
+		repo := &fakeSweepRepo{
+			rowsByVersion: map[string][]domain.UnbatchedDue{"v-1": nil, "v-2": nil},
+			parkRows:      append([]domain.ParkConsolidationCandidate(nil), parkRows...),
+			attachAll:     true,
+		}
+		tasks := &fakeSweepTaskCreator{id: "task-1"}
+		reserver := &fakeSweepStockReserver{}
+		svc := NewSweeperService(repo, tasks, reserver)
+		// PreflightVisitShotCapTies needs >= 2 plans; the tie is detected on the first plan's park
+		// replay before the second is reached (parkRows is shared across versions in the fake).
+		plans := []SweepVersionPriority{
+			{VersionID: "v-1", Config: cfg},
+			{VersionID: "v-2", Config: cfg},
+		}
+		err := svc.PreflightVisitShotCapTies(ctx, "tenant-1", plans, due)
+		var tieErr *ShotCapPriorityTieError
+		if err == nil || !errors.As(err, &tieErr) {
+			t.Fatalf("PreflightVisitShotCapTies err = %v, want *ShotCapPriorityTieError", err)
+		}
+		if tieErr.TargetID != "goat-1" {
+			t.Fatalf("tie target = %q, want goat-1", tieErr.TargetID)
+		}
+		if repo.createBatchCalls != 0 || tasks.calls != 0 || reserver.calls != 0 {
+			t.Fatalf("preflight side effects: batches=%d tasks=%d stock=%d, want 0/0/0", repo.createBatchCalls, tasks.calls, reserver.calls)
+		}
+	})
 }
