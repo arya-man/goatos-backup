@@ -50,6 +50,32 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 
 var _ ports.Repository = (*Repository)(nil)
 
+// OldestDueRequestedAt returns the requested_at of the globally oldest
+// currently-due, undelivered request. The predicate is written as the index
+// expression (COALESCE(next_attempt_at, requested_at) <= now) so
+// notification_requests_queue_idx range-scans ONLY the due rows and stops at now
+// — future-scheduled retries are excluded and never scanned, so the aggregate is
+// bounded to the live backlog (not the full queued/failed partition). MIN over
+// no due rows yields NULL, surfaced as (_, false, nil).
+func (r *Repository) OldestDueRequestedAt(ctx context.Context, tenantID string, now time.Time) (time.Time, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var oldest pgtype.Timestamptz
+	err := r.pool.QueryRow(ctx, `
+SELECT MIN(requested_at)
+FROM notification_requests
+WHERE tenant_id = $1::uuid
+  AND status IN ('queued', 'failed')
+  AND COALESCE(next_attempt_at, requested_at) <= $2::timestamptz`, tenantID, now).Scan(&oldest)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("notification: oldest due requested_at: %w", err)
+	}
+	if !oldest.Valid {
+		return time.Time{}, false, nil
+	}
+	return oldest.Time, true, nil
+}
+
 func (r *Repository) ReclaimStaleSending(ctx context.Context, tenantID string, now time.Time, leaseTimeout time.Duration) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

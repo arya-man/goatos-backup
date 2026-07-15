@@ -193,6 +193,55 @@ func TestNotificationRepositoryClaimHonorsBurstLimit(t *testing.T) {
 	}
 }
 
+// TestNotificationRepositoryOldestDueRequestedAtUnderSaturation is the
+// KERN-REV-06A regression: under saturation the backlog-age metric must report
+// the GLOBALLY oldest currently-due request, which the claimed batch could hide.
+// A hundred newer queued rows sort earlier by the ClaimDue scheduling key
+// (COALESCE(next_attempt_at, requested_at)) than an hour-old failed request whose
+// retry only just became due, so a batch-derived metric would report ~1 minute
+// and suppress the alert. The global query must return the hour-old requested_at,
+// and a future-scheduled retry (oldest requested_at, but not due) must be excluded.
+func TestNotificationRepositoryOldestDueRequestedAtUnderSaturation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
+	seedCalendarEvent(t, ctx, pool, testEventID)
+
+	insertNotif := func(key string, requestedAt time.Time, nextAttempt *time.Time, status string) {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO notification_requests (
+  tenant_id, calendar_event_id, target_type, notification_type, channel, title, body,
+  status, idempotency_key, request_fingerprint, context, delivery_attempts, next_attempt_at, requested_at
+) VALUES (
+  $1::uuid, $2, 'cohort', 'reminder', 'local-stub', 't', 'b',
+  $3, $4, $4 || ':fp', '{}'::jsonb, 1, $5::timestamptz, $6::timestamptz
+)`, testTenantID, testEventID, status, key, nextAttempt, requestedAt); err != nil {
+			t.Fatalf("insert %s: %v", key, err)
+		}
+	}
+
+	// 120 newer queued (scheduling key = requested_at = now-1m) sort ahead of the
+	// old failed row (scheduling key = next_attempt_at = now-30s).
+	for i := 0; i < 120; i++ {
+		insertNotif(fmt.Sprintf("newer-%03d", i), now.Add(-1*time.Minute), nil, "queued")
+	}
+	oldFailedNext := now.Add(-30 * time.Second)
+	insertNotif("old-failed", now.Add(-1*time.Hour), &oldFailedNext, "failed")
+	futureNext := now.Add(1 * time.Hour)
+	insertNotif("future-retry", now.Add(-2*time.Hour), &futureNext, "failed")
+
+	oldest, found, err := repo.OldestDueRequestedAt(ctx, testTenantID, now)
+	if err != nil || !found {
+		t.Fatalf("OldestDueRequestedAt: found=%v err=%v", found, err)
+	}
+	if want := now.Add(-1 * time.Hour); !oldest.Equal(want) {
+		t.Fatalf("oldest due requested_at = %v; want %v (the hour-old failed request — not a newer batch row, not the future-excluded 2h row)", oldest, want)
+	}
+}
+
 func TestNotificationRepositoryRetryFailureDoesNotWriteExhaustedEvidence(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

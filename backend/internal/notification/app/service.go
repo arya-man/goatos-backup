@@ -69,13 +69,19 @@ func (s *Service) RunOnce(ctx context.Context, tenantID string) (domain.Dispatch
 	if err != nil {
 		return domain.DispatchResult{}, err
 	}
-	// Backlog age for the 1-minute fast-lane SLO alert, derived from the batch
-	// ClaimDue already returned — NO extra query/scan. ClaimDue returns due
-	// requests (future-scheduled retries excluded) ordered by their scheduled
-	// time ascending and claims the top Limit, so requests[0] is the
-	// most-overdue request even when the backlog exceeds Limit. Recorded before
-	// dispatch mutates delivery state; RequestedAt is unchanged by dispatch.
-	if age, found := backlogAge(requests, now); found {
+	// Backlog age for the 1-minute fast-lane SLO alert: the GLOBALLY oldest
+	// currently-due request's wait since it was requested (ADR definition), not
+	// the oldest of the claimed batch. Under saturation a full batch of newer
+	// requests could sort ahead of an hour-old failed request whose retry just
+	// became due, hiding it; a bounded index-backed query (due rows only) reports
+	// the true global oldest. Best-effort: a probe error must never fail dispatch.
+	if oldest, found, ageErr := s.repo.OldestDueRequestedAt(ctx, tenantID, now); ageErr != nil {
+		s.log.Warn("notification_backlog_age_query_failed", "error", ageErr.Error())
+	} else if found {
+		age := now.Sub(oldest)
+		if age < 0 {
+			age = 0
+		}
 		kmetrics.RecordNotifyBacklogAge(ctx, int64(age.Seconds()))
 	} else {
 		kmetrics.RecordNotifyBacklogAge(ctx, 0)
@@ -88,21 +94,6 @@ func (s *Service) RunOnce(ctx context.Context, tenantID string) (domain.Dispatch
 		}
 	}
 	return result, nil
-}
-
-// backlogAge returns how long the oldest currently-due request has been waiting
-// since it was requested, using the batch ClaimDue already claimed (its rows are
-// ordered most-overdue first). Returns (0, false) for an empty backlog. A
-// clock-skewed future RequestedAt is clamped to 0.
-func backlogAge(claimed []domain.Request, now time.Time) (time.Duration, bool) {
-	if len(claimed) == 0 {
-		return 0, false
-	}
-	age := now.Sub(claimed[0].RequestedAt)
-	if age < 0 {
-		age = 0
-	}
-	return age, true
 }
 
 func (s *Service) dispatchOne(ctx context.Context, request domain.Request, result *domain.DispatchResult) error {
