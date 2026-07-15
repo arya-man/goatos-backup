@@ -330,6 +330,11 @@
 <symbol id="i-logout" viewBox="0 0 24 24"><path d="M15 4h4v16h-4M11 8l-4 4 4 4M7 12h9"/></symbol>
 <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M4 11a8 8 0 0 1 13.5-5L20 8M20 13a8 8 0 0 1-13.5 5L4 16M20 4v4h-4M4 20v-4h4"/></symbol>
 <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+<symbol id="i-cam" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+<symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+<symbol id="i-power" viewBox="0 0 24 24"><path d="M12 4v8"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></symbol>
+<symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.3 2.9-5.6 6.5-5.6s6.5 2.3 6.5 5.6"/><path d="M16.5 5.4a3.2 3.2 0 0 1 0 6.1M22 20c0-2.7-1.5-4.7-3.7-5.3"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
 </defs></svg>
 
 <div class="vm">
@@ -546,13 +551,189 @@
         </div></div>
       </section>
 
+      <!-- ============ HRMS / PEOPLE MODULE ============ -->
+      <style>
+        .hclock{margin:0 16px 12px;background:var(--grad-soft);border:1px solid rgba(138,212,87,.22);border-radius:20px;padding:18px 16px;text-align:center}
+        .hclock .time{font-size:34px;font-weight:840;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}
+        .hclock .date{font-size:12px;color:var(--muted);margin-top:4px;font-weight:600}
+        .hclock .st{display:inline-flex;align-items:center;gap:7px;margin-top:12px;font-size:12.5px;font-weight:700;padding:6px 13px;border-radius:999px;background:var(--surf2);color:var(--muted)}
+        .hclock .st.in{background:var(--okx);color:var(--brand-d)} .hclock .st .d{width:8px;height:8px;border-radius:50%;background:currentColor}
+        .hbig{display:flex;align-items:center;justify-content:center;gap:10px;width:calc(100% - 32px);margin:0 16px 10px;background:var(--grad);color:#08130B;border:0;border-radius:16px;padding:16px;font:inherit;font-size:16px;font-weight:800;cursor:pointer;box-shadow:var(--glow)}
+        .hbig.out{background:var(--surf);color:var(--danger);border:1px solid var(--hair);box-shadow:none} .hbig:active{transform:translateY(1px)} .hbig .ic{width:20px;height:20px}
+        .hmeta{display:flex;justify-content:center;gap:22px;margin:0 16px 14px;font-size:11.5px;color:var(--muted)} .hmeta b{color:var(--ink);font-weight:750;font-variant-numeric:tabular-nums}
+        .htask{margin:0 16px 10px;background:var(--surf);border:1px solid var(--hair);border-radius:16px;padding:13px 14px;display:flex;align-items:flex-start;gap:12px;cursor:pointer;border-left:3px solid var(--brand)}
+        .htask.done{opacity:.6} .htask:active{filter:brightness(1.2)}
+        .htask .tk{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;flex:none;margin-top:1px}
+        .htask .tk.ok{background:var(--okx);color:var(--brand-d)} .htask .tk.pend{background:var(--warnx);color:var(--warn)} .htask .tk.miss{background:var(--dangerx);color:var(--danger)} .htask .tk .ic{width:16px;height:16px}
+        .htask .tt{flex:1;min-width:0} .htask .tt b{font-size:14px;font-weight:720;letter-spacing:-.01em;display:block}
+        .htask .mt{font-size:11.5px;color:var(--muted);margin-top:5px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center} .htask .mt .ic{width:13px;height:13px;opacity:.85} .htask .mt .clk{color:var(--brand-2);font-weight:750}
+        .htask .hp{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:800;padding:3px 8px;border-radius:999px;margin-top:8px;text-transform:uppercase;letter-spacing:.03em}
+        .htask .hp.ok{background:var(--okx);color:var(--brand-d)} .htask .hp.pend{background:var(--warnx);color:var(--warn)} .htask .hp.miss{background:var(--dangerx);color:var(--danger)}
+        .htask .chev{color:var(--faint);align-self:center;flex:none} .htask .chev .ic{width:16px;height:16px}
+        .hdet{margin:0 16px 12px;background:var(--surf);border:1px solid var(--hair);border-radius:18px;padding:16px} .hdet h2{font-size:19px;font-weight:800;letter-spacing:-.02em;margin:0}
+        .hdet .r{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);margin-top:12px} .hdet .r .ic{width:16px;height:16px;color:var(--brand-2)} .hdet .r b{color:var(--ink);font-weight:700}
+        .hq{padding:8px 16px 4px;font-size:13px;font-weight:750;color:var(--ink)}
+        .hyn{display:flex;gap:10px;margin:0 16px 12px} .hyn button{flex:1;border:1px solid var(--hair);background:var(--surf);color:var(--ink);border-radius:14px;padding:14px;font:inherit;font-size:14px;font-weight:750;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px} .hyn button .ic{width:20px;height:20px}
+        .hyn button.on.yes{background:var(--okx);border-color:var(--brand);color:var(--brand-d)} .hyn button.on.no{background:var(--dangerx);border-color:var(--danger);color:var(--danger)}
+        .hpz{margin:0 16px 12px;border:2px dashed var(--hair);border-radius:16px;padding:22px 14px;text-align:center;background:var(--surf);cursor:pointer}
+        .hpz.filled{border-style:solid;border-color:var(--brand);background:var(--grad-soft);text-align:left}
+        .hpz .bti{width:48px;height:48px;border-radius:14px;background:rgba(138,212,87,.14);color:var(--brand);display:grid;place-items:center;margin:0 auto 10px} .hpz .bti .ic{width:24px;height:24px}
+        .hpz .msg{font-weight:750;font-size:14px} .hpz .sub{font-size:11.5px;color:var(--muted);margin-top:4px}
+        .hpz .pv{display:none;align-items:center;gap:11px} .hpz.filled .pv{display:flex} .hpz.filled .pr{display:none}
+        .hpz .pv .th{width:54px;height:54px;border-radius:12px;background:var(--surf3);display:grid;place-items:center;color:var(--brand-d);flex:none} .hpz .pv .pn b{font-size:13px;font-weight:750} .hpz .pv .pn span{font-size:11px;color:var(--muted)}
+        .hsub{display:flex;align-items:center;justify-content:center;gap:9px;width:calc(100% - 32px);margin:2px 16px 12px;background:var(--grad);color:#08130B;border:0;border-radius:15px;padding:15px;font:inherit;font-size:15px;font-weight:800;cursor:pointer;box-shadow:var(--glow)} .hsub.dis{background:var(--surf);color:var(--faint);box-shadow:none;border:1px solid var(--hair);cursor:not-allowed} .hsub .ic{width:18px;height:18px}
+        .hbal{display:flex;gap:10px;padding:0 16px 12px} .hbal .b{flex:1;background:var(--surf);border:1px solid var(--hair);border-radius:14px;padding:12px 10px;text-align:center} .hbal .b b{font-size:22px;font-weight:820;font-variant-numeric:tabular-nums;display:block} .hbal .b span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;font-weight:750;margin-top:2px;display:block}
+        .hlv{margin:0 16px 10px;background:var(--surf);border:1px solid var(--hair);border-radius:15px;padding:13px 14px} .hlv .top{display:flex;align-items:center;gap:8px} .hlv .type{font-size:14px;font-weight:750}
+        .hlv .dates{font-size:12px;color:var(--muted);margin-top:6px;display:flex;align-items:center;gap:7px} .hlv .dates .ic{width:13px;height:13px}
+        .hlv .dec{font-size:11.5px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:6px} .hlv .dec b{color:var(--ink)} .hlv .dec .ic{width:13px;height:13px}
+        .hnote{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:7px;background:var(--surf);border:1px solid var(--hair);border-radius:12px;padding:11px 13px;margin:0 16px} .hnote b{color:var(--ink)} .hnote .ic{width:15px;color:var(--brand-2)}
+        .htoast{position:absolute;left:16px;right:16px;bottom:20px;background:var(--surf2);border:1px solid var(--brand);border-radius:14px;padding:13px 15px;display:flex;align-items:center;gap:11px;box-shadow:0 12px 30px rgba(0,0,0,.5);z-index:80;transform:translateY(20px);opacity:0;pointer-events:none;transition:.28s} .htoast.on{transform:none;opacity:1} .htoast .tk{width:30px;height:30px;border-radius:10px;background:var(--okx);color:var(--brand-d);display:grid;place-items:center;flex:none} .htoast b{font-size:13px} .htoast span{font-size:11.5px;color:var(--muted);display:block}
+        .hnav{display:flex;align-items:center;justify-content:space-around;padding:9px 10px 8px;background:color-mix(in srgb,var(--surf) 92%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--hair);flex:none}
+        /* RBAC: an operator has no reportees, so the team-facing Tasks tab is hidden — their own tasks live on Home. Managers/leadership see it. */
+        .scr[data-role="operator"] .htab-tasks{display:none}
+        .hteam{margin:0 16px 10px;background:var(--surf);border:1px solid var(--hair);border-radius:15px;padding:12px 14px;display:flex;align-items:center;gap:12px}
+        .hteam .av{width:38px;height:38px;border-radius:12px;background:var(--surf2);color:var(--ink);display:grid;place-items:center;font-weight:800;font-size:13px;flex:none}
+        .hteam .tt{flex:1;min-width:0} .hteam .tt b{font-size:14px;font-weight:720} .hteam .tt .s{font-size:11.5px;color:var(--muted);margin-top:2px}
+        .hteam .bar{height:6px;border-radius:4px;background:var(--surf3);margin-top:9px;overflow:hidden} .hteam .bar i{display:block;height:100%;background:var(--grad);border-radius:4px}
+        .hteam .rt{text-align:right;flex:none} .hteam .rt .fr{font-size:17px;font-weight:820;font-variant-numeric:tabular-nums} .hteam .rt .pp{font-size:10px;color:var(--warn);font-weight:750;margin-top:2px}
+        .hlog{margin:0 16px 10px;background:var(--surf);border:1px solid var(--hair);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:12px} .hlog .tk{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:none;background:var(--surf2);color:var(--muted)} .hlog .tk.in{background:var(--okx);color:var(--brand-d)} .hlog .tk.out{background:var(--dangerx);color:var(--danger)} .hlog .tk .ic{width:16px;height:16px}
+        .hlog .lt2{flex:1;min-width:0} .hlog .lt2 b{font-size:13.5px;font-weight:700} .hlog .lt2 .s{font-size:11.5px;color:var(--muted);margin-top:2px} .hlog .rt{font-family:var(--mono);font-size:12px;color:var(--ink);text-align:right;white-space:nowrap} .hlog .rt span{display:block;font-size:10.5px;color:var(--faint);font-family:var(--f)}
+      </style>
+
+      <!-- PEOPLE HOME (clock + today's tasks) -->
+      <section class="view" id="v-people-home">
+        <div class="vhead"><button class="ib" data-open="drawer" aria-label="Menu"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb" data-ht="hp_eyebrow">People · HRMS</div><h3 data-ht="hp_today">Today</h3></div><span class="sp"></span><span class="avatar" style="width:36px;height:36px;font-size:14px">AK</span></div>
+        <div class="vscroll">
+          <div class="hclock">
+            <div class="time" id="hClockTime">08:52</div>
+            <div class="date">Tue, 15 Jul 2026 · CBE · Coimbatore</div>
+            <div class="st in" id="hClockSt"><span class="d"></span>Clocked in at 07:58</div>
+          </div>
+          <button class="hbig out" id="hClockBtn" onclick="hToggleClock()"><svg class="ic"><use href="#i-power"/></svg>Clock out</button>
+          <div class="hmeta"><span><span data-ht="hp_shift">Shift</span> <b>08:00–17:00</b></span><span><span data-ht="hp_worked">Worked</span> <b>0h 54m</b></span></div>
+          <div class="lt" style="display:flex;align-items:center;gap:8px"><svg class="ic" style="width:14px;height:14px"><use href="#i-list"/></svg><span data-ht="hp_mytasks">My tasks today</span><span style="flex:1"></span><span style="font-size:11px;color:var(--faint);font-weight:700" id="hTaskCnt">1 of 3 done</span></div>
+          <div id="hTaskList"></div>
+          <div style="height:8px"></div>
+        </div>
+        <nav class="hnav">
+          <button class="tab on" data-go="v-people-home"><span class="tabind"><svg class="ic"><use href="#i-home"/></svg></span><span data-ht="hp_home">Home</span></button>
+          <button class="tab htab-tasks" data-go="v-people-tasks"><span class="tabind"><svg class="ic"><use href="#i-list"/></svg></span><span data-ht="hp_tasks">Tasks</span></button>
+          <button class="tab" data-go="v-people-leave"><span class="tabind"><svg class="ic"><use href="#i-cal"/></svg></span><span data-ht="hp_leave">Leave</span></button>
+          <button class="tab" data-go="v-people-logs"><span class="tabind"><svg class="ic"><use href="#i-clock"/></svg></span><span data-ht="hp_logs">Logs</span></button>
+        </nav>
+      </section>
+
+      <!-- PEOPLE TASKS (full list) -->
+      <section class="view" id="v-people-tasks">
+        <div class="vhead"><button class="ib" data-open="drawer" aria-label="Menu"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb" data-ht="hp_eyebrow">People · HRMS</div><h3 id="hTeamTitle">My Team</h3></div><span class="sp"></span></div>
+        <div class="vscroll">
+          <div class="lt" style="display:flex;align-items:center;gap:8px"><svg class="ic" style="width:14px;height:14px"><use href="#i-people"/></svg><span id="hTeamLbl">Reportees · task completion today</span><span style="flex:1"></span><span style="font-size:11px;color:var(--faint);font-weight:700" id="hTeamCnt">6 of 11 done</span></div>
+          <div id="hTeamList"></div>
+          <div style="height:8px"></div>
+        </div>
+        <nav class="hnav">
+          <button class="tab" data-go="v-people-home"><span class="tabind"><svg class="ic"><use href="#i-home"/></svg></span><span data-ht="hp_home">Home</span></button>
+          <button class="tab on htab-tasks" data-go="v-people-tasks"><span class="tabind"><svg class="ic"><use href="#i-list"/></svg></span><span data-ht="hp_tasks">Tasks</span></button>
+          <button class="tab" data-go="v-people-leave"><span class="tabind"><svg class="ic"><use href="#i-cal"/></svg></span><span data-ht="hp_leave">Leave</span></button>
+          <button class="tab" data-go="v-people-logs"><span class="tabind"><svg class="ic"><use href="#i-clock"/></svg></span><span data-ht="hp_logs">Logs</span></button>
+        </nav>
+      </section>
+
+      <!-- PEOPLE MEMBER DETAIL (a reportee's tasks: completed vs not) -->
+      <section class="view" id="v-people-member">
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb" id="hmEb">Team member</div><h3 id="hmName">Arun Kumar</h3></div></div>
+        <div class="vscroll">
+          <div class="hdet" id="hmSummary"></div>
+          <div class="lt" style="display:flex;align-items:center;gap:8px"><svg class="ic" style="width:14px;height:14px;color:var(--brand-2)"><use href="#i-check"/></svg><span data-ht="hp_completed">Completed</span><span style="flex:1"></span><span style="font-size:11px;color:var(--faint);font-weight:700" id="hmDoneN"></span></div>
+          <div id="hmDone"></div>
+          <div class="lt" style="display:flex;align-items:center;gap:8px"><svg class="ic" style="width:14px;height:14px;color:var(--warn)"><use href="#i-clock"/></svg><span data-ht="hp_notcompleted">Not completed</span><span style="flex:1"></span><span style="font-size:11px;color:var(--faint);font-weight:700" id="hmPendN"></span></div>
+          <div id="hmPending"></div>
+          <div style="height:8px"></div>
+        </div>
+      </section>
+
+      <!-- PEOPLE TASK DETAIL -->
+      <section class="view" id="v-people-task">
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb" data-ht="hp_dailytask">Daily task</div><h3 data-ht="hp_taskdetail">Task detail</h3></div></div>
+        <div class="vscroll">
+          <div class="hdet"><h2 id="hDetTitle">Clean &amp; refill feed troughs</h2>
+            <div class="r"><svg class="ic"><use href="#i-clock"/></svg><span data-ht="hp_dueby">Due by</span> <b id="hDetDue">12:00</b></div>
+            <div class="r"><svg class="ic"><use href="#i-user"/></svg><span data-ht="hp_assignedby">Assigned by</span> <b>Sidde Gowda</b> (<span data-ht="hp_healthmgr">Health Manager</span>)</div>
+          </div>
+          <div class="hq" data-ht="hp_qdone">Did you complete this task?</div>
+          <div class="hyn" id="hYn"><button class="yes" onclick="hSetDid(true)"><svg class="ic"><use href="#i-check"/></svg><span data-ht="hp_yes">Yes, done</span></button><button class="no" onclick="hSetDid(false)"><svg class="ic"><use href="#i-x"/></svg><span data-ht="hp_couldnot">Could not</span></button></div>
+          <div class="hq"><span data-ht="hp_uploadproof">Upload proof</span> <span style="color:var(--faint);font-weight:600" data-ht="hp_photo">(photo)</span></div>
+          <div class="hpz" id="hPz" onclick="hFillProof()">
+            <div class="pr"><div class="bti"><svg class="ic"><use href="#i-cam"/></svg></div><div class="msg" data-ht="hp_takephoto">Take a photo</div><div class="sub" data-ht="hp_photohint">Tap to capture proof of the completed task</div></div>
+            <div class="pv"><div class="th"><svg class="ic" style="width:22px"><use href="#i-cam"/></svg></div><div class="pn"><b id="hProofName">proof_1200.jpg</b><br><span data-ht="hp_captured">captured just now · geo-tag on</span></div><span style="flex:1"></span><svg class="ic" style="width:18px;color:var(--brand-d)"><use href="#i-check"/></svg></div>
+          </div>
+          <button class="hsub dis" id="hSubBtn" onclick="hSubmitTask()"><svg class="ic"><use href="#i-check"/></svg>Submit</button>
+        </div>
+      </section>
+
+      <!-- PEOPLE LEAVE -->
+      <section class="view" id="v-people-leave">
+        <div class="vhead"><button class="ib" data-open="drawer" aria-label="Menu"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb" data-ht="hp_eyebrow">People · HRMS</div><h3 data-ht="hp_myleave">My Leave</h3></div><span class="sp"></span><button class="ib" data-go="v-people-newleave" style="background:var(--grad);color:#08130B" aria-label="New"><svg class="ic"><use href="#i-plus"/></svg></button></div>
+        <div class="vscroll">
+          <div class="hbal"><div class="b"><b>6</b><span data-ht="hp_casual">Casual</span></div><div class="b"><b>8</b><span data-ht="hp_sick">Sick</span></div><div class="b"><b>11</b><span data-ht="hp_earned">Earned</span></div></div>
+          <div class="lt" data-ht="hp_myrequests">My requests</div>
+          <div id="hLeaveList"></div>
+          <div style="height:8px"></div>
+        </div>
+        <nav class="hnav">
+          <button class="tab" data-go="v-people-home"><span class="tabind"><svg class="ic"><use href="#i-home"/></svg></span><span data-ht="hp_home">Home</span></button>
+          <button class="tab htab-tasks" data-go="v-people-tasks"><span class="tabind"><svg class="ic"><use href="#i-list"/></svg></span><span data-ht="hp_tasks">Tasks</span></button>
+          <button class="tab on" data-go="v-people-leave"><span class="tabind"><svg class="ic"><use href="#i-cal"/></svg></span><span data-ht="hp_leave">Leave</span></button>
+          <button class="tab" data-go="v-people-logs"><span class="tabind"><svg class="ic"><use href="#i-clock"/></svg></span><span data-ht="hp_logs">Logs</span></button>
+        </nav>
+      </section>
+
+      <!-- PEOPLE LOGS (attendance + activity) -->
+      <section class="view" id="v-people-logs">
+        <div class="vhead"><button class="ib" data-open="drawer" aria-label="Menu"><svg class="ic"><use href="#i-menu"/></svg></button><div><div class="eb" data-ht="hp_eyebrow">People · HRMS</div><h3 data-ht="hp_logs">Logs</h3></div><span class="sp"></span></div>
+        <div class="vscroll">
+          <div class="lt" data-ht="hp_attendance">Attendance · this week</div>
+          <div class="hlog"><span class="tk in"><svg class="ic"><use href="#i-power"/></svg></span><div class="lt2"><b><span data-ht="hp_todayw">Today</span> · Tue 15 Jul</b><div class="s"><span data-ht="hp_ontime">On time</span> · <span data-ht="hp_shiftword">shift</span> 08:00–17:00</div></div><div class="rt">07:58 <span data-ht="hp_stillon">in · still on</span></div></div>
+          <div class="hlog"><span class="tk in"><svg class="ic"><use href="#i-power"/></svg></span><div class="lt2"><b>Mon 14 Jul</b><div class="s"><span data-ht="hp_ontime">On time</span> · 9h 08m</div></div><div class="rt">08:02 – 17:10 <span>9h 08m</span></div></div>
+          <div class="hlog"><span class="tk out"><svg class="ic"><use href="#i-power"/></svg></span><div class="lt2"><b>Sat 12 Jul</b><div class="s" data-ht="hp_lateclockin">Late clock-in</div></div><div class="rt">09:22 – 17:04 <span>7h 42m</span></div></div>
+          <div class="hlog"><span class="tk"><svg class="ic"><use href="#i-cal"/></svg></span><div class="lt2"><b>Sun 13 Jul</b><div class="s" data-ht="hp_weeklyoff">Weekly off</div></div><div class="rt">— <span data-ht="hp_offw">off</span></div></div>
+          <div class="lt" data-ht="hp_activity">Activity · today</div>
+          <div class="hlog"><span class="tk in"><svg class="ic"><use href="#i-cam"/></svg></span><div class="lt2"><b data-ht="hp_proofuploaded">Proof uploaded</b><div class="s">Attendance headcount — Gandhi 1</div></div><div class="rt">08:31 <span data-ht="hp_geook">geo ✓</span></div></div>
+          <div class="hlog"><span class="tk in"><svg class="ic"><use href="#i-check"/></svg></span><div class="lt2"><b data-ht="hp_taskmarked">Task marked done</b><div class="s">Morning attendance headcount</div></div><div class="rt">08:30</div></div>
+          <div class="hlog"><span class="tk in"><svg class="ic"><use href="#i-power"/></svg></span><div class="lt2"><b data-ht="hp_clockedinw">Clocked in</b><div class="s">CBE · Coimbatore</div></div><div class="rt">07:58</div></div>
+          <div style="height:8px"></div>
+        </div>
+        <nav class="hnav">
+          <button class="tab" data-go="v-people-home"><span class="tabind"><svg class="ic"><use href="#i-home"/></svg></span><span data-ht="hp_home">Home</span></button>
+          <button class="tab htab-tasks" data-go="v-people-tasks"><span class="tabind"><svg class="ic"><use href="#i-list"/></svg></span><span data-ht="hp_tasks">Tasks</span></button>
+          <button class="tab" data-go="v-people-leave"><span class="tabind"><svg class="ic"><use href="#i-cal"/></svg></span><span data-ht="hp_leave">Leave</span></button>
+          <button class="tab on" data-go="v-people-logs"><span class="tabind"><svg class="ic"><use href="#i-clock"/></svg></span><span data-ht="hp_logs">Logs</span></button>
+        </nav>
+      </section>
+
+      <!-- PEOPLE NEW LEAVE -->
+      <section class="view" id="v-people-newleave">
+        <div class="vhead"><button class="bk" data-back><svg class="ic"><use href="#i-chevl"/></svg></button><div><div class="eb" data-ht="hp_eyebrow">People · HRMS</div><h3 data-ht="hp_reqleave">Request leave</h3></div></div>
+        <div class="vscroll">
+          <div class="fld" style="margin:12px 16px 0"><label data-ht="hp_leavetype">Leave type</label><div class="segc" id="hLtype" style="margin:0"><span class="s on" data-val="Casual" data-ht="hp_casual">Casual</span><span class="s" data-val="Sick" data-ht="hp_sick">Sick</span><span class="s" data-val="Earned" data-ht="hp_earned">Earned</span></div></div>
+          <div class="fld" style="margin:12px 16px 0"><label data-ht="hp_from">From</label><div class="inp"><svg class="ic" style="color:var(--brand-2)"><use href="#i-cal"/></svg>20 Jul 2026</div></div>
+          <div class="fld" style="margin:12px 16px 0"><label data-ht="hp_to">To</label><div class="inp"><svg class="ic" style="color:var(--brand-2)"><use href="#i-cal"/></svg>21 Jul 2026</div></div>
+          <div class="fld" style="margin:12px 16px 0"><label data-ht="hp_reason">Reason</label><div class="inp"><span class="ph" data-ht="hp_reasonph">Family function…</span></div></div>
+          <div class="fld" style="margin:12px 16px 0"><div class="hnote"><svg class="ic"><use href="#i-user"/></svg><span data-ht="hp_goesto1">Goes to</span> <b>Sidde Gowda</b> <span data-ht="hp_goesto2">— your manager decides.</span></div></div>
+          <button class="hsub" style="margin-top:14px" onclick="hSubmitLeave()"><svg class="ic"><use href="#i-check"/></svg><span data-ht="hp_sendreq">Send request</span></button>
+        </div>
+      </section>
+
+      <div class="htoast" id="hToast"><span class="tk"><svg class="ic" style="width:17px"><use href="#i-check"/></svg></span><span><b id="hToastT">Task submitted</b><span id="hToastS">Proof uploaded · manager notified</span></span></div>
+
       <!-- overlays -->
       <div class="ovl" id="ovl-drawer"><div class="vl" data-close></div>
         <div class="draw">
           <div class="dp"><span class="av" id="drav">AK</span><div><b id="drname">Arun Kumar</b><span id="drsub" data-t="hmcbe">Health Asst Mgr · CBE</span></div></div>
           <div class="ds">
             <div class="dgrp" data-t="modules">Modules</div>
-            <div class="di on"><svg class="ic"><use href="#i-syringe"/></svg><span>Vaccination</span><span class="sp"></span><svg class="ic" style="width:14px;height:14px;color:var(--brand)"><use href="#i-check"/></svg></div>
+            <div class="di on" data-mod="vacc" data-go="__home"><svg class="ic"><use href="#i-syringe"/></svg><span>Vaccination</span><span class="sp"></span><svg class="ic modck" style="width:14px;height:14px;color:var(--brand)"><use href="#i-check"/></svg></div>
+            <div class="di" data-mod="people" data-go="v-people-home"><svg class="ic"><use href="#i-people"/></svg><span data-ht="hp_module">People / HRMS</span><span class="sp"></span><span class="badge gr" data-ht="hp_new">New</span><svg class="ic modck" style="width:14px;height:14px;color:var(--brand);display:none"><use href="#i-check"/></svg></div>
             <div class="di soon"><svg class="ic"><use href="#i-feed"/></svg><span>Feed direction</span><span class="sp"></span><span class="badge" data-t="soonb">Soon</span></div>
             <div class="di soon"><svg class="ic"><use href="#i-goat"/></svg><span>Breeding</span><span class="sp"></span><span class="badge" data-t="soonb">Soon</span></div>
             <div class="dgrp" data-t="settings">Settings</div>
@@ -1321,6 +1502,291 @@
 
   /* ---------- init ---------- */
   markTheme(); setLang('en'); setRole('operator'); renderSync();
+})();
+</script>
+
+<!-- ============ HRMS / PEOPLE module behaviour (additive) ============ -->
+<script>
+(function(){
+  var D=document, $=function(s){return D.querySelector(s);}, $$=function(s){return [].slice.call(D.querySelectorAll(s));};
+
+  /* ---------- i18n (en / hi / kn / te) — HRMS uses data-ht for static text + these dicts for dynamic ---------- */
+  var HL={
+    hp_module:{en:'People / HRMS',hi:'लोग / HRMS',kn:'ಜನರು / HRMS',te:'వ్యక్తులు / HRMS'},
+    hp_new:{en:'New',hi:'नया',kn:'ಹೊಸ',te:'కొత్త'},
+    hp_eyebrow:{en:'People · HRMS',hi:'लोग · HRMS',kn:'ಜನರು · HRMS',te:'వ్యక్తులు · HRMS'},
+    hp_home:{en:'Home',hi:'होम',kn:'ಮುಖಪುಟ',te:'హోమ్'},
+    hp_tasks:{en:'Tasks',hi:'कार्य',kn:'ಕಾರ್ಯಗಳು',te:'పనులు'},
+    hp_leave:{en:'Leave',hi:'छुट्टी',kn:'ರಜೆ',te:'సెలవు'},
+    hp_logs:{en:'Logs',hi:'रिकॉर्ड',kn:'ದಾಖಲೆಗಳು',te:'రికార్డులు'},
+    hp_today:{en:'Today',hi:'आज',kn:'ಇಂದು',te:'ఈరోజు'},
+    hp_todayw:{en:'Today',hi:'आज',kn:'ಇಂದು',te:'ఈరోజు'},
+    hp_shift:{en:'Shift',hi:'शिफ्ट',kn:'ಶಿಫ್ಟ್',te:'షిఫ్ట్'},
+    hp_shiftword:{en:'shift',hi:'शिफ्ट',kn:'ಶಿಫ್ಟ್',te:'షిఫ్ట్'},
+    hp_worked:{en:'Worked',hi:'काम किया',kn:'ಕೆಲಸ',te:'పనిచేసినది'},
+    hp_mytasks:{en:'My tasks today',hi:'आज के मेरे कार्य',kn:'ಇಂದಿನ ನನ್ನ ಕಾರ್ಯಗಳು',te:'ఈరోజు నా పనులు'},
+    hp_clockin:{en:'Clock in',hi:'क्लॉक इन',kn:'ಕ್ಲಾಕ್ ಇನ್',te:'క్లాక్ ఇన్'},
+    hp_clockout:{en:'Clock out',hi:'क्लॉक आउट',kn:'ಕ್ಲಾಕ್ ಔಟ್',te:'క్లాక్ అవుట్'},
+    hp_clockedat:{en:'Clocked in at',hi:'क्लॉक-इन',kn:'ಕ್ಲಾಕ್-ಇನ್',te:'క్లాక్-ఇన్'},
+    hp_clockedout:{en:'Clocked out at',hi:'क्लॉक-आउट',kn:'ಕ್ಲಾಕ್-ಔಟ್',te:'క్లాక్-అవుట్'},
+    hp_done:{en:'Done',hi:'पूर्ण',kn:'ಪೂರ್ಣ',te:'పూర్తి'},
+    hp_pending:{en:'Pending',hi:'लंबित',kn:'ಬಾಕಿ',te:'పెండింగ్'},
+    hp_missed:{en:'Missed',hi:'छूटा',kn:'ತಪ್ಪಿದೆ',te:'మిస్'},
+    hp_donelc:{en:'done',hi:'पूर्ण',kn:'ಪೂರ್ಣ',te:'పూర్తి'},
+    hp_due:{en:'Due',hi:'नियत',kn:'ಗಡುವು',te:'గడువు'},
+    hp_proofok:{en:'proof ✓',hi:'प्रमाण ✓',kn:'ಸಾಕ್ಷಿ ✓',te:'రుజువు ✓'},
+    hp_noproof:{en:'no proof',hi:'कोई प्रमाण नहीं',kn:'ಸಾಕ್ಷಿ ಇಲ್ಲ',te:'రుజువు లేదు'},
+    hp_dailytask:{en:'Daily task',hi:'दैनिक कार्य',kn:'ದೈನಂದಿನ ಕಾರ್ಯ',te:'రోజువారీ పని'},
+    hp_taskdetail:{en:'Task detail',hi:'कार्य विवरण',kn:'ಕಾರ್ಯ ವಿವರ',te:'పని వివరాలు'},
+    hp_dueby:{en:'Due by',hi:'नियत समय',kn:'ಗಡುವು',te:'గడువు'},
+    hp_assignedby:{en:'Assigned by',hi:'द्वारा सौंपा',kn:'ನಿಯೋಜಿಸಿದವರು',te:'కేటాయించినవారు'},
+    hp_healthmgr:{en:'Health Manager',hi:'स्वास्थ्य प्रबंधक',kn:'ಆರೋಗ್ಯ ವ್ಯವಸ್ಥಾಪಕ',te:'ఆరోగ్య నిర్వాహకుడు'},
+    hp_qdone:{en:'Did you complete this task?',hi:'क्या आपने यह कार्य पूरा किया?',kn:'ನೀವು ಈ ಕಾರ್ಯ ಪೂರ್ಣಗೊಳಿಸಿದ್ದೀರಾ?',te:'మీరు ఈ పనిని పూర్తి చేశారా?'},
+    hp_yes:{en:'Yes, done',hi:'हाँ, पूर्ण',kn:'ಹೌದು, ಆಯಿತು',te:'అవును, పూర్తి'},
+    hp_couldnot:{en:'Could not',hi:'नहीं कर सका',kn:'ಸಾಧ್ಯವಾಗಲಿಲ್ಲ',te:'చేయలేకపోయా'},
+    hp_uploadproof:{en:'Upload proof',hi:'प्रमाण अपलोड करें',kn:'ಸಾಕ್ಷಿ ಅಪ್‌ಲೋಡ್',te:'రుజువు అప్‌లోడ్'},
+    hp_photo:{en:'(photo)',hi:'(फोटो)',kn:'(ಫೋಟೋ)',te:'(ఫోటో)'},
+    hp_takephoto:{en:'Take a photo',hi:'फोटो लें',kn:'ಫೋಟೋ ತೆಗೆಯಿರಿ',te:'ఫోటో తీయండి'},
+    hp_photohint:{en:'Tap to capture proof of the completed task',hi:'पूर्ण कार्य का प्रमाण लेने के लिए टैप करें',kn:'ಪೂರ್ಣ ಕಾರ್ಯದ ಸಾಕ್ಷಿ ಸೆರೆಹಿಡಿಯಲು ಟ್ಯಾಪ್ ಮಾಡಿ',te:'పూర్తయిన పని రుజువు తీసేందుకు నొక్కండి'},
+    hp_captured:{en:'captured just now · geo-tag on',hi:'अभी लिया गया · जियो-टैग चालू',kn:'ಈಗಷ್ಟೇ ಸೆರೆ · ಜಿಯೋ-ಟ್ಯಾಗ್ ಆನ್',te:'ఇప్పుడే తీసినది · జియో-ట్యాగ్ ఆన్'},
+    hp_submit:{en:'Submit',hi:'जमा करें',kn:'ಸಲ್ಲಿಸಿ',te:'సమర్పించండి'},
+    hp_submitblocked:{en:'Submit — flag as blocked',hi:'जमा करें — बाधित के रूप में',kn:'ಸಲ್ಲಿಸಿ — ತಡೆ ಎಂದು',te:'సమర్పించండి — బ్లాక్ అని'},
+    hp_myteam:{en:'My Team',hi:'मेरी टीम',kn:'ನನ್ನ ತಂಡ',te:'నా బృందం'},
+    hp_allpeople:{en:'All People',hi:'सभी लोग',kn:'ಎಲ್ಲಾ ಜನರು',te:'అందరు వ్యక్తులు'},
+    hp_reportees:{en:'Reportees · tap a person to see their tasks',hi:'अधीनस्थ · कार्य देखने हेतु व्यक्ति पर टैप करें',kn:'ಅಧೀನದವರು · ಕಾರ್ಯ ನೋಡಲು ವ್ಯಕ್ತಿಯನ್ನು ಟ್ಯಾಪ್ ಮಾಡಿ',te:'కింది వారు · పనులు చూడటానికి వ్యక్తిని నొక్కండి'},
+    hp_everyone:{en:'Everyone · company-wide · tap a person',hi:'सभी · कंपनी-भर · व्यक्ति पर टैप करें',kn:'ಎಲ್ಲರೂ · ಕಂಪನಿಯಾದ್ಯಂತ · ವ್ಯಕ್ತಿಯನ್ನು ಟ್ಯಾಪ್ ಮಾಡಿ',te:'అందరూ · కంపెనీ అంతటా · వ్యక్తిని నొక్కండి'},
+    hp_inpre:{en:'in',hi:'इन',kn:'ಇನ್',te:'ఇన్'},
+    hp_notin:{en:'not clocked in',hi:'क्लॉक-इन नहीं',kn:'ಕ್ಲಾಕ್-ಇನ್ ಇಲ್ಲ',te:'క్లాక్-ఇన్ కాలేదు'},
+    hp_pendinglc:{en:'pending',hi:'लंबित',kn:'ಬಾಕಿ',te:'పెండింగ్'},
+    hp_alldone:{en:'all done ✓',hi:'सब पूर्ण ✓',kn:'ಎಲ್ಲಾ ಪೂರ್ಣ ✓',te:'అన్నీ పూర్తి ✓'},
+    hp_completed:{en:'Completed',hi:'पूर्ण किया',kn:'ಪೂರ್ಣಗೊಂಡ',te:'పూర్తయినవి'},
+    hp_notcompleted:{en:'Not completed',hi:'पूर्ण नहीं',kn:'ಪೂರ್ಣಗೊಳ್ಳದ',te:'పూర్తికానివి'},
+    hp_tasksdonelc:{en:'tasks done',hi:'कार्य पूर्ण',kn:'ಕಾರ್ಯ ಪೂರ್ಣ',te:'పనులు పూర్తి'},
+    hp_clockedinb:{en:'Clocked in',hi:'क्लॉक-इन',kn:'ಕ್ಲಾಕ್-ಇನ್',te:'క్లాక్-ఇన్'},
+    hp_notclockedb:{en:'Not clocked in',hi:'क्लॉक-इन नहीं',kn:'ಕ್ಲಾಕ್-ಇನ್ ಇಲ್ಲ',te:'క్లాక్-ఇన్ కాలేదు'},
+    hp_nothingdone:{en:'Nothing completed yet.',hi:'अभी तक कुछ पूर्ण नहीं।',kn:'ಇನ್ನೂ ಏನೂ ಪೂರ್ಣಗೊಂಡಿಲ್ಲ.',te:'ఇంకా ఏమీ పూర్తికాలేదు.'},
+    hp_allcomplete:{en:'All tasks completed 🎉',hi:'सभी कार्य पूर्ण 🎉',kn:'ಎಲ್ಲಾ ಕಾರ್ಯ ಪೂರ್ಣ 🎉',te:'అన్ని పనులు పూర్తి 🎉'},
+    hp_myleave:{en:'My Leave',hi:'मेरी छुट्टी',kn:'ನನ್ನ ರಜೆ',te:'నా సెలవు'},
+    hp_casual:{en:'Casual',hi:'आकस्मिक',kn:'ಸಾಂದರ್ಭಿಕ',te:'క్యాజువల్'},
+    hp_sick:{en:'Sick',hi:'बीमारी',kn:'ಅನಾರೋಗ್ಯ',te:'అనారోగ్యం'},
+    hp_earned:{en:'Earned',hi:'अर्जित',kn:'ಗಳಿಸಿದ',te:'సంపాదిత'},
+    hp_myrequests:{en:'My requests',hi:'मेरे अनुरोध',kn:'ನನ್ನ ವಿನಂತಿಗಳು',te:'నా అభ్యర్థనలు'},
+    hp_leaveword:{en:'leave',hi:'छुट्टी',kn:'ರಜೆ',te:'సెలవు'},
+    hp_approved:{en:'Approved',hi:'स्वीकृत',kn:'ಅನುಮೋದಿತ',te:'ఆమోదించబడింది'},
+    hp_rejected:{en:'Rejected',hi:'अस्वीकृत',kn:'ತಿರಸ್ಕೃತ',te:'తిరస్కరించబడింది'},
+    hp_waitingon:{en:'Waiting on',hi:'प्रतीक्षा में',kn:'ಕಾಯುತ್ತಿದೆ',te:'వేచి ఉంది'},
+    hp_approvedby:{en:'Approved by',hi:'द्वारा स्वीकृत',kn:'ಅನುಮೋದಿಸಿದವರು',te:'ఆమోదించినవారు'},
+    hp_rejectedby:{en:'Rejected by',hi:'द्वारा अस्वीकृत',kn:'ತಿರಸ್ಕರಿಸಿದವರು',te:'తిరస్కరించినవారు'},
+    hp_reqleave:{en:'Request leave',hi:'छुट्टी अनुरोध',kn:'ರಜೆ ವಿನಂತಿ',te:'సెలవు అభ్యర్థన'},
+    hp_leavetype:{en:'Leave type',hi:'छुट्टी प्रकार',kn:'ರಜೆ ಪ್ರಕಾರ',te:'సెలవు రకం'},
+    hp_from:{en:'From',hi:'से',kn:'ಇಂದ',te:'నుండి'},
+    hp_to:{en:'To',hi:'तक',kn:'ವರೆಗೆ',te:'వరకు'},
+    hp_reason:{en:'Reason',hi:'कारण',kn:'ಕಾರಣ',te:'కారణం'},
+    hp_reasonph:{en:'Family function…',hi:'पारिवारिक समारोह…',kn:'ಕುಟುಂಬ ಕಾರ್ಯಕ್ರಮ…',te:'కుటుంబ కార్యక్రమం…'},
+    hp_goesto1:{en:'Goes to',hi:'जाता है',kn:'ಹೋಗುತ್ತದೆ',te:'వెళ్తుంది'},
+    hp_goesto2:{en:'— your manager decides.',hi:'— आपका प्रबंधक निर्णय लेगा।',kn:'— ನಿಮ್ಮ ವ್ಯವಸ್ಥಾಪಕ ನಿರ್ಧರಿಸುತ್ತಾರೆ.',te:'— మీ మేనేజర్ నిర్ణయిస్తారు.'},
+    hp_sendreq:{en:'Send request',hi:'अनुरोध भेजें',kn:'ವಿನಂತಿ ಕಳುಹಿಸಿ',te:'అభ్యర్థన పంపండి'},
+    hp_attendance:{en:'Attendance · this week',hi:'उपस्थिति · इस सप्ताह',kn:'ಹಾಜರಾತಿ · ಈ ವಾರ',te:'హాజరు · ఈ వారం'},
+    hp_ontime:{en:'On time',hi:'समय पर',kn:'ಸಮಯಕ್ಕೆ',te:'సమయానికి'},
+    hp_lateclockin:{en:'Late clock-in',hi:'देर से क्लॉक-इन',kn:'ತಡವಾಗಿ ಕ್ಲಾಕ್-ಇನ್',te:'ఆలస్యంగా క్లాక్-ఇన్'},
+    hp_weeklyoff:{en:'Weekly off',hi:'साप्ताहिक अवकाश',kn:'ಸಾಪ್ತಾಹಿಕ ರಜೆ',te:'వారపు సెలవు'},
+    hp_stillon:{en:'in · still on',hi:'इन · अभी जारी',kn:'ಇನ್ · ಇನ್ನೂ',te:'ఇన్ · ఇంకా'},
+    hp_offw:{en:'off',hi:'अवकाश',kn:'ರಜೆ',te:'సెలవు'},
+    hp_activity:{en:'Activity · today',hi:'गतिविधि · आज',kn:'ಚಟುವಟಿಕೆ · ಇಂದು',te:'కార్యకలాపం · ఈరోజు'},
+    hp_proofuploaded:{en:'Proof uploaded',hi:'प्रमाण अपलोड',kn:'ಸಾಕ್ಷಿ ಅಪ್‌ಲೋಡ್',te:'రుజువు అప్‌లోడ్'},
+    hp_geook:{en:'geo ✓',hi:'जियो ✓',kn:'ಜಿಯೋ ✓',te:'జియో ✓'},
+    hp_taskmarked:{en:'Task marked done',hi:'कार्य पूर्ण चिह्नित',kn:'ಕಾರ್ಯ ಪೂರ್ಣ ಗುರುತು',te:'పని పూర్తిగా గుర్తు'},
+    hp_clockedinw:{en:'Clocked in',hi:'क्लॉक-इन',kn:'ಕ್ಲಾಕ್-ಇನ್',te:'క్లాక్-ఇన్'},
+    hp_teammember:{en:'Team member',hi:'टीम सदस्य',kn:'ತಂಡದ ಸದಸ್ಯ',te:'బృంద సభ్యుడు'},
+    hp_willdecide:{en:'will approve or reject',hi:'स्वीकृत या अस्वीकृत करेगा',kn:'ಅನುಮೋದಿಸುತ್ತಾರೆ ಅಥವಾ ತಿರಸ್ಕರಿಸುತ್ತಾರೆ',te:'ఆమోదిస్తారు లేదా తిరస్కరిస్తారు'},
+    hp_t_submitted:{en:'Task submitted',hi:'कार्य जमा हुआ',kn:'ಕಾರ್ಯ ಸಲ್ಲಿಸಲಾಗಿದೆ',te:'పని సమర్పించబడింది'},
+    hp_t_proofnotif:{en:'Proof uploaded · manager notified',hi:'प्रमाण अपलोड · प्रबंधक सूचित',kn:'ಸಾಕ್ಷಿ ಅಪ್‌ಲೋಡ್ · ವ್ಯವಸ್ಥಾಪಕರಿಗೆ ಸೂಚನೆ',te:'రుజువు అప్‌లోడ్ · మేనేజర్‌కు తెలియజేయబడింది'},
+    hp_t_blocked:{en:'Marked as blocked',hi:'बाधित चिह्नित',kn:'ತಡೆ ಎಂದು ಗುರುತು',te:'బ్లాక్ అని గుర్తు'},
+    hp_t_reassign:{en:'Manager notified to reassign',hi:'पुनः सौंपने हेतु प्रबंधक सूचित',kn:'ಮರುನಿಯೋಜನೆಗೆ ವ್ಯವಸ್ಥಾಪಕರಿಗೆ ಸೂಚನೆ',te:'తిరిగి కేటాయించడానికి మేనేజర్‌కు తెలియజేయబడింది'},
+    hp_t_leavesent:{en:'Leave request sent',hi:'छुट्टी अनुरोध भेजा',kn:'ರಜೆ ವಿನಂತಿ ಕಳುಹಿಸಲಾಗಿದೆ',te:'సెలవు అభ్యర్థన పంపబడింది'}
+  };
+  // task titles (domain content) — translated in all four languages, referenced by id
+  var TT={
+    t_headcount_g1:{en:'Morning attendance headcount — Gandhi 1',hi:'सुबह उपस्थिति गणना — गांधी 1',kn:'ಬೆಳಗಿನ ಹಾಜರಾತಿ ಎಣಿಕೆ — ಗಾಂಧಿ 1',te:'ఉదయం హాజరు లెక్క — గాంధీ 1'},
+    t_troughs:{en:'Clean & refill feed troughs',hi:'चारा नांद साफ़ व पुनः भरें',kn:'ಆಹಾರ ತೊಟ್ಟಿ ಸ್ವಚ್ಛ ಮತ್ತು ಮರುಭರ್ತಿ',te:'దాణా తొట్టెలు శుభ్రం & నింపడం'},
+    t_lockup:{en:'Evening shed lock-up check',hi:'शाम शेड लॉक-अप जाँच',kn:'ಸಂಜೆ ಶೆಡ್ ಲಾಕ್-ಅಪ್ ಪರಿಶೀಲನೆ',te:'సాయంత్రం షెడ్ లాక్-అప్ తనిఖీ'},
+    t_waterline:{en:'Water line refill log',hi:'जल लाइन पुनःभरण लॉग',kn:'ನೀರಿನ ಸಾಲು ಮರುಭರ್ತಿ ಲಾಗ್',te:'నీటి లైన్ రీఫిల్ లాగ్'},
+    t_coldchain:{en:'Cold-chain temperature reading',hi:'कोल्ड-चेन तापमान रीडिंग',kn:'ಕೋಲ್ಡ್-ಚೈನ್ ತಾಪಮಾನ ಓದು',te:'కోల్డ్-చైన్ ఉష్ణోగ్రత రీడింగ్'},
+    t_bedding_c1:{en:'Bedding replacement — Castro 1',hi:'बिछावन बदलाव — कास्त्रो 1',kn:'ಹಾಸಿಗೆ ಬದಲಾವಣೆ — ಕ್ಯಾಸ್ಟ್ರೊ 1',te:'పరుపు మార్పు — కాస్ట్రో 1'},
+    t_sickpen:{en:'Sick-pen round & notes',hi:'बीमार-पेन राउंड व नोट्स',kn:'ಅನಾರೋಗ್ಯ-ಪೆನ್ ಸುತ್ತು ಮತ್ತು ಟಿಪ್ಪಣಿ',te:'సిక్-పెన్ రౌండ్ & నోట్స్'},
+    t_hygiene:{en:'Weekly hygiene audit form',hi:'साप्ताहिक स्वच्छता ऑडिट फॉर्म',kn:'ಸಾಪ್ತಾಹಿಕ ನೈರ್ಮಲ್ಯ ಲೆಕ್ಕಪರಿಶೋಧನೆ ಫಾರ್ಮ್',te:'వారపు పరిశుభ్రత ఆడిట్ ఫారం'},
+    t_feed_eve:{en:'Feed distribution — evening',hi:'चारा वितरण — शाम',kn:'ಆಹಾರ ವಿತರಣೆ — ಸಂಜೆ',te:'దాణా పంపిణీ — సాయంత్రం'},
+    t_gatecheck:{en:'Shed gate & fence check',hi:'शेड गेट व बाड़ जाँच',kn:'ಶೆಡ್ ಗೇಟ್ ಮತ್ತು ಬೇಲಿ ಪರಿಶೀಲನೆ',te:'షెడ్ గేట్ & కంచె తనిఖీ'},
+    t_feed_morn:{en:'Feed distribution — morning',hi:'चारा वितरण — सुबह',kn:'ಆಹಾರ ವಿತರಣೆ — ಬೆಳಿಗ್ಗೆ',te:'దాణా పంపిణీ — ఉదయం'},
+    t_briefing:{en:'Parks morning briefing',hi:'पार्क सुबह ब्रीफिंग',kn:'ಪಾರ್ಕ್ ಬೆಳಗಿನ ಬ್ರೀಫಿಂಗ್',te:'పార్క్స్ ఉదయం బ్రీఫింగ్'},
+    t_capacity:{en:'Capacity plan — Mandela drive',hi:'क्षमता योजना — मंडेला ड्राइव',kn:'ಸಾಮರ್ಥ್ಯ ಯೋಜನೆ — ಮಂಡೇಲಾ ಡ್ರೈವ್',te:'సామర్థ్య ప్రణాళిక — మండేలా డ్రైవ్'},
+    t_bedding_log:{en:'Bedding replacement log',hi:'बिछावन बदलाव लॉग',kn:'ಹಾಸಿಗೆ ಬದಲಾವಣೆ ಲಾಗ್',te:'పరుపు మార్పు లాగ్'},
+    t_feed_y5:{en:'Evening feed — Yashoda 5',hi:'शाम चारा — यशोदा 5',kn:'ಸಂಜೆ ಆಹಾರ — ಯಶೋದಾ 5',te:'సాయంత్రం దాణా — యశోద 5'},
+    t_headcount_y5:{en:'Attendance headcount — Yashoda 5',hi:'उपस्थिति गणना — यशोदा 5',kn:'ಹಾಜರಾತಿ ಎಣಿಕೆ — ಯಶೋದಾ 5',te:'హాజరు లెక్క — యశోద 5'},
+    t_trough_log:{en:'Trough cleaning log',hi:'नांद सफाई लॉग',kn:'ತೊಟ್ಟಿ ಶುಚಿಗೊಳಿಸುವ ಲಾಗ್',te:'తొట్టె శుభ్రత లాగ్'}
+  };
+  function hLang(){var o=$('.lopt.on');return (o&&o.getAttribute('data-lang'))||'en';}
+  function T(k){var L=hLang();return (HL[k]&&(HL[k][L]||HL[k].en))||k;}
+  function title(tid){var L=hLang();return (TT[tid]&&(TT[tid][L]||TT[tid].en))||tid;}
+
+  var TASKS=[
+    {id:0,tid:'t_headcount_g1',due:'08:30',st:'done',proof:true},
+    {id:1,tid:'t_troughs',due:'12:00',st:'pend',proof:false},
+    {id:2,tid:'t_lockup',due:'17:30',st:'pend',proof:false}
+  ];
+  var LTMAP={Casual:'hp_casual',Sick:'hp_sick',Earned:'hp_earned'};
+  var LEAVE=[
+    {type:'Casual',from:'18 Jul',to:'19 Jul',days:2,status:'pend'},
+    {type:'Earned',from:'10 Jul',to:'12 Jul',days:3,status:'ok'},
+    {type:'Sick',from:'05 Jul',to:'05 Jul',days:1,status:'rej'}
+  ];
+  var tk={done:['ok','#i-check'],pend:['pend','#i-clock'],miss:['miss','#i-x']};
+  var stKey={done:'hp_done',pend:'hp_pending',miss:'hp_missed'};
+
+  function renderTasks(){
+    var html=TASKS.map(function(t){
+      var a=tk[t.st];
+      return '<div class="htask '+(t.st==='done'?'done':'')+'" data-htask="'+t.id+'" data-go="v-people-task">'+
+        '<span class="tk '+a[0]+'"><svg class="ic"><use href="'+a[1]+'"/></svg></span>'+
+        '<span class="tt"><b>'+title(t.tid)+'</b><span class="mt"><span class="clk"><svg class="ic"><use href="#i-clock"/></svg> '+T('hp_due')+' '+t.due+'</span>'+(t.proof?'<span style="color:var(--brand-d)">'+T('hp_proofok')+'</span>':'')+'</span>'+
+        '<span class="hp '+a[0]+'">'+T(stKey[t.st])+'</span></span>'+
+        '<span class="chev"><svg class="ic"><use href="#i-chev"/></svg></span></div>';
+    }).join('');
+    var el=$('#hTaskList'); if(el)el.innerHTML=html;
+    var done=TASKS.filter(function(t){return t.st==='done';}).length;
+    var c=$('#hTaskCnt'); if(c)c.textContent=done+' / '+TASKS.length+' '+T('hp_donelc');
+  }
+  // Roster. mine=true → reports to the current park manager. A park manager sees only `mine`;
+  // CEO/COO + Director have company-wide scope and see EVERYONE.
+  var ROSTER=[
+    {id:'arun',name:'Arun Kumar',role:'Health Asst Mgr · CBE',av:'AK',clock:'07:58',mine:true,tasks:[
+      {tid:'t_headcount_g1',due:'08:30',st:'done',proof:true},{tid:'t_troughs',due:'12:00',st:'pend',proof:false},{tid:'t_lockup',due:'17:30',st:'pend',proof:false}]},
+    {id:'indra',name:'Indradev Kumar',role:'Vaccinator · CBE',av:'IK',clock:'08:05',mine:true,tasks:[
+      {tid:'t_waterline',due:'09:00',st:'done',proof:true},{tid:'t_coldchain',due:'11:00',st:'done',proof:true},{tid:'t_bedding_c1',due:'14:00',st:'done',proof:true}]},
+    {id:'lakshmi',name:'Lakshmi P.',role:'Field Assistant · CBE',av:'LP',clock:'08:12',mine:true,tasks:[
+      {tid:'t_sickpen',due:'09:00',st:'done',proof:true},{tid:'t_hygiene',due:'14:00',st:'done',proof:true},{tid:'t_feed_eve',due:'17:00',st:'pend',proof:false}]},
+    {id:'manju',name:'Manju R.',role:'Shed Operator · CBE',av:'MR',clock:null,mine:true,tasks:[
+      {tid:'t_gatecheck',due:'08:30',st:'miss',proof:false},{tid:'t_feed_morn',due:'11:00',st:'miss',proof:false}]},
+    {id:'vijay',name:'Vijay S.',role:'Parks Manager · CPT',av:'VS',clock:'08:41',mine:false,tasks:[
+      {tid:'t_briefing',due:'08:00',st:'done',proof:true},{tid:'t_capacity',due:'13:00',st:'pend',proof:false}]},
+    {id:'ravi',name:'Ravi B.',role:'Shed Operator · CPT',av:'RB',clock:'08:20',mine:false,tasks:[
+      {tid:'t_bedding_log',due:'09:00',st:'done',proof:true},{tid:'t_feed_y5',due:'17:00',st:'pend',proof:false}]},
+    {id:'suresh',name:'Suresh M.',role:'Vaccinator · CPT',av:'SM',clock:'08:33',mine:false,tasks:[
+      {tid:'t_headcount_y5',due:'08:30',st:'done',proof:true},{tid:'t_trough_log',due:'12:00',st:'done',proof:true}]}
+  ];
+  function curRole(){var scr=$('.scr');return scr?scr.getAttribute('data-role'):'operator';}
+  function seesEveryone(){var r=curRole();return r==='ceo'||r==='director';}
+  function doneOf(m){return m.tasks.filter(function(t){return t.st==='done';}).length;}
+  function renderTeam(){
+    var el=$('#hTeamList'); if(!el)return;
+    var all=seesEveryone();
+    var list=all?ROSTER:ROSTER.filter(function(m){return m.mine;});
+    var tt=$('#hTeamTitle'); if(tt)tt.textContent=all?T('hp_allpeople'):T('hp_myteam');
+    var lb=$('#hTeamLbl'); if(lb)lb.textContent=all?T('hp_everyone'):T('hp_reportees');
+    el.innerHTML=list.map(function(m){
+      var done=doneOf(m), total=m.tasks.length, pend=total-done, pct=total?Math.round(done/total*100):0;
+      var clk=m.clock?'<span style="color:var(--brand-d)">'+T('hp_inpre')+' '+m.clock+'</span>':'<span style="color:var(--danger)">'+T('hp_notin')+'</span>';
+      var pp=pend?'<div class="pp">'+pend+' '+T('hp_pendinglc')+'</div>':'<div class="pp" style="color:var(--brand-d)">'+T('hp_alldone')+'</div>';
+      return '<div class="hteam" data-hmember="'+m.id+'" data-go="v-people-member" style="cursor:pointer">'+
+        '<span class="av">'+m.av+'</span>'+
+        '<div class="tt"><b>'+m.name+'</b><div class="s">'+m.role+' · '+clk+'</div><div class="bar"><i style="width:'+pct+'%"></i></div></div>'+
+        '<div class="rt"><div class="fr">'+done+'<span style="font-size:11px;color:var(--muted)">/'+total+'</span></div>'+pp+
+        '<svg class="ic" style="width:15px;color:var(--faint);margin-top:5px"><use href="#i-chev"/></svg></div></div>';
+    }).join('');
+    var td=0,ttl=0; list.forEach(function(m){td+=doneOf(m);ttl+=m.tasks.length;});
+    var c=$('#hTeamCnt'); if(c)c.textContent=td+' / '+ttl+' '+T('hp_donelc');
+  }
+  // static (read-only) task row used inside a member's completed / not-completed lists
+  function taskRowStatic(t){
+    var a=tk[t.st];
+    var extra=t.st==='done'?(t.proof?'<span style="color:var(--brand-d)">'+T('hp_proofok')+'</span>':'<span style="color:var(--faint)">'+T('hp_noproof')+'</span>'):'';
+    return '<div class="htask '+(t.st==='done'?'done':'')+'"><span class="tk '+a[0]+'"><svg class="ic"><use href="'+a[1]+'"/></svg></span>'+
+      '<span class="tt"><b>'+title(t.tid)+'</b><span class="mt"><span class="clk"><svg class="ic"><use href="#i-clock"/></svg> '+T('hp_due')+' '+t.due+'</span>'+extra+'</span>'+
+      '<span class="hp '+a[0]+'">'+T(stKey[t.st])+'</span></span></div>';
+  }
+  var curMemberId=null;
+  function openMember(id){
+    var m=ROSTER.filter(function(x){return x.id===id;})[0]; if(!m)return; curMemberId=id;
+    $('#hmName').textContent=m.name; $('#hmEb').textContent=m.role;
+    var done=m.tasks.filter(function(t){return t.st==='done';}), pend=m.tasks.filter(function(t){return t.st!=='done';});
+    var clk=m.clock?'<span class="hp ok" style="margin:0">'+T('hp_clockedinb')+' '+m.clock+'</span>':'<span class="hp miss" style="margin:0">'+T('hp_notclockedb')+'</span>';
+    $('#hmSummary').innerHTML='<div style="display:flex;align-items:center;gap:12px">'+
+      '<span style="width:44px;height:44px;border-radius:13px;background:var(--surf2);display:grid;place-items:center;font-weight:800;font-size:16px;flex:none">'+m.av+'</span>'+
+      '<div style="flex:1;min-width:0">'+clk+'<div style="font-size:20px;font-weight:820;margin-top:6px">'+done.length+' <span style="font-size:13px;color:var(--muted);font-weight:600">/ '+m.tasks.length+' '+T('hp_tasksdonelc')+'</span></div></div></div>';
+    $('#hmDoneN').textContent=done.length; $('#hmPendN').textContent=pend.length;
+    $('#hmDone').innerHTML=done.length?done.map(taskRowStatic).join(''):'<div class="hnote" style="margin:0 16px 10px">'+T('hp_nothingdone')+'</div>';
+    $('#hmPending').innerHTML=pend.length?pend.map(taskRowStatic).join(''):'<div class="hnote" style="margin:0 16px 10px"><svg class="ic"><use href="#i-check"/></svg>'+T('hp_allcomplete')+'</div>';
+  }
+  function renderLeave(){
+    var stK={pend:['warn','hp_pending'],ok:['ok','hp_approved'],rej:['dng','hp_rejected']};
+    $('#hLeaveList').innerHTML=LEAVE.map(function(r){
+      var s=stK[r.status];
+      var dec=r.status==='pend'?(T('hp_waitingon')+' <b>Sidde Gowda</b>'):((r.status==='ok'?T('hp_approvedby'):T('hp_rejectedby'))+' <b>Sidde Gowda</b>');
+      return '<div class="hlv"><div class="top"><span class="type">'+T(LTMAP[r.type])+' '+T('hp_leaveword')+'</span><span style="flex:1"></span><span class="pill '+s[0]+'">'+T(s[1])+'</span></div>'+
+        '<div class="dates"><svg class="ic"><use href="#i-cal"/></svg>'+r.from+' – '+r.to+' · '+r.days+'d</div>'+
+        '<div class="dec"><svg class="ic"><use href="#i-user"/></svg>'+dec+'</div></div>';
+    }).join('');
+  }
+
+  // clock
+  var hIn=true;
+  function renderClock(){
+    var b=$('#hClockBtn'), s=$('#hClockSt'); if(!b||!s)return;
+    if(hIn){b.className='hbig out tap';b.innerHTML='<svg class="ic"><use href="#i-power"/></svg>'+T('hp_clockout');s.className='st in';s.innerHTML='<span class="d"></span>'+T('hp_clockedat')+' 07:58';}
+    else{b.className='hbig tap';b.innerHTML='<svg class="ic"><use href="#i-power"/></svg>'+T('hp_clockin');s.className='st';s.innerHTML='<span class="d"></span>'+T('hp_clockedout')+' 15:41';}
+  }
+  window.hToggleClock=function(){hIn=!hIn;renderClock();};
+
+  // task detail state
+  var curTaskId=null, did=null, proof=false;
+  function setTaskTexts(){var t=TASKS.filter(function(x){return x.id===curTaskId;})[0];if(!t)return;$('#hDetTitle').textContent=title(t.tid);$('#hDetDue').textContent=t.due;$('#hProofName').textContent='proof_'+t.due.replace(':','')+'.jpg';}
+  function openTask(id){
+    curTaskId=id; did=null; proof=false;
+    setTaskTexts();
+    $$('#hYn button').forEach(function(b){b.classList.remove('on');});
+    $('#hPz').classList.remove('filled');
+    var t=TASKS.filter(function(x){return x.id===id;})[0];
+    if(t&&t.st==='done'){did=true;proof=t.proof;$('#hYn .yes').classList.add('on');if(proof)$('#hPz').classList.add('filled');}
+    refreshSub();
+  }
+  window.hSetDid=function(v){did=v;$$('#hYn button').forEach(function(b){b.classList.remove('on');});$('#hYn .'+(v?'yes':'no')).classList.add('on');refreshSub();};
+  window.hFillProof=function(){proof=true;$('#hPz').classList.add('filled');refreshSub();};
+  function refreshSub(){var ok=did===true?proof:did===false;var b=$('#hSubBtn');if(!b)return;b.classList.toggle('dis',!ok);b.innerHTML='<svg class="ic"><use href="#i-check"/></svg>'+(did===false?T('hp_submitblocked'):T('hp_submit'));}
+  window.hSubmitTask=function(){
+    if($('#hSubBtn').classList.contains('dis'))return;
+    var t=TASKS.filter(function(x){return x.id===curTaskId;})[0]; if(t){t.st=did===false?'miss':'done'; t.proof=proof;} renderTasks();
+    var bk=$('#v-people-task [data-back]'); if(bk)bk.click();
+    toastHr(did===false?T('hp_t_blocked'):T('hp_t_submitted'), did===false?T('hp_t_reassign'):T('hp_t_proofnotif'));
+  };
+  window.hSubmitLeave=function(){
+    var t=$('#hLtype .s.on'); LEAVE.unshift({type:(t&&t.getAttribute('data-val'))||'Casual',from:'20 Jul',to:'21 Jul',days:2,status:'pend'});
+    renderLeave(); var bk=$('#v-people-newleave [data-back]'); if(bk)bk.click();
+    toastHr(T('hp_t_leavesent'),'Sidde Gowda '+T('hp_willdecide'));
+  };
+  var toastTmr;
+  function toastHr(t,s){$('#hToastT').textContent=t;$('#hToastS').textContent=s;$('#hToast').classList.add('on');clearTimeout(toastTmr);toastTmr=setTimeout(function(){$('#hToast').classList.remove('on');},2600);}
+
+  // apply the current language to all HRMS static labels + re-render dynamic content
+  function hApplyLang(){
+    var L=hLang();
+    $$('[data-ht]').forEach(function(el){var k=el.getAttribute('data-ht');if(HL[k])el.textContent=HL[k][L]||HL[k].en;});
+    renderClock(); renderTasks(); renderLeave(); renderTeam();
+    if(curTaskId!=null){setTaskTexts();refreshSub();}
+    if(curMemberId!=null)openMember(curMemberId);
+  }
+
+  // delegated clicks: member open · task open · leave-type segment · drawer active module · language change
+  D.addEventListener('click',function(e){
+    var mm=e.target.closest('[data-hmember]'); if(mm){openMember(mm.getAttribute('data-hmember')); /* app data-go navigates */ return;}
+    var t=e.target.closest('[data-htask]'); if(t){openTask(+t.getAttribute('data-htask')); /* app data-go navigates */ return;}
+    var seg=e.target.closest('#hLtype .s'); if(seg){$$('#hLtype .s').forEach(function(x){x.classList.remove('on');});seg.classList.add('on');return;}
+    var mod=e.target.closest('.di[data-mod]'); if(mod){$$('.di[data-mod]').forEach(function(d){d.classList.remove('on');var c=d.querySelector('.modck');if(c)c.style.display='none';});mod.classList.add('on');var ck=mod.querySelector('.modck');if(ck)ck.style.display='';return;}
+    var lg=e.target.closest('[data-lang]'); if(lg){setTimeout(hApplyLang,0);} // app's own handler sets the language; we re-localize HRMS after
+  },false);
+
+  // re-render the team scope whenever the demo role changes (park mgr = reportees, CEO/CXO = everyone)
+  var scrEl=$('.scr'); if(scrEl&&window.MutationObserver){new MutationObserver(renderTeam).observe(scrEl,{attributes:true,attributeFilter:['data-role']});}
+  hApplyLang();
 })();
 </script>
 
