@@ -226,7 +226,7 @@ migrations to the next free numbers.
 canonical `IdentityGoat` command now corrects DOB/entry_date on an existing goat
 and durably emits `goat.identity.changed` through `goat_identity_events` + the
 outbox (`POST /admin/goats/{goat_id}/identity`; port `ports.IdentityGoatCommand`;
-repo `Repository.IdentityGoat`; migration `000191_goat_identity_correction_decision.sql`
+repo `Repository.IdentityGoat`; migration `000195_goat_identity_correction_decision.sql`
 adds the `identity_goat` decision type; `goat.identity.changed` added to the
 domain-event-envelope enum). The registered `GoatRecheckHandler` consumes it.
 Proven E2E (`tests/e2e/story_vaccrev_identity_recompute_test.go`): the production

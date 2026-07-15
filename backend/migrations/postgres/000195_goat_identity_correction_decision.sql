@@ -42,7 +42,7 @@ ALTER TABLE identity_decisions
 
 -- +goose Down
 -- +goose NO TRANSACTION
--- Restore the pre-000191 constraint (without identity_goat) using the same lock-safe NOT VALID swap.
+-- Restore the pre-000195 constraint (without identity_goat) using the same lock-safe NOT VALID swap.
 -- VACC-REV-13: the narrower v1 set EXCLUDES 'identity_goat'. Once the up-migration has been live, real
 -- identity_decisions rows with decision_type='identity_goat' exist, and a VALIDATE of v1 would scan
 -- those rows and FAIL — a down migration must never fail on legitimately-produced data. So the down is
