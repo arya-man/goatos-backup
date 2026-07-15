@@ -95,14 +95,19 @@ type RuleVaccineIdentity struct {
 // SweepConfig carries the per-version batch config resolved by the caller from the protocol version:
 // the SOP to instantiate, the vaccine item to reserve, and doses per goat.
 type SweepConfig struct {
-	SOPVersionID       string
-	VaccineItemID      string
-	VaccineCode        string
-	DosesPerGoat       int32
-	RuleConfigs        map[string]SweepRuleConfig
-	ParkConsolidation  domain.ParkConsolidationSettings
-	DrivePlanner       domain.DrivePlannerSettings
-	RuleVaccineIDs     map[string]RuleVaccineIdentity // per-rule vaccine identity (BUG #1 fix)
+	SOPVersionID      string
+	VaccineItemID     string
+	VaccineCode       string
+	DosesPerGoat      int32
+	RuleConfigs       map[string]SweepRuleConfig
+	ParkConsolidation domain.ParkConsolidationSettings
+	DrivePlanner      domain.DrivePlannerSettings
+	// RuleVaccineIDs is the per-rule vaccine identity cache (BUG #1 / R2-05(a) fix). A builder MUST
+	// only store a COMPLETE identity here (non-empty VaccineCode) -- never an empty
+	// RuleVaccineIdentity{} for a rule whose matrix extraction failed or found no vaccine. An absent
+	// or cached-empty entry is treated identically by getRuleVaccineIdentity: both fall back to the
+	// version-level identity (VaccineCode/VaccinePriority above).
+	RuleVaccineIDs map[string]RuleVaccineIdentity
 }
 
 // SweepRuleConfig overrides version-level execution bindings for one protocol rule.
@@ -129,6 +134,17 @@ func NewSweeperService(repo ports.Repository, tasks TaskCreator, reserver StockR
 	return &SweeperService{repo: repo, tasks: tasks, reserver: reserver, page: 1000}
 }
 
+// SetPageSize overrides the sweeper's internal pagination page size (default 1000). It exists so
+// tests outside this package can exercise multi-page pagination boundaries (e.g. a combo-alignment
+// group that spans more than one page, R2-06) against a small fixture instead of seeding thousands
+// of rows to force the default page size to split. n<=0 is ignored; production callers should leave
+// the default.
+func (s *SweeperService) SetPageSize(n int32) {
+	if n > 0 {
+		s.page = n
+	}
+}
+
 // SweepVersion batches all currently-unbatched due obligations for a version (due_at <= dueBefore).
 // It uses a private, single-call shot-cap session: MaxShotsPerAnimalPerDrive is enforced only
 // within this one version's own obligations. A caller sweeping multiple protocol
@@ -150,17 +166,34 @@ func (s *SweeperService) SweepVersionWithSession(ctx context.Context, tenantID, 
 	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), true)
 }
 
-// SweepVersionWithSessionNoFinalize is like SweepVersionWithSession but defers SOP-task finalization
-// for use in the kernel stage where AlignComboDrives must run before tasks are linked (BUG #6 fix).
-// The caller must finalize tasks separately after combo alignment.
+// SweepVersionWithSessionNoFinalize is like SweepVersionWithSession but defers BOTH stock
+// reservation AND SOP-task creation/linking for every planned batch of this version -- fresh ones
+// created by this call AND any pre-existing/retry batch left over from an interrupted prior run --
+// for use in the kernel stage where AlignComboDrives must run before a combo batch's stock/task are
+// finalized against its FINAL planned_date (BUG #6 / R2-04 fix). The caller MUST finalize every
+// swept plan exactly once via FinalizePlannedBatches AFTER AlignComboDrives has run for this pass;
+// until then, no batch produced or repaired by this call has its stock reserved or its SOP task
+// created.
 func (s *SweeperService) SweepVersionWithSessionNoFinalize(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
 	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), false)
 }
 
-func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, finalizeTasks bool) (domain.SweepResult, error) {
+func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, finalizeNow bool) (domain.SweepResult, error) {
 	var res domain.SweepResult
-	if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
-		return res, err
+	// R2-04 fix: only finalize retry/pre-existing planned batches up front when this call owns its
+	// own finalization end to end (finalizeNow=true, i.e. no subsequent AlignComboDrives pass is
+	// coming for this run). When finalization is deferred (finalizeNow=false), finalizing a
+	// pre-existing combo-session batch HERE -- before this run's AlignComboDrives has had a chance to
+	// run across every swept plan -- would reserve its stock and/or create its SOP task against its
+	// STALE (pre-alignment) planned_date and permanently exclude it from
+	// ListPlannedComboBatchesKeyset's candidate set (sop_task_id IS NULL AND NOT context ?
+	// 'stock_reservation'), so it could never be aligned again. The caller finalizes every plan --
+	// fresh batches AND genuinely-stale retry batches alike -- in one pass, after alignment, via
+	// FinalizePlannedBatches.
+	if finalizeNow {
+		if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
+			return res, err
+		}
 	}
 	if err := s.deferBlockedSweepCandidates(ctx, tenantID, versionID, dueBefore); err != nil {
 		return res, err
@@ -217,14 +250,12 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	res.Batches += fallbackRes.Batches
 	res.Obligations += fallbackRes.Obligations
 
-	// BUG #6: when finalizeTasks is false (kernel stage), defer SOP-task finalization to after
-	// AlignComboDrives runs. Stock is still finalized here.
-	if finalizeTasks {
+	// BUG #6 / R2-04: when finalizeNow is false (kernel stage / one-shot composing this sweep with
+	// AlignComboDrives across multiple versions), do NOT finalize stock or SOP tasks here at all --
+	// every batch this call created stays planned-only until the caller runs AlignComboDrives and
+	// then calls FinalizePlannedBatches once per swept plan.
+	if finalizeNow {
 		if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
-			return res, err
-		}
-	} else {
-		if err := s.finalizePlannedBatchStockOnly(ctx, tenantID, versionID, cfg); err != nil {
 			return res, err
 		}
 	}
@@ -520,58 +551,16 @@ func (s *SweeperService) finalizePlannedBatches(ctx context.Context, tenantID, v
 	return fmt.Errorf("obligation: planned batch finalization exceeded %d pages without draining", maxPlannedFinalizationPagesPerSweep)
 }
 
-// finalizePlannedBatchStockOnly finalizes stock reservations for all planned batches in a version.
-// Used to defer SOP-task finalization until after AlignComboDrives has run (BUG #6 fix).
-func (s *SweeperService) finalizePlannedBatchStockOnly(ctx context.Context, tenantID, versionID string, cfg SweepConfig) error {
-	if s.reserver == nil || !cfg.needsStock() {
-		return nil
-	}
-	var after *domain.PlannedBatchFinalizationCursor
-	for pages := 0; pages < maxPlannedFinalizationPagesPerSweep; pages++ {
-		batches, err := s.repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, false, true, after, s.page)
-		if err != nil {
-			return err
-		}
-		if len(batches) == 0 {
-			return nil
-		}
-		if err := s.finalizePlannedBatchStock(ctx, tenantID, batches, cfg); err != nil {
-			return err
-		}
-		if int32(len(batches)) < s.page {
-			return nil
-		}
-		last := batches[len(batches)-1]
-		after = &domain.PlannedBatchFinalizationCursor{CreatedAt: last.CreatedAt, BatchID: last.BatchID}
-	}
-	return fmt.Errorf("obligation: planned batch stock finalization exceeded %d pages without draining", maxPlannedFinalizationPagesPerSweep)
-}
-
-// FinalizePlannedBatchesTasksOnly finalizes SOP-task creation and linking for all planned batches
-// in a version. Used after AlignComboDrives has run to defer task finalization (BUG #6 fix).
-func (s *SweeperService) FinalizePlannedBatchesTasksOnly(ctx context.Context, tenantID, versionID string, cfg SweepConfig) error {
-	if s.tasks == nil || !cfg.needsTask() {
-		return nil
-	}
-	var after *domain.PlannedBatchFinalizationCursor
-	for pages := 0; pages < maxPlannedFinalizationPagesPerSweep; pages++ {
-		batches, err := s.repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, true, false, after, s.page)
-		if err != nil {
-			return err
-		}
-		if len(batches) == 0 {
-			return nil
-		}
-		if err := s.finalizePlannedBatchTasks(ctx, tenantID, batches, cfg); err != nil {
-			return err
-		}
-		if int32(len(batches)) < s.page {
-			return nil
-		}
-		last := batches[len(batches)-1]
-		after = &domain.PlannedBatchFinalizationCursor{CreatedAt: last.CreatedAt, BatchID: last.BatchID}
-	}
-	return fmt.Errorf("obligation: planned batch tasks finalization exceeded %d pages without draining", maxPlannedFinalizationPagesPerSweep)
+// FinalizePlannedBatches finalizes BOTH SOP-task creation/linking AND stock reservation for every
+// planned batch of a version that still needs them -- fresh batches created by this run's sweep AND
+// any pre-existing/retry batch left over from an interrupted prior run alike. Callers that deferred
+// finalization via SweepVersionWithSessionNoFinalize (R2-04 fix) MUST call this once per swept plan
+// AFTER AlignComboDrives has run for the pass, so a combo batch's stock is reserved and its SOP task
+// is created against its FINAL (aligned) planned_date rather than the pre-alignment date its own
+// per-version sweep initially picked. Direct SweepVersion/SweepVersionWithSession callers do not
+// need to call this: they already finalize fully inline.
+func (s *SweeperService) FinalizePlannedBatches(ctx context.Context, tenantID, versionID string, cfg SweepConfig) error {
+	return s.finalizePlannedBatches(ctx, tenantID, versionID, cfg)
 }
 
 func (s *SweeperService) finalizePlannedBatchTasks(ctx context.Context, tenantID string, batches []domain.PlannedBatchFinalization, cfg SweepConfig) error {
@@ -841,8 +830,8 @@ func ExtractRuleVaccineIdentity(eligibilityJSON []byte) RuleVaccineIdentity {
 		return RuleVaccineIdentity{}
 	}
 	var vaccine struct {
-		Code              string `json:"code"`
-		CompatibilityGrp  string `json:"compatibility_group"`
+		Code             string `json:"code"`
+		CompatibilityGrp string `json:"compatibility_group"`
 	}
 	if err := json.Unmarshal(payload.Vaccine, &vaccine); err != nil {
 		return RuleVaccineIdentity{}
@@ -856,14 +845,23 @@ func ExtractRuleVaccineIdentity(eligibilityJSON []byte) RuleVaccineIdentity {
 }
 
 // getRuleVaccineIdentity returns the vaccine identity for a rule, either from the cache
-// (RuleVaccineIDs) or by extracting it on demand. Handles non-matrix rules gracefully.
+// (RuleVaccineIDs) or by falling back to the version-level identity. Handles non-matrix rules
+// gracefully.
+//
+// R2-05(a) fix: RuleVaccineIDs must only ever hold COMPLETE identities (see buildSweepConfig's
+// caching contract) -- a cached-but-EMPTY entry (VaccineCode == "", e.g. a rule whose
+// eligibility_json carried no vaccine, or a matrix extraction failure) is treated as a cache MISS
+// here too, so a legacy non-matrix rule always falls through to the version-level identity
+// instead of comparing/priority-ranking as a blank-code, zero-priority vaccine that silently
+// defeats cap/tie detection for every other vaccine it happens to compete with.
 func (cfg SweepConfig) getRuleVaccineIdentity(ruleID string) RuleVaccineIdentity {
-	if id, ok := cfg.RuleVaccineIDs[ruleID]; ok {
+	if id, ok := cfg.RuleVaccineIDs[ruleID]; ok && id.VaccineCode != "" {
 		return id
 	}
-	// Fallback: return the version-level identity (for non-matrix or missing cache entries).
-	// In a properly initialized SweepConfig, RuleVaccineIDs is populated for all matrix rules,
-	// so this fallback is only for legacy non-matrix rules or initialization gaps.
+	// Fallback: return the version-level identity (for non-matrix rules, missing cache entries,
+	// or a cached-empty entry). In a properly initialized SweepConfig, RuleVaccineIDs holds a
+	// complete identity for every matrix rule, so this fallback is only for legacy non-matrix
+	// rules or initialization gaps.
 	return RuleVaccineIdentity{
 		VaccineCode:     cfg.VaccineCode,
 		VaccinePriority: normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode).VaccinePriority,

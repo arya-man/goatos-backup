@@ -146,13 +146,19 @@ type ComboDriveBatch struct {
 }
 
 // ComboBatchCursor is a keyset pagination cursor for ListPlannedComboBatchesKeyset.
-// Matches the query's ORDER BY clause: (scope_type, scope_id, session, planned_date, batch_id).
+// Matches the query's ORDER BY clause: (scope_type, scope_id, session, batch_id).
+//
+// R2-06 fix: planned_date was REMOVED from both the cursor and the ORDER BY. AlignComboDrives
+// itself mutates planned_date (via UpdateBatchPlannedDate) mid-pagination, so keying the cursor on
+// a column the same loop writes let an aligned row's sort position shift between page reads,
+// letting a later page skip or re-read a row that crossed the cursor boundary. The cursor now keys
+// ONLY on columns AlignComboDrives never mutates, so a row's position in keyset order is stable for
+// the lifetime of the pagination loop.
 type ComboBatchCursor struct {
-	ScopeType   string
-	ScopeID     string
-	Session     string
-	PlannedDate *time.Time
-	BatchID     string
+	ScopeType string
+	ScopeID   string
+	Session   string
+	BatchID   string
 }
 
 // ParkConsolidationSettings controls the second-pass park drive planner (after shed batching).

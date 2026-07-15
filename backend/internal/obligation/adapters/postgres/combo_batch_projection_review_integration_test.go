@@ -4,13 +4,17 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
 // Adversarial regression tests for the combo-batch aggregate projection
@@ -172,15 +176,33 @@ func TestListPlannedComboBatchesMultiPageKeysetCoversAll(t *testing.T) {
 	defer pool.Close()
 
 	_ = seed(t, ctx, pool)
-	versionID := mustVersionOf(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
+	proto := protopg.NewRepository(pool, 5*time.Second)
 
 	// Five combo batches in ONE scope+session group (park/cbePark/combo:FMD+HS), on ascending
 	// planned dates. With page size 2 they span three pages, so the group straddles two page
-	// boundaries: a naive single-page read would drop the tail.
+	// boundaries: a naive single-page read would drop the tail. Each batch belongs to its OWN
+	// protocol version -- mirroring the real production shape, where every combo-session batch
+	// comes from a DIFFERENT swept protocol version/vaccine -- so aligning several of them onto the
+	// same target date does not collide with obligation_batches_unfinalized_planned_unique_idx
+	// (keyed in part on protocol_version_id).
 	base := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	want := make([]string, 0, 5)
 	for i := 0; i < 5; i++ {
+		protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+			TenantID: tenantID, Code: "vaccination.combo.multipage.v" + strconv.Itoa(i), Name: "ComboMultiPage",
+			Category: "vaccination", Status: "draft",
+		})
+		if err != nil {
+			t.Fatalf("definition %d: %v", i, err)
+		}
+		versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+			TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+			EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+		})
+		if err != nil {
+			t.Fatalf("version %d: %v", i, err)
+		}
 		id := mkPlannedComboBatch(t, ctx, repo, versionID, "park", cbePark, "combo:FMD+HS", base.AddDate(0, 0, i))
 		want = append(want, id)
 	}
@@ -217,11 +239,10 @@ func TestListPlannedComboBatchesMultiPageKeysetCoversAll(t *testing.T) {
 		}
 		last := page[len(page)-1]
 		after = &domain.ComboBatchCursor{
-			ScopeType:   last.ScopeType,
-			ScopeID:     last.ScopeID,
-			Session:     last.Session,
-			PlannedDate: last.PlannedDate,
-			BatchID:     last.BatchID,
+			ScopeType: last.ScopeType,
+			ScopeID:   last.ScopeID,
+			Session:   last.Session,
+			BatchID:   last.BatchID,
 		}
 		pages++
 		if pages > 100 {
@@ -246,6 +267,44 @@ func TestListPlannedComboBatchesMultiPageKeysetCoversAll(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("keyset covered %#v, want %#v (boundary-straddling group aligned whole)", got, want)
 		}
+	}
+
+	// R2-06 guard: a raw keyset read recovering every row is necessary but not sufficient -- the
+	// caller (AlignComboDrives) must also ASSEMBLE a group that straddles a page boundary as one
+	// whole before aligning it, not align page-local fragments each too small to see the rest of
+	// their own group. Run the real sweeper's AlignComboDrives over this same 5-row/1-group fixture
+	// with the page size still forced to 2, and assert the group converges to exactly ONE final
+	// planned_date across all 5 batches -- proving the fix assembles the whole group across all
+	// three pages instead of aligning (or silently skipping) page-sized fragments.
+	sweep := oblapp.NewSweeperService(repo, nil, nil)
+	sweep.SetPageSize(2)
+	if _, err := sweep.AlignComboDrives(ctx, tenantID, 30, dueBefore, 0, oblapp.NewSweepSession()); err != nil {
+		t.Fatalf("AlignComboDrives: %v", err)
+	}
+
+	rows, err := pool.Query(ctx, `
+SELECT DISTINCT planned_date FROM obligation_batches WHERE tenant_id=$1 AND batch_id = ANY($2::uuid[])`,
+		tenantID, want)
+	if err != nil {
+		t.Fatalf("query final planned dates: %v", err)
+	}
+	defer rows.Close()
+	var finalDates []time.Time
+	for rows.Next() {
+		var d time.Time
+		if err := rows.Scan(&d); err != nil {
+			t.Fatalf("scan final planned date: %v", err)
+		}
+		finalDates = append(finalDates, d)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate final planned dates: %v", err)
+	}
+	if len(finalDates) != 1 {
+		t.Fatalf("distinct planned_date values across the group after alignment = %d (%v), want exactly 1 -- a group spanning >1 page must still be aligned as a whole", len(finalDates), finalDates)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE tenant_id=$1 AND batch_id = ANY($2::uuid[])`, tenantID, want); got != 5 {
+		t.Fatalf("batch row count after alignment = %d, want still 5 (no row skipped or duplicated)", got)
 	}
 }
 

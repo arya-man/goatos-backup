@@ -1998,7 +1998,9 @@ LIMIT $3`, tenant, pgconv.Date(&dueDay), limit)
 }
 
 // ListPlannedComboBatchesKeyset pages through combo batches using keyset pagination.
-// Cursor is keyset-based using (scope_type, scope_id, session, planned_date, batch_id).
+// Cursor is keyset-based using (scope_type, scope_id, session, batch_id) -- see R2-06 fix note on
+// domain.ComboBatchCursor for why planned_date was deliberately dropped from both the cursor and
+// the ORDER BY (AlignComboDrives mutates planned_date mid-pagination via UpdateBatchPlannedDate).
 // after == nil starts from the beginning.
 func (r *Repository) ListPlannedComboBatchesKeyset(ctx context.Context, tenantID string, dueBefore time.Time, after *domain.ComboBatchCursor, limit int32) ([]domain.ComboDriveBatch, error) {
 	ctx, cancel := r.withTimeout(ctx)
@@ -2026,15 +2028,14 @@ func (r *Repository) ListPlannedComboBatchesKeyset(ctx context.Context, tenantID
 
 	if after != nil {
 		// Keyset cursor: continue after the last row from the previous page.
-		// For tuples (a, b, c, d, e) ordered ASC, we want:
-		// (scope_type, scope_id, session, planned_date, batch_id) > (cursor.scope_type, cursor.scope_id, cursor.session, cursor.planned_date, cursor.batch_id)
+		// For tuples (a, b, c, d) ordered ASC, we want:
+		// (scope_type, scope_id, session, batch_id) > (cursor.scope_type, cursor.scope_id, cursor.session, cursor.batch_id)
 		// This expands to: (a > a') OR (a = a' AND b > b') OR (a = a' AND b = b' AND c > c') OR ...
-		// NULL planned_date maps to 'infinity' so it sorts LAST, matching the ORDER BY
-		// b.planned_date ASC default (NULLS LAST). 'infinity' is a valid Postgres date
-		// literal; a year-zero sentinel like '0000-01-01' is NOT and would error at plan time.
+		// batch_id (a UUID primary key) is the final, always-unique tiebreak, so the cursor needs no
+		// mutable column at all to guarantee a strictly-advancing, gap-free page boundary.
 		whereClause += `
-  AND (b.scope_type, b.scope_id, b.session, COALESCE(b.planned_date, 'infinity'::date), b.batch_id) >
-      ($` + strconv.Itoa(argIdx) + `, $` + strconv.Itoa(argIdx+1) + `, $` + strconv.Itoa(argIdx+2) + `, COALESCE($` + strconv.Itoa(argIdx+3) + `::date, 'infinity'::date), $` + strconv.Itoa(argIdx+4) + `)`
+  AND (b.scope_type, b.scope_id, b.session, b.batch_id) >
+      ($` + strconv.Itoa(argIdx) + `, $` + strconv.Itoa(argIdx+1) + `, $` + strconv.Itoa(argIdx+2) + `, $` + strconv.Itoa(argIdx+3) + `)`
 
 		batchID, err := pgconv.UUID(after.BatchID)
 		if err != nil {
@@ -2044,14 +2045,13 @@ func (r *Repository) ListPlannedComboBatchesKeyset(ctx context.Context, tenantID
 			pgconv.Text(after.ScopeType),
 			pgconv.Text(after.ScopeID),
 			pgconv.Text(after.Session),
-			pgconv.Date(after.PlannedDate),
 			batchID,
 		)
-		argIdx += 5
+		argIdx += 4
 	}
 
 	query := `
--- projection-review: membership=planned combo:% batches with sop_task_id IS NULL and no stock_reservation context, plus their obligation_instances target_ids via the LATERAL array_agg(DISTINCT target_id); group_key=batch_id (one row per batch); join_cardinality=LATERAL pre-aggregates the 1:N obligation_instances so the outer grain stays one-row-per-batch with no JOIN fan-out; pagination=keyset over (scope_type,scope_id,session,planned_date,batch_id) matching ORDER BY, cursor tuple > last row, so groups are contiguous and never split across pages; scope=batch scope_type/scope_id (park or shed)
+-- projection-review: membership=planned combo:% batches with sop_task_id IS NULL and no stock_reservation context, plus their obligation_instances target_ids via the LATERAL array_agg(DISTINCT target_id); group_key=batch_id (one row per batch); join_cardinality=LATERAL pre-aggregates the 1:N obligation_instances so the outer grain stays one-row-per-batch with no JOIN fan-out; pagination=keyset over IMMUTABLE (scope_type,scope_id,session,batch_id) matching ORDER BY, cursor tuple > last row -- planned_date is deliberately excluded from both the cursor and ORDER BY because AlignComboDrives mutates it mid-pagination (R2-06); a (scope_type,scope_id,session) group is contiguous in this order but MAY span more than one page, so the caller must assemble the full group across page boundaries rather than assume one page always holds it whole; scope=batch scope_type/scope_id (park or shed)
 SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
@@ -2067,7 +2067,7 @@ LEFT JOIN LATERAL (
       AND o.batch_id = b.batch_id
 ) oi ON true
 ` + whereClause + `
-ORDER BY b.scope_type, b.scope_id, b.session, b.planned_date, b.batch_id
+ORDER BY b.scope_type, b.scope_id, b.session, b.batch_id
 LIMIT $` + strconv.Itoa(argIdx)
 
 	args = append(args, limit)

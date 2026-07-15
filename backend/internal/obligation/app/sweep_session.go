@@ -220,9 +220,21 @@ func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDa
 	return selected, nil
 }
 
+// ruleVaccineIdentityResolver resolves a park-consolidation candidate's OWN rule to its vaccine
+// identity. Park-merge groups are formed by (parkID, species/stage) ONLY -- never by rule -- so a
+// single merge candidate set routinely mixes obligations from several DIFFERENT matrix rules/
+// vaccines (see R2-05(b)). Passing cfg.getRuleVaccineIdentity as this resolver lets the cap/tie
+// selector below compare each row against its OWN real vaccine code/priority instead of one
+// version-level wrapper shared by every row.
+type ruleVaccineIdentityResolver = func(ruleID string) RuleVaccineIdentity
+
 // selectParkIDsWithinVisitShotCapForSession is the park-consolidation sibling of
-// selectIDsWithinVisitShotCapForSession (see its docs).
-func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, vaccineCode string, priority int32, session *SweepSession) ([]string, error) {
+// selectIDsWithinVisitShotCapForSession (see its docs). Unlike the shed-batching sibling -- where
+// every row in one dueGroup already shares the same rule -- a park-merge candidate set can span
+// several rules/vaccines at once, so the caller supplies identityFor to resolve each row's OWN
+// vaccine identity (R2-05(b) fix) instead of a single vaccineCode/priority pair applied to every
+// row.
+func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, identityFor ruleVaccineIdentityResolver, session *SweepSession) ([]string, error) {
 	if maxShots <= 0 || plannedDate == nil || len(selected) == 0 {
 		return selected, nil
 	}
@@ -239,14 +251,15 @@ func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCa
 			out = append(out, row.ObligationID)
 			continue
 		}
+		identity := identityFor(row.RuleID)
 		key := visitShotCountKey(*plannedDate, row.TargetID)
 		if session.visitShotCounts[key] >= maxShots {
-			if err := session.rejectOrTie(key, vaccineCode, priority, row.TargetID, *plannedDate); err != nil {
+			if err := session.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, *plannedDate); err != nil {
 				return nil, err
 			}
 			continue
 		}
-		session.claim(key, vaccineCode, priority)
+		session.claim(key, identity.VaccineCode, identity.VaccinePriority)
 		out = append(out, row.ObligationID)
 	}
 	return out, nil

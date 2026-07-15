@@ -152,9 +152,14 @@ func run(args []string) error {
 		}
 
 		session := obligationapp.NewSweepSession()
+		// R2-04 fix: use SweepVersionWithSessionNoFinalize so AlignComboDrives (below) runs BEFORE any
+		// stock is reserved or SOP task is created. Finalizing a combo batch on its pre-alignment
+		// planned_date would permanently exclude it from AlignComboDrives' candidate query
+		// (sop_task_id IS NULL AND NOT context ? 'stock_reservation'), so this one-shot used to have
+		// the same defect the kernel stage's ObligationSweeperStage.Run fixes.
 		for _, plan := range plans {
 			sweepStart := time.Now()
-			result, err := sweeper.SweepVersionWithSession(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.DueBefore, session)
+			result, err := sweeper.SweepVersionWithSessionNoFinalize(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.DueBefore, session)
 			// tasksCreated approximates 1 SOP batch task per obligation batch -
 			// obligationapp.SweepResult does not return a distinct
 			// tasks-created count, and batches are only task-bearing when a
@@ -177,6 +182,13 @@ func run(args []string) error {
 		}
 		if aligned > 0 {
 			fmt.Printf("combo drive dates aligned=%d\n", aligned)
+		}
+		// Finalize stock reservation + SOP-task creation for every swept version now that alignment
+		// has settled each planned batch's final date.
+		for _, plan := range plans {
+			if err := sweeper.FinalizePlannedBatches(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
+				return fmt.Errorf("finalize batches version %s: %w", plan.VersionID, err)
+			}
 		}
 	}
 	if cfg.MarkMissed {

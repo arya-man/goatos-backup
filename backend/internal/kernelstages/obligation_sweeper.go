@@ -218,7 +218,10 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 	}
 
 	session := obligationapp.NewSweepSession()
-	// BUG #6: use SweepVersionWithSessionNoFinalize so AlignComboDrives can run before SOP-task finalization.
+	// BUG #6 / R2-04: use SweepVersionWithSessionNoFinalize so AlignComboDrives can run BEFORE any
+	// stock is reserved or SOP task is created -- reserving/tasking a combo batch on its
+	// pre-alignment planned_date would permanently exclude it from the alignment candidate query
+	// (sop_task_id IS NULL AND NOT context ? 'stock_reservation').
 	for _, plan := range plans {
 		result, err := s.sweeper.SweepVersionWithSessionNoFinalize(ctx, cfg.TenantID, plan.VersionID, plan.Config, dueBefore, session)
 		if err != nil {
@@ -234,17 +237,18 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 			)
 		}
 	}
-	// VAX-REV-04 (BUG #6): align combo drives BEFORE SOP-task finalization, so AlignComboDrives can find
-	// and move batches with sop_task_id IS NULL. After alignment, finalize SOP tasks for all swept versions.
+	// VAX-REV-04 (BUG #6 / R2-04): align combo drives BEFORE any finalization, so AlignComboDrives can
+	// find and move every still-planned combo batch (fresh or retry). After alignment, finalize BOTH
+	// stock reservation and SOP-task creation for all swept versions in one pass, against each
+	// batch's FINAL (aligned) planned_date.
 	if len(plans) > 0 {
 		defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
 		if _, err := s.sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, dueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session); err != nil {
 			return fmt.Errorf("align combo drives: %w", err)
 		}
-		// Now finalize SOP tasks for all versions swept (batches have already had stock reserved in sweepVersion).
 		for _, plan := range plans {
-			if err := s.sweeper.FinalizePlannedBatchesTasksOnly(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
-				return fmt.Errorf("finalize batch tasks version %s: %w", plan.VersionID, err)
+			if err := s.sweeper.FinalizePlannedBatches(ctx, cfg.TenantID, plan.VersionID, plan.Config); err != nil {
+				return fmt.Errorf("finalize batches version %s: %w", plan.VersionID, err)
 			}
 		}
 	}
@@ -308,13 +312,20 @@ func (s *ObligationSweeperStage) buildSweepConfig(ctx context.Context, cfg Sweep
 	if err != nil {
 		return obligationapp.SweepConfig{}, err
 	}
-	// BUG #1 fix: populate per-rule vaccine identity from rule eligibility_json (populated at publish
-	// time from matrix_rows). Used to thread vaccine code/priority through cap/tie detection.
+	// BUG #1 / R2-05(a) fix: populate per-rule vaccine identity from rule eligibility_json (populated
+	// at publish time from matrix_rows). Used to thread vaccine code/priority through cap/tie
+	// detection. Only a COMPLETE identity (non-empty VaccineCode) is cached: a rule whose
+	// eligibility_json carries no vaccine (legacy non-matrix rule) or whose extraction fails must be
+	// left OUT of the map entirely, so SweepConfig.getRuleVaccineIdentity's cache-miss fallback
+	// resolves it to the version-level identity instead of comparing/tie-checking as a blank-code,
+	// zero-priority vaccine.
 	out.RuleVaccineIDs = make(map[string]obligationapp.RuleVaccineIdentity, len(rules))
 	for _, rule := range rules {
 		// Extract vaccine identity from rule's eligibility_json (contains matrix row vaccine metadata).
 		ruleVaccineID := obligationapp.ExtractRuleVaccineIdentity(rule.EligibilityJSON)
-		out.RuleVaccineIDs[rule.RuleID] = ruleVaccineID
+		if ruleVaccineID.VaccineCode != "" {
+			out.RuleVaccineIDs[rule.RuleID] = ruleVaccineID
+		}
 
 		ruleSOP := strings.TrimSpace(rule.SopVersionID)
 		if ruleSOP == "" || ruleSOP == versionSOP {

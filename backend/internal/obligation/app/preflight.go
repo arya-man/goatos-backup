@@ -223,7 +223,10 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 		return remaining, true, err
 	}
-	selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+	// R2-05(b): mirror parkMergeStep's real per-rule identity resolution (not the version-level
+	// wrapper) so this write-free replay cannot disagree with the real merge decision it exists to
+	// preview.
+	selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 	if err != nil {
 		return remaining, true, err
 	}
@@ -234,7 +237,7 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 				return remaining, true, err
 			}
-			selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.VaccineCode, planner.VaccinePriority, session)
+			selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 			if err != nil {
 				return remaining, true, err
 			}
