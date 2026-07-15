@@ -92,6 +92,13 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" || strings.TrimSpace(string(raw)) == "null" {
 		return domain.PublishedCapacity{}, false, nil
 	}
+	// Decode into a key map first so we can tell a genuinely-ABSENT field (default applies)
+	// apart from a field that is PRESENT but blank/null (must be rejected per the
+	// validate-or-reject rule). A plain string field cannot make that distinction.
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity must be a JSON object: %v", ErrInvalidRuleDSL, err)
+	}
 	var body struct {
 		MaxPerDay      *int   `json:"max_per_day"`
 		MaxBufferDays  *int   `json:"max_buffer_days"`
@@ -101,11 +108,35 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity must be a JSON object: %v", ErrInvalidRuleDSL, err)
 	}
+	// parsePresentString returns the trimmed value of a string field that is PRESENT in the
+	// authored JSON, rejecting a present null/""/whitespace value; when the key is ABSENT it
+	// returns the provided default so genuinely-omitted fields still fall back safely.
+	parsePresentString := func(field, def, decoded string) (string, error) {
+		rawVal, present := keys[field]
+		if !present {
+			return def, nil
+		}
+		if strings.TrimSpace(string(rawVal)) == "null" {
+			return "", fmt.Errorf("%w: rule_dsl.capacity.%s must not be null", ErrInvalidRuleDSL, field)
+		}
+		if strings.TrimSpace(decoded) == "" {
+			return "", fmt.Errorf("%w: rule_dsl.capacity.%s must not be blank", ErrInvalidRuleDSL, field)
+		}
+		return strings.TrimSpace(decoded), nil
+	}
+	capacityScope, err := parsePresentString("capacity_scope", "tenant", body.CapacityScope)
+	if err != nil {
+		return domain.PublishedCapacity{}, false, err
+	}
+	overflowPolicy, err := parsePresentString("overflow_policy", "split_within_safe_window_then_mark_needs_review", body.OverflowPolicy)
+	if err != nil {
+		return domain.PublishedCapacity{}, false, err
+	}
 	out := domain.PublishedCapacity{
 		MaxPerDay:      100,
 		MaxBufferDays:  defaultMaxBufferDays,
-		CapacityScope:  strings.TrimSpace(body.CapacityScope),
-		OverflowPolicy: strings.TrimSpace(body.OverflowPolicy),
+		CapacityScope:  capacityScope,
+		OverflowPolicy: overflowPolicy,
 	}
 	if body.MaxPerDay != nil {
 		if *body.MaxPerDay < 1 {
@@ -118,12 +149,6 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 			return domain.PublishedCapacity{}, false, fmt.Errorf("%w: rule_dsl.capacity.max_buffer_days must be >= 0, got %d", ErrInvalidRuleDSL, *body.MaxBufferDays)
 		}
 		out.MaxBufferDays = *body.MaxBufferDays
-	}
-	if out.CapacityScope == "" {
-		out.CapacityScope = "tenant"
-	}
-	if out.OverflowPolicy == "" {
-		out.OverflowPolicy = "split_within_safe_window_then_mark_needs_review"
 	}
 	return out, true, nil
 }
@@ -700,22 +725,37 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 		return fmt.Errorf("%w: vaccine.type required for vaccination matrix", ErrNotPublishable)
 	}
 	// For the wrapper vaccine, "matrix" is allowed; for individual vaccines it is not.
-	// isVaccinationMatrixRuleset() will tell us later if this is the matrix wrapper.
-	// For now, validate that if it's not "matrix", it must be one of the valid immunological types.
-	if err := validateVaccineType(env.Vaccine.Type, "rule_dsl.vaccine", strings.ToLower(strings.TrimSpace(env.Vaccine.Type)) == "matrix" || env.Vaccine.Code == "vaccination.matrix"); err != nil {
+	// Only the vaccination.matrix wrapper (type:"matrix" or code:"vaccination.matrix") may omit
+	// pathogen_class/course_type — every individual vaccine must declare full immunological metadata
+	// because the vaccination generator's classifier fails-closed on unknown type/pathogen_class
+	// (see internal/vaccination/app/compatibility.go); missing metadata must be rejected upstream here,
+	// never silently inferred.
+	isMatrixWrapper := strings.ToLower(strings.TrimSpace(env.Vaccine.Type)) == "matrix" ||
+		strings.EqualFold(strings.TrimSpace(env.Vaccine.Code), "vaccination.matrix")
+	if err := validateVaccineType(env.Vaccine.Type, "rule_dsl.vaccine", isMatrixWrapper); err != nil {
 		return err
 	}
 	if err := rejectVaccineTypeValueInPathogenClass(env.Vaccine.PathogenClass, "rule_dsl.vaccine.pathogen_class"); err != nil {
 		return err
 	}
-	// Validate pathogen_class only if it's present (matrix wrapper may not have it)
-	if strings.TrimSpace(env.Vaccine.PathogenClass) != "" {
+	if isMatrixWrapper {
+		// The matrix wrapper carries per-row vaccine metadata instead; class/course may be omitted here,
+		// but if present they must still be valid.
+		if strings.TrimSpace(env.Vaccine.PathogenClass) != "" {
+			if err := validatePathogenClass(env.Vaccine.PathogenClass, "rule_dsl.vaccine"); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(env.Vaccine.CourseType) != "" {
+			if err := validateCourseType(env.Vaccine.CourseType, "rule_dsl.vaccine"); err != nil {
+				return err
+			}
+		}
+	} else {
+		// Individual (non-wrapper) vaccine: type, pathogen_class and course_type are all mandatory.
 		if err := validatePathogenClass(env.Vaccine.PathogenClass, "rule_dsl.vaccine"); err != nil {
 			return err
 		}
-	}
-	// Validate course_type only if it's present
-	if strings.TrimSpace(env.Vaccine.CourseType) != "" {
 		if err := validateCourseType(env.Vaccine.CourseType, "rule_dsl.vaccine"); err != nil {
 			return err
 		}
@@ -786,23 +826,19 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 			if err := rejectVaccineTypeValueInPathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine.pathogen_class", idx)); err != nil {
 				return err
 			}
-			// Validate vaccine type (must be live, killed, or toxoid; never "matrix" for individual vaccines)
-			if strings.TrimSpace(rowVaccine.Type) != "" {
-				if err := validateVaccineType(rowVaccine.Type, fmt.Sprintf("matrix_rows[%d].vaccine", idx), false); err != nil {
-					return err
-				}
+			// Every matrix row vaccine is an individual (non-wrapper) product, so type,
+			// pathogen_class and course_type are all mandatory. Missing metadata must be rejected
+			// here — the vaccination generator classifies unknown type/pathogen_class as fail-closed
+			// (compatibility.go), so it must never be silently inferred at publish time.
+			// vaccine type must be live, killed, or toxoid; never "matrix" for individual vaccines.
+			if err := validateVaccineType(rowVaccine.Type, fmt.Sprintf("matrix_rows[%d].vaccine", idx), false); err != nil {
+				return err
 			}
-			// Validate pathogen class (required for individual vaccines)
-			if strings.TrimSpace(rowVaccine.PathogenClass) != "" {
-				if err := validatePathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
-					return err
-				}
+			if err := validatePathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
+				return err
 			}
-			// Validate course type (required for individual vaccines)
-			if strings.TrimSpace(rowVaccine.CourseType) != "" {
-				if err := validateCourseType(rowVaccine.CourseType, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
-					return err
-				}
+			if err := validateCourseType(rowVaccine.CourseType, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
+				return err
 			}
 		}
 	}

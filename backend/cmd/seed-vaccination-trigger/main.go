@@ -12,6 +12,9 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
+	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	protocolapp "github.com/vgoats/goatos/backend/internal/protocol/app"
+	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
 const (
@@ -23,11 +26,8 @@ const (
 	localStockID      = "00000000-0000-4000-8000-00000000b002"
 	localProtocolID   = "00000000-0000-4000-8000-00000000b010"
 	localVersionID    = "00000000-0000-4000-8000-00000000b011"
-	localRuleID       = "00000000-0000-4000-8000-00000000b012"
 	localV1ProtocolID = "00000000-0000-4000-8000-00000000b050"
 	localV1VersionID  = "00000000-0000-4000-8000-00000000b051"
-	localV1PrimaryID  = "00000000-0000-4000-8000-00000000b052"
-	localV1BoosterID  = "00000000-0000-4000-8000-00000000b053"
 	localOperatorID   = "00000000-0000-4000-8000-00000000b071"
 	localParkHeadID   = "00000000-0000-4000-8000-00000000b072"
 	localVerifierID   = "00000000-0000-4000-8000-00000000b073"
@@ -37,6 +37,60 @@ const (
 	localStageK2ID    = "00000000-0000-4000-8000-00000000b032"
 	localStageK3ID    = "00000000-0000-4000-8000-00000000b033"
 )
+
+// The seed's protocol rule_dsl / proof_policy literals live here as single-source constants so the
+// same JSON that is inserted into the draft protocol_versions row is also fed through
+// protocolapp.ValidateRuleDSL + ValidateExecutionContract before publish. This guarantees the seed can
+// only publish JSON that satisfies the real publish contract (no drift), and it is published through
+// the protocol service so the canonical publish transaction writes the audit log + emits the
+// protocol.version.published outbox message that vaccination generation consumes — rather than a raw
+// SQL status flip that bypasses validation, audit and outbox.
+const (
+	retiredRuleDSL     = `{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"killed","pathogen_class":"bacterial","course_type":"booster","inventory_item_id":"00000000-0000-4000-8000-00000000b001","manufacturer":"Mesha matrix dev baseline","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"schedule":[{"dose_code":"ET_TT_4W","trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":0,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}]}`
+	retiredProofPolicy = `{"required_proofs":["shed","vial_lot","administration"],"seed":"vaccination-matrix-dev-baseline"}`
+
+	v1RuleDSL     = `{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"killed","pathogen_class":"bacterial","course_type":"booster","inventory_item_id":"00000000-0000-4000-8000-00000000b001","manufacturer":"Mesha matrix dev baseline","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"missed_dose_policy":"pc_approval","schedule":[{"dose_code":"ET_TT_4W","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":0,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}},{"dose_code":"ET_TT_7W","sequence":2,"trigger_type":"after_previous_completion","offset_days":21,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":21,"repeat":"none","catch_up":"pc_approval","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}]}`
+	v1ProofPolicy = `{"required_proofs":["shed","vial_lot","administration"],"seed":"vaccination-v1-matrix-proof-baseline"}`
+)
+
+// seedProtocolVersion describes one draft protocol version the seed inserts and then publishes through
+// the protocol service. finalStatus is the state the version should end in ("published" or "retired");
+// a retired fixture is published (so audit + outbox happen) and then retired.
+type seedProtocolVersion struct {
+	protocolID  string
+	versionID   string
+	ruleDSL     string
+	proofPolicy string
+	finalStatus string
+}
+
+func seedProtocolVersions() []seedProtocolVersion {
+	return []seedProtocolVersion{
+		{protocolID: localProtocolID, versionID: localVersionID, ruleDSL: retiredRuleDSL, proofPolicy: retiredProofPolicy, finalStatus: "retired"},
+		{protocolID: localV1ProtocolID, versionID: localV1VersionID, ruleDSL: v1RuleDSL, proofPolicy: v1ProofPolicy, finalStatus: "published"},
+	}
+}
+
+// validateSeedProtocolVersions runs the real publish-time validators against every seed protocol
+// version JSON. It is called before any insert so drift between the seed literals and the publish
+// contract fails fast (and is exercised by unit tests without a database).
+func validateSeedProtocolVersions() error {
+	for _, sv := range seedProtocolVersions() {
+		if err := protocolapp.ValidateRuleDSL([]byte(sv.ruleDSL)); err != nil {
+			return fmt.Errorf("seed-vaccination-trigger: version %s rule_dsl invalid: %w", sv.versionID, err)
+		}
+		v := protocoldomain.Version{
+			Category:     "vaccination",
+			SopVersionID: localSOPVersionID,
+			ProofPolicy:  []byte(sv.proofPolicy),
+			RuleDsl:      []byte(sv.ruleDSL),
+		}
+		if err := protocolapp.ValidateExecutionContract(v); err != nil {
+			return fmt.Errorf("seed-vaccination-trigger: version %s execution contract invalid: %w", sv.versionID, err)
+		}
+	}
+	return nil
+}
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -50,6 +104,12 @@ func run(args []string) error {
 	tenantID := fs.String("tenant-id", getenv("GOATOS_TENANT_ID", defaultTenantID), "tenant id")
 	timeout := fs.Duration("timeout", 30*time.Second, "seed timeout")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	// Fail fast (and without a database) if the seed's rule_dsl / proof_policy literals drift out of
+	// sync with the real publish contract.
+	if err := validateSeedProtocolVersions(); err != nil {
 		return err
 	}
 
@@ -68,9 +128,80 @@ func run(args []string) error {
 	if err := execSeedSQL(ctx, pool, seedSQL, *tenantID); err != nil {
 		return err
 	}
+
+	// Publish each draft protocol version through the protocol service so validation runs and the
+	// canonical publish transaction writes the audit log + emits the protocol.version.published outbox
+	// message. Derived protocol_rules are regenerated by the publish path — the seed never hand-inserts
+	// them. A "retired" fixture is published first (so audit + outbox fire) and then retired.
+	protocolService := protocolapp.NewService(protocolpg.NewRepository(pool, pgCfg.QueryTimeout))
+	for _, sv := range seedProtocolVersions() {
+		if err := insertDraftProtocolVersion(ctx, pool, *tenantID, sv); err != nil {
+			return fmt.Errorf("seed draft protocol version %s: %w", sv.versionID, err)
+		}
+		if err := protocolService.PublishVersion(ctx, *tenantID, sv.versionID, nil, "seed-vaccination-trigger:"+sv.versionID); err != nil {
+			return fmt.Errorf("publish protocol version %s through protocol service: %w", sv.versionID, err)
+		}
+		if sv.finalStatus == "retired" {
+			if err := retirePublishedSeedVersion(ctx, pool, *tenantID, sv.versionID); err != nil {
+				return fmt.Errorf("retire protocol version %s: %w", sv.versionID, err)
+			}
+		}
+	}
+
 	fmt.Printf("seeded vaccination trigger fixtures tenant=%s farm=%s park=%s shed=%s vaccine_item=%s retired_protocol_version=%s v1_protocol_version=%s\n",
 		*tenantID, localFarmID, localParkID, localShedID, localItemID, localVersionID, localV1VersionID)
 	return nil
+}
+
+// insertDraftProtocolVersion upserts the draft protocol_versions row for a seed version. The row is
+// only ever written/updated while it is still draft (ON CONFLICT ... WHERE status='draft'), so a
+// re-run never mutates an already-published or retired version. Publishing (with validation, audit and
+// outbox) is done separately through the protocol service.
+func insertDraftProtocolVersion(ctx context.Context, execer seedExecutor, tenantID string, sv seedProtocolVersion) error {
+	_, err := execer.Exec(ctx, `
+INSERT INTO protocol_versions (
+  protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
+  version_label, status, effective_from, effective_to, rule_dsl, proof_policy,
+  sop_version_id, published_at
+) VALUES (
+  $2::uuid, $1::uuid, $3::uuid, 'park', $4::uuid, 1,
+  $5, 'draft', DATE '2026-01-01', DATE '2028-01-01', $6::jsonb, $7::jsonb,
+  $8::uuid, NULL
+)
+ON CONFLICT (protocol_version_id) DO UPDATE
+SET version_label = EXCLUDED.version_label,
+    effective_from = EXCLUDED.effective_from,
+    effective_to = EXCLUDED.effective_to,
+    rule_dsl = EXCLUDED.rule_dsl,
+    proof_policy = EXCLUDED.proof_policy,
+    sop_version_id = EXCLUDED.sop_version_id,
+    updated_at = now()
+WHERE protocol_versions.status = 'draft'`,
+		tenantID, sv.versionID, sv.protocolID, localParkID, versionLabelFor(sv.versionID), sv.ruleDSL, sv.proofPolicy, localSOPVersionID)
+	return err
+}
+
+func versionLabelFor(versionID string) string {
+	if versionID == localVersionID {
+		return "Retired matrix dev baseline"
+	}
+	return "V1 matrix proof baseline"
+}
+
+// retirePublishedSeedVersion transitions a just-published seed version to retired. There is no protocol
+// service retire method, so this is a scoped status flip guarded to only ever act on a published row
+// (idempotent across re-runs). It does not bypass publish validation/audit/outbox — the publish
+// already happened through the service just before this call.
+func retirePublishedSeedVersion(ctx context.Context, execer seedExecutor, tenantID, versionID string) error {
+	_, err := execer.Exec(ctx, `
+UPDATE protocol_versions
+SET status = 'retired',
+    retired_at = COALESCE(retired_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND protocol_version_id = $2::uuid
+  AND status = 'published'`, tenantID, versionID)
+	return err
 }
 
 type seedExecutor interface {
@@ -245,60 +376,11 @@ INSERT INTO protocol_definitions (
 	    status = 'active',
 	    updated_at = now();
 
-INSERT INTO protocol_versions (
-  protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-  version_label, status, effective_from, effective_to, rule_dsl, proof_policy,
-  sop_version_id, published_at
-	) VALUES (
-	  '` + localVersionID + `', $1::uuid, '` + localProtocolID + `', 'park', '` + localParkID + `', 1,
-	  'Retired matrix dev baseline', 'draft', DATE '2026-01-01', DATE '2028-01-01',
-	  '{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"killed","pathogen_class":"bacterial","course_type":"booster","inventory_item_id":"00000000-0000-4000-8000-00000000b001","manufacturer":"Mesha matrix dev baseline","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"schedule":[{"dose_code":"ET_TT_4W","trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":0,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}]}'::jsonb,
-	  '{"required_proofs":["shed","vial_lot","administration"],"seed":"vaccination-matrix-dev-baseline"}'::jsonb,
-	  '` + localSOPVersionID + `', NULL
-	)
-ON CONFLICT (protocol_version_id) DO UPDATE
-SET version_label = EXCLUDED.version_label,
-    effective_from = EXCLUDED.effective_from,
-    effective_to = EXCLUDED.effective_to,
-    rule_dsl = EXCLUDED.rule_dsl,
-    proof_policy = EXCLUDED.proof_policy,
-    sop_version_id = EXCLUDED.sop_version_id,
-    updated_at = now()
-WHERE protocol_versions.status = 'draft';
-
-INSERT INTO protocol_rules (
-  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
-  offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
-  sop_version_id, proof_policy, sort_order
-	)
-	SELECT
-	  '` + localRuleID + `'::uuid, $1::uuid, '` + localVersionID + `'::uuid, 'ET_TT_4W', 1, 'birth_age',
-	  28, 7, 0, 'none', 'immediate', '{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]}'::jsonb,
-	  '` + localSOPVersionID + `'::uuid, '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 10
-	WHERE EXISTS (
-	  SELECT 1
-	  FROM protocol_versions pv
-	  WHERE pv.tenant_id = $1::uuid
-	    AND pv.protocol_version_id = '` + localVersionID + `'
-	    AND pv.status = 'draft'
-	)
-	ON CONFLICT (rule_id) DO NOTHING;
-
-UPDATE protocol_versions
-SET status = 'published',
-    published_at = COALESCE(published_at, now()),
-    updated_at = now()
-WHERE tenant_id = $1::uuid
-  AND protocol_version_id = '` + localVersionID + `'
-  AND status = 'draft';
-
-UPDATE protocol_versions
-SET status = 'retired',
-    retired_at = COALESCE(retired_at, now()),
-    updated_at = now()
-WHERE tenant_id = $1::uuid
-  AND protocol_version_id = '` + localVersionID + `'
-  AND status = 'published';
+-- NOTE: protocol_versions rows, their derived protocol_rules, and the published/retired
+-- status transitions for these seed protocols are intentionally NOT in this SQL. They are
+-- inserted as drafts and then published through the protocol service (see run()) so that
+-- publish-time validation, the audit log, and the protocol.version.published outbox message
+-- all happen atomically. Only the protocol_definitions rows (needed as FK parents) live here.
 
 INSERT INTO protocol_definitions (
   protocol_id, tenant_id, code, name, category, status
@@ -311,70 +393,4 @@ SET code = EXCLUDED.code,
     status = 'active',
     updated_at = now();
 
-INSERT INTO protocol_versions (
-  protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version,
-  version_label, status, effective_from, effective_to, rule_dsl, proof_policy,
-  sop_version_id, published_at
-) VALUES (
-  '` + localV1VersionID + `', $1::uuid, '` + localV1ProtocolID + `', 'park', '` + localParkID + `', 1,
-  'V1 matrix proof baseline', 'draft', DATE '2026-01-01', DATE '2028-01-01',
-  '{"vaccine":{"code":"ET+TT","name":"ET+TT","type":"killed","pathogen_class":"bacterial","course_type":"booster","inventory_item_id":"00000000-0000-4000-8000-00000000b001","manufacturer":"Mesha matrix dev baseline","disease":"Enterotoxaemia + Tetanus","compatibility_group":"ET+TT"},"eligibility":{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]},"missed_dose_policy":"pc_approval","schedule":[{"dose_code":"ET_TT_4W","sequence":1,"trigger_type":"birth_age","offset_days":28,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":0,"repeat":"none","catch_up":"immediate","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}},{"dose_code":"ET_TT_7W","sequence":2,"trigger_type":"after_previous_completion","offset_days":21,"due_window_days":7,"dose_amount":2,"dose_unit":"ml","route_site":"subcutaneous","max_delay_days":7,"course_lapse_policy":"pc_review","min_gap_days":21,"repeat":"none","catch_up":"pc_approval","sop_label":"Vaccination SOP","proof_policy":{"required_proofs":["shed","vial_lot","administration"]}}]}'::jsonb,
-  '{"required_proofs":["shed","vial_lot","administration"],"seed":"vaccination-v1-matrix-proof-baseline"}'::jsonb,
-  '` + localSOPVersionID + `', NULL
-)
-ON CONFLICT (protocol_version_id) DO UPDATE
-SET version_label = EXCLUDED.version_label,
-    effective_from = EXCLUDED.effective_from,
-    effective_to = EXCLUDED.effective_to,
-    rule_dsl = EXCLUDED.rule_dsl,
-    proof_policy = EXCLUDED.proof_policy,
-    sop_version_id = EXCLUDED.sop_version_id,
-    updated_at = now()
-WHERE protocol_versions.status = 'draft';
-
-INSERT INTO protocol_rules (
-  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
-  offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
-  sop_version_id, proof_policy, sort_order
-)
-SELECT
-  '` + localV1PrimaryID + `'::uuid, $1::uuid, '` + localV1VersionID + `'::uuid, 'ET_TT_4W', 1, 'birth_age',
-  28, 7, 0, 'none', 'immediate',
-  '{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]}'::jsonb,
-  '` + localSOPVersionID + `'::uuid, '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 10
-WHERE EXISTS (
-  SELECT 1
-  FROM protocol_versions pv
-  WHERE pv.tenant_id = $1::uuid
-    AND pv.protocol_version_id = '` + localV1VersionID + `'
-    AND pv.status = 'draft'
-)
-ON CONFLICT (rule_id) DO NOTHING;
-
-INSERT INTO protocol_rules (
-  rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type,
-  offset_days, due_window_days, min_gap_days, repeat, catch_up, eligibility_json,
-  sop_version_id, proof_policy, sort_order
-)
-SELECT
-  '` + localV1BoosterID + `'::uuid, $1::uuid, '` + localV1VersionID + `'::uuid, 'ET_TT_7W', 2, 'after_previous_completion',
-  21, 7, 21, 'none', 'pc_approval',
-  '{"stage":"K2","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","exclude_reproductive_states":["pregnant","lactating"],"defer_states":["sick","under_treatment","quarantine","icu"]}'::jsonb,
-  '` + localSOPVersionID + `'::uuid, '{"required_proofs":["shed","vial_lot","administration"]}'::jsonb, 20
-WHERE EXISTS (
-  SELECT 1
-  FROM protocol_versions pv
-  WHERE pv.tenant_id = $1::uuid
-    AND pv.protocol_version_id = '` + localV1VersionID + `'
-    AND pv.status = 'draft'
-)
-ON CONFLICT (rule_id) DO NOTHING;
-
-UPDATE protocol_versions
-SET status = 'published',
-    published_at = COALESCE(published_at, now()),
-    updated_at = now()
-WHERE tenant_id = $1::uuid
-  AND protocol_version_id = '` + localV1VersionID + `'
-  AND status = 'draft';
 	`

@@ -102,6 +102,47 @@ func TestParseVersionedCapacityRejectsInvalid(t *testing.T) {
 	}
 }
 
+// TestParseVersionedCapacityRejectsBlankOrNullStrings proves that a capacity_scope / overflow_policy
+// key that is PRESENT but blank/whitespace/null is rejected (validate-or-reject), while genuinely
+// ABSENT keys still fall back to their business defaults. This distinguishes an absent field from a
+// present-but-empty one, which a plain string field cannot do.
+func TestParseVersionedCapacityRejectsBlankOrNullStrings(t *testing.T) {
+	reject := []struct {
+		name string
+		dsl  string
+	}{
+		{"blank capacity_scope", `{"max_per_day":50,"capacity_scope":" "}`},
+		{"empty capacity_scope", `{"max_per_day":50,"capacity_scope":""}`},
+		{"null capacity_scope", `{"max_per_day":50,"capacity_scope":null}`},
+		{"blank overflow_policy", `{"max_per_day":50,"overflow_policy":"   "}`},
+		{"empty overflow_policy", `{"max_per_day":50,"overflow_policy":""}`},
+		{"null overflow_policy", `{"max_per_day":50,"overflow_policy":null}`},
+	}
+	for _, tc := range reject {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := parseVersionedCapacity([]byte(tc.dsl)); !errors.Is(err, ErrInvalidRuleDSL) {
+				t.Fatalf("%s must be rejected with ErrInvalidRuleDSL, got %v", tc.name, err)
+			}
+		})
+	}
+	// Absent scope/policy keys still default and publish unchanged.
+	got, ok, err := parseVersionedCapacity([]byte(`{"max_per_day":50}`))
+	if err != nil || !ok {
+		t.Fatalf("absent scope/policy: want ok=true err=nil, got ok=%v err=%v", ok, err)
+	}
+	if got.CapacityScope != "tenant" || got.OverflowPolicy != "split_within_safe_window_then_mark_needs_review" {
+		t.Fatalf("absent scope/policy must default, got %+v", got)
+	}
+	// A present, non-blank value is accepted and trimmed.
+	got, ok, err = parseVersionedCapacity([]byte(`{"max_per_day":50,"capacity_scope":" park ","overflow_policy":"reject"}`))
+	if err != nil || !ok {
+		t.Fatalf("present scope/policy: ok=%v err=%v", ok, err)
+	}
+	if got.CapacityScope != "park" || got.OverflowPolicy != "reject" {
+		t.Fatalf("present scope/policy not applied/trimmed: %+v", got)
+	}
+}
+
 func TestValidatePublishable(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -1256,5 +1297,93 @@ func TestPublishMatrixAcceptsValidVaccineValues(t *testing.T) {
 	}
 	if repo.publishCalls != 1 {
 		t.Fatalf("valid vaccine values must be published, but publishCalls=%d", repo.publishCalls)
+	}
+}
+
+// TestPublishRejectsIndividualVaccineMissingMetadata proves that an individual (non-wrapper) vaccine
+// missing type, pathogen_class, or course_type is rejected at publish rather than silently accepted.
+// Missing metadata makes the vaccination generator classify the vaccine as fail-closed generic-killed
+// (see internal/vaccination/app/compatibility.go), so it must be rejected upstream.
+func TestPublishRejectsIndividualVaccineMissingMetadata(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(string) string
+	}{
+		{"top-level individual vaccine missing pathogen_class", func(d string) string {
+			return strings.Replace(d, `"pathogen_class":"bacterial",`, ``, 1)
+		}},
+		{"top-level individual vaccine missing course_type", func(d string) string {
+			return strings.Replace(d, `"course_type":"booster",`, ``, 1)
+		}},
+		{"top-level individual vaccine missing type", func(d string) string {
+			return strings.Replace(d, `"type":"killed",`, ``, 1)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeProtocolRepo{version: validPublishVersion("draft")}
+			repo.version.RuleDsl = []byte(tc.mutate(validVaccinationMatrixRuleDSL()))
+			service := NewService(repo)
+			err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+			if !errors.Is(err, ErrNotPublishable) {
+				t.Fatalf("%s should be not publishable, got %v", tc.name, err)
+			}
+			if repo.publishCalls > 0 {
+				t.Fatalf("%s must not be published, but publishCalls=%d", tc.name, repo.publishCalls)
+			}
+		})
+	}
+}
+
+// TestPublishRejectsMatrixRowVaccineMissingMetadata proves every matrix_rows[].vaccine must declare
+// type, pathogen_class and course_type; a row missing any of them is rejected.
+func TestPublishRejectsMatrixRowVaccineMissingMetadata(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(string) string
+	}{
+		{"matrix row vaccine missing type", func(d string) string {
+			return strings.Replace(d, `"type":"live",`, ``, 1)
+		}},
+		{"matrix row vaccine missing pathogen_class", func(d string) string {
+			return strings.Replace(d, `"pathogen_class":"viral",`, ``, 1)
+		}},
+		{"matrix row vaccine missing course_type", func(d string) string {
+			return strings.Replace(d, `,"course_type":"single"`, ``, 1)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeProtocolRepo{version: validPublishVersion("draft")}
+			repo.version.RuleDsl = []byte(tc.mutate(validVaccinationMatrixRulesetDSL()))
+			service := NewService(repo)
+			err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+			if !errors.Is(err, ErrNotPublishable) {
+				t.Fatalf("%s should be not publishable, got %v", tc.name, err)
+			}
+			if repo.publishCalls > 0 {
+				t.Fatalf("%s must not be published, but publishCalls=%d", tc.name, repo.publishCalls)
+			}
+		})
+	}
+}
+
+// TestPublishAllowsMatrixWrapperWithoutClassOrCourse proves the vaccination.matrix wrapper vaccine
+// (type:"matrix") is still allowed to omit pathogen_class/course_type — only individual vaccines must
+// carry them. The valid ruleset DSL's wrapper omits both, so a clean publish confirms the wrapper
+// exemption survives the stricter individual-vaccine requirement.
+func TestPublishAllowsMatrixWrapperWithoutClassOrCourse(t *testing.T) {
+	dsl := validVaccinationMatrixRulesetDSL()
+	if strings.Contains(dsl, `"type":"matrix"`) == false {
+		t.Fatalf("test fixture must use the matrix wrapper vaccine")
+	}
+	repo := &fakeProtocolRepo{version: validPublishVersion("draft")}
+	repo.version.RuleDsl = []byte(dsl)
+	service := NewService(repo)
+	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil); err != nil {
+		t.Fatalf("matrix wrapper omitting class/course should publish, got %v", err)
+	}
+	if repo.publishCalls != 1 {
+		t.Fatalf("matrix wrapper must be published, but publishCalls=%d", repo.publishCalls)
 	}
 }
