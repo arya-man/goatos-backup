@@ -100,16 +100,12 @@ WHERE tenant_id = $1::uuid
 	return int(tag.RowsAffected()), nil
 }
 
-func (r *Repository) ClaimDue(ctx context.Context, params ports.ClaimParams) ([]domain.Request, error) {
-	ctx, cancel := context.WithTimeout(ctx, r.timeout)
-	defer cancel()
-	if params.Limit <= 0 {
-		params.Limit = 50
-	}
-	if params.MaxAttempts <= 0 {
-		params.MaxAttempts = 5
-	}
-	rows, err := r.pool.Query(ctx, `
+// ClaimDueSQL is the exact production notification-claim query, exported so the
+// query-plan gate (validate-sqlc-plans + the scale EXPLAIN test) exercises the
+// REAL writable CTE — candidate selection, FOR UPDATE SKIP LOCKED row locking,
+// and the UPDATE ... RETURNING — instead of a simplified imitation that could
+// drift from what production runs. Params: $1 tenant, $2 now, $3 limit, $4 max attempts.
+const ClaimDueSQL = `
 WITH candidates AS (
   SELECT notification_request_id
   FROM notification_requests
@@ -155,7 +151,18 @@ claimed AS (
 )
 SELECT *
 FROM claimed
-ORDER BY requested_at, notification_request_id`, params.TenantID, params.Now, params.Limit, params.MaxAttempts)
+ORDER BY requested_at, notification_request_id`
+
+func (r *Repository) ClaimDue(ctx context.Context, params ports.ClaimParams) ([]domain.Request, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	if params.Limit <= 0 {
+		params.Limit = 50
+	}
+	if params.MaxAttempts <= 0 {
+		params.MaxAttempts = 5
+	}
+	rows, err := r.pool.Query(ctx, ClaimDueSQL, params.TenantID, params.Now, params.Limit, params.MaxAttempts)
 	if err != nil {
 		return nil, fmt.Errorf("notification: claim due: %w", err)
 	}

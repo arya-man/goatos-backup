@@ -9372,6 +9372,13 @@ CREATE INDEX notification_delivery_attempts_request_idx ON public.notification_d
 
 
 --
+-- Name: notification_requests_due_order_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notification_requests_due_order_idx ON public.notification_requests USING btree (tenant_id, COALESCE(next_attempt_at, requested_at), notification_request_id) WHERE (status = ANY (ARRAY['queued'::text, 'failed'::text]));
+
+
+--
 -- Name: notification_requests_event_idx; Type: INDEX; Schema: public; Owner: -
 --
 

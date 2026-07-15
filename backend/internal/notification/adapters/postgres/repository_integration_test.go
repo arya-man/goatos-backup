@@ -82,8 +82,12 @@ func TestNotificationRepositoryClaimDuePlanSkipsFutureRetriesUnderSkew(t *testin
 	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
 	seedCalendarEvent(t, ctx, pool, testEventID)
 
-	// 8000 failed rows scheduled to retry in the future (NOT due) + 15 due queued.
-	const futureSkew = 8000
+	// Heavy future-retry skew: 40k failed rows scheduled to retry in the future
+	// (NOT due) + 15 due queued. At this size a sequential scan is clearly more
+	// expensive than the bounded index range, so the planner's NATURAL choice
+	// (no enable_seqscan=off) is the index — proving production behaviour, not a
+	// forced answer.
+	const futureSkew = 40000
 	if _, err := pool.Exec(ctx, `
 INSERT INTO notification_requests (
   tenant_id, calendar_event_id, target_type, notification_type, channel, title, body,
@@ -99,60 +103,80 @@ FROM generate_series(1, $5::int) g`,
 	for i := 0; i < 15; i++ {
 		seedNotification(t, ctx, pool, testEventID, fmt.Sprintf("due-%02d", i), "queued", 0, nil)
 	}
+	// Real planner statistics after the bulk load (mandatory post-seed ANALYZE).
 	if _, err := pool.Exec(ctx, `ANALYZE notification_requests`); err != nil {
 		t.Fatalf("analyze: %v", err)
 	}
 
-	// Force the index path so the assertion isolates whether the predicate lets
-	// the index BOUND the scan (skip future rows), independent of small-fixture
-	// planner cost preferences.
+	// EXPLAIN (ANALYZE, BUFFERS) the REAL production writable CTE (candidate
+	// selection + FOR UPDATE SKIP LOCKED + UPDATE ... RETURNING) — ClaimDueSQL, the
+	// exact string ClaimDue runs — with sequential scans ENABLED. ANALYZE executes
+	// it (claims the due rows), so run inside a tx and roll back.
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
-		t.Fatalf("disable seqscan: %v", err)
-	}
 
 	var raw []byte
-	if err := tx.QueryRow(ctx, `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
-SELECT notification_request_id
-FROM notification_requests
-WHERE tenant_id = $1::uuid
-  AND status IN ('queued', 'failed')
-  AND COALESCE(next_attempt_at, requested_at) <= $2::timestamptz
-  AND delivery_attempts < $3
-ORDER BY COALESCE(next_attempt_at, requested_at), notification_request_id
-LIMIT $4`, testTenantID, now, 5, 100).Scan(&raw); err != nil {
+	// ClaimDueSQL params: $1 tenant, $2 now, $3 limit, $4 max attempts.
+	if err := tx.QueryRow(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)\n"+postgresClaimDueSQL(), testTenantID, now, 100, 5).Scan(&raw); err != nil {
 		t.Fatalf("explain: %v", err)
 	}
 
 	var plans []struct {
-		Plan planNode `json:"Plan"`
+		Plan          planNode `json:"Plan"`
+		ExecutionTime float64  `json:"Execution Time"`
 	}
 	if err := json.Unmarshal(raw, &plans); err != nil || len(plans) == 0 {
 		t.Fatalf("parse explain json: %v (%s)", err, raw)
 	}
-	scans := collectRelationScans(plans[0].Plan, "notification_requests")
+	root := plans[0].Plan
+	scans := collectRelationScans(root, "notification_requests")
 	if len(scans) == 0 {
 		t.Fatalf("no notification_requests scan node in plan: %s", raw)
 	}
-	for _, s := range scans {
-		if strings.Contains(s.NodeType, "Seq Scan") {
-			t.Fatalf("notification_requests reached via Seq Scan under skew: %s", raw)
+	// (a) The planner NATURALLY reached notification_requests via an index path,
+	// never a Seq Scan, and the driving scan touched only the due rows (<< 40k
+	// skew) — the future-scheduled retries were not scanned to fill the LIMIT.
+	sawIndex := false
+	for _, sc := range scans {
+		if strings.Contains(sc.NodeType, "Seq Scan") {
+			t.Fatalf("notification_requests reached via Seq Scan under skew (predicate/index regressed): %s", raw)
 		}
-		if s.ActualRows > 500 {
-			t.Fatalf("index scan read %d rows (of %d skew) — predicate did not bound the scan to due rows", int(s.ActualRows), futureSkew)
+		if strings.Contains(sc.NodeType, "Index") {
+			sawIndex = true
 		}
+		if sc.ActualRows > 500 {
+			t.Fatalf("a notification_requests scan read %d rows of %d skew — the scan was not bounded to due rows", int(sc.ActualRows), futureSkew)
+		}
+	}
+	if !sawIndex {
+		t.Fatalf("no index access path on notification_requests in the plan: %s", raw)
+	}
+	// (b) Buffers stay bounded: a 40k Seq Scan would touch hundreds+ of shared
+	// blocks; the bounded index range touches far fewer.
+	if blocks := root.SharedHit + root.SharedRead; blocks > 500 {
+		t.Fatalf("plan touched %.0f shared blocks — consistent with a full scan, not a bounded index range: %s", blocks, raw)
+	}
+	// (c) Execution time ceiling (generous, still catches a full scan).
+	if plans[0].ExecutionTime > 1000 {
+		t.Fatalf("claim executed in %.1fms — too slow for a bounded index plan", plans[0].ExecutionTime)
 	}
 }
 
+// postgresClaimDueSQL returns the exact production claim SQL (notificationpg.ClaimDueSQL)
+// so this plan gate cannot drift into a simplified imitation.
+func postgresClaimDueSQL() string { return ClaimDueSQL }
+
 type planNode struct {
-	NodeType     string     `json:"Node Type"`
-	RelationName string     `json:"Relation Name"`
-	ActualRows   float64    `json:"Actual Rows"`
-	Plans        []planNode `json:"Plans"`
+	NodeType        string     `json:"Node Type"`
+	RelationName    string     `json:"Relation Name"`
+	ActualRows      float64    `json:"Actual Rows"`
+	ActualTotalTime float64    `json:"Actual Total Time"`
+	SharedHit       float64    `json:"Shared Hit Blocks"`
+	SharedRead      float64    `json:"Shared Read Blocks"`
+	Plans           []planNode `json:"Plans"`
 }
 
 func collectRelationScans(n planNode, rel string) []planNode {

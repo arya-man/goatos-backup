@@ -125,6 +125,25 @@ LIMIT 10
 FOR UPDATE SKIP LOCKED;"
 }
 
+# KERN-REV-06B: the notification dispatcher claim (ClaimDue / ClaimDueSQL) selects
+# DUE rows with status IN ('queued','failed') AND COALESCE(next_attempt_at, requested_at)
+# <= now, ORDER BY COALESCE(...). This is the candidate-selection scan of the real
+# writable CTE; it must ride notification_requests_due_order_idx and never Seq Scan
+# the queued/failed partition (which under future-retry skew would degrade the hot
+# path). Predicate is kept IDENTICAL to ClaimDueSQL's candidates block.
+validate_notification_claim_plan() {
+  explain_must_use_index "NotificationClaimDue" 'Seq Scan on notification_requests' "EXPLAIN (COSTS OFF)
+SELECT notification_request_id
+FROM notification_requests
+WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND status IN ('queued', 'failed')
+  AND COALESCE(next_attempt_at, requested_at) <= '2026-06-09T12:00:00Z'::timestamptz
+  AND delivery_attempts < 5
+ORDER BY COALESCE(next_attempt_at, requested_at), notification_request_id
+LIMIT 100
+FOR UPDATE SKIP LOCKED;"
+}
+
 validate_auth_grant_lookup_plan() {
   explain_must_use_index "ActiveTenantRoles" 'Seq Scan on user_scope_grants' "EXPLAIN (COSTS OFF)
 SELECT role
@@ -1178,6 +1197,7 @@ done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name
 
 validate_identity_lookup_plans
 validate_outbox_claim_plan
+validate_notification_claim_plan
 validate_auth_grant_lookup_plan
 validate_obligation_due_window_plan
 validate_obligation_scope_count_plan
