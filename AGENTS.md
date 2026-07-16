@@ -346,7 +346,10 @@ Do:
   vaccination kernel generate only future obligations from that base. Seed code
   must not hand-roll kid/adult path selection; it must use the live vaccination
   schedule-path helper/config so stale source tags such as `origin=birth` or
-  `K1/K2` cannot force old kid-course work. The concrete checklist lives in
+  `K1/K2` cannot force old kid-course work. Raw source vaccination cells also
+  must not be pre-mapped as kid-course history to prove their own schedule path:
+  classify first from independent evidence, then persist the source date as the
+  selected rule family's history anchor. The concrete checklist lives in
   `docs/runbooks/vaccination-seed-source-date-contract.md`.
 - After any destructive seed, bulk import, fixture reset, or large canonical
   backfill, refresh Postgres planner statistics for the touched canonical

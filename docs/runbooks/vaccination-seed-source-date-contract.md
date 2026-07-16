@@ -80,9 +80,12 @@ Seed import must not carry a private kid/adult classifier. The published
 `vaccination.matrix` procurement policy and the live vaccination scheduler own
 that decision. In particular, `origin_type=birth` and `K1`/`K2` stage tags are
 not enough to force a kid-course mapping when trusted DOB/age proves the goat is
-past the configured kid finish window. Keep the source vaccination date as
-history, map it through the live path decision, and let kernel generation create
-only future work from that history.
+past the configured kid finish window. A raw source vaccination cell also cannot
+prove its own kid/adult path: do not pre-map the same sheet row as `_kid_`
+history and feed it back into classification. Classify first from independent
+DOB, stage, entry-date, and already-accepted history evidence. Then keep the
+source vaccination date as history under the selected rule family and let kernel
+generation create only future work from that history.
 
 `Pending` has a single writer: the vaccination kernel. The source importer must
 not insert an open placeholder and then invoke generation for the same goat and

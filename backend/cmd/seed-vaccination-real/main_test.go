@@ -296,7 +296,7 @@ func TestSeedSchedulePathHonorsConfigurableCutoffAndHistorySignal(t *testing.T) 
 	}
 }
 
-func TestSeedLoopFeedsKidCourseHistoryIntoSharedClassifier(t *testing.T) {
+func TestSeedLoopDoesNotUseSourceCellAsKidCourseProof(t *testing.T) {
 	loc := mustKolkata(t)
 	asOf := time.Date(2026, time.July, 16, 9, 0, 0, 0, loc)
 	matrix := buildCanonicalVaccinationMatrix()
@@ -309,46 +309,40 @@ func TestSeedLoopFeedsKidCourseHistoryIntoSharedClassifier(t *testing.T) {
 		Value:     "2026-06-01",
 	}}
 
-	historyByAnimal := buildSeedKidCourseHistoryByAnimalKey(cells, loc, asOf, matrix)
-	history := historyByAnimal["unknown-dob-non-k-stage"]
-	if len(history) != 1 {
-		t.Fatalf("kid-course history rows = %d, want 1", len(history))
-	}
-	if history[0].DoseCode != "fmd_kid_12w" {
-		t.Fatalf("kid history dose code = %q, want fmd_kid_12w", history[0].DoseCode)
-	}
-	if history[0].AdministeredAt.IsZero() {
-		t.Fatal("kid history AdministeredAt must be populated")
-	}
-
-	path := seedSchedulePathForGoat("", nil, "adult", nil, asOf, seedKidsNormalScheduleUntilWeeks, history)
-	if path != "kid" {
-		t.Fatalf("unknown DOB/non-K stage with source kid history path = %q, want kid", path)
+	path := seedSchedulePathForGoat("", nil, "adult", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
+	if path != "adult" {
+		t.Fatalf("unknown DOB/non-K stage with only raw source date path = %q, want adult", path)
 	}
 	doseCode, later := mapSheetDoseToRuleCode(cells[0].Vaccine, cells[0].DoseCode, path, matrix)
-	if doseCode != "fmd_kid_12w" || later {
-		t.Fatalf("seed loop mapped source kid dose to dose=%q later=%v, want fmd_kid_12w/false", doseCode, later)
+	if doseCode != "fmd_adult_w1" || later {
+		t.Fatalf("seed loop mapped raw source date to dose=%q later=%v, want fmd_adult_w1/false", doseCode, later)
 	}
 }
 
-func TestSeedKidCourseHistoryIgnoresFutureSourceDates(t *testing.T) {
+func TestSeedSchedulePathUsesIndependentKidEvidence(t *testing.T) {
 	loc := mustKolkata(t)
 	asOf := time.Date(2026, time.July, 16, 9, 0, 0, 0, loc)
 	matrix := buildCanonicalVaccinationMatrix()
-	cells := []vaccCell{{
-		AnimalKey: "future-kid-dose",
-		Vaccine:   "FMD",
-		DoseType:  "First Dose",
-		DoseCode:  "first",
-		Sequence:  1,
-		Value:     "2026-07-17",
-	}}
 
-	historyByAnimal := buildSeedKidCourseHistoryByAnimalKey(cells, loc, asOf, matrix)
-	if got := len(historyByAnimal["future-kid-dose"]); got != 0 {
-		t.Fatalf("future source-date kid history rows = %d, want 0", got)
+	path := seedSchedulePathForGoat("", nil, "K1", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
+	if path != "kid" {
+		t.Fatalf("unknown DOB with K-stage path = %q, want kid", path)
 	}
-	path := seedSchedulePathForGoat("", nil, "", nil, asOf, seedKidsNormalScheduleUntilWeeks, historyByAnimal["future-kid-dose"])
+	doseCode, later := mapSheetDoseToRuleCode("FMD", "first", path, matrix)
+	if doseCode != "fmd_kid_12w" || later {
+		t.Fatalf("independent K-stage maps to dose=%q later=%v, want fmd_kid_12w/false", doseCode, later)
+	}
+}
+
+func TestSeedSchedulePathIgnoresFutureSourceDateAsClassificationEvidence(t *testing.T) {
+	loc := mustKolkata(t)
+	asOf := time.Date(2026, time.July, 16, 9, 0, 0, 0, loc)
+	futureDate := time.Date(2026, time.July, 17, 0, 0, 0, 0, loc)
+
+	if sourceVaccinationDateOnOrBeforeBusinessDate(futureDate, asOf, loc) {
+		t.Fatal("future source date must not be accepted history")
+	}
+	path := seedSchedulePathForGoat("", nil, "", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
 	if path != "adult" {
 		t.Fatalf("unknown DOB/stage with only future source date path = %q, want adult", path)
 	}
