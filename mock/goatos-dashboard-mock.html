@@ -2000,8 +2000,13 @@
           <div class="kpi"><div class="acc" style="background:var(--warn)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-list"/></svg>Pending proof</div><div class="val" id="hxKPend">4</div><div class="dl down">awaiting upload</div></div>
           <div class="kpi"><div class="acc" style="background:var(--info)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-cal"/></svg><span id="hxKLeaveLab">Leave to action</span></div><div class="val" id="hxKLeave">2</div><div class="dl muted" id="hxKLeaveDl">your approval</div></div>
         </div>
-        <div class="card" id="hxTeamCard" style="margin-top:16px"><div class="hd"><h3>Today's completion by person</h3><div class="sp"></div><span class="tag t-mut" id="hxTeamCount">5 people</span></div>
+        <!-- UNREACHABLE: the org "completion by person" rollup. Overview is now the personal
+     "My day" page (operator + line manager), and full-org viewers (COO / HR Director)
+     have no Overview at all — so no role renders this table. The org-wide task view
+     is Tasks & Proof; the org-wide clock-in view is Attendance. Kept for reference.
+<div class="card" id="hxTeamCard" style="margin-top:16px"><div class="hd"><h3>Today's completion by person</h3><div class="sp"></div><span class="tag t-mut" id="hxTeamCount">5 people</span></div>
           <div class="bd" style="padding:0"><table><thead><tr><th>Person</th><th>Clock-in</th><th>Tasks done</th><th>Proof pending</th><th></th></tr></thead><tbody id="hxTeamBody"></tbody></table></div></div>
+        -->
         <!-- operator only: own tasks for the picked day. Read-only — an operator completes
              tasks and uploads proof in the field app (mock/hrms-mobile-mock.html). -->
         <div class="card" id="hxOpCard" style="margin-top:16px;display:none"><div class="hd"><h3 id="hxOpDayTitle">My tasks</h3><div class="sp"></div><span class="tag t-mut" id="hxOpDayCount">1 of 3 done</span></div>
@@ -2533,12 +2538,16 @@ function applyScope(scope){
 }
 /* ---------- navigation ---------- */
 function go(screen,sub,_mode){var _R=(typeof ROLES!=='undefined'&&typeof CUR_ROLE!=='undefined')?ROLES[CUR_ROLE]:null;if(_R&&_R.screens!=='all'&&screen!=='passport'&&_R.screens.indexOf(screen)<0){var _vk=['counts','health','breeding','procurement','farmernet','parks','feed'];screen=(_R.screens.filter(function(x){return _vk.indexOf(x)>=0;})[0])||_R.screens[0];sub=null;}
-  /* Tasks & Proof is manager-only — keep Control Tower deep-links off it for an operator */
-  if(screen==='people'&&sub==='tasks'&&typeof hrSelf==='function'&&hrSelf())sub='dash';
   const scr=document.querySelector('.screen[data-screen="'+screen+'"]');
   document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('on',x===scr));
   if(scr){const subs=scr.querySelectorAll('.subpanel');
     if(subs.length){if(!sub)sub=subs[0].dataset.sub;
+      /* HRMS page gating by role — runs AFTER the default above, so a bare go('people')
+         and a Control Tower deep-link are both gated. Mirrors the leaves hrmsApply hides. */
+      if(screen==='people'&&typeof hrScope==='function'){
+        if(sub==='tasks'&&hrSelf())sub='dash';   /* operator: no supervision view */
+        if(sub==='dash'&&!hrMe())sub='tasks';    /* full-org: no personal "My day" */
+      }
       subs.forEach(p=>p.classList.toggle('on',p.dataset.sub===sub));
       scr.querySelectorAll('.subtabs [data-sub]').forEach(b=>b.classList.toggle('on',b.dataset.sub===sub));}}
   document.querySelectorAll('.nav[data-go],.leaf').forEach(x=>x.classList.remove('on'));
@@ -3505,6 +3514,8 @@ function setRole(r){var R=ROLES[r];if(!R)return;CUR_ROLE=r;if(typeof auditViewer
  if(typeof CUR_OP!=='undefined')CUR_OP=R.person;
  if(typeof logEvent==='function')logEvent({act:'Switched role view',tgt:R.label,res:'nav + scope re-gated',rc:'t-info',type:'role'});
  if(typeof hrmsApply==='function')hrmsApply(); /* HRMS scope follows the console role — no second persona switch */
+ /* the old role's breadcrumb trail can point at pages this role cannot open — drop it */
+ if(typeof NAV_STACK!=='undefined')NAV_STACK.length=0;
  var scr=document.querySelector('.screen.on');if(typeof go==='function')go(scr?scr.getAttribute('data-screen'):'command');
  if(typeof closeUserMenu==='function')closeUserMenu();}
 function modeLabel(){return SCOPE_MODE==='company'?('Company-wide · '+(scopeSel.size<PARKS.length?(typeof scopeLbl==='function'?scopeLbl():'subset'):PARKS.length+' parks')):('Park-wise · '+(typeof scopeLabel==='function'?scopeLabel():([...scopeSel][0]||'CBE')));}
@@ -4924,52 +4935,24 @@ function hrRenderOpDash(){
 }
 
 function hrRenderDash(){
-  /* Overview is "My day" for anyone who has their own tasks — an operator AND a line
-     manager. Only full-org viewers (COO / HR Director) get the roster rollup instead. */
-  if(hrMe()){
-    hrEl('hxTeamCard').style.display='none';
-    hrEl('hxOpCard').style.display='';
-    var o=hrRenderOpDash(), ci=hrOpClockFor(o.sel);
-    var pend=o.ts.filter(function(x){return x.st==='pend'&&!x.proof;}).length;
-    /* the heading follows the picked day — "today" must never sit above a past day's numbers */
-    hrEl('hxDashTitle').textContent=o.sel.today?'My day today':'My day · '+o.sel.lab;
-    hrEl('hxDashSub').textContent=o.sel.today
-      ?'Tuesday, 15 July 2026 · '+(hrSelf()?'your own tasks, leave and clock-in':'your own tasks and clock-in · your team is under Tasks & Proof and Attendance')
-      :'Looking back at '+o.sel.lab+' · your tasks and clock-in for that day';
-    hrEl('hxKClock').textContent=ci||'—';
-    hrEl('hxKClockDl').textContent=ci?'on '+o.sel.lab:o.sel.rest?'rest day':'not clocked in';
-    hrEl('hxKClockDl').className='dl '+(ci?'up':'muted');
-    hrEl('hxKDone').innerHTML=o.done+'<small> / '+o.ts.length+'</small>';
-    hrEl('hxKDoneDl').textContent=o.ts.length?Math.round(o.done/o.ts.length*100)+'% complete':'no tasks assigned';
-    hrEl('hxKPend').textContent=pend;
-    hrEl('hxKLeave').textContent=hrScopedLeave().filter(function(r){return r.status==='pend';}).length;
-    return;
-  }
-  hrEl('hxTeamCard').style.display='';
-  hrEl('hxOpCard').style.display='none';
-  var ppl=hrTeam(),ci=0,td=0,tt=0,pp=0;
-  hrEl('hxTeamCount').textContent=ppl.length+(ppl.length===1?' person':' people');
-  hrEl('hxTeamBody').innerHTML=ppl.map(function(id){
-    var ts=HR_TASKS[id]||[];
-    var done=ts.filter(function(x){return x.st==='done';}).length;
-    var pend=ts.filter(function(x){return x.st==='pend'&&!x.proof;}).length;
-    if(HR_CLOCK[id])ci++; td+=done; tt+=ts.length; pp+=pend;
-    return '<tr style="cursor:pointer" onclick="hrOpenPerson(\''+id+'\')"><td>'+hrWho(id)+'</td>'+
-      '<td>'+(HR_CLOCK[id]?'<span class="tag t-ok">'+HR_CLOCK[id]+'</span>':'<span class="tag t-dng">not in</span>')+'</td>'+
-      '<td><b>'+done+'</b><span class="muted"> / '+ts.length+'</span></td>'+
-      '<td>'+(pend?'<span class="tag t-warn">'+pend+'</span>':'<span class="tag t-ok">0</span>')+'</td>'+
-      '<td style="text-align:right"><svg class="ic" style="width:15px;opacity:.5"><use href="#i-chev"/></svg></td></tr>';
-  }).join('');
-  hrEl('hxKClock').innerHTML=ci+'<small> / '+ppl.length+'</small>';
-  hrEl('hxKDone').innerHTML=td+'<small> / '+tt+'</small>';
-  hrEl('hxKPend').textContent=pp;
+  /* Overview is the personal "My day" page — operator and line manager only. Full-org
+     viewers (COO / HR Director) have no Overview at all: the leaf is hidden in hrmsApply
+     and go() redirects them to Tasks & Proof, so there is nothing to render here. */
+  if(!hrMe())return;
+  var o=hrRenderOpDash(), ci=hrOpClockFor(o.sel);
+  var pend=o.ts.filter(function(x){return x.st==='pend'&&!x.proof;}).length;
+  /* the heading follows the picked day — "today" must never sit above a past day's numbers */
+  hrEl('hxDashTitle').textContent=o.sel.today?'My day today':'My day \u00b7 '+o.sel.lab;
+  hrEl('hxDashSub').textContent=o.sel.today
+    ?'Tuesday, 15 July 2026 \u00b7 '+(hrSelf()?'your own tasks, leave and clock-in':'your own tasks and clock-in \u00b7 your team is under Tasks & Proof and Attendance')
+    :'Looking back at '+o.sel.lab+' \u00b7 your tasks and clock-in for that day';
+  hrEl('hxKClock').textContent=ci||'\u2014';
+  hrEl('hxKClockDl').textContent=ci?'on '+o.sel.lab:o.sel.rest?'rest day':'not clocked in';
+  hrEl('hxKClockDl').className='dl '+(ci?'up':'muted');
+  hrEl('hxKDone').innerHTML=o.done+'<small> / '+o.ts.length+'</small>';
+  hrEl('hxKDoneDl').textContent=o.ts.length?Math.round(o.done/o.ts.length*100)+'% complete':'no tasks assigned';
+  hrEl('hxKPend').textContent=pend;
   hrEl('hxKLeave').textContent=hrScopedLeave().filter(function(r){return r.status==='pend';}).length;
-  /* captions are derived, never static — they must not contradict the value above them */
-  var out=ppl.length-ci;
-  var dlc=hrEl('hxKClockDl');
-  if(dlc){dlc.textContent=out?out+' not yet in':'all clocked in';dlc.className='dl '+(out?'down':'up');}
-  var dld=hrEl('hxKDoneDl');
-  if(dld)dld.textContent=tt?Math.round(td/tt*100)+'% complete':'no tasks assigned';
 }
 /* Tasks & Proof is a SUPERVISION view: a manager sees the people under them, not their own
    tasks (those live on Overview / "My day"). hrTeam() stays the roster for Attendance. */
@@ -5085,23 +5068,22 @@ function hrOpenLeave(lid){
 }
 /* re-render every HRMS surface for the current console role */
 function hrmsApply(){
-  if(!hrEl('hxTeamBody'))return;                 /* people screen not in this build */
+  if(!hrEl('hxOpCard'))return;                   /* people screen not in this build */
   var s=hrScope(), full=s==='full', self=s==='self';
-  /* Tasks & Proof is a manager's supervision view — an operator does tasks and uploads
-     proof in the field app, so the page is hidden for them entirely (go() also guards it). */
+  /* Per-role page visibility (go() enforces the same rules for deep-links):
+       Tasks & Proof — manager supervision view; an operator does tasks in the field app.
+       Overview      — personal "My day"; a full-org viewer has no own tasks to show. */
   var tl=document.querySelector('.subnav[data-grp="hr"] .leaf[data-sub="tasks"]');
   if(tl)tl.style.display=self?'none':'';
+  var dl=document.querySelector('.subnav[data-grp="hr"] .leaf[data-sub="dash"]');
+  if(dl)dl.style.display=hrMe()?'':'none';
   var txt=full?'Full organization access':self?'My record only':'Direct reports only';
   var ico=full?'#i-shield':'#i-user';
   ['hxSb1','hxSb2','hxSb3','hxSb4'].forEach(function(b){var el=hrEl(b);if(!el)return;
     el.className='scopebadge'+(full?'':' park');
     el.innerHTML='<svg class="ic" style="width:14px"><use href="'+ico+'"/></svg>'+txt;});
-  /* Overview title/sub belong to hrRenderDash for anyone with their own day (operator,
-     line manager) — it knows which day is picked. Only the full-org rollup is set here. */
-  if(!hrMe()){
-    hrEl('hxDashTitle').textContent='Organization today';
-    hrEl('hxDashSub').textContent='Tuesday, 15 July 2026 · all people';
-  }
+  /* Overview title/sub belong to hrRenderDash — it knows which day is picked, and it is
+     the only role that renders the page at all. Nothing to set here. */
   hrEl('hxOrgSub').textContent=full?'Full reporting structure. Click any person for tasks and proof.'
     :self?'Your position and who you report to. You have no direct reports.'
     :'Your position and the people who report directly to you. Deeper layers are hidden for a line manager.';
