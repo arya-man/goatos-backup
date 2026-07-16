@@ -67,16 +67,19 @@ func (r *Repository) Ping(ctx context.Context) error {
 // One OPEN item per (tenant, goat): a replay updates the existing open item's observed stage/age;
 // a recurrence AFTER a resolution opens a new actionable one.
 //
-// BRIDGE WRITER (migrate-first safety): this does NOT use `ON CONFLICT` on any unique index. Adjacent
-// releases have shipped different conflict targets ((tenant, idempotency_key) vs (tenant, goat_id)),
-// and in a migrate-first rollout a still-live previous-release binary runs against the newly-migrated
-// schema. Depending on either specific index/constraint breaks that binary ("no unique or exclusion
-// constraint matching the ON CONFLICT specification") or lets a stage-keyed writer insert a duplicate.
-// Instead we take a per-(tenant, goat) transaction advisory lock and UPDATE-open-else-INSERT, which is
-// independent of every index and enforces exactly one open item per goat regardless of which index
-// exists. A hard (tenant, goat) unique index can be added in a later release once every writer is this
-// bridge writer.
-func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error {
+// BRIDGE WRITER (migrate-first safety, defense in depth): this writer itself does NOT depend on any one
+// index target for correctness — it takes a per-(tenant, goat) transaction advisory lock and
+// UPDATE-open-else-INSERT + self-heal collapse, so it enforces one open item per goat regardless of
+// which index exists. That is what keeps THIS writer working across a migrate-first rollout where a
+// still-live previous-release binary runs against the newly-migrated schema. BUT the advisory lock only
+// serializes writers that take it; a predecessor binary using `ON CONFLICT (tenant, idempotency_key)`
+// with a stage-suffixed key does not, and could otherwise insert a second open row for a goat. So
+// migration 000210 also adds a hard `(tenant_id, goat_id) WHERE status='open'` unique index: a
+// predecessor's duplicate insert now FAILS CLOSED against it (error, retried next pass) instead of
+// creating a duplicate. The INSERT below carries `ON CONFLICT (tenant, goat) DO NOTHING` so the bridge
+// writer respects that index without erroring. cutoffWeeks is the effective age cutoff that raised this
+// item; it is persisted so the 'corrected' re-check evaluates against the same policy that flagged the goat.
+func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks, cutoffWeeks int, idempotencyKey string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
@@ -111,18 +114,21 @@ func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID
 
 	tag, err := tx.Exec(ctx, `
 		UPDATE vaccination_stage_review_items
-		SET observed_stage = $3, observed_age_weeks = $4, updated_at = now()
+		SET observed_stage = $3, observed_age_weeks = $4, age_cutoff_weeks = $5, updated_at = now()
 		WHERE tenant_id = $1::uuid AND goat_id = $2::uuid AND status = 'open'`,
-		tenantID, goatID, observedStage, observedAgeWeeks)
+		tenantID, goatID, observedStage, observedAgeWeeks, cutoffWeeks)
 	if err != nil {
 		return fmt.Errorf("vaccination: record stage review item: update: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
+		// ON CONFLICT on the (tenant, goat) open-unique index makes the insert race-safe even if a
+		// non-advisory-lock predecessor writer slipped a row in between the update and this insert.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO vaccination_stage_review_items
-				(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
-			VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6)`,
-			tenantID, goatID, reason, observedStage, observedAgeWeeks, idempotencyKey); err != nil {
+				(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, age_cutoff_weeks, idempotency_key)
+			VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3, $4, $5, $6, $7)
+			ON CONFLICT (tenant_id, goat_id) WHERE status = 'open' DO NOTHING`,
+			tenantID, goatID, reason, observedStage, observedAgeWeeks, cutoffWeeks, idempotencyKey); err != nil {
 			return fmt.Errorf("vaccination: record stage review item: insert: %w", err)
 		}
 	}
@@ -132,49 +138,25 @@ func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID
 	return nil
 }
 
-// StaleKidFinishWeeks returns the effective stale-stage cutoff (in weeks) for the tenant: the smallest
-// configured kids_normal_schedule_until_weeks across published vaccination versions, plus the 4-week
-// grace — i.e. the same finishWeeks staleKidStageAfterCutoff uses. MIN is fail-closed (the shortest
-// configured cutoff makes a mismatch look active for longer). Defaults to 16+4=20 when unset.
-func (r *Repository) StaleKidFinishWeeks(ctx context.Context, tenantID string) (int, error) {
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	var kidWeeks int
-	err := r.pool.QueryRow(ctx, `
-		SELECT COALESCE(MIN((pv.rule_dsl -> 'procurement_policy' ->> 'kids_normal_schedule_until_weeks')::int), 16)
-		FROM protocol_versions pv
-		JOIN protocol_definitions pd ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-		WHERE pv.tenant_id = $1::uuid AND pv.status = 'published' AND pd.category = 'vaccination'
-		  AND (pv.rule_dsl -> 'procurement_policy' ->> 'kids_normal_schedule_until_weeks') ~ '^[0-9]+$'`,
-		tenantID).Scan(&kidWeeks)
-	if err != nil {
-		return 0, fmt.Errorf("vaccination: stale kid finish weeks: %w", err)
-	}
-	if kidWeeks <= 0 {
-		kidWeeks = 16
-	}
-	return kidWeeks + 4, nil
-}
-
 // ResolveStageReviewItemCorrected atomically resolves an OPEN review item as 'corrected' ONLY IF the
 // goat still exists AND no longer trips the stale-stage/age condition (effective stage is a kid stage
-// K* AND DOB-derived age > finishWeeks). The check and the resolve are a single locked statement
-// (FOR UPDATE on the item), so a concurrent goat/item change cannot slip a stale mismatch closed.
-// Fails CLOSED when the goat is missing (no goat row -> not resolved). Returns resolved and wasOpen so
-// the caller distinguishes 200 (resolved), 409 (open but still active / goat missing), and 404 (not
-// open). finishWeeks is the tenant's configured cutoff from StaleKidFinishWeeks.
-func (r *Repository) ResolveStageReviewItemCorrected(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time, finishWeeks int) (resolved bool, wasOpen bool, err error) {
+// K* AND DOB-derived age > the cutoff THAT RAISED THIS ITEM, persisted as age_cutoff_weeks; default 20
+// for pre-existing rows). The check and the resolve are a single locked statement (FOR UPDATE on the
+// item), so a concurrent goat/item change cannot slip a stale mismatch closed. Fails CLOSED when the
+// goat is missing (no goat row -> not resolved). Returns resolved and wasOpen so the caller
+// distinguishes 200 (resolved), 409 (open but still active / goat missing), and 404 (not open).
+func (r *Repository) ResolveStageReviewItemCorrected(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (resolved bool, wasOpen bool, err error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	err = r.pool.QueryRow(ctx, `
 		WITH target AS (
-		  SELECT review_item_id, goat_id
+		  SELECT review_item_id, goat_id, COALESCE(age_cutoff_weeks, 20) AS cutoff_weeks
 		  FROM vaccination_stage_review_items
 		  WHERE tenant_id = $1::uuid AND review_item_id = $2::uuid AND status = 'open'
 		  FOR UPDATE
 		),
 		goatrow AS (
-		  SELECT COALESCE(asl.stage_code, g.management_stage, '') AS stage, g.dob
+		  SELECT COALESCE(asl.stage_code, g.management_stage, '') AS stage, g.dob, t.cutoff_weeks
 		  FROM target t
 		  JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = t.goat_id
 		  LEFT JOIN shed_profiles sp ON sp.tenant_id = g.tenant_id AND sp.location_id = g.shed_id
@@ -192,13 +174,13 @@ func (r *Repository) ResolveStageReviewItemCorrected(ctx context.Context, tenant
 		      WHERE length(btrim(stage)) >= 2
 		        AND upper(btrim(stage)) LIKE 'K%'
 		        AND dob IS NOT NULL
-		        AND (((now() AT TIME ZONE 'Asia/Kolkata')::date - dob) / 7) > $6
+		        AND (((now() AT TIME ZONE 'Asia/Kolkata')::date - dob) / 7) > cutoff_weeks
 		    )
 		  RETURNING 1
 		)
 		SELECT (SELECT count(*) FROM target) > 0 AS was_open,
 		       (SELECT count(*) FROM upd) > 0 AS resolved`,
-		tenantID, reviewItemID, nullUUID(resolvedBy), resolvedAt, note, finishWeeks).Scan(&wasOpen, &resolved)
+		tenantID, reviewItemID, nullUUID(resolvedBy), resolvedAt, note).Scan(&wasOpen, &resolved)
 	if err != nil {
 		return false, false, fmt.Errorf("vaccination: resolve stage review item (corrected): %w", err)
 	}

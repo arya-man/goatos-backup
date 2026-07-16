@@ -268,7 +268,6 @@ type completionRepoFake struct {
 	srGoat              domain.EligibleGoat
 	srGoatLoadFound     bool
 	srResolved          bool
-	srFinishWeeks       int
 	srCorrectedResolved bool
 	srCorrectedWasOpen  bool
 }
@@ -420,14 +419,7 @@ func (r *completionRepoFake) GetGoatForGeneration(context.Context, string, strin
 	return r.srGoat, r.srGoatLoadFound, nil
 }
 
-func (r *completionRepoFake) StaleKidFinishWeeks(context.Context, string) (int, error) {
-	if r.srFinishWeeks == 0 {
-		return 20, nil
-	}
-	return r.srFinishWeeks, nil
-}
-
-func (r *completionRepoFake) ResolveStageReviewItemCorrected(context.Context, string, string, string, string, time.Time, int) (bool, bool, error) {
+func (r *completionRepoFake) ResolveStageReviewItemCorrected(context.Context, string, string, string, string, time.Time) (bool, bool, error) {
 	return r.srCorrectedResolved, r.srCorrectedWasOpen, nil
 }
 

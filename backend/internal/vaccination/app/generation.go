@@ -95,7 +95,7 @@ type GenerationRunRecorder interface {
 // optional generation dependency: the vaccination read/write repo implements it, so no constructor
 // change is needed. Idempotent on the supplied key — replayed generation never duplicates the item.
 type ReviewItemRecorder interface {
-	RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks int, idempotencyKey string) error
+	RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks, cutoffWeeks int, idempotencyKey string) error
 }
 
 // CompletionEvidenceReader checks reviewed imported/HF completion evidence before SM-1 materializes
@@ -1139,12 +1139,14 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 		observedAgeWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
 		// One open review item per goat: the key is stable per (tenant, goat), NOT per stage. A goat
-		// moving from a stale K1 to a stale K2 updates the SAME open item, not a second one — the
-		// stage-free key on the (tenant_id, idempotency_key) open-partial index enforces one open item
-		// per goat (migrations 000207/000208; the key format must match 000208's rewrite exactly).
+		// moving from a stale K1 to a stale K2 updates the SAME open item, not a second one.
 		reviewKey := "vacc-stage-review:" + tenantID + ":" + g.GoatID
+		// Persist the EXACT cutoff that raised this item (this generation pass's effective procurement
+		// policy), so the 'corrected' re-check evaluates against the same invariant rather than a
+		// re-derived one (VACC-REV-10).
+		cutoffWeeks := kidFinishWeeks(policies.Procurement)
 		if err := s.review.RecordStageReviewItem(ctx, tenantID, g.GoatID,
-			"kid_stage_past_age_cutoff", strings.TrimSpace(g.Stage), observedAgeWeeks, reviewKey); err != nil {
+			"kid_stage_past_age_cutoff", strings.TrimSpace(g.Stage), observedAgeWeeks, cutoffWeeks, reviewKey); err != nil {
 			return err
 		}
 	}

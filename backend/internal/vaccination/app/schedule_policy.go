@@ -208,17 +208,23 @@ func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf 
 // but its DOB proves it is past the 20-week kid-course finishing window. Per Operating Rules ("if a
 // tag and age disagree, review the animal") this is a REVIEW signal only — the goat is scheduled on
 // the adult path and NO kid vaccinations are generated.
-func staleKidStageAfterCutoff(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time) bool {
-	if g.DOB == nil || !isKidManagementStage(g.Stage) {
-		return false
-	}
+// kidFinishWeeks is the stale-stage age cutoff (kids_normal_schedule_until_weeks, default 16, + the
+// 4-week grace) for a given effective procurement policy. This value is PERSISTED on a review item at
+// flag time so the 'corrected' re-check uses the exact cutoff that raised it, not a re-derived one.
+func kidFinishWeeks(proc genProcurementPolicy) int {
 	kidWeeks := int32(16)
 	if proc.KidsNormalScheduleUntilWeeks > 0 {
 		kidWeeks = proc.KidsNormalScheduleUntilWeeks
 	}
-	finishWeeks := kidWeeks + 4
+	return int(kidWeeks) + 4
+}
+
+func staleKidStageAfterCutoff(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time) bool {
+	if g.DOB == nil || !isKidManagementStage(g.Stage) {
+		return false
+	}
 	ageWeeks := wholeDaysBetween(*g.DOB, asOf) / 7
-	return ageWeeks > int(finishWeeks)
+	return ageWeeks > kidFinishWeeks(proc)
 }
 
 func isKidManagementStage(stage string) bool {

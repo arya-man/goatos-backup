@@ -47,14 +47,11 @@ var ErrStageReviewStillActive = errors.New("vaccination: stage/age mismatch is s
 // mismatch cannot be closed as corrected.
 func (s *Service) ResolveStageReviewItem(ctx context.Context, tenantID, reviewItemID, resolvedBy, note, resolutionMode string, resolvedAt time.Time) (bool, error) {
 	if resolutionMode == "corrected" {
-		// Re-evaluate against the SAME persisted invariant that raised the item: the tenant's configured
-		// kid cutoff. The re-check and the resolve happen atomically in one locked statement, and fail
-		// closed when the goat is missing.
-		finishWeeks, err := s.repo.StaleKidFinishWeeks(ctx, tenantID)
-		if err != nil {
-			return false, err
-		}
-		resolved, wasOpen, err := s.repo.ResolveStageReviewItemCorrected(ctx, tenantID, reviewItemID, resolvedBy, note, resolvedAt, finishWeeks)
+		// Re-evaluate against the SAME persisted invariant that raised the item: the cutoff stored on the
+		// item row itself (age_cutoff_weeks), not a value re-derived across all published versions. The
+		// re-check and the resolve happen atomically in one locked statement, and fail closed when the
+		// goat is missing.
+		resolved, wasOpen, err := s.repo.ResolveStageReviewItemCorrected(ctx, tenantID, reviewItemID, resolvedBy, note, resolvedAt)
 		if err != nil {
 			return false, err
 		}

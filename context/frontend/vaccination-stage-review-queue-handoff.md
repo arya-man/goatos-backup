@@ -46,15 +46,20 @@ are scheduled off vaccination-history anchors and never enter this check.
   Marks `open -> resolved`, records who/when + `resolution_mode` + note.
   **Idempotent**: replay on an already-resolved/missing item returns `404`.
 
-Table `vaccination_stage_review_items` (migrations `000196`, `000207`, `000208`).
-Lifecycle `open -> resolved`. **Open uniqueness is per (tenant, goat)**, enforced
-via a stage-free idempotency key (`vacc-stage-review:<tenant>:<goat>`) on the
-`(tenant_id, idempotency_key)` open-partial index. `000207` first swapped to a
-`(tenant_id, goat_id)` unique index; `000208` reverted that to the stage-free-key
-approach because a `(tenant, goat)` unique index is **not migrate-first-safe**
-(the still-live previous-release recorder runs `ON CONFLICT (tenant_id,
-idempotency_key)` and its insert would violate the new index). A goat drifting
-K1 → K2 **updates the one open item in place**.
+Table `vaccination_stage_review_items` (migrations `000196`, `000207`, `000208`,
+`000210`). Lifecycle `open -> resolved`. **Open uniqueness is per (tenant, goat),
+now enforced at the DATABASE layer** by a `(tenant_id, goat_id) WHERE
+status='open'` partial unique index (`000210`). History: `000207` first added
+that index, `000208` reverted to a stage-free idempotency key because the index
+alone was not migrate-first-safe (a still-live predecessor's `ON CONFLICT
+(tenant_id, idempotency_key)` insert would break). `000210` re-adds it **safely**
+because the recorder is now an index-independent **bridge writer** (per-(tenant,
+goat) advisory lock + update-else-insert + self-heal collapse): the writer no
+longer depends on any one index, and the hard index makes every OTHER writer fail
+closed — a predecessor's duplicate insert now errors (retried next pass) instead
+of creating a second open row. `000210` also drops the old idempotency-key index
+and adds `age_cutoff_weeks`. A goat drifting K1 → K2 **updates the one open item
+in place**.
 
 ### Enrichment gap (blocks the row design below — NOT built)
 
@@ -83,7 +88,11 @@ auto-fix). For `resolution=corrected`, the server re-evaluates the goat against 
 atomic, row-locked statement, and **fails closed** if the goat is missing; if the
 mismatch is still active it returns **409 `still_in_conflict`**. The UI should
 surface that 409 and steer the operator to correct the stage first or choose
-`exception`. Note limit is 500 characters (runes, not bytes).
+`exception`. Note limit is 500 characters (runes, not bytes). The re-check
+evaluates against the cutoff **persisted on the item** (`age_cutoff_weeks`, the
+exact effective procurement policy that raised it), not a value re-derived across
+all published versions — so a later config change cannot silently move the bar an
+item is judged against.
 
 ## Admin-web design (to build)
 
