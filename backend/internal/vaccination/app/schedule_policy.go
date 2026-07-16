@@ -11,9 +11,18 @@ import (
 )
 
 const (
-	schedulePathKid              = "kid"
-	schedulePathAdultProcurement = "adult_procurement"
+	SchedulePathKid              = "kid"
+	SchedulePathAdultProcurement = "adult_procurement"
+
+	schedulePathKid              = SchedulePathKid
+	schedulePathAdultProcurement = SchedulePathAdultProcurement
 )
+
+// SchedulePathProcurementPolicy is the public, seed-safe subset of the vaccination
+// procurement policy needed to choose between kid and adult-procurement rule families.
+type SchedulePathProcurementPolicy struct {
+	KidsNormalScheduleUntilWeeks int32
+}
 
 type genCompatibilityPolicy struct {
 	LiveToKilledGapDays           int32 `json:"live_to_killed_gap_days"`
@@ -166,6 +175,15 @@ func businessDayStart(t time.Time) time.Time {
 // to the adult catch-up/primary path so a never-received vaccine is scheduled from
 // the adult two-visit course rather than a fabricated kid_12w/kid_16w obligation.
 func schedulePathForGoat(g domain.EligibleGoat, proc genProcurementPolicy, asOf time.Time, vaccineHistory []domain.RecentVaccineAdministration) string {
+	return SchedulePathForGoat(g, SchedulePathProcurementPolicy{
+		KidsNormalScheduleUntilWeeks: proc.KidsNormalScheduleUntilWeeks,
+	}, asOf, vaccineHistory)
+}
+
+// SchedulePathForGoat decides whether birth_age (kid) or post_arrival (adult procurement)
+// rules apply to a goat. Runtime generation, seed import, and any replay/cutover code must
+// use this shared decision instead of carrying a local shortcut such as "origin=birth is kid".
+func SchedulePathForGoat(g domain.EligibleGoat, proc SchedulePathProcurementPolicy, asOf time.Time, vaccineHistory []domain.RecentVaccineAdministration) string {
 	kidWeeks := int32(16)
 	if proc.KidsNormalScheduleUntilWeeks > 0 {
 		kidWeeks = proc.KidsNormalScheduleUntilWeeks

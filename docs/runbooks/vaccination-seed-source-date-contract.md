@@ -76,6 +76,14 @@ open due work.
   `HH:MM:SS`, normalize it to `HH:MM` for JSON/source drift checks and seed
   manifests; seconds are ignored.
 
+Seed import must not carry a private kid/adult classifier. The published
+`vaccination.matrix` procurement policy and the live vaccination scheduler own
+that decision. In particular, `origin_type=birth` and `K1`/`K2` stage tags are
+not enough to force a kid-course mapping when trusted DOB/age proves the goat is
+past the configured kid finish window. Keep the source vaccination date as
+history, map it through the live path decision, and let kernel generation create
+only future work from that history.
+
 `Pending` has a single writer: the vaccination kernel. The source importer must
 not insert an open placeholder and then invoke generation for the same goat and
 rule. Accepted completion evidence must be checked before a missing-DOB or
@@ -131,7 +139,8 @@ Example with backend business date `2026-07-11`:
 
 - `2026-06-21` in the sheet means the vaccine was already administered on
   June 21, 2026. It is done history. The next due item is calculated from
-  June 21 plus the active schedule.
+  June 21 plus the active schedule; past missed cards before July 11 are not
+  materialized by the seed.
 - `2026-07-09` in the sheet means the vaccine was already administered on
   July 9, 2026. It is done history. It must not create an overdue card on
   July 11.

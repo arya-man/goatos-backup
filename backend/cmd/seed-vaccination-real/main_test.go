@@ -218,6 +218,84 @@ func TestSourceVaccinationDateIsHistoryRejectsFutureBusinessDate(t *testing.T) {
 	}
 }
 
+func TestSeedSchedulePathUsesLiveCutoffForSourceHistory(t *testing.T) {
+	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	asOf := dob.AddDate(0, 0, 210) // 30 weeks: past the default 20w kid-course finish window.
+
+	path := seedSchedulePathForGoat("birth", &dob, "K1", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
+	if path != "adult" {
+		t.Fatalf("over-cutoff birth/K-stage source row path = %q, want adult", path)
+	}
+
+	doseCode, later := mapSheetDoseToRuleCode("PPR", "first", path, buildCanonicalVaccinationMatrix())
+	if later {
+		t.Fatal("PPR first adult source date must not be treated as a later same-rule merge")
+	}
+	if doseCode != "ppr_adult_w1" {
+		t.Fatalf("over-cutoff PPR source date mapped to %q, want ppr_adult_w1", doseCode)
+	}
+}
+
+func TestSeedImportedCompletionKeepsSourceDateWhileUsingAdultPath(t *testing.T) {
+	loc := mustKolkata(t)
+	asOf := time.Date(2026, time.July, 16, 12, 0, 0, 0, loc)
+	dob := asOf.AddDate(0, 0, -210)
+	cell := vaccCell{AnimalKey: "old-k-stage", Vaccine: "FMD", DoseCode: "booster", Sequence: 2, Value: "2026-06-21"}
+
+	path := seedSchedulePathForGoat("birth", &dob, "K1", nil, asOf, seedKidsNormalScheduleUntilWeeks, nil)
+	if path != "adult" {
+		t.Fatalf("over-cutoff FMD source row path = %q, want adult", path)
+	}
+	doseCode, later := mapSheetDoseToRuleCode(cell.Vaccine, cell.DoseCode, path, buildCanonicalVaccinationMatrix())
+	if doseCode != "fmd_adult_w1" || !later {
+		t.Fatalf("FMD booster source date mapped to dose=%q later=%v, want fmd_adult_w1/true", doseCode, later)
+	}
+
+	sourceDate, err := time.ParseInLocation("2006-01-02", cell.Value, loc)
+	if err != nil {
+		t.Fatalf("parse source date: %v", err)
+	}
+	administeredAt := sourceVaccinationDateTime(sourceDate, loc)
+	if got := administeredAt.Format("2006-01-02 15:04 MST"); got != "2026-06-21 09:00 IST" {
+		t.Fatalf("administeredAt = %s, want 2026-06-21 09:00 IST", got)
+	}
+	if !sourceVaccinationDateOnOrBeforeBusinessDate(sourceDate, asOf, loc) {
+		t.Fatal("past source vaccination date must be imported as completed history")
+	}
+	if got, want := historyCompletionIdem(cell, vaccines["FMD"], "2026-06-21"), "vacc-real-cmp:old-k-stage:fmd:booster:2026-06-21"; got != want {
+		t.Fatalf("history completion idem = %q, want %q", got, want)
+	}
+}
+
+func TestSeedSchedulePathHonorsConfigurableCutoffAndHistorySignal(t *testing.T) {
+	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	asOf := dob.AddDate(0, 0, 154) // 22 weeks.
+
+	// With the default 16w cutoff, the 4w finish window ends at 20w; even a stale K-stage
+	// tag must not force a kid-course source mapping.
+	if got := seedSchedulePathForGoat("birth", &dob, "K2", nil, asOf, 16, nil); got != "adult" {
+		t.Fatalf("22w with default cutoff = %q, want adult", got)
+	}
+
+	// If the active rule config moves the normal kid cutoff to 20w, the finish window ends
+	// at 24w and a fresh K-stage tag remains valid in-course evidence.
+	if got := seedSchedulePathForGoat("birth", &dob, "K2", nil, asOf, 20, nil); got != "kid" {
+		t.Fatalf("22w with configured 20w cutoff and K-stage = %q, want kid", got)
+	}
+
+	kidHistory := []vaccinationdomain.RecentVaccineAdministration{{
+		AdministeredAt: dob.AddDate(0, 0, 84),
+		VaccineCode:    "FMD",
+		DoseCode:       "fmd_kid_12w",
+	}}
+	if got := seedSchedulePathForGoat("", nil, "", nil, asOf, 16, kidHistory); got != "kid" {
+		t.Fatalf("no DOB/stage with accepted kid-course history = %q, want kid", got)
+	}
+	if got := seedSchedulePathForGoat("", nil, "", nil, asOf, 16, nil); got != "adult" {
+		t.Fatalf("no DOB/stage/history = %q, want adult", got)
+	}
+}
+
 func mustKolkata(t *testing.T) *time.Location {
 	t.Helper()
 	loc, err := time.LoadLocation("Asia/Kolkata")

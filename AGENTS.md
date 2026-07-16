@@ -340,6 +340,14 @@ Do:
   `vaccination.matrix` config, trusted vaccination history, generated future
   obligations, and deterministic read-model closeout. Missing HRMS/config is a
   failed seed, even when goat rows exist.
+- Vaccination source dates are base history anchors, not open due work. A seed
+  or reseed must preserve trusted past dates as accepted history, suppress any
+  seed-created open work on or before the backend business date, and let the
+  vaccination kernel generate only future obligations from that base. Seed code
+  must not hand-roll kid/adult path selection; it must use the live vaccination
+  schedule-path helper/config so stale source tags such as `origin=birth` or
+  `K1/K2` cannot force old kid-course work. The concrete checklist lives in
+  `docs/runbooks/vaccination-seed-source-date-contract.md`.
 - After any destructive seed, bulk import, fixture reset, or large canonical
   backfill, refresh Postgres planner statistics for the touched canonical
   tables before projector recompute or latency gates. The normal source seed

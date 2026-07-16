@@ -61,6 +61,10 @@ near-term retries/reminders (minutes-hours). Losing a task must never lose work.
 1. **Private engine instead of the kernel.** New feature builds its own
    scheduler / status field / proof capture / notification sender rather than
    emitting into the kernel chain. Every process joins the shared kernel.
+   Seed/import code counts too: it may preserve canonical source truth, but it
+   must not carry a private future scheduler or a copied vaccination kid/adult
+   classifier. Trusted past source dates become history anchors; the kernel owns
+   future obligations from that base.
 2. **State + audit + outbox not in one transaction.** Canonical write and its
    outbox row (the outbox table lives in `backend/internal/outbox/adapters/postgres/`
    and its `CREATE TABLE` migration — verify the table name there rather than

@@ -49,6 +49,7 @@ import (
 const defaultTenantID = "00000000-0000-4000-8000-000000000001"
 const matrixProtocolCode = "vaccination.matrix"
 const matrixVersionLabel = "V1 Real Vaccination"
+const seedKidsNormalScheduleUntilWeeks int32 = 16
 
 // vaccineDef is one vaccine column from the source sheet, mapped to the approved
 // GoatOS schedule (docs/preventive-care-vaccination/vaccination-rules.md).
@@ -808,12 +809,14 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		// SAME wave as a later recorded administration (Fix Plan A1) so the fact is
 		// retained and available to anchor recurrence, instead of being silently
 		// dropped as unmapped.
-		path := schedulePathForGoat(
+		path := seedSchedulePathForGoat(
 			goatOriginTypeByAnimalKey[c.AnimalKey],
 			goatDOBByAnimalKey[c.AnimalKey],
 			goatStageByAnimalKey[c.AnimalKey],
 			goatEntryDateByAnimalKey[c.AnimalKey],
 			now,
+			seedKidsNormalScheduleUntilWeeks,
+			nil,
 		)
 		doseCodeForPath, laterAdministration := mapSheetDoseToRuleCode(c.Vaccine, c.DoseCode, path, vaccMatrixDef)
 		if doseCodeForPath == "" {
@@ -1703,42 +1706,22 @@ func parseSourceDate(raw string) *time.Time {
 	return nil
 }
 
-// schedulePathForGoat replicates the kernel's schedulePathForGoat logic
-func schedulePathForGoat(originType string, dob *time.Time, stage string, entryDate *time.Time, asOf time.Time) string {
-	origin := strings.ToLower(strings.TrimSpace(originType))
-	if origin == "birth" {
+// seedSchedulePathForGoat delegates kid/adult rule-family selection to the live vaccination
+// scheduler. Source dates are preserved as history; this helper only decides which rule family
+// a sheet dose belongs to before that history anchors future scheduling.
+func seedSchedulePathForGoat(originType string, dob *time.Time, stage string, entryDate *time.Time, asOf time.Time, kidCutoffWeeks int32, history []vaccinationdomain.RecentVaccineAdministration) string {
+	path := vaccinationapp.SchedulePathForGoat(vaccinationdomain.EligibleGoat{
+		OriginType: originType,
+		DOB:        dob,
+		Stage:      stage,
+		EntryDate:  entryDate,
+	}, vaccinationapp.SchedulePathProcurementPolicy{
+		KidsNormalScheduleUntilWeeks: kidCutoffWeeks,
+	}, asOf, history)
+	if path == vaccinationapp.SchedulePathKid {
 		return "kid"
 	}
-	kidWeeks := 16
-	// Check age: age <= 16w (112d) → kid
-	if dob != nil {
-		ageDays := int(asOf.Sub(*dob).Hours() / 24)
-		ageWeeks := ageDays / 7
-		if ageWeeks <= kidWeeks {
-			return "kid"
-		}
-	}
-	// Check management_stage starts "K" → kid
-	if isKidManagementStage(stage) {
-		return "kid"
-	}
-	// Check if has entry_date (procured/imported) → adult
-	if entryDate != nil {
-		return "adult"
-	}
-	// Check origin type
-	if origin == "procured" || origin == "imported" {
-		return "adult"
-	}
-	return "kid"
-}
-
-func isKidManagementStage(stage string) bool {
-	stage = strings.ToUpper(strings.TrimSpace(stage))
-	if len(stage) >= 1 && strings.HasPrefix(stage, "K") {
-		return true
-	}
-	return false
+	return "adult"
 }
 
 // mapSheetDoseToRuleCode maps a sheet dose code (First/Booster) to the actual rule dose_code
@@ -2776,7 +2759,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		},
 		"procurement_policy": map[string]any{
 			"warmup_no_vaccination_days":       7,
-			"kids_normal_schedule_until_weeks": 16,
+			"kids_normal_schedule_until_weeks": seedKidsNormalScheduleUntilWeeks,
 			"adult_prior_vaccination_allowed":  true,
 			"first_wave":                       []string{"ET+TT", "PPR"},
 			"second_wave_after_days":           28,

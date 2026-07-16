@@ -311,6 +311,13 @@ one product; this skill is the navigation layer.
   preset values, not runtime source/review UI fields. Vaccination config uses a
   scoped active ruleset model: one active company `vaccination.matrix` version,
   plus at most one active park override per park.
+- For vaccination seed/reseed work, source vaccination dates are trusted history
+  anchors, not open due work. Preserve past source dates as accepted history,
+  suppress seed-created open work on or before the backend business date, and
+  let the vaccination kernel schedule only future obligations from that base.
+  Do not copy or hand-roll kid/adult path logic in seeders; call the live
+  vaccination schedule-path helper/config. Checklist:
+  `docs/runbooks/vaccination-seed-source-date-contract.md`.
 - For Preventive Care (PC) vaccination, never ask about, model, seed, import,
   expose, or schedule from mother-not-vaccinated / unknown-mother status. The
   source/wiki branch is ignored in GoatOS; mothers are kept vaccinated
