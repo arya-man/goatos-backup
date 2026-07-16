@@ -2011,11 +2011,12 @@
         -->
         <!-- operator only: own tasks for the picked day. Read-only — an operator completes
              tasks and uploads proof in the field app (mock/hrms-mobile-mock.html). -->
-        <div class="card" id="hxOpCard" style="margin-top:16px;display:none"><div class="hd"><h3 id="hxOpDayTitle">My tasks</h3><div class="sp"></div><span class="tag t-mut" id="hxOpDayCount">1 of 3 done</span></div>
-          <div class="bd">
-            <div class="hx-daystrip" id="hxDayStrip"></div>
-            <div class="hx-tasklist" id="hxOpTasks"></div>
-          </div></div>
+        <div class="card" id="hxOpCard" style="margin-top:16px">
+          <!-- same shape as Tasks & Proof: calendar filter bar first, then a label row, then
+               the list — mirrors the field app's "My tasks today · 1 of 3 done" (hrms-mobile-mock). -->
+          <div class="hx-daystrip hx-strip-bar" id="hxDayStrip"></div>
+          <div class="tbar"><span class="b700" id="hxOpDayTitle">My tasks</span><div class="sp"></div><span class="tcount" id="hxOpDayCount">1 of 3 done</span></div>
+          <div class="bd"><div class="hx-tasklist" id="hxOpTasks"></div></div></div>
       </div>
 
       <!-- ===== HRMS · Tasks &amp; Proof ===== -->
