@@ -560,6 +560,7 @@ func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDa
 	)
 	seedVaccinationObligation(t, ctx, pool, protocolA, versionA, ruleA, obligationA, dueAt)
 	attachObligationToGoatScope(t, ctx, pool, obligationA, animalA, "shed", testShedA)
+	setCalendarGoatCurrentShed(t, ctx, pool, animalA, testParkA, testShedA)
 	seedProtocolRuleVaccineName(t, ctx, pool, versionA, ruleA, "ET+TT")
 	seedVaccinationBatchForShed(t, ctx, pool, batchA, versionA, testParkA, testShedA, dueAt, obligationA)
 
@@ -592,9 +593,13 @@ func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDa
 		t.Fatalf("GetEventDetail solo park drive=%#v, want id=%s targets=1", soloDetail.Event, wantID)
 	}
 	assertDriveTargets(t, ctx, repo, wantID, []string{animalA})
+	assertDriveTargetSheds(t, ctx, repo, wantID, map[string]string{
+		animalA: "Test Shed 0711",
+	})
 
 	seedVaccinationObligation(t, ctx, pool, protocolB, versionB, ruleB, obligationB, dueAt.Add(10*time.Minute))
 	attachObligationToGoatScope(t, ctx, pool, obligationB, animalB, "shed", testShedB)
+	setCalendarGoatCurrentShed(t, ctx, pool, animalB, testParkA, testShedB)
 	seedProtocolRuleVaccineName(t, ctx, pool, versionB, ruleB, "PPR")
 	seedVaccinationBatchForShed(t, ctx, pool, batchB, versionB, testParkA, testShedB, dueAt.Add(10*time.Minute), obligationB)
 
@@ -632,6 +637,10 @@ func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDa
 		t.Fatalf("GetEventDetail aggregated park drive=%#v, want id=%s targets=2 sheds=2", detail.Event, wantID)
 	}
 	assertDriveTargets(t, ctx, repo, wantID, []string{animalA, animalB})
+	assertDriveTargetSheds(t, ctx, repo, wantID, map[string]string{
+		animalA: "Test Shed 0711",
+		animalB: "Test Shed 0712",
+	})
 }
 
 func TestCalendarVaccinationProjectionDoesNotReclassifyDeferredCatchupAsOverdue(t *testing.T) {
@@ -2057,6 +2066,30 @@ func assertDriveTargets(t *testing.T, ctx context.Context, repo *Repository, eve
 	}
 }
 
+func assertDriveTargetSheds(t *testing.T, ctx context.Context, repo *Repository, eventID string, wantShedByAnimalID map[string]string) {
+	t.Helper()
+	targets, err := repo.ListDriveTargets(ctx, domain.DriveTargetQuery{
+		TenantID: testTenantID,
+		EventID:  eventID,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListDriveTargets(%s): %v", eventID, err)
+	}
+	got := make(map[string]string, len(targets.Items))
+	for _, item := range targets.Items {
+		if item.ShedName != nil {
+			got[item.AnimalID] = *item.ShedName
+		}
+	}
+	for animalID, wantShed := range wantShedByAnimalID {
+		if got[animalID] != wantShed {
+			t.Fatalf("ListDriveTargets(%s) shed for animal %s = %q, want %q; targets=%#v", eventID, animalID, got[animalID], wantShed, targets.Items)
+		}
+	}
+}
+
 func seedCalendarLocations(t *testing.T, ctx context.Context, pool *pgxpool.Pool, parkID, shedID string) {
 	t.Helper()
 	_, err := pool.Exec(ctx, `
@@ -2185,6 +2218,22 @@ SET lifecycle_status = 'alive',
         updated_at = now()`, goatID, testTenantID, testCustodianID)
 	if err != nil {
 		t.Fatalf("seed calendar goat: %v", err)
+	}
+}
+
+func setCalendarGoatCurrentShed(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, parkID, shedID string) {
+	t.Helper()
+	seedCalendarLocations(t, ctx, pool, parkID, shedID)
+	_, err := pool.Exec(ctx, `
+UPDATE goats
+SET current_location_id = $3::uuid,
+    park_id = $4::uuid,
+    shed_id = NULL,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND goat_id = $2::uuid`, testTenantID, goatID, shedID, parkID)
+	if err != nil {
+		t.Fatalf("set goat current shed: %v", err)
 	}
 }
 

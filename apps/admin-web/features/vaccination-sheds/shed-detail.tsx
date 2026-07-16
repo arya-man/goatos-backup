@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { ArrowLeft, CalendarClock, Syringe, UserRound, Warehouse, X } from "lucide-react";
 import {
   getGoatPassport,
@@ -77,21 +76,6 @@ function Stat({ label, value }: { label: string; value: number }) {
       <div className="v">{value}</div>
     </div>
   );
-}
-
-function hrefWithParam(pathname: string, params: RouteSearchParams, key: string, value: string | null): string {
-  const next = new URLSearchParams();
-  for (const [paramKey, paramValue] of Object.entries(params)) {
-    if (paramKey === key) continue;
-    if (Array.isArray(paramValue)) {
-      for (const item of paramValue) if (item) next.append(paramKey, item);
-    } else if (paramValue) {
-      next.set(paramKey, paramValue);
-    }
-  }
-  if (value) next.set(key, value);
-  const qs = next.toString();
-  return qs ? `${pathname}?${qs}` : pathname;
 }
 
 function withHash(href: string, hash: string): string {
@@ -417,21 +401,18 @@ export async function VaccinationShedDetailPage({
     return <NotFoundOrError shedId={shedId} message={detailResult.error.message} backHref={fallbackBack} pageContract={pageContract} />;
   }
   const detail = detailResult.data;
-  // Keep the top bar showing this shed's park (mirrors the old execution detail): normalize to park scope.
-  if (scope.mode !== "park" && detail.parkId) {
-    const preserve: Record<string, string | undefined> = { ret };
-    redirect(scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shedId)}`, scope, { mode: "park", park: detail.parkId }, preserve));
-  }
+  // Keep generated links in this shed's park scope without throwing a render-time redirect.
+  // In dev/prod RSC streaming, NEXT_REDIRECT from this path is surfaced by the app error boundary.
+  const currentPath = `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`;
+  const detailScope = detail.parkId ? ({ mode: "park" as const, park: detail.parkId }) : {};
+  const detailHref = (extra: Record<string, string | undefined> = {}) => scopeHref(currentPath, scope, detailScope, extra);
   const backHref = ret && ret.startsWith("/vaccination") ? ret : `${scopeHref("/vaccination", scope, { mode: "park", park: detail.parkId })}#sheds`;
 
   const animals: VaccinationShedAnimalRow[] = animalsResult.ok ? animalsResult.data.rows : [];
   const nextCursor = animalsResult.ok ? animalsResult.data.nextCursor ?? null : null;
-  const loadMoreHref = nextCursor
-    ? scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shedId)}`, scope, { mode: "park", park: detail.parkId }, { ret, animals_cursor: nextCursor }) + "#animals"
-    : null;
-  const currentPath = `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`;
-  const passportHref = (goatId: string) => withHash(hrefWithParam(currentPath, sp, "goat_passport", goatId), "animals");
-  const closePassportHref = withHash(hrefWithParam(currentPath, sp, "goat_passport", null), "animals");
+  const loadMoreHref = nextCursor ? `${detailHref({ ret, animals_cursor: nextCursor })}#animals` : null;
+  const passportHref = (goatId: string) => withHash(detailHref({ ret, animals_cursor: animalsCursor, goat_passport: goatId }), "animals");
+  const closePassportHref = withHash(detailHref({ ret, animals_cursor: animalsCursor }), "animals");
   const selectedGoat = passportResult && passportResult.ok ? passportResult.data.goat : null;
   const selectedGoatError = passportResult && !passportResult.ok ? passportResult.error.message : null;
 
