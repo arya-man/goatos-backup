@@ -6,8 +6,8 @@
 # docs/observability/INFRA.md, this cannot be done from Terraform). This file
 # only declares the infra shape: a BigQuery dataset for the rollup's own
 # working tables/views, IAM access to the GA4-owned export dataset once its
-# id is known, and the Cloud Run Job + Cloud Scheduler that runs the rollup
-# daily. The rollup job's CODE (the actual BQ aggregation -> Postgres upsert
+# id is known, and the manually invoked Cloud Run Job that runs the rollup.
+# The rollup job's CODE (the actual BQ aggregation -> Postgres upsert
 # logic) is owned by the backend lane, not this infra lane — this file
 # declares infra + vars only, per the task scope.
 #
@@ -66,7 +66,10 @@ resource "google_bigquery_dataset_iam_member" "analytics_rollup_ga4_export_viewe
 }
 
 locals {
-  analytics_rollup_image = "${var.region}-docker.pkg.dev/${var.project_id}/${var.artifact_repository_id}/analytics-rollup:${var.analytics_rollup_image_tag}"
+  # The backend image already contains /app/bin/analytics-rollup. Reusing the
+  # release image makes Cloud Deploy keep this manual job on the same commit as
+  # the API and kernel worker instead of depending on an independently stale tag.
+  analytics_rollup_image = local.backend_image
 }
 
 resource "google_cloud_run_v2_job" "analytics_rollup" {
@@ -142,49 +145,6 @@ resource "google_cloud_run_v2_job" "analytics_rollup" {
   }
 
   depends_on = [google_project_service.enabled]
-}
-
-resource "google_cloud_run_v2_job_iam_member" "analytics_rollup_scheduler_invoker" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_job.analytics_rollup.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.runtime["scheduler"].email}"
-}
-
-resource "google_cloud_scheduler_job" "analytics_rollup" {
-  name        = "goatos-stg-analytics-rollup-schedule"
-  description = "Runs the GA4->BigQuery->Postgres analytics rollup for Goat OS staging."
-  region      = var.region
-  schedule    = var.analytics_rollup_schedule
-  time_zone   = "Asia/Kolkata"
-
-  attempt_deadline = "1800s"
-
-  retry_config {
-    retry_count          = 2
-    min_backoff_duration = "60s"
-    max_backoff_duration = "600s"
-    max_doublings        = 2
-  }
-
-  http_target {
-    http_method = "POST"
-    uri         = "https://run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs/${google_cloud_run_v2_job.analytics_rollup.name}:run"
-    body        = base64encode("{}")
-    headers = {
-      "Content-Type" = "application/json"
-    }
-    oauth_token {
-      service_account_email = google_service_account.runtime["scheduler"].email
-      scope                 = "https://www.googleapis.com/auth/cloud-platform"
-    }
-  }
-
-  depends_on = [
-    google_cloud_run_v2_job_iam_member.analytics_rollup_scheduler_invoker,
-    google_service_account_iam_member.cloudscheduler_scheduler_token_creator,
-  ]
 }
 
 # NOTE: Cloud SQL has no Terraform-managed "schema" resource. The

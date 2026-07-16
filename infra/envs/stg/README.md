@@ -1,10 +1,10 @@
 # goatos-stg Terraform And Deployment Handoff
 
-Status: staging infrastructure source is now aligned with the live
-`goatos-stg` environment and includes the GitHub Actions deploy identity. Live
+Status: source defines the disposable 5k-to-50k staging topology. Live
 resources still need to be imported into the `gs://goatos-stg-tf-state`
-Terraform backend before a broad `terraform apply`; do not apply an empty state
-against staging.
+Terraform backend before a broad `terraform apply`; do not apply an incomplete
+state against staging. See
+`docs/runbooks/staging-disposable-deployment.md` for convergence and reset.
 
 ## Verified Target
 
@@ -34,8 +34,8 @@ IAM:              runtime SAs, GitHub OIDC deployer, least-scope bindings
 Pub/Sub:          outbox topic, analytics/domain subscriptions, DLQ
 Cloud Tasks:      near-term kernel queue
 Cloud Run:        goatos-api-stg and goatos-admin-web-stg services
-Cloud Run Jobs:   migration and scheduled kernel workers
-Scheduler:        job invocations in Asia/Kolkata time
+Cloud Run Jobs:   migration, manual outbox-DLQ, manual analytics rollup
+Scheduler:        zero jobs
 GCS:              goatos-stg-media bucket and goatos-proof-signer-stg
 Monitoring:       Cloud Run errors, outbox dead letters, DLQ backlog, Cloud SQL CPU
 ```
@@ -130,7 +130,8 @@ Before any real `terraform apply`, import the live resources into the staging
 state first. Applying without imports can fail on duplicate names or overwrite
 manual configuration.
 
-The obligation sweeper also requires an explicit, existing Goat OS workforce
+The kernel worker's obligation-sweeper stage also requires an explicit,
+existing Goat OS workforce
 member UUID via private tfvars:
 
 ```hcl

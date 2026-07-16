@@ -269,7 +269,18 @@
       "owningDoc": ".agents/skills/kernel-scale-lens/SKILL.md",
       "requiredInCI": true,
       "ciStep": "kernel-worker-cutover-guard",
-      "notes": "KERN-01: asserts exactly one active owner per stage in every terraform phase — legacy jobs (gated present when retire_legacy_stage_jobs=false) and worker stages (GOATOS_WORKER_STAGES_ENABLED bound to the same flag) are mutually exclusive. Standing static check; runs on every guardrails pass."
+      "notes": "KERN-01: asserts exactly one active owner per stage while dev remains on the transitional flag. Staging's completed cutover is covered by stg-disposable-topology."
+    },
+    {
+      "id": "stg-disposable-topology",
+      "script": "tools/agent-hooks/check-stg-disposable-topology.mjs",
+      "makeTarget": "stg-disposable-topology-guard",
+      "realCheck": "node tools/agent-hooks/check-stg-disposable-topology.mjs",
+      "selfTest": "node tools/agent-hooks/check-stg-disposable-topology.mjs --self-test",
+      "owningDoc": "docs/decisions/operational-kernel-5k-50k-scale-envelope.md",
+      "requiredInCI": true,
+      "ciStep": "stg-disposable-topology-guard",
+      "notes": "Final staging topology: no Scheduler resources or transitional flag, one enabled kernel-worker service, analytics retained as a manual job, and Cloud Deploy updates/verifies the worker image."
     },
     {
       "id": "mock-clicks",

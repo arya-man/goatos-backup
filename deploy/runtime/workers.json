@@ -29,16 +29,16 @@
     "This manifest plus the two checks above exist to make that class of drift a fast,",
     "offline, deterministic failure instead of a silent production outage.",
     "",
-    "KERN-01 two-phase kernel-worker cutover (2026-07): the 7 environments.*.jobs entries",
+    "KERN-01 two-phase kernel-worker cutover (2026-07): the 7 environments.dev.jobs entries",
     "flagged 'TRANSITIONAL legacy stage job' (domain-event-consumer, outbox-relay,",
     "domain-event-processed-sweeper, generate-vaccination-obligations, inventory-batch-reconciler,",
     "idempotency-key-sweeper, sop-review-fanout-retry) are retained ONLY for the parity-first",
-    "cutover to the consolidated kernel-worker SERVICE. In infra/envs/{dev,stg}/cloud_run_jobs.tf",
-    "they are gated by var.retire_legacy_stage_jobs: phase 1 (flag=false) deploys them alongside",
+    "cutover to the consolidated kernel-worker SERVICE. In infra/envs/dev/cloud_run_jobs.tf",
+    "they are gated by var.retire_legacy_stage_jobs: phase 1 (flag=false) retains their definitions",
     "the kernel-worker service for parity verification; phase 2 (flag=true) removes them once the",
-    "service is proven healthy. Delete these 7 entries from BOTH environments here when the flag",
-    "flips true. They still get the full binary-built + flag-defined + tf-args-match validation",
-    "above — they are transitional, not exempt."
+    "service is proven healthy. Staging completed the disposable cutover in 2026-07: it has no",
+    "scheduled stage jobs or partition maintainer; the analytics rollup remains a separately built",
+    "manual Cloud Run Job and is intentionally outside this backend-image manifest."
   ],
   "version": 1,
 
@@ -97,16 +97,8 @@
     "stg": {
       "tf_file": "infra/envs/stg/cloud_run_jobs.tf",
       "jobs": [
-        { "name": "partition_maintainer", "binary": "partition-maintainer", "kind": "job", "args": ["-timeout=60s", "-months-ahead=12"], "schedule": "11 0 * * *", "health_signal": "exit code 0" },
         { "name": "migrate", "binary": "migrate", "kind": "job", "image": "migrate", "args": ["-timeout=10m"], "schedule": "deploy-time (run once per release, not scheduled)", "health_signal": "exit code 0; schema_migrations at HEAD", "notes": "Deployed from local.migration_image (backend/Dockerfile.migrate), a SEPARATE image from local.backend_image/goatos-backend:e2e — see the top-level images.migrate entry. tools/agent-hooks/check-deployed-job-flags.mjs still validates its binary/flags (it unions binaries across every backend/Dockerfile*); make e2e-parity skips the goatos-backend:e2e binary-existence check for it and instead relies on deploy/e2e/docker-compose.e2e.yml's migrate service, which builds Dockerfile.migrate and actually runs this exact binary+args against real Postgres." },
-        { "name": "outbox_dlq", "binary": "outbox-dlq", "kind": "job", "args": ["-mode=list", "-status=dead_letter", "-limit=100", "-timeout=60s"], "schedule": "manual (on-demand ops command, not scheduled)", "health_signal": "exit code 0" },
-        { "name": "domain_event_consumer", "binary": "domain-event-consumer", "kind": "job", "args": ["-timeout=9m"], "schedule": "*/10 * * * *", "health_signal": "exit code 0", "notes": "TRANSITIONAL legacy stage job — retained for the two-phase kernel-worker cutover (see _readme). Gated in Terraform by var.retire_legacy_stage_jobs; remove when the flag flips true (phase 2)." },
-        { "name": "outbox_relay", "binary": "outbox-relay", "kind": "job", "args": ["-limit=500", "-timeout=240s"], "schedule": "* * * * *", "health_signal": "exit code 0", "notes": "TRANSITIONAL legacy stage job (see _readme / var.retire_legacy_stage_jobs)." },
-        { "name": "domain_event_processed_sweeper", "binary": "domain-event-processed-sweeper", "kind": "job", "args": ["-timeout=45s", "-limit=1000", "-retention=336h"], "schedule": "37 * * * *", "health_signal": "exit code 0", "notes": "TRANSITIONAL legacy stage job (see _readme / var.retire_legacy_stage_jobs)." },
-        { "name": "vaccination_generator", "binary": "generate-vaccination-obligations", "kind": "job", "args": ["-timeout=9m"], "schedule": "0 * * * *", "health_signal": "exit code 0", "notes": "TRANSITIONAL legacy stage job (see _readme / var.retire_legacy_stage_jobs)." },
-        { "name": "inventory_batch_reconciler", "binary": "inventory-batch-reconciler", "kind": "job", "args": ["-timeout=60s", "-limit=100"], "schedule": "*/5 * * * *", "health_signal": "exit code 0", "notes": "TRANSITIONAL legacy stage job (see _readme / var.retire_legacy_stage_jobs)." },
-        { "name": "idempotency_key_sweeper", "binary": "idempotency-key-sweeper", "kind": "job", "args": ["-timeout=45s", "-limit=1000"], "schedule": "17 * * * *", "health_signal": "exit code 0", "notes": "TRANSITIONAL legacy stage job (see _readme / var.retire_legacy_stage_jobs)." },
-        { "name": "sop_review_fanout_retry", "binary": "sop-review-fanout-retry", "kind": "job", "args": ["-timeout=60s", "-limit=100"], "schedule": "*/5 * * * *", "health_signal": "exit code 0", "notes": "TRANSITIONAL legacy stage job (see _readme / var.retire_legacy_stage_jobs)." }
+        { "name": "outbox_dlq", "binary": "outbox-dlq", "kind": "job", "args": ["-mode=list", "-status=dead_letter", "-limit=100", "-timeout=60s"], "schedule": "manual (on-demand ops command, not scheduled)", "health_signal": "exit code 0" }
       ]
     }
   },

@@ -1,6 +1,8 @@
 # ADR: Operational kernel for the 5k-to-50k scale envelope
 
-Status: accepted product direction; documentation complete, implementation pending.
+Status: accepted; staging implementation completed in migration `000212` and
+the disposable staging Terraform topology. Development still retains the
+transitional retirement gate until it is converged separately.
 
 Date: 2026-07-14
 
@@ -163,11 +165,11 @@ before the table is dropped.
 ### Partitioning removed in the clean restructure
 
 The current partition maintainer covers `goat_identity_events`, `audit_log`, and
-`obligation_status_events`. For the 5k-to-50k envelope these tables will be
-recreated as ordinary indexed tables with the same logical columns and
-constraints. Their current rows are test data and are not migrated. Monthly
-partitioning and its maintenance command remain recoverable from the baseline
-tag and may be reintroduced for the first measured history/event-table hotspot.
+`obligation_status_events`. Migration `000212` recreates these parents as
+ordinary indexed tables with the same logical columns and constraints and
+copies any rows present during the cutover. Monthly partitioning and its
+maintenance command remain recoverable from the baseline tag and may be
+reintroduced for the first measured history/event-table hotspot.
 
 ## Target topology for 5k-to-50k
 

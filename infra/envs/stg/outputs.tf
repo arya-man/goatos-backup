@@ -30,18 +30,21 @@ output "pubsub_domain_events_subscription" {
   value       = google_pubsub_subscription.domain_events.name
 }
 
-output "cloud_run_kernel_jobs" {
-  description = "Cloud Run Job names for scheduled kernel workers."
+output "cloud_run_explicit_jobs" {
+  description = "Cloud Run Job names retained for deploy-time or manual execution; none is scheduled."
   value = {
-    for key, job in google_cloud_run_v2_job.kernel : key => job.name
+    migrate          = google_cloud_run_v2_job.migrate.name
+    outbox_dlq       = google_cloud_run_v2_job.outbox_dlq.name
+    analytics_rollup = google_cloud_run_v2_job.analytics_rollup.name
   }
 }
 
 output "cloud_run_services" {
-  description = "Cloud Run service URLs for staging API and admin-web."
+  description = "Cloud Run service URLs for staging API, admin-web, and the two-instance kernel worker."
   value = {
-    api       = google_cloud_run_v2_service.api.uri
-    admin_web = google_cloud_run_v2_service.admin_web.uri
+    api           = google_cloud_run_v2_service.api.uri
+    admin_web     = google_cloud_run_v2_service.admin_web.uri
+    kernel_worker = google_cloud_run_v2_service.kernel_worker.uri
   }
 }
 
@@ -123,7 +126,7 @@ output "analytics_rollup_bigquery_dataset" {
 }
 
 output "analytics_rollup_cloud_run_job" {
-  description = "Cloud Run Job name for the daily GA4->BigQuery->Postgres analytics rollup."
+  description = "Cloud Run Job name for the manual GA4->BigQuery->Postgres analytics rollup."
   value       = google_cloud_run_v2_job.analytics_rollup.name
 }
 

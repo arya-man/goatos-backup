@@ -99,6 +99,7 @@ run_backend() {
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard
   step "kernel-worker-cutover-guard" make kernel-worker-cutover-guard
+  step "stg-disposable-topology-guard" make stg-disposable-topology-guard
   step "secret-accessors-guard"   make secret-accessors-guard
   step "worker-stage-budgets-guard" make worker-stage-budgets-guard
   if postgres_tests_enabled; then

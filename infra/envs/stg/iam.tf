@@ -29,14 +29,7 @@ resource "google_project_iam_member" "kernel_worker_fcm_sender" {
   member  = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
 }
 
-resource "google_service_account_iam_member" "cloudscheduler_scheduler_token_creator" {
-  service_account_id = google_service_account.runtime["scheduler"].name
-  role               = "roles/iam.serviceAccountTokenCreator"
-  member             = "serviceAccount:${google_project_service_identity.cloudscheduler.email}"
-}
-
 # The near-term Cloud Tasks enqueuer (which invoked the retired
 # notification-dispatcher job for sub-minute delivery) is gone: notifications
 # now drain via the kernel worker's 1-minute fast-lane stage. No Cloud Tasks
 # OAuth token-creator binding is needed.
-

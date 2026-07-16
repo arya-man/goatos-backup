@@ -186,8 +186,8 @@ the dashboard look clean.
 
 ## Runtime Prevention
 
-- `goatos-stg-vaccination-generator` must have enough command and Cloud Run
-  timeout for a full tenant pass and must fail the execution on partial work.
+- The kernel worker's vaccination-generation stage must have enough execution
+  budget for a full tenant pass and must report partial work as a failed stage.
 - The kernel worker's operational stage runs on its configured cadence to keep
   time-derived due/missed state current; under this envelope there are no
   separate process-integrity, execution, operations, or shed projectors to

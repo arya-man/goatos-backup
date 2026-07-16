@@ -2,7 +2,6 @@ locals {
   enabled_services = toset([
     "artifactregistry.googleapis.com",
     "bigquery.googleapis.com",
-    "cloudscheduler.googleapis.com",
     "clouddeploy.googleapis.com",
     "cloudtasks.googleapis.com",
     "cloudtrace.googleapis.com",
@@ -26,15 +25,6 @@ resource "google_project_service" "enabled" {
   project            = var.project_id
   service            = each.value
   disable_on_destroy = false
-}
-
-resource "google_project_service_identity" "cloudscheduler" {
-  provider = google-beta
-
-  project = var.project_id
-  service = "cloudscheduler.googleapis.com"
-
-  depends_on = [google_project_service.enabled]
 }
 
 resource "google_project_service_identity" "cloudtasks" {

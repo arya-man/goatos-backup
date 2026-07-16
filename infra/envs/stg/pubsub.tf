@@ -75,17 +75,6 @@ resource "google_pubsub_topic_iam_member" "kernel_worker_publisher" {
   member = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
 }
 
-# KERN-01 phase 1 (retire_legacy_stage_jobs = false): the restored legacy
-# outbox-relay JOB publishes to the outbox topic with its own SA, so it needs the
-# publisher grant back. Phase 2 (flag = true): the job + its SA are gone and only
-# kernel_worker_publisher above remains.
-resource "google_pubsub_topic_iam_member" "outbox_relay_publisher" {
-  count  = var.retire_legacy_stage_jobs ? 0 : 1
-  topic  = google_pubsub_topic.outbox_events.name
-  role   = "roles/pubsub.publisher"
-  member = "serviceAccount:${google_service_account.runtime["outbox_relay"].email}"
-}
-
 resource "google_pubsub_topic_iam_member" "pubsub_service_agent_dlq_publisher" {
   topic  = google_pubsub_topic.outbox_events_dlq.name
   role   = "roles/pubsub.publisher"
@@ -103,17 +92,6 @@ resource "google_pubsub_subscription_iam_member" "kernel_worker_subscriber" {
   subscription = google_pubsub_subscription.domain_events.name
   role         = "roles/pubsub.subscriber"
   member       = "serviceAccount:${google_service_account.runtime["kernel_worker"].email}"
-}
-
-# KERN-01 phase 1 (retire_legacy_stage_jobs = false): the restored legacy
-# domain-event-consumer JOB subscribes to the domain-events subscription with its
-# own SA, so it needs the subscriber grant back. Phase 2 (flag = true): the job +
-# its SA are gone and only kernel_worker_subscriber above remains.
-resource "google_pubsub_subscription_iam_member" "domain_consumer_subscriber" {
-  count        = var.retire_legacy_stage_jobs ? 0 : 1
-  subscription = google_pubsub_subscription.domain_events.name
-  role         = "roles/pubsub.subscriber"
-  member       = "serviceAccount:${google_service_account.runtime["domain_consumer"].email}"
 }
 
 resource "google_pubsub_subscription_iam_member" "pubsub_service_agent_domain_source_subscriber" {

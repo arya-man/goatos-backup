@@ -233,17 +233,6 @@ variable "monitoring_alert_email_addresses" {
 # Kernel-worker cutover control (KERN-01 safety: two-phase legacy job retirement)
 # ---------------------------------------------------------------------------
 
-variable "retire_legacy_stage_jobs" {
-  description = "Gate for two-phase kernel-worker cutover: enable removal of legacy per-stage scheduled Cloud Run Jobs. Phase 1 (flag=false): kernel-worker service deployed alongside retained legacy jobs for parity verification. Phase 2 (flag=true): legacy jobs removed after service proven healthy. Default false prevents accidental one-apply destruction."
-  type        = bool
-  default     = false
-
-  validation {
-    condition     = var.retire_legacy_stage_jobs == true || var.retire_legacy_stage_jobs == false
-    error_message = "retire_legacy_stage_jobs must be explicitly true or false; no default inference."
-  }
-}
-
 # ---------------------------------------------------------------------------
 # Observability stack (infra/envs/stg/observability.tf, monitoring.tf,
 # secrets.tf, analytics_rollup.tf, cloud_sql.tf). See
@@ -443,28 +432,6 @@ variable "notification_failure_rate_alert_threshold_ratio" {
   validation {
     condition     = var.notification_failure_rate_alert_threshold_ratio > 0 && var.notification_failure_rate_alert_threshold_ratio < 1
     error_message = "notification_failure_rate_alert_threshold_ratio must be a ratio strictly between 0 and 1."
-  }
-}
-
-variable "analytics_rollup_image_tag" {
-  description = "Image tag for the goatos-stg-analytics-rollup Cloud Run Job (backend-lane-owned image, published to the shared goatos Artifact Registry repository)."
-  type        = string
-  default     = "stg"
-
-  validation {
-    condition     = length(trimspace(var.analytics_rollup_image_tag)) > 0
-    error_message = "analytics_rollup_image_tag is required."
-  }
-}
-
-variable "analytics_rollup_schedule" {
-  description = "Cloud Scheduler cron expression (Asia/Kolkata) for the daily GA4->BigQuery->Postgres analytics rollup."
-  type        = string
-  default     = "15 3 * * *"
-
-  validation {
-    condition     = length(trimspace(var.analytics_rollup_schedule)) > 0
-    error_message = "analytics_rollup_schedule is required."
   }
 }
 

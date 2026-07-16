@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // check-kernel-worker-cutover.mjs — KERN-01 worker-stage exclusion guard.
 //
-// Enforces atomic mutual exclusion of legacy jobs and kernel-worker stages:
+// Enforces atomic mutual exclusion of legacy jobs and kernel-worker stages in
+// development while that environment remains on the transitional cutover.
+// Staging's completed disposable cutover is enforced separately by
+// check-stg-disposable-topology.mjs.
 //   Phase 1 (retire_legacy_stage_jobs = false):
 //     - legacy_stage_jobs map populated (gated false -> full map)
 //     - GOATOS_WORKER_STAGES_ENABLED = "false" (stages disabled/shadowed)
@@ -163,7 +166,7 @@ function main() {
   }
 
   const findings = [];
-  for (const env of ["dev", "stg"]) {
+  for (const env of ["dev"]) {
     findings.push(...checkCutoverExclusion(env));
   }
   if (findings.length > 0) {
@@ -171,7 +174,7 @@ function main() {
     for (const f of findings) console.error(`- ${f}`);
     process.exit(1);
   }
-  pass("All KERN-01 cutover-exclusion checks passed (dev + stg: exactly one active owner per stage in every phase)");
+  pass("KERN-01 transitional cutover-exclusion checks passed (dev)");
 }
 
 main();

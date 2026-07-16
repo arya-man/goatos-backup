@@ -71,7 +71,7 @@ resource "google_cloud_run_v2_service" "kernel_worker" {
 
       env {
         name  = "GOATOS_WORKER_STAGES_ENABLED"
-        value = var.retire_legacy_stage_jobs ? "true" : "false"
+        value = "true"
       }
 
       env {

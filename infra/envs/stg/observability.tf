@@ -21,7 +21,7 @@
 # Run service's `INGRESS_TRAFFIC_INTERNAL_ONLY` endpoint — that traffic would
 # have to leave over the public internet, where it is rejected. Separately,
 # the OTLP/HTTP Go exporters (otlptracehttp/otlpmetrichttp) used by the
-# backend api and every kernel worker Job cannot attach a Google-signed ID
+# backend api and kernel worker service cannot attach a Google-signed ID
 # token, so even a public+`run.invoker`-gated collector would 401 every
 # export call.
 #
@@ -32,7 +32,7 @@
 # no TLS, no auth, no VPC — and the sidecar fans out to GMP/Cloud
 # Trace/Cloud Logging exactly as before. This is wired onto:
 #   - `google_cloud_run_v2_service.api` (cloud_run_services.tf)
-#   - `google_cloud_run_v2_job.kernel` (cloud_run_jobs.tf, for_each)
+#   - `google_cloud_run_v2_service.kernel_worker` (cloud_run_worker.tf)
 #   - `google_cloud_run_v2_service.grafana_alloy` (below) — Alloy gets its own
 #     sidecar too, so the standalone `otel_collector` Cloud Run service (which
 #     had the identical internal-ingress problem for Alloy's public->internal
@@ -42,8 +42,8 @@
 # Cloud Run v2 assigns exactly ONE service account per revision template,
 # shared by every container in it (sidecars included) — there is no
 # per-container service account. So the collector sidecar inside the api
-# service runs as `runtime["api"]`, the sidecar inside each kernel Job runs
-# as that job's own runtime SA, and the sidecar inside Alloy runs as
+# service runs as `runtime["api"]`, the sidecar inside the kernel worker runs
+# as `runtime["kernel_worker"]`, and the sidecar inside Alloy runs as
 # `grafana_alloy` (already granted the 3 export roles below). The dedicated
 # `otel_collector` service account this file used to declare is gone; its 3
 # IAM roles are now granted directly to every producer's own runtime SA.
@@ -139,11 +139,10 @@ resource "google_project_iam_member" "grafana_alloy_log_writer" {
 # as the sidecar now runs inside the Grafana Cloud Run service and inherits
 # the grafana SA's roles/monitoring.viewer permission.
 
-# Runtime SAs whose Cloud Run revision now carries an OTel Collector sidecar:
-# the backend api plus every distinct kernel-worker-Job service account
-# (14 — see main.tf local.database_clients, minus the one-shot migrate/
-# legacy_sync/outbox_dlq admin jobs that are not part of the continuous
-# kernel pipeline), matching the worker Jobs callout in
+# Runtime SAs whose Cloud Run revision carries an OTel Collector sidecar: the
+# backend API plus the consolidated kernel-worker service. The one-shot
+# migrate/legacy-sync/outbox-DLQ jobs are not continuous telemetry producers,
+# matching the runtime callout in
 # docs/observability/OBSERVABILITY_DESIGN.md section 1.
 #
 # Each of these SAs is the template-level service account for its Cloud Run

@@ -21,7 +21,7 @@ be region-pinned by design (GMP, Cloud Trace).
 | `infra/envs/stg/secrets.tf` (edited) | Adds `goatos-stg-grafana-admin-password` and `goatos-stg-grafana-postgres-datasource-password` Secret Manager containers + accessor IAM for the `grafana` SA. |
 | `infra/envs/stg/monitoring.tf` (edited) | Adds 5 SLO/burn alert policies: API 5xx error-rate burn, API read-path p99 burn, API write-path p99 burn, consumer-lag, notification-failure-rate. Existing 4 policies (Cloud Run errors, outbox DLQ, Pub/Sub DLQ backlog, Cloud SQL CPU) are untouched. |
 | `infra/envs/stg/cloud_sql.tf` (edited) | Adds `insights_config` (Query Insights) to `google_sql_database_instance.core`. |
-| `infra/envs/stg/analytics_rollup.tf` | BigQuery dataset (asia-south1) for rollup working tables, conditional IAM read access to the GA4-owned export dataset once linked, the `goatos-stg-analytics-rollup` Cloud Run Job, and its daily Cloud Scheduler trigger. |
+| `infra/envs/stg/analytics_rollup.tf` | BigQuery dataset (asia-south1) for rollup working tables, conditional IAM read access to the GA4-owned export dataset once linked, and the manual `goatos-stg-analytics-rollup` Cloud Run Job. |
 | `infra/envs/stg/variables.tf` (edited) | ~24 new variables — images, min-instance counts, operator IAM list, Query Insights tunables, SLO thresholds, rollup schedule/image/GA4 dataset id. All documented inline; defaults chosen so `terraform plan` works without extra input except where explicitly noted below. |
 | `infra/envs/stg/outputs.tf` (edited) | Cloud Run URLs, service account emails, secret container ids, BigQuery dataset id, rollup job name, new alert policy names. |
 | `infra/observability/otel-collector-config.yaml` | OTel Collector config: OTLP grpc+http receivers, memory_limiter/resourcedetection/batch processors, googlemanagedprometheus + googlecloud (traces) + googlecloud (logs) exporters, 3 pipelines. |
@@ -50,7 +50,7 @@ OTel Collector:      sidecar container (loopback :4318, no external ingress) ins
                      goatos-api-stg, every goatos-stg-* kernel Job, and
                      goatos-stg-grafana-alloy — NOT its own Cloud Run service.
                      See section 12.
-Cloud Scheduler:     goatos-stg-analytics-rollup-schedule (03:15 IST daily)
+Cloud Scheduler:     none; execute the analytics rollup explicitly after reseed and before demos
 GCS buckets:         goatos-stg-observability-config (collector/alloy config)
                      goatos-stg-grafana-provisioning (datasources/dashboards)
 BigQuery dataset:    goatos_stg_analytics_rollup (asia-south1)
@@ -248,8 +248,7 @@ otel_collector_image   = otel/opentelemetry-collector-contrib:0.114.0
 gmp_frontend_image     = gke.gcr.io/prometheus-engine/frontend:v0.15.1
 grafana_image          = grafana/grafana:11.4.0
 grafana_alloy_image    = grafana/alloy:v1.5.1
-analytics_rollup_image_tag = stg   (image URL built the same way backend_image_tag is)
-analytics_rollup_schedule  = "15 3 * * *" (Asia/Kolkata)
+analytics rollup image = local.backend_image (kept on the Cloud Deploy release commit)
 api_availability_slo           = 0.995
 api_latency_p99_read_slo_seconds  = 0.8
 api_latency_p99_write_slo_seconds = 1.5
