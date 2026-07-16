@@ -103,8 +103,12 @@ source shed.
    remains active.
 4. Take an on-demand Cloud SQL backup and wait for it to reach `SUCCESSFUL`.
    Record the backup identifier. Do not proceed on a pending or failed backup.
-5. Through the authenticated staging Cloud SQL path, drop and recreate only the
-   application `public` schema. Never copy the local database into staging.
+5. Through the authenticated staging Cloud SQL path, drop every
+   application-owned schema (`public` and `analytics` today), then recreate an
+   empty `public` schema owned by `goatos_app`. Never touch PostgreSQL system
+   schemas or copy the local database into staging. Dropping only `public` is
+   not a clean reset because migration 000168 owns tables in the separate
+   `analytics` schema.
 6. Apply every migration from the deployed artifact and verify the final
    migration version.
 7. Seed, in order:

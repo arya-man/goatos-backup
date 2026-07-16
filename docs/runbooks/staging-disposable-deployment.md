@@ -2,6 +2,9 @@
 
 Status: authoritative for `goatos-stg` while the product is under development.
 
+Latest destructive-reset record:
+`staging-clear-slate-evidence-2026-07-16.md`.
+
 This runbook implements the accepted 5k-to-50k operational-kernel envelope.
 Staging contains disposable test data: reset the application schema and reseed
 it instead of preserving an obsolete topology or attempting mixed-version
@@ -54,7 +57,11 @@ an analytics schedule.
 
 1. Confirm all writers and executions are stopped. Take and record a successful
    on-demand Cloud SQL backup.
-2. Drop and recreate only the application `public` schema in `goatos-stg`.
+2. Drop every application-owned schema in `goatos-stg` (`public` and
+   `analytics` today), then recreate an empty `public` schema owned by
+   `goatos_app`. Do not touch PostgreSQL system schemas. This must remove the
+   separate `analytics` schema as well as `public`; otherwise migration 000168
+   collides with stale analytics rollup tables on the next clean deployment.
 3. Promote the exact reviewed `main` commit through the same-repository
    `main -> stg` PR. Direct pushes to `stg` are forbidden.
 4. Cloud Deploy verifies the API, kernel worker, admin-web, and migration job
