@@ -1522,14 +1522,14 @@ func TestStageReviewItemOpenUniquePerGoat(t *testing.T) {
 	}
 }
 
-// TestStageReviewOpenUniqueRejectsDuplicate is the VACC-REV-10 round-5 DB-level guard: after migration
-// 000210, at most one OPEN review item per (tenant, goat) is enforced by a partial unique index — so a
-// duplicate insert from ANY writer (including a still-live predecessor binary that does not take the
-// bridge advisory lock) FAILS CLOSED against the index rather than creating a second open row. Two
-// things are proven here: (1) the exact predecessor SQL (`ON CONFLICT (tenant_id, idempotency_key)`) now
-// errors because that index is gone (fail closed, not a silent duplicate); (2) a raw duplicate-open
-// insert with a fresh key is rejected by the (tenant, goat) unique index; (3) the bridge writer keeps
-// exactly one open row, updated in place.
+// TestStageReviewOpenUniqueRejectsDuplicate is the VACC-REV-10 round-5 migrate-first + DB-level guard:
+// migration 000210 KEEPS the (tenant, idempotency_key) open index AND adds a (tenant, goat) open index,
+// so a still-live predecessor binary's `ON CONFLICT (tenant_id, idempotency_key)` writes keep working
+// for the FIRST row, while only an actual SECOND stage-keyed open row for the same goat fails closed.
+// Proven here: (1) predecessor FIRST insert (fresh goat, key K1) succeeds — the idem index is present;
+// (2) predecessor SAME-key replay succeeds (DO UPDATE, still one row); (3) predecessor DIFFERENT-stage
+// key for the same goat is rejected by the (tenant, goat) unique index (fail closed, no dup);
+// (4) exactly one open row survives and the bridge writer updates it in place.
 func TestStageReviewOpenUniqueRejectsDuplicate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -1539,36 +1539,34 @@ func TestStageReviewOpenUniqueRejectsDuplicate(t *testing.T) {
 
 	const goatID = "40000000-0000-4000-8000-0000000000d3"
 
-	// Bridge writer records the goat -> exactly one open row.
-	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 22, 20, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
-		t.Fatalf("bridge writer K1: %v", err)
-	}
-
-	// (1) The exact SQL the old stage-keyed predecessor shipped targets the now-dropped idempotency-key
-	// index -> it fails closed (42P10), never inserting a duplicate.
+	// Exact SQL the old stage-keyed predecessor shipped (ON CONFLICT on the idempotency-key index).
 	oldWriterSQL := `
 		INSERT INTO vaccination_stage_review_items
 			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
 		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'kid_stage_past_age_cutoff', $3, $4, $5)
 		ON CONFLICT (tenant_id, idempotency_key) WHERE status = 'open' DO UPDATE
 		SET observed_stage = EXCLUDED.observed_stage, observed_age_weeks = EXCLUDED.observed_age_weeks`
-	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K2", 30, "vacc-stage-review:"+impTenant+":"+goatID+":K2"); err == nil {
-		t.Fatalf("predecessor ON CONFLICT (idempotency_key) should fail closed (index dropped), got no error")
-	}
 
-	// (2) A raw duplicate-open insert with a FRESH key (a writer that does not take the advisory lock) is
-	// rejected by the (tenant, goat) open-unique index.
-	rawDupSQL := `
-		INSERT INTO vaccination_stage_review_items
-			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
-		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'kid_stage_past_age_cutoff', 'K2', 30, $3)`
-	if _, err := pool.Exec(ctx, rawDupSQL, impTenant, goatID, "vacc-stage-review:"+impTenant+":"+goatID+":raw"); err == nil {
-		t.Fatalf("raw duplicate-open insert should violate the (tenant, goat) open-unique index, got no error")
+	// (1) predecessor FIRST insert (fresh goat) SUCCEEDS — the idempotency-key index is retained.
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K1", 22, "vacc-stage-review:"+impTenant+":"+goatID+":K1"); err != nil {
+		t.Fatalf("predecessor first insert should succeed (idem index kept): %v", err)
 	}
-
-	// (3) exactly one open row survives; the bridge writer updates it in place on its next pass.
+	// (2) predecessor SAME-key replay SUCCEEDS (DO UPDATE, still one open row).
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K1", 23, "vacc-stage-review:"+impTenant+":"+goatID+":K1"); err != nil {
+		t.Fatalf("predecessor same-key replay should succeed: %v", err)
+	}
 	if open := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2 AND status='open'`, impTenant, goatID); open != 1 {
-		t.Fatalf("open rows = %d, want 1 (duplicates failed closed)", open)
+		t.Fatalf("open rows after predecessor first+replay = %d, want 1", open)
+	}
+
+	// (3) predecessor DIFFERENT-stage key for the SAME goat is rejected by the (tenant, goat) index.
+	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K2", 30, "vacc-stage-review:"+impTenant+":"+goatID+":K2"); err == nil {
+		t.Fatalf("predecessor different-stage-key duplicate should violate the (tenant, goat) open-unique index, got no error")
+	}
+
+	// (4) exactly one open row survives; the bridge writer updates it in place on its next pass.
+	if open := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM vaccination_stage_review_items WHERE tenant_id=$1 AND goat_id=$2 AND status='open'`, impTenant, goatID); open != 1 {
+		t.Fatalf("open rows = %d, want 1 (duplicate failed closed)", open)
 	}
 	if err := repo.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K2", 31, 20, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
 		t.Fatalf("bridge writer K2: %v", err)
@@ -1704,5 +1702,62 @@ func TestResolveStageReviewItemCorrectedUsesStoredCutoff(t *testing.T) {
 	}
 	if resolved || !wasOpen {
 		t.Fatalf("low-cutoff (20w vs 22w age): resolved=%v wasOpen=%v, want false/true (still stale)", resolved, wasOpen)
+	}
+}
+
+// TestResolveStageReviewItemCorrectedNullCutoffFailsClosed proves a legacy / predecessor-written row
+// (age_cutoff_weeks IS NULL — no persisted policy provenance) can NOT be resolved as 'corrected' by
+// defaulting to an invented cutoff. A 15-week K1 goat raised under an unknown cutoff would (wrongly)
+// look non-stale against a fabricated 20-week fallback and close as corrected without any real fix.
+// With NULL treated as unknown/fail-closed, the item stays open (409) until generation re-records the
+// exact cutoff or an operator resolves it as an explicit exception.
+func TestResolveStageReviewItemCorrectedNullCutoffFailsClosed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	vacc := NewRepository(pool, 5*time.Second)
+
+	const goatID = "30000000-0000-4000-8000-0000000000fc"
+	const actor = "40000000-0000-4000-8000-0000000000ff"
+	seedGenGoatWithStage(t, ctx, pool, goatID, "alive", "K1")
+	// ~15 weeks old (105 days): past a short cutoff (e.g. 12w) but under the 20w fallback the buggy
+	// COALESCE would invent.
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob = (now() AT TIME ZONE 'Asia/Kolkata')::date - 105 WHERE tenant_id=$1::uuid AND goat_id=$2::uuid`, impTenant, goatID); err != nil {
+		t.Fatalf("age goat: %v", err)
+	}
+	// Legacy/predecessor row: raw insert with age_cutoff_weeks left NULL.
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO vaccination_stage_review_items
+			(review_item_id, tenant_id, goat_id, reason, observed_stage, observed_age_weeks, idempotency_key)
+		VALUES (gen_random_uuid(), $1::uuid, $2::uuid, 'kid_stage_past_age_cutoff', 'K1', 15, $3)`,
+		impTenant, goatID, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
+		t.Fatalf("seed legacy null-cutoff row: %v", err)
+	}
+	var reviewID string
+	if err := pool.QueryRow(ctx, `SELECT review_item_id::text FROM vaccination_stage_review_items WHERE tenant_id=$1::uuid AND goat_id=$2::uuid AND status='open'`, impTenant, goatID).Scan(&reviewID); err != nil {
+		t.Fatalf("load review id: %v", err)
+	}
+
+	// Unchanged goat data + NULL cutoff -> must NOT resolve as corrected; stays open (409).
+	resolved, wasOpen, err := vacc.ResolveStageReviewItemCorrected(ctx, impTenant, reviewID, actor, "claims fixed", time.Now())
+	if err != nil {
+		t.Fatalf("resolve null-cutoff: %v", err)
+	}
+	if resolved || !wasOpen {
+		t.Fatalf("null-cutoff: resolved=%v wasOpen=%v, want false/true (fail closed, no invented cutoff)", resolved, wasOpen)
+	}
+
+	// Once generation re-records the exact cutoff (12w here) via the bridge writer, the SAME 15w goat is
+	// genuinely past it, so it STILL does not resolve as corrected — now on real provenance, not a default.
+	if err := vacc.RecordStageReviewItem(ctx, impTenant, goatID, "kid_stage_past_age_cutoff", "K1", 15, 12, "vacc-stage-review:"+impTenant+":"+goatID); err != nil {
+		t.Fatalf("re-record with real cutoff: %v", err)
+	}
+	resolved, wasOpen, err = vacc.ResolveStageReviewItemCorrected(ctx, impTenant, reviewID, actor, "claims fixed", time.Now())
+	if err != nil {
+		t.Fatalf("resolve after re-record: %v", err)
+	}
+	if resolved || !wasOpen {
+		t.Fatalf("after re-record (15w vs 12w cutoff): resolved=%v wasOpen=%v, want false/true (still stale on real cutoff)", resolved, wasOpen)
 	}
 }

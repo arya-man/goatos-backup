@@ -55,11 +55,14 @@ alone was not migrate-first-safe (a still-live predecessor's `ON CONFLICT
 (tenant_id, idempotency_key)` insert would break). `000210` re-adds it **safely**
 because the recorder is now an index-independent **bridge writer** (per-(tenant,
 goat) advisory lock + update-else-insert + self-heal collapse): the writer no
-longer depends on any one index, and the hard index makes every OTHER writer fail
-closed — a predecessor's duplicate insert now errors (retried next pass) instead
-of creating a second open row. `000210` also drops the old idempotency-key index
-and adds `age_cutoff_weeks`. A goat drifting K1 → K2 **updates the one open item
-in place**.
+longer depends on any one index, and the hard index makes every OTHER writer's
+DUPLICATE insert fail closed — a predecessor's second stage-keyed open row now
+errors (retried next pass) instead of creating a duplicate. `000210` **keeps** the
+old `(tenant, idempotency_key)` open index (so a still-live predecessor's `ON
+CONFLICT (idempotency_key)` FIRST insert still works during rollout — dropping it
+would 42P10 every predecessor write, not just duplicates; drop it in a later
+release after predecessors drain) and adds `age_cutoff_weeks`. A goat drifting
+K1 → K2 **updates the one open item in place**.
 
 ### Enrichment gap (blocks the row design below — NOT built)
 
@@ -92,7 +95,10 @@ surface that 409 and steer the operator to correct the stage first or choose
 evaluates against the cutoff **persisted on the item** (`age_cutoff_weeks`, the
 exact effective procurement policy that raised it), not a value re-derived across
 all published versions — so a later config change cannot silently move the bar an
-item is judged against.
+item is judged against. A legacy/predecessor item with an **unknown** cutoff
+(`age_cutoff_weeks` NULL) **fails the corrected re-check closed** (409) rather than
+defaulting to an invented value; it clears only after generation re-records the
+real cutoff or the operator resolves it as an `exception`.
 
 ## Admin-web design (to build)
 

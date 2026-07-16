@@ -74,11 +74,14 @@ func (r *Repository) Ping(ctx context.Context) error {
 // still-live previous-release binary runs against the newly-migrated schema. BUT the advisory lock only
 // serializes writers that take it; a predecessor binary using `ON CONFLICT (tenant, idempotency_key)`
 // with a stage-suffixed key does not, and could otherwise insert a second open row for a goat. So
-// migration 000210 also adds a hard `(tenant_id, goat_id) WHERE status='open'` unique index: a
-// predecessor's duplicate insert now FAILS CLOSED against it (error, retried next pass) instead of
-// creating a duplicate. The INSERT below carries `ON CONFLICT (tenant, goat) DO NOTHING` so the bridge
-// writer respects that index without erroring. cutoffWeeks is the effective age cutoff that raised this
-// item; it is persisted so the 'corrected' re-check evaluates against the same policy that flagged the goat.
+// migration 000210 adds a hard `(tenant_id, goat_id) WHERE status='open'` unique index: any writer's
+// DUPLICATE insert now FAILS CLOSED against it (error, retried next pass) instead of creating a second
+// open row. 000210 KEEPS the pre-existing (tenant, idempotency_key) open index too, so a predecessor's
+// FIRST (non-duplicate) insert still succeeds via its ON CONFLICT target during rollout — only an actual
+// second stage-keyed row is rejected. The INSERT below carries `ON CONFLICT (tenant, goat) DO NOTHING`
+// so the bridge writer respects the per-goat index without erroring. cutoffWeeks is the effective age
+// cutoff that raised this item; it is persisted so the 'corrected' re-check evaluates against the same
+// policy that flagged the goat (a NULL/unknown cutoff fails the re-check closed).
 func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID, reason, observedStage string, observedAgeWeeks, cutoffWeeks int, idempotencyKey string) error {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -139,18 +142,21 @@ func (r *Repository) RecordStageReviewItem(ctx context.Context, tenantID, goatID
 }
 
 // ResolveStageReviewItemCorrected atomically resolves an OPEN review item as 'corrected' ONLY IF the
-// goat still exists AND no longer trips the stale-stage/age condition (effective stage is a kid stage
-// K* AND DOB-derived age > the cutoff THAT RAISED THIS ITEM, persisted as age_cutoff_weeks; default 20
-// for pre-existing rows). The check and the resolve are a single locked statement (FOR UPDATE on the
-// item), so a concurrent goat/item change cannot slip a stale mismatch closed. Fails CLOSED when the
-// goat is missing (no goat row -> not resolved). Returns resolved and wasOpen so the caller
-// distinguishes 200 (resolved), 409 (open but still active / goat missing), and 404 (not open).
+// goat still exists, the item carries a KNOWN cutoff (age_cutoff_weeks IS NOT NULL), AND the goat no
+// longer trips the stale-stage/age condition (effective stage is a kid stage K* AND DOB-derived age >
+// the cutoff THAT RAISED THIS ITEM). The check and the resolve are a single locked statement (FOR UPDATE
+// on the item), so a concurrent goat/item change cannot slip a stale mismatch closed. Fails CLOSED when
+// the goat is missing OR the cutoff is NULL (legacy row written before age_cutoff_weeks existed, or by a
+// predecessor binary): a missing cutoff means the raising policy is unknown, so we must NOT invent one —
+// the item stays open (409) until generation re-records the exact cutoff or an operator resolves it as an
+// explicit 'exception'. Returns resolved and wasOpen so the caller distinguishes 200 (resolved), 409
+// (open but still active / goat missing / cutoff unknown), and 404 (not open).
 func (r *Repository) ResolveStageReviewItemCorrected(ctx context.Context, tenantID, reviewItemID, resolvedBy, note string, resolvedAt time.Time) (resolved bool, wasOpen bool, err error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	err = r.pool.QueryRow(ctx, `
 		WITH target AS (
-		  SELECT review_item_id, goat_id, COALESCE(age_cutoff_weeks, 20) AS cutoff_weeks
+		  SELECT review_item_id, goat_id, age_cutoff_weeks AS cutoff_weeks
 		  FROM vaccination_stage_review_items
 		  WHERE tenant_id = $1::uuid AND review_item_id = $2::uuid AND status = 'open'
 		  FOR UPDATE
@@ -169,11 +175,14 @@ func (r *Repository) ResolveStageReviewItemCorrected(ctx context.Context, tenant
 		      resolution_note = $5, resolution_mode = 'corrected', updated_at = now()
 		  WHERE v.tenant_id = $1::uuid AND v.review_item_id = $2::uuid AND v.status = 'open'
 		    AND EXISTS (SELECT 1 FROM goatrow)
+		    -- Fail closed on an unknown cutoff: never manufacture policy provenance for a NULL row.
+		    AND (SELECT cutoff_weeks FROM target) IS NOT NULL
 		    AND NOT EXISTS (
 		      SELECT 1 FROM goatrow
 		      WHERE length(btrim(stage)) >= 2
 		        AND upper(btrim(stage)) LIKE 'K%'
 		        AND dob IS NOT NULL
+		        AND cutoff_weeks IS NOT NULL
 		        AND (((now() AT TIME ZONE 'Asia/Kolkata')::date - dob) / 7) > cutoff_weeks
 		    )
 		  RETURNING 1
