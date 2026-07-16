@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clock, Info } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info } from "lucide-react";
 import { actionFeedbackCopy, copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, hrefWithPagedCursor, hrefPreviousPagedCursor, boundedInt, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
@@ -797,18 +797,23 @@ function CalendarDatePicker({
   return (
     <div className="calpicker-popover">
       <div className="calpicker-head">
-        <Link href={monthHref(previousYearMonth)} replace scroll={false} className="btn icon" aria-label={previousYearLabel}>
-          <ChevronsLeft className="ic" aria-hidden="true" />
-        </Link>
-        <Link href={monthHref(previousMonth)} replace scroll={false} className="btn icon" aria-label={previousLabel}>
+        <Link href={monthHref(previousMonth)} replace scroll={false} className="calpicker-nav" aria-label={previousLabel}>
           <ChevronLeft className="ic" aria-hidden="true" />
         </Link>
-        <b>{`${optionLabel(pageContract, "calendar_months", String(month))} ${year}`}</b>
-        <Link href={monthHref(nextMonth)} replace scroll={false} className="btn icon" aria-label={nextLabel}>
+        <div className="calpicker-title">
+          <b>{optionLabel(pageContract, "calendar_months", String(month))}</b>
+          <span>{year}</span>
+        </div>
+        <Link href={monthHref(nextMonth)} replace scroll={false} className="calpicker-nav" aria-label={nextLabel}>
           <ChevronRight className="ic" aria-hidden="true" />
         </Link>
-        <Link href={monthHref(nextYearMonth)} replace scroll={false} className="btn icon" aria-label={nextYearLabel}>
-          <ChevronsRight className="ic" aria-hidden="true" />
+      </div>
+      <div className="calpicker-yearnav">
+        <Link href={monthHref(previousYearMonth)} replace scroll={false} aria-label={previousYearLabel}>
+          ‹ {year - 1}
+        </Link>
+        <Link href={monthHref(nextYearMonth)} replace scroll={false} aria-label={nextYearLabel}>
+          {year + 1} ›
         </Link>
       </div>
       <div className="calpicker-months">
