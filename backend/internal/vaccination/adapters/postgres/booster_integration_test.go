@@ -14,9 +14,8 @@ import (
 )
 
 // TestSM7BoosterSchedulesNextDose drives SM-7: a published series with an age-triggered dose 1 and
-// an after_previous_completion dose 2 (offset 21d, min-gap 28d). SM-1 schedules dose 1 only.
-// The vaccination.completed consumer schedules dose 2 due T+28 (the min-gap dominates the 21d
-// offset). The completed-event replay is idempotent.
+// an after_previous_completion dose 2 (offset 21d, min-gap 21d). SM-1 schedules dose 1 only.
+// The vaccination.completed consumer schedules dose 2 due T+21. The completed-event replay is idempotent.
 func TestSM7BoosterSchedulesNextDose(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -42,7 +41,7 @@ func TestSM7BoosterSchedulesNextDose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version: %v", err)
 	}
-	// Dose 1: age-triggered. Dose 2: after_previous_completion, offset 21d but min-gap 28d.
+	// Dose 1: age-triggered. Dose 2: after_previous_completion, offset 21d and min-gap 21d.
 	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
 		TriggerType: "birth_age", OffsetDays: 21, Repeat: "none", CatchUp: "pc_approval",
@@ -52,7 +51,7 @@ func TestSM7BoosterSchedulesNextDose(t *testing.T) {
 	}
 	if _, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "booster", Sequence: 2,
-		TriggerType: "after_previous_completion", OffsetDays: 21, MinGapDays: 28, Repeat: "none",
+		TriggerType: "after_previous_completion", OffsetDays: 21, MinGapDays: 21, Repeat: "none",
 		CatchUp: "pc_approval", EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
 	}); err != nil {
 		t.Fatalf("rule2: %v", err)
@@ -92,13 +91,12 @@ func TestSM7BoosterSchedulesNextDose(t *testing.T) {
 	}
 	dispatchVaccinationCompletedOutbox(t, ctx, pool, vacc, obl, booster, ob1)
 
-	// Dose 2 obligation exists, scheduled, due = administered + 28 in the IST business calendar
-	// (min-gap dominates the 21d offset).
+	// Dose 2 obligation exists, scheduled, due = administered + 21 in the IST business calendar.
 	if got := countRowsVacc(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); got != 1 {
 		t.Fatalf("want 1 dose-2 obligation, got %d", got)
 	}
-	if due := scanText(t, ctx, pool, `SELECT (due_at AT TIME ZONE 'Asia/Kolkata')::date::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); due != "2026-07-21" {
-		t.Fatalf("dose-2 due: want 2026-07-21 IST (administered + 28d), got %s", due)
+	if due := scanText(t, ctx, pool, `SELECT (due_at AT TIME ZONE 'Asia/Kolkata')::date::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); due != "2026-07-14" {
+		t.Fatalf("dose-2 due: want 2026-07-14 IST (administered + 21d), got %s", due)
 	}
 	if st := scanText(t, ctx, pool, `SELECT status FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND "sequence"=2`, impTenant, g); st != "scheduled" {
 		t.Fatalf("dose-2 status: want scheduled, got %s", st)

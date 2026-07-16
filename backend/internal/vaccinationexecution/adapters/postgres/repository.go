@@ -1787,7 +1787,11 @@ func (r *Repository) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) 
 	if q.Cursor != nil && *q.Cursor != "" {
 		cursor = *q.Cursor
 	}
-	rows, err := r.pool.Query(ctx, shedAnimalListSQL, q.TenantID, q.ShedID, cursor, limit)
+	asOf := q.AsOf
+	if asOf.IsZero() {
+		asOf = time.Now().In(biztime.DefaultLocation())
+	}
+	rows, err := r.pool.Query(ctx, shedAnimalListSQL, q.TenantID, q.ShedID, cursor, limit, asOf)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: shed animals: %w", err)
 	}
@@ -1830,7 +1834,7 @@ SELECT
   g.sex,
   CASE
     WHEN g.dob IS NOT NULL THEN
-      floor(extract(epoch FROM (now() - g.dob::timestamptz)) / 86400)::int::text || 'd'
+      floor(extract(epoch FROM ($5::timestamptz - g.dob::timestamptz)) / 86400)::int::text || 'd'
     ELSE NULLIF(g.age_band, '')
   END AS age,
   g.lifecycle_status,
@@ -1868,7 +1872,7 @@ LEFT JOIN LATERAL (
 LEFT JOIN LATERAL (
   SELECT
     MIN(oi.due_at) AS next_due,
-    BOOL_OR(oi.status IN ('due', 'in_progress', 'missed') OR (oi.status = 'scheduled' AND oi.due_at <= now())) AS actionable_now
+    BOOL_OR(oi.status IN ('due', 'in_progress', 'missed') OR (oi.status = 'scheduled' AND oi.due_at <= $5::timestamptz)) AS actionable_now
   FROM obligation_instances oi
   JOIN protocol_versions pv
     ON pv.tenant_id = oi.tenant_id

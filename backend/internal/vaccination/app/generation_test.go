@@ -189,7 +189,7 @@ func TestPrimaryCourseContinuationFromHistorySchedulesAdultETTTDoseTwoAfterTwent
 	administered := time.Date(2026, time.June, 30, 8, 0, 0, 0, time.UTC)
 	rules := []protodomain.Rule{
 		{RuleID: "rule-et-adult-w1", DoseCode: "et_tt_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 7},
-		{RuleID: "rule-et-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 2, TriggerType: "post_arrival", OffsetDays: 28, MinGapDays: 21},
+		{RuleID: "rule-et-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 2, TriggerType: "post_arrival", OffsetDays: 21, MinGapDays: 21},
 		{RuleID: "rule-et-revac", DoseCode: "et_tt_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days"},
 	}
 	history := []domain.RecentVaccineAdministration{{
@@ -220,7 +220,7 @@ func TestRepeatDoesNotWaitAfterPrimaryCourseComplete(t *testing.T) {
 	administeredW2 := time.Date(2026, time.July, 21, 8, 0, 0, 0, time.UTC)
 	rules := []protodomain.Rule{
 		{RuleID: "rule-et-adult-w1", DoseCode: "et_tt_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 7},
-		{RuleID: "rule-et-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 2, TriggerType: "post_arrival", OffsetDays: 28, MinGapDays: 21},
+		{RuleID: "rule-et-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 2, TriggerType: "post_arrival", OffsetDays: 21, MinGapDays: 21},
 		{RuleID: "rule-et-revac", DoseCode: "et_tt_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days"},
 	}
 	history := []domain.RecentVaccineAdministration{{
@@ -241,6 +241,107 @@ func TestRepeatDoesNotWaitAfterPrimaryCourseComplete(t *testing.T) {
 	want := businessDayStart(administeredW2).AddDate(0, 0, 182)
 	if !ok || !due.Equal(want) {
 		t.Fatalf("revac due=%s ok=%v, want dose 2 + 182d = %s", due, ok, want)
+	}
+}
+
+func TestApprovedVaccineRepeatIntervalsContinueAcrossFutureCycles(t *testing.T) {
+	start := time.Date(2026, time.June, 30, 8, 0, 0, 0, time.UTC)
+	assertDue := func(t *testing.T, rule protodomain.Rule, vaccineCode, doseCode string, sequence int32, administered, want time.Time) {
+		t.Helper()
+		due, ok := dueAfterPreviousCompletion(rule, vaccineProfile{Code: vaccineCode}, []domain.RecentVaccineAdministration{{
+			AdministeredAt: administered,
+			VaccineCode:    vaccineCode,
+			DoseCode:       doseCode,
+			Sequence:       sequence,
+		}})
+		if !ok || !due.Equal(want) {
+			t.Fatalf("%s due=%s ok=%v, want %s", rule.DoseCode, due, ok, want)
+		}
+	}
+
+	etRevac := protodomain.Rule{RuleID: "rule-et-revac", DoseCode: "et_tt_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days"}
+	etDose2 := start.AddDate(0, 0, 21)
+	assertDue(t, etRevac, "ET_TT", "et_tt_adult_w2", 2, etDose2, businessDayStart(etDose2).AddDate(0, 0, 182))
+	firstETRevac := time.Date(2027, time.January, 19, 8, 0, 0, 0, time.UTC)
+	assertDue(t, etRevac, "ET_TT", "et_tt_revac", 3, firstETRevac, businessDayStart(firstETRevac).AddDate(0, 0, 182))
+
+	cases := []struct {
+		name         string
+		rule         protodomain.Rule
+		vaccineCode  string
+		doseCode     string
+		sequence     int32
+		administered time.Time
+		want         time.Time
+	}{
+		{
+			name:         "FMD repeats every 274 days",
+			rule:         protodomain.Rule{RuleID: "rule-fmd-revac", DoseCode: "fmd_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 274, MinGapDays: 274, Repeat: "every_n_days"},
+			vaccineCode:  "FMD",
+			doseCode:     "fmd_adult_w9",
+			sequence:     1,
+			administered: time.Date(2026, time.March, 20, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2026, time.December, 19, 8, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:         "HS repeats yearly",
+			rule:         protodomain.Rule{RuleID: "rule-hs-revac", DoseCode: "hs_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 365, MinGapDays: 365, Repeat: "yearly"},
+			vaccineCode:  "HS",
+			doseCode:     "hs_adult_w9",
+			sequence:     1,
+			administered: time.Date(2026, time.February, 21, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2027, time.February, 21, 8, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:         "PPR repeats every 1095 days",
+			rule:         protodomain.Rule{RuleID: "rule-ppr-revac", DoseCode: "ppr_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 1095, MinGapDays: 1095, Repeat: "every_n_days"},
+			vaccineCode:  "PPR",
+			doseCode:     "ppr_adult_w1",
+			sequence:     1,
+			administered: time.Date(2025, time.December, 9, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2028, time.December, 8, 8, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:         "Goat Pox repeats yearly",
+			rule:         protodomain.Rule{RuleID: "rule-goat-pox-revac", DoseCode: "goat_pox_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 365, MinGapDays: 365, Repeat: "yearly"},
+			vaccineCode:  "GOAT_POX",
+			doseCode:     "goat_pox_adult_w5",
+			sequence:     1,
+			administered: time.Date(2026, time.March, 19, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2027, time.March, 19, 8, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:         "Sheep Pox repeats yearly",
+			rule:         protodomain.Rule{RuleID: "rule-sheep-pox-revac", DoseCode: "sheep_pox_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 365, MinGapDays: 365, Repeat: "yearly"},
+			vaccineCode:  "SHEEP_POX",
+			doseCode:     "sheep_pox_adult_w5",
+			sequence:     1,
+			administered: time.Date(2026, time.March, 19, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2027, time.March, 19, 8, 0, 0, 0, time.UTC)),
+		},
+		{
+			name:         "Blue Tongue repeats yearly after kid dose 2",
+			rule:         protodomain.Rule{RuleID: "rule-blue-tongue-revac", DoseCode: "blue_tongue_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 365, MinGapDays: 365, Repeat: "yearly"},
+			vaccineCode:  "BLUE_TONGUE",
+			doseCode:     "blue_tongue_kid_20w",
+			sequence:     2,
+			administered: time.Date(2026, time.August, 1, 8, 0, 0, 0, time.UTC),
+			want:         businessDayStart(time.Date(2027, time.August, 1, 8, 0, 0, 0, time.UTC)),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertDue(t, tc.rule, tc.vaccineCode, tc.doseCode, tc.sequence, tc.administered, tc.want)
+		})
+	}
+
+	nextET, ok := nextRepeatCycle(etRevac, time.Date(2027, time.January, 19, 0, 0, 0, 0, time.UTC), time.Date(2027, time.August, 1, 0, 0, 0, 0, time.UTC))
+	if !ok || !nextET.Equal(businessDayStart(time.Date(2028, time.January, 18, 8, 0, 0, 0, time.UTC))) {
+		t.Fatalf("ET+TT skipped-cycle next=%s ok=%v, want 2028-01-18", nextET, ok)
+	}
+	nextHS, ok := nextRepeatCycle(protodomain.Rule{Repeat: "yearly"}, time.Date(2027, time.February, 21, 0, 0, 0, 0, time.UTC), time.Date(2027, time.December, 1, 0, 0, 0, 0, time.UTC))
+	if !ok || !nextHS.Equal(businessDayStart(time.Date(2028, time.February, 21, 8, 0, 0, 0, time.UTC))) {
+		t.Fatalf("HS skipped-cycle next=%s ok=%v, want 2028-02-21", nextHS, ok)
 	}
 }
 
@@ -1868,7 +1969,7 @@ func TestAfterPreviousCompletionFromHistoryRespectsMinGap(t *testing.T) {
 			},
 			{
 				RuleID: "rule-et-7w", DoseCode: "ET_TT_7W", Sequence: 2,
-				TriggerType: "after_previous_completion", OffsetDays: 21, MinGapDays: 28, DueWindowDays: 7, CatchUp: "immediate",
+				TriggerType: "after_previous_completion", OffsetDays: 21, MinGapDays: 21, DueWindowDays: 7, CatchUp: "immediate",
 			},
 		},
 	}
@@ -1894,12 +1995,12 @@ func TestAfterPreviousCompletionFromHistoryRespectsMinGap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate min-gap after-previous dose: %v", err)
 	}
-	wantDue := businessDayStart(firstAdmin).AddDate(0, 0, 28)
+	wantDue := businessDayStart(firstAdmin).AddDate(0, 0, 21)
 	if result.SuppressedByTrustedHistory != 1 || result.Generated != 1 || len(obl.inserted) != 1 {
 		t.Fatalf("result=%#v inserted=%#v, want first dose suppressed and booster generated", result, obl.inserted)
 	}
 	if got := obl.inserted[0]; got.RuleID != "rule-et-7w" || !got.DueAt.Equal(wantDue) {
-		t.Fatalf("inserted=%#v, want min-gap booster due %s", got, wantDue)
+		t.Fatalf("inserted=%#v, want ET+TT 21-day booster due %s", got, wantDue)
 	}
 }
 

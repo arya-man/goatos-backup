@@ -17,7 +17,7 @@ import type {
 import { Tag, InfoTooltip, ClipText, type Tone } from "@/components/ui-primitives";
 import { dash, fmtDate } from "@/lib/format";
 import { copy, optionLabel, optionTone, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { parseScope, scopeHref } from "@/lib/scope";
+import { backendScope, parseScope, scopeHref } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { HerdPassportVaccinationBlock } from "@/features/counts";
 
@@ -443,10 +443,11 @@ export async function VaccinationShedDetailPage({
   const ret = one(sp, "ret");
   const animalsCursor = one(sp, "animals_cursor");
   const selectedGoatId = one(sp, "goat_passport");
+  const { asOf } = backendScope(scope);
 
   const [detailResult, animalsResult, passportResult] = await Promise.all([
-    getVaccinationShedDetail(shedId),
-    getVaccinationShedAnimals(shedId, { cursor: animalsCursor, limit: ANIMAL_PAGE_SIZE }),
+    getVaccinationShedDetail(shedId, { asOf }),
+    getVaccinationShedAnimals(shedId, { cursor: animalsCursor, limit: ANIMAL_PAGE_SIZE, asOf }),
     selectedGoatId ? getGoatPassport(selectedGoatId) : Promise.resolve(null),
   ]);
 

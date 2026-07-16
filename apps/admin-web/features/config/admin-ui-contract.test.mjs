@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert";
 import { copy, optionGroup } from "../../lib/admin-ui-contract.ts";
+import { shouldShowConfigRulePager } from "./config-pagination.ts";
 
 function configPage(overrides = {}) {
   return {
@@ -27,3 +28,9 @@ test("config authoring option groups fail closed when backend contract omits tax
   );
 });
 
+test("config protocol rule pager hides for single-page rule lists", () => {
+  assert.strictEqual(shouldShowConfigRulePager(0, 5), false);
+  assert.strictEqual(shouldShowConfigRulePager(1, 5), false);
+  assert.strictEqual(shouldShowConfigRulePager(5, 5), false);
+  assert.strictEqual(shouldShowConfigRulePager(6, 5), true);
+});

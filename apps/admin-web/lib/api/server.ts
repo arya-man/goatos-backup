@@ -691,7 +691,7 @@ export async function getVaccinationShedDetail(
 
 export async function getVaccinationShedAnimals(
   shedId: string,
-  params: { cursor?: string; limit?: number } = {},
+  params: { cursor?: string; limit?: number; asOf?: string } = {},
 ): Promise<ApiResult<VaccinationShedAnimalPage>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -700,7 +700,7 @@ export async function getVaccinationShedAnimals(
   return request(() =>
     client.request<VaccinationShedAnimalPage>(path, {
       cache: "no-store",
-      query: compactQuery({ cursor: params.cursor, limit: params.limit }),
+      query: compactQuery({ cursor: params.cursor, limit: params.limit, as_of: params.asOf }),
     }),
   );
 }

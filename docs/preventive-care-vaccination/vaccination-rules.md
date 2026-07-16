@@ -390,14 +390,14 @@ These are the V1 authoring presets loaded by the Config modal's
 the medical timing is DOB/completion based; stage, sex, and breed can still be
 narrowed by an admin after loading when the source rule needs a specific combo.
 
-| Species/rules row | Vaccine | Type | Pathogen | Course | Rules table days from DOB | V1 effective days | Revaccination days | Dose | Vial | Priority |
-|---|---|---|---|---|---:|---:|---:|---:|---:|---:|
-| goat | ET+TT | killed | bacterial | booster | 28, 49 | 28, 49 | 182 | 2 ml | 100 | 1 |
+| Species/rules row | Vaccine | Type | Pathogen | Course | Kid timing | Adult timing | Revaccination days | Dose | Vial | Priority |
+|---|---|---|---|---|---|---|---:|---:|---:|---:|
+| goat | ET+TT | killed | bacterial | booster | 28d, 49d | dose 1, dose 2 after 21d | 182 after dose 2 | 2 ml | 100 | 1 |
 | goat | PPR | live | viral | single | 112 | 112 | 1095 | 1 ml | 100 | 2 |
 | goat | Goat Pox | live | viral | single | 112 | 140 | 365 | 1 ml | 25 | 3 |
 | goat | FMD | killed | viral | single | 84 | 84 | 274 | 1 ml | 30 | 5 |
 | goat | HS | killed | bacterial | single | 84 | 84 | 365 | 2 ml | 100 | 5 |
-| sheep source | ET+TT | killed | bacterial | booster | 28, 49 | 28, 49 | 182 | 2 ml | 100 | 1 |
+| sheep source | ET+TT | killed | bacterial | booster | 28d, 49d | dose 1, dose 2 after 21d | 182 after dose 2 | 2 ml | 100 | 1 |
 | sheep source | PPR | live | viral | single | 112 | 112 | 1095 | 1 ml | 100 | 2 |
 | sheep source | Blue Tongue | killed | viral | booster | 112, 140 | 112, 140 | 365 | 2 ml | 100 | 4 |
 | sheep source | Sheep Pox | live | viral | single | 84 | 84 | 365 | 1 ml | 100 | 3 |

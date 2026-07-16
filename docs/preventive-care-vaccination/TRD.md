@@ -791,9 +791,10 @@ Local/dev/test reseed rules:
 
 ## 9. Source-derived local/dev baseline and later inputs
 - Active V1 matrix baseline: use [vaccination-rules.md](./vaccination-rules.md)
-  for the Config preset and generation contract: ET+TT at 28 and 49 days with
-  2 ml, PPR at 112 days, FMD/HS at 84 days, Goat Pox at 140 days to honor
-  live-live spacing, plus adult revaccination intervals. The older
+  for the Config preset and generation contract: ET+TT kids at 28 and 49 days,
+  ET+TT adults at dose 1 then dose 2 after 21 days, all ET+TT repeats 182 days
+  after dose 2/course completion, PPR at 112 days, FMD/HS at 84 days, Goat Pox
+  at 140 days to honor live-live spacing, plus adult revaccination intervals. The older
   ET/K1/day-21/0.5 ml proof fixture is historical local proof context only.
 - Local/dev shed-tag baseline: seed/read Goats and Parks source age ranges from
   `animal_stage_lookup`/tag policy: K0 1-2 source days, K1 3-9, K2 10-77,

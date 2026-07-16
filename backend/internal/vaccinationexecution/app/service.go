@@ -4,6 +4,7 @@ package app
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -776,6 +777,9 @@ func (s *Service) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) (do
 		limit = 500
 	}
 	q.Limit = limit
+	if q.AsOf.IsZero() {
+		q.AsOf = time.Now().In(biztime.DefaultLocation())
+	}
 	rows, err := s.repo.ShedAnimals(ctx, q)
 	if err != nil {
 		return domain.ShedAnimalPage{}, err
@@ -805,7 +809,11 @@ func aggregateShedVaccines(rows []domain.OperationsRow) []domain.ShedVaccineRow 
 	for _, r := range rows {
 		v, ok := byProto[r.ProtocolID]
 		if !ok {
-			v = &domain.ShedVaccineRow{ProtocolID: r.ProtocolID, Name: r.ProtocolName, WorkState: domain.WorkStateCompleted}
+			name := r.ProtocolName
+			if len(r.VaccineNames) > 0 {
+				name = strings.Join(r.VaccineNames, ", ")
+			}
+			v = &domain.ShedVaccineRow{ProtocolID: r.ProtocolID, Name: name, WorkState: domain.WorkStateCompleted}
 			byProto[r.ProtocolID] = v
 			order = append(order, r.ProtocolID)
 		}

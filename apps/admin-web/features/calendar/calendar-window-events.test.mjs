@@ -5,6 +5,7 @@ import {
   calendarEventDateKey,
   calendarEventWeekday,
   filterEventsForSelectedWeek,
+  normalizeCalendarDayFilter,
   selectedWeekDateKeys,
 } from "./calendar-window-events.ts";
 
@@ -35,6 +36,12 @@ test("calendar all-week rendering is bounded to the anchor week", () => {
     filterEventsForSelectedWeek(rows, "2026-07-01").map((row) => row.event_id),
     ["selected-wed", "selected-sun"],
   );
+});
+
+test("calendar treats old day=all URLs like the default selected day instead of a fake weekday", () => {
+  assert.equal(normalizeCalendarDayFilter("all"), undefined);
+  assert.equal(normalizeCalendarDayFilter(undefined), undefined);
+  assert.equal(normalizeCalendarDayFilter("Thu"), "Thu");
 });
 
 test("calendar selected-week dates are the Monday-Sunday dates around the anchor", () => {

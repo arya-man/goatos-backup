@@ -2818,7 +2818,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			},
 			PostArrivalWaves: []postArrivalWave{
 				{Days: 7, MinGapDays: 0},
-				{Days: 28, MinGapDays: 21},
+				{Days: 21, MinGapDays: 21},
 			},
 			RevaccinationDays: 182,
 		},

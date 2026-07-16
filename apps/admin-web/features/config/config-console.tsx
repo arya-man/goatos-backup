@@ -9,6 +9,7 @@ import { RuleEditorModal } from "./rule-editor-modal";
 import type { AnimalStageOption, SopVersionOption } from "./rule-dsl";
 import { copy, optionGroup, tableLabels, tablePageSizes, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { shouldShowConfigRulePager } from "./config-pagination";
 
 type ProtocolVersionDetail = AppApiComponents["schemas"]["ProtocolVersionResponse"];
 
@@ -296,6 +297,7 @@ export function ConfigConsole({
   const start = filteredRules.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = filteredRules.length === 0 ? 0 : Math.min(filteredRules.length, page * pageSize);
   const pagedRules = filteredRules.slice((page - 1) * pageSize, page * pageSize);
+  const showPager = shouldShowConfigRulePager(filteredRules.length, pageSize);
   const selectedRule = selectedRuleId ? rules.find((rule) => rule.id === selectedRuleId) : undefined;
   const closeRecordHref = configHref(searchParams, initialCategory);
   const newRule = searchParams ? one(searchParams, "new_rule") === "1" : false;
@@ -503,7 +505,7 @@ export function ConfigConsole({
             </tbody>
           </table>
         </div>
-        {filteredRules.length > 0 && totalPages > 1 ? (
+        {showPager ? (
           <div className="pager2">
             <span className="muted small">
 	              {start}-{end} of {filteredRules.length} {copy(pageContract, "pager.rules_noun")} · {copy(pageContract, "pager.page")} {page} of {totalPages}

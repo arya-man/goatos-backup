@@ -27,7 +27,12 @@ import { CalendarEventDrawer } from "./calendar-event-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
 import { markerTonesForDate } from "./calendar-marker-tones";
 import { enumerateWeekDays, historyWindow, monthWindow, weekWindow } from "./calendar-window";
-import { calendarEventDateKey, calendarEventWeekday, filterEventsForSelectedWeek } from "./calendar-window-events";
+import {
+  calendarEventDateKey,
+  calendarEventWeekday,
+  filterEventsForSelectedWeek,
+  normalizeCalendarDayFilter,
+} from "./calendar-window-events";
 import { DriveProgressCard } from "./calendar-drive-card";
 import { OwnerLegend, RhythmCard } from "./calendar-week-panels";
 
@@ -142,7 +147,7 @@ export async function VaccinationCalendarPage({
   const targetsCursor = one(sp, "targets_cursor");
   const targetsPage = boundedInt(one(sp, "targets_page"), 1, 1, 1000);
   const today = istToday();
-  const dayFilter = one(sp, "day") || undefined;
+  const dayFilter = normalizeCalendarDayFilter(one(sp, "day") || undefined);
   const actionStatus = one(sp, "action_status");
   const actionKey = one(sp, "action_key");
 

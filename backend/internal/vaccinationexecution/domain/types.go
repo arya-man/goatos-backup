@@ -656,6 +656,7 @@ type ShedDetailResponse struct {
 type ShedAnimalQuery struct {
 	TenantID string
 	ShedID   string
+	AsOf     time.Time
 	Cursor   *string // last goat_id seen (exclusive)
 	Limit    int
 }

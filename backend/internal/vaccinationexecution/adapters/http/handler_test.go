@@ -434,6 +434,7 @@ func TestGetShedDetailNotFound(t *testing.T) {
 }
 
 func TestGetShedAnimalsParsesCursor(t *testing.T) {
+	asOf := time.Date(2026, time.July, 21, 23, 59, 59, 0, biztime.DefaultLocation())
 	reader := &fakeReader{
 		shedFound:   true,
 		shedDetail:  domain.ShedDetailResponse{ParkID: "30000000-0000-4000-8000-000000000001"},
@@ -441,7 +442,7 @@ func TestGetShedAnimalsParsesCursor(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, &fakeWriter{}))
-	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals?cursor=40000000-0000-4000-8000-000000000001&limit=50", nil)
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/sheds/30000000-0000-4000-8000-000000000009/animals?cursor=40000000-0000-4000-8000-000000000001&limit=50&as_of=2026-07-21T23:59:59%2B05:30", nil)
 	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -456,6 +457,12 @@ func TestGetShedAnimalsParsesCursor(t *testing.T) {
 	}
 	if reader.lastShedAnim.Limit != 50 {
 		t.Errorf("limit = %d", reader.lastShedAnim.Limit)
+	}
+	if !reader.lastShedAnim.AsOf.Equal(asOf) {
+		t.Errorf("animal as_of = %s, want %s", reader.lastShedAnim.AsOf, asOf)
+	}
+	if !reader.lastOps.AsOf.Equal(asOf) {
+		t.Errorf("shed validation as_of = %s, want %s", reader.lastOps.AsOf, asOf)
 	}
 }
 
@@ -538,8 +545,9 @@ func assertHistoricalAsOfRejected(t *testing.T, mux http.Handler, target string)
 	}
 }
 
-func TestExecutionClampsFutureAsOfToServerNow(t *testing.T) {
+func TestExecutionClampsFutureAsOfButShedDrilldownAllowsScheduleDate(t *testing.T) {
 	serverNow := time.Date(2026, 7, 11, 18, 15, 0, 0, biztime.DefaultLocation())
+	scheduleAsOf := time.Date(2026, 9, 2, 5, 29, 59, 0, biztime.DefaultLocation())
 	reader := &fakeReader{
 		rows:        []domain.ExecutionRow{sampleRow()},
 		shedSummary: domain.ShedSummaryResponse{Source: domain.SourceAPI},
@@ -584,8 +592,8 @@ func TestExecutionClampsFutureAsOfToServerNow(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("shed detail status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	if !reader.lastOps.AsOf.Equal(serverNow) {
-		t.Fatalf("shed detail as_of = %s, want clamped server now %s", reader.lastOps.AsOf, serverNow)
+	if !reader.lastOps.AsOf.Equal(scheduleAsOf) {
+		t.Fatalf("shed detail as_of = %s, want selected schedule date %s", reader.lastOps.AsOf, scheduleAsOf)
 	}
 }
 

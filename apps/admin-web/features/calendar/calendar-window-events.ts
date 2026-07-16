@@ -21,6 +21,11 @@ export function calendarEventWeekday(iso: string): string {
   return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", weekday: "short" }).format(parsed);
 }
 
+export function normalizeCalendarDayFilter(day: string | undefined): string | undefined {
+  if (!day || day === "all") return undefined;
+  return day;
+}
+
 export function selectedWeekDateKeys(anchorDay: string): Set<string> {
   const [year, month, day] = anchorDay.split("-").map(Number);
   const anchor = new Date(Date.UTC(year, month - 1, day));

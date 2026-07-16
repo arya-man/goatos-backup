@@ -438,7 +438,7 @@ func TestVaccinationMatrixStoresETTTAdultBoosterAsTwentyOneDayCourseGap(t *testi
 		}{
 			"et_tt_kid_7w":   {Trigger: "birth_age", Offset: 49, Gap: 21},
 			"et_tt_adult_w1": {Trigger: "post_arrival", Offset: 7, Gap: 0},
-			"et_tt_adult_w2": {Trigger: "post_arrival", Offset: 28, Gap: 21},
+			"et_tt_adult_w2": {Trigger: "post_arrival", Offset: 21, Gap: 21},
 			"et_tt_revac":    {Trigger: "after_previous_completion", Offset: 182, Gap: 182},
 		} {
 			if got[dose] != want {

@@ -157,8 +157,8 @@ func TestShedDetailBuildsPlannedSessionsAndHeader(t *testing.T) {
 		{ParkID: "p1", ParkName: "CBE", ShedID: "s1", ShedName: "Godell 1", Animals: 300, DueAnimals: 300, OpenCells: 250, Sessions: 3, Capacity: domain.CapacityOverCap, Status: domain.ShedStatusSplit, NextDue: &next, TotalCount: 1},
 	}
 	ops := []domain.OperationsRow{
-		{ParkID: "p1", ShedID: "s1", ProtocolID: "fmd", ProtocolName: "FMD", Stage: "kid", Animals: 150, DueCount: 150, TotalCount: 150},
-		{ParkID: "p1", ShedID: "s1", ProtocolID: "hs", ProtocolName: "HS", Stage: "kid", Animals: 100, DueCount: 100, TotalCount: 100},
+		{ParkID: "p1", ShedID: "s1", ProtocolID: "fmd", ProtocolName: "Preventive Care Vaccination Matrix", VaccineNames: []string{"FMD"}, Stage: "kid", Animals: 150, DueCount: 150, TotalCount: 150},
+		{ParkID: "p1", ShedID: "s1", ProtocolID: "hs", ProtocolName: "Preventive Care Vaccination Matrix", VaccineNames: []string{"HS"}, Stage: "kid", Animals: 100, DueCount: 100, TotalCount: 100},
 	}
 	svc := NewService(fakeRepo{shedRows: proj, opsRows: ops}) // default cap config 100/3
 
@@ -187,6 +187,13 @@ func TestShedDetailBuildsPlannedSessionsAndHeader(t *testing.T) {
 	}
 	if len(detail.Vaccines) != 2 {
 		t.Errorf("vaccines = %d, want 2 (FMD, HS)", len(detail.Vaccines))
+	}
+	gotNames := map[string]bool{}
+	for _, v := range detail.Vaccines {
+		gotNames[v.Name] = true
+	}
+	if !gotNames["FMD"] || !gotNames["HS"] || gotNames["Preventive Care Vaccination Matrix"] {
+		t.Errorf("vaccine names = %+v, want FMD/HS not protocol title", gotNames)
 	}
 }
 
