@@ -748,6 +748,71 @@ func TestSweepVersionSnapshotFallbackReadsCandidatesInBoundedChunks(t *testing.T
 	}
 }
 
+func TestSweepVersionSnapshotDoesNotLeakToFullHWMScanWhenNoParkCandidatesRemain(t *testing.T) {
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
+		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
+		{ObligationID: "obl-raced", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-raced"},
+	}
+	baseRepo := &fakeSweepRepo{
+		rows:      rows,
+		attachAll: true,
+	}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	svc.SetPageSize(2)
+	snapshot := &SweepCandidateSnapshot{byVersion: map[string][]string{
+		"version-1": {"obl-1", "obl-2"},
+	}}
+
+	result, err := svc.SweepVersionWithSessionNoFinalizeSnapshot(
+		context.Background(),
+		"tenant-1",
+		"version-1",
+		SweepConfig{ParkConsolidation: domain.ParkConsolidationSettings{
+			Enabled:             true,
+			MinShedDriveTargets: 2,
+			MinParkMergeTargets: 2,
+			MinParkMergeSheds:   2,
+		}},
+		time.Now(),
+		NewSweepSession(),
+		time.Now(),
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalizeSnapshot: %v", err)
+	}
+	if result.Batches != 1 || result.Obligations != 2 {
+		t.Fatalf("result = %#v, want only the two snapshot obligations batched", result)
+	}
+	for _, ids := range repo.createdBatchObligationIDs {
+		for _, id := range ids {
+			if id == "obl-raced" {
+				t.Fatalf("raced non-snapshot obligation was batched: %#v", repo.createdBatchObligationIDs)
+			}
+		}
+	}
+	wantSizes := []int{2, 0}
+	if len(repo.snapshotListSizes) != len(wantSizes) {
+		t.Fatalf("snapshot list call sizes = %#v, want %#v", repo.snapshotListSizes, wantSizes)
+	}
+	for i := range wantSizes {
+		if repo.snapshotListSizes[i] != wantSizes[i] {
+			t.Fatalf("snapshot list call sizes = %#v, want %#v", repo.snapshotListSizes, wantSizes)
+		}
+	}
+	wantParkSizes := []int{0}
+	if len(repo.parkSnapshotListSizes) != len(wantParkSizes) {
+		t.Fatalf("park snapshot list call sizes = %#v, want %#v", repo.parkSnapshotListSizes, wantParkSizes)
+	}
+	for i := range wantParkSizes {
+		if repo.parkSnapshotListSizes[i] != wantParkSizes[i] {
+			t.Fatalf("park snapshot list call sizes = %#v, want %#v", repo.parkSnapshotListSizes, wantParkSizes)
+		}
+	}
+}
+
 func TestPreflightSnapshotParkReplayReadsCandidatesInBoundedChunks(t *testing.T) {
 	due := time.Date(2026, 7, 16, 0, 0, 0, 0, time.UTC)
 	rows := []domain.UnbatchedDue{

@@ -379,7 +379,10 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
 	parkCandidateIDs := candidateIDs
 	if candidateIDs != nil {
-		parkCandidateIDs = nil
+		// Preserve the snapshot sentinel even when no shed group defers to park:
+		// nil means legacy/unbounded, while a non-nil empty slice means the
+		// preflight snapshot has no remaining park/fallback candidates.
+		parkCandidateIDs = []string{}
 		parkCandidateSeen := map[string]struct{}{}
 		var snapshotRows []domain.UnbatchedDue
 		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
