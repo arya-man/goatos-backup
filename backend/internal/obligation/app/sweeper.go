@@ -276,6 +276,36 @@ func filterParkConsolidationSnapshot(rows []domain.ParkConsolidationCandidate, c
 	return out
 }
 
+func snapshotIDChunks(candidateIDs []string, size int32) [][]string {
+	if len(candidateIDs) == 0 {
+		return [][]string{{}}
+	}
+	if size <= 0 {
+		size = 1000
+	}
+	n := int(size)
+	chunks := make([][]string, 0, (len(candidateIDs)+n-1)/n)
+	for start := 0; start < len(candidateIDs); start += n {
+		end := start + n
+		if end > len(candidateIDs) {
+			end = len(candidateIDs)
+		}
+		chunks = append(chunks, candidateIDs[start:end])
+	}
+	return chunks
+}
+
+func appendSnapshotIDs(dst []string, seen map[string]struct{}, ids []string) []string {
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		dst = append(dst, id)
+	}
+	return dst
+}
+
 // SweepVersion batches all currently-unbatched due obligations for a version (due_at <= dueBefore).
 // It uses a private, single-call shot-cap session: MaxShotsPerAnimalPerDrive is enforced only
 // within this one version's own obligations. A caller sweeping multiple protocol
@@ -347,41 +377,77 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	}
 	touchedScopes := make(map[string]bool)
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	for {
-		rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, candidateIDs)
-		if err != nil {
-			return res, err
+	parkCandidateIDs := candidateIDs
+	if candidateIDs != nil {
+		parkCandidateIDs = nil
+		parkCandidateSeen := map[string]struct{}{}
+		var snapshotRows []domain.UnbatchedDue
+		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
+			rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, chunk)
+			if err != nil {
+				return res, err
+			}
+			snapshotRows = append(snapshotRows, rows...)
 		}
-		if len(rows) == 0 {
-			break
-		}
+		order, groups := groupUnbatchedDue(snapshotRows, planner.SpeciesGroupingPolicy)
 
-		order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
-
-		var progressed int64
 		for _, k := range order {
 			g := groups[k]
 			if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
+				parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
 				continue
 			}
 			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, dueBefore, session, g)
 			if err != nil {
 				return res, err
 			}
-			if batched {
-				if !touchedScopes[k] {
-					res.Batches++
-					touchedScopes[k] = true
+			if !batched {
+				parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
+				continue
+			}
+			if !touchedScopes[k] {
+				res.Batches++
+				touchedScopes[k] = true
+			}
+			res.Obligations += int(n)
+		}
+	} else {
+		for {
+			rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, nil)
+			if err != nil {
+				return res, err
+			}
+			if len(rows) == 0 {
+				break
+			}
+
+			order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
+
+			var progressed int64
+			for _, k := range order {
+				g := groups[k]
+				if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
+					continue
 				}
-				res.Obligations += int(n)
-				progressed += n
+				batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, dueBefore, session, g)
+				if err != nil {
+					return res, err
+				}
+				if batched {
+					if !touchedScopes[k] {
+						res.Batches++
+						touchedScopes[k] = true
+					}
+					res.Obligations += int(n)
+					progressed += n
+				}
+			}
+			if progressed == 0 || int32(len(rows)) < s.page {
+				break
 			}
 		}
-		if progressed == 0 || int32(len(rows)) < s.page {
-			break
-		}
 	}
-	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session, createdAtHWM, candidateIDs)
+	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
 	if err != nil {
 		return res, err
 	}
@@ -390,7 +456,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	res.Batches += parkRes.ParkBatches
 	res.Obligations += parkRes.ParkObligations
 
-	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session, createdAtHWM, candidateIDs)
+	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
 	if err != nil {
 		return res, err
 	}
@@ -575,6 +641,32 @@ func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx contex
 		return res, nil
 	}
 	touchedScopes := make(map[string]bool)
+	if candidateIDs != nil {
+		var snapshotRows []domain.UnbatchedDue
+		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
+			rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, chunk)
+			if err != nil {
+				return res, err
+			}
+			snapshotRows = append(snapshotRows, rows...)
+		}
+		order, groups := groupUnbatchedDue(filterShedRows(snapshotRows), planner.SpeciesGroupingPolicy)
+		for _, k := range order {
+			g := groups[k]
+			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, dueBefore, session, g)
+			if err != nil {
+				return res, err
+			}
+			if batched {
+				if !touchedScopes[k] {
+					res.Batches++
+					touchedScopes[k] = true
+				}
+				res.Obligations += int(n)
+			}
+		}
+		return res, nil
+	}
 	for {
 		rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, candidateIDs)
 		if err != nil {

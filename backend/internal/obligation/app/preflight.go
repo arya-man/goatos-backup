@@ -271,17 +271,7 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 	}
 
 	groups := make(map[string][]domain.ParkConsolidationCandidate)
-	var after *domain.ParkConsolidationCursor
-	seenCursors := map[string]struct{}{}
-	for {
-		// scale-guard:ignore: bounded keyset pagination (cursor advances by row identity, LIMIT s.page per query); mirrors consolidateParkDrivesWithVisitCounts' own park listing, not a per-row round trip.
-		rows, err := s.listUnbatchedShedDueForParkConsolidationBounded(ctx, tenantID, plan.VersionID, dueBefore, s.page, after, createdAtHWM, candidateIDs)
-		if err != nil {
-			return fmt.Errorf("obligation: preflight list park consolidation for version %s: %w", plan.VersionID, err)
-		}
-		if len(rows) == 0 {
-			break
-		}
+	addRows := func(rows []domain.ParkConsolidationCandidate) {
 		for _, row := range rows {
 			if _, done := claimed[row.ObligationID]; done {
 				continue
@@ -289,19 +279,42 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 			key := row.ParkID + "|" + speciesGroupingKey(row.TargetSpecies, row.TargetAnimalStage, planner.SpeciesGroupingPolicy)
 			groups[key] = append(groups[key], row)
 		}
-		if int32(len(rows)) < s.page {
-			break
+	}
+	if candidateIDs != nil {
+		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
+			rows, err := s.listUnbatchedShedDueForParkConsolidationBounded(ctx, tenantID, plan.VersionID, dueBefore, s.page, nil, createdAtHWM, chunk)
+			if err != nil {
+				return fmt.Errorf("obligation: preflight list park consolidation for version %s: %w", plan.VersionID, err)
+			}
+			addRows(rows)
 		}
-		next := parkConsolidationCursor(rows[len(rows)-1])
-		key := parkConsolidationCursorKey(next)
-		if key == "" {
-			return fmt.Errorf("obligation: preflight park consolidation pagination did not produce an advance cursor")
+	} else {
+		var after *domain.ParkConsolidationCursor
+		seenCursors := map[string]struct{}{}
+		for {
+			// scale-guard:ignore: bounded keyset pagination (cursor advances by row identity, LIMIT s.page per query); mirrors consolidateParkDrivesWithVisitCounts' own park listing, not a per-row round trip.
+			rows, err := s.listUnbatchedShedDueForParkConsolidationBounded(ctx, tenantID, plan.VersionID, dueBefore, s.page, after, createdAtHWM, nil)
+			if err != nil {
+				return fmt.Errorf("obligation: preflight list park consolidation for version %s: %w", plan.VersionID, err)
+			}
+			if len(rows) == 0 {
+				break
+			}
+			addRows(rows)
+			if int32(len(rows)) < s.page {
+				break
+			}
+			next := parkConsolidationCursor(rows[len(rows)-1])
+			key := parkConsolidationCursorKey(next)
+			if key == "" {
+				return fmt.Errorf("obligation: preflight park consolidation pagination did not produce an advance cursor")
+			}
+			if _, ok := seenCursors[key]; ok {
+				return fmt.Errorf("obligation: preflight park consolidation pagination did not advance after cursor %s", key)
+			}
+			seenCursors[key] = struct{}{}
+			after = next
 		}
-		if _, ok := seenCursors[key]; ok {
-			return fmt.Errorf("obligation: preflight park consolidation pagination did not advance after cursor %s", key)
-		}
-		seenCursors[key] = struct{}{}
-		after = next
 	}
 
 	now := biztime.BusinessDayStart(dueBefore)

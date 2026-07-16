@@ -31,33 +31,46 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 	}
 
 	groups := make(map[string][]domain.ParkConsolidationCandidate)
-	var after *domain.ParkConsolidationCursor
-	seenCursors := map[string]struct{}{}
-	for {
-		rows, err := s.listUnbatchedShedDueForParkConsolidationBounded(ctx, tenantID, versionID, dueBefore, s.page, after, createdAtHWM, candidateIDs)
-		if err != nil {
-			return res, err
+	if candidateIDs != nil {
+		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
+			rows, err := s.listUnbatchedShedDueForParkConsolidationBounded(ctx, tenantID, versionID, dueBefore, s.page, nil, createdAtHWM, chunk)
+			if err != nil {
+				return res, err
+			}
+			for _, row := range rows {
+				key := row.ParkID + "|" + speciesGroupingKey(row.TargetSpecies, row.TargetAnimalStage, planner.SpeciesGroupingPolicy)
+				groups[key] = append(groups[key], row)
+			}
 		}
-		if len(rows) == 0 {
-			break
+	} else {
+		var after *domain.ParkConsolidationCursor
+		seenCursors := map[string]struct{}{}
+		for {
+			rows, err := s.listUnbatchedShedDueForParkConsolidationBounded(ctx, tenantID, versionID, dueBefore, s.page, after, createdAtHWM, nil)
+			if err != nil {
+				return res, err
+			}
+			if len(rows) == 0 {
+				break
+			}
+			for _, row := range rows {
+				key := row.ParkID + "|" + speciesGroupingKey(row.TargetSpecies, row.TargetAnimalStage, planner.SpeciesGroupingPolicy)
+				groups[key] = append(groups[key], row)
+			}
+			if int32(len(rows)) < s.page {
+				break
+			}
+			next := parkConsolidationCursor(rows[len(rows)-1])
+			key := parkConsolidationCursorKey(next)
+			if key == "" {
+				return res, fmt.Errorf("obligation: park consolidation pagination did not produce an advance cursor")
+			}
+			if _, ok := seenCursors[key]; ok {
+				return res, fmt.Errorf("obligation: park consolidation pagination did not advance after cursor %s", key)
+			}
+			seenCursors[key] = struct{}{}
+			after = next
 		}
-		for _, row := range rows {
-			key := row.ParkID + "|" + speciesGroupingKey(row.TargetSpecies, row.TargetAnimalStage, planner.SpeciesGroupingPolicy)
-			groups[key] = append(groups[key], row)
-		}
-		if int32(len(rows)) < s.page {
-			break
-		}
-		next := parkConsolidationCursor(rows[len(rows)-1])
-		key := parkConsolidationCursorKey(next)
-		if key == "" {
-			return res, fmt.Errorf("obligation: park consolidation pagination did not produce an advance cursor")
-		}
-		if _, ok := seenCursors[key]; ok {
-			return res, fmt.Errorf("obligation: park consolidation pagination did not advance after cursor %s", key)
-		}
-		seenCursors[key] = struct{}{}
-		after = next
 	}
 
 	now := biztime.BusinessDayStart(dueBefore)

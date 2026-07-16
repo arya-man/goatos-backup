@@ -1433,39 +1433,41 @@ export function RuleEditorModal({
       return;
     }
 
-    // Validate vaccine type, pathogen class, and course type for all matrix rows
-    // These constants must match the backend protocol/app/publish.go validation exactly
-    for (const row of activeScopedMatrixRows) {
-      const vaccine = row.vaccine;
-      const vaccineTypeLC = vaccine.type.toLowerCase();
-      const pathogenClassLC = vaccine.pathogenClass.toLowerCase();
-      const courseTypeLC = vaccine.courseType.toLowerCase();
+    if (category === "vaccination") {
+      // Validate vaccine type, pathogen class, and course type for all matrix rows.
+      // These constants must match the backend protocol/app/publish.go validation exactly.
+      for (const row of activeScopedMatrixRows) {
+        const vaccine = row.vaccine;
+        const vaccineTypeLC = vaccine.type.toLowerCase();
+        const pathogenClassLC = vaccine.pathogenClass.toLowerCase();
+        const courseTypeLC = vaccine.courseType.toLowerCase();
 
-      // Check vaccine type (must be one of: live, killed, toxoid)
-      if (!vaccine.type || !VALID_VACCINE_TYPES.includes(vaccineTypeLC)) {
-        setNotice({
-          ok: false,
-          message: `Vaccine type is required and must be one of: ${VALID_VACCINE_TYPES.join(", ")}`,
-        });
-        return;
-      }
+        // Check vaccine type (must be one of: live, killed, toxoid)
+        if (!vaccine.type || !VALID_VACCINE_TYPES.includes(vaccineTypeLC)) {
+          setNotice({
+            ok: false,
+            message: `Vaccine type is required and must be one of: ${VALID_VACCINE_TYPES.join(", ")}`,
+          });
+          return;
+        }
 
-      // Check pathogen class (REQUIRED for individual vaccines)
-      if (!vaccine.pathogenClass || !VALID_PATHOGEN_CLASSES.includes(pathogenClassLC)) {
-        setNotice({
-          ok: false,
-          message: `Pathogen class is required and must be one of: ${VALID_PATHOGEN_CLASSES.join(", ")}`,
-        });
-        return;
-      }
+        // Check pathogen class (REQUIRED for individual vaccines)
+        if (!vaccine.pathogenClass || !VALID_PATHOGEN_CLASSES.includes(pathogenClassLC)) {
+          setNotice({
+            ok: false,
+            message: `Pathogen class is required and must be one of: ${VALID_PATHOGEN_CLASSES.join(", ")}`,
+          });
+          return;
+        }
 
-      // Check course type (REQUIRED for individual vaccines)
-      if (!vaccine.courseType || !VALID_COURSE_TYPES.includes(courseTypeLC)) {
-        setNotice({
-          ok: false,
-          message: `Course type is required and must be one of: ${VALID_COURSE_TYPES.join(", ")}`,
-        });
-        return;
+        // Check course type (REQUIRED for individual vaccines)
+        if (!vaccine.courseType || !VALID_COURSE_TYPES.includes(courseTypeLC)) {
+          setNotice({
+            ok: false,
+            message: `Course type is required and must be one of: ${VALID_COURSE_TYPES.join(", ")}`,
+          });
+          return;
+        }
       }
     }
 

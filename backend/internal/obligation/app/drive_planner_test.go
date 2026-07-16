@@ -165,3 +165,38 @@ func TestNormalizedDrivePlannerSettingsDefaults(t *testing.T) {
 		t.Fatalf("planner defaults = %#v, want shot cap/hold defaults", got)
 	}
 }
+
+func TestComboAlignmentSettingsForPlansUsesStrictestPolicy(t *testing.T) {
+	plans := []SweepVersionPriority{
+		{
+			VersionID: "fmd",
+			Config: SweepConfig{
+				VaccineCode: "FMD",
+				DrivePlanner: domain.DrivePlannerSettings{
+					Enabled:                   true,
+					ComboAlignWindowDays:      10,
+					MaxShotsPerAnimalPerDrive: 2,
+				},
+			},
+		},
+		{
+			VersionID: "hs",
+			Config: SweepConfig{
+				VaccineCode: "HS",
+				DrivePlanner: domain.DrivePlannerSettings{
+					Enabled:                   true,
+					ComboAlignWindowDays:      3,
+					MaxShotsPerAnimalPerDrive: 1,
+				},
+			},
+		},
+	}
+
+	alignWindowDays, maxShotsPerAnimalPerDrive := ComboAlignmentSettingsForPlans(plans)
+	if alignWindowDays != 3 {
+		t.Fatalf("align window = %d, want strictest 3", alignWindowDays)
+	}
+	if maxShotsPerAnimalPerDrive != 1 {
+		t.Fatalf("max shots = %d, want strictest 1", maxShotsPerAnimalPerDrive)
+	}
+}

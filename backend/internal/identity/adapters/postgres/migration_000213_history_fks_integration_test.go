@@ -19,14 +19,16 @@ func TestMigration000213RestoresOperationalHistoryForeignKeys(t *testing.T) {
 	defer pool.Close()
 
 	expected := map[string]string{
-		"goat_identity_events_tenant_id_fkey":     "FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id)",
-		"goat_identity_events_goat_id_fkey":       "FOREIGN KEY (goat_id) REFERENCES goats(goat_id)",
-		"goat_identity_events_decision_id_fkey":   "FOREIGN KEY (decision_id) REFERENCES identity_decisions(decision_id)",
-		"goat_identity_events_goat_tenant_fk":     "FOREIGN KEY (tenant_id, goat_id) REFERENCES goats(tenant_id, goat_id)",
-		"goat_identity_events_decision_tenant_fk": "FOREIGN KEY (tenant_id, decision_id) REFERENCES identity_decisions(tenant_id, decision_id)",
-		"audit_log_tenant_id_fkey":                "FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id)",
-		"audit_log_decision_id_fkey":              "FOREIGN KEY (decision_id) REFERENCES identity_decisions(decision_id)",
-		"audit_log_decision_tenant_fk":            "FOREIGN KEY (tenant_id, decision_id) REFERENCES identity_decisions(tenant_id, decision_id)",
+		"goat_identity_events_tenant_id_fkey":           "FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id)",
+		"goat_identity_events_goat_id_fkey":             "FOREIGN KEY (goat_id) REFERENCES goats(goat_id)",
+		"goat_identity_events_decision_id_fkey":         "FOREIGN KEY (decision_id) REFERENCES identity_decisions(decision_id)",
+		"goat_identity_events_goat_tenant_fk":           "FOREIGN KEY (tenant_id, goat_id) REFERENCES goats(tenant_id, goat_id)",
+		"goat_identity_events_decision_tenant_fk":       "FOREIGN KEY (tenant_id, decision_id) REFERENCES identity_decisions(tenant_id, decision_id)",
+		"audit_log_tenant_id_fkey":                      "FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id)",
+		"audit_log_decision_id_fkey":                    "FOREIGN KEY (decision_id) REFERENCES identity_decisions(decision_id)",
+		"audit_log_decision_tenant_fk":                  "FOREIGN KEY (tenant_id, decision_id) REFERENCES identity_decisions(tenant_id, decision_id)",
+		"obligation_status_events_tenant_id_fkey":       "FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id)",
+		"obligation_status_events_obligation_tenant_fk": "FOREIGN KEY (tenant_id, obligation_id) REFERENCES obligation_instances(tenant_id, obligation_id)",
 	}
 
 	for name, want := range expected {

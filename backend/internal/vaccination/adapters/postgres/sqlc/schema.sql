@@ -11142,6 +11142,14 @@ ALTER TABLE ONLY public.obligation_status_events
 
 
 --
+-- Name: obligation_status_events obligation_status_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.obligation_status_events
+    ADD CONSTRAINT obligation_status_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: org_role_catalog org_role_catalog_tier_code_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 

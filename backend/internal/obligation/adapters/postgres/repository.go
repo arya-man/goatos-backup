@@ -2327,9 +2327,13 @@ func (r *Repository) ListPlannedComboBatchesKeyset(ctx context.Context, tenantID
 		if err != nil {
 			return nil, fmt.Errorf("obligation: cursor batch id: %w", err)
 		}
+		scopeID, err := pgconv.UUID(after.ScopeID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: cursor scope id: %w", err)
+		}
 		args = append(args,
 			pgconv.Text(after.ScopeType),
-			pgconv.Text(after.ScopeID),
+			scopeID,
 			pgconv.Text(after.Session),
 			batchID,
 		)

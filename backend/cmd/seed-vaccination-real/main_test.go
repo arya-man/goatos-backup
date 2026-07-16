@@ -296,6 +296,41 @@ func TestSeedSchedulePathHonorsConfigurableCutoffAndHistorySignal(t *testing.T) 
 	}
 }
 
+func TestSeedLoopFeedsKidCourseHistoryIntoSharedClassifier(t *testing.T) {
+	loc := mustKolkata(t)
+	asOf := time.Date(2026, time.July, 16, 9, 0, 0, 0, loc)
+	matrix := buildCanonicalVaccinationMatrix()
+	cells := []vaccCell{{
+		AnimalKey: "unknown-dob-non-k-stage",
+		Vaccine:   "FMD",
+		DoseType:  "First Dose",
+		DoseCode:  "first",
+		Sequence:  1,
+		Value:     "2026-06-01",
+	}}
+
+	historyByAnimal := buildSeedKidCourseHistoryByAnimalKey(cells, loc, matrix)
+	history := historyByAnimal["unknown-dob-non-k-stage"]
+	if len(history) != 1 {
+		t.Fatalf("kid-course history rows = %d, want 1", len(history))
+	}
+	if history[0].DoseCode != "fmd_kid_12w" {
+		t.Fatalf("kid history dose code = %q, want fmd_kid_12w", history[0].DoseCode)
+	}
+	if history[0].AdministeredAt.IsZero() {
+		t.Fatal("kid history AdministeredAt must be populated")
+	}
+
+	path := seedSchedulePathForGoat("", nil, "adult", nil, asOf, seedKidsNormalScheduleUntilWeeks, history)
+	if path != "kid" {
+		t.Fatalf("unknown DOB/non-K stage with source kid history path = %q, want kid", path)
+	}
+	doseCode, later := mapSheetDoseToRuleCode(cells[0].Vaccine, cells[0].DoseCode, path, matrix)
+	if doseCode != "fmd_kid_12w" || later {
+		t.Fatalf("seed loop mapped source kid dose to dose=%q later=%v, want fmd_kid_12w/false", doseCode, later)
+	}
+}
+
 func mustKolkata(t *testing.T) *time.Location {
 	t.Helper()
 	loc, err := time.LoadLocation("Asia/Kolkata")

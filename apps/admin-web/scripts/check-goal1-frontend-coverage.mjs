@@ -37,6 +37,16 @@ assert.match(ruleEditor, /sopBlockReason/, "RuleEditorModal must block on failed
 assert.match(ruleEditor, /!sopVersionId/, "RuleEditorModal must gate publish on executable SOP binding");
 assert.match(ruleEditor, /!proofOk/, "RuleEditorModal must gate publish on proof requirements");
 assert.doesNotMatch(ruleEditor, /next_due_basis|NEXT_DUE_BASIS|nextDueBasis/, "RuleEditorModal must not resurrect dead next_due_basis fields");
+const ruleEditorSave = functionBody(ruleEditor, "save");
+const vaccineValidationLoop = ruleEditorSave.indexOf("for (const row of activeScopedMatrixRows)");
+assert.notEqual(vaccineValidationLoop, -1, "RuleEditorModal save must validate vaccination matrix rows");
+const vaccinationCategoryGate = ruleEditorSave.lastIndexOf('if (category === "vaccination")', vaccineValidationLoop);
+assert.notEqual(vaccinationCategoryGate, -1, "RuleEditorModal vaccine validation must be inside a vaccination-category gate");
+const nonVaccinationSaveCall = ruleEditorSave.indexOf("category === \"vaccination\" ? activeScopedMatrixRows : matrixRows");
+assert.ok(
+  nonVaccinationSaveCall > vaccineValidationLoop,
+  "RuleEditorModal non-vaccination saves must reach saveDraftBatch without stale vaccination taxonomy validation",
+);
 
 const ruleDsl = read("features/config/rule-dsl.ts");
 assert.match(ruleDsl, /sop_label:\s*d\.sopVersion/, "schedule SOP text remains a display label");

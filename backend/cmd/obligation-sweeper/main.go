@@ -194,8 +194,8 @@ func run(args []string) error {
 				fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
 					plan.VersionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
 			}
-			defaultPlanner := obligationdomain.DefaultDrivePlannerSettings()
-			aligned, err := sweeper.AlignComboDrives(ctx, cfg.TenantID, defaultPlanner.ComboAlignWindowDays, cfg.DueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session)
+			alignWindowDays, maxShotsPerAnimalPerDrive := obligationapp.ComboAlignmentSettingsForPlans(plans)
+			aligned, err := sweeper.AlignComboDrives(ctx, cfg.TenantID, alignWindowDays, cfg.DueBefore, maxShotsPerAnimalPerDrive, session)
 			if err != nil {
 				return fmt.Errorf("align combo drives: %w", err)
 			}
@@ -281,7 +281,13 @@ func buildSweepConfig(ctx context.Context, protocolRepo *protocolpg.Repository, 
 	if err != nil {
 		return obligationapp.SweepConfig{}, err
 	}
+	out.RuleVaccineIDs = make(map[string]obligationapp.RuleVaccineIdentity, len(rules))
 	for _, rule := range rules {
+		ruleVaccineID := obligationapp.ExtractRuleVaccineIdentity(rule.EligibilityJSON)
+		if ruleVaccineID.VaccineCode != "" {
+			out.RuleVaccineIDs[rule.RuleID] = ruleVaccineID
+		}
+
 		ruleSOP := strings.TrimSpace(rule.SopVersionID)
 		if ruleSOP == "" || ruleSOP == versionSOP {
 			continue

@@ -754,6 +754,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 
 	vaccMatrixDef := buildCanonicalVaccinationMatrix()
+	seedKidCourseHistoryByAnimalKey := buildSeedKidCourseHistoryByAnimalKey(cells, loc, vaccMatrixDef)
 
 	for _, c := range cells {
 		// A dated fact is any cell that is neither blank/NA (nothing recorded) nor
@@ -816,7 +817,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			goatEntryDateByAnimalKey[c.AnimalKey],
 			now,
 			seedKidsNormalScheduleUntilWeeks,
-			nil,
+			seedKidCourseHistoryByAnimalKey[c.AnimalKey],
 		)
 		doseCodeForPath, laterAdministration := mapSheetDoseToRuleCode(c.Vaccine, c.DoseCode, path, vaccMatrixDef)
 		if doseCodeForPath == "" {
@@ -1722,6 +1723,38 @@ func seedSchedulePathForGoat(originType string, dob *time.Time, stage string, en
 		return "kid"
 	}
 	return "adult"
+}
+
+func buildSeedKidCourseHistoryByAnimalKey(cells []vaccCell, loc *time.Location, vaccMatrixDef map[string]vaccMatrixSpec) map[string][]vaccinationdomain.RecentVaccineAdministration {
+	out := map[string][]vaccinationdomain.RecentVaccineAdministration{}
+	for _, c := range cells {
+		animalKey := strings.TrimSpace(c.AnimalKey)
+		if animalKey == "" {
+			continue
+		}
+		val := strings.TrimSpace(c.Value)
+		if val == "" || strings.EqualFold(val, "NA") || strings.EqualFold(val, "Pending") {
+			continue
+		}
+		d, err := time.ParseInLocation("2006-01-02", val, loc)
+		if err != nil {
+			continue
+		}
+		doseCode, _ := mapSheetDoseToRuleCode(c.Vaccine, c.DoseCode, "kid", vaccMatrixDef)
+		if !strings.Contains(strings.ToLower(strings.TrimSpace(doseCode)), "_kid_") {
+			continue
+		}
+		def, ok := vaccines[c.Vaccine]
+		if !ok {
+			continue
+		}
+		out[animalKey] = append(out[animalKey], vaccinationdomain.RecentVaccineAdministration{
+			AdministeredAt: sourceVaccinationDateTime(d, loc),
+			VaccineCode:    def.Name,
+			DoseCode:       doseCode,
+		})
+	}
+	return out
 }
 
 // mapSheetDoseToRuleCode maps a sheet dose code (First/Booster) to the actual rule dose_code

@@ -164,3 +164,27 @@ func TestAlignComboDrivesAlignsWithinShotCap(t *testing.T) {
 		t.Fatalf("updates = %#v, want batch-a moved", repo.updates)
 	}
 }
+
+func TestAlignComboDrivesHonorsStrictComboWindow(t *testing.T) {
+	d1 := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	repo := &fakeComboAlignRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		comboBatches: []domain.ComboDriveBatch{
+			{BatchID: "batch-a", ScopeType: "shed", ScopeID: "shed-1", Session: "combo:FMD+HS", PlannedDate: &d1, TargetIDs: []string{"goat-1"}},
+			{BatchID: "batch-b", ScopeType: "shed", ScopeID: "shed-1", Session: "combo:FMD+HS", PlannedDate: &d2, TargetIDs: []string{"goat-2"}},
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 3, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), 2, NewSweepSession())
+	if err != nil {
+		t.Fatalf("AlignComboDrives: %v", err)
+	}
+	if aligned != 0 {
+		t.Fatalf("aligned = %d, want 0 when spread exceeds strict 3-day policy", aligned)
+	}
+	if len(repo.updates) != 0 {
+		t.Fatalf("updates = %#v, want none outside strict combo window", repo.updates)
+	}
+}
