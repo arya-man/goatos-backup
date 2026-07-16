@@ -809,33 +809,37 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 		if err := rejectPartialClinicalDeferStates(rowEligibility, fmt.Sprintf("matrix_rows[%d].eligibility.defer_states", idx)); err != nil {
 			return err
 		}
-		if len(row.Vaccine) > 0 {
-			var rowVaccine struct {
-				Type          string `json:"type"`
-				PathogenClass string `json:"pathogen_class"`
-				CourseType    string `json:"course_type"`
-			}
-			if err := json.Unmarshal(row.Vaccine, &rowVaccine); err != nil {
-				return fmt.Errorf("%w: matrix_rows[%d].vaccine is not a valid object", ErrNotPublishable, idx)
-			}
-			if err := rejectVaccineTypeValueInPathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine.pathogen_class", idx)); err != nil {
-				return err
-			}
-			// Validate vaccine type. REQUIRED for every matrix-row vaccine (R2-07a): validateVaccineType
-			// itself rejects an empty type, so calling it unconditionally closes the bypass where a
-			// direct publish with `type` removed passed server-side while the UI check could be skipped.
-			// Must be live, killed, or toxoid; never "matrix" for an individual vaccine.
-			if err := validateVaccineType(rowVaccine.Type, fmt.Sprintf("matrix_rows[%d].vaccine", idx), false); err != nil {
-				return err
-			}
-			// Validate pathogen class (REQUIRED for individual vaccines)
-			if err := validatePathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
-				return err
-			}
-			// Validate course type (REQUIRED for individual vaccines)
-			if err := validateCourseType(rowVaccine.CourseType, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
-				return err
-			}
+		// R2-07a: a matrix row's vaccine object is REQUIRED. The prior code validated the vaccine
+		// fields only inside `if len(row.Vaccine) > 0`, so removing the WHOLE vaccine object (not just
+		// its type) bypassed type/pathogen/course validation entirely and still published. Require a
+		// non-empty object before decoding so every matrix row must carry a fully-classified vaccine.
+		if len(row.Vaccine) == 0 {
+			return fmt.Errorf("%w: matrix_rows[%d].vaccine required", ErrNotPublishable, idx)
+		}
+		var rowVaccine struct {
+			Type          string `json:"type"`
+			PathogenClass string `json:"pathogen_class"`
+			CourseType    string `json:"course_type"`
+		}
+		if err := json.Unmarshal(row.Vaccine, &rowVaccine); err != nil {
+			return fmt.Errorf("%w: matrix_rows[%d].vaccine is not a valid object", ErrNotPublishable, idx)
+		}
+		if err := rejectVaccineTypeValueInPathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine.pathogen_class", idx)); err != nil {
+			return err
+		}
+		// Validate vaccine type. REQUIRED for every matrix-row vaccine (R2-07a): validateVaccineType
+		// itself rejects an empty type. Must be live, killed, or toxoid; never "matrix" for an
+		// individual vaccine.
+		if err := validateVaccineType(rowVaccine.Type, fmt.Sprintf("matrix_rows[%d].vaccine", idx), false); err != nil {
+			return err
+		}
+		// Validate pathogen class (REQUIRED for individual vaccines)
+		if err := validatePathogenClass(rowVaccine.PathogenClass, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
+			return err
+		}
+		// Validate course type (REQUIRED for individual vaccines)
+		if err := validateCourseType(rowVaccine.CourseType, fmt.Sprintf("matrix_rows[%d].vaccine", idx)); err != nil {
+			return err
 		}
 	}
 	for idx, row := range env.Schedule {

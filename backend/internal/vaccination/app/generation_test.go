@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
-	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
@@ -2146,6 +2145,7 @@ type generationObligationFake struct {
 	failErr                error
 	failed                 bool
 	rescheduledDue         map[string]time.Time // R2-01: simulate a persisted reschedule per idempotency key
+	actionableCalls        int                  // NEW-01: count ListActionableObligationsForGoats round trips
 }
 
 type nearestBatchLookup struct {
@@ -2178,21 +2178,44 @@ func (o *generationObligationFake) InsertObligation(_ context.Context, in obldom
 	return "obligation-1", true, nil
 }
 
-func (o *generationObligationFake) GetByIdempotencyKey(_ context.Context, _, idempotencyKey string) (obldomain.ObligationRef, error) {
-	idx, ok := o.keyIndex[idempotencyKey]
-	if !ok {
-		return obldomain.ObligationRef{}, ports.ErrNotFound
+func (o *generationObligationFake) ListActionableObligationsForGoats(_ context.Context, _ string, goatIDs []string) (map[string]map[string]obldomain.ObligationRef, error) {
+	o.actionableCalls++
+	want := make(map[string]bool, len(goatIDs))
+	for _, id := range goatIDs {
+		want[id] = true
 	}
-	in := o.inserted[idx]
-	// rescheduledDue lets a test simulate a persisted reschedule (R2-01): the persisted DueAt then
-	// differs from what generation recomputes.
-	due := in.DueAt
-	if o.rescheduledDue != nil {
-		if d, ok := o.rescheduledDue[idempotencyKey]; ok {
-			due = d
+	out := map[string]map[string]obldomain.ObligationRef{}
+	for _, in := range o.inserted {
+		if !want[in.TargetID] || !isActionableObligationStatus(in.Status) {
+			continue
 		}
+		// rescheduledDue lets a test simulate a persisted reschedule (R2-01); otherwise the stored
+		// (possibly test-mutated) DueAt is the persisted date.
+		due := in.DueAt
+		if o.rescheduledDue != nil {
+			if d, ok := o.rescheduledDue[in.IdempotencyKey]; ok {
+				due = d
+			}
+		}
+		byKey := out[in.TargetID]
+		if byKey == nil {
+			byKey = map[string]obldomain.ObligationRef{}
+			out[in.TargetID] = byKey
+		}
+		byKey[in.IdempotencyKey] = obldomain.ObligationRef{Status: in.Status, DueAt: due}
 	}
-	return obldomain.ObligationRef{ObligationID: "obligation-1", Status: in.Status, DueAt: due}, nil
+	return out, nil
+}
+
+// isActionableObligationStatus mirrors the backend ListActionableObligationsForGoats filter: only
+// non-terminal obligations (an upcoming shot) may space co-due vaccines. Blank defaults to scheduled.
+func isActionableObligationStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case "", "scheduled", "due", "missed", "deferred":
+		return true
+	default:
+		return false
+	}
 }
 
 func (o *generationObligationFake) DeferOpenObligationByIdempotencyKey(_ context.Context, _, idempotencyKey, reason string, _ time.Time) (string, bool, error) {
@@ -2445,7 +2468,7 @@ func TestMissingReviewRecorderFailsOnStaleKidStage(t *testing.T) {
 	}
 
 	res := &domain.GenerateResult{}
-	err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{}, []string{}, genEligibility{}, goat, asOf, generationOptions{}, genVersionPolicies{Procurement: genProcurementPolicy{}}, vaccineProfile{}, []domain.RecentVaccineAdministration{}, newTrustedEvidenceLookup(), res)
+	err := svc.genOneGoat(ctx, "tenant-1", "version-1", []protodomain.Rule{}, []string{}, genEligibility{}, goat, asOf, generationOptions{}, genVersionPolicies{Procurement: genProcurementPolicy{}}, vaccineProfile{}, []domain.RecentVaccineAdministration{}, newTrustedEvidenceLookup(), nil, res)
 
 	if err == nil {
 		t.Errorf("VACC-REV-10A bug: missing review recorder should fail when stale kid stage detected; expected error, got nil")
@@ -2517,7 +2540,7 @@ func TestSameFamilyDifferentDoseGeneratesAlongsideOwnRecurrence(t *testing.T) {
 	res := &domain.GenerateResult{}
 	obl := svc.obl.(*generationObligationFake)
 	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
-		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), res); err != nil {
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), nil, res); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if res.Generated != 2 || len(obl.inserted) != 2 {
@@ -2559,7 +2582,7 @@ func TestSameFamilySameDoseStillSuppressed(t *testing.T) {
 	res := &domain.GenerateResult{}
 	obl := svc.obl.(*generationObligationFake)
 	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
-		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), res); err != nil {
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), nil, res); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if res.Generated != 0 || len(obl.inserted) != 0 {
@@ -2584,7 +2607,7 @@ func TestRuntimeZeroHistoryGoatStillReceivesCatchUp(t *testing.T) {
 	res := &domain.GenerateResult{}
 	obl := svc.obl.(*generationObligationFake)
 	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
-		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), nil, newTrustedEvidenceLookup(), res); err != nil {
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), nil, newTrustedEvidenceLookup(), nil, res); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if res.Generated != 1 || len(obl.inserted) != 1 {
@@ -2611,7 +2634,7 @@ func TestRuntimeEnrolledGoatStillGetsBlankFamilyCatchUp(t *testing.T) {
 	res := &domain.GenerateResult{}
 	obl := svc.obl.(*generationObligationFake)
 	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
-		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), res); err != nil {
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, gpoxProfile(), history, newTrustedEvidenceLookup(), nil, res); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if res.Generated != 1 || len(obl.inserted) != 1 {
@@ -2643,7 +2666,7 @@ func TestPartialHistoryGoatBlankFamilyGetsFutureAdultCatchUp(t *testing.T) {
 	res := &domain.GenerateResult{}
 	obl := svc.obl.(*generationObligationFake)
 	if err := svc.genOneGoat(ctx, "tenant-1", "version-1", rules, nil, genEligibility{}, goat, asOf,
-		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, fmdProfile, history, newTrustedEvidenceLookup(), res); err != nil {
+		generationOptions{healthRecoveryAlign: true}, genVersionPolicies{}, fmdProfile, history, newTrustedEvidenceLookup(), nil, res); err != nil {
 		t.Fatalf("generate: %v", err)
 	}
 	if res.Generated != 1 || len(obl.inserted) != 1 {
@@ -3094,5 +3117,94 @@ func TestGenerateReplayCoDueSpacingUsesPersistedRescheduledDate(t *testing.T) {
 	}
 	if !goatPox.DueAt.Equal(wantFloor) {
 		t.Fatalf("Goat Pox due = %s, want %s (A's persisted %s + 28d)", goatPox.DueAt.Format("2006-01-02"), wantFloor.Format("2006-01-02"), rescheduled.Format("2006-01-02"))
+	}
+}
+
+// TestGenerateReplayTerminalObligationDoesNotDelayCoDueVaccine is the R2-01 follow-up guard: a
+// TERMINAL persisted obligation (waived/completed/superseded — no remaining shot) must NOT space an
+// unrelated co-due vaccine on replay. Goat Pox must stay on its own recomputed date, not be pushed
+// out by a PPR obligation that is no longer planned.
+func TestGenerateReplayTerminalObligationDoesNotDelayCoDueVaccine(t *testing.T) {
+	for _, terminal := range []string{"waived", "completed", "superseded", "canceled"} {
+		t.Run(terminal, func(t *testing.T) {
+			ctx := context.Background()
+			dob := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+			asOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+			ruleA := protodomain.Rule{
+				RuleID: "ppr", DoseCode: "ppr_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`),
+			}
+			ruleB := protodomain.Rule{
+				RuleID: "goatpox", DoseCode: "goatpox_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+				EligibilityJSON: []byte(`{"vaccine":{"code":"GOAT_POX","type":"live","pathogen_class":"viral"}}`),
+			}
+			proto := &generationProtoFake{
+				ruleDSL: []byte(`{"eligibility":{},"compatibility_policy":{"live_to_live_gap_days":28}}`),
+				rules:   []protodomain.Rule{ruleA},
+			}
+			goats := &generationGoatFake{list: []domain.EligibleGoat{{GoatID: "goat-1", LifecycleStatus: "alive", DOB: &dob, Species: "goat"}}}
+			obl := &generationObligationFake{}
+			gen := NewGenerationService(proto, goats, obl)
+
+			if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+				t.Fatalf("pass 1: %v", err)
+			}
+			// PPR reaches a terminal state (given, waived, replaced, or canceled) -- no upcoming shot.
+			obl.inserted[0].Status = terminal
+
+			proto.rules = []protodomain.Rule{ruleA, ruleB}
+			if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+				t.Fatalf("pass 2: %v", err)
+			}
+			var goatPox *obldomain.NewObligation
+			for i := range obl.inserted {
+				if obl.inserted[i].RuleID == "goatpox" {
+					goatPox = &obl.inserted[i]
+				}
+			}
+			if goatPox == nil {
+				t.Fatalf("Goat Pox was not generated: inserted=%#v", obl.inserted)
+			}
+			ownDue := businessDayStart(businessDayStart(dob).AddDate(0, 0, 30))
+			if !goatPox.DueAt.Equal(ownDue) {
+				t.Fatalf("Goat Pox due = %s, want its own date %s (a %s PPR must not delay it)", goatPox.DueAt.Format("2006-01-02"), ownDue.Format("2006-01-02"), terminal)
+			}
+		})
+	}
+}
+
+// TestGenerateReplayActionableLoadIsPerPageNotPerObligation is the NEW-01 guard: the persisted-date
+// lookup for co-due spacing must be a single bulk load per generation page, not one query per
+// replayed obligation. Two goats each with two rules replay in one page; the actionable-obligation
+// loader must be called exactly once, not once per obligation.
+func TestGenerateReplayActionableLoadIsPerPageNotPerObligation(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "ppr", DoseCode: "ppr", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","type":"live","pathogen_class":"viral"}}`)},
+		{RuleID: "goatpox", DoseCode: "goatpox", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
+			EligibilityJSON: []byte(`{"vaccine":{"code":"GOAT_POX","type":"live","pathogen_class":"viral"}}`)},
+	}
+	proto := &generationProtoFake{ruleDSL: []byte(`{"eligibility":{},"compatibility_policy":{"live_to_live_gap_days":28}}`), rules: rules}
+	goats := &generationGoatFake{list: []domain.EligibleGoat{
+		{GoatID: "goat-1", LifecycleStatus: "alive", DOB: &dob, Species: "goat"},
+		{GoatID: "goat-2", LifecycleStatus: "alive", DOB: &dob, Species: "goat"},
+	}}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+
+	// Pass 1 generates; pass 2 is the full replay that exercises the per-obligation lookup path.
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("pass 1: %v", err)
+	}
+	obl.actionableCalls = 0
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("pass 2: %v", err)
+	}
+	// One page (2 goats x 2 rules = 4 replayed obligations) => exactly ONE bulk load, not four.
+	if obl.actionableCalls != 1 {
+		t.Fatalf("actionable-obligation loads = %d, want 1 per page (not one per obligation)", obl.actionableCalls)
 	}
 }

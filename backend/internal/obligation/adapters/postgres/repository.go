@@ -293,6 +293,57 @@ func (r *Repository) GetByIdempotencyKey(ctx context.Context, tenantID, idempote
 	}, nil
 }
 
+// ListActionableObligationsForGoats bulk-loads every actionable (non-terminal) obligation for a page
+// of goats, keyed goatID -> idempotencyKey -> ObligationRef (R2-01 / NEW-01). One indexed query per
+// page replaces a per-obligation GetByIdempotencyKey round trip. Bounded by the caller's explicit
+// goat-id list (never a full-table scan).
+func (r *Repository) ListActionableObligationsForGoats(ctx context.Context, tenantID string, goatIDs []string) (map[string]map[string]domain.ObligationRef, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	out := make(map[string]map[string]domain.ObligationRef, len(goatIDs))
+	ids := dedupNonBlank(goatIDs)
+	if len(ids) == 0 {
+		return out, nil
+	}
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	targetIDs, err := obligationUUIDs(ids)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: actionable goat ids: %w", err)
+	}
+	// scale-guard:ignore: bounded by the caller's explicit page goat-id list (= ANY), one read per page, not per-row.
+	rows, err := r.pool.Query(ctx, `
+SELECT oi.target_id::text, oi.idempotency_key, oi.status, oi.due_at
+FROM obligation_instances oi
+WHERE oi.tenant_id = $1
+  AND oi.target_type = 'goat'
+  AND oi.target_id = ANY($2::uuid[])
+  AND oi.status IN ('scheduled', 'due', 'missed', 'deferred')`, tenant, targetIDs)
+	if err != nil {
+		return nil, fmt.Errorf("obligation: list actionable obligations for goats: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var goatID, key, status string
+		var dueAt pgtype.Timestamptz
+		if err := rows.Scan(&goatID, &key, &status, &dueAt); err != nil {
+			return nil, fmt.Errorf("obligation: scan actionable obligation: %w", err)
+		}
+		byKey := out[goatID]
+		if byKey == nil {
+			byKey = make(map[string]domain.ObligationRef, 4)
+			out[goatID] = byKey
+		}
+		byKey[key] = domain.ObligationRef{Status: status, DueAt: dueAt.Time}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obligation: actionable obligation rows: %w", err)
+	}
+	return out, nil
+}
+
 // DeferOpenObligationByIdempotencyKey moves an existing scheduled/due obligation into the
 // canonical deferred state during goat rechecks. If the row was still in a planned batch, it is
 // detached so the held goat is not executed by an already-created drive.

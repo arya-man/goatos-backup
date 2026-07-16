@@ -68,10 +68,13 @@ func IsGenerationAbortError(err error) bool {
 // ObligationWriter is the slice of the obligation repo SM-1 generation needs.
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
-	// GetByIdempotencyKey returns the persisted obligation for a key (R2-01): on idempotent replay
-	// its DueAt is the ACTUAL scheduled date, which may differ from a freshly recalculated one if the
-	// obligation was rescheduled, and is what co-due cross-vaccine spacing must anchor on.
-	GetByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string) (obldomain.ObligationRef, error)
+	// ListActionableObligationsForGoats bulk-loads, for one page of goats, every ACTIONABLE
+	// (non-terminal: scheduled/due/missed/deferred) obligation keyed by idempotency key, with its
+	// PERSISTED due_at (R2-01, NEW-01). Co-due cross-vaccine spacing on idempotent replay anchors on
+	// the persisted date (which may differ from a recalculated one after a reschedule) and must skip
+	// terminal obligations (completed/waived/superseded/canceled) that represent no upcoming shot.
+	// One query per page replaces a per-obligation GetByIdempotencyKey round trip.
+	ListActionableObligationsForGoats(ctx context.Context, tenantID string, goatIDs []string) (map[string]map[string]obldomain.ObligationRef, error)
 	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
 	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obligationID string, changed bool, err error)
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
@@ -538,8 +541,12 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 		if err != nil {
 			return res, err
 		}
+		actionableByGoat, err := s.actionableObligationsForPage(ctx, tenantID, pagePlans)
+		if err != nil {
+			return res, err
+		}
 		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], actionableByGoat[p.goat.GoatID], &res); err != nil {
 				if shouldAbortGeneration(err) {
 					return res, err
 				}
@@ -903,8 +910,12 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		if err != nil {
 			return res, err
 		}
+		actionableByGoat, err := s.actionableObligationsForPage(ctx, tenantID, pagePlans)
+		if err != nil {
+			return res, err
+		}
 		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], actionableByGoat[p.goat.GoatID], &res); err != nil {
 				if shouldAbortGeneration(err) {
 					return res, err
 				}
@@ -1122,9 +1133,29 @@ func (s *GenerationService) recentVaccineAdminsForPlans(ctx context.Context, ten
 	return out, nil
 }
 
+// actionableObligationsForPage bulk-loads the page's actionable (non-terminal) obligations once
+// (R2-01 / NEW-01) so genOneGoat's co-due spacing can read each replayed obligation's persisted
+// due_at + status from memory instead of a per-obligation round trip.
+func (s *GenerationService) actionableObligationsForPage(ctx context.Context, tenantID string, plans []goatGenerationPlan) (map[string]map[string]obldomain.ObligationRef, error) {
+	if len(plans) == 0 {
+		return map[string]map[string]obldomain.ObligationRef{}, nil
+	}
+	goatIDs := make([]string, 0, len(plans))
+	seen := make(map[string]bool, len(plans))
+	for _, plan := range plans {
+		id := strings.TrimSpace(plan.goat.GoatID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		goatIDs = append(goatIDs, id)
+	}
+	return s.obl.ListActionableObligationsForGoats(ctx, tenantID, goatIDs)
+}
+
 // genOneGoat applies every applicable rule to one goat: compute due_at, idempotent insert, and a
 // canonical deferred state when the goat is in a defer state. Accumulates counts into res.
-func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
+func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, actionableObligs map[string]obldomain.ObligationRef, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf, vaccineHistory)
 	if staleKidStageAfterCutoff(g, policies.Procurement, asOf) {
@@ -1368,30 +1399,13 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			return err
 		}
 		if !applied {
-			// BUG #2 (R2-01): even on replay (applied==false), append to pending so that
-			// subsequent vaccines in this pass respect cross-vaccine spacing against
-			// already-persisted obligations. Without this, idempotent replay loses the spacing
-			// floor when vaccine A was inserted in a prior attempt and B is generated on retry
-			// without knowing about A's due date.
-			//
-			// R2-01: append the PERSISTED obligation's due_at, not the freshly recalculated `due`.
-			// If A was inserted on July 1 and later rescheduled to July 10, `due` may still compute
-			// July 1, and spacing B off July 1 could schedule B too close to A's actual July 10
-			// visit. GetByIdempotencyKey returns A's real scheduled date. Fall back to `due` on a
-			// benign miss (e.g. a not-found race); only a run-level infra fault aborts.
-			pendingDue := due
-			if ref, gerr := s.obl.GetByIdempotencyKey(ctx, tenantID, key); gerr == nil {
-				if !ref.DueAt.IsZero() {
-					pendingDue = ref.DueAt
-				}
-			} else if shouldAbortGeneration(gerr) {
-				return gerr
-			}
-			pending = append(pending, pendingVaccine{
-				code:  ruleVaccine.Code,
-				class: ruleVaccine.Class,
-				due:   pendingDue,
-			})
+			// R2-01: reconcile this obligation's persisted state FIRST (missing-key cancel, then
+			// defer or recovery-reopen), and only THEN append it to `pending` for co-due cross-vaccine
+			// spacing -- using the FINAL persisted due_at and skipping TERMINAL obligations. The prior
+			// code appended before reconciling and regardless of status, so a waived/superseded/
+			// completed obligation (no remaining shot) still delayed an unrelated co-due vaccine, and a
+			// recovery-reschedule that ran afterwards left the stale date in `pending`.
+			var reschedule *obldomain.RecoveryReschedule
 			if missingKey != "" {
 				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
 					return err
@@ -1409,7 +1423,6 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// Goat is no longer in a defer state: if a held (deferred) obligation exists for this
 				// key, reopen it so the recovered goat's due work becomes schedulable again. A no-op
 				// when the row is already schedulable/terminal (safe recovery-recheck replay).
-				var reschedule *obldomain.RecoveryReschedule
 				if opts.healthRecoveryAlign {
 					reschedule, err = s.recoveryRescheduleForRule(ctx, tenantID, versionID, rule, ruleVaccine, g, asOf, policies.Recovery, policies.Compatibility, vaccineHistory)
 					if err != nil {
@@ -1423,6 +1436,15 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				if changed {
 					res.Reopened++
 				}
+			}
+			// Append to pending only if the obligation is actionable (an upcoming shot). A recovery
+			// reschedule from THIS pass supplies the freshest date; otherwise use the persisted
+			// actionable due bulk-loaded for this page (NEW-01: no per-obligation query). An obligation
+			// absent from the actionable set is terminal/gone and must not space anything.
+			if reschedule != nil && !reschedule.DueAt.IsZero() {
+				pending = append(pending, pendingVaccine{code: ruleVaccine.Code, class: ruleVaccine.Class, due: reschedule.DueAt})
+			} else if ref, ok := actionableObligs[key]; ok && !ref.DueAt.IsZero() {
+				pending = append(pending, pendingVaccine{code: ruleVaccine.Code, class: ruleVaccine.Class, due: ref.DueAt})
 			}
 			continue // replay no-op
 		}
@@ -1616,8 +1638,12 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 	if err != nil {
 		return res, err
 	}
+	actionableByGoat, err := s.actionableObligationsForPage(ctx, tenantID, pagePlans)
+	if err != nil {
+		return res, err
+	}
 	for _, p := range pagePlans {
-		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
+		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], actionableByGoat[p.goat.GoatID], &res); err != nil {
 			return res, err
 		}
 	}

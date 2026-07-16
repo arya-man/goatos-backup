@@ -296,6 +296,25 @@ ORDER BY ob.created_at ASC, ob.batch_id ASC
 LIMIT 100;"
 }
 
+validate_combo_align_keyset_plan() {
+  # R2-06b: ListPlannedComboBatchesKeyset (AlignComboDrives, runs every sweep) keyset-pages planned
+  # combo batches ORDER BY (scope_type, scope_id, session, batch_id) filtered to status='planned',
+  # sop_task_id IS NULL, session LIKE 'combo:%'. It must ride the partial composite index
+  # obligation_batches_combo_align_keyset_idx (migration 000209), never a tenant-wide sequential scan
+  # + sort. The extra_forbidden Sort assertion proves the index also supplies the ordering.
+  explain_must_use_index "ComboAlignKeyset" 'Seq Scan on obligation_batches' "EXPLAIN (COSTS OFF)
+SELECT b.batch_id
+FROM obligation_batches b
+WHERE b.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+  AND b.status = 'planned'
+  AND b.session LIKE 'combo:%'
+  AND b.sop_task_id IS NULL
+  AND NOT (b.context ? 'stock_reservation')
+  AND (b.planned_date IS NULL OR b.planned_date <= '2026-08-15'::date)
+ORDER BY b.scope_type, b.scope_id, b.session, b.batch_id
+LIMIT 1000;" '(Sort|Incremental Sort)'
+}
+
 validate_kernel_sweeper_hot_path_plans() {
   explain_must_use_index "ObligationListUnbatchedDueForVersion" 'Seq Scan on obligation_instances' "EXPLAIN (COSTS OFF)
 SELECT oi.obligation_id::text AS obligation_id,
@@ -1282,6 +1301,7 @@ validate_obligation_due_window_plan
 validate_obligation_scope_count_plan
 validate_obligation_open_by_goat_plan
 validate_obligation_planned_batch_finalization_plan
+validate_combo_align_keyset_plan
 validate_kernel_sweeper_hot_path_plans
 validate_inventory_fefo_plan
 validate_inventory_movements_ledger_plan

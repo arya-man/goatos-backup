@@ -6,7 +6,6 @@ import (
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
-	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -386,8 +385,8 @@ func (f *boosterObligationWriterFake) InsertObligation(_ context.Context, in obl
 	return "obligation-1", true, nil
 }
 
-func (f *boosterObligationWriterFake) GetByIdempotencyKey(context.Context, string, string) (obldomain.ObligationRef, error) {
-	return obldomain.ObligationRef{}, ports.ErrNotFound
+func (f *boosterObligationWriterFake) ListActionableObligationsForGoats(context.Context, string, []string) (map[string]map[string]obldomain.ObligationRef, error) {
+	return map[string]map[string]obldomain.ObligationRef{}, nil
 }
 
 func (f *boosterObligationWriterFake) DeferOpenObligationByIdempotencyKey(context.Context, string, string, string, time.Time) (string, bool, error) {
