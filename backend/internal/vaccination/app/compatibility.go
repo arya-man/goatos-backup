@@ -86,7 +86,7 @@ const (
 	DefaultLiveToLiveGapDays          int32 = 28
 	DefaultLiveToKilledGapDays        int32 = 14
 	DefaultKilledToKilledGapDays      int32 = 14
-	DefaultKidBoosterMinGapDays       int32 = 21
+	DefaultCourseBoosterMinGapDays    int32 = 21
 	DefaultMaxVaccinesPerComboSession int32 = 2
 )
 
@@ -101,8 +101,8 @@ func (p genCompatibilityPolicy) withDefaults() genCompatibilityPolicy {
 	if out.KilledToKilledGapDays <= 0 {
 		out.KilledToKilledGapDays = DefaultKilledToKilledGapDays
 	}
-	if out.KidBoosterMinGapDays <= 0 {
-		out.KidBoosterMinGapDays = DefaultKidBoosterMinGapDays
+	if out.CourseBoosterMinGapDays <= 0 {
+		out.CourseBoosterMinGapDays = DefaultCourseBoosterMinGapDays
 	}
 	if out.MaxVaccinesPerComboSession <= 0 {
 		out.MaxVaccinesPerComboSession = DefaultMaxVaccinesPerComboSession

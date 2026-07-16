@@ -268,10 +268,12 @@ func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([
 		var row domain.OperationsRow
 		var ageBand pgtype.Text
 		var nextDue, lastDose pgtype.Timestamptz
+		var vaccineNames []string
 		var animals, overdue, due, inProgress, scheduled, missed, deferred, accepted, proofPending, rejected, total int64
 		if err := rows.Scan(
 			&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Stage, &ageBand,
 			&row.ProtocolID, &row.ProtocolName, &animals, &nextDue, &lastDose,
+			&vaccineNames,
 			&overdue, &due, &inProgress, &scheduled, &missed, &deferred, &accepted, &proofPending, &rejected, &total,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan operations: %w", err)
@@ -280,6 +282,10 @@ func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([
 		row.NextDue = timePtr(nextDue)
 		row.LastDose = timePtr(lastDose)
 		row.Animals = int(animals)
+		if vaccineNames == nil {
+			vaccineNames = []string{}
+		}
+		row.VaccineNames = vaccineNames
 		row.OverdueCount = int(overdue)
 		row.DueCount = int(due)
 		row.InProgressCount = int(inProgress)
@@ -926,6 +932,7 @@ asof_terminal AS (
 raw AS (
   SELECT
     oi.obligation_id,
+    oi.rule_id,
     oi.due_at,
     oi.window_start,
     oi.window_end,
@@ -935,6 +942,12 @@ raw AS (
     te.has_terminal_event,
     pd.protocol_id,
     pd.name AS protocol_name,
+    COALESCE(
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'display_name', ''),
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'name', ''),
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+      NULLIF(pr.dose_code, '')
+    ) AS vaccine_name,
     g.age_band,
     COALESCE(NULLIF(g.management_stage, ''), 'Unknown') AS stage,
     oi.target_id AS goat_id,
@@ -950,6 +963,9 @@ raw AS (
     ON pd.tenant_id = pv.tenant_id
    AND pd.protocol_id = pv.protocol_id
    AND pd.category = 'vaccination'
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.rule_id = oi.rule_id
   LEFT JOIN goats g
     ON oi.target_type = 'goat'
    AND g.tenant_id = oi.tenant_id
@@ -1052,6 +1068,14 @@ SELECT
   COUNT(DISTINCT effective.goat_id)::bigint AS animals,
   MIN(effective.due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
   MAX(effective.last_accepted_at) AS last_dose,
+  COALESCE(
+    ARRAY_REMOVE(
+      ARRAY_AGG(DISTINCT effective.vaccine_name ORDER BY effective.vaccine_name)
+        FILTER (WHERE effective.vaccine_name IS NOT NULL AND effective.vaccine_name <> ''),
+      NULL
+    ),
+    ARRAY[]::text[]
+  ) AS vaccine_names,
   COUNT(*) FILTER (WHERE effective.eff_status = 'overdue')::bigint AS overdue_count,
   COUNT(*) FILTER (WHERE effective.eff_status = 'due')::bigint AS due_count,
   COUNT(*) FILTER (WHERE effective.eff_status = 'in_progress')::bigint AS in_progress_count,

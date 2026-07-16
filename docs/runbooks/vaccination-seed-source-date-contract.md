@@ -118,6 +118,14 @@ This is per vaccine, not per goat. An ET+TT date cannot anchor FMD, PPR, pox,
 HS, or Blue Tongue. The kernel must never reverse-engineer or infer DOB from a
 field vaccination date.
 
+Multi-dose course history is not the same as a completed repeat anchor. If seed
+imports an accepted ET+TT dose 1, GoatOS must schedule ET+TT dose 2 from that
+source date plus 21 days for both kid and adult courses. The 182-day ET+TT
+repeat starts only after accepted ET+TT dose 2/course completion. Blue Tongue
+kid dose 2 stays 28 days after Blue Tongue kid dose 1. Single-dose vaccines
+such as FMD, HS, PPR, Goat Pox, and Sheep Pox repeat from their accepted
+same-vaccine administration because they have no second course dose.
+
 Identity corrections are recomputation signals, not authority to overwrite
 completion history. When DOB or entry date is added or corrected:
 

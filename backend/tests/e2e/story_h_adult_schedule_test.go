@@ -10,10 +10,8 @@ import (
 
 // TestKernelStoryH_AdultSchedule drives the adult procurement course through the REAL generation
 // engine: an adult goat that arrived on a known farm-entry date, a published version carrying the
-// two post-arrival rows of the adult course (D0 and D0+4w, per
-// docs/preventive-care-vaccination/vaccination-rules.md's "New-animal procurement schedule" -- ET+TT
-// + PPR first, then Goat Pox + ET+TT booster after 4 weeks, the 4-week wait honoring live→live
-// spacing), and asserts both doses are generated at the right dates with the 28-day gap between them.
+// adult course rows (D0, ET+TT dose 2 at D0+21d, and pox at D0+28d). ET+TT uses the
+// 21-day course gap for both kid and adult schedules; pox keeps the 28-day live-to-live spacing after PPR.
 //
 // origin_type='procured' + a farm entry_date put the goat on the adult_procurement schedule path, so
 // the post_arrival rows fire (ruleMatchesSchedulePath only fires post_arrival rows for the
@@ -21,11 +19,10 @@ import (
 // procurement warm-up hold is exercised separately in Story K.
 func TestKernelStoryH_AdultSchedule(t *testing.T) {
 	fx := NewFixture(t)
-	story := NewStory(t, "story-h", "Adult schedule: D0 + 4-week course",
+	story := NewStory(t, "story-h", "Adult schedule: ET+TT dose 2 at 21 days, pox at 28 days",
 		"An adult goat arrives on a known farm-entry date. The published adult course carries two "+
-			"post-arrival rows: the D0 dose (ET+TT + PPR) at arrival and the D0+4w dose (Goat Pox + ET+TT "+
-			"booster) four weeks later -- the 4-week gap honoring the live→live spacing rule. The generation "+
-			"engine must materialize both doses at the correct dates.")
+			"post-arrival follow-ups after the first dose: ET+TT dose 2 at 21 days and pox at 28 days. "+
+			"The generation engine must materialize each dose at the correct date.")
 	defer story.Finish()
 	story.Certify("backend kernel")
 
@@ -39,9 +36,10 @@ func TestKernelStoryH_AdultSchedule(t *testing.T) {
 	dob := entry.AddDate(-2, 0, 0)
 	fx.SeedProcurementGoat(adultID, shedID, entry, "A1", dob)
 
-	story.Step("Seed the adult and publish the D0 + 4w course",
+	story.Step("Seed the adult and publish the D0 + 21d + 28d course",
 		"One adult goat, arrived 2026-06-01 (origin procured, adult stage). The published protocol "+
-			"carries two post-arrival rows: D0 (offset 0) and D0+4w (offset 28), each with a 14-day window.")
+			"carries three post-arrival rows: D0 (offset 0), ET+TT dose 2 (offset 21), and pox "+
+			"(offset 28), each with a 14-day window.")
 
 	type dose struct {
 		code   string
@@ -50,7 +48,8 @@ func TestKernelStoryH_AdultSchedule(t *testing.T) {
 	}
 	course := []dose{
 		{"d0_ettt_ppr", 1, 0},
-		{"d28_goatpox_booster", 2, 28},
+		{"d21_ettt_booster", 2, 21},
+		{"d28_goatpox", 3, 28},
 	}
 	specs := make([]RuleSpec, 0, len(course))
 	for _, d := range course {
@@ -59,20 +58,20 @@ func TestKernelStoryH_AdultSchedule(t *testing.T) {
 	versionID, ruleIDs := fx.PublishScheduleProtocol("vaccination.e2e.story_h", "{}", specs)
 
 	story.Step("Generate the adult course via the real generation engine",
-		"Run the real GenerationService.GenerateForVersion as of arrival. It must produce exactly two "+
-			"scheduled obligations -- one per post-arrival row.")
+		"Run the real GenerationService.GenerateForVersion as of arrival. It must produce the entry dose, "+
+			"ET+TT dose 2, and the pox dose -- one scheduled obligation per post-arrival row.")
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
 	asOf := entry
 	res, err := gen.GenerateForVersion(fx.Ctx, fxTenant, versionID, asOf)
 	story.Assert("generation ran without error", err == nil, "err=%v", err)
-	story.Assert("both adult doses were generated", res.Generated == 2, "generated=%d", res.Generated)
+	story.Assert("all adult course doses were generated", res.Generated == 3, "generated=%d", res.Generated)
 
 	total := fx.countRows(`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='scheduled'`, fxTenant, adultID)
-	story.Assert("exactly two scheduled obligations for the adult", total == 2, "count=%d", total)
+	story.Assert("exactly three scheduled obligations for the adult", total == 3, "count=%d", total)
 
-	story.Step("Assert the two doses and the 4-week gap",
-		"D0 must be due on the farm-entry date; D0+4w must be due 28 days later. The gap between the "+
-			"two administered doses must be exactly 4 weeks, honoring the live→live spacing rule.")
+	story.Step("Assert ET+TT dose 2 and pox dates",
+		"D0 must be due on the farm-entry date; ET+TT dose 2 must be due 21 days later; pox must be due "+
+			"28 days later, preserving the live-to-live spacing rule.")
 	dueByCode := map[string]time.Time{}
 	for _, d := range course {
 		ruleID := ruleIDs[d.code]
@@ -84,6 +83,8 @@ func TestKernelStoryH_AdultSchedule(t *testing.T) {
 			sameDay(gotDue, wantDue),
 			"got_due=%s want_due=%s", gotDue.Format("2006-01-02"), wantDue.Format("2006-01-02"))
 	}
-	gapDays := int(dueByCode["d28_goatpox_booster"].Sub(dueByCode["d0_ettt_ppr"]).Hours() / 24)
-	story.Assert("the two adult doses are exactly 4 weeks (28 days) apart", gapDays == 28, "gap_days=%d", gapDays)
+	etttGapDays := int(dueByCode["d21_ettt_booster"].Sub(dueByCode["d0_ettt_ppr"]).Hours() / 24)
+	story.Assert("the adult ET+TT booster is exactly 3 weeks (21 days) after dose 1", etttGapDays == 21, "gap_days=%d", etttGapDays)
+	poxGapDays := int(dueByCode["d28_goatpox"].Sub(dueByCode["d0_ettt_ppr"]).Hours() / 24)
+	story.Assert("the adult pox dose stays exactly 4 weeks (28 days) after PPR/live dose", poxGapDays == 28, "gap_days=%d", poxGapDays)
 }

@@ -390,6 +390,66 @@ func TestVaccinationMatrixUsesNextCycleOnlyForRepeatRows(t *testing.T) {
 	}
 }
 
+func TestVaccinationMatrixStoresETTTAdultBoosterAsTwentyOneDayCourseGap(t *testing.T) {
+	raw, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("vaccinationMatrixRuleDSL: %v", err)
+	}
+	var payload struct {
+		MatrixRows []struct {
+			Vaccine struct {
+				Code       string `json:"code"`
+				CourseType string `json:"course_type"`
+			} `json:"vaccine"`
+			Schedule []struct {
+				DoseCode    string `json:"dose_code"`
+				TriggerType string `json:"trigger_type"`
+				OffsetDays  int    `json:"offset_days"`
+				MinGapDays  int    `json:"min_gap_days"`
+			} `json:"schedule"`
+		} `json:"matrix_rows"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("unmarshal matrix: %v", err)
+	}
+	for _, row := range payload.MatrixRows {
+		if row.Vaccine.Code != "ET_TT" {
+			continue
+		}
+		if row.Vaccine.CourseType != "booster" {
+			t.Fatalf("ET_TT course_type=%q, want booster", row.Vaccine.CourseType)
+		}
+		got := map[string]struct {
+			Trigger string
+			Offset  int
+			Gap     int
+		}{}
+		for _, sched := range row.Schedule {
+			got[sched.DoseCode] = struct {
+				Trigger string
+				Offset  int
+				Gap     int
+			}{Trigger: sched.TriggerType, Offset: sched.OffsetDays, Gap: sched.MinGapDays}
+		}
+		for dose, want := range map[string]struct {
+			Trigger string
+			Offset  int
+			Gap     int
+		}{
+			"et_tt_kid_7w":   {Trigger: "birth_age", Offset: 49, Gap: 21},
+			"et_tt_adult_w1": {Trigger: "post_arrival", Offset: 7, Gap: 0},
+			"et_tt_adult_w2": {Trigger: "post_arrival", Offset: 28, Gap: 21},
+			"et_tt_revac":    {Trigger: "after_previous_completion", Offset: 182, Gap: 182},
+		} {
+			if got[dose] != want {
+				t.Fatalf("%s = %#v, want %#v", dose, got[dose], want)
+			}
+		}
+		return
+	}
+	t.Fatal("ET_TT matrix row missing")
+}
+
 func TestValidateSeedReconciliation(t *testing.T) {
 	t.Run("clean seed passes", func(t *testing.T) {
 		if err := validateSeedReconciliation(seedReconciliation{SourceAcceptedHistory: 3389}, 3389); err != nil {

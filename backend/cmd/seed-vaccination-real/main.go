@@ -1313,6 +1313,32 @@ WHERE oi.tenant_id = $1::uuid
     WHERE history_oi.tenant_id = oi.tenant_id
       AND history_oi.target_id = oi.target_id
       AND history_oi.rule_id = oi.rule_id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM protocol_rule_dimensions curr_dim
+    JOIN protocol_rule_dimensions prev_dim
+      ON prev_dim.tenant_id = curr_dim.tenant_id
+     AND prev_dim.protocol_version_id = curr_dim.protocol_version_id
+     AND prev_dim.category = curr_dim.category
+     AND prev_dim.vaccine_code = curr_dim.vaccine_code
+     AND prev_dim.trigger_type = curr_dim.trigger_type
+     AND prev_dim.sequence < curr_dim.sequence
+     AND prev_dim.repeat = 'none'
+    JOIN obligation_instances history_oi
+      ON history_oi.tenant_id = oi.tenant_id
+     AND history_oi.target_id = oi.target_id
+     AND history_oi.rule_id = prev_dim.rule_id
+    JOIN vaccination_completions vc
+      ON vc.tenant_id = history_oi.tenant_id
+     AND vc.obligation_id = history_oi.obligation_id
+     AND vc.status = 'accepted'
+    WHERE curr_dim.tenant_id = oi.tenant_id
+      AND curr_dim.protocol_version_id = oi.protocol_version_id
+      AND curr_dim.rule_id = oi.rule_id
+      AND curr_dim.category = 'vaccination'
+      AND curr_dim.vaccine_code <> ''
+      AND curr_dim.repeat = 'none'
   )`, tenantID, ids)
 		if err != nil {
 			return 0, err
@@ -2660,7 +2686,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				SourceDoseCode:      dose,
 				Sequence:            sequenceCounter,
 				TriggerType:         "post_arrival",
-				OffsetDays:          wave,
+				OffsetDays:          wave.Days,
 				DueWindowDays:       7,
 				DoseAmount:          def.DoseML,
 				DoseUnit:            "ml",
@@ -2669,7 +2695,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				RouteSite:           "subcutaneous",
 				MaxDelayDays:        7,
 				CourseLapsePolicy:   "preventive_care_review",
-				MinGapDays:          0,
+				MinGapDays:          wave.MinGapDays,
 				Repeat:              "none",
 				RepeatUntilAfterAge: "-",
 				CatchUp:             "immediate",
@@ -2714,7 +2740,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		}
 
 		courseType := "single"
-		if len(spec.BirthAgeWaves) > 1 {
+		if len(spec.BirthAgeWaves) > 1 || len(spec.PostArrivalWaves) > 1 {
 			courseType = "booster"
 		}
 
@@ -2763,8 +2789,8 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"adult_prior_vaccination_allowed":  true,
 			"first_wave":                       []string{"ET+TT", "PPR"},
 			"second_wave_after_days":           28,
-			"goat_second_wave":                 []string{"Goat Pox", "ET+TT booster"},
-			"sheep_second_wave":                []string{"ET+TT booster", "Sheep Pox"},
+			"goat_second_wave":                 []string{"Goat Pox"},
+			"sheep_second_wave":                []string{"Sheep Pox"},
 		},
 		"capacity": map[string]any{
 			"max_per_day":     100,
@@ -2790,7 +2816,10 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 				{DoseCode: "et_tt_kid_4w", Days: 28, MinGapDays: 0},
 				{DoseCode: "et_tt_kid_7w", Days: 49, MinGapDays: 21},
 			},
-			PostArrivalWaves:  []int{7, 35},
+			PostArrivalWaves: []postArrivalWave{
+				{Days: 7, MinGapDays: 0},
+				{Days: 28, MinGapDays: 21},
+			},
 			RevaccinationDays: 182,
 		},
 		"PPR": {
@@ -2798,7 +2827,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "ppr_kid_16w", Days: 112, MinGapDays: 0},
 			},
-			PostArrivalWaves:  []int{7},
+			PostArrivalWaves:  []postArrivalWave{{Days: 7}},
 			RevaccinationDays: 1095,
 		},
 		"Goat Pox": {
@@ -2806,7 +2835,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "goat_pox_kid_20w", Days: 140, MinGapDays: 0},
 			},
-			PostArrivalWaves:  []int{35},
+			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
 			RevaccinationDays: 365,
 		},
 		"FMD": {
@@ -2814,7 +2843,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "fmd_kid_12w", Days: 84, MinGapDays: 0},
 			},
-			PostArrivalWaves:  []int{63},
+			PostArrivalWaves:  []postArrivalWave{{Days: 63}},
 			RevaccinationDays: 274,
 		},
 		"HS": {
@@ -2822,7 +2851,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "hs_kid_12w", Days: 84, MinGapDays: 0},
 			},
-			PostArrivalWaves:  []int{63},
+			PostArrivalWaves:  []postArrivalWave{{Days: 63}},
 			RevaccinationDays: 365,
 		},
 		"Blue tongue": {
@@ -2831,7 +2860,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 				{DoseCode: "blue_tongue_kid_16w", Days: 112, MinGapDays: 0},
 				{DoseCode: "blue_tongue_kid_20w", Days: 140, MinGapDays: 28},
 			},
-			PostArrivalWaves:  []int{35},
+			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
 			RevaccinationDays: 365,
 		},
 		"Sheep Pox": {
@@ -2839,7 +2868,7 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 			BirthAgeWaves: []birthAgeWave{
 				{DoseCode: "sheep_pox_kid_12w", Days: 84, MinGapDays: 0},
 			},
-			PostArrivalWaves:  []int{35},
+			PostArrivalWaves:  []postArrivalWave{{Days: 35}},
 			RevaccinationDays: 365,
 		},
 	}
@@ -2848,12 +2877,17 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 type vaccMatrixSpec struct {
 	Species           []string
 	BirthAgeWaves     []birthAgeWave
-	PostArrivalWaves  []int
+	PostArrivalWaves  []postArrivalWave
 	RevaccinationDays int
 }
 
 type birthAgeWave struct {
 	DoseCode   string
+	Days       int
+	MinGapDays int
+}
+
+type postArrivalWave struct {
 	Days       int
 	MinGapDays int
 }

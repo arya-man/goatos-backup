@@ -330,7 +330,7 @@ export async function HerdRegisterPage({
             </tbody>
           </table>
         </div>
-        {goats.length > 0 || page > 1 ? (
+        {prevHref || nextHref || page > 1 ? (
 	          <div className="pager2">
 	            <span className="muted small">
 	              {copy(pageContract, "pager.page")} {page} · {goats.length} {copy(pageContract, goats.length === 1 ? "label.row_singular" : "label.row_plural")}

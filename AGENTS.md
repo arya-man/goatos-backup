@@ -77,6 +77,14 @@ The private source/wiki may contain that branch, but GoatOS ignores it. Mothers
 are kept vaccinated operationally, and every kid uses the approved standard
 schedule in `docs/preventive-care-vaccination/vaccination-rules.md`.
 
+Confirmed Preventive Care (PC) ET+TT course rule: ET+TT is a two-dose course
+before the 182-day repeat. Dose 2 is due 21 days after dose 1 for both kid and
+adult courses. Imported/seeded ET+TT dose 1 must create the dose 2 obligation
+first; it must not jump straight to the 182-day repeat. The 182-day repeat
+starts only after accepted ET+TT dose 2/course completion. Blue Tongue kid dose
+2 remains 28 days after dose 1; pox vaccines still obey the 28-day live-to-live
+spacing after PPR.
+
 ## Consolidated Defect-Ledger Closure (Mandatory)
 
 When asked to fix/continue/close the consolidated audit ledger or its bugs, read

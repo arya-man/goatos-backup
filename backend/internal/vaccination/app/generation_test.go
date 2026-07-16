@@ -185,6 +185,127 @@ func TestDueAfterPreviousCompletionAnchorsCrossProtocol(t *testing.T) {
 	}
 }
 
+func TestPrimaryCourseContinuationFromHistorySchedulesAdultETTTDoseTwoAfterTwentyOneDays(t *testing.T) {
+	administered := time.Date(2026, time.June, 30, 8, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-et-adult-w1", DoseCode: "et_tt_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 7},
+		{RuleID: "rule-et-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 2, TriggerType: "post_arrival", OffsetDays: 28, MinGapDays: 21},
+		{RuleID: "rule-et-revac", DoseCode: "et_tt_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days"},
+	}
+	history := []domain.RecentVaccineAdministration{{
+		AdministeredAt: administered,
+		VaccineCode:    "ET_TT",
+		DoseCode:       "et_tt_adult_w1",
+		Sequence:       1,
+	}}
+
+	due, found, err := primaryCourseContinuationDueFromHistory(rules[1], vaccineProfile{Code: "ET_TT"}, rules, genEligibility{}, vaccineProfile{Code: "ET_TT"}, schedulePathAdultProcurement, history)
+	if err != nil {
+		t.Fatalf("course continuation: %v", err)
+	}
+	want := businessDayStart(administered).AddDate(0, 0, 21)
+	if !found || !due.Equal(want) {
+		t.Fatalf("adult ET+TT dose 2 due=%s found=%v, want %s", due, found, want)
+	}
+	wait, err := repeatMustWaitForPrimaryCourse(rules[2], vaccineProfile{Code: "ET_TT"}, rules, genEligibility{}, vaccineProfile{Code: "ET_TT"}, schedulePathAdultProcurement, history)
+	if err != nil {
+		t.Fatalf("repeat wait: %v", err)
+	}
+	if !wait {
+		t.Fatal("ET+TT revac must wait until adult dose 2 has been administered")
+	}
+}
+
+func TestRepeatDoesNotWaitAfterPrimaryCourseComplete(t *testing.T) {
+	administeredW2 := time.Date(2026, time.July, 21, 8, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-et-adult-w1", DoseCode: "et_tt_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 7},
+		{RuleID: "rule-et-adult-w2", DoseCode: "et_tt_adult_w2", Sequence: 2, TriggerType: "post_arrival", OffsetDays: 28, MinGapDays: 21},
+		{RuleID: "rule-et-revac", DoseCode: "et_tt_revac", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days"},
+	}
+	history := []domain.RecentVaccineAdministration{{
+		AdministeredAt: administeredW2,
+		VaccineCode:    "ET_TT",
+		DoseCode:       "et_tt_adult_w2",
+		Sequence:       2,
+	}}
+
+	wait, err := repeatMustWaitForPrimaryCourse(rules[2], vaccineProfile{Code: "ET_TT"}, rules, genEligibility{}, vaccineProfile{Code: "ET_TT"}, schedulePathAdultProcurement, history)
+	if err != nil {
+		t.Fatalf("repeat wait: %v", err)
+	}
+	if wait {
+		t.Fatal("ET+TT revac should not wait after adult dose 2 exists")
+	}
+	due, ok := dueAfterPreviousCompletion(rules[2], vaccineProfile{Code: "ET_TT"}, history)
+	want := businessDayStart(administeredW2).AddDate(0, 0, 182)
+	if !ok || !due.Equal(want) {
+		t.Fatalf("revac due=%s ok=%v, want dose 2 + 182d = %s", due, ok, want)
+	}
+}
+
+func TestPrimaryCourseContinuationFromHistoryKeepsKidAndBlueTongueGaps(t *testing.T) {
+	kidETTT := []protodomain.Rule{
+		{RuleID: "rule-et-kid-4w", DoseCode: "et_tt_kid_4w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28},
+		{RuleID: "rule-et-kid-7w", DoseCode: "et_tt_kid_7w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 49, MinGapDays: 21},
+	}
+	kidETTTAt := time.Date(2026, time.July, 1, 8, 0, 0, 0, time.UTC)
+	due, found, err := primaryCourseContinuationDueFromHistory(kidETTT[1], vaccineProfile{Code: "ET_TT"}, kidETTT, genEligibility{}, vaccineProfile{Code: "ET_TT"}, schedulePathKid, []domain.RecentVaccineAdministration{{
+		AdministeredAt: kidETTTAt,
+		VaccineCode:    "ET_TT",
+		DoseCode:       "et_tt_kid_4w",
+		Sequence:       1,
+	}})
+	if err != nil {
+		t.Fatalf("kid ET+TT continuation: %v", err)
+	}
+	want := businessDayStart(kidETTTAt).AddDate(0, 0, 21)
+	if !found || !due.Equal(want) {
+		t.Fatalf("kid ET+TT due=%s found=%v, want %s", due, found, want)
+	}
+
+	blueTongue := []protodomain.Rule{
+		{RuleID: "rule-bt-16w", DoseCode: "blue_tongue_kid_16w", Sequence: 1, TriggerType: "birth_age", OffsetDays: 112},
+		{RuleID: "rule-bt-20w", DoseCode: "blue_tongue_kid_20w", Sequence: 2, TriggerType: "birth_age", OffsetDays: 140, MinGapDays: 28},
+	}
+	blueTongueAt := time.Date(2026, time.July, 3, 8, 0, 0, 0, time.UTC)
+	due, found, err = primaryCourseContinuationDueFromHistory(blueTongue[1], vaccineProfile{Code: "BLUE_TONGUE"}, blueTongue, genEligibility{}, vaccineProfile{Code: "BLUE_TONGUE"}, schedulePathKid, []domain.RecentVaccineAdministration{{
+		AdministeredAt: blueTongueAt,
+		VaccineCode:    "BLUE_TONGUE",
+		DoseCode:       "blue_tongue_kid_16w",
+		Sequence:       1,
+	}})
+	if err != nil {
+		t.Fatalf("blue tongue continuation: %v", err)
+	}
+	want = businessDayStart(blueTongueAt).AddDate(0, 0, 28)
+	if !found || !due.Equal(want) {
+		t.Fatalf("blue tongue due=%s found=%v, want %s", due, found, want)
+	}
+}
+
+func TestSingleDoseRepeatDoesNotWaitForMissingPrimaryCourseDose(t *testing.T) {
+	administered := time.Date(2026, time.March, 20, 8, 0, 0, 0, time.UTC)
+	rules := []protodomain.Rule{
+		{RuleID: "rule-fmd-adult-w1", DoseCode: "fmd_adult_w1", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 63},
+		{RuleID: "rule-fmd-revac", DoseCode: "fmd_revac", Sequence: 2, TriggerType: "after_previous_completion", OffsetDays: 274, MinGapDays: 274, Repeat: "every_n_days"},
+	}
+	history := []domain.RecentVaccineAdministration{{
+		AdministeredAt: administered,
+		VaccineCode:    "FMD",
+		DoseCode:       "fmd_adult_w1",
+		Sequence:       1,
+	}}
+
+	wait, err := repeatMustWaitForPrimaryCourse(rules[1], vaccineProfile{Code: "FMD"}, rules, genEligibility{}, vaccineProfile{Code: "FMD"}, schedulePathAdultProcurement, history)
+	if err != nil {
+		t.Fatalf("repeat wait: %v", err)
+	}
+	if wait {
+		t.Fatal("single-dose FMD repeat must not wait for a nonexistent course booster")
+	}
+}
+
 func TestManualCampaignHTTPRunReplaysByIdempotencyKey(t *testing.T) {
 	ctx := context.Background()
 	proto := &generationProtoFake{}

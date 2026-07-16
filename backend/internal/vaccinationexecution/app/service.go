@@ -142,7 +142,14 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 		c := &cohorts[idx]
 		cellState := cellWorkState(r)
 		cellCounts := countsFromRow(r)
-		c.Cells = append(c.Cells, domain.OperationsCell{ProtocolID: r.ProtocolID, WorkState: cellState, LastDose: r.LastDose, NextDue: r.NextDue, Counts: cellCounts})
+		c.Cells = append(c.Cells, domain.OperationsCell{
+			ProtocolID:   r.ProtocolID,
+			WorkState:    cellState,
+			LastDose:     r.LastDose,
+			NextDue:      r.NextDue,
+			VaccineNames: append([]string(nil), r.VaccineNames...),
+			Counts:       cellCounts,
+		})
 		// Cohort rollup: headcount = max across protocols (same goats), worst status, latest last_dose, earliest next_due.
 		// Counts roll up by summing across protocol cells (obligations differ per vaccine, so a sum is the
 		// cohort's total work across all its vaccines).

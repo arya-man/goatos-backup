@@ -7134,6 +7134,7 @@ components:
       required:
         - protocolId
         - workState
+        - vaccineNames
         - counts
       properties:
         protocolId:
@@ -7147,6 +7148,10 @@ components:
         nextDue:
           type: string
           format: date-time
+        vaccineNames:
+          type: array
+          items:
+            type: string
         counts:
           $ref: "#/components/schemas/VaccinationOperationsCounts"
     VaccinationOperationsCohort:

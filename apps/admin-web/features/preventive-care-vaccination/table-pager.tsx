@@ -92,6 +92,8 @@ export function VaccinationTablePager({
       ? `0 ${pluralNoun}`
       : `${start}-${end} ${copy(pageContract, "pager.of")} ${total} ${pluralNoun}`;
 
+  if (totalPages <= 1) return null;
+
   return (
     <div className="pager2">
       <span className="muted small">

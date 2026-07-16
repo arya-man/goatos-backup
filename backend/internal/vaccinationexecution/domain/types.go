@@ -180,11 +180,12 @@ type OperationsCounts struct {
 }
 
 type OperationsCell struct {
-	ProtocolID string           `json:"protocolId"`
-	WorkState  WorkState        `json:"workState"`
-	LastDose   *time.Time       `json:"lastDose,omitempty"`
-	NextDue    *time.Time       `json:"nextDue,omitempty"`
-	Counts     OperationsCounts `json:"counts"`
+	ProtocolID   string           `json:"protocolId"`
+	WorkState    WorkState        `json:"workState"`
+	LastDose     *time.Time       `json:"lastDose,omitempty"`
+	NextDue      *time.Time       `json:"nextDue,omitempty"`
+	VaccineNames []string         `json:"vaccineNames"`
+	Counts       OperationsCounts `json:"counts"`
 }
 
 type OperationsCohort struct {
@@ -223,6 +224,7 @@ type OperationsRow struct {
 	Animals           int
 	NextDue           *time.Time
 	LastDose          *time.Time
+	VaccineNames      []string
 	OverdueCount      int
 	DueCount          int
 	InProgressCount   int

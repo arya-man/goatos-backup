@@ -14,7 +14,7 @@ import { fmtDate, todayIso } from "@/lib/format";
 import { backendScope, scopeHref, type Scope } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
-import { sortVaccinationProtocols, vaccinationDriveDisplayName } from "./vaccine-display";
+import { sortVaccinationProtocols, vaccinationDriveDisplayName, vaccinationVaccineDisplayName } from "./vaccine-display";
 import { vaccinationScheduleCellAsOf, vaccinationScheduleCohortAsOf } from "./full-vaccine-schedule-links";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
@@ -60,7 +60,17 @@ function humanize(value: string | undefined): string {
 }
 
 function rowType(cohort: VaccinationOperationsCohort, pageContract: AdminUiPageContract): string {
-  return [humanize(cohort.stage), cohort.ageBand?.toUpperCase()].filter(Boolean).join(" · ") || copy(pageContract, "schedule.row_type.fallback");
+  const stage = humanize(cohort.stage);
+  const ageBand = (cohort.ageBand ?? "").toLowerCase();
+  if (ageBand === "adult") {
+    if (stage && stage.toLowerCase() !== "adult") return `${stage} source · adult course`;
+    return copy(pageContract, "schedule.row_type.adult");
+  }
+  if (ageBand === "kid") {
+    if (stage && stage.toLowerCase() !== "kid") return `${stage} source · kid course`;
+    return copy(pageContract, "schedule.row_type.kid");
+  }
+  return stage || copy(pageContract, "schedule.row_type.fallback");
 }
 
 function isScheduleWrapperProtocol(protocol: VaccinationOperationsProtocol): boolean {
@@ -101,6 +111,11 @@ function scheduleCellView(
     return { state: "up_to_date", label, title: copy(pageContract, "schedule.cell.up_to_date_title") };
   }
   return { state: "no_record", label, title: copy(pageContract, "schedule.cell.no_record_title") };
+}
+
+function scheduleCellVaccines(cell: VaccinationOperationsCell | undefined, pageContract: AdminUiPageContract): string {
+  const labels = Array.from(new Set((cell?.vaccineNames ?? []).map(vaccinationVaccineDisplayName).filter(Boolean)));
+  return labels.length > 0 ? labels.join(", ") : copy(pageContract, "schedule.cell.no_record");
 }
 
 async function loadFullSchedule(scope: Scope, year: number): Promise<ApiResult<VaccinationOperationsResponse>> {
@@ -263,7 +278,7 @@ export async function VaccinationFullSchedule({
         </div>
       ) : (
         <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.full_schedule.title")}>
-          <table className="full-vaccine-schedule-table" style={{ minWidth: singleScheduleColumn ? 900 : Math.max(1040, 430 + protocols.length * 142) }}>
+          <table className="full-vaccine-schedule-table" style={{ minWidth: singleScheduleColumn ? 1040 : Math.max(1040, 430 + protocols.length * 142) }}>
             <thead>
               <tr>
                 {fixedColumns.map((column) => (
@@ -271,6 +286,7 @@ export async function VaccinationFullSchedule({
                 ))}
                 {singleScheduleColumn ? (
                   <>
+                    <th>{copy(pageContract, "schedule.column.vaccines")}</th>
                     <th>{copy(pageContract, "schedule.column.next_due")}</th>
                     <th>{copy(pageContract, "schedule.column.status")}</th>
                   </>
@@ -282,7 +298,8 @@ export async function VaccinationFullSchedule({
             <tbody>
               {rows.map((row) => {
                 const byProtocol = new Map(row.cells.map((cell) => [cell.protocolId, cell]));
-                const wrapperView = singleScheduleColumn ? scheduleCellView(byProtocol.get(protocols[0].protocolId), year, pageContract) : null;
+                const wrapperCell = singleScheduleColumn ? byProtocol.get(protocols[0].protocolId) : undefined;
+                const wrapperView = singleScheduleColumn ? scheduleCellView(wrapperCell, year, pageContract) : null;
                 return (
                   <tr key={`${row.parkId}-${row.shedId}-${row.stage}-${row.ageBand ?? "all"}`} className="schedule-click-row">
                     <td>
@@ -297,6 +314,9 @@ export async function VaccinationFullSchedule({
                     <td className="muted">{rowLink(row, row.animals, "num")}</td>
                     {singleScheduleColumn && wrapperView ? (
                       <>
+                        <td>
+                          {rowLink(row, <ClipText title={scheduleCellVaccines(wrapperCell, pageContract)}>{scheduleCellVaccines(wrapperCell, pageContract)}</ClipText>)}
+                        </td>
                         <td className={`schedule-date-cell state-${wrapperView.state}`} title={wrapperView.title}>
                           {rowLink(row, wrapperView.label, "schedule-date-link")}
                         </td>

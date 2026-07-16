@@ -2594,6 +2594,7 @@ export interface components {
             lastDose?: string;
             /** Format: date-time */
             nextDue?: string;
+            vaccineNames: string[];
             counts: components["schemas"]["VaccinationOperationsCounts"];
         };
         VaccinationOperationsCohort: {

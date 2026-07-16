@@ -503,7 +503,7 @@ export function ConfigConsole({
             </tbody>
           </table>
         </div>
-        {filteredRules.length > 0 ? (
+        {filteredRules.length > 0 && totalPages > 1 ? (
           <div className="pager2">
             <span className="muted small">
 	              {start}-{end} of {filteredRules.length} {copy(pageContract, "pager.rules_noun")} · {copy(pageContract, "pager.page")} {page} of {totalPages}

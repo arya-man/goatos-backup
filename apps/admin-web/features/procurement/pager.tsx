@@ -17,6 +17,8 @@ export function ProcurementPager({
   count: number;
   noun: string;
 }) {
+  if (!prevHref && !nextHref && page <= 1) return null;
+
   return (
     <div className="pager2">
       <span className="muted small">

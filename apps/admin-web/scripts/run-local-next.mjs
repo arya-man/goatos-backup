@@ -32,7 +32,14 @@ if (mode !== "dev" && mode !== "start") {
 await assertPortFree(host, port);
 const childEnv = await prepareLocalEnvironment();
 
-const child = spawn("next", [mode, "-H", host, "-p", String(port)], {
+const nextArgs = [mode, "-H", host, "-p", String(port)];
+if (mode === "dev") {
+  // Local macOS dev stacks must be reproducible across machines; Turbopack can fail when
+  // the native binding is unavailable, leaving Chrome pointed at an older respawned server.
+  nextArgs.push("--webpack");
+}
+
+const child = spawn("next", nextArgs, {
   stdio: "inherit",
   env: { ...childEnv, HOSTNAME: host, PORT: String(port) },
 });

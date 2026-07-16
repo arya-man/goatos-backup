@@ -1194,7 +1194,15 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			continue
 		}
 		anchorCatchUpKey := ""
-		baseDue, ok, skip := dueAt(rule, g, asOf, opts, policies)
+		baseDue, ok, skip := time.Time{}, false, false
+		if courseDue, found, err := primaryCourseContinuationDueFromHistory(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path, vaccineHistory); err != nil {
+			return err
+		} else if found {
+			baseDue = courseDue
+			ok = true
+		} else {
+			baseDue, ok, skip = dueAt(rule, g, asOf, opts, policies)
+		}
 		if skip {
 			trusted, err := s.hasTrustedCompletionEvidence(ctx, tenantID, versionID, rule, g, asOf, asOf, trustedLookup)
 			if err != nil {
@@ -1284,6 +1292,13 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				allowHistoryDue = false
 			}
 			if allowHistoryDue {
+				wait, err := repeatMustWaitForPrimaryCourse(rule, ruleVaccine, rules, versionEligibility, vaccineProf, path, vaccineHistory)
+				if err != nil {
+					return err
+				}
+				if wait {
+					continue
+				}
 				if historyDue, found := dueAfterPreviousCompletion(rule, ruleVaccine, vaccineHistory); found {
 					baseDue = historyDue
 					ok = true
@@ -2030,6 +2045,163 @@ func dueAfterPreviousCompletion(rule protodomain.Rule, ruleVaccine vaccineProfil
 	return businessDayStart(latest).AddDate(0, 0, int(gap)), true
 }
 
+// primaryCourseContinuationDueFromHistory handles course rows that are authored as DOB/arrival
+// anchored primaries (for example ET+TT adult dose 1/dose 2 or kid 4w/7w) but whose first dose was
+// imported as real history. In that case the next primary-course dose must continue from the actual
+// administered date plus the configured row-to-row gap, not from a stale/missing DOB or entry date.
+func primaryCourseContinuationDueFromHistory(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string, history []domain.RecentVaccineAdministration) (time.Time, bool, error) {
+	if !isPrimaryAnchorRule(rule) {
+		return time.Time{}, false, nil
+	}
+	prev, prevVaccine, found, err := previousPrimaryCourseRule(rule, ruleVaccine, rules, fallbackEligibility, fallbackVaccine, path)
+	if err != nil || !found {
+		return time.Time{}, false, err
+	}
+	adminAt, administered := latestSameDoseAdministration(prev, prevVaccine, history)
+	if !administered {
+		return time.Time{}, false, nil
+	}
+	gap := rule.OffsetDays - prev.OffsetDays
+	if rule.MinGapDays > gap {
+		gap = rule.MinGapDays
+	}
+	if gap <= 0 {
+		return time.Time{}, false, nil
+	}
+	return businessDayStart(adminAt).AddDate(0, 0, int(gap)), true, nil
+}
+
+// repeatMustWaitForPrimaryCourse prevents an accepted first dose from being treated as a completed
+// course. Repeat/revac rows can anchor from history only after the latest accepted primary-course
+// dose has no later primary-course dose outstanding for this goat's schedule path.
+func repeatMustWaitForPrimaryCourse(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string, history []domain.RecentVaccineAdministration) (bool, error) {
+	if !strings.EqualFold(strings.TrimSpace(rule.TriggerType), "after_previous_completion") {
+		return false, nil
+	}
+	latest, found := latestVaccineAdministration(rule, strings.TrimSpace(ruleVaccine.Code), history)
+	if !found {
+		return false, nil
+	}
+	currentPrimary, currentVaccine, matched, err := primaryRuleForAdministration(ruleVaccine, latest, rules, fallbackEligibility, fallbackVaccine, path)
+	if err != nil || !matched {
+		return false, err
+	}
+	for _, candidate := range rules {
+		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+			continue
+		}
+		candidateEligibility, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
+		if err != nil {
+			return false, err
+		}
+		_ = candidateEligibility
+		if !strings.EqualFold(strings.TrimSpace(candidateVaccine.Code), strings.TrimSpace(currentVaccine.Code)) {
+			continue
+		}
+		if !primaryRuleAfter(candidate, currentPrimary) {
+			continue
+		}
+		if hasSameDoseAdministration(candidate, candidateVaccine, history) {
+			continue
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func previousPrimaryCourseRule(rule protodomain.Rule, ruleVaccine vaccineProfile, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string) (protodomain.Rule, vaccineProfile, bool, error) {
+	var best protodomain.Rule
+	var bestVaccine vaccineProfile
+	found := false
+	for _, candidate := range rules {
+		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+			continue
+		}
+		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
+		if err != nil {
+			return protodomain.Rule{}, vaccineProfile{}, false, err
+		}
+		if !strings.EqualFold(strings.TrimSpace(candidateVaccine.Code), strings.TrimSpace(ruleVaccine.Code)) {
+			continue
+		}
+		if !primaryRuleBefore(candidate, rule) {
+			continue
+		}
+		if !found || primaryRuleAfter(candidate, best) {
+			best = candidate
+			bestVaccine = candidateVaccine
+			found = true
+		}
+	}
+	return best, bestVaccine, found, nil
+}
+
+func primaryRuleForAdministration(ruleVaccine vaccineProfile, admin domain.RecentVaccineAdministration, rules []protodomain.Rule, fallbackEligibility genEligibility, fallbackVaccine vaccineProfile, path string) (protodomain.Rule, vaccineProfile, bool, error) {
+	for _, candidate := range rules {
+		if !isPrimaryAnchorRule(candidate) || !ruleMatchesSchedulePath(candidate, path) {
+			continue
+		}
+		_, candidateVaccine, err := ruleGenerationContext(candidate, fallbackEligibility, fallbackVaccine)
+		if err != nil {
+			return protodomain.Rule{}, vaccineProfile{}, false, err
+		}
+		if !strings.EqualFold(strings.TrimSpace(candidateVaccine.Code), strings.TrimSpace(ruleVaccine.Code)) {
+			continue
+		}
+		if sameDoseAdministration(candidate, candidateVaccine, admin) {
+			return candidate, candidateVaccine, true, nil
+		}
+	}
+	return protodomain.Rule{}, vaccineProfile{}, false, nil
+}
+
+func primaryRuleBefore(a, b protodomain.Rule) bool {
+	if a.OffsetDays != b.OffsetDays {
+		return a.OffsetDays < b.OffsetDays
+	}
+	return a.Sequence < b.Sequence
+}
+
+func primaryRuleAfter(a, b protodomain.Rule) bool {
+	if a.OffsetDays != b.OffsetDays {
+		return a.OffsetDays > b.OffsetDays
+	}
+	return a.Sequence > b.Sequence
+}
+
+func latestSameDoseAdministration(rule protodomain.Rule, vaccine vaccineProfile, history []domain.RecentVaccineAdministration) (time.Time, bool) {
+	var latest time.Time
+	found := false
+	for _, admin := range history {
+		if !sameDoseAdministration(rule, vaccine, admin) {
+			continue
+		}
+		if !found || admin.AdministeredAt.After(latest) {
+			latest = admin.AdministeredAt
+			found = true
+		}
+	}
+	return latest, found
+}
+
+func sameDoseAdministration(rule protodomain.Rule, vaccine vaccineProfile, admin domain.RecentVaccineAdministration) bool {
+	if admin.AdministeredAt.IsZero() {
+		return false
+	}
+	if !sameProtocolLineage(rule, admin) {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(admin.VaccineCode), strings.TrimSpace(vaccine.Code)) {
+		return false
+	}
+	ruleDose := strings.ToLower(strings.TrimSpace(rule.DoseCode))
+	adminDose := strings.ToLower(strings.TrimSpace(admin.DoseCode))
+	if ruleDose != "" && adminDose != "" {
+		return ruleDose == adminDose
+	}
+	return rule.Sequence != 0 && admin.Sequence == rule.Sequence
+}
+
 // latestVaccineCompletion returns the MOST RECENT accepted administration of the
 // rule's own vaccine, regardless of which rule OR PROTOCOL/VERSION produced it
 // (RV-03). Continuation anchors on the vaccine's real-world latest dose: a goat
@@ -2050,7 +2222,13 @@ func dueAfterPreviousCompletion(rule protodomain.Rule, ruleVaccine vaccineProfil
 // when a goat has multiple real historical administrations of the same vaccine (the
 // common case for the years-long imported field history).
 func latestVaccineCompletion(rule protodomain.Rule, targetVaccine string, history []domain.RecentVaccineAdministration) (time.Time, bool) {
-	var latest time.Time
+	admin, found := latestVaccineAdministration(rule, targetVaccine, history)
+	return admin.AdministeredAt, found
+}
+
+func latestVaccineAdministration(rule protodomain.Rule, targetVaccine string, history []domain.RecentVaccineAdministration) (domain.RecentVaccineAdministration, bool) {
+	var latestAdmin domain.RecentVaccineAdministration
+	var latestAt time.Time
 	found := false
 	for _, admin := range history {
 		if admin.AdministeredAt.IsZero() {
@@ -2060,12 +2238,13 @@ func latestVaccineCompletion(rule protodomain.Rule, targetVaccine string, histor
 		if adminVaccine == "" || !strings.EqualFold(targetVaccine, adminVaccine) {
 			continue
 		}
-		if !found || admin.AdministeredAt.After(latest) {
-			latest = admin.AdministeredAt
+		if !found || admin.AdministeredAt.After(latestAt) {
+			latestAt = admin.AdministeredAt
+			latestAdmin = admin
 			found = true
 		}
 	}
-	return latest, found
+	return latestAdmin, found
 }
 
 // hasVaccineAdministrationHistory reports whether the goat has any accepted

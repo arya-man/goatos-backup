@@ -28,7 +28,7 @@ type genCompatibilityPolicy struct {
 	LiveToKilledGapDays           int32 `json:"live_to_killed_gap_days"`
 	KilledToKilledGapDays         int32 `json:"killed_to_killed_gap_days"`
 	LiveToLiveGapDays             int32 `json:"live_to_live_gap_days"`
-	KidBoosterMinGapDays          int32 `json:"kid_booster_min_gap_days"`
+	CourseBoosterMinGapDays       int32 `json:"kid_booster_min_gap_days"`
 	BacterialViralSameDayAllowed  bool  `json:"bacterial_viral_same_day_allowed"`
 	LiveKilledViralSameDayAllowed bool  `json:"live_killed_viral_same_day_allowed"`
 	MaxVaccinesPerComboSession    int32 `json:"max_vaccines_per_combo_session"`
