@@ -18,6 +18,7 @@ jobs:
     outputs:
       common: ${{ steps.scope.outputs.common }}
       backend: ${{ steps.scope.outputs.backend }}
+      query_plans: ${{ steps.scope.outputs.query_plans }}
       admin_web: ${{ steps.scope.outputs.admin_web }}
       android: ${{ steps.scope.outputs.android }}
       full: ${{ steps.scope.outputs.full }}
@@ -81,6 +82,19 @@ jobs:
           "$(go env GOPATH)/bin/sqlc" version
       - name: Required backend gates — same runner used locally
         run: make ci-local JOB=backend
+
+  query-plans:
+    needs: changes
+    if: needs.changes.outputs.query_plans == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GOATOS_POSTGRES_IMAGE: postgres:16.9-alpine
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Required PostgreSQL query-plan gate — same runner used locally
+        run: make ci-local JOB=query-plans
 
   admin-web:
     needs: changes
@@ -286,14 +300,14 @@ jobs:
 
   ci-required:
     if: always()
-    needs: [changes, common, backend, admin-web, android, live-api-latency]
+    needs: [changes, common, backend, query-plans, admin-web, android, live-api-latency]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - name: Verify every affected component passed and unrelated jobs skipped
         env:
           CI_EXPECTED_RESULTS: >-
-            {"common":"true","backend":"${{ needs.changes.outputs.backend }}","admin-web":"${{ needs.changes.outputs.admin_web }}","android":"${{ needs.changes.outputs.android }}","live-api-latency":"${{ needs.changes.outputs.backend == 'true' && needs.changes.outputs.postgres == 'true' }}"}
+            {"common":"true","backend":"${{ needs.changes.outputs.backend }}","query-plans":"${{ needs.changes.outputs.query_plans }}","admin-web":"${{ needs.changes.outputs.admin_web }}","android":"${{ needs.changes.outputs.android }}","live-api-latency":"${{ needs.changes.outputs.backend == 'true' && needs.changes.outputs.postgres == 'true' }}"}
           CI_JOB_RESULTS: >-
-            {"changes":"${{ needs.changes.result }}","common":"${{ needs.common.result }}","backend":"${{ needs.backend.result }}","admin-web":"${{ needs['admin-web'].result }}","android":"${{ needs.android.result }}","live-api-latency":"${{ needs['live-api-latency'].result }}"}
+            {"changes":"${{ needs.changes.result }}","common":"${{ needs.common.result }}","backend":"${{ needs.backend.result }}","query-plans":"${{ needs['query-plans'].result }}","admin-web":"${{ needs['admin-web'].result }}","android":"${{ needs.android.result }}","live-api-latency":"${{ needs['live-api-latency'].result }}"}
         run: node tools/ci/ci-scope.mjs --verify-results

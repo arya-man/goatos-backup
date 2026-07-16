@@ -109,23 +109,32 @@ RETURNING obligation_id::text AS obligation_id;
 -- recovery always returns the obligation to the unbatched sweeper path, even if a future execution
 -- path deferred a row after it had been attached to a non-planned batch. Idempotent: only rows still
 -- 'deferred' match, so a replay after the goat is already schedulable is a no-op.
-UPDATE obligation_instances oi
-SET status = 'scheduled', batch_id = NULL, row_version = row_version + 1, updated_at = now()
-WHERE oi.tenant_id = @tenant_id
-  AND oi.idempotency_key = @idempotency_key
-  AND oi.status = 'deferred'
-  AND NOT EXISTS (
+WITH target AS MATERIALIZED (
+  SELECT oi.obligation_id, oi.status, oi.due_at, oi.row_version,
+         oi.target_type, oi.target_id, oi.protocol_version_id
+  FROM obligation_instances oi
+  WHERE oi.tenant_id = @tenant_id
+    AND oi.idempotency_key = @idempotency_key
+  FOR UPDATE
+), updated AS (
+  UPDATE obligation_instances oi
+  SET status = 'scheduled', batch_id = NULL, row_version = oi.row_version + 1, updated_at = now()
+  FROM target t
+  WHERE oi.tenant_id = @tenant_id
+    AND oi.obligation_id = t.obligation_id
+    AND t.status = 'deferred'
+    AND NOT EXISTS (
     SELECT 1
     FROM goats g
     JOIN protocol_versions pv
-      ON pv.tenant_id = oi.tenant_id
-     AND pv.protocol_version_id = oi.protocol_version_id
+      ON pv.tenant_id = @tenant_id
+     AND pv.protocol_version_id = t.protocol_version_id
     JOIN protocol_definitions pd
       ON pd.tenant_id = pv.tenant_id
      AND pd.protocol_id = pv.protocol_id
-    WHERE oi.target_type = 'goat'
-      AND g.tenant_id = oi.tenant_id
-      AND g.goat_id = oi.target_id
+    WHERE t.target_type = 'goat'
+      AND g.tenant_id = @tenant_id
+      AND g.goat_id = t.target_id
       AND pd.category = 'vaccination'
       AND (
         g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
@@ -137,35 +146,51 @@ WHERE oi.tenant_id = @tenant_id
             AND ex.goat_id = g.goat_id
         )
       )
-  )
-RETURNING oi.obligation_id::text AS obligation_id;
+    )
+  RETURNING oi.obligation_id::text AS obligation_id, oi.status, oi.due_at, oi.row_version
+)
+SELECT obligation_id, status, due_at, row_version, true AS changed FROM updated
+UNION ALL
+SELECT t.obligation_id::text, t.status, t.due_at, t.row_version, false AS changed
+FROM target t
+WHERE NOT EXISTS (SELECT 1 FROM updated)
+LIMIT 1;
 
 -- name: ReopenDeferredObligationForKeyWithDue :one
 -- Health recovery replan: reopen a held obligation and slide due_at to a nearby planned drive date
 -- or to recovery time for an immediate micro-drive. Clears batch_id so the sweeper re-attaches.
-UPDATE obligation_instances oi
-SET status = 'scheduled',
-    batch_id = NULL,
-    due_at = @rescheduled_due_at,
-    window_start = @rescheduled_window_start,
-    window_end = @rescheduled_window_end,
-    row_version = row_version + 1,
-    updated_at = now()
-WHERE oi.tenant_id = @tenant_id
-  AND oi.idempotency_key = @idempotency_key
-  AND oi.status = 'deferred'
-  AND NOT EXISTS (
+WITH target AS MATERIALIZED (
+  SELECT oi.obligation_id, oi.status, oi.due_at, oi.row_version,
+         oi.target_type, oi.target_id, oi.protocol_version_id
+  FROM obligation_instances oi
+  WHERE oi.tenant_id = @tenant_id
+    AND oi.idempotency_key = @idempotency_key
+  FOR UPDATE
+), updated AS (
+  UPDATE obligation_instances oi
+  SET status = 'scheduled',
+      batch_id = NULL,
+      due_at = @rescheduled_due_at,
+      window_start = @rescheduled_window_start,
+      window_end = @rescheduled_window_end,
+      row_version = oi.row_version + 1,
+      updated_at = now()
+  FROM target t
+  WHERE oi.tenant_id = @tenant_id
+    AND oi.obligation_id = t.obligation_id
+    AND t.status = 'deferred'
+    AND NOT EXISTS (
     SELECT 1
     FROM goats g
     JOIN protocol_versions pv
-      ON pv.tenant_id = oi.tenant_id
-     AND pv.protocol_version_id = oi.protocol_version_id
+      ON pv.tenant_id = @tenant_id
+     AND pv.protocol_version_id = t.protocol_version_id
     JOIN protocol_definitions pd
       ON pd.tenant_id = pv.tenant_id
      AND pd.protocol_id = pv.protocol_id
-    WHERE oi.target_type = 'goat'
-      AND g.tenant_id = oi.tenant_id
-      AND g.goat_id = oi.target_id
+    WHERE t.target_type = 'goat'
+      AND g.tenant_id = @tenant_id
+      AND g.goat_id = t.target_id
       AND pd.category = 'vaccination'
       AND (
         g.lifecycle_status IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
@@ -177,8 +202,15 @@ WHERE oi.tenant_id = @tenant_id
             AND ex.goat_id = g.goat_id
         )
       )
-  )
-RETURNING oi.obligation_id::text AS obligation_id;
+    )
+  RETURNING oi.obligation_id::text AS obligation_id, oi.status, oi.due_at, oi.row_version
+)
+SELECT obligation_id, status, due_at, row_version, true AS changed FROM updated
+UNION ALL
+SELECT t.obligation_id::text, t.status, t.due_at, t.row_version, false AS changed
+FROM target t
+WHERE NOT EXISTS (SELECT 1 FROM updated)
+LIMIT 1;
 
 -- name: RescheduleOpenObligationByID :one
 -- Mobile "reschedule this obligation" write path: moves a still-OPEN, not-yet-closed obligation

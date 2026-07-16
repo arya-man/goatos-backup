@@ -385,16 +385,12 @@ func (f *boosterObligationWriterFake) InsertObligation(_ context.Context, in obl
 	return "obligation-1", true, nil
 }
 
-func (f *boosterObligationWriterFake) ListActionableObligationsForGoats(context.Context, string, []string) (map[string]map[string]obldomain.ObligationRef, error) {
-	return map[string]map[string]obldomain.ObligationRef{}, nil
+func (f *boosterObligationWriterFake) DeferOpenObligationForGeneration(context.Context, string, string, string, time.Time) (obldomain.ObligationRef, bool, error) {
+	return obldomain.ObligationRef{}, false, nil
 }
 
-func (f *boosterObligationWriterFake) DeferOpenObligationByIdempotencyKey(context.Context, string, string, string, time.Time) (string, bool, error) {
-	return "", false, nil
-}
-
-func (f *boosterObligationWriterFake) ReopenDeferredObligationByIdempotencyKey(context.Context, string, string, time.Time, *obldomain.RecoveryReschedule) (string, bool, error) {
-	return "", false, nil
+func (f *boosterObligationWriterFake) ReopenDeferredObligationForGeneration(context.Context, string, string, time.Time, *obldomain.RecoveryReschedule) (obldomain.ObligationRef, bool, error) {
+	return obldomain.ObligationRef{}, false, nil
 }
 
 func (f *boosterObligationWriterFake) FindNearestPlannedBatchDate(context.Context, string, string, string, string, string, string, time.Time, time.Time) (*time.Time, error) {

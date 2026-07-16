@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,56 @@ import (
 	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
+type replayInsertBarrier struct {
+	mu                  sync.Mutex
+	pprArrivals         int
+	bothAtPPR           chan struct{}
+	goatPoxInserted     chan struct{}
+	goatPoxInsertedOnce sync.Once
+}
+
+type replayBarrierObligationWriter struct {
+	*oblpg.Repository
+	barrier *replayInsertBarrier
+}
+
+func (w replayBarrierObligationWriter) InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error) {
+	if in.RuleID == "" {
+		return w.Repository.InsertObligation(ctx, in)
+	}
+	if in.Sequence == 1 {
+		w.barrier.mu.Lock()
+		w.barrier.pprArrivals++
+		if w.barrier.pprArrivals == 2 {
+			close(w.barrier.bothAtPPR)
+		}
+		w.barrier.mu.Unlock()
+		select {
+		case <-w.barrier.bothAtPPR:
+		case <-ctx.Done():
+			return "", false, ctx.Err()
+		}
+	}
+	id, applied, err := w.Repository.InsertObligation(ctx, in)
+	if err != nil {
+		return id, applied, err
+	}
+	if in.Sequence == 1 && applied {
+		// Hold the PPR winner until the conflict loser has reconciled PPR and inserted Goat Pox.
+		// This deterministically exercises the window where a stale preflight snapshot used to miss
+		// the just-committed PPR row.
+		select {
+		case <-w.barrier.goatPoxInserted:
+		case <-ctx.Done():
+			return "", false, ctx.Err()
+		}
+	}
+	if in.Sequence == 2 {
+		w.barrier.goatPoxInsertedOnce.Do(func() { close(w.barrier.goatPoxInserted) })
+	}
+	return id, applied, nil
+}
+
 func seedGenGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, lifecycle string) {
 	t.Helper()
 	seedGenGoatWithStage(t, ctx, pool, id, lifecycle, "K1")
@@ -34,6 +85,93 @@ func seedGenGoatWithStage(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 		id, impTenant, lifecycle, impParty, impCbe, stage)
 	if err != nil {
 		t.Fatalf("seed gen goat %s: %v", id, err)
+	}
+}
+
+// TestConcurrentGenerationReplayUsesCommittedObligationForSpacing is the R2-01 PostgreSQL race
+// guard. Both generators finish preflight before either inserts PPR. The PPR winner is then held
+// until the conflict loser has reconciled the committed row and inserted Goat Pox. Spacing must use
+// that authoritative PPR row, so the loser cannot materialize Goat Pox on the co-due date.
+func TestConcurrentGenerationReplayUsesCommittedObligationForSpacing(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	obl := oblpg.NewRepository(pool, 5*time.Second)
+	vacc := NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: impTenant, Code: "vaccination.replay.race", Name: "Replay race", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: impTenant, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{"eligibility":{"animal_stage":"K1"},"compatibility_policy":{"live_to_live_gap_days":28},"source":{"source_system":"pc","source_ref":"R2-01","review_status":"approved","approved_by":"Reviewer"}}`),
+		ProofPolicy:   []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	for _, rule := range []protodomain.NewRule{
+		{TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "ppr_primary", Sequence: 1,
+			TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7, Repeat: "none", CatchUp: "pc_approval",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"PPR","name":"PPR","type":"live","pathogen_class":"viral","compatibility_group":"PPR","course_type":"single"}}`), ProofPolicy: []byte(`{}`)},
+		{TenantID: impTenant, ProtocolVersionID: versionID, DoseCode: "goatpox_primary", Sequence: 2,
+			TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7, Repeat: "none", CatchUp: "pc_approval",
+			EligibilityJSON: []byte(`{"vaccine":{"code":"GOAT_POX","name":"Goat Pox","type":"live","pathogen_class":"viral","compatibility_group":"POX","course_type":"single"}}`), ProofPolicy: []byte(`{}`)},
+	} {
+		if _, err := proto.CreateRule(ctx, rule); err != nil {
+			t.Fatalf("rule %s: %v", rule.DoseCode, err)
+		}
+	}
+	if err := proto.PublishVersion(ctx, impTenant, versionID, nil); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	const goatID = "30000000-0000-4000-8000-0000000000b7"
+	seedGenGoat(t, ctx, pool, goatID, "alive")
+	if _, err := pool.Exec(ctx, `UPDATE goats SET dob=DATE '2026-07-01' WHERE tenant_id=$1 AND goat_id=$2`, impTenant, goatID); err != nil {
+		t.Fatalf("set DOB: %v", err)
+	}
+
+	barrier := &replayInsertBarrier{bothAtPPR: make(chan struct{}), goatPoxInserted: make(chan struct{})}
+	writer := replayBarrierObligationWriter{Repository: obl, barrier: barrier}
+	gens := []*vaccapp.GenerationService{
+		vaccapp.NewGenerationService(proto, vacc, writer),
+		vaccapp.NewGenerationService(proto, vacc, writer),
+	}
+	errs := make(chan error, len(gens))
+	for _, gen := range gens {
+		go func(g *vaccapp.GenerationService) {
+			_, err := g.GenerateForGoat(ctx, impTenant, goatID, time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC))
+			errs <- err
+		}(gen)
+	}
+	for range gens {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent generation: %v", err)
+		}
+	}
+
+	var dueAt time.Time
+	if err := pool.QueryRow(ctx, `
+		SELECT due_at
+		FROM obligation_instances
+		WHERE tenant_id=$1 AND protocol_version_id=$2 AND target_id=$3 AND sequence=2`,
+		impTenant, versionID, goatID).Scan(&dueAt); err != nil {
+		t.Fatalf("load Goat Pox due date: %v", err)
+	}
+	india, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		t.Fatalf("load India timezone: %v", err)
+	}
+	if got, want := dueAt.In(india).Format("2006-01-02"), "2026-08-28"; got != want {
+		t.Fatalf("Goat Pox due = %s, want %s (committed PPR due + 28 days)", got, want)
 	}
 }
 

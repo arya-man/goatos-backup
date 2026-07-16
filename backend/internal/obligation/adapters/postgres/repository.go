@@ -293,66 +293,26 @@ func (r *Repository) GetByIdempotencyKey(ctx context.Context, tenantID, idempote
 	}, nil
 }
 
-// ListActionableObligationsForGoats bulk-loads every actionable (non-terminal) obligation for a page
-// of goats, keyed goatID -> idempotencyKey -> ObligationRef (R2-01 / NEW-01). One indexed query per
-// page replaces a per-obligation GetByIdempotencyKey round trip. Bounded by the caller's explicit
-// goat-id list (never a full-table scan).
-func (r *Repository) ListActionableObligationsForGoats(ctx context.Context, tenantID string, goatIDs []string) (map[string]map[string]domain.ObligationRef, error) {
-	ctx, cancel := r.withTimeout(ctx)
-	defer cancel()
-	out := make(map[string]map[string]domain.ObligationRef, len(goatIDs))
-	ids := dedupNonBlank(goatIDs)
-	if len(ids) == 0 {
-		return out, nil
-	}
-	tenant, err := pgconv.UUID(tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("obligation: tenant id: %w", err)
-	}
-	targetIDs, err := obligationUUIDs(ids)
-	if err != nil {
-		return nil, fmt.Errorf("obligation: actionable goat ids: %w", err)
-	}
-	// scale-guard:ignore: bounded by the caller's explicit page goat-id list (= ANY), one read per page, not per-row.
-	rows, err := r.pool.Query(ctx, `
-SELECT oi.target_id::text, oi.idempotency_key, oi.status, oi.due_at
-FROM obligation_instances oi
-WHERE oi.tenant_id = $1
-  AND oi.target_type = 'goat'
-  AND oi.target_id = ANY($2::uuid[])
-  AND oi.status IN ('scheduled', 'due', 'missed', 'deferred')`, tenant, targetIDs)
-	if err != nil {
-		return nil, fmt.Errorf("obligation: list actionable obligations for goats: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var goatID, key, status string
-		var dueAt pgtype.Timestamptz
-		if err := rows.Scan(&goatID, &key, &status, &dueAt); err != nil {
-			return nil, fmt.Errorf("obligation: scan actionable obligation: %w", err)
-		}
-		byKey := out[goatID]
-		if byKey == nil {
-			byKey = make(map[string]domain.ObligationRef, 4)
-			out[goatID] = byKey
-		}
-		byKey[key] = domain.ObligationRef{Status: status, DueAt: dueAt.Time}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("obligation: actionable obligation rows: %w", err)
-	}
-	return out, nil
-}
-
 // DeferOpenObligationByIdempotencyKey moves an existing scheduled/due obligation into the
 // canonical deferred state during goat rechecks. If the row was still in a planned batch, it is
 // detached so the held goat is not executed by an already-created drive.
 func (r *Repository) DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (string, bool, error) {
+	ref, changed, err := r.deferOpenObligationByIdempotencyKey(ctx, tenantID, idempotencyKey, reason, occurredAt)
+	return ref.ObligationID, changed, err
+}
+
+// DeferOpenObligationForGeneration returns the persisted state from the same transaction that
+// reconciles a replay. Generation uses this state as the only cross-vaccine spacing authority.
+func (r *Repository) DeferOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (domain.ObligationRef, bool, error) {
+	return r.deferOpenObligationByIdempotencyKey(ctx, tenantID, idempotencyKey, reason, occurredAt)
+}
+
+func (r *Repository) deferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (domain.ObligationRef, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: tenant id: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: tenant id: %w", err)
 	}
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
@@ -360,41 +320,38 @@ func (r *Repository) DeferOpenObligationByIdempotencyKey(ctx context.Context, te
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: begin defer tx: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: begin defer tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var obligationID, oldBatchID, oldBatchStatus string
+	var obligationID, obligationStatus, oldBatchID, oldBatchStatus string
+	var dueAt pgtype.Timestamptz
+	var rowVersion int32
 	err = tx.QueryRow(ctx, `
 SELECT oi.obligation_id::text,
+	   oi.status,
        COALESCE(oi.batch_id::text, '')::text AS batch_id,
-       COALESCE(ob.status, '')::text AS batch_status
+       COALESCE(ob.status, '')::text AS batch_status,
+       oi.due_at,
+       oi.row_version
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
   ON ob.tenant_id = oi.tenant_id
  AND ob.batch_id = oi.batch_id
 WHERE oi.tenant_id = $1
   AND oi.idempotency_key = $2
-  AND oi.status IN ('scheduled', 'due')
-FOR UPDATE OF oi`, tenant, idempotencyKey).Scan(&obligationID, &oldBatchID, &oldBatchStatus)
+FOR UPDATE OF oi`, tenant, idempotencyKey).Scan(&obligationID, &obligationStatus, &oldBatchID, &oldBatchStatus, &dueAt, &rowVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
-		row, lookupErr := r.queries.WithTx(tx).GetObligationByIdempotencyKey(ctx, obligationdb.GetObligationByIdempotencyKeyParams{
-			TenantID:       tenant,
-			IdempotencyKey: idempotencyKey,
-		})
-		if errors.Is(lookupErr, pgx.ErrNoRows) {
-			return "", false, ports.ErrNotFound
-		}
-		if lookupErr != nil {
-			return "", false, fmt.Errorf("obligation: lookup defer replay: %w", lookupErr)
-		}
-		if cerr := tx.Commit(ctx); cerr != nil {
-			return "", false, fmt.Errorf("obligation: commit defer replay: %w", cerr)
-		}
-		return row.ObligationID, false, nil
+		return domain.ObligationRef{}, false, ports.ErrNotFound
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: lock defer target: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: lock defer target: %w", err)
+	}
+	if obligationStatus != "scheduled" && obligationStatus != "due" {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit defer replay: %w", cerr)
+		}
+		return domain.ObligationRef{ObligationID: obligationID, Status: obligationStatus, DueAt: dueAt.Time, RowVersion: rowVersion}, false, nil
 	}
 
 	detachPlannedBatch := oldBatchID != "" && oldBatchStatus == "planned"
@@ -408,13 +365,13 @@ WHERE tenant_id = $1
   AND obligation_id = $2::uuid
   AND status IN ('scheduled', 'due')`, tenant, obligationID, detachPlannedBatch)
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: defer open obligation: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: defer open obligation: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		if cerr := tx.Commit(ctx); cerr != nil {
-			return "", false, fmt.Errorf("obligation: commit defer raced noop: %w", cerr)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit defer raced noop: %w", cerr)
 		}
-		return obligationID, false, nil
+		return domain.ObligationRef{ObligationID: obligationID, Status: "scheduled", DueAt: dueAt.Time, RowVersion: rowVersion}, false, nil
 	}
 
 	if detachPlannedBatch {
@@ -472,7 +429,7 @@ SET estimated_targets = GREATEST(0, estimated_targets - 1),
 FROM reserved, repair
 WHERE tenant_id = $1
   AND batch_id = $2::uuid`, tenant, oldBatchID, obligationID, reason); err != nil {
-			return "", false, fmt.Errorf("obligation: update deferred planned batch: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: update deferred planned batch: %w", err)
 		}
 	}
 
@@ -487,12 +444,12 @@ WHERE tenant_id = $1
 		RequestHash:    "defer:" + reason,
 	})
 	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
-		return "", false, fmt.Errorf("obligation: reserve deferred event key: %w", reserveErr)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: reserve deferred event key: %w", reserveErr)
 	}
 	if reserveErr == nil {
 		oblUUID, err := pgconv.UUID(obligationID)
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: deferred obligation id: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: deferred obligation id: %w", err)
 		}
 		payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": reason})
 		eventID, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
@@ -504,25 +461,25 @@ WHERE tenant_id = $1
 			IdempotencyKey: eventKey,
 		})
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: insert deferred event: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: insert deferred event: %w", err)
 		}
 		eventUUID, err := pgconv.UUID(eventID)
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: deferred event id: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: deferred event id: %w", err)
 		}
 		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
 			ResultType:     pgconv.Text("obligation_status_event"),
 			ResultID:       eventUUID,
 			IdempotencyKey: eventKey,
 		}); err != nil {
-			return "", false, fmt.Errorf("obligation: complete deferred event key: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: complete deferred event key: %w", err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", false, fmt.Errorf("obligation: commit defer: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit defer: %w", err)
 	}
-	return obligationID, true, nil
+	return domain.ObligationRef{ObligationID: obligationID, Status: "deferred", DueAt: dueAt.Time, RowVersion: rowVersion + 1}, true, nil
 }
 
 // ReopenDeferredObligationByIdempotencyKey flips a still-'deferred' obligation back to 'scheduled'
@@ -531,11 +488,26 @@ WHERE tenant_id = $1
 // planned drive or to recovery time for an immediate micro-drive. changed is false (a safe
 // recovery-recheck replay) when no deferred row matches the key.
 func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *domain.RecoveryReschedule) (string, bool, error) {
+	ref, changed, err := r.reopenDeferredObligationByIdempotencyKey(ctx, tenantID, idempotencyKey, occurredAt, reschedule)
+	if !changed {
+		return "", false, err
+	}
+	return ref.ObligationID, true, err
+}
+
+// ReopenDeferredObligationForGeneration returns the row's final persisted status and due date from
+// the reconciliation transaction. A proposed recovery date is never authoritative when reopening
+// is a no-op (for example, because the obligation was already waived or completed).
+func (r *Repository) ReopenDeferredObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *domain.RecoveryReschedule) (domain.ObligationRef, bool, error) {
+	return r.reopenDeferredObligationByIdempotencyKey(ctx, tenantID, idempotencyKey, occurredAt, reschedule)
+}
+
+func (r *Repository) reopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *domain.RecoveryReschedule) (domain.ObligationRef, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: tenant id: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: tenant id: %w", err)
 	}
 	if occurredAt.IsZero() {
 		occurredAt = time.Now().UTC()
@@ -543,35 +515,49 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: begin reopen tx: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: begin reopen tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	qtx := r.queries.WithTx(tx)
 
-	var obligationID string
+	var finalRef domain.ObligationRef
+	var changed bool
 	if reschedule != nil {
-		obligationID, err = qtx.ReopenDeferredObligationForKeyWithDue(ctx, obligationdb.ReopenDeferredObligationForKeyWithDueParams{
+		row, queryErr := qtx.ReopenDeferredObligationForKeyWithDue(ctx, obligationdb.ReopenDeferredObligationForKeyWithDueParams{
 			TenantID:               tenant,
 			IdempotencyKey:         idempotencyKey,
 			RescheduledDueAt:       pgconv.Timestamptz(reschedule.DueAt),
 			RescheduledWindowStart: pgconv.Timestamptz(reschedule.WindowStart),
 			RescheduledWindowEnd:   pgconv.NullableTimestamptz(reschedule.WindowEnd),
 		})
+		err = queryErr
+		finalRef = domain.ObligationRef{ObligationID: row.ObligationID, Status: row.Status, DueAt: row.DueAt.Time, RowVersion: row.RowVersion}
+		changed = row.Changed
 	} else {
-		obligationID, err = qtx.ReopenDeferredObligationForKey(ctx, obligationdb.ReopenDeferredObligationForKeyParams{
+		row, queryErr := qtx.ReopenDeferredObligationForKey(ctx, obligationdb.ReopenDeferredObligationForKeyParams{
 			TenantID:       tenant,
 			IdempotencyKey: idempotencyKey,
 		})
+		err = queryErr
+		finalRef = domain.ObligationRef{ObligationID: row.ObligationID, Status: row.Status, DueAt: row.DueAt.Time, RowVersion: row.RowVersion}
+		changed = row.Changed
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		if cerr := tx.Commit(ctx); cerr != nil {
-			return "", false, fmt.Errorf("obligation: commit reopen noop: %w", cerr)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit reopen missing noop: %w", cerr)
 		}
-		return "", false, nil
+		return domain.ObligationRef{}, false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("obligation: reopen deferred obligation: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: reopen deferred obligation: %w", err)
 	}
+	if !changed {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit reopen noop: %w", cerr)
+		}
+		return finalRef, false, nil
+	}
+	obligationID := finalRef.ObligationID
 
 	eventKey := obligationID + ":reopened:" + occurredAt.UTC().Format(time.RFC3339Nano)
 	_, reserveErr := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
@@ -581,12 +567,12 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 		RequestHash:    "reopen:recovered",
 	})
 	if reserveErr != nil && !errors.Is(reserveErr, pgx.ErrNoRows) {
-		return "", false, fmt.Errorf("obligation: reserve reopen event key: %w", reserveErr)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: reserve reopen event key: %w", reserveErr)
 	}
 	if reserveErr == nil {
 		oblUUID, err := pgconv.UUID(obligationID)
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: reopened obligation id: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: reopened obligation id: %w", err)
 		}
 		payloadFields := map[string]string{"reason": "recovered_from_defer_state"}
 		if reschedule != nil {
@@ -603,25 +589,25 @@ func (r *Repository) ReopenDeferredObligationByIdempotencyKey(ctx context.Contex
 			IdempotencyKey: eventKey,
 		})
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: insert reopen event: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: insert reopen event: %w", err)
 		}
 		eventUUID, err := pgconv.UUID(eventID)
 		if err != nil {
-			return "", false, fmt.Errorf("obligation: reopen event id: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: reopen event id: %w", err)
 		}
 		if err := qtx.CompleteIdempotencyKey(ctx, obligationdb.CompleteIdempotencyKeyParams{
 			ResultType:     pgconv.Text("obligation_status_event"),
 			ResultID:       eventUUID,
 			IdempotencyKey: eventKey,
 		}); err != nil {
-			return "", false, fmt.Errorf("obligation: complete reopen event key: %w", err)
+			return domain.ObligationRef{}, false, fmt.Errorf("obligation: complete reopen event key: %w", err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return "", false, fmt.Errorf("obligation: commit reopen: %w", err)
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit reopen: %w", err)
 	}
-	return obligationID, true, nil
+	return finalRef, true, nil
 }
 
 // RescheduleObligationByID reschedules a still-open (scheduled/due) obligation to a new due date in

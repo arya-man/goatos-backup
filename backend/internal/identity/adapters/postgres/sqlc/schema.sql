@@ -5425,6 +5425,9 @@ CREATE TABLE public.vaccination_stage_review_items (
     idempotency_key text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    resolution_mode text,
+    age_cutoff_weeks integer,
+    CONSTRAINT vaccination_stage_review_items_resolution_mode_check CHECK (((resolution_mode IS NULL) OR (resolution_mode = ANY (ARRAY['corrected'::text, 'exception'::text])))),
     CONSTRAINT vaccination_stage_review_items_status_check CHECK ((status = ANY (ARRAY['open'::text, 'resolved'::text])))
 );
 
@@ -9439,6 +9442,13 @@ CREATE INDEX notification_requests_sending_lease_idx ON public.notification_requ
 
 
 --
+-- Name: obligation_batches_combo_align_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX obligation_batches_combo_align_keyset_idx ON public.obligation_batches USING btree (tenant_id, scope_type, scope_id, session, batch_id) WHERE ((status = 'planned'::text) AND (sop_task_id IS NULL) AND (session ~~ 'combo:%'::text));
+
+
+--
 -- Name: obligation_batches_scope_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10486,6 +10496,13 @@ CREATE INDEX vaccination_reminder_cadence_fires_park_day_idx ON public.vaccinati
 --
 
 CREATE INDEX vaccination_source_facts_tenant_disposition_idx ON public.vaccination_source_facts USING btree (tenant_id, disposition);
+
+
+--
+-- Name: vaccination_stage_review_items_open_goat_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX vaccination_stage_review_items_open_goat_unique ON public.vaccination_stage_review_items USING btree (tenant_id, goat_id) WHERE (status = 'open'::text);
 
 
 --

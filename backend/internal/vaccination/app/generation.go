@@ -68,15 +68,11 @@ func IsGenerationAbortError(err error) bool {
 // ObligationWriter is the slice of the obligation repo SM-1 generation needs.
 type ObligationWriter interface {
 	InsertObligation(ctx context.Context, in obldomain.NewObligation) (string, bool, error)
-	// ListActionableObligationsForGoats bulk-loads, for one page of goats, every ACTIONABLE
-	// (non-terminal: scheduled/due/missed/deferred) obligation keyed by idempotency key, with its
-	// PERSISTED due_at (R2-01, NEW-01). Co-due cross-vaccine spacing on idempotent replay anchors on
-	// the persisted date (which may differ from a recalculated one after a reschedule) and must skip
-	// terminal obligations (completed/waived/superseded/canceled) that represent no upcoming shot.
-	// One query per page replaces a per-obligation GetByIdempotencyKey round trip.
-	ListActionableObligationsForGoats(ctx context.Context, tenantID string, goatIDs []string) (map[string]map[string]obldomain.ObligationRef, error)
-	DeferOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, applied bool, err error)
-	ReopenDeferredObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obligationID string, changed bool, err error)
+	// Replay reconciliation returns the row's final persisted status and due date from the same
+	// transaction. Cross-vaccine spacing must never depend on a stale page snapshot or a proposed
+	// recovery date that the database did not apply.
+	DeferOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obldomain.ObligationRef, bool, error)
+	ReopenDeferredObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, occurredAt time.Time, reschedule *obldomain.RecoveryReschedule) (obldomain.ObligationRef, bool, error)
 	FindNearestPlannedBatchDate(ctx context.Context, tenantID, versionID, ruleID, vaccineCode, shedID, parkID string, from, to time.Time) (*time.Time, error)
 	CancelOpenObligationByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey, reason string, occurredAt time.Time) (obligationID string, changed bool, err error)
 	CancelOpenVaccinationObligationsForGoatExceptVersions(ctx context.Context, tenantID, goatID string, effectiveVersionIDs []string, reason string, occurredAt time.Time) (int, error)
@@ -184,6 +180,18 @@ type pendingVaccine struct {
 	due   time.Time
 }
 
+func actionableObligationForSpacing(ref obldomain.ObligationRef) bool {
+	if ref.DueAt.IsZero() {
+		return false
+	}
+	switch strings.TrimSpace(ref.Status) {
+	case "scheduled", "due", "missed", "deferred":
+		return true
+	default:
+		return false
+	}
+}
+
 // applyCrossVaccineGapFloorFromPending floors a vaccine's due date against incompatible
 // pending vaccines already generated in this pass. Cross-vaccine spacing is a positive medical
 // assertion between two IDENTIFIED, DIFFERENT vaccine products, so it applies ONLY when both the
@@ -195,6 +203,7 @@ type pendingVaccine struct {
 //     we do not fabricate a gap between them. (Unknown-class fail-closed still applies against
 //     real administered history via applyCrossVaccineGapFloorFromHistory; upstream config/publish
 //     validation rejects vaccines without a valid classification before they can be scheduled.)
+//
 // Callers append pending in rule order, so results are deterministic across replayed generation.
 func applyCrossVaccineGapFloorFromPending(due time.Time, next vaccineProfile, pending []pendingVaccine, policy genCompatibilityPolicy) time.Time {
 	out := due
@@ -541,12 +550,8 @@ func (s *GenerationService) generateEffectiveForAllGoats(ctx context.Context, te
 		if err != nil {
 			return res, err
 		}
-		actionableByGoat, err := s.actionableObligationsForPage(ctx, tenantID, pagePlans)
-		if err != nil {
-			return res, err
-		}
 		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], actionableByGoat[p.goat.GoatID], &res); err != nil {
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
 				if shouldAbortGeneration(err) {
 					return res, err
 				}
@@ -910,12 +915,8 @@ func (s *GenerationService) generateForVersion(ctx context.Context, tenantID, ve
 		if err != nil {
 			return res, err
 		}
-		actionableByGoat, err := s.actionableObligationsForPage(ctx, tenantID, pagePlans)
-		if err != nil {
-			return res, err
-		}
 		for _, p := range pagePlans {
-			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], actionableByGoat[p.goat.GoatID], &res); err != nil {
+			if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
 				if shouldAbortGeneration(err) {
 					return res, err
 				}
@@ -1133,29 +1134,9 @@ func (s *GenerationService) recentVaccineAdminsForPlans(ctx context.Context, ten
 	return out, nil
 }
 
-// actionableObligationsForPage bulk-loads the page's actionable (non-terminal) obligations once
-// (R2-01 / NEW-01) so genOneGoat's co-due spacing can read each replayed obligation's persisted
-// due_at + status from memory instead of a per-obligation round trip.
-func (s *GenerationService) actionableObligationsForPage(ctx context.Context, tenantID string, plans []goatGenerationPlan) (map[string]map[string]obldomain.ObligationRef, error) {
-	if len(plans) == 0 {
-		return map[string]map[string]obldomain.ObligationRef{}, nil
-	}
-	goatIDs := make([]string, 0, len(plans))
-	seen := make(map[string]bool, len(plans))
-	for _, plan := range plans {
-		id := strings.TrimSpace(plan.goat.GoatID)
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		goatIDs = append(goatIDs, id)
-	}
-	return s.obl.ListActionableObligationsForGoats(ctx, tenantID, goatIDs)
-}
-
 // genOneGoat applies every applicable rule to one goat: compute due_at, idempotent insert, and a
 // canonical deferred state when the goat is in a defer state. Accumulates counts into res.
-func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, actionableObligs map[string]obldomain.ObligationRef, res *domain.GenerateResult) error {
+func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID string, rules []protodomain.Rule, deferStates []string, versionEligibility genEligibility, g domain.EligibleGoat, asOf time.Time, opts generationOptions, policies genVersionPolicies, vaccineProf vaccineProfile, vaccineHistory []domain.RecentVaccineAdministration, trustedLookup trustedEvidenceLookup, res *domain.GenerateResult) error {
 	historicalCatchUpMaterialized := false
 	path := schedulePathForGoat(g, policies.Procurement, asOf, vaccineHistory)
 	if staleKidStageAfterCutoff(g, policies.Procurement, asOf) {
@@ -1405,6 +1386,8 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			// code appended before reconciling and regardless of status, so a waived/superseded/
 			// completed obligation (no remaining shot) still delayed an unrelated co-due vaccine, and a
 			// recovery-reschedule that ran afterwards left the stale date in `pending`.
+			var finalRef obldomain.ObligationRef
+			var changed bool
 			var reschedule *obldomain.RecoveryReschedule
 			if missingKey != "" {
 				if _, _, err := s.obl.CancelOpenObligationByIdempotencyKey(ctx, tenantID, missingKey, "missing_due_date_resolved", asOf); err != nil {
@@ -1412,7 +1395,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				}
 			}
 			if deferred {
-				_, changed, err := s.obl.DeferOpenObligationByIdempotencyKey(ctx, tenantID, key, deferReason, asOf)
+				finalRef, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, key, deferReason, asOf)
 				if err != nil {
 					return err
 				}
@@ -1429,7 +1412,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 						return err
 					}
 				}
-				_, changed, err := s.obl.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, key, asOf, reschedule)
+				finalRef, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, key, asOf, reschedule)
 				if err != nil {
 					return err
 				}
@@ -1437,14 +1420,11 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 					res.Reopened++
 				}
 			}
-			// Append to pending only if the obligation is actionable (an upcoming shot). A recovery
-			// reschedule from THIS pass supplies the freshest date; otherwise use the persisted
-			// actionable due bulk-loaded for this page (NEW-01: no per-obligation query). An obligation
-			// absent from the actionable set is terminal/gone and must not space anything.
-			if reschedule != nil && !reschedule.DueAt.IsZero() {
-				pending = append(pending, pendingVaccine{code: ruleVaccine.Code, class: ruleVaccine.Class, due: reschedule.DueAt})
-			} else if ref, ok := actionableObligs[key]; ok && !ref.DueAt.IsZero() {
-				pending = append(pending, pendingVaccine{code: ruleVaccine.Code, class: ruleVaccine.Class, due: ref.DueAt})
+			// Only the state returned by the reconciliation transaction is authoritative. In
+			// particular, `reschedule` is merely a proposal and must not space another vaccine when a
+			// terminal obligation made reopening a no-op.
+			if actionableObligationForSpacing(finalRef) {
+				pending = append(pending, pendingVaccine{code: ruleVaccine.Code, class: ruleVaccine.Class, due: finalRef.DueAt})
 			}
 			continue // replay no-op
 		}
@@ -1638,12 +1618,8 @@ func (s *GenerationService) generateForGoat(ctx context.Context, tenantID, goatI
 	if err != nil {
 		return res, err
 	}
-	actionableByGoat, err := s.actionableObligationsForPage(ctx, tenantID, pagePlans)
-	if err != nil {
-		return res, err
-	}
 	for _, p := range pagePlans {
-		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], actionableByGoat[p.goat.GoatID], &res); err != nil {
+		if err := s.genOneGoat(ctx, tenantID, p.versionID, p.rules, p.deferState, p.eligibility, p.goat, asOf, p.opts, p.policies, p.vaccineProfile, vaccineHistoryByGoat[p.goat.GoatID], trustedByVersion[p.versionID], &res); err != nil {
 			return res, err
 		}
 	}

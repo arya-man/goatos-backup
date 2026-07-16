@@ -2203,6 +2203,8 @@ type VaccinationStageReviewItem struct {
 	IdempotencyKey   string
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
+	ResolutionMode   pgtype.Text
+	AgeCutoffWeeks   pgtype.Int4
 }
 
 type Vaccine struct {
