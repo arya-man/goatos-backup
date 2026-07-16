@@ -15,6 +15,7 @@ import { backendScope, scopeHref, type Scope } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
 import { sortVaccinationProtocols, vaccinationDriveDisplayName } from "./vaccine-display";
+import { vaccinationScheduleCellAsOf, vaccinationScheduleCohortAsOf } from "./full-vaccine-schedule-links";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const PAGE_LIMIT = 500;
@@ -163,18 +164,18 @@ export async function VaccinationFullSchedule({
     return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(nextYear) });
   }
 
-  function detailHref(row: VaccinationOperationsCohort): string {
+  function detailHref(row: VaccinationOperationsCohort, asOf?: string): string {
     return scopeHref(
       `/vaccination/execution/sheds/${encodeURIComponent(row.shedId)}`,
       scope,
-      { mode: "park", park: row.parkId },
+      { mode: "park", park: row.parkId, asOf: asOf ?? null },
       { ret: currentScheduleHref },
     );
   }
 
   function rowLink(row: VaccinationOperationsCohort, content: ReactNode, className?: string) {
     return (
-      <Link href={detailHref(row)} className={className ? `celllink ${className}` : "celllink"} scroll={false} title={copy(pageContract, "schedule.row.open_title")}>
+      <Link href={detailHref(row, vaccinationScheduleCohortAsOf(row, year))} className={className ? `celllink ${className}` : "celllink"} scroll={false} title={copy(pageContract, "schedule.row.open_title")}>
         {content}
       </Link>
     );
@@ -309,10 +310,11 @@ export async function VaccinationFullSchedule({
                       </>
                     ) : (
                       protocols.map((protocol) => {
-                        const view = scheduleCellView(byProtocol.get(protocol.protocolId), year, pageContract);
+                        const cell = byProtocol.get(protocol.protocolId);
+                        const view = scheduleCellView(cell, year, pageContract);
                         return (
                           <td key={protocol.protocolId} className={`schedule-cell state-${view.state}`} title={view.title}>
-                            <Link href={detailHref(row)} className="schedule-cell-link" scroll={false} title={copy(pageContract, "schedule.row.open_title")}>
+                            <Link href={detailHref(row, vaccinationScheduleCellAsOf(cell, year))} className="schedule-cell-link" scroll={false} title={copy(pageContract, "schedule.row.open_title")}>
                               <span>{view.label}</span>
                               {view.state !== "no_record" ? <Tag tone={STATE_TONE[view.state]}>{legend.find((item) => item.key === view.state)?.label ?? view.state}</Tag> : null}
                             </Link>
