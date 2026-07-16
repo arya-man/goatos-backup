@@ -191,7 +191,6 @@ internal fun calendarTargetRoute(target: String?): String {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
         val uri = Uri.parse(target)
         val taskId = uri.getQueryParameter("task_id") ?: uri.getQueryParameter("taskId")
-        if (taskId.isNullOrBlank()) return Routes.VACCINATION
         return Routes.scanRoute(
             shedId = id.ifBlank { null },
             driveId = uri.getQueryParameter("drive_id") ?: uri.getQueryParameter("driveId"),

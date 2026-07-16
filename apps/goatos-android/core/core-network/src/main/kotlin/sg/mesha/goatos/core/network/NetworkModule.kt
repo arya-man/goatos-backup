@@ -162,7 +162,7 @@ interface AppApiService {
     @GET("app/vaccination/execution/sheds/{shed_id}/roster")
     suspend fun getScanRoster(
         @Path("shed_id") shedId: String,
-        @Query("task_id") taskId: String,
+        @Query("task_id") taskId: String?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
     ): ScanRosterResponseDto
@@ -341,7 +341,7 @@ class RetrofitAppApi(
 
     override suspend fun getScanRoster(
         shedId: String,
-        taskId: String,
+        taskId: String?,
         cursor: String?,
         limit: Int?,
     ): ScanRosterResponseDto = service.getScanRoster(shedId, taskId, cursor, limit)

@@ -42,11 +42,6 @@ import {
   type SopVersionOption,
   type VaccinationMatrixRow,
 } from "./rule-dsl";
-import {
-  VALID_VACCINE_TYPES,
-  VALID_PATHOGEN_CLASSES,
-  VALID_COURSE_TYPES,
-} from "./vaccine-taxonomy";
 import type { ImpactPreviewResult } from "@/lib/api/server";
 import {
   copy,
@@ -1132,6 +1127,17 @@ export function RuleEditorModal({
       `Admin-web source vaccine preset has invalid ${groupId} option ${desired || "<empty>"}`,
     );
   }
+  function enabledOptionKeys(options: AdminUiOption[]): string[] {
+    return options
+      .filter((option) => option.enabled !== false)
+      .map((option) => option.key.toLowerCase());
+  }
+  function enabledOptionLabels(options: AdminUiOption[]): string {
+    return options
+      .filter((option) => option.enabled !== false)
+      .map((option) => option.label || option.key)
+      .join(", ");
+  }
   function slugSource(value: string): string {
     return value
       .trim()
@@ -1435,37 +1441,35 @@ export function RuleEditorModal({
     }
 
     if (category === "vaccination") {
-      // Validate vaccine type, pathogen class, and course type for all matrix rows.
-      // These constants must match the backend protocol/app/publish.go validation exactly.
+      const vaccineTypeKeys = enabledOptionKeys(vaccineTypeOptions);
+      const pathogenClassKeys = enabledOptionKeys(pathogenClassOptions);
+      const courseTypeKeys = enabledOptionKeys(courseTypeOptions);
       for (const row of activeScopedMatrixRows) {
         const vaccine = row.vaccine;
         const vaccineTypeLC = vaccine.type.toLowerCase();
         const pathogenClassLC = vaccine.pathogenClass.toLowerCase();
         const courseTypeLC = vaccine.courseType.toLowerCase();
 
-        // Check vaccine type (must be one of: live, killed, toxoid)
-        if (!vaccine.type || !VALID_VACCINE_TYPES.includes(vaccineTypeLC)) {
+        if (!vaccine.type || !vaccineTypeKeys.includes(vaccineTypeLC)) {
           setNotice({
             ok: false,
-            message: `Vaccine type is required and must be one of: ${VALID_VACCINE_TYPES.join(", ")}`,
+            message: `Vaccine type is required and must be one of: ${enabledOptionLabels(vaccineTypeOptions)}`,
           });
           return;
         }
 
-        // Check pathogen class (REQUIRED for individual vaccines)
-        if (!vaccine.pathogenClass || !VALID_PATHOGEN_CLASSES.includes(pathogenClassLC)) {
+        if (!vaccine.pathogenClass || !pathogenClassKeys.includes(pathogenClassLC)) {
           setNotice({
             ok: false,
-            message: `Pathogen class is required and must be one of: ${VALID_PATHOGEN_CLASSES.join(", ")}`,
+            message: `Pathogen class is required and must be one of: ${enabledOptionLabels(pathogenClassOptions)}`,
           });
           return;
         }
 
-        // Check course type (REQUIRED for individual vaccines)
-        if (!vaccine.courseType || !VALID_COURSE_TYPES.includes(courseTypeLC)) {
+        if (!vaccine.courseType || !courseTypeKeys.includes(courseTypeLC)) {
           setNotice({
             ok: false,
-            message: `Course type is required and must be one of: ${VALID_COURSE_TYPES.join(", ")}`,
+            message: `Course type is required and must be one of: ${enabledOptionLabels(courseTypeOptions)}`,
           });
           return;
         }

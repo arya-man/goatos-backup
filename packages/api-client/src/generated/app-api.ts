@@ -4565,6 +4565,8 @@ export interface operations {
                 /** @description Current-view scope only (top-bar date). Defaults to now; future values clamp to now. A past instant is rejected with 400 historical_as_of_unsupported — this read keeps only the current serving projection, so historical point-in-time reconstruction is not supported. */
                 as_of?: string;
                 due_before?: string;
+                /** @description Opaque pagination cursor returned as next_cursor by the previous response. */
+                cursor?: string;
                 limit?: number;
             };
             header?: never;
@@ -4596,6 +4598,8 @@ export interface operations {
                 as_of?: string;
                 work_state?: components["schemas"]["VaccinationExecutionWorkState"];
                 due_before?: string;
+                /** @description Opaque pagination cursor returned as nextCursor by the previous response. */
+                cursor?: string;
                 limit?: number;
             };
             header?: never;

@@ -22,7 +22,7 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ExecutionRepositoryPaginationTest {
-    private data class Request(val shedId: String, val taskId: String, val cursor: String?, val limit: Int?)
+    private data class Request(val shedId: String, val taskId: String?, val cursor: String?, val limit: Int?)
 
     @Test
     fun `execution continuation merges unique rows and advances cursor`() {
@@ -97,6 +97,24 @@ class ExecutionRepositoryPaginationTest {
         }
     }
 
+    @Test
+    fun `shed-wide scan roster omits task id and keeps its own cache scope`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.response = ::numberedPage
+            repository.refreshScanRoster(SHED_ID, taskId = null, limit = PAGE_SIZE).getOrThrow()
+            repository.appendScanRoster(SHED_ID, taskId = null, cursor = "cursor-1", limit = PAGE_SIZE).getOrThrow()
+
+            val shedWide = repository.observeScanRoster(SHED_ID, taskId = null, limit = PAGE_SIZE).first().data!!
+            assertEquals(PAGE_SIZE * 2, shedWide.rows.size)
+            assertEquals(listOf(null, null), requests.map { it.taskId })
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+            val taskScoped = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
+            assertEquals(PAGE_SIZE, taskScoped.rows.size)
+            assertEquals(listOf(null, null, TASK_ID), requests.map { it.taskId })
+        }
+    }
+
     private suspend fun withRepository(
         block: suspend (DefaultExecutionRepository, Backend, MutableList<Request>) -> Unit,
     ) {
@@ -112,7 +130,7 @@ class ExecutionRepositoryPaginationTest {
                     "getScanRoster" -> {
                         val request = Request(
                             shedId = args?.get(0) as String,
-                            taskId = args[1] as String,
+                            taskId = args[1] as String?,
                             cursor = args[2] as String?,
                             limit = args[3] as Int?,
                         )

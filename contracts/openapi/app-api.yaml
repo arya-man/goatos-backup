@@ -1359,6 +1359,12 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor returned as next_cursor by the previous response.
+          schema:
+            type: string
         - name: limit
           in: query
           required: false
@@ -1415,6 +1421,12 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor returned as nextCursor by the previous response.
+          schema:
+            type: string
         - name: limit
           in: query
           required: false

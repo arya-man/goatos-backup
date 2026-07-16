@@ -724,6 +724,54 @@ func TestSweeperRetriesAndClearsBlockedBatchAfterStockRecovery(t *testing.T) {
 	}
 }
 
+func TestSweeperRetriesOnlyBlockedStockItemWhenBatchAlreadyHasReservation(t *testing.T) {
+	repo := &fakeSweepRepo{
+		finalizationPages: [][]domain.PlannedBatchFinalization{{
+			{
+				BatchID:             "batch-1",
+				ScopeType:           "park",
+				ScopeID:             "park-1",
+				AttachedObligations: 3,
+				HasSOPTask:          true,
+				HasStockReservation: true,
+				StockBlocked:        true,
+				StockBlockItemID:    "item-hs",
+			},
+		}},
+		ruleCountsByBatch: map[string][]domain.RuleAttachmentCount{
+			"batch-1": {
+				{RuleID: "rule-fmd", Count: 2},
+				{RuleID: "rule-hs", Count: 1},
+			},
+		},
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		DosesPerGoat: 1,
+		RuleConfigs: map[string]SweepRuleConfig{
+			"rule-fmd": {VaccineItemID: "item-fmd", DosesPerGoat: 1},
+			"rule-hs":  {VaccineItemID: "item-hs", DosesPerGoat: 2},
+		},
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if reserver.calls != 1 || reserver.batchCalls != 1 || repo.countBatchCalls != 1 {
+		t.Fatalf("stock retry calls reserve=%d batchReserve=%d count=%d, want 1/1/1", reserver.calls, reserver.batchCalls, repo.countBatchCalls)
+	}
+	if got := strings.Join(reserver.itemIDs, ","); got != "item-hs" {
+		t.Fatalf("reservation item IDs = %s, want only blocked item-hs", got)
+	}
+	if got := qtyKeys(reserver.quantities); got != "2" {
+		t.Fatalf("reservation quantities = %s, want blocked item quantity 2", got)
+	}
+	if repo.clearStockBlockCalls != 1 {
+		t.Fatalf("clear stock block calls = %d, want 1", repo.clearStockBlockCalls)
+	}
+}
+
 func TestSweeperMarksExistingBatchBlockedWhenFinalizedReservationFails(t *testing.T) {
 	repo := &fakeSweepRepo{
 		finalizationPages: [][]domain.PlannedBatchFinalization{{
@@ -1023,6 +1071,7 @@ type fakeSweepRepo struct {
 	finalizationPages         [][]domain.PlannedBatchFinalization
 	finalizationCalls         int
 	createdFinalization       []domain.PlannedBatchFinalization
+	ruleCountsByBatch         map[string][]domain.RuleAttachmentCount
 	parkListCalls             int
 	repeatParkPage            bool
 }
@@ -1195,6 +1244,11 @@ func (f *snapshotChunkFakeRepo) ListUnbatchedShedDueForParkConsolidationSnapshot
 }
 
 func (f *fakeSweepRepo) CountAttachedObligationsByRule(_ context.Context, _, batchID string) ([]domain.RuleAttachmentCount, error) {
+	if f.ruleCountsByBatch != nil {
+		if counts, ok := f.ruleCountsByBatch[batchID]; ok {
+			return counts, nil
+		}
+	}
 	for _, b := range f.createdFinalization {
 		if b.BatchID != batchID {
 			continue

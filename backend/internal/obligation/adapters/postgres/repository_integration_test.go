@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -368,6 +369,154 @@ WHERE tenant_id=$1
 	}
 }
 
+func TestCreateBatchWithObligationsSkipsObligationCanceledAfterSelection(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	obligationID := seed(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	batchDate := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+	UPDATE obligation_instances
+	SET status = 'canceled'
+	WHERE tenant_id=$1
+	  AND obligation_id=$2::uuid`, tenantID, obligationID); err != nil {
+		t.Fatalf("cancel selected obligation: %v", err)
+	}
+
+	batchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		ScopeType:         "park",
+		ScopeID:           cbePark,
+		Session:           "morning",
+		PlannedDate:       &batchDate,
+		Status:            "planned",
+		EstimatedTargets:  1,
+		PlannedQuantity:   "1",
+		QuantityUnit:      "dose",
+	}, []string{obligationID})
+	if err != nil {
+		t.Fatalf("create batch with canceled obligation: %v", err)
+	}
+	if batchID != "" || attached != 0 {
+		t.Fatalf("created batch=%q attached=%d, want no batch and no attached rows", batchID, attached)
+	}
+	if got := countRows(t, ctx, pool, `
+	SELECT count(*)
+	FROM obligation_instances
+	WHERE tenant_id=$1
+	  AND obligation_id=$2::uuid
+	  AND status='canceled'
+	  AND batch_id IS NULL`, tenantID, obligationID); got != 1 {
+		t.Fatalf("canceled obligation left unattached count=%d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE tenant_id=$1`, tenantID); got != 0 {
+		t.Fatalf("batch rows after canceled attach race = %d, want 0", got)
+	}
+}
+
+func TestPlannedBatchFinalizationOneToManyPageBoundaryScheduledDateParkScopeStatusMatrix(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	firstObligationID := seed(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+	due := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	plannedShifted := time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC)
+
+	const goatB = "10000000-0000-4000-8000-0000000000b2"
+	const goatCanceled = "10000000-0000-4000-8000-0000000000b3"
+	const goatPage2 = "10000000-0000-4000-8000-0000000000b4"
+	seedComboGoat(t, ctx, pool, goatB)
+	seedComboGoat(t, ctx, pool, goatCanceled)
+	seedComboGoat(t, ctx, pool, goatPage2)
+	secondOpenID := insertComboObligation(t, ctx, repo, versionID, ruleID, goatB, "park", cbePark, "obl-finalization-open", due)
+	canceledID := insertComboObligation(t, ctx, repo, versionID, ruleID, goatCanceled, "park", cbePark, "obl-finalization-canceled", due)
+	page2ID := insertComboObligation(t, ctx, repo, versionID, ruleID, goatPage2, "park", cbePark, "obl-finalization-page2", due)
+
+	firstBatchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		ScopeType:         "park",
+		ScopeID:           cbePark,
+		Session:           "finalization-proof-a",
+		PlannedDate:       &plannedShifted,
+		Status:            "planned",
+		EstimatedTargets:  3,
+		PlannedQuantity:   "3",
+		QuantityUnit:      "dose",
+	}, []string{firstObligationID, secondOpenID, canceledID})
+	if err != nil || attached != 3 {
+		t.Fatalf("create first planned batch: batch=%s attached=%d err=%v", firstBatchID, attached, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE obligation_instances SET status='canceled' WHERE tenant_id=$1 AND obligation_id=$2::uuid`, tenantID, canceledID); err != nil {
+		t.Fatalf("cancel attached status-matrix member: %v", err)
+	}
+
+	secondBatchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		ScopeType:         "park",
+		ScopeID:           cbePark,
+		Session:           "finalization-proof-b",
+		PlannedDate:       &plannedShifted,
+		Status:            "planned",
+		EstimatedTargets:  1,
+		PlannedQuantity:   "1",
+		QuantityUnit:      "dose",
+	}, []string{page2ID})
+	if err != nil || attached != 1 {
+		t.Fatalf("create second planned batch: batch=%s attached=%d err=%v", secondBatchID, attached, err)
+	}
+
+	var after *domain.PlannedBatchFinalizationCursor
+	var collected []domain.PlannedBatchFinalization
+	for {
+		page, err := repo.ListPlannedBatchesNeedingFinalization(ctx, tenantID, versionID, true, false, after, 1)
+		if err != nil {
+			t.Fatalf("list finalization page: %v", err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		if len(page) != 1 {
+			t.Fatalf("page size = %d, want 1", len(page))
+		}
+		collected = append(collected, page[0])
+		after = &domain.PlannedBatchFinalizationCursor{CreatedAt: page[0].CreatedAt, BatchID: page[0].BatchID}
+		if len(collected) > 3 {
+			t.Fatalf("finalization pagination did not terminate: %+v", collected)
+		}
+	}
+	if len(collected) != 2 {
+		t.Fatalf("finalization rows = %+v, want two planned batches across page boundary", collected)
+	}
+	byBatch := map[string]domain.PlannedBatchFinalization{}
+	for _, row := range collected {
+		byBatch[row.BatchID] = row
+		if row.ScopeType != "park" || row.ScopeID != cbePark {
+			t.Fatalf("row scope = %s/%s, want park/%s", row.ScopeType, row.ScopeID, cbePark)
+		}
+		if row.PlannedDate == nil || !row.PlannedDate.Equal(plannedShifted) {
+			t.Fatalf("row planned date = %v, want shifted scheduled date %s", row.PlannedDate, plannedShifted)
+		}
+	}
+	if got := byBatch[firstBatchID].AttachedObligations; got != 2 {
+		t.Fatalf("first batch open attached obligations = %d, want 2 (canceled row excluded)", got)
+	}
+	if got := byBatch[secondBatchID].AttachedObligations; got != 1 {
+		t.Fatalf("second batch open attached obligations = %d, want 1", got)
+	}
+}
+
 func TestStatusEventReserveBeforeInsertDedup(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -378,7 +527,7 @@ func TestStatusEventReserveBeforeInsertDedup(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 	ev := domain.NewStatusEvent{
 		TenantID: tenantID, ObligationID: obligationID, EventType: "became_due",
-		OccurredAt: time.Now().UTC(), Payload: []byte(`{"k":1}`),
+		OccurredAt: time.Now().In(biztime.DefaultLocation()), Payload: []byte(`{"k":1}`),
 		IdempotencyKey: "evt-1", Scope: "obligation.status_event", RequestHash: "h1",
 	}
 
@@ -501,7 +650,7 @@ func TestStatusEventConcurrentDedup(t *testing.T) {
 			defer wg.Done()
 			_, applied, err := repo.RecordStatusEvent(ctx, domain.NewStatusEvent{
 				TenantID: tenantID, ObligationID: obligationID, EventType: "became_due",
-				OccurredAt: time.Now().UTC(), Payload: []byte(`{}`),
+				OccurredAt: time.Now().In(biztime.DefaultLocation()), Payload: []byte(`{}`),
 				IdempotencyKey: "evt-concurrent", Scope: "obligation.status_event", RequestHash: "h",
 			})
 			mu.Lock()

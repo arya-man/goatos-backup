@@ -26,10 +26,8 @@ func VaccineMatrixPriority(vaccineCode string) int32 {
 		return 3
 	case "blue tongue":
 		return 4
-	case "fmd":
+	case "fmd", "hs":
 		return 5
-	case "hs":
-		return 6
 	default:
 		return 0
 	}

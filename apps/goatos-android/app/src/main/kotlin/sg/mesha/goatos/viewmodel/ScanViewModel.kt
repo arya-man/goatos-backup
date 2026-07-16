@@ -52,7 +52,7 @@ class ScanViewModel @Inject constructor(
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     private val observedResource: StateFlow<Resource<ScanRosterResponseDto>> =
-        (if (shedId != null && taskId != null) {
+        (if (shedId != null) {
             repo.observeScanRoster(shedId, taskId, limit = SCAN_PAGE_SIZE)
         } else {
             flowOf(Resource(data = null))
@@ -142,26 +142,24 @@ class ScanViewModel @Inject constructor(
      *  cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         val id = shedId ?: return@launch
-        val selectedTask = taskId ?: return@launch
         _isRefreshing.value = true
-        val result = repo.refreshScanRoster(id, selectedTask, limit = SCAN_PAGE_SIZE)
+        val result = repo.refreshScanRoster(id, taskId, limit = SCAN_PAGE_SIZE)
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
     }
 
     fun loadMore() = viewModelScope.launch {
         val id = shedId ?: return@launch
-        val selectedTask = taskId ?: return@launch
         val cursor = nextCursor ?: return@launch
         if (_isLoadingMore.value) return@launch
         _isLoadingMore.value = true
-        val result = repo.appendScanRoster(id, selectedTask, cursor, limit = SCAN_PAGE_SIZE)
+        val result = repo.appendScanRoster(id, taskId, cursor, limit = SCAN_PAGE_SIZE)
         _isLoadingMore.value = false
         _isOffline.value = result.isFailure
     }
 
     private fun loadRosterAndRefresh() {
-        if (shedId.isNullOrBlank() || taskId.isNullOrBlank()) return
+        if (shedId.isNullOrBlank()) return
         refresh()
     }
 

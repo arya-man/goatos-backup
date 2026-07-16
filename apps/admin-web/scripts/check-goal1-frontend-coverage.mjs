@@ -38,6 +38,7 @@ assert.match(ruleEditor, /!sopVersionId/, "RuleEditorModal must gate publish on 
 assert.match(ruleEditor, /!proofOk/, "RuleEditorModal must gate publish on proof requirements");
 assert.doesNotMatch(ruleEditor, /next_due_basis|NEXT_DUE_BASIS|nextDueBasis/, "RuleEditorModal must not resurrect dead next_due_basis fields");
 assert.doesNotMatch(ruleEditor, /optionKeyOrFallback/, "RuleEditorModal source presets must not invent taxonomy by falling back to the first option");
+assert.doesNotMatch(ruleEditor, /VALID_VACCINE_TYPES|VALID_PATHOGEN_CLASSES|VALID_COURSE_TYPES|vaccine-taxonomy/, "RuleEditorModal vaccine taxonomy validation must use backend option groups, not frontend mirrors");
 assert.match(ruleEditor, /requireOptionKey\(\s*vaccineTypeOptions,[\s\S]*"vaccine_types"[\s\S]*requireOptionKey\(\s*pathogenClassOptions,[\s\S]*"vaccine_pathogen_classes"[\s\S]*requireOptionKey\(\s*courseTypeOptions,[\s\S]*"vaccine_course_types"/, "RuleEditorModal source presets must strictly require backend-emitted vaccine taxonomy");
 const ruleEditorSave = functionBody(ruleEditor, "save");
 const vaccineValidationLoop = ruleEditorSave.indexOf("for (const row of activeScopedMatrixRows)");

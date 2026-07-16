@@ -40,7 +40,7 @@ func TestVaccineMatrixPriority(t *testing.T) {
 		"Blue Tongue": 4,
 		"BLUE_TONGUE": 4,
 		"FMD":         5,
-		"HS":          6,
+		"HS":          5,
 	}
 	for code, want := range cases {
 		if got := VaccineMatrixPriority(code); got != want {

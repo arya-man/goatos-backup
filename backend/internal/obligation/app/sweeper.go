@@ -878,7 +878,7 @@ func (s *SweeperService) finalizePlannedBatchStock(ctx context.Context, tenantID
 	}
 	stockBatches := make([]domain.PlannedBatchFinalization, 0, len(batches))
 	for _, b := range batches {
-		if !b.HasStockReservation {
+		if !b.HasStockReservation || b.StockBlocked {
 			stockBatches = append(stockBatches, b)
 		}
 	}
@@ -899,6 +899,9 @@ func (s *SweeperService) finalizePlannedBatchStock(ctx context.Context, tenantID
 		for _, rc := range ruleCounts {
 			batchCfg := cfg.forRule(rc.RuleID)
 			if batchCfg.VaccineItemID == "" || rc.Count <= 0 {
+				continue
+			}
+			if b.StockBlockItemID != "" && batchCfg.VaccineItemID != b.StockBlockItemID {
 				continue
 			}
 			dosesPer := batchCfg.DosesPerGoat

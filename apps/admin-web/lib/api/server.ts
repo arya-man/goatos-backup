@@ -588,7 +588,7 @@ export async function getVaccinationVerificationQueue(
 }
 
 export async function getVaccinationExecution(
-  params: { parkId?: string; workState?: VaccinationExecutionWorkState; asOf?: string; limit?: number } = {},
+  params: { parkId?: string; workState?: VaccinationExecutionWorkState; asOf?: string; limit?: number; cursor?: string } = {},
 ): Promise<ApiResult<VaccinationExecutionResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -596,7 +596,7 @@ export async function getVaccinationExecution(
   return request(() =>
     client.request<VaccinationExecutionResponse>("/vaccination/execution", {
       cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, work_state: params.workState, as_of: params.asOf, limit: params.limit }),
+      query: compactQuery({ park_id: params.parkId, work_state: params.workState, as_of: params.asOf, limit: params.limit, cursor: params.cursor }),
     }),
   );
 }
@@ -604,7 +604,7 @@ export async function getVaccinationExecution(
 // Source-backed vaccination operations read model — cohort × protocol matrix + per-cohort detail with real
 // last_dose. Powers the /vaccination matrix + cohort-detail sections (NOT the Action Center pivot).
 export async function getVaccinationOperations(
-  params: { parkId?: string; asOf?: string; dueBefore?: string; limit?: number } = {},
+  params: { parkId?: string; asOf?: string; dueBefore?: string; limit?: number; cursor?: string } = {},
 ): Promise<ApiResult<VaccinationOperationsResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -612,7 +612,7 @@ export async function getVaccinationOperations(
   return request(() =>
     client.request<VaccinationOperationsResponse>("/vaccination/operations", {
       cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, as_of: params.asOf, due_before: params.dueBefore, limit: params.limit }),
+      query: compactQuery({ park_id: params.parkId, as_of: params.asOf, due_before: params.dueBefore, limit: params.limit, cursor: params.cursor }),
     }),
   );
 }

@@ -17,6 +17,7 @@ SET batch_id = $1, updated_at = now()
 WHERE tenant_id = $2
   AND obligation_id = ANY($3::uuid[])
   AND batch_id IS NULL
+  AND status IN ('scheduled', 'due', 'in_progress')
 `
 
 type AttachObligationsToBatchParams struct {
@@ -25,7 +26,8 @@ type AttachObligationsToBatchParams struct {
 	ObligationIds []pgtype.UUID
 }
 
-// Attach a set of still-unbatched obligations to a batch (idempotent: already-batched are skipped).
+// Attach a set of still-open, still-unbatched obligations to a batch (idempotent: already-batched
+// and newly blocked/closed obligations are skipped).
 func (q *Queries) AttachObligationsToBatch(ctx context.Context, arg AttachObligationsToBatchParams) (int64, error) {
 	result, err := q.db.Exec(ctx, attachObligationsToBatch, arg.BatchID, arg.TenantID, arg.ObligationIds)
 	if err != nil {

@@ -54,12 +54,14 @@ INSERT INTO obligation_status_events (
 RETURNING obligation_event_id::text AS obligation_event_id;
 
 -- name: AttachObligationsToBatch :execrows
--- Attach a set of still-unbatched obligations to a batch (idempotent: already-batched are skipped).
+-- Attach a set of still-open, still-unbatched obligations to a batch (idempotent: already-batched
+-- and newly blocked/closed obligations are skipped).
 UPDATE obligation_instances
 SET batch_id = @batch_id, updated_at = now()
 WHERE tenant_id = @tenant_id
   AND obligation_id = ANY(@obligation_ids::uuid[])
-  AND batch_id IS NULL;
+  AND batch_id IS NULL
+  AND status IN ('scheduled', 'due', 'in_progress');
 
 -- name: MarkObligationCompleted :execrows
 -- SM-5: mark an obligation completed on accepted verification. Late real-world work may complete

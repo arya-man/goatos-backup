@@ -258,6 +258,7 @@ type PlannedBatchFinalization struct {
 	HasSOPTask          bool
 	HasStockReservation bool
 	StockBlocked        bool
+	StockBlockItemID    string
 }
 
 // PlannedBatchFinalizationCursor advances through planned batches in repository

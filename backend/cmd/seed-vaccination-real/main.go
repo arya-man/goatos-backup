@@ -754,7 +754,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 
 	vaccMatrixDef := buildCanonicalVaccinationMatrix()
-	seedKidCourseHistoryByAnimalKey := buildSeedKidCourseHistoryByAnimalKey(cells, loc, vaccMatrixDef)
+	seedKidCourseHistoryByAnimalKey := buildSeedKidCourseHistoryByAnimalKey(cells, loc, now, vaccMatrixDef)
 
 	for _, c := range cells {
 		// A dated fact is any cell that is neither blank/NA (nothing recorded) nor
@@ -1725,7 +1725,7 @@ func seedSchedulePathForGoat(originType string, dob *time.Time, stage string, en
 	return "adult"
 }
 
-func buildSeedKidCourseHistoryByAnimalKey(cells []vaccCell, loc *time.Location, vaccMatrixDef map[string]vaccMatrixSpec) map[string][]vaccinationdomain.RecentVaccineAdministration {
+func buildSeedKidCourseHistoryByAnimalKey(cells []vaccCell, loc *time.Location, asOf time.Time, vaccMatrixDef map[string]vaccMatrixSpec) map[string][]vaccinationdomain.RecentVaccineAdministration {
 	out := map[string][]vaccinationdomain.RecentVaccineAdministration{}
 	for _, c := range cells {
 		animalKey := strings.TrimSpace(c.AnimalKey)
@@ -1738,6 +1738,9 @@ func buildSeedKidCourseHistoryByAnimalKey(cells []vaccCell, loc *time.Location, 
 		}
 		d, err := time.ParseInLocation("2006-01-02", val, loc)
 		if err != nil {
+			continue
+		}
+		if !sourceVaccinationDateOnOrBeforeBusinessDate(d, asOf, loc) {
 			continue
 		}
 		doseCode, _ := mapSheetDoseToRuleCode(c.Vaccine, c.DoseCode, "kid", vaccMatrixDef)

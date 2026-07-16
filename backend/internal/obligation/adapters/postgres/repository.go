@@ -2852,6 +2852,7 @@ func (r *Repository) ListPlannedBatchesNeedingFinalization(ctx context.Context, 
 		}
 	}
 	rows, err := r.pool.Query(ctx, `
+-- projection-review: membership=planned obligation_batches for one protocol_version whose attached obligation_instances remain open (scheduled/due/in_progress) and still need SOP task or stock finalization; group_key=batch_id (one row per planned batch); join_cardinality=obligation_instances joins 1:N but the aggregate groups by batch_id and COUNTs obligation_id after the open-status filter, while reserve state is checked with EXISTS semijoins so stock movements cannot fan out counts; pagination=keyset over (created_at,batch_id) with caller-carried cursor, so every page is bounded and no UI-local page determines finalization totals; scope=batch scope_type/scope_id (park/shed/cohort as stored on obligation_batches, no hierarchy COALESCE)
 SELECT ob.batch_id::text,
        COALESCE(MIN(oi.rule_id::text), '')::text AS rule_id,
        ob.scope_type,
@@ -2868,7 +2869,8 @@ SELECT ob.batch_id::text,
            AND ism.batch_id = ob.batch_id
            AND ism.movement_type = 'reserve'
        ) AS has_stock_reservation,
-       (ob.context ? 'stock_block') AS stock_blocked
+       (ob.context ? 'stock_block') AS stock_blocked,
+       COALESCE(ob.context #>> '{stock_block,item_id}', '') AS stock_block_item_id
 FROM obligation_batches ob
 JOIN obligation_instances oi
   ON oi.tenant_id = ob.tenant_id
@@ -2892,12 +2894,15 @@ GROUP BY ob.tenant_id, ob.batch_id, ob.scope_type, ob.scope_id, ob.planned_date,
          NOT (ob.context ? 'stock_block')
          OR COALESCE(NULLIF(ob.context #>> '{stock_block,retry_after}', '')::timestamptz, '-infinity'::timestamptz) <= now()
        )
-       AND NOT EXISTS (
-         SELECT 1
-         FROM inventory_stock_movements ism
-         WHERE ism.tenant_id = ob.tenant_id
-           AND ism.batch_id = ob.batch_id
-           AND ism.movement_type = 'reserve'
+       AND (
+         ob.context ? 'stock_block'
+         OR NOT EXISTS (
+           SELECT 1
+           FROM inventory_stock_movements ism
+           WHERE ism.tenant_id = ob.tenant_id
+             AND ism.batch_id = ob.batch_id
+             AND ism.movement_type = 'reserve'
+         )
        )
      )
    )
@@ -2923,6 +2928,7 @@ LIMIT $7`, tenant, version, needsTask, needsStock, afterCreatedAt, afterBatchID,
 			&b.HasSOPTask,
 			&b.HasStockReservation,
 			&b.StockBlocked,
+			&b.StockBlockItemID,
 		); err != nil {
 			return nil, fmt.Errorf("obligation: scan planned batch finalization: %w", err)
 		}

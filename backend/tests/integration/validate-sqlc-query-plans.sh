@@ -149,7 +149,34 @@ WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND status = 'active'
 LIMIT 10;"
 
-  explain_must_use_index "GoatTimeline" 'Seq Scan on goat_identity_events' "EXPLAIN (COSTS OFF)
+  printf '%s\n' "
+INSERT INTO tenants (tenant_id, name, status)
+VALUES ('00000000-0000-4000-8000-000000000001', 'sqlc-plan-tenant', 'active')
+ON CONFLICT (tenant_id) DO NOTHING;
+INSERT INTO parties (party_id, party_type, display_name, status)
+VALUES ('00000000-0000-4000-8000-000000001001', 'system', 'sqlc-plan-system', 'active')
+ON CONFLICT (party_id) DO NOTHING;
+INSERT INTO goats (goat_id, tenant_id, display_id, sex, lifecycle_status, custodian_party_id)
+VALUES ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'G-990101', 'female', 'alive', '00000000-0000-4000-8000-000000001001')
+ON CONFLICT (goat_id) DO NOTHING;
+INSERT INTO goat_identity_events (
+  identity_event_id, tenant_id, goat_id, event_type, event_version,
+  occurred_at, recorded_at, payload, idempotency_key
+)
+SELECT
+  ('21000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  '10000000-0000-4000-8000-000000000001'::uuid,
+  'goat.timeline_plan', 1,
+  TIMESTAMPTZ '2026-07-01 00:00:00+00' + i * INTERVAL '1 second',
+  TIMESTAMPTZ '2026-07-01 00:00:00+00' + i * INTERVAL '1 second',
+  '{}'::jsonb, 'sqlc-plan-goat-timeline-' || i::text
+FROM generate_series(1, 10000) AS s(i)
+ON CONFLICT DO NOTHING;
+ANALYZE goat_identity_events;
+" | run_psql
+
+  explain_natural_named_index_no_sort "GoatTimeline" 'goat_identity_events_tenant_goat_timeline_keyset_idx' "EXPLAIN (COSTS OFF)
 SELECT identity_event_id, occurred_at
 FROM goat_identity_events
 WHERE tenant_id = '00000000-0000-4000-8000-000000000001'::uuid

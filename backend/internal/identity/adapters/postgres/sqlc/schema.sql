@@ -7347,6 +7347,13 @@ CREATE INDEX goat_identity_events_idempotency_idx ON public.goat_identity_events
 
 
 --
+-- Name: goat_identity_events_tenant_goat_timeline_keyset_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX goat_identity_events_tenant_goat_timeline_keyset_idx ON public.goat_identity_events USING btree (tenant_id, goat_id, occurred_at DESC, identity_event_id DESC);
+
+
+--
 -- Name: goat_identity_events_tenant_recorded_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
