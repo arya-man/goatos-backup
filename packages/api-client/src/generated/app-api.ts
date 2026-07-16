@@ -2237,7 +2237,12 @@ export interface components {
             display_id: string;
             animal_identifier_1: string | null;
             animal_identifier_2: string | null;
+            shed_name?: string | null;
             stage?: string | null;
+            lifecycle_status?: string | null;
+            health_status?: string | null;
+            exit_reason?: string | null;
+            defer_reason?: string | null;
             status: string;
             /** Format: date-time */
             due_at: string;

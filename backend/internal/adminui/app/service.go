@@ -817,8 +817,13 @@ func pageSpecificCopy(id string) map[string]string {
 			// DRV-008: full-screen drive detail roster labels and breadcrumbs (calendar-drive-detail.tsx).
 			"calendar.drive.animal_roster":       "Animal roster",
 			"calendar.drive.display_id_header":   "Display ID",
+			"calendar.drive.shed_header":         "Shed",
 			"calendar.drive.tag_1_header":        "Tag 1",
 			"calendar.drive.tag_2_header":        "Tag 2",
+			"calendar.drive.stage_header":        "Stage",
+			"calendar.drive.lifecycle_header":    "Lifecycle",
+			"calendar.drive.health_header":       "Health",
+			"calendar.drive.reason_header":       "Reason",
 			"calendar.drive.status_header":       "Status",
 			"calendar.drive.no_animals":          "No animals in this drive",
 			"calendar.drive.load_more":           "Load more",

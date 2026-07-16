@@ -17,7 +17,7 @@ test("markerTonesForDate: prioritizes deferred over normal drive marker", () => 
       },
       [],
     ),
-    ["deferred", "drive"],
+    ["deferred"],
   );
 });
 
@@ -36,7 +36,7 @@ test("markerTonesForDate: distinguishes due drive from history-only date", () =>
       },
       [],
     ),
-    ["due", "drive"],
+    ["due"],
   );
   assert.deepStrictEqual(
     markerTonesForDate(
@@ -128,6 +128,6 @@ test("markerTonesForDate: uses event drive summary when marker aggregate is spar
         },
       },
     ]),
-    ["deferred", "due", "drive"],
+    ["deferred"],
   );
 });

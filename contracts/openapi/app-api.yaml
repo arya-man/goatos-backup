@@ -6177,7 +6177,27 @@ components:
           type:
             - string
             - "null"
+        shed_name:
+          type:
+            - string
+            - "null"
         stage:
+          type:
+            - string
+            - "null"
+        lifecycle_status:
+          type:
+            - string
+            - "null"
+        health_status:
+          type:
+            - string
+            - "null"
+        exit_reason:
+          type:
+            - string
+            - "null"
+        defer_reason:
           type:
             - string
             - "null"

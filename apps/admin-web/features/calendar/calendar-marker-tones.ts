@@ -24,5 +24,6 @@ export function markerTonesForDate(marker: CalendarDateMarker | undefined, event
   if ((marker?.open_count ?? 0) > 0 && tones.size === 0) tones.add("other");
 
   const priority: CalendarMarkerTone[] = ["deferred", "due", "drive", "other", "history"];
-  return priority.filter((tone) => tones.has(tone));
+  const dominant = priority.find((tone) => tones.has(tone));
+  return dominant ? [dominant] : [];
 }

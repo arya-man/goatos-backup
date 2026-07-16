@@ -840,7 +840,7 @@ function CalendarDatePicker({
           const hasDrive = dayEvents.length > 0;
           const hasHistory = (marker?.completed_count ?? 0) > 0;
           const hasOpenWork = (marker?.open_count ?? 0) > 0;
-          const tones = markerTonesForDate(marker, dayEvents).slice(0, 4);
+          const tones = markerTonesForDate(marker, dayEvents).slice(0, 1);
           const eventCount = marker?.event_count ?? dayEvents.length;
           return (
             <Link

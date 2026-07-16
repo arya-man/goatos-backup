@@ -309,7 +309,12 @@ type CalendarDriveTarget struct {
 	DisplayID         string    `json:"display_id"`
 	AnimalIdentifier1 *string   `json:"animal_identifier_1"`
 	AnimalIdentifier2 *string   `json:"animal_identifier_2"`
+	ShedName          *string   `json:"shed_name,omitempty"`
 	Stage             *string   `json:"stage"`
+	LifecycleStatus   *string   `json:"lifecycle_status,omitempty"`
+	HealthStatus      *string   `json:"health_status,omitempty"`
+	ExitReason        *string   `json:"exit_reason,omitempty"`
+	DeferReason       *string   `json:"defer_reason,omitempty"`
 	Status            string    `json:"status"`
 	DueAt             time.Time `json:"due_at"`
 }

@@ -109,6 +109,12 @@ function driveTargetHeading(
   );
 }
 
+function driveTargetReason(target: CalendarDriveTarget): string {
+  if (target.status === "deferred" && target.defer_reason) return target.defer_reason;
+  if (target.exit_reason) return target.exit_reason;
+  return "";
+}
+
 export function CalendarEventDrawer({
   detail,
   targets,
@@ -374,6 +380,7 @@ export function CalendarEventDrawer({
                     <thead>
                       <tr>
                         <th>{copy(pageContract, "label.display_id")}</th>
+                        <th>{copy(pageContract, "calendar.drive.shed_header")}</th>
                         <th>
                           {copy(pageContract, "label.animal_identifier_1")}
                         </th>
@@ -381,6 +388,9 @@ export function CalendarEventDrawer({
                           {copy(pageContract, "label.animal_identifier_2")}
                         </th>
                         <th>{copy(pageContract, "label.stage")}</th>
+                        <th>{copy(pageContract, "label.lifecycle")}</th>
+                        <th>{copy(pageContract, "label.health")}</th>
+                        <th>{copy(pageContract, "calendar.drive.reason_header")}</th>
                         <th>{copy(pageContract, "label.status")}</th>
                         <th>{copy(pageContract, "label.when")}</th>
                       </tr>
@@ -392,6 +402,10 @@ export function CalendarEventDrawer({
                             <span className="gid">{row.display_id}</span>
                           </td>
                           <td>
+                            {row.shed_name ??
+                              copy(pageContract, "label.placeholder")}
+                          </td>
+                          <td>
                             {row.animal_identifier_1 ??
                               copy(pageContract, "label.placeholder")}
                           </td>
@@ -401,6 +415,18 @@ export function CalendarEventDrawer({
                           </td>
                           <td>
                             {row.stage ??
+                              copy(pageContract, "label.placeholder")}
+                          </td>
+                          <td>
+                            {row.lifecycle_status ??
+                              copy(pageContract, "label.placeholder")}
+                          </td>
+                          <td>
+                            {row.health_status ??
+                              copy(pageContract, "label.placeholder")}
+                          </td>
+                          <td>
+                            {driveTargetReason(row) ||
                               copy(pageContract, "label.placeholder")}
                           </td>
                           <td>

@@ -5,13 +5,20 @@ import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
-import { driveSummaryOf } from "./calendar-contract";
+import { driveSummaryOf, type CalendarDriveTarget } from "./calendar-contract";
 import { driveCoverage, driveCoveragePct, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
 
 // Full-screen drive detail (owner-directed replacement for the calendar drive drawer, 2026-07-14).
 // New route with no backend page contract yet, so its structural labels (breadcrumb crumbs, roster
 // column headers) are local literals — the same documented exception as /verification (see
 // context/frontend/admin-web-backend-ui-contract.md, allow-listed in check-ui-contract-literals.mjs).
+
+function targetReason(item: CalendarDriveTarget): string {
+  if (item.status === "deferred" && item.defer_reason) return item.defer_reason;
+  if (item.exit_reason) return item.exit_reason;
+  return "";
+}
+
 export async function VaccinationDriveDetail({
   eventId,
   searchParams,
@@ -136,17 +143,22 @@ export async function VaccinationDriveDetail({
             <>
               <div style={{ overflowX: "auto" }}>
                 <table className="rostertbl">
-                  <thead><tr><th>{copy(pageContract, "calendar.drive.display_id_header")}</th><th>{copy(pageContract, "calendar.drive.tag_1_header")}</th><th>{copy(pageContract, "calendar.drive.tag_2_header")}</th><th>{copy(pageContract, "calendar.drive.status_header")}</th></tr></thead>
+                  <thead><tr><th>{copy(pageContract, "calendar.drive.display_id_header")}</th><th>{copy(pageContract, "calendar.drive.shed_header")}</th><th>{copy(pageContract, "calendar.drive.tag_1_header")}</th><th>{copy(pageContract, "calendar.drive.tag_2_header")}</th><th>{copy(pageContract, "calendar.drive.stage_header")}</th><th>{copy(pageContract, "calendar.drive.lifecycle_header")}</th><th>{copy(pageContract, "calendar.drive.health_header")}</th><th>{copy(pageContract, "calendar.drive.reason_header")}</th><th>{copy(pageContract, "calendar.drive.status_header")}</th></tr></thead>
                   <tbody className="mono">
                     {rosterItems.length ? rosterItems.map((item) => (
                       <tr key={item.animal_id}>
                         <td>{item.display_id || "—"}</td>
+                        <td>{item.shed_name || "—"}</td>
                         <td>{item.animal_identifier_1 || "—"}</td>
                         <td>{item.animal_identifier_2 || "—"}</td>
+                        <td>{item.stage || "—"}</td>
+                        <td>{item.lifecycle_status || "—"}</td>
+                        <td>{item.health_status || "—"}</td>
+                        <td>{targetReason(item) || "—"}</td>
                         <td>{optionLabel(pageContract, "calendar_status", item.status).toLowerCase() || item.status}</td>
                       </tr>
                     )) : (
-                      <tr><td colSpan={4} style={{ padding: 10, textAlign: "center", color: "var(--muted)" }}>{copy(pageContract, "calendar.drive.no_animals")}</td></tr>
+                      <tr><td colSpan={9} style={{ padding: 10, textAlign: "center", color: "var(--muted)" }}>{copy(pageContract, "calendar.drive.no_animals")}</td></tr>
                     )}
                   </tbody>
                 </table>
