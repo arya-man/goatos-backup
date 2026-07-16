@@ -773,6 +773,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.history.empty_note":          "Move the as-of date or narrow the owner lane to inspect a different completion window.",
 			"calendar.picker.previous_month":       "Previous month",
 			"calendar.picker.next_month":           "Next month",
+			"calendar.picker.previous_year":        "Previous year",
+			"calendar.picker.next_year":            "Next year",
 			"calendar.picker.drive_hint":           "drive day",
 			"calendar.drive.all_day":               "All day",
 			"calendar.drive.sheds":                 "Sheds",

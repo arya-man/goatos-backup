@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Clock, Info } from "lucide-react";
 import { actionFeedbackCopy, copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, hrefWithPagedCursor, hrefPreviousPagedCursor, boundedInt, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
@@ -724,40 +724,47 @@ function CalendarDatePicker({
   }
   const previous = new Date(year, month - 1, 1);
   const next = new Date(year, month + 1, 1);
-  const todayAnchor = new Date(`${today}T00:00:00+05:30`);
-  const todayYear = Number.isNaN(todayAnchor.getTime()) ? year : todayAnchor.getFullYear();
-  const todayMonth = Number.isNaN(todayAnchor.getTime()) ? month : todayAnchor.getMonth();
-  const minMonth = new Date(todayYear, todayMonth - 1, 1);
-  const maxMonth = new Date(todayYear, todayMonth + 1, 1);
-  const previousAllowed = previous >= minMonth;
-  const nextAllowed = next <= maxMonth;
+  const previousYear = new Date(year - 1, month, 1);
+  const nextYear = new Date(year + 1, month, 1);
   const previousMonth = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}-01`;
   const nextMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`;
+  const previousYearMonth = `${previousYear.getFullYear()}-${String(previousYear.getMonth() + 1).padStart(2, "0")}-01`;
+  const nextYearMonth = `${nextYear.getFullYear()}-${String(nextYear.getMonth() + 1).padStart(2, "0")}-01`;
   const previousLabel = copy(pageContract, "calendar.picker.previous_month");
   const nextLabel = copy(pageContract, "calendar.picker.next_month");
+  const previousYearLabel = copy(pageContract, "calendar.picker.previous_year");
+  const nextYearLabel = copy(pageContract, "calendar.picker.next_year");
+  const monthLinks = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}-01`);
 
   return (
     <div className="calpicker-popover">
       <div className="calpicker-head">
-        {previousAllowed ? (
-          <Link href={monthHref(previousMonth)} replace scroll={false} className="btn icon" aria-label={previousLabel}>
-            <ChevronLeft className="ic" aria-hidden="true" />
-          </Link>
-        ) : (
-          <span className="btn icon disabled" aria-disabled="true" aria-label={previousLabel}>
-            <ChevronLeft className="ic" aria-hidden="true" />
-          </span>
-        )}
+        <Link href={monthHref(previousYearMonth)} replace scroll={false} className="btn icon" aria-label={previousYearLabel}>
+          <ChevronsLeft className="ic" aria-hidden="true" />
+        </Link>
+        <Link href={monthHref(previousMonth)} replace scroll={false} className="btn icon" aria-label={previousLabel}>
+          <ChevronLeft className="ic" aria-hidden="true" />
+        </Link>
         <b>{`${optionLabel(pageContract, "calendar_months", String(month))} ${year}`}</b>
-        {nextAllowed ? (
-          <Link href={monthHref(nextMonth)} replace scroll={false} className="btn icon" aria-label={nextLabel}>
-            <ChevronRight className="ic" aria-hidden="true" />
+        <Link href={monthHref(nextMonth)} replace scroll={false} className="btn icon" aria-label={nextLabel}>
+          <ChevronRight className="ic" aria-hidden="true" />
+        </Link>
+        <Link href={monthHref(nextYearMonth)} replace scroll={false} className="btn icon" aria-label={nextYearLabel}>
+          <ChevronsRight className="ic" aria-hidden="true" />
+        </Link>
+      </div>
+      <div className="calpicker-months">
+        {monthLinks.map((monthKey, index) => (
+          <Link
+            key={monthKey}
+            href={monthHref(monthKey)}
+            replace
+            scroll={false}
+            className={index === month ? "selected" : ""}
+          >
+            {optionLabel(pageContract, "calendar_months", String(index)).slice(0, 3)}
           </Link>
-        ) : (
-          <span className="btn icon disabled" aria-disabled="true" aria-label={nextLabel}>
-            <ChevronRight className="ic" aria-hidden="true" />
-          </span>
-        )}
+        ))}
       </div>
       <div className="calpicker-grid">
         {weekdays.map((weekday) => (
