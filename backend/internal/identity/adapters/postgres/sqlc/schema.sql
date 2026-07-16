@@ -9502,6 +9502,30 @@ ALTER TABLE ONLY public.arrival_intake_reviews
 
 
 --
+-- Name: audit_log audit_log_decision_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_log
+    ADD CONSTRAINT audit_log_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES public.identity_decisions(decision_id);
+
+
+--
+-- Name: audit_log audit_log_decision_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_log
+    ADD CONSTRAINT audit_log_decision_tenant_fk FOREIGN KEY (tenant_id, decision_id) REFERENCES public.identity_decisions(tenant_id, decision_id);
+
+
+--
+-- Name: audit_log audit_log_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.audit_log
+    ADD CONSTRAINT audit_log_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: auth_pending_email_grants auth_pending_email_grants_role_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10059,6 +10083,46 @@ ALTER TABLE ONLY public.goat_identifiers
 
 ALTER TABLE ONLY public.goat_identifiers
     ADD CONSTRAINT goat_identifiers_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: goat_identity_events goat_identity_events_decision_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_identity_events
+    ADD CONSTRAINT goat_identity_events_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES public.identity_decisions(decision_id);
+
+
+--
+-- Name: goat_identity_events goat_identity_events_decision_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_identity_events
+    ADD CONSTRAINT goat_identity_events_decision_tenant_fk FOREIGN KEY (tenant_id, decision_id) REFERENCES public.identity_decisions(tenant_id, decision_id);
+
+
+--
+-- Name: goat_identity_events goat_identity_events_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_identity_events
+    ADD CONSTRAINT goat_identity_events_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
+
+
+--
+-- Name: goat_identity_events goat_identity_events_goat_tenant_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_identity_events
+    ADD CONSTRAINT goat_identity_events_goat_tenant_fk FOREIGN KEY (tenant_id, goat_id) REFERENCES public.goats(tenant_id, goat_id);
+
+
+--
+-- Name: goat_identity_events goat_identity_events_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.goat_identity_events
+    ADD CONSTRAINT goat_identity_events_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --
