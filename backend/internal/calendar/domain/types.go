@@ -194,6 +194,9 @@ type CalendarDateMarker struct {
 	CompletedCount int    `json:"completed_count"`
 	OpenCount      int    `json:"open_count"`
 	DriveCount     int    `json:"drive_count"`
+	DueCount       int    `json:"due_count"`
+	OverdueCount   int    `json:"overdue_count"`
+	DeferredCount  int    `json:"deferred_count"`
 }
 
 type CalendarPresentation struct {

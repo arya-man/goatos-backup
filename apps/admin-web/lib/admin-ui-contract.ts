@@ -12,7 +12,10 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "calendar.picker.previous_year": "Previous year",
     "calendar.picker.next_year": "Next year",
     "calendar.picker.drive_hint": "drive day",
+    "calendar.picker.due_hint": "due work",
+    "calendar.picker.deferred_hint": "deferred work",
     "calendar.picker.other_hint": "other due work",
+    "calendar.picker.history_hint": "completed history",
   },
   vaccination: {
     "status.scheduled_drive": "Drive scheduled",

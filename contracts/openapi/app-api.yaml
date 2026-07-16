@@ -6006,6 +6006,9 @@ components:
         - completed_count
         - open_count
         - drive_count
+        - due_count
+        - overdue_count
+        - deferred_count
       properties:
         date:
           type: string
@@ -6020,6 +6023,15 @@ components:
           type: integer
           minimum: 0
         drive_count:
+          type: integer
+          minimum: 0
+        due_count:
+          type: integer
+          minimum: 0
+        overdue_count:
+          type: integer
+          minimum: 0
+        deferred_count:
           type: integer
           minimum: 0
     CalendarHistoryItem:

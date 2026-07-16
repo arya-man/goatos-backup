@@ -25,6 +25,7 @@ import {
 import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { CalendarEventDrawer } from "./calendar-event-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
+import { markerTonesForDate } from "./calendar-marker-tones";
 import { enumerateWeekDays, historyWindow, monthWindow, weekWindow } from "./calendar-window";
 import { calendarEventDateKey, calendarEventWeekday, filterEventsForSelectedWeek } from "./calendar-window-events";
 import { DriveProgressCard } from "./calendar-drive-card";
@@ -374,7 +375,6 @@ export async function VaccinationCalendarPage({
               dateMarkers={markers?.ok ? markers.data.date_markers : []}
               anchorKey={anchorKey}
               today={today}
-              ownerMeta={ownerMeta}
               presentation={presentation}
               pageContract={pageContract}
               monthHref={pickerMonthHref}
@@ -741,7 +741,6 @@ function CalendarDatePicker({
   dateMarkers,
   anchorKey,
   today,
-  ownerMeta,
   presentation,
   pageContract,
   monthHref,
@@ -751,7 +750,6 @@ function CalendarDatePicker({
   dateMarkers: CalendarDateMarker[];
   anchorKey: string;
   today: string;
-  ownerMeta: OwnerPresentationMap;
   presentation: CalendarPresentation;
   pageContract: AdminUiPageContract;
   monthHref: (date: string) => string;
@@ -842,7 +840,7 @@ function CalendarDatePicker({
           const hasDrive = dayEvents.length > 0;
           const hasHistory = (marker?.completed_count ?? 0) > 0;
           const hasOpenWork = (marker?.open_count ?? 0) > 0;
-          const owners = Array.from(new Set(dayEvents.map((event) => event.owner_key))).slice(0, 3);
+          const tones = markerTonesForDate(marker, dayEvents).slice(0, 4);
           const eventCount = marker?.event_count ?? dayEvents.length;
           return (
             <Link
@@ -861,10 +859,10 @@ function CalendarDatePicker({
               }
             >
               <span>{cell.day}</span>
-              {owners.length ? (
-                <i>
-                  {owners.map((owner) => (
-                    <em key={owner} style={{ background: ownerColor(owner, ownerMeta) }} />
+              {tones.length ? (
+                <i className="calmarker-dots" aria-hidden="true">
+                  {tones.map((tone) => (
+                    <em key={tone} className={`tone-${tone}`} />
                   ))}
                 </i>
               ) : null}
@@ -874,6 +872,8 @@ function CalendarDatePicker({
       </div>
       <div className="calpicker-note">
         <span className="calpicker-dot drive" /> {copy(pageContract, "calendar.picker.drive_hint")}
+        <span className="calpicker-dot due" /> {copy(pageContract, "calendar.picker.due_hint")}
+        <span className="calpicker-dot deferred" /> {copy(pageContract, "calendar.picker.deferred_hint")}
         <span className="calpicker-dot other" /> {copy(pageContract, "calendar.picker.other_hint")}
         <span className="calpicker-dot history" /> {copy(pageContract, "calendar.picker.history_hint")}
         <span className="sp" />

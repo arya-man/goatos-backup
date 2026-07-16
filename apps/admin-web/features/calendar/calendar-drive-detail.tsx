@@ -6,7 +6,7 @@ import { parseScope, scopeHref } from "@/lib/scope";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { driveSummaryOf } from "./calendar-contract";
-import { driveCoverage, driveCoveragePct, driveStatusChips } from "./drive-card-metrics";
+import { driveCoverage, driveCoveragePct, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
 
 // Full-screen drive detail (owner-directed replacement for the calendar drive drawer, 2026-07-14).
 // New route with no backend page contract yet, so its structural labels (breadcrumb crumbs, roster
@@ -115,8 +115,8 @@ export async function VaccinationDriveDetail({
           {chips.length ? (
             <div className="chips" style={{ marginTop: 14, gap: 14 }}>
               {chips.map((chip) => (
-                <span key={chip.key} className={`sc ${chip.key === "overdue" ? "over" : chip.key === "deferred" ? "def" : chip.key}`}>
-                  <span className={`d c-${chip.key === "overdue" ? "over" : chip.key === "deferred" ? "def" : chip.key}`} />
+                <span key={chip.key} className={`sc ${driveStatusClass(chip.key)}`}>
+                  <span className={`d c-${driveStatusClass(chip.key)}`} />
                   {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
                 </span>
               ))}

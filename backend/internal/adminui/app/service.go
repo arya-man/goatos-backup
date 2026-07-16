@@ -793,6 +793,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.picker.previous_year":        "Previous year",
 			"calendar.picker.next_year":            "Next year",
 			"calendar.picker.drive_hint":           "drive day",
+			"calendar.picker.due_hint":             "due work",
+			"calendar.picker.deferred_hint":        "deferred work",
 			"calendar.drive.all_day":               "All day",
 			"calendar.drive.sheds":                 "Sheds",
 			"calendar.drive.vaccines":              "Vaccines",

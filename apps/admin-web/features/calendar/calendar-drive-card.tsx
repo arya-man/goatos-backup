@@ -7,7 +7,7 @@ import { Syringe } from "lucide-react";
 import { copy, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { driveSummaryOf, type CalendarEvent } from "./calendar-contract";
-import { driveCoverage, driveCoveragePct, driveStatusChips } from "./drive-card-metrics";
+import { driveCoverage, driveCoveragePct, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
 
 export function DriveProgressCard({ event, pageContract }: { event: CalendarEvent; pageContract: AdminUiPageContract }) {
   const summary = driveSummaryOf(event);
@@ -44,7 +44,7 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
   const ringOffset = ringCircumference * (1 - pct / 100);
 
   return (
-    <div className="ev">
+    <div className="ev drive-card">
       <div className="dhd">
         <Syringe className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
         <b>
@@ -82,8 +82,8 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
       {chips.length > 0 ? (
         <div className="chips">
           {chips.map((chip) => (
-            <div key={chip.key} className={`sc ${chip.key}`}>
-              <div className={`d c-${chip.key}`} />
+            <div key={chip.key} className={`sc ${driveStatusClass(chip.key)}`}>
+              <div className={`d c-${driveStatusClass(chip.key)}`} />
               {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
             </div>
           ))}

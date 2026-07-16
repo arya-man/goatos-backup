@@ -102,12 +102,47 @@ LIMIT 21`, testTenantID, dateFrom, dateToExclusive)
 	}
 }
 
-func TestCalendarDefaultListAndMarkersHideDeferredHolds(t *testing.T) {
+func TestCalendarDefaultListHidesDeferredHoldsButDateMarkersExposeThem(t *testing.T) {
 	const defaultOpenPredicate = "status NOT IN ('completed', 'canceled', 'deferred')"
 	if !strings.Contains(calendarCanonicalListSQL, defaultOpenPredicate) {
 		t.Fatalf("calendar list default predicate does not hide deferred holds")
 	}
-	if !strings.Contains(calendarDateMarkersSQL, defaultOpenPredicate) {
-		t.Fatalf("calendar date marker default predicate does not hide deferred holds")
+	if strings.Contains(calendarDateMarkersSQL, defaultOpenPredicate) {
+		t.Fatalf("calendar date marker default predicate must expose deferred holds for month status markers")
+	}
+	if !strings.Contains(calendarDateMarkersSQL, "count(*) FILTER (WHERE status = 'deferred')::bigint AS deferred_count") {
+		t.Fatalf("calendar date marker query must expose deferred_count")
+	}
+}
+
+func TestCalendarDateMarkersStatusBucketsDateShiftParkScopeMultiPageOneToMany(t *testing.T) {
+	checks := map[string]string{
+		"date lower bound":         "due_at >= $2::timestamptz",
+		"date upper bound":         "due_at < $3::timestamptz",
+		"india date shift":         "AT TIME ZONE 'Asia/Kolkata'",
+		"park scope":               "park_id::text = nullif($6::text, '')",
+		"shed scope":               "shed_id::text = nullif($7::text, '')",
+		"authorization scope":      "park_id = ANY($9::uuid[]) OR shed_id = ANY($10::uuid[])",
+		"open status bucket":       "count(*) FILTER (WHERE status NOT IN ('completed', 'canceled'))::bigint AS open_count",
+		"due status bucket":        "count(*) FILTER (WHERE status = 'due')::bigint AS due_count",
+		"overdue status bucket":    "count(*) FILTER (WHERE status = 'overdue')::bigint AS overdue_count",
+		"deferred status bucket":   "count(*) FILTER (WHERE status = 'deferred')::bigint AS deferred_count",
+		"completed status bucket":  "count(*)::bigint AS completed_count",
+		"history one-to-many base": "FROM vaccination_completions vc",
+		"final one row per date":   "GROUP BY marker_date\nORDER BY marker_date",
+	}
+	for name, fragment := range checks {
+		if !strings.Contains(calendarDateMarkersSQL, fragment) {
+			t.Fatalf("calendar date marker query lost %s invariant %q", name, fragment)
+		}
+	}
+	if strings.Contains(calendarDateMarkersSQL, "LIMIT ") {
+		t.Fatalf("calendar date marker aggregation must not page inside the month; the caller pages event lists only")
+	}
+	if got := strings.Count(calendarDateMarkersSQL, "GROUP BY (due_at AT TIME ZONE 'Asia/Kolkata')::date"); got != 1 {
+		t.Fatalf("live marker branch must aggregate to one row per shifted date before UNION, got %d groupings", got)
+	}
+	if got := strings.Count(calendarDateMarkersSQL, "GROUP BY (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date"); got != 1 {
+		t.Fatalf("history marker branch must aggregate to one row per shifted date before UNION, got %d groupings", got)
 	}
 }

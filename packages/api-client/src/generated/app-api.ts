@@ -2189,6 +2189,9 @@ export interface components {
             completed_count: number;
             open_count: number;
             drive_count: number;
+            due_count: number;
+            overdue_count: number;
+            deferred_count: number;
         };
         CalendarHistoryItem: {
             history_id: string;

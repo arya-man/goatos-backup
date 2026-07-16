@@ -599,10 +599,17 @@
 	  .calpicker-day.has-history:not(.has-open-work) b{background:var(--purple);color:#08130B}
 	  .calpicker-day i{position:absolute;left:50%;right:auto;bottom:5px;display:flex;justify-content:center;gap:2px;transform:translateX(-50%)}
 	  .calpicker-day em{display:block;width:5px;height:5px;border-radius:50%}
+	  .calpicker-day .tone-drive{background:var(--brand)}
+	  .calpicker-day .tone-due{background:var(--amber)}
+	  .calpicker-day .tone-deferred{background:var(--purple)}
+	  .calpicker-day .tone-other{background:var(--info)}
+	  .calpicker-day .tone-history{background:var(--purple)}
 	  .calpicker-note{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px solid var(--line2);color:var(--muted);font-size:11px}
 	  .calpicker-note .sp{flex:1}
 	  .calpicker-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 	  .calpicker-dot.drive{background:var(--brand)}
+	  .calpicker-dot.due{background:var(--amber)}
+	  .calpicker-dot.deferred{background:var(--purple)}
 	  .calpicker-dot.other{background:var(--info)}
 	  .calpicker-dot.history{background:var(--purple)}
 	  .opf{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
@@ -817,6 +824,14 @@
   .ev:hover{border-color:var(--brand);transform:translateY(-1px)}
   .ev.celllink{text-decoration:none;color:inherit;display:block}
   .drivelink{display:block;width:fit-content;max-width:100%;text-decoration:none;color:inherit;margin-bottom:8px}
+  .drive-card{min-width:min(100%,360px);padding:9px 12px;gap:8px}
+  .drive-card .dhd{padding-bottom:8px;border-bottom:1px solid var(--line2)}
+  .drive-card .prow{display:grid;grid-template-columns:48px minmax(0,1fr);gap:12px;margin-top:0}
+  .drive-card .dring{width:48px;height:48px}
+  .drive-card .ptx{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center}
+  .drive-card .ptx > div:first-child{grid-column:1/-1}
+  .drive-card .chips{margin-top:0;padding-top:7px;border-top:1px solid var(--line2)}
+  .drive-card .dft{margin-top:0;padding-top:7px}
   .dhd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .dhd b{font-size:14px}
   .prow{display:flex;align-items:center;gap:14px;margin-top:11px}
@@ -835,10 +850,10 @@
   .c-due{background:var(--amber)}
   .c-over{background:var(--danger)}
   .c-def{background:var(--purple)}
-  .sc.done{color:var(--brand-d)}
+  .sc.done,.sc.completed{color:var(--brand-d)}
   .sc.due{color:var(--amber)}
   .sc.over{color:var(--danger)}
-  .sc.def{color:var(--purple)}
+  .sc.def,.sc.deferred{color:var(--purple)}
   .dft{margin-top:11px;padding-top:9px;border-top:1px solid var(--line2);font-size:12.5px;color:var(--muted)}
   /* Old event row styles (non-drive) */
   .ev .et{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);width:52px;flex:none;padding-top:1px}

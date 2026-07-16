@@ -93,7 +93,16 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 		defer markerRows.Close()
 		for markerRows.Next() {
 			var marker domain.CalendarDateMarker
-			if err := markerRows.Scan(&marker.Date, &marker.EventCount, &marker.CompletedCount, &marker.OpenCount, &marker.DriveCount); err != nil {
+			if err := markerRows.Scan(
+				&marker.Date,
+				&marker.EventCount,
+				&marker.CompletedCount,
+				&marker.OpenCount,
+				&marker.DriveCount,
+				&marker.DueCount,
+				&marker.OverdueCount,
+				&marker.DeferredCount,
+			); err != nil {
 				return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: scan date marker: %w", err)
 			}
 			dateMarkers = append(dateMarkers, marker)
@@ -1807,7 +1816,10 @@ marker_rows AS (
     count(*)::bigint AS event_count,
     count(*) FILTER (WHERE status = 'completed')::bigint AS completed_count,
     count(*) FILTER (WHERE status NOT IN ('completed', 'canceled'))::bigint AS open_count,
-    count(*) FILTER (WHERE event_type = 'vaccination_drive')::bigint AS drive_count
+    count(*) FILTER (WHERE event_type = 'vaccination_drive')::bigint AS drive_count,
+    count(*) FILTER (WHERE status = 'due')::bigint AS due_count,
+    count(*) FILTER (WHERE status = 'overdue')::bigint AS overdue_count,
+    count(*) FILTER (WHERE status = 'deferred')::bigint AS deferred_count
   FROM source_events
   WHERE system = false
     AND due_at >= $2::timestamptz
@@ -1816,7 +1828,7 @@ marker_rows AS (
     AND event_type <> 'vaccination_history'
     AND ($4::text = '' OR owner_key = $4::text)
     AND ($5::text = '' OR status = $5::text)
-    AND ($5::text <> '' OR status NOT IN ('completed', 'canceled', 'deferred'))
+    AND ($5::text <> '' OR status NOT IN ('completed', 'canceled'))
     AND ($6::text = '' OR park_id::text = nullif($6::text, ''))
     AND ($7::text = '' OR shed_id::text = nullif($7::text, ''))
     AND ($8::bool OR park_id = ANY($9::uuid[]) OR shed_id = ANY($10::uuid[]))
@@ -1833,7 +1845,10 @@ marker_rows AS (
     count(*)::bigint AS event_count,
     count(*)::bigint AS completed_count,
     0::bigint AS open_count,
-    0::bigint AS drive_count
+    0::bigint AS drive_count,
+    0::bigint AS due_count,
+    0::bigint AS overdue_count,
+    0::bigint AS deferred_count
   FROM vaccination_completions vc
   JOIN obligation_instances oi
     ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
@@ -1860,7 +1875,10 @@ SELECT marker_date,
        sum(event_count)::int,
        sum(completed_count)::int,
        sum(open_count)::int,
-       sum(drive_count)::int
+       sum(drive_count)::int,
+       sum(due_count)::int,
+       sum(overdue_count)::int,
+       sum(deferred_count)::int
 FROM marker_rows
 GROUP BY marker_date
 ORDER BY marker_date`
