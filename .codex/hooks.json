@@ -9,6 +9,12 @@
             "command": "node tools/agent-hooks/agentmemory-codex-hook.mjs session-start",
             "timeout": 10,
             "statusMessage": "Registering GoatOS agentmemory session"
+          },
+          {
+            "type": "command",
+            "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; if [ -z \"$repo\" ] || [ ! -f \"$repo/tools/agent-hooks/docs-graph-drift-detect.sh\" ]; then repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; fi; script=\"$repo/tools/agent-hooks/docs-graph-drift-detect.sh\"; if [ -f \"$script\" ]; then bash \"$script\" 2>&1 || true; fi",
+            "timeout": 20,
+            "statusMessage": "Checking GoatOS docs-graph vs origin/main"
           }
         ]
       }
