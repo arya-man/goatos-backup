@@ -112,8 +112,14 @@ Reviewed HRMS shed ownership seed:
   `backup_manager_name`.
 - For staging, every row must keep `assignment_source = reviewed`,
   `needs_review = false`, and a non-provisional `source_ref`.
-- If any shed code, manager code, or backup code does not resolve in staging,
-  stop. Do not fall back to provisional ownership.
+- The CSV is an override, not the only way a shed may get a vaccination owner.
+  When a refreshed goat source introduces extra active sheds before this CSV is
+  regenerated, `seed-shed-positions` must materialize those shed manager seats
+  from the reviewed park `preventive_care_manager` position (`Eshwar` for CBE,
+  `Darshan Talwar` for CPT) and the park Backup Manager. If a code present in
+  the CSV does not resolve, or if a park has no reviewed preventive-care manager
+  or backup-manager position, stop. Never accept `Manager: unassigned` as a
+  normal vaccination board state.
 
 ## Seed Command Status
 
