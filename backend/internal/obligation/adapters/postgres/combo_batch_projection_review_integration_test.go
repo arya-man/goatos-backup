@@ -12,6 +12,7 @@ import (
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -334,6 +335,29 @@ func TestListPlannedComboBatchesDateShiftFiltersByPlannedDate(t *testing.T) {
 	ids := listComboBatchIDs(rows)
 	if len(ids) != 1 || ids[0] != included {
 		t.Fatalf("date-shift filter returned %#v, want only the on/before batch %s (excluded=%s)", ids, included, excluded)
+	}
+}
+
+func TestListPlannedComboBatchesKeysetUsesISTBusinessDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	_ = seed(t, ctx, pool)
+	versionID := mustVersionOf(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	plannedTodayIST := time.Date(2026, 7, 16, 0, 0, 0, 0, biztime.DefaultLocation())
+	included := mkPlannedComboBatch(t, ctx, repo, versionID, "park", cbePark, "combo:FMD+HS", plannedTodayIST)
+	dueBeforePreDawnIST := time.Date(2026, 7, 16, 4, 0, 0, 0, biztime.DefaultLocation())
+
+	rows, err := repo.ListPlannedComboBatchesKeyset(ctx, tenantID, dueBeforePreDawnIST, nil, 100)
+	if err != nil {
+		t.Fatalf("list planned combo batches keyset: %v", err)
+	}
+	if ids := listComboBatchIDs(rows); len(ids) != 1 || ids[0] != included {
+		t.Fatalf("IST business-date filter returned %#v, want today's batch %s", ids, included)
 	}
 }
 

@@ -510,7 +510,6 @@ export function buildVaccinationMatrixPreview(
       name: "Vaccination matrix",
       type: "matrix",
       pathogen_class: "mixed",
-      course_type: "matrix",
       inventory_item_id: null,
       manufacturer: "mesha-config",
       disease: "Preventive Care vaccination",

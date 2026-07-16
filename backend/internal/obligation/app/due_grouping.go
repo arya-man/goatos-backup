@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sort"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
@@ -39,4 +40,44 @@ func groupUnbatchedDue(rows []domain.UnbatchedDue, speciesGroupingPolicy string)
 		g.ids = append(g.ids, r.ObligationID)
 	}
 	return order, groups
+}
+
+func orderDueGroupsByVaccinePriority(order []string, groups map[string]*dueGroup, cfg SweepConfig) []string {
+	out := append([]string(nil), order...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left := groups[out[i]]
+		right := groups[out[j]]
+		if left == nil || right == nil {
+			return out[i] < out[j]
+		}
+		leftID := cfg.getRuleVaccineIdentity(left.ruleID)
+		rightID := cfg.getRuleVaccineIdentity(right.ruleID)
+		if leftID.VaccinePriority != rightID.VaccinePriority {
+			return leftID.VaccinePriority < rightID.VaccinePriority
+		}
+		if leftID.VaccineCode != rightID.VaccineCode {
+			return leftID.VaccineCode < rightID.VaccineCode
+		}
+		return out[i] < out[j]
+	})
+	return out
+}
+
+func orderParkCandidatesByVaccinePriority(rows []domain.ParkConsolidationCandidate, identityFor ruleVaccineIdentityResolver) []domain.ParkConsolidationCandidate {
+	out := append([]domain.ParkConsolidationCandidate(nil), rows...)
+	sort.SliceStable(out, func(i, j int) bool {
+		leftID := identityFor(out[i].RuleID)
+		rightID := identityFor(out[j].RuleID)
+		if leftID.VaccinePriority != rightID.VaccinePriority {
+			return leftID.VaccinePriority < rightID.VaccinePriority
+		}
+		if leftID.VaccineCode != rightID.VaccineCode {
+			return leftID.VaccineCode < rightID.VaccineCode
+		}
+		if !out[i].DueAt.Equal(out[j].DueAt) {
+			return out[i].DueAt.Before(out[j].DueAt)
+		}
+		return out[i].ObligationID < out[j].ObligationID
+	})
+	return out
 }

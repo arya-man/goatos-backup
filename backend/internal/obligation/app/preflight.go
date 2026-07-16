@@ -96,15 +96,11 @@ func (s *SweepCandidateSnapshot) candidateIDs(versionID string) []string {
 // cursor (it depends on rows becoming batched, which only CreateBatchWithObligations does). A
 // same-priority tie can only occur between two obligations sharing the exact same (target, date)
 // visit, which -- given ListUnbatchedDueForVersion orders by due date -- means they overwhelmingly
-// land in the same first page together. A tie that only manifests beyond the first page for a single
-// version is still caught (and still aborts the run) by the real sweep's own
-// selectIDsWithinVisitShotCapForSession call; only the "zero committed writes on abort" guarantee is
-// narrowed to the first-page case for that residual scenario. The park-consolidation replay, by
-// contrast, DOES page its cursor-based ListUnbatchedShedDueForParkConsolidation to exhaustion (that
-// cursor advances by row identity, not by rows becoming batched), so park ties are fully covered.
-// The shed fallback pass (batchRemainingShedObligations) reuses the same batchDueGroup selection as
-// the main loop over the same shed rows and cannot introduce a NEW same-priority tie the main-loop
-// or park replay has not already claimed against.
+// land in the same first page together. The park-consolidation replay, by contrast, DOES page its
+// cursor-based ListUnbatchedShedDueForParkConsolidation to exhaustion (that cursor advances by row
+// identity, not by rows becoming batched), so park ties are fully covered. The shed fallback pass
+// (batchRemainingShedObligations) is also replayed against the unclaimed snapshot rows, because
+// park thresholds can deliberately leave deferred shed groups for fallback batching.
 //
 // It also does NOT mutate the caller's real session: callers should construct their real
 // SweepSession and pass it to the subsequent SweepVersionWithSession calls only after this
@@ -146,6 +142,7 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshot(ctx context.Conte
 	keysetListerHWM, keysetHWM := s.repo.(unbatchedDueKeysetListerHWM)
 	for _, plan := range plans {
 		planner := normalizedDrivePlannerSettings(plan.Config.DrivePlanner, plan.Config.VaccineCode)
+		var parkCandidateIDs []string
 		var after *domain.UnbatchedDueCursor
 		seenCandidates := make(map[string]struct{})
 		for page := 0; page < maxPreflightUnbatchedPages; page++ {
@@ -179,13 +176,19 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshot(ctx context.Conte
 				uniqueRows = append(uniqueRows, row)
 			}
 			order, groups := groupUnbatchedDue(uniqueRows, planner.SpeciesGroupingPolicy)
+			order = orderDueGroupsByVaccinePriority(order, groups, plan.Config)
 			for _, k := range order {
 				g := groups[k]
 				if deferShedGroupToPark(plan.Config, g.scopeType, len(g.ids)) {
+					parkCandidateIDs = append(parkCandidateIDs, g.ids...)
 					continue
 				}
-				if err := s.preflightGroup(ctx, tenantID, plan.Config, planner, dueBefore, preflight, g, claimed); err != nil {
+				claimedAny, err := s.preflightGroup(ctx, tenantID, plan.Config, planner, dueBefore, preflight, g, claimed)
+				if err != nil {
 					return nil, err
+				}
+				if !claimedAny {
+					parkCandidateIDs = append(parkCandidateIDs, g.ids...)
 				}
 			}
 			if !keyset || int32(len(rows)) < s.page {
@@ -199,13 +202,16 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshot(ctx context.Conte
 				ObligationID: last.ObligationID,
 			}
 		}
-	}
-	for _, plan := range plans {
-		var parkCandidateIDs []string
 		if _, ok := s.repo.(snapshotParkConsolidationLister); ok {
-			parkCandidateIDs = snapshot.candidateIDs(plan.VersionID)
+			if parkCandidateIDs == nil {
+				parkCandidateIDs = []string{}
+			}
 		}
-		if err := s.preflightParkConsolidation(ctx, tenantID, plan, dueBefore, preflight, claimed, createdAtHWM, parkCandidateIDs); err != nil {
+		parkClaimed := make(map[string]struct{})
+		if err := s.preflightParkConsolidation(ctx, tenantID, plan, dueBefore, preflight, claimed, parkClaimed, createdAtHWM, parkCandidateIDs); err != nil {
+			return nil, err
+		}
+		if err := s.preflightRemainingShedObligations(ctx, tenantID, plan, dueBefore, preflight, claimed, parkClaimed, createdAtHWM, parkCandidateIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -216,7 +222,7 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshot(ctx context.Conte
 // dueGroup, write-free. See PreflightVisitShotCapTies for why this must mirror batchDueGroup
 // exactly. Every obligation it claims is recorded in claimed so the park-consolidation replay does
 // not double-count it.
-func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cfg SweepConfig, planner domain.DrivePlannerSettings, dueBefore time.Time, session *SweepSession, g *dueGroup, claimed map[string]struct{}) error {
+func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cfg SweepConfig, planner domain.DrivePlannerSettings, dueBefore time.Time, session *SweepSession, g *dueGroup, claimed map[string]struct{}) (bool, error) {
 	plannedDate := batchPlannedDate(g.rows[0].DueAt)
 	if planner.Enabled {
 		if picked := pickBestDriveDateWithHold(dueBefore, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
@@ -225,36 +231,38 @@ func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cf
 	}
 	targetIDs := distinctUnbatchedTargetIDs(g.rows)
 	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
-		return err
+		return false, err
 	}
 	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
 	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
 	selectedIDs, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 	if err != nil {
-		return err
+		return false, err
 	}
 	recordClaimed(claimed, selectedIDs)
+	claimedAny := len(selectedIDs) > 0
 	if len(selectedIDs) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
 		if overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows); overflowDate != nil {
 			plannedDate = overflowDate
 			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
-				return err
+				return claimedAny, err
 			}
 			overflowIDs, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 			if err != nil {
-				return err
+				return claimedAny, err
 			}
 			recordClaimed(claimed, overflowIDs)
+			claimedAny = claimedAny || len(overflowIDs) > 0
 		}
 	}
-	return nil
+	return claimedAny, nil
 }
 
 // preflightParkConsolidation replays consolidateParkDrivesWithVisitCounts' merge decision for one
 // plan, write-free, onto the shared preflight session (RV-01). Obligations already claimed by the
 // main-loop replay are excluded up front, matching the real flow where they are batched and removed
 // before park consolidation lists them.
-func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantID string, plan SweepVersionPriority, dueBefore time.Time, session *SweepSession, claimed map[string]struct{}, createdAtHWM time.Time, candidateIDs []string) error {
+func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantID string, plan SweepVersionPriority, dueBefore time.Time, session *SweepSession, claimed map[string]struct{}, parkClaimed map[string]struct{}, createdAtHWM time.Time, candidateIDs []string) error {
 	cfg := plan.Config
 	settings := cfg.ParkConsolidation
 	if !settings.Enabled {
@@ -324,10 +332,11 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 		}
 		remaining := append([]domain.ParkConsolidationCandidate(nil), rows...)
 		for len(remaining) >= int(minMergeTargets) && uniqueShedCount(remaining) >= int(minMergeSheds) {
-			next, stop, err := s.preflightParkMergeStep(ctx, tenantID, cfg, planner, now, dueBefore, session, remaining, minMergeTargets, minMergeSheds)
+			next, selected, stop, err := s.preflightParkMergeStep(ctx, tenantID, cfg, planner, now, dueBefore, session, remaining, minMergeTargets, minMergeSheds)
 			if err != nil {
 				return err
 			}
+			recordClaimed(parkClaimed, selected)
 			remaining = next
 			if stop {
 				break
@@ -342,36 +351,83 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 // selectParkIDsWithinVisitShotCapForSession claim/tie logic, same overflow retry -- but it never
 // calls CreateBatchWithObligations. It returns the rows still un-merged and whether the caller's
 // merge loop should stop.
-func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, dueBefore time.Time, session *SweepSession, remaining []domain.ParkConsolidationCandidate, minMergeTargets, minMergeSheds int32) (newRemaining []domain.ParkConsolidationCandidate, stop bool, err error) {
+func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, dueBefore time.Time, session *SweepSession, remaining []domain.ParkConsolidationCandidate, minMergeTargets, minMergeSheds int32) (newRemaining []domain.ParkConsolidationCandidate, selectedIDs []string, stop bool, err error) {
 	plannedDate, selected := pickBestParkDriveDate(now, remaining)
 	targetIDs := distinctParkTargetIDs(remaining)
 	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
-		return remaining, true, err
+		return remaining, nil, true, err
 	}
 	// R2-05(b): mirror parkMergeStep's real per-rule identity resolution (not the version-level
 	// wrapper) so this write-free replay cannot disagree with the real merge decision it exists to
 	// preview.
-	selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
+	orderedRemaining := orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
+	selected, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 	if err != nil {
-		return remaining, true, err
+		return remaining, nil, true, err
 	}
 	if len(selected) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
 		if overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining); overflowDate != nil {
 			plannedDate = overflowDate
 			selected = obligationsFeasibleOnDate(*plannedDate, remaining)
 			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
-				return remaining, true, err
+				return remaining, nil, true, err
 			}
-			selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
+			orderedRemaining = orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
+			selected, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 			if err != nil {
-				return remaining, true, err
+				return remaining, nil, true, err
 			}
 		}
 	}
 	if plannedDate == nil || int32(len(selected)) < minMergeTargets || uniqueShedCount(filterRows(remaining, selected)) < int(minMergeSheds) {
-		return remaining, true, nil
+		return remaining, nil, true, nil
 	}
-	return removeRows(remaining, selected), false, nil
+	return removeRows(remaining, selected), selected, false, nil
+}
+
+// preflightRemainingShedObligations mirrors batchRemainingShedObligationsWithVisitCounts, write-free,
+// for shed rows not already claimed by the main-loop or park-consolidation replays.
+func (s *SweeperService) preflightRemainingShedObligations(ctx context.Context, tenantID string, plan SweepVersionPriority, dueBefore time.Time, session *SweepSession, claimed map[string]struct{}, parkClaimed map[string]struct{}, createdAtHWM time.Time, candidateIDs []string) error {
+	cfg := plan.Config
+	if !cfg.ParkConsolidation.Enabled {
+		return nil
+	}
+	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
+	var rows []domain.UnbatchedDue
+	addRows := func(in []domain.UnbatchedDue) {
+		for _, row := range filterShedRows(in) {
+			if _, done := claimed[row.ObligationID]; done {
+				continue
+			}
+			if _, done := parkClaimed[row.ObligationID]; done {
+				continue
+			}
+			rows = append(rows, row)
+		}
+	}
+	if candidateIDs != nil {
+		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
+			page, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, plan.VersionID, dueBefore, s.page, createdAtHWM, chunk)
+			if err != nil {
+				return fmt.Errorf("obligation: preflight list shed fallback for version %s: %w", plan.VersionID, err)
+			}
+			addRows(page)
+		}
+	} else {
+		page, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, plan.VersionID, dueBefore, s.page, createdAtHWM, nil)
+		if err != nil {
+			return fmt.Errorf("obligation: preflight list shed fallback for version %s: %w", plan.VersionID, err)
+		}
+		addRows(page)
+	}
+	order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
+	order = orderDueGroupsByVaccinePriority(order, groups, cfg)
+	for _, k := range order {
+		if _, err := s.preflightGroup(ctx, tenantID, cfg, planner, dueBefore, session, groups[k], claimed); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // recordClaimed adds every non-blank obligation id to claimed.

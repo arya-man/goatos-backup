@@ -116,3 +116,90 @@ func TestPreflightVisitShotCapTiesCleanWhenNoConflict(t *testing.T) {
 		t.Fatalf("dates=%#v, want FMD overflowed off 2026-07-01", dates)
 	}
 }
+
+func TestPreflightVisitShotCapTiesDetectsFallbackOnlyTieWriteFree(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	baseRepo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"v-matrix": {
+				{ObligationID: "obl-fmd", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+				{ObligationID: "obl-ppr", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+				{ObligationID: "obl-hs", RuleID: "rule-hs", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+			},
+		},
+		attachAll: true,
+	}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	cfg := SweepConfig{
+		VaccineCode: "Matrix Version",
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:                   true,
+			MaxShotsPerAnimalPerDrive: 2,
+		},
+		ParkConsolidation: domain.ParkConsolidationSettings{
+			Enabled:             true,
+			MinShedDriveTargets: 10,
+			MinParkMergeTargets: 1,
+			MinParkMergeSheds:   2,
+		},
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-fmd": {VaccineCode: "FMD", VaccinePriority: 5},
+			"rule-ppr": {VaccineCode: "PPR", VaccinePriority: 5},
+			"rule-hs":  {VaccineCode: "HS", VaccinePriority: 5},
+		},
+	}
+
+	_, err := svc.PreflightVisitShotCapTiesWithSnapshot(
+		context.Background(),
+		"tenant-1",
+		[]SweepVersionPriority{{VersionID: "v-matrix", Config: cfg}},
+		due,
+		time.Now(),
+	)
+	var tieErr *ShotCapPriorityTieError
+	if err == nil || !errors.As(err, &tieErr) {
+		t.Fatalf("err = %v, want *ShotCapPriorityTieError from fallback replay", err)
+	}
+	if repo.createBatchCalls != 0 {
+		t.Fatalf("createBatchCalls = %d, want 0 (preflight must stay write-free)", repo.createBatchCalls)
+	}
+}
+
+func TestPreflightVisitShotCapTiesReplaysFallbackBeforeNextPlan(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	baseRepo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"v-a": {{ObligationID: "obl-a", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+			"v-b": {{ObligationID: "obl-b", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+			"v-c": {{ObligationID: "obl-c", RuleID: "rule-c", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd}},
+		},
+		attachAll: true,
+	}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2}
+	park := domain.ParkConsolidationSettings{
+		Enabled:             true,
+		MinShedDriveTargets: 10,
+		MinParkMergeTargets: 1,
+		MinParkMergeSheds:   2,
+	}
+	plans := []SweepVersionPriority{
+		{VersionID: "v-a", Config: SweepConfig{VaccineCode: "ET+TT", DrivePlanner: planner, ParkConsolidation: park}},
+		{VersionID: "v-b", Config: SweepConfig{VaccineCode: "FMD", DrivePlanner: planner}},
+		{VersionID: "v-c", Config: SweepConfig{VaccineCode: "HS", DrivePlanner: planner}},
+	}
+	plans = SortSweepVersionsByPriority(plans)
+
+	_, err := svc.PreflightVisitShotCapTiesWithSnapshot(context.Background(), "tenant-1", plans, due, time.Now())
+	var tieErr *ShotCapPriorityTieError
+	if err == nil || !errors.As(err, &tieErr) {
+		t.Fatalf("err = %v, want *ShotCapPriorityTieError after per-plan fallback replay", err)
+	}
+	if repo.createBatchCalls != 0 {
+		t.Fatalf("createBatchCalls = %d, want 0 (preflight must stay write-free)", repo.createBatchCalls)
+	}
+}

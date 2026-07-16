@@ -393,6 +393,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 			snapshotRows = append(snapshotRows, rows...)
 		}
 		order, groups := groupUnbatchedDue(snapshotRows, planner.SpeciesGroupingPolicy)
+		order = orderDueGroupsByVaccinePriority(order, groups, cfg)
 
 		for _, k := range order {
 			g := groups[k]
@@ -425,6 +426,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 			}
 
 			order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
+			order = orderDueGroupsByVaccinePriority(order, groups, cfg)
 
 			var progressed int64
 			for _, k := range order {
@@ -654,6 +656,7 @@ func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx contex
 			snapshotRows = append(snapshotRows, rows...)
 		}
 		order, groups := groupUnbatchedDue(filterShedRows(snapshotRows), planner.SpeciesGroupingPolicy)
+		order = orderDueGroupsByVaccinePriority(order, groups, cfg)
 		for _, k := range order {
 			g := groups[k]
 			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, dueBefore, session, g)
@@ -679,6 +682,7 @@ func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx contex
 			break
 		}
 		order, groups := groupUnbatchedDue(filterShedRows(rows), planner.SpeciesGroupingPolicy)
+		order = orderDueGroupsByVaccinePriority(order, groups, cfg)
 
 		var progressed int64
 		for _, k := range order {

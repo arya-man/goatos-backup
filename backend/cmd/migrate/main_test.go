@@ -1,8 +1,15 @@
 package main
 
 import (
+	"context"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 func TestExtractGooseUp(t *testing.T) {
@@ -15,6 +22,61 @@ DROP TABLE t;`)
 	}
 	if strings.Contains(got, "DROP TABLE") || !strings.Contains(got, "CREATE TABLE") {
 		t.Fatalf("unexpected up SQL: %s", got)
+	}
+}
+
+func TestLoadMigrationsMarksNoTransaction(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "000001_no_tx.sql")
+	if err := os.WriteFile(path, []byte(`-- +goose Up
+-- +goose NO TRANSACTION
+CREATE INDEX CONCURRENTLY IF NOT EXISTS t_idx ON t (id);
+-- +goose Down
+DROP INDEX IF EXISTS t_idx;`), 0o600); err != nil {
+		t.Fatalf("write migration: %v", err)
+	}
+	migrations, err := loadMigrations(dir)
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	if len(migrations) != 1 {
+		t.Fatalf("migrations = %d, want 1", len(migrations))
+	}
+	if !migrations[0].NoTx {
+		t.Fatalf("NoTx = false, want true for goose NO TRANSACTION marker")
+	}
+}
+
+func TestApplyMigrationsRollsBackOrdinaryMigrationOnFailure(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	err := applyMigrations(ctx, pool, []migrationFile{{
+		Version:  "999999_tx_probe",
+		Filename: "999999_tx_probe.sql",
+		Checksum: "sha256:test",
+		SQL: `CREATE TABLE tx_probe (id int);
+INSERT INTO tx_probe VALUES (1);
+INSERT INTO missing_tx_probe VALUES (1);`,
+	}}, false, false, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil {
+		t.Fatal("applyMigrations succeeded, want failure")
+	}
+	var tableExists bool
+	if scanErr := pool.QueryRow(ctx, `SELECT to_regclass('public.tx_probe') IS NOT NULL`).Scan(&tableExists); scanErr != nil {
+		t.Fatalf("check tx_probe: %v", scanErr)
+	}
+	if tableExists {
+		t.Fatal("ordinary migration left tx_probe behind after failure; want transaction rollback")
+	}
+	var recorded int
+	if scanErr := pool.QueryRow(ctx, `SELECT count(*) FROM goatos_schema_migrations WHERE version='999999_tx_probe'`).Scan(&recorded); scanErr != nil {
+		t.Fatalf("check schema version: %v", scanErr)
+	}
+	if recorded != 0 {
+		t.Fatalf("schema version recorded = %d, want 0", recorded)
 	}
 }
 

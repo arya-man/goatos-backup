@@ -2233,7 +2233,7 @@ func (r *Repository) ListPlannedComboBatches(ctx context.Context, tenantID strin
 	if limit <= 0 {
 		limit = 1000
 	}
-	dueDay := dueBefore.UTC()
+	dueDay := biztime.BusinessDayStart(dueBefore)
 	// TargetIDs is aggregated here (one set-based join, not a per-batch follow-up query) so
 	// AlignComboDrives can enforce MaxShotsPerAnimalPerDrive when co-locating combo batches
 	// onto a shared date without an N+1 fan-out over the (typically small) combo batch set.
@@ -2298,7 +2298,7 @@ func (r *Repository) ListPlannedComboBatchesKeyset(ctx context.Context, tenantID
 	if limit <= 0 {
 		limit = 1000
 	}
-	dueDay := dueBefore.UTC()
+	dueDay := biztime.BusinessDayStart(dueBefore)
 
 	// Build keyset pagination WHERE clause. Cursor-based pagination: if after is provided,
 	// rows must be lexicographically AFTER the cursor in the ORDER BY direction.

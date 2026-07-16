@@ -749,8 +749,9 @@ func validateVaccinationMatrix(env ruleDSLEnvelope) error {
 			return err
 		}
 	}
-	// Validate course_type only if present (wrapper may omit it)
-	if strings.TrimSpace(env.Vaccine.CourseType) != "" {
+	// Validate course_type only for non-wrapper vaccines. The matrix wrapper is not an individual
+	// dose-course vaccine; older UI-created drafts may still carry course_type="matrix".
+	if strings.TrimSpace(env.Vaccine.CourseType) != "" && !isVaccinationMatrixWrapper(env) {
 		if err := validateCourseType(env.Vaccine.CourseType, "rule_dsl.vaccine"); err != nil {
 			return err
 		}
@@ -1693,6 +1694,11 @@ func isVaccinationMatrixRuleset(env ruleDSLEnvelope) bool {
 	return strings.EqualFold(strings.TrimSpace(env.RulesetFamily), "vaccination.matrix") ||
 		strings.EqualFold(strings.TrimSpace(env.Vaccine.Code), "vaccination.matrix") ||
 		len(env.MatrixRows) > 0
+}
+
+func isVaccinationMatrixWrapper(env ruleDSLEnvelope) bool {
+	return strings.EqualFold(strings.TrimSpace(env.Vaccine.Code), "vaccination.matrix") ||
+		strings.EqualFold(strings.TrimSpace(env.Vaccine.Type), "matrix")
 }
 
 func publishedVersionLooksLikeVaccinationMatrix(v domain.Version) bool {

@@ -170,3 +170,19 @@ func TestPublishAllowsMatrixWrapperWithoutCourseType(t *testing.T) {
 		}
 	})
 }
+
+func TestPublishAllowsFrontendMatrixWrapperCourseType(t *testing.T) {
+	base := validVaccinationMatrixRulesetDSL()
+	if !strings.Contains(base, `"type":"matrix"`) {
+		t.Fatalf("test fixture drift: expected matrix wrapper")
+	}
+	withFrontendWrapperCourse := strings.Replace(base, `"type":"matrix"`, `"type":"matrix","course_type":"matrix"`, 1)
+	version := domain.Version{
+		SopVersionID: "62000000-0000-4000-8000-000000000001",
+		ProofPolicy:  []byte(`{"required":true,"types":["video"]}`),
+		RuleDsl:      []byte(withFrontendWrapperCourse),
+	}
+	if err := ValidateExecutionContract(version); err != nil {
+		t.Fatalf("frontend matrix wrapper course_type must be publishable, got: %v", err)
+	}
+}

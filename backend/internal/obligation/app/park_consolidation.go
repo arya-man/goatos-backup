@@ -117,7 +117,8 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 	// R2-05(b): resolve each candidate's OWN rule to its real vaccine identity instead of the single
 	// version-level wrapper (cfg.VaccineCode/planner.VaccinePriority) -- a park merge routinely mixes
 	// several distinct matrix vaccines in one candidate set.
-	selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
+	orderedRemaining := orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
+	selected, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 	if err != nil {
 		_ = release(ctx)
 		return remaining, 0, true, err
@@ -133,7 +134,8 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 			if err != nil {
 				return remaining, 0, true, err
 			}
-			selected, err = selectParkIDsWithinVisitShotCapForSession(remaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
+			orderedRemaining = orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
+			selected, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 			if err != nil {
 				_ = release(ctx)
 				return remaining, 0, true, err

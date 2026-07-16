@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/vgoats/goatos/backend/internal/platform/localtarget"
 	"github.com/vgoats/goatos/backend/internal/platform/observability"
@@ -34,6 +35,7 @@ type migrationFile struct {
 	Path     string
 	Checksum string
 	SQL      string
+	NoTx     bool
 }
 
 func main() {
@@ -158,7 +160,8 @@ func loadMigrations(dir string) ([]migrationFile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read migration %s: %w", entry.Name(), err)
 		}
-		upSQL, err := extractGooseUp(string(data))
+		rawSQL := string(data)
+		upSQL, err := extractGooseUp(rawSQL)
 		if err != nil {
 			return nil, fmt.Errorf("parse migration %s: %w", entry.Name(), err)
 		}
@@ -169,6 +172,7 @@ func loadMigrations(dir string) ([]migrationFile, error) {
 			Path:     path,
 			Checksum: "sha256:" + hex.EncodeToString(sum[:]),
 			SQL:      upSQL,
+			NoTx:     hasGooseNoTransaction(rawSQL),
 		})
 	}
 	sort.Slice(files, func(i, j int) bool {
@@ -199,6 +203,15 @@ func extractGooseUp(sql string) (string, error) {
 		return "", errors.New("missing -- +goose Up section")
 	}
 	return upSQL, nil
+}
+
+func hasGooseNoTransaction(sql string) bool {
+	for _, line := range strings.Split(sql, "\n") {
+		if strings.EqualFold(strings.TrimSpace(line), "-- +goose NO TRANSACTION") {
+			return true
+		}
+	}
+	return false
 }
 
 func applyMigrations(ctx context.Context, pool *pgxpool.Pool, migrations []migrationFile, dryRun bool, allowChecksumDrift bool, log *slog.Logger) error {
@@ -248,16 +261,30 @@ CREATE TABLE IF NOT EXISTS goatos_schema_migrations (
 			log.Info("migration_pending", slog.String("version", migration.Version), slog.String("filename", migration.Filename))
 			continue
 		}
-		log.Info("migration_applying", slog.String("version", migration.Version), slog.String("filename", migration.Filename))
-		if err := execMigrationSQL(ctx, conn, migration.SQL); err != nil {
+		log.Info("migration_applying", slog.String("version", migration.Version), slog.String("filename", migration.Filename), slog.Bool("no_transaction", migration.NoTx))
+		if migration.NoTx {
+			if err := execMigrationSQL(ctx, conn, migration.SQL); err != nil {
+				return fmt.Errorf("apply migration %s: %w", migration.Version, err)
+			}
+			if err := recordMigration(ctx, conn, migration); err != nil {
+				return err
+			}
+			continue
+		}
+		tx, err := conn.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin migration %s: %w", migration.Version, err)
+		}
+		if err := execMigrationSQL(ctx, tx, migration.SQL); err != nil {
+			_ = tx.Rollback(ctx)
 			return fmt.Errorf("apply migration %s: %w", migration.Version, err)
 		}
-		if _, err := conn.Exec(ctx, `
-INSERT INTO goatos_schema_migrations (version, filename, checksum)
-VALUES ($1, $2, $3)`,
-			migration.Version, migration.Filename, migration.Checksum,
-		); err != nil {
-			return fmt.Errorf("record migration %s: %w", migration.Version, err)
+		if err := recordMigration(ctx, tx, migration); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit migration %s: %w", migration.Version, err)
 		}
 	}
 	return nil
@@ -275,13 +302,28 @@ func appliedMigrationChecksum(ctx context.Context, conn *pgxpool.Conn, version s
 	return checksum, nil
 }
 
-func execMigrationSQL(ctx context.Context, conn *pgxpool.Conn, sql string) error {
+type migrationExecutor interface {
+	Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error)
+}
+
+func recordMigration(ctx context.Context, exec migrationExecutor, migration migrationFile) error {
+	if _, err := exec.Exec(ctx, `
+INSERT INTO goatos_schema_migrations (version, filename, checksum)
+VALUES ($1, $2, $3)`,
+		migration.Version, migration.Filename, migration.Checksum,
+	); err != nil {
+		return fmt.Errorf("record migration %s: %w", migration.Version, err)
+	}
+	return nil
+}
+
+func execMigrationSQL(ctx context.Context, exec migrationExecutor, sql string) error {
 	statements, err := splitSQLStatements(sql)
 	if err != nil {
 		return err
 	}
 	for _, statement := range statements {
-		if _, err := conn.Exec(ctx, statement); err != nil {
+		if _, err := exec.Exec(ctx, statement); err != nil {
 			return err
 		}
 	}

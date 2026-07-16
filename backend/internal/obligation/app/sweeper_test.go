@@ -330,6 +330,102 @@ func TestSweepVersionWithSessionRetainsHighestPriorityPairNotArrivalOrder(t *tes
 	}
 }
 
+func TestSweepVersionPrioritizesRuleVaccinesWithinSingleMatrix(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"v-matrix": {
+				{ObligationID: "obl-fmd", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+				{ObligationID: "obl-ettt", RuleID: "rule-ettt", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+				{ObligationID: "obl-ppr", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+			},
+		},
+		attachAll: true,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	_, err := svc.SweepVersionWithSession(context.Background(), "tenant-1", "v-matrix", SweepConfig{
+		VaccineCode: "Matrix Version",
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:                   true,
+			MaxShotsPerAnimalPerDrive: 2,
+		},
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-fmd":  {VaccineCode: "FMD", VaccinePriority: 5},
+			"rule-ettt": {VaccineCode: "ET+TT", VaccinePriority: 1},
+			"rule-ppr":  {VaccineCode: "PPR", VaccinePriority: 2},
+		},
+	}, due, session)
+	if err != nil {
+		t.Fatalf("sweep matrix: %v", err)
+	}
+	dates := obligationIDPlannedDates(repo)
+	if dates["obl-ettt"] != "2026-07-01" || dates["obl-ppr"] != "2026-07-01" {
+		t.Fatalf("dates=%#v, want ET+TT and PPR retained on first drive", dates)
+	}
+	if dates["obl-fmd"] == "2026-07-01" {
+		t.Fatalf("dates=%#v, want lower-priority FMD overflowed off first drive", dates)
+	}
+}
+
+func TestSweepVersionSnapshotFallbackPrioritizesRuleVaccinesWithinSingleMatrix(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-fmd", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+		{ObligationID: "obl-ettt", RuleID: "rule-ettt", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+		{ObligationID: "obl-ppr", RuleID: "rule-ppr", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+	}
+	baseRepo := &fakeSweepRepo{rows: rows, attachAll: true}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	snapshot := &SweepCandidateSnapshot{byVersion: map[string][]string{
+		"v-matrix": {"obl-fmd", "obl-ettt", "obl-ppr"},
+	}}
+	cfg := SweepConfig{
+		VaccineCode: "Matrix Version",
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:                   true,
+			MaxShotsPerAnimalPerDrive: 2,
+		},
+		ParkConsolidation: domain.ParkConsolidationSettings{
+			Enabled:             true,
+			MinShedDriveTargets: 10,
+			MinParkMergeTargets: 1,
+			MinParkMergeSheds:   2,
+		},
+		RuleVaccineIDs: map[string]RuleVaccineIdentity{
+			"rule-fmd":  {VaccineCode: "FMD", VaccinePriority: 5},
+			"rule-ettt": {VaccineCode: "ET+TT", VaccinePriority: 1},
+			"rule-ppr":  {VaccineCode: "PPR", VaccinePriority: 2},
+		},
+	}
+	result, err := svc.SweepVersionWithSessionNoFinalizeSnapshot(
+		context.Background(),
+		"tenant-1",
+		"v-matrix",
+		cfg,
+		due,
+		NewSweepSession(),
+		time.Now(),
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalizeSnapshot: %v", err)
+	}
+	if result.Batches != 3 || result.Obligations != 3 {
+		t.Fatalf("result = %#v, want fallback to batch all three obligations", result)
+	}
+	dates := obligationIDPlannedDates(repo.fakeSweepRepo)
+	if dates["obl-ettt"] != "2026-07-01" || dates["obl-ppr"] != "2026-07-01" {
+		t.Fatalf("dates=%#v, want ET+TT and PPR retained on first fallback drive", dates)
+	}
+	if dates["obl-fmd"] == "2026-07-01" {
+		t.Fatalf("dates=%#v, want lower-priority FMD overflowed off first fallback drive", dates)
+	}
+}
+
 // TestSweepVersionWithSessionBlocksOnUnresolvedPriorityTie covers BUG2 requirement 3: when more
 // than MaxShotsPerAnimalPerDrive vaccines compete for one animal's visit and the deciding
 // (boundary) vaccines resolve to the SAME priority, the sweeper must surface an explicit
