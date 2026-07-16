@@ -1966,17 +1966,10 @@
 
     <!-- ===== PEOPLE ===== -->
     <section class="screen" data-screen="people">
-      <div class="subtabs">
-        <button data-screen="people" data-sub="dash" class="on">Overview</button>
-        <button data-screen="people" data-sub="tasks">Tasks &amp; Proof<span class="cbq" id="hxTabTaskCt">4</span></button>
-        <button data-screen="people" data-sub="org">Org Chart</button>
-        <button data-screen="people" data-sub="leave">Leave<span class="cbq" id="hxTabLeaveCt">2</span></button>
-        <button data-screen="people" data-sub="attend">Attendance</button>
-        <button data-screen="people" data-sub="positions">Position &amp; Coverage</button>
-        <button data-screen="people" data-sub="timetable">Timetable</button>
-        <button data-screen="people" data-sub="roles">Roles &amp; access</button>
-        <button data-screen="people" data-sub="audit">Audit log</button>
-      </div>
+      <!-- No subtab row on HR / People: the sidebar's HR / People leaves are the only
+           nav for the 5 HRMS pages, and Admin / Data Ops owns Roles & access + Audit log.
+           Removed row (was): Overview · Tasks & Proof · Org Chart · Leave · Attendance ·
+           Position & Coverage · Timetable · Roles & access · Audit log. -->
 
       <!-- ===== HRMS · Overview ===== -->
       <div class="subpanel on hrms" data-sub="dash">
@@ -1985,7 +1978,7 @@
           <div class="kpi"><div class="acc" style="background:var(--brand)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-clock"/></svg>Clocked in</div><div class="val" id="hxKClock">4<small> / 5</small></div><div class="dl" id="hxKClockDl">1 not yet in</div></div>
           <div class="kpi"><div class="acc" style="background:var(--ok)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-check"/></svg>Tasks done</div><div class="val" id="hxKDone">7<small> / 12</small></div><div class="dl muted" id="hxKDoneDl">58% complete</div></div>
           <div class="kpi"><div class="acc" style="background:var(--warn)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-list"/></svg>Pending proof</div><div class="val" id="hxKPend">4</div><div class="dl down">awaiting upload</div></div>
-          <div class="kpi"><div class="acc" style="background:var(--info)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-cal"/></svg>Leave to action</div><div class="val" id="hxKLeave">2</div><div class="dl muted">your approval</div></div>
+          <div class="kpi"><div class="acc" style="background:var(--info)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-cal"/></svg><span id="hxKLeaveLab">Leave to action</span></div><div class="val" id="hxKLeave">2</div><div class="dl muted" id="hxKLeaveDl">your approval</div></div>
         </div>
         <div class="card" style="margin-top:16px"><div class="hd"><h3>Today's completion by person</h3><div class="sp"></div><span class="tag t-mut" id="hxTeamCount">5 people</span></div>
           <div class="bd" style="padding:0"><table><thead><tr><th>Person</th><th>Clock-in</th><th>Tasks done</th><th>Proof pending</th><th></th></tr></thead><tbody id="hxTeamBody"></tbody></table></div></div>
@@ -2016,9 +2009,9 @@
       <div class="subpanel hrms" data-sub="leave">
         <div class="phead"><div><div class="crumb">HR / People / <b>Leave</b></div><h1>Leave Requests</h1><div class="sub" id="hxLeaveSub">The manager decides — approve or reject. An approved request is final; there is no second step.</div></div><div class="sp"></div><button class="btn"><svg class="ic"><use href="#i-plus"/></svg>New request</button></div>
         <div class="grid g3">
-          <div class="kpi"><div class="acc" style="background:var(--warn)"></div><div class="lab">Pending you</div><div class="val" id="hxLvAwait">2</div><div class="dl muted">to decide</div></div>
-          <div class="kpi"><div class="acc" style="background:var(--ok)"></div><div class="lab">Approved (30d)</div><div class="val" id="hxLvOk">7</div><div class="dl up">team</div></div>
-          <div class="kpi"><div class="acc" style="background:var(--danger)"></div><div class="lab">Rejected (30d)</div><div class="val" id="hxLvRej">1</div><div class="dl down">team</div></div>
+          <div class="kpi"><div class="acc" style="background:var(--warn)"></div><div class="lab" id="hxLvAwaitLab">Pending you</div><div class="val" id="hxLvAwait">2</div><div class="dl muted" id="hxLvAwaitDl">to decide</div></div>
+          <div class="kpi"><div class="acc" style="background:var(--ok)"></div><div class="lab">Approved (30d)</div><div class="val" id="hxLvOk">7</div><div class="dl up" id="hxLvOkDl">team</div></div>
+          <div class="kpi"><div class="acc" style="background:var(--danger)"></div><div class="lab">Rejected (30d)</div><div class="val" id="hxLvRej">1</div><div class="dl down" id="hxLvRejDl">team</div></div>
         </div>
         <div class="card" style="margin-top:16px"><div class="hd"><h3>Requests</h3><div class="sp"></div><span class="tag t-mut" id="hxLeaveCount">5</span></div>
           <div class="bd" style="padding:0"><table><thead><tr><th>Person</th><th>Type</th><th>Dates</th><th>Days</th><th>Balance</th><th>Decided by</th><th>Status</th></tr></thead><tbody id="hxLeaveBody"></tbody></table></div></div>
@@ -2160,7 +2153,10 @@
     -->
 
       <!-- ===== POSITION & COVERAGE ===== -->
-      <div class="subpanel" data-sub="positions">
+      <!-- ORPHANED by the HR / People subtab-row removal: Position & Coverage had no sidebar
+     leaf and no inbound link, so the row was its only entry point. Kept for
+     reference; give it a sidebar leaf to bring it back.
+<div class="subpanel" data-sub="positions">
         <div class="phead"><div><div class="crumb">Team / <b>Position &amp; Coverage</b></div><h1>Position &amp; Coverage</h1><div class="sub">Each person holds a <b>fixed operational position</b> — never mutated by a leave. When someone is off (ad-hoc leave <b>or</b> their weekly OFF day), that position's <b>configured backup</b> covers only their due work for that window; ownership never changes. Functional managers never cross-cover.</div></div><div class="sp"></div><button class="btn" onclick="openHelp('coverage')"><svg class="ic"><use href="#i-book"/></svg>How coverage works</button><button class="btn p" onclick="actModal({kind:'BACKUP',title:'Configure backup slot',sub:'Set the fixed backup that covers a group. Only a backup-slot holder can be chosen — never another functional manager.',fields:[{label:'Center',type:'chips',options:['CBE','CPT']},{label:'Backup group',type:'chips',options:['Manager (manager_backup)','Assistant AM1','Assistant AM2']},{label:'Backup holder',type:'select',options:['Backup Manager slot','Backup AM1 slot','Backup AM2 slot','Not configured']}],confirm:'Save backup',onMsg:'Backup slot configured · coverage will auto-route',audit:{act:'Configured backup slot',tgt:'coverage',res:'saved',rc:'t-ok',type:'role',pillar:'people'}})"><svg class="ic"><use href="#i-plus"/></svg>Configure backup</button></div>
 
         <div class="grid g4" style="margin-bottom:16px">
@@ -2198,9 +2194,13 @@
           </div></div>
         </div>
       </div>
+    -->
 
       <!-- ===== TIMETABLE ===== -->
-      <div class="subpanel" data-sub="timetable">
+      <!-- ORPHANED by the HR / People subtab-row removal: Timetable had no sidebar
+     leaf and no inbound link, so the row was its only entry point. Kept for
+     reference; give it a sidebar leaf to bring it back.
+<div class="subpanel" data-sub="timetable">
         <div class="phead"><div><div class="crumb">Team / <b>Timetable</b></div><h1>Timetable</h1><div class="sub">The shift roster per center — the operational source for <b>who executes each day</b>. Vaccination and every drive read this to resolve the owner. The mobile app <b>mirrors this read-only</b>. Edited here (web CRUD) only.</div></div><div class="sp"></div><button class="btn" onclick="openBulk('timetable')"><svg class="ic" style="width:13px"><use href="#i-arrow"/></svg>Import sheet</button><button class="btn p" onclick="openForm('shift')"><svg class="ic"><use href="#i-plus"/></svg>Edit shift</button></div>
         <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-clock"/></svg><h3>Shift roster — CBE + CPT</h3><div class="sp"></div><span class="small muted">position × center · Week OFF · Backup</span></div><div class="bd" style="padding:0"><table id="ttTbl"><thead><tr><th>Operational position</th><th>Shift</th><th>CBE</th><th>CPT</th><th>Week OFF</th><th>Backup</th></tr></thead><tbody>
           <tr><td>Feeding AM1</td><td>08:30</td><td>B. Rao</td><td>P. Das</td><td>Mon</td><td><span class="tag t-mut">Backup AM1</span></td></tr>
@@ -2221,6 +2221,7 @@
           <tr><td>Park Head</td><td>08:30</td><td>—</td><td>—</td><td>Tue</td><td><span class="tag t-mut">— top of escalation</span></td></tr>
         </tbody></table><div class="note" style="margin:12px 14px">The <b>Backup</b> column is a fixed <b>position</b>, not a leave-time pick — exactly as the source roster encodes it. A position's <b>Week OFF</b> auto-triggers same-day coverage from its backup, no leave request needed. Mobile shows this table read-only plus a "you're covering X" banner when a coverage window is active.</div></div></div>
       </div>
+    -->
     </section>
 
     <!-- ===== SOP LIBRARY ===== -->
@@ -2311,6 +2312,7 @@
     <div class="pm-item" onclick="setRole('verification')"><span class="pn">Central · Verification</span><span class="pr">T3 · only tier that moves Pending→Completed</span></div>
     <div class="pm-item" onclick="setRole('parkhead')"><span class="pn">Park Head · CBE</span><span class="pr">T4 · all verticals · 1 park</span></div>
     <div class="pm-item" onclick="setRole('healthmgr')"><span class="pn">Health Mgr · CBE</span><span class="pr">T5 · 1 vertical · 1 park</span></div>
+    <div class="pm-item" onclick="setRole('operator')"><span class="pn">Operator · CBE</span><span class="pr">T6 · own record only · no approvals</span></div>
     <div class="pm-item" onclick="setRole('investor')"><span class="pn">Investor (read-only)</span><span class="pr">dashboard · read-only summary</span></div>
 
   </div>
@@ -3456,9 +3458,10 @@ var ROLES={
  verification:{label:'Central · Verification',auditShort:'Verification',person:'VVT-3',av:'VV',nav:['command','action','calendar'],screens:['command','action','calendar'],parks:'all',mode:'any',canEdit:false,canVerify:true,auditSpan:['VVT-3']},
  parkhead:{label:'Park Head · CBE',auditShort:'Park Head · CBE',person:'R. Babu',av:'RB',nav:'all',screens:'all',parks:['CBE'],mode:'park',canEdit:true,canVerify:false,auditSpan:['A. Kumar','K. Murthy','S. Devi','R. Anand','S. Raj','R. Babu','P. Latha','Breeding Asst']},
  healthmgr:{label:'Health Mgr · CBE',auditShort:'Health Mgr · CBE',person:'A. Kumar',av:'AK',nav:['command','action','calendar','counts','health'],screens:['command','action','calendar','counts','health'],parks:['CBE'],mode:'park',canEdit:true,canVerify:false,auditSpan:['A. Kumar','K. Murthy','R. Babu','S. Raj']},
+ operator:{label:'Operator · CBE',auditShort:'Operator',person:'Suresh M.',av:'SM',nav:['command','action','calendar','people'],screens:['command','action','calendar','people'],parks:['CBE'],mode:'park',canEdit:false,canVerify:false,auditSpan:['Suresh M.']},
  investor:{label:'Investor (read-only)',auditShort:'Investor',person:'Guest',av:'IN',nav:['command','insights'],screens:['command','insights'],parks:'all',mode:'company',canEdit:false,canVerify:false,auditSpan:'*'}
 };
-var AUDIT_ROLES=['coo','healthdir','procdir','verification','parkhead','healthmgr','hrdir','investor'];
+var AUDIT_ROLES=['coo','healthdir','procdir','verification','parkhead','healthmgr','operator','hrdir','investor'];
 var CUR_ROLE='coo';
 function setRole(r){var R=ROLES[r];if(!R)return;CUR_ROLE=r;if(typeof auditViewer!=='undefined')auditViewer=r;
  document.querySelectorAll('.nav[data-go],.ggrp[data-grp]').forEach(function(n){var key=n.dataset.go||n.dataset.navkey||n.dataset.grp;var show=(R.nav==='all')||R.nav.indexOf(key)>=0||key==='passport';n.style.display=show?'':'none';if(n.dataset.grp){var sn=document.querySelector('.subnav[data-grp="'+n.dataset.grp+'"]');if(sn)sn.style.display=show?'':'none';}});
@@ -4790,21 +4793,38 @@ var HR_LEAVE=[
   {id:'L-226',person:'ravi',type:'Sick',from:'05 Jul',to:'05 Jul',days:1,bal:'9 SL',status:'rej'}
 ];
 var HR_MGR='ramesh';                      /* the line manager the mgr-scope view is drawn for */
+var HR_ME='suresh';                       /* the individual contributor the self-scope view is drawn for */
 var HR_FULL_ROLES=['coo','hrdir'];        /* console roles that get full-org HR visibility */
+var HR_SELF_ROLES=['operator'];           /* console roles with no reports — own record only */
 var hxTaskSt='all', hxTaskQ='';
 
-function hrFull(){return typeof CUR_ROLE!=='undefined'&&HR_FULL_ROLES.indexOf(CUR_ROLE)>=0;}
+/* three scope tiers, all derived from the console's own role — never a second switcher */
+function hrScope(){
+  if(typeof CUR_ROLE==='undefined')return 'mgr';
+  if(HR_FULL_ROLES.indexOf(CUR_ROLE)>=0)return 'full';
+  if(HR_SELF_ROLES.indexOf(CUR_ROLE)>=0)return 'self';
+  return 'mgr';
+}
+function hrFull(){return hrScope()==='full';}
+function hrSelf(){return hrScope()==='self';}
+function hrMe(){var s=hrScope();return s==='self'?HR_ME:s==='mgr'?HR_MGR:null;}
 function hrKids(id){return Object.keys(HR_PEOPLE).filter(function(k){return HR_PEOPLE[k].mgr===id;});}
-function hrTeam(){return hrFull()?Object.keys(HR_PEOPLE).filter(function(id){return id!=='ceo';}):[HR_MGR].concat(hrKids(HR_MGR));}
-function hrScopedLeave(){return hrFull()?HR_LEAVE.slice():HR_LEAVE.filter(function(r){return hrKids(HR_MGR).indexOf(r.person)>=0;});}
+function hrTeam(){var s=hrScope();
+  if(s==='full')return Object.keys(HR_PEOPLE).filter(function(id){return id!=='ceo';});
+  if(s==='self')return [HR_ME];
+  return [HR_MGR].concat(hrKids(HR_MGR));}
+function hrScopedLeave(){var s=hrScope();
+  if(s==='full')return HR_LEAVE.slice();
+  if(s==='self')return HR_LEAVE.filter(function(r){return r.person===HR_ME;});
+  return HR_LEAVE.filter(function(r){return hrKids(HR_MGR).indexOf(r.person)>=0;});}
 function hrEl(id){return document.getElementById(id);}
 function hrStTag(st){return st==='done'?'<span class="tag t-ok">Done</span>':st==='pend'?'<span class="tag t-warn">Pending</span>':'<span class="tag t-dng">Missed</span>';}
 function hrWho(id){var p=HR_PEOPLE[id];
-  return '<div class="hx-who"><span class="av">'+p.av+'</span><span><div class="hx-n">'+p.name+(id===HR_MGR&&!hrFull()?' <span class="tag t-mut" style="margin-left:4px">you</span>':'')+'</div><div class="hx-s">'+p.role+'</div></span></div>';}
+  return '<div class="hx-who"><span class="av">'+p.av+'</span><span><div class="hx-n">'+p.name+(id===hrMe()?' <span class="tag t-mut" style="margin-left:4px">you</span>':'')+'</div><div class="hx-s">'+p.role+'</div></span></div>';}
 
 function hrRenderDash(){
   var ppl=hrTeam(),ci=0,td=0,tt=0,pp=0;
-  hrEl('hxTeamCount').textContent=ppl.length+' people';
+  hrEl('hxTeamCount').textContent=ppl.length+(ppl.length===1?' person':' people');
   hrEl('hxTeamBody').innerHTML=ppl.map(function(id){
     var ts=HR_TASKS[id]||[];
     var done=ts.filter(function(x){return x.st==='done';}).length;
@@ -4846,7 +4866,13 @@ function hrNode(id,self){var p=HR_PEOPLE[id],ts=HR_TASKS[id]||[];
     '<div class="hx-om"><span><b>'+ts.length+'</b> tasks</span><span><b>'+done+'</b> done</span></div></div>';}
 function hrRenderOrg(){
   var tree=hrEl('hxOrgTree');
-  if(!hrFull()){
+  if(hrSelf()){
+    var mgr=HR_PEOPLE[HR_ME].mgr;
+    hrEl('hxOrgVisCount').textContent='you + your manager';
+    hrEl('hxOrgLock').style.display='';
+    tree.innerHTML=(mgr?'<div class="hx-branch">'+hrNode(mgr)+'</div><div class="hx-connv"></div>':'')+
+      '<div class="hx-tier"><div class="hx-branch">'+hrNode(HR_ME,true)+'</div></div>';
+  }else if(!hrFull()){
     var reports=hrKids(HR_MGR);
     hrEl('hxOrgVisCount').textContent='1 manager · '+reports.length+' reports';
     hrEl('hxOrgLock').style.display='';
@@ -4903,7 +4929,10 @@ function hrOpenPerson(id){
     }).join('')+'</div>'+
     '<div class="hx-subh">Latest proof</div><div class="hx-proofbig"><div style="text-align:center"><svg class="ic" style="width:30px"><use href="#i-cam"/></svg>'+
     '<div style="font-size:12px;margin-top:6px">Photo — feed trough cleaning<br><span class="muted">captured 12:04 · geo-tag on</span></div></div></div></div>';
-  openInfo(p.role.toUpperCase()+' · HRMS',p.name,body,'<button class="btn" onclick="closeAll()">Close</button><button class="btn p"><svg class="ic"><use href="#i-check"/></svg>Nudge / Reassign</button>');
+  /* nudge/reassign is a manager action — an operator only ever views their own record */
+  var foot=hrSelf()?'<button class="btn" onclick="closeAll()">Close</button>'
+    :'<button class="btn" onclick="closeAll()">Close</button><button class="btn p"><svg class="ic"><use href="#i-check"/></svg>Nudge / Reassign</button>';
+  openInfo(p.role.toUpperCase()+' · HRMS',p.name,body,foot);
 }
 function hrOpenLeave(lid){
   var r=HR_LEAVE.filter(function(x){return x.id===lid;})[0];if(!r)return;
@@ -4917,7 +4946,8 @@ function hrOpenLeave(lid){
     '<div class="hx-fieldrow"><span class="hx-k">Decision by manager</span><span class="hx-v">'+HR_PEOPLE[p.mgr].name+'</span></div>'+
     '<div class="hx-fieldrow"><span class="hx-k">Status</span><span class="hx-v">'+stat+'</span></div>'+
     '<div class="hx-fieldrow"><span class="hx-k">Reason</span><span class="hx-v" style="max-width:60%">Family function / medical</span></div></div>';
-  var canDecide=r.status==='pend'&&(hrFull()||hrKids(HR_MGR).indexOf(r.person)>=0);
+  /* an operator never decides leave — not even their own */
+  var canDecide=r.status==='pend'&&!hrSelf()&&(hrFull()||hrKids(HR_MGR).indexOf(r.person)>=0);
   var foot=canDecide
     ?'<button class="btn" style="color:var(--danger)"><svg class="ic"><use href="#i-x"/></svg>Reject</button><button class="btn p"><svg class="ic"><use href="#i-check"/></svg>Approve</button>'
     :'<button class="btn" onclick="closeAll()">Close</button>';
@@ -4926,15 +4956,33 @@ function hrOpenLeave(lid){
 /* re-render every HRMS surface for the current console role */
 function hrmsApply(){
   if(!hrEl('hxTeamBody'))return;                 /* people screen not in this build */
-  var full=hrFull();
-  var txt=full?'Full organization access':'Direct reports only', ico=full?'#i-shield':'#i-user';
-  ['hxSb1','hxSb2','hxSb3','hxSb4'].forEach(function(s){var el=hrEl(s);if(!el)return;
+  var s=hrScope(), full=s==='full', self=s==='self';
+  var txt=full?'Full organization access':self?'My record only':'Direct reports only';
+  var ico=full?'#i-shield':'#i-user';
+  ['hxSb1','hxSb2','hxSb3','hxSb4'].forEach(function(b){var el=hrEl(b);if(!el)return;
     el.className='scopebadge'+(full?'':' park');
     el.innerHTML='<svg class="ic" style="width:14px"><use href="'+ico+'"/></svg>'+txt;});
-  hrEl('hxDashTitle').textContent=full?'Organization today':'My team today';
-  hrEl('hxDashSub').textContent=full?'Tuesday, 15 July 2026 · all people':'Tuesday, 15 July 2026 · you + your direct reports (one layer)';
-  hrEl('hxOrgSub').textContent=full?'Full reporting structure. Click any person for tasks and proof.':'Your position and the people who report directly to you. Deeper layers are hidden for a line manager.';
-  hrEl('hxLeaveSub').textContent=full?'All requests across the org. The line manager approves or rejects — an approval is final.':'The manager decides — approve or reject. An approved request is final; there is no second step.';
+  hrEl('hxDashTitle').textContent=full?'Organization today':self?'My day today':'My team today';
+  hrEl('hxDashSub').textContent=full?'Tuesday, 15 July 2026 · all people'
+    :self?'Tuesday, 15 July 2026 · your own tasks, leave and clock-in'
+    :'Tuesday, 15 July 2026 · you + your direct reports (one layer)';
+  hrEl('hxOrgSub').textContent=full?'Full reporting structure. Click any person for tasks and proof.'
+    :self?'Your position and who you report to. You have no direct reports.'
+    :'Your position and the people who report directly to you. Deeper layers are hidden for a line manager.';
+  hrEl('hxLeaveSub').textContent=full?'All requests across the org. The line manager approves or rejects — an approval is final.'
+    :self?'Your own requests. Your manager decides — you cannot approve or reject.'
+    :'The manager decides — approve or reject. An approved request is final; there is no second step.';
+  /* an operator decides nothing — the "to action / pending you" framing must not follow them */
+  hrEl('hxKLeaveLab').textContent=self?'My leave':'Leave to action';
+  hrEl('hxKLeaveDl').textContent=self?'awaiting a decision':'your approval';
+  hrEl('hxLvAwaitLab').textContent=self?'Pending a decision':'Pending you';
+  hrEl('hxLvAwaitDl').textContent=self?'with your manager':'to decide';
+  hrEl('hxLvOkDl').textContent=self?'mine':full?'org':'team';
+  hrEl('hxLvRejDl').textContent=self?'mine':full?'org':'team';
+  var lock=hrEl('hxOrgLock');
+  if(lock)lock.innerHTML=self
+    ?'<svg class="ic"><use href="#i-lock"/></svg>You see only your own record. The wider organization is visible to managers and HR.'
+    :'<svg class="ic"><use href="#i-lock"/></svg>Layers below your direct reports are hidden. Switch to <b>COO · Command</b> or <b>HR Director</b> (top-right) to see the full organization.';
   hrRenderDash();hrRenderTasks();hrRenderOrg();hrRenderLeave();hrRenderAttend();
   /* keep the sidebar + subtab counters honest for the current scope */
   var pendTasks=hrTaskRows().filter(function(r){return r.st==='pend';}).length;
