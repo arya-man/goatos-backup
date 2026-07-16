@@ -589,20 +589,40 @@
   .hrms .hx-selftag{position:absolute;right:10px;top:9px;font-size:9px;font-weight:800;letter-spacing:.4px;color:#08130B;background:var(--brand);padding:2px 7px;border-radius:20px}
   .hrms .hx-lockedhint{display:flex;align-items:center;gap:9px;margin-top:14px;padding:11px 13px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:12.5px;background:var(--bg)}
 
-  /* drawer body bits (rendered inside the shared #infoDrawer) */
-  .hrms-dw .hx-fieldrow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:13px}
-  .hrms-dw .hx-fieldrow .hx-k{color:var(--muted)}
-  .hrms-dw .hx-fieldrow .hx-v{font-weight:650;text-align:right}
-  .hrms-dw .hx-subh{font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin:16px 0 8px}
-  .hrms-dw .hx-tlist{display:flex;flex-direction:column;gap:7px}
-  .hrms-dw .hx-titem{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:9px;padding:8px 10px}
-  .hrms-dw .hx-tk{width:22px;height:22px;border-radius:50%;flex:none;display:grid;place-items:center}
-  .hrms-dw .hx-tk.hx-ok{background:var(--brand-soft);color:var(--brand-d)}
-  .hrms-dw .hx-tk.hx-pend{background:var(--warnx);color:var(--warn)}
-  .hrms-dw .hx-tk.hx-miss{background:var(--dangerx);color:var(--danger)}
-  .hrms-dw .hx-tt{flex:1;min-width:0;font-size:12.5px}
-  .hrms-dw .hx-tm{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
-  .hrms-dw .hx-proofbig{border:1px dashed var(--line);border-radius:10px;padding:20px;display:grid;place-items:center;color:var(--muted);background:var(--bg)}
+  /* task rows + drawer body bits (shared by the operator Overview and #infoDrawer) */
+  .hrms .hx-fieldrow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:13px}
+  .hrms .hx-fieldrow .hx-k{color:var(--muted)}
+  .hrms .hx-fieldrow .hx-v{font-weight:650;text-align:right}
+  .hrms .hx-subh{font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin:16px 0 8px}
+  .hrms .hx-tlist{display:flex;flex-direction:column;gap:7px}
+  .hrms .hx-titem{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+  .hrms .hx-tk{width:22px;height:22px;border-radius:50%;flex:none;display:grid;place-items:center}
+  .hrms .hx-tk.hx-ok{background:var(--brand-soft);color:var(--brand-d)}
+  .hrms .hx-tk.hx-pend{background:var(--warnx);color:var(--warn)}
+  .hrms .hx-tk.hx-miss{background:var(--dangerx);color:var(--danger)}
+  .hrms .hx-tt{flex:1;min-width:0;font-size:12.5px}
+  .hrms .hx-tm{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+  .hrms .hx-proofbig{border:1px dashed var(--line);border-radius:10px;padding:20px;display:grid;place-items:center;color:var(--muted);background:var(--bg)}
+
+  /* operator Overview: day picker + own task list (mirrors the field app, read-only —
+     the operator completes tasks and uploads proof on the phone, not in the console) */
+  .hrms .hx-daystrip{display:flex;gap:7px;overflow-x:auto;padding-bottom:12px;margin-bottom:13px;border-bottom:1px solid var(--line2)}
+  .hrms .hx-day{flex:none;min-width:60px;border:1px solid var(--line);background:var(--panel);border-radius:11px;padding:8px 6px;cursor:pointer;font:inherit;color:var(--muted);text-align:center;transition:.12s}
+  .hrms .hx-day:hover{border-color:var(--brand)}
+  .hrms .hx-day.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-d)}
+  .hrms .hx-day .hx-dow{display:block;font-size:10px;font-weight:750;letter-spacing:.04em;text-transform:uppercase;opacity:.8}
+  .hrms .hx-day .hx-dn{display:block;font-size:16px;font-weight:800;letter-spacing:-.02em;margin:1px 0 3px;color:var(--ink)}
+  .hrms .hx-day.on .hx-dn{color:var(--brand-d)}
+  .hrms .hx-day .hx-rt{display:block;font-size:10px;font-weight:750;font-variant-numeric:tabular-nums}
+  .hrms .hx-day .hx-rt.hx-full{color:var(--ok)}
+  .hrms .hx-day .hx-rt.hx-part{color:var(--warn)}
+  .hrms .hx-day .hx-rt.hx-rest{color:var(--faint)}
+  .hrms .hx-day.hx-today{box-shadow:inset 0 0 0 1px var(--brand)}
+  .hrms .hx-tasklist{display:flex;flex-direction:column;gap:8px}
+  .hrms .hx-optask{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;border-left:3px solid var(--brand)}
+  .hrms .hx-optask.hx-o-miss{border-left-color:var(--danger)}
+  .hrms .hx-optask.hx-o-pend{border-left-color:var(--warn)}
+  .hrms .hx-empty{padding:26px;text-align:center;color:var(--muted);font-size:13px}
 </style>
 
 <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
@@ -1980,8 +2000,15 @@
           <div class="kpi"><div class="acc" style="background:var(--warn)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-list"/></svg>Pending proof</div><div class="val" id="hxKPend">4</div><div class="dl down">awaiting upload</div></div>
           <div class="kpi"><div class="acc" style="background:var(--info)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-cal"/></svg><span id="hxKLeaveLab">Leave to action</span></div><div class="val" id="hxKLeave">2</div><div class="dl muted" id="hxKLeaveDl">your approval</div></div>
         </div>
-        <div class="card" style="margin-top:16px"><div class="hd"><h3>Today's completion by person</h3><div class="sp"></div><span class="tag t-mut" id="hxTeamCount">5 people</span></div>
+        <div class="card" id="hxTeamCard" style="margin-top:16px"><div class="hd"><h3>Today's completion by person</h3><div class="sp"></div><span class="tag t-mut" id="hxTeamCount">5 people</span></div>
           <div class="bd" style="padding:0"><table><thead><tr><th>Person</th><th>Clock-in</th><th>Tasks done</th><th>Proof pending</th><th></th></tr></thead><tbody id="hxTeamBody"></tbody></table></div></div>
+        <!-- operator only: own tasks for the picked day. Read-only — an operator completes
+             tasks and uploads proof in the field app (mock/hrms-mobile-mock.html). -->
+        <div class="card" id="hxOpCard" style="margin-top:16px;display:none"><div class="hd"><h3 id="hxOpDayTitle">My tasks</h3><div class="sp"></div><span class="tag t-mut" id="hxOpDayCount">1 of 3 done</span></div>
+          <div class="bd">
+            <div class="hx-daystrip" id="hxDayStrip"></div>
+            <div class="hx-tasklist" id="hxOpTasks"></div>
+          </div></div>
       </div>
 
       <!-- ===== HRMS · Tasks &amp; Proof ===== -->
@@ -2506,6 +2533,8 @@ function applyScope(scope){
 }
 /* ---------- navigation ---------- */
 function go(screen,sub,_mode){var _R=(typeof ROLES!=='undefined'&&typeof CUR_ROLE!=='undefined')?ROLES[CUR_ROLE]:null;if(_R&&_R.screens!=='all'&&screen!=='passport'&&_R.screens.indexOf(screen)<0){var _vk=['counts','health','breeding','procurement','farmernet','parks','feed'];screen=(_R.screens.filter(function(x){return _vk.indexOf(x)>=0;})[0])||_R.screens[0];sub=null;}
+  /* Tasks & Proof is manager-only — keep Control Tower deep-links off it for an operator */
+  if(screen==='people'&&sub==='tasks'&&typeof hrSelf==='function'&&hrSelf())sub='dash';
   const scr=document.querySelector('.screen[data-screen="'+screen+'"]');
   document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('on',x===scr));
   if(scr){const subs=scr.querySelectorAll('.subpanel');
@@ -4794,6 +4823,30 @@ var HR_LEAVE=[
 ];
 var HR_MGR='ramesh';                      /* the line manager the mgr-scope view is drawn for */
 var HR_ME='suresh';                       /* the individual contributor the self-scope view is drawn for */
+/* The operator's own task history, powering the Overview day picker. Weekday labels follow
+   the HRMS mocks' convention that 15 Jul 2026 is a Tuesday. `tasks:null` on today means
+   "read HR_TASKS[HR_ME]", so today's list can never drift from the rest of the console. */
+var HR_OP_HISTORY=[
+  {k:'2026-07-09',dow:'Wed',dn:'9',lab:'Wed 9 Jul',clock:'07:55',tasks:[
+    {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
+    {t:'Clean & refill feed troughs',due:'12:00',st:'done',proof:true},
+    {t:'Evening shed lock-up check',due:'17:30',st:'done',proof:true}]},
+  {k:'2026-07-10',dow:'Thu',dn:'10',lab:'Thu 10 Jul',clock:'08:04',tasks:[
+    {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
+    {t:'Water line refill log',due:'09:00',st:'miss',proof:false},
+    {t:'Evening shed lock-up check',due:'17:30',st:'done',proof:true}]},
+  {k:'2026-07-11',dow:'Fri',dn:'11',lab:'Fri 11 Jul',clock:'07:51',tasks:[
+    {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
+    {t:'Clean & refill feed troughs',due:'12:00',st:'done',proof:true}]},
+  {k:'2026-07-12',dow:'Sat',dn:'12',lab:'Sat 12 Jul',clock:null,rest:true,tasks:[]},
+  {k:'2026-07-13',dow:'Sun',dn:'13',lab:'Sun 13 Jul',clock:null,rest:true,tasks:[]},
+  {k:'2026-07-14',dow:'Mon',dn:'14',lab:'Mon 14 Jul',clock:'08:12',tasks:[
+    {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
+    {t:'Bedding replacement — Shed B',due:'13:00',st:'done',proof:true},
+    {t:'Evening shed lock-up check',due:'17:30',st:'miss',proof:false}]},
+  {k:'2026-07-15',dow:'Tue',dn:'15',lab:'Tue 15 Jul',clock:null,today:true,tasks:null}
+];
+var hxOpDay='2026-07-15';
 var HR_FULL_ROLES=['coo','hrdir'];        /* console roles that get full-org HR visibility */
 var HR_SELF_ROLES=['operator'];           /* console roles with no reports — own record only */
 var hxTaskSt='all', hxTaskQ='';
@@ -4822,7 +4875,56 @@ function hrStTag(st){return st==='done'?'<span class="tag t-ok">Done</span>':st=
 function hrWho(id){var p=HR_PEOPLE[id];
   return '<div class="hx-who"><span class="av">'+p.av+'</span><span><div class="hx-n">'+p.name+(id===hrMe()?' <span class="tag t-mut" style="margin-left:4px">you</span>':'')+'</div><div class="hx-s">'+p.role+'</div></span></div>';}
 
+/* ---- operator Overview: day picker + own tasks ---- */
+function hrOpDay(k){var d=HR_OP_HISTORY.filter(function(x){return x.k===k;})[0];return d||HR_OP_HISTORY[HR_OP_HISTORY.length-1];}
+function hrOpTasksFor(d){return d.tasks===null?(HR_TASKS[HR_ME]||[]):d.tasks;}   /* today reads the live list */
+function hrOpClockFor(d){return d.today?HR_CLOCK[HR_ME]:d.clock;}
+function hrOpPick(k){hxOpDay=k;hrRenderDash();}
+function hrRenderOpDash(){
+  var sel=hrOpDay(hxOpDay);
+  hrEl('hxDayStrip').innerHTML=HR_OP_HISTORY.map(function(d){
+    var ts=hrOpTasksFor(d), done=ts.filter(function(x){return x.st==='done';}).length;
+    var rt=d.rest?'rest':done+'/'+ts.length;
+    var cls=d.rest?'hx-rest':(ts.length&&done===ts.length)?'hx-full':'hx-part';
+    return '<button class="hx-day'+(d.k===hxOpDay?' on':'')+(d.today?' hx-today':'')+'" onclick="hrOpPick(\''+d.k+'\')">'+
+      '<span class="hx-dow">'+d.dow+'</span><span class="hx-dn">'+d.dn+'</span><span class="hx-rt '+cls+'">'+rt+'</span></button>';
+  }).join('');
+  var ts=hrOpTasksFor(sel), done=ts.filter(function(x){return x.st==='done';}).length;
+  hrEl('hxOpDayTitle').textContent='My tasks · '+sel.lab+(sel.today?' (today)':'');
+  hrEl('hxOpDayCount').textContent=ts.length?done+' of '+ts.length+' done':'rest day';
+  var kCls=function(st){return st==='done'?'hx-ok':st==='pend'?'hx-pend':'hx-miss';};
+  var kIco=function(st){return st==='done'?'#i-check':st==='pend'?'#i-clock':'#i-x';};
+  hrEl('hxOpTasks').innerHTML=ts.length?ts.map(function(t){
+    return '<div class="hx-optask hx-o-'+t.st+'"><span class="hx-tk '+kCls(t.st)+'"><svg class="ic" style="width:14px"><use href="'+kIco(t.st)+'"/></svg></span>'+
+      '<span class="hx-tt"><b>'+t.t+'</b><span class="hx-tm"><span class="mono">Due '+t.due+'</span>'+
+      (t.proof?' · proof ✓':t.st==='done'?'':' · no proof')+'</span></span>'+hrStTag(t.st)+'</div>';
+  }).join(''):'<div class="hx-empty">Rest day — no tasks were assigned.</div>';
+  return {sel:sel,ts:ts,done:done};
+}
+
 function hrRenderDash(){
+  /* operator sees their own tasks for the picked day, not a roster */
+  if(hrSelf()){
+    hrEl('hxTeamCard').style.display='none';
+    hrEl('hxOpCard').style.display='';
+    var o=hrRenderOpDash(), ci=hrOpClockFor(o.sel);
+    var pend=o.ts.filter(function(x){return x.st==='pend'&&!x.proof;}).length;
+    /* the heading follows the picked day — "today" must never sit above a past day's numbers */
+    hrEl('hxDashTitle').textContent=o.sel.today?'My day today':'My day · '+o.sel.lab;
+    hrEl('hxDashSub').textContent=o.sel.today
+      ?'Tuesday, 15 July 2026 · your own tasks, leave and clock-in'
+      :'Looking back at '+o.sel.lab+' · your tasks and clock-in for that day';
+    hrEl('hxKClock').textContent=ci||'—';
+    hrEl('hxKClockDl').textContent=ci?'on '+o.sel.lab:o.sel.rest?'rest day':'not clocked in';
+    hrEl('hxKClockDl').className='dl '+(ci?'up':'muted');
+    hrEl('hxKDone').innerHTML=o.done+'<small> / '+o.ts.length+'</small>';
+    hrEl('hxKDoneDl').textContent=o.ts.length?Math.round(o.done/o.ts.length*100)+'% complete':'no tasks assigned';
+    hrEl('hxKPend').textContent=pend;
+    hrEl('hxKLeave').textContent=hrScopedLeave().filter(function(r){return r.status==='pend';}).length;
+    return;
+  }
+  hrEl('hxTeamCard').style.display='';
+  hrEl('hxOpCard').style.display='none';
   var ppl=hrTeam(),ci=0,td=0,tt=0,pp=0;
   hrEl('hxTeamCount').textContent=ppl.length+(ppl.length===1?' person':' people');
   hrEl('hxTeamBody').innerHTML=ppl.map(function(id){
@@ -4918,7 +5020,7 @@ function hrOpenPerson(id){
   var p=HR_PEOPLE[id],ts=HR_TASKS[id]||[];
   var kCls=function(st){return st==='done'?'hx-ok':st==='pend'?'hx-pend':'hx-miss';};
   var kIco=function(st){return st==='done'?'#i-check':st==='pend'?'#i-clock':'#i-x';};
-  var body='<div class="hrms-dw">'+
+  var body='<div class="hrms">'+
     '<div class="hx-fieldrow"><span class="hx-k">Clock-in</span><span class="hx-v">'+(HR_CLOCK[id]?'<span class="tag t-ok">'+HR_CLOCK[id]+'</span>':'<span class="tag t-dng">not in</span>')+'</span></div>'+
     '<div class="hx-fieldrow"><span class="hx-k">Reports to</span><span class="hx-v">'+(p.mgr?HR_PEOPLE[p.mgr].name:'—')+'</span></div>'+
     '<div class="hx-fieldrow"><span class="hx-k">Tasks today</span><span class="hx-v">'+ts.filter(function(x){return x.st==='done';}).length+' / '+ts.length+' done</span></div>'+
@@ -4938,7 +5040,7 @@ function hrOpenLeave(lid){
   var r=HR_LEAVE.filter(function(x){return x.id===lid;})[0];if(!r)return;
   var p=HR_PEOPLE[r.person];
   var stat={pend:'<span class="tag t-warn">Pending</span>',ok:'<span class="tag t-ok">Approved</span>',rej:'<span class="tag t-dng">Rejected</span>'}[r.status];
-  var body='<div class="hrms-dw">'+
+  var body='<div class="hrms">'+
     '<div class="hx-fieldrow"><span class="hx-k">Type</span><span class="hx-v">'+r.type+'</span></div>'+
     '<div class="hx-fieldrow"><span class="hx-k">Dates</span><span class="hx-v">'+r.from+' – '+r.to+'</span></div>'+
     '<div class="hx-fieldrow"><span class="hx-k">Duration</span><span class="hx-v">'+r.days+' day(s)</span></div>'+
@@ -4957,6 +5059,10 @@ function hrOpenLeave(lid){
 function hrmsApply(){
   if(!hrEl('hxTeamBody'))return;                 /* people screen not in this build */
   var s=hrScope(), full=s==='full', self=s==='self';
+  /* Tasks & Proof is a manager's supervision view — an operator does tasks and uploads
+     proof in the field app, so the page is hidden for them entirely (go() also guards it). */
+  var tl=document.querySelector('.subnav[data-grp="hr"] .leaf[data-sub="tasks"]');
+  if(tl)tl.style.display=self?'none':'';
   var txt=full?'Full organization access':self?'My record only':'Direct reports only';
   var ico=full?'#i-shield':'#i-user';
   ['hxSb1','hxSb2','hxSb3','hxSb4'].forEach(function(b){var el=hrEl(b);if(!el)return;
