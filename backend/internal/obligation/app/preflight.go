@@ -17,11 +17,10 @@ type unbatchedDueKeysetLister interface {
 }
 
 // unbatchedDueKeysetListerHWM is the RV-05 sibling of unbatchedDueKeysetLister: it also bounds the
-// keyset scan by createdAtHWM, so the write-free preflight reads the IDENTICAL frozen candidate set
-// the real per-version sweep will read in this same locked cycle (see
-// SweeperService.CaptureSweepHighWaterMark). A repo that implements unbatchedDueKeysetLister but not
-// this (a hand-rolled test fake with no concurrent generator to race) is used through the plain,
-// unbounded keyset method -- only the production Postgres repo needs true HWM enforcement.
+// keyset scan by createdAtHWM, excluding newly inserted rows. The returned SweepCandidateSnapshot
+// additionally freezes membership against pre-existing rows reopened or rescheduled after
+// preflight. A repo that implements unbatchedDueKeysetLister but not this (a hand-rolled test fake
+// with no concurrent writer) is used through the plain, unbounded keyset method.
 type unbatchedDueKeysetListerHWM interface {
 	ListUnbatchedDueForVersionKeysetHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32, createdAtHWM time.Time) ([]domain.UnbatchedDue, error)
 }
@@ -29,6 +28,37 @@ type unbatchedDueKeysetListerHWM interface {
 // maxPreflightUnbatchedPages backstops the keyset scan against a runaway loop (the cursor strictly
 // advances by unique obligation_id, so this is only a safety ceiling, never hit in practice).
 const maxPreflightUnbatchedPages = 100000
+
+// SweepCandidateSnapshot is the exact obligation-id membership observed by the write-free
+// preflight, partitioned by protocol version. Production real-sweep reads are constrained to this
+// allowlist, so a pre-existing row that is reopened/rescheduled after preflight cannot enter the
+// current cycle merely because its old created_at remains below the cycle HWM. Rows may still leave
+// the snapshot if their current status/health/batch state becomes ineligible; membership can never
+// grow until the next cycle runs its own preflight.
+type SweepCandidateSnapshot struct {
+	byVersion map[string][]string
+}
+
+func newSweepCandidateSnapshot(plans []SweepVersionPriority) *SweepCandidateSnapshot {
+	snapshot := &SweepCandidateSnapshot{byVersion: make(map[string][]string, len(plans))}
+	for _, plan := range plans {
+		// Preserve an explicit non-nil empty slice: nil means "legacy/unbounded" at the repository
+		// seam, while an empty snapshot means "preflight observed no candidates".
+		snapshot.byVersion[plan.VersionID] = []string{}
+	}
+	return snapshot
+}
+
+func (s *SweepCandidateSnapshot) candidateIDs(versionID string) []string {
+	if s == nil {
+		return nil
+	}
+	ids, ok := s.byVersion[versionID]
+	if !ok {
+		return []string{}
+	}
+	return ids
+}
 
 // PreflightVisitShotCapTies is the VAX-REV-04 / RV-01 fix: a write-free dry run over every plan
 // (already priority-sorted -- see SortSweepVersionsByPriority) that surfaces a cross-version
@@ -80,19 +110,22 @@ const maxPreflightUnbatchedPages = 100000
 // SweepSession and pass it to the subsequent SweepVersionWithSession calls only after this
 // preflight returns nil.
 //
-// createdAtHWM is the RV-05 high-water mark (zero = unbounded): when set, every unbatched-due read
-// below is ALSO bounded by created_at <= createdAtHWM, so this write-free preview and the real
-// per-version sweep that follows it (called with the SAME createdAtHWM via
-// SweepVersionWithSessionNoFinalizeHWM) agree on one frozen candidate set for this locked cycle. An
-// obligation generated after createdAtHWM -- e.g. by vaccination/app's generation.go/booster.go,
-// which does not participate in LockTenantSweep -- is invisible to BOTH this preflight and the real
-// sweep this cycle, so it can never introduce a same-priority tie mid-sweep after earlier plans
-// already committed; it is naturally caught by next cycle's own fresh preflight instead. Callers
-// MUST capture createdAtHWM via SweeperService.CaptureSweepHighWaterMark ONCE per cycle, before this
-// call, and thread the identical value to every real-sweep call in the same cycle.
+// createdAtHWM is the RV-05 insertion high-water mark (zero = unbounded). Production callers use
+// PreflightVisitShotCapTiesWithSnapshot and pass both its returned snapshot and this same HWM to
+// SweepVersionWithSessionNoFinalizeSnapshot. The HWM excludes later inserts; the snapshot excludes
+// pre-existing rows that become eligible later (for example deferred -> scheduled recovery).
 func (s *SweeperService) PreflightVisitShotCapTies(ctx context.Context, tenantID string, plans []SweepVersionPriority, dueBefore time.Time, createdAtHWM time.Time) error {
+	_, err := s.PreflightVisitShotCapTiesWithSnapshot(ctx, tenantID, plans, dueBefore, createdAtHWM)
+	return err
+}
+
+// PreflightVisitShotCapTiesWithSnapshot performs the same write-free medical-plan validation as
+// PreflightVisitShotCapTies and also returns the exact candidate membership that passed it. The
+// production orchestration must pass this snapshot to every real per-version sweep in the cycle.
+func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshot(ctx context.Context, tenantID string, plans []SweepVersionPriority, dueBefore time.Time, createdAtHWM time.Time) (*SweepCandidateSnapshot, error) {
+	snapshot := newSweepCandidateSnapshot(plans)
 	if len(plans) == 0 {
-		return nil
+		return snapshot, nil
 	}
 	// RV-01: do NOT skip a single plan. One protocol version can carry several per-rule vaccines
 	// (round-2 per-rule identity, cfg.getRuleVaccineIdentity), so three equal-priority vaccines in
@@ -114,6 +147,7 @@ func (s *SweeperService) PreflightVisitShotCapTies(ctx context.Context, tenantID
 	for _, plan := range plans {
 		planner := normalizedDrivePlannerSettings(plan.Config.DrivePlanner, plan.Config.VaccineCode)
 		var after *domain.UnbatchedDueCursor
+		seenCandidates := make(map[string]struct{})
 		for page := 0; page < maxPreflightUnbatchedPages; page++ {
 			var rows []domain.UnbatchedDue
 			var err error
@@ -129,42 +163,53 @@ func (s *SweeperService) PreflightVisitShotCapTies(ctx context.Context, tenantID
 				rows, err = s.repo.ListUnbatchedDueForVersion(ctx, tenantID, plan.VersionID, dueBefore, s.page)
 			}
 			if err != nil {
-				return fmt.Errorf("obligation: preflight list unbatched due for version %s: %w", plan.VersionID, err)
+				return nil, fmt.Errorf("obligation: preflight list unbatched due for version %s: %w", plan.VersionID, err)
 			}
 			if len(rows) == 0 {
 				break
 			}
-			order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
+			last := rows[len(rows)-1]
+			uniqueRows := rows[:0]
+			for _, row := range rows {
+				if _, duplicate := seenCandidates[row.ObligationID]; duplicate {
+					continue
+				}
+				seenCandidates[row.ObligationID] = struct{}{}
+				snapshot.byVersion[plan.VersionID] = append(snapshot.byVersion[plan.VersionID], row.ObligationID)
+				uniqueRows = append(uniqueRows, row)
+			}
+			order, groups := groupUnbatchedDue(uniqueRows, planner.SpeciesGroupingPolicy)
 			for _, k := range order {
 				g := groups[k]
 				if deferShedGroupToPark(plan.Config, g.scopeType, len(g.ids)) {
 					continue
 				}
 				if err := s.preflightGroup(ctx, tenantID, plan.Config, planner, dueBefore, preflight, g, claimed); err != nil {
-					return err
+					return nil, err
 				}
 			}
 			if !keyset || int32(len(rows)) < s.page {
 				break
 			}
-			last := rows[len(rows)-1]
 			after = &domain.UnbatchedDueCursor{
-				ScopeType:         last.ScopeType,
-				ScopeID:           last.ScopeID,
-				RuleID:            last.RuleID,
-				TargetSpecies:     last.TargetSpecies,
-				TargetAnimalStage: last.TargetAnimalStage,
-				DueAt:             last.DueAt,
-				ObligationID:      last.ObligationID,
+				ScopeType:    last.ScopeType,
+				ScopeID:      last.ScopeID,
+				RuleID:       last.RuleID,
+				DueAt:        last.DueAt,
+				ObligationID: last.ObligationID,
 			}
 		}
 	}
 	for _, plan := range plans {
-		if err := s.preflightParkConsolidation(ctx, tenantID, plan, dueBefore, preflight, claimed, createdAtHWM); err != nil {
-			return err
+		var parkCandidateIDs []string
+		if _, ok := s.repo.(snapshotParkConsolidationLister); ok {
+			parkCandidateIDs = snapshot.candidateIDs(plan.VersionID)
+		}
+		if err := s.preflightParkConsolidation(ctx, tenantID, plan, dueBefore, preflight, claimed, createdAtHWM, parkCandidateIDs); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return snapshot, nil
 }
 
 // preflightGroup replays batchDueGroup's date-resolution and shot-cap-selection decision for one
@@ -209,7 +254,7 @@ func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cf
 // plan, write-free, onto the shared preflight session (RV-01). Obligations already claimed by the
 // main-loop replay are excluded up front, matching the real flow where they are batched and removed
 // before park consolidation lists them.
-func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantID string, plan SweepVersionPriority, dueBefore time.Time, session *SweepSession, claimed map[string]struct{}, createdAtHWM time.Time) error {
+func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantID string, plan SweepVersionPriority, dueBefore time.Time, session *SweepSession, claimed map[string]struct{}, createdAtHWM time.Time, candidateIDs []string) error {
 	cfg := plan.Config
 	settings := cfg.ParkConsolidation
 	if !settings.Enabled {
@@ -230,7 +275,7 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 	seenCursors := map[string]struct{}{}
 	for {
 		// scale-guard:ignore: bounded keyset pagination (cursor advances by row identity, LIMIT s.page per query); mirrors consolidateParkDrivesWithVisitCounts' own park listing, not a per-row round trip.
-		rows, err := s.listUnbatchedShedDueForParkConsolidationBounded(ctx, tenantID, plan.VersionID, dueBefore, s.page, after, createdAtHWM)
+		rows, err := s.listUnbatchedShedDueForParkConsolidationBounded(ctx, tenantID, plan.VersionID, dueBefore, s.page, after, createdAtHWM, candidateIDs)
 		if err != nil {
 			return fmt.Errorf("obligation: preflight list park consolidation for version %s: %w", plan.VersionID, err)
 		}

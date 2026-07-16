@@ -1594,11 +1594,11 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 // cycle, and is naturally picked up next cycle (which re-preflights against its own fresh HWM).
 const unbatchedDueKeysetSelect = `
 WITH candidates AS (
-  SELECT oi.obligation_id::text AS obligation_id,
-         oi.rule_id::text AS rule_id,
+  SELECT oi.obligation_id AS obligation_id_key,
+         oi.rule_id AS rule_id_key,
          oi.scope_type AS scope_type,
-         COALESCE(oi.scope_id::text, '')::text AS scope_id,
-         COALESCE(oi.target_id::text, '')::text AS target_id,
+         oi.scope_id AS scope_id_key,
+         oi.target_id AS target_id_key,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.reproductive_status, '')::text ELSE '' END AS target_reproductive_status,
@@ -1622,6 +1622,7 @@ WITH candidates AS (
     AND oi.batch_id IS NULL
     AND oi.due_at <= $3
     AND ($4::timestamptz IS NULL OR oi.created_at <= $4::timestamptz)
+    AND ($5::uuid[] IS NULL OR oi.obligation_id = ANY($5::uuid[]))
     AND (
       oi.target_type <> 'goat'
       OR (
@@ -1634,14 +1635,19 @@ WITH candidates AS (
       )
     )
 )
-SELECT obligation_id, rule_id, scope_type, scope_id, target_id, target_species, target_animal_stage,
+SELECT obligation_id_key::text AS obligation_id,
+       rule_id_key::text AS rule_id,
+       scope_type,
+       scope_id_key::text AS scope_id,
+       target_id_key::text AS target_id,
+       target_species, target_animal_stage,
        target_reproductive_status, due_at, window_start, window_end, batching_hold_count, first_batching_hold_until
 FROM candidates
 `
 
 const unbatchedDueKeysetOrderLimit = `
-ORDER BY scope_type, scope_id, rule_id, due_at, obligation_id
-LIMIT $5`
+ORDER BY scope_type, scope_id_key, rule_id_key, due_at, obligation_id_key
+LIMIT $6`
 
 // ListUnbatchedDueForVersionKeyset is the write-free preflight's full-scan sibling of
 // ListUnbatchedDueForVersion (RV-02), unbounded by any created_at high-water mark. after == nil
@@ -1658,6 +1664,21 @@ func (r *Repository) ListUnbatchedDueForVersionKeyset(ctx context.Context, tenan
 // so a conflicting obligation beyond the first page is caught BEFORE any write, not committed-then-
 // aborted.
 func (r *Repository) ListUnbatchedDueForVersionKeysetHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32, createdAtHWM time.Time) ([]domain.UnbatchedDue, error) {
+	return r.listUnbatchedDueForVersionKeysetSnapshot(ctx, tenantID, versionID, dueBefore, after, limit, createdAtHWM, nil)
+}
+
+// ListUnbatchedDueForVersionSnapshot constrains the real sweep to the exact candidate IDs observed
+// by its successful preflight. candidateIDs is deliberately non-optional at this seam: an empty
+// slice means the preflight observed no work, while the legacy HWM method above passes nil for an
+// unbounded read.
+func (r *Repository) ListUnbatchedDueForVersionSnapshot(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, createdAtHWM time.Time, candidateIDs []string) ([]domain.UnbatchedDue, error) {
+	if candidateIDs == nil {
+		candidateIDs = []string{}
+	}
+	return r.listUnbatchedDueForVersionKeysetSnapshot(ctx, tenantID, versionID, dueBefore, nil, limit, createdAtHWM, candidateIDs)
+}
+
+func (r *Repository) listUnbatchedDueForVersionKeysetSnapshot(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32, createdAtHWM time.Time, candidateIDs []string) ([]domain.UnbatchedDue, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1671,14 +1692,32 @@ func (r *Repository) ListUnbatchedDueForVersionKeysetHWM(ctx context.Context, te
 	if limit <= 0 {
 		limit = 1000
 	}
-	args := []any{tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), limit}
+	var snapshotIDs []pgtype.UUID
+	if candidateIDs != nil {
+		snapshotIDs, err = obligationUUIDs(candidateIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args := []any{tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), snapshotIDs, limit}
 	sql := unbatchedDueKeysetSelect + unbatchedDueKeysetOrderLimit
 	if after != nil {
-		dueAt := after.DueAt
+		scopeID, err := pgconv.UUID(after.ScopeID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: keyset cursor scope id: %w", err)
+		}
+		ruleID, err := pgconv.UUID(after.RuleID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: keyset cursor rule id: %w", err)
+		}
+		obligationID, err := pgconv.UUID(after.ObligationID)
+		if err != nil {
+			return nil, fmt.Errorf("obligation: keyset cursor obligation id: %w", err)
+		}
 		sql = unbatchedDueKeysetSelect +
-			"WHERE (scope_type, scope_id, rule_id, due_at, obligation_id) > ($6, $7, $8, $9, $10)" +
+			"WHERE (scope_type, scope_id_key, rule_id_key, due_at, obligation_id_key) > ($7, $8, $9, $10, $11)" +
 			unbatchedDueKeysetOrderLimit
-		args = append(args, after.ScopeType, after.ScopeID, after.RuleID, pgconv.Timestamptz(dueAt), after.ObligationID)
+		args = append(args, after.ScopeType, scopeID, ruleID, pgconv.Timestamptz(after.DueAt), obligationID)
 	}
 	// scale-guard:ignore: keyset pagination on the query's own indexed ORDER BY tuple, bounded to LIMIT per page; read-only preflight/HWM-bounded real-sweep read, no OFFSET.
 	rows, err := r.pool.Query(ctx, sql, args...)
@@ -1710,10 +1749,10 @@ func (r *Repository) ListUnbatchedDueForVersionKeysetHWM(ctx context.Context, te
 
 // ListUnbatchedDueForVersionHWM is the RV-05 real-sweep-path sibling of ListUnbatchedDueForVersion:
 // identical unbounded semantics when createdAtHWM is zero, plus the same created_at <= createdAtHWM
-// bound ListUnbatchedDueForVersionKeysetHWM applies for the preflight path, so both read the
-// IDENTICAL frozen candidate set for a locked sweep cycle. It is the first-page equivalent of the
-// keyset call (after == nil): the real sweep does not keyset-page (it advances by BATCHING rows out
-// of the unbatched set between calls), so this always re-reads from the beginning.
+// bound ListUnbatchedDueForVersionKeysetHWM applies for the preflight path. Production additionally
+// uses ListUnbatchedDueForVersionSnapshot so pre-existing rows cannot enter after preflight. This is
+// the first-page equivalent of the keyset call (after == nil): the real sweep advances by batching
+// rows out of the unbatched set and re-reads from the beginning.
 func (r *Repository) ListUnbatchedDueForVersionHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, createdAtHWM time.Time) ([]domain.UnbatchedDue, error) {
 	return r.ListUnbatchedDueForVersionKeysetHWM(ctx, tenantID, versionID, dueBefore, nil, limit, createdAtHWM)
 }
@@ -1755,11 +1794,23 @@ func (r *Repository) ListUnbatchedShedDueForParkConsolidation(ctx context.Contex
 
 // ListUnbatchedShedDueForParkConsolidationHWM is ListUnbatchedShedDueForParkConsolidation bounded
 // ALSO by createdAtHWM (RV-05): a zero createdAtHWM means unbounded (identical to
-// ListUnbatchedShedDueForParkConsolidation). Used by BOTH the real park-consolidation write pass
-// (park_consolidation.go) and its write-free preflight replay (preflight.go), so the two share the
-// SAME frozen candidate set for one locked sweep cycle -- see unbatchedDueKeysetSelect's doc comment
-// for why that matters.
+// ListUnbatchedShedDueForParkConsolidation). The production snapshot variant below adds the exact
+// preflight membership bound needed for pre-existing rows that become eligible after preflight.
 func (r *Repository) ListUnbatchedShedDueForParkConsolidationHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time) ([]domain.ParkConsolidationCandidate, error) {
+	return r.listUnbatchedShedDueForParkConsolidationSnapshot(ctx, tenantID, versionID, dueBefore, limit, after, createdAtHWM, nil)
+}
+
+// ListUnbatchedShedDueForParkConsolidationSnapshot is the park-pass sibling of
+// ListUnbatchedDueForVersionSnapshot: reopened/new rows outside the successful preflight snapshot
+// are deferred to the next sweep cycle instead of entering this cycle's write pass.
+func (r *Repository) ListUnbatchedShedDueForParkConsolidationSnapshot(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time, candidateIDs []string) ([]domain.ParkConsolidationCandidate, error) {
+	if candidateIDs == nil {
+		candidateIDs = []string{}
+	}
+	return r.listUnbatchedShedDueForParkConsolidationSnapshot(ctx, tenantID, versionID, dueBefore, limit, after, createdAtHWM, candidateIDs)
+}
+
+func (r *Repository) listUnbatchedShedDueForParkConsolidationSnapshot(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time, candidateIDs []string) ([]domain.ParkConsolidationCandidate, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1772,6 +1823,13 @@ func (r *Repository) ListUnbatchedShedDueForParkConsolidationHWM(ctx context.Con
 	}
 	if limit <= 0 {
 		limit = 1000
+	}
+	var snapshotIDs []pgtype.UUID
+	if candidateIDs != nil {
+		snapshotIDs, err = obligationUUIDs(candidateIDs)
+		if err != nil {
+			return nil, err
+		}
 	}
 	cursorParkID := ""
 	cursorRuleID := ""
@@ -1844,6 +1902,7 @@ WHERE o.tenant_id = $1
   AND o.scope_type = 'shed'
   AND o.due_at <= $3
   AND ($4::timestamptz IS NULL OR o.created_at <= $4::timestamptz)
+  AND ($5::uuid[] IS NULL OR o.obligation_id = ANY($5::uuid[]))
   AND (
     o.target_type <> 'goat'
     OR (
@@ -1872,12 +1931,12 @@ SELECT
   first_batching_hold_until
 FROM candidates
 WHERE (
-    $5::text = ''
+    $6::text = ''
     OR (park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id)
-      > ($5::text, $6::text, $7::text, $8::text, $9::timestamptz, $10::text)
+      > ($6::text, $7::text, $8::text, $9::text, $10::timestamptz, $11::text)
   )
 ORDER BY park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id
-LIMIT $11`, tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), cursorParkID, cursorRuleID, cursorSpecies, cursorStage, cursorDue, cursorObligationID, limit)
+LIMIT $12`, tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), snapshotIDs, cursorParkID, cursorRuleID, cursorSpecies, cursorStage, cursorDue, cursorObligationID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list park consolidation candidates: %w", err)
 	}

@@ -155,14 +155,8 @@ func run(args []string) error {
 		if !acquired {
 			fmt.Printf("obligation sweep skipped: tenant %s already locked by another sweeper\n", cfg.TenantID)
 		} else {
-// RV-05: freeze a high-water mark for this locked cycle BEFORE the preflight read, so both
-			// PreflightVisitShotCapTies and every real per-version sweep below read the IDENTICAL
-			// candidate set (created_at <= createdAtHWM). Obligation generation does not participate in
-			// this tenant-sweep lock, so without a shared HWM a third, equal-priority obligation
-			// inserted AFTER preflight cleared the run but BEFORE the real sweep re-reads could trigger
-			// a mid-sweep tie after earlier plans in this loop already committed (a partial medical
-			// plan). With the HWM, that obligation is invisible to this whole cycle and is naturally
-			// caught by next cycle's own fresh preflight instead.
+			// RV-05: the HWM excludes later inserts and the preflight snapshot below excludes older rows
+			// that become eligible only after preflight. Candidate membership cannot grow mid-cycle.
 			createdAtHWM, err := sweeper.CaptureSweepHighWaterMark(ctx)
 			if err != nil {
 				return fmt.Errorf("capture sweep high-water mark: %w", err)
@@ -172,19 +166,20 @@ func run(args []string) error {
 			// for real. Without this, a later plan's tie aborted the loop below while earlier plans'
 			// batches/SOP tasks/stock reservations were already committed -- a silent, arbitrary
 			// partial commit. See obligationapp.PreflightVisitShotCapTies.
-			if err := sweeper.PreflightVisitShotCapTies(ctx, cfg.TenantID, plans, cfg.DueBefore, createdAtHWM); err != nil {
+			snapshot, err := sweeper.PreflightVisitShotCapTiesWithSnapshot(ctx, cfg.TenantID, plans, cfg.DueBefore, createdAtHWM)
+			if err != nil {
 				return fmt.Errorf("preflight shot-cap ties: %w", err)
 			}
 
 			session := obligationapp.NewSweepSession()
-			// R2-04 fix: use SweepVersionWithSessionNoFinalizeHWM so AlignComboDrives (below) runs
+			// R2-04 fix: use the snapshot/no-finalize sweep so AlignComboDrives (below) runs
 			// BEFORE any stock is reserved or SOP task is created. Finalizing a combo batch on its
 			// pre-alignment planned_date would permanently exclude it from AlignComboDrives' candidate
 			// query (sop_task_id IS NULL AND NOT context ? 'stock_reservation'). The HWM variant (RV-05)
-			// bounds every real-sweep read to the SAME createdAtHWM the preflight above used.
+			// bounds every real-sweep read to the successful preflight's exact candidate membership.
 			for _, plan := range plans {
 				sweepStart := time.Now()
-				result, err := sweeper.SweepVersionWithSessionNoFinalizeHWM(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.DueBefore, session, createdAtHWM)
+				result, err := sweeper.SweepVersionWithSessionNoFinalizeSnapshot(ctx, cfg.TenantID, plan.VersionID, plan.Config, cfg.DueBefore, session, createdAtHWM, snapshot)
 				// tasksCreated approximates 1 SOP batch task per obligation batch -
 				// obligationapp.SweepResult does not return a distinct tasks-created count, and batches
 				// are only task-bearing when a TaskCreator (creator, gated on --actor-id) is configured.

@@ -68,8 +68,6 @@ func lessUnbatched(a, b domain.UnbatchedDue) bool {
 		{a.ScopeType, b.ScopeType},
 		{a.ScopeID, b.ScopeID},
 		{a.RuleID, b.RuleID},
-		{a.TargetSpecies, b.TargetSpecies},
-		{a.TargetAnimalStage, b.TargetAnimalStage},
 	} {
 		if cmp.x != cmp.y {
 			return cmp.x < cmp.y
@@ -84,7 +82,6 @@ func lessUnbatched(a, b domain.UnbatchedDue) bool {
 func afterCursor(r domain.UnbatchedDue, c *domain.UnbatchedDueCursor) bool {
 	cur := domain.UnbatchedDue{
 		ScopeType: c.ScopeType, ScopeID: c.ScopeID, RuleID: c.RuleID,
-		TargetSpecies: c.TargetSpecies, TargetAnimalStage: c.TargetAnimalStage,
 		DueAt: c.DueAt, ObligationID: c.ObligationID,
 	}
 	return lessUnbatched(cur, r)

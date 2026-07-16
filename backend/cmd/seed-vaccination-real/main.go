@@ -1210,8 +1210,8 @@ func countFabricatedMissingAnchorWork(candidates []missingAnchorCandidate) int {
 
 // missingAnchorReconcilePageSize bounds each keyset page of the missing-anchor reconciliation scan
 // so the postflight check never streams the whole cohort into the process at once (RV-04). At the
-// accepted 5k-50k operational envelope (real data ~2.5k animals), a 50k-obligation cohort is still
-// only ONE page at this size -- paging here is defensive hygiene against an unbounded read, not an
+// accepted 5k-50k operational envelope (real data ~2.5k animals), a 50k-obligation cohort is ten
+// bounded pages at this size. Paging here is defensive hygiene against an unbounded read, not an
 // OOM guard for a multi-million-row table that does not exist in this envelope.
 const missingAnchorReconcilePageSize = 5000
 

@@ -108,7 +108,6 @@ func TestListUnbatchedDueForVersionKeysetPagesEveryRowOnce(t *testing.T) {
 		}
 		prev = &domain.UnbatchedDueCursor{
 			ScopeType: last.ScopeType, ScopeID: last.ScopeID, RuleID: last.RuleID,
-			TargetSpecies: last.TargetSpecies, TargetAnimalStage: last.TargetAnimalStage,
 			DueAt: last.DueAt, ObligationID: last.ObligationID,
 		}
 	}

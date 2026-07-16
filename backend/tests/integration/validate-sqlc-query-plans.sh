@@ -103,6 +103,28 @@ explain_natural_index() {
   echo "Natural indexed plan observed: $label"
 }
 
+# Natural-plan proof for an order-sensitive keyset read. It requires the named covering index and
+# rejects bitmap access or an explicit sort: either would materialize/filter a growing candidate
+# tail instead of walking the B-tree in cursor order. Sequential scans remain enabled.
+explain_natural_named_index_no_sort() {
+  local label="$1"
+  local required_index="$2"
+  local sql="$3"
+  local plan
+  plan="$(printf '%s\n' "$sql" | run_psql)"
+  if ! grep -E "(Index Scan|Index Only Scan) using $required_index" <<<"$plan" >/dev/null; then
+    echo "$plan"
+    echo "Expected natural ordered plan in $label to use $required_index" >&2
+    exit 1
+  fi
+  if grep -E '(Seq Scan on obligation_instances|Bitmap (Heap|Index) Scan|(^|[[:space:]])(Sort|Incremental Sort)([[:space:]]|$))' <<<"$plan" >/dev/null; then
+    echo "$plan"
+    echo "Unexpected scan/sort node in ordered keyset plan $label" >&2
+    exit 1
+  fi
+  echo "Natural ordered named-index plan observed: $label -> $required_index"
+}
+
 validate_identity_lookup_plans() {
   explain_must_use_index "GoatByID" 'Seq Scan on goats' "EXPLAIN (COSTS OFF)
 SELECT goat_id
@@ -391,47 +413,10 @@ SELECT obligation_id
 FROM candidate;"
 }
 
-# validate_obligation_unbatched_due_keyset_plan is the RV-06 gate for the write-free preflight's
-# full-scan sibling of ObligationListUnbatchedDueForVersion above:
-# ListUnbatchedDueForVersionKeyset / ListUnbatchedDueForVersionHWM's unbatchedDueKeysetSelect CTE
-# (internal/obligation/adapters/postgres/repository.go). It seeds a representative row count (6000
-# unbatched-due obligations for one protocol version -- near the top of the accepted 5k-50k
-# operational envelope; real data runs ~2.5k animals) and runs EXPLAIN (ANALYZE, BUFFERS) against
-# fresh statistics, matching how the real preflight scans while holding LockTenantSweep's per-tenant
-# advisory lock for the whole pass. Like every other check in this file it disables sequential scans
-# (this fixture -- one tenant/version pair with nothing else competing in the table -- makes nearly
-# every row match every predicate, so the natural planner cost model reasonably prefers a seq scan
-# on a table this size; forcing the index off is how the whole file gets a meaningful assertion out
-# of a small, single-tenant fixture instead of needing a much larger multi-tenant table).
-#
-# What changed (RV-06): before the fix, the ORDER BY additionally sorted on
-# target_species/target_animal_stage -- CASE expressions computed via LEFT JOINs to
-# goats/shed_profiles/animal_stage_lookup, which no index can back. After the fix the ORDER BY is
-# (scope_type, scope_id, rule_id, due_at, obligation_id): a raw-column tuple fully covered by
-# obligation_instances_unbatched_due_version_idx (migration 000140). obligation_id is a unique
-# primary key, so the 5-column tuple is still a strict total order (RV-02's exactly-once keyset
-# guarantee is unaffected) and the driving table access can be satisfied by an index scan in ORDER
-# BY order rather than requiring species/stage to be resolved via joins before any sort could even
-# begin -- structurally a strictly cheaper, strictly more indexable shape than before, never worse.
-#
-# The checks below test the driving scan + ORDER BY/keyset-tuple shape without the LEFT JOINs to
-# goats/location_operational_attributes/shed_profiles/animal_stage_lookup the real Go query also
-# carries (those joins enrich each row -- species/stage for Go-side grouping, health/quarantine
-# filtering -- and are resolved per already-selected row). The assertion made here is that
-# obligation_instances itself is NEVER sequentially scanned, at the first page or a page deep into
-# the candidate set (a "late page" keyset predicate positioned after 5000 of the 6000 rows) -- the
-# late-page case is exactly the scenario that matters: a preflight page many rows into the tail must
-# still resolve via an index, not degrade into a growing scan as the tail grows. Whether Postgres
-# additionally emits a Sort node for the handful of columns beyond the index (window_start/
-# window_end/batching_hold_count, needed by the Go struct but not part of the index) is a
-# cost-based, data-distribution-dependent planner choice this single-tenant/version/rule synthetic
-# fixture cannot reliably force either way (empirically verified: forcing enable_seqscan,
-# enable_bitmapscan, enable_hashjoin, and enable_mergejoin off in combination still lets the planner
-# pick a narrower non-covering index plus an explicit sort over the wider covering index, because
-# with every row sharing one (scope_type, scope_id, rule_id) tuple the covering index's leading
-# columns look non-selective to the cost estimator) -- that risk existed with the OLD ORDER BY too,
-# so the fix never makes it worse, and grouping (due_grouping.go's groupUnbatchedDue) is map-keyed
-# and does not depend on physical row order regardless.
+# RV-06: exercise the exact production query (joins, health filters, HWM, snapshot predicate,
+# projection, raw UUID cursor, and ORDER BY) at the accepted 50k ceiling. Sequential scans are not
+# disabled. Both the first and late page must naturally walk the named partial index in order with
+# no Sort/Bitmap fallback.
 validate_obligation_unbatched_due_keyset_plan() {
   printf '%s\n' "
 INSERT INTO tenants (tenant_id, name, status)
@@ -470,73 +455,79 @@ SELECT
   'scheduled',
   'rv06-plan-gate-' || i::text,
   1
-FROM generate_series(1, 6000) AS s(i)
+FROM generate_series(1, 50000) AS s(i)
 ON CONFLICT DO NOTHING;
 ANALYZE obligation_instances;
 " | run_psql
 
-  explain_must_use_index "ObligationUnbatchedDueKeysetFirstPage" 'Seq Scan on obligation_instances' "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
-WITH candidates AS (
-  SELECT oi.obligation_id::text AS obligation_id,
-         oi.rule_id::text AS rule_id,
-         oi.scope_type AS scope_type,
-         COALESCE(oi.scope_id::text, '')::text AS scope_id,
-         COALESCE(oi.target_id::text, '')::text AS target_id,
-         ''::text AS target_species,
-         ''::text AS target_animal_stage,
-         ''::text AS target_reproductive_status,
-         oi.due_at AS due_at,
-         oi.window_start AS window_start,
-         oi.window_end AS window_end,
+  local query_prefix="WITH candidates AS (
+  SELECT oi.obligation_id AS obligation_id_key,
+         oi.rule_id AS rule_id_key,
+         oi.scope_type,
+         oi.scope_id AS scope_id_key,
+         oi.target_id AS target_id_key,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
+         CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.reproductive_status, '')::text ELSE '' END AS target_reproductive_status,
+         oi.due_at,
+         oi.window_start,
+         oi.window_end,
          COALESCE(oi.batching_hold_count, 0)::int AS batching_hold_count,
-         oi.first_batching_hold_until AS first_batching_hold_until
+         oi.first_batching_hold_until
   FROM obligation_instances oi
+  LEFT JOIN goats g
+    ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
+  LEFT JOIN location_operational_attributes loa
+    ON loa.tenant_id = g.tenant_id AND loa.location_id = g.current_location_id
+  LEFT JOIN shed_profiles sp
+    ON sp.tenant_id = g.tenant_id AND sp.location_id = COALESCE(g.shed_id, CASE WHEN oi.scope_type = 'shed' THEN oi.scope_id END)
+  LEFT JOIN animal_stage_lookup asl
+    ON asl.tenant_id = sp.tenant_id AND asl.animal_stage_id = sp.animal_stage_id AND asl.status = 'active'
   WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
     AND oi.protocol_version_id = '10000000-0000-4000-8000-000000000001'::uuid
     AND oi.status IN ('scheduled', 'due', 'missed')
     AND oi.batch_id IS NULL
-    AND oi.due_at <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
-    AND oi.target_type = 'tenant'
+    AND oi.due_at <= TIMESTAMPTZ '2027-12-31 00:00:00+00'
+    AND (TIMESTAMPTZ '2027-12-31 00:00:00+00' IS NULL OR oi.created_at <= TIMESTAMPTZ '2027-12-31 00:00:00+00')
+    AND (NULL::uuid[] IS NULL OR oi.obligation_id = ANY(NULL::uuid[]))
+    AND (
+      oi.target_type <> 'goat'
+      OR (
+        g.goat_id IS NOT NULL
+        AND g.lifecycle_status = 'alive'
+        AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+        AND COALESCE(loa.usable_for_vaccination, true)
+        AND NOT COALESCE(loa.is_quarantine, false)
+        AND NOT COALESCE(loa.is_icu, false)
+      )
+    )
 )
-SELECT obligation_id, rule_id, scope_type, scope_id, target_id, target_species, target_animal_stage,
-       target_reproductive_status, due_at, window_start, window_end, batching_hold_count, first_batching_hold_until
-FROM candidates
-ORDER BY scope_type, scope_id, rule_id, due_at, obligation_id
+SELECT obligation_id_key::text AS obligation_id,
+       rule_id_key::text AS rule_id,
+       scope_type,
+       scope_id_key::text AS scope_id,
+       target_id_key::text AS target_id,
+       target_species, target_animal_stage, target_reproductive_status, due_at, window_start,
+       window_end, batching_hold_count, first_batching_hold_until
+FROM candidates"
+
+  explain_natural_named_index_no_sort "ObligationUnbatchedDueKeysetFirstPage" 'obligation_instances_unbatched_due_version_idx' "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+${query_prefix}
+ORDER BY scope_type, scope_id_key, rule_id_key, due_at, obligation_id_key
 LIMIT 1000;"
 
-  # Late-page keyset predicate: positioned after row 5000 of 6000 (due_at = 2026-01-01 + 5000
-  # minutes = 2026-01-04 11:20:00+00, obligation_id = ...-000000005000, matching the fixture's
-  # per-row due_at = 2026-01-01 + i minutes above). This is the exact hazard RV-06 closes: without
-  # the fix, a page this deep into the candidate set forced Postgres to materialize + re-sort the
-  # remaining tail on every read while PreflightVisitShotCapTies held LockTenantSweep for the tenant.
-  explain_must_use_index "ObligationUnbatchedDueKeysetLatePage" 'Seq Scan on obligation_instances' "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
-WITH candidates AS (
-  SELECT oi.obligation_id::text AS obligation_id,
-         oi.rule_id::text AS rule_id,
-         oi.scope_type AS scope_type,
-         COALESCE(oi.scope_id::text, '')::text AS scope_id,
-         COALESCE(oi.target_id::text, '')::text AS target_id,
-         ''::text AS target_species,
-         ''::text AS target_animal_stage,
-         ''::text AS target_reproductive_status,
-         oi.due_at AS due_at,
-         oi.window_start AS window_start,
-         oi.window_end AS window_end,
-         COALESCE(oi.batching_hold_count, 0)::int AS batching_hold_count,
-         oi.first_batching_hold_until AS first_batching_hold_until
-  FROM obligation_instances oi
-  WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
-    AND oi.protocol_version_id = '10000000-0000-4000-8000-000000000001'::uuid
-    AND oi.status IN ('scheduled', 'due', 'missed')
-    AND oi.batch_id IS NULL
-    AND oi.due_at <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
-    AND oi.target_type = 'tenant'
+  # Cursor after 49k rows: the final page must seek into the B-tree rather than re-read/filter/sort
+  # the preceding 49k rows.
+  explain_natural_named_index_no_sort "ObligationUnbatchedDueKeysetLatePage" 'obligation_instances_unbatched_due_version_idx' "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+${query_prefix}
+WHERE (scope_type, scope_id_key, rule_id_key, due_at, obligation_id_key) > (
+  'tenant',
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  '50000000-0000-4000-8000-000000000001'::uuid,
+  TIMESTAMPTZ '2026-02-04 00:40:00+00',
+  '60000000-0000-4000-8000-000000049000'::uuid
 )
-SELECT obligation_id, rule_id, scope_type, scope_id, target_id, target_species, target_animal_stage,
-       target_reproductive_status, due_at, window_start, window_end, batching_hold_count, first_batching_hold_until
-FROM candidates
-WHERE (scope_type, scope_id, rule_id, due_at, obligation_id) > ('tenant', '00000000-0000-4000-8000-000000000001', '50000000-0000-4000-8000-000000000001', TIMESTAMPTZ '2026-01-04 11:20:00+00', '60000000-0000-4000-8000-000000005000')
-ORDER BY scope_type, scope_id, rule_id, due_at, obligation_id
+ORDER BY scope_type, scope_id_key, rule_id_key, due_at, obligation_id_key
 LIMIT 1000;"
 }
 

@@ -121,17 +121,16 @@ type ParkConsolidationCandidate struct {
 }
 
 // UnbatchedDueCursor is the keyset cursor for the write-free preflight scan of unbatched due
-// obligations (RV-02). Its fields MUST stay in the same order as ListUnbatchedDueForVersion's
-// ORDER BY (scope_type, scope_id, rule_id, target_species, target_animal_stage, due_at,
-// obligation_id) so keyset paging returns every candidate exactly once.
+// obligations (RV-02). Its fields MUST stay in the same order as the repository ORDER BY
+// (scope_type, scope_id, rule_id, due_at, obligation_id) so keyset paging returns every candidate
+// exactly once. UUID fields are stored as strings at the domain boundary but rebound as UUIDs by
+// the Postgres adapter; ordering text renderings in SQL would not match the UUID-backed index.
 type UnbatchedDueCursor struct {
-	ScopeType         string
-	ScopeID           string
-	RuleID            string
-	TargetSpecies     string
-	TargetAnimalStage string
-	DueAt             time.Time
-	ObligationID      string
+	ScopeType    string
+	ScopeID      string
+	RuleID       string
+	DueAt        time.Time
+	ObligationID string
 }
 
 // ParkConsolidationCursor is the keyset cursor for the park-consolidation candidate query. Its

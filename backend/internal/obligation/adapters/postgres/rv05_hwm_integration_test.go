@@ -153,6 +153,85 @@ SELECT batch_id::text FROM obligation_instances WHERE tenant_id=$1 AND idempoten
 	}
 }
 
+// TestPreflightSnapshotExcludesPreexistingRowReopenedAfterPreflight is the counter-review guard for
+// the gap a created_at-only HWM cannot close. HS already exists before the HWM, but is deferred and
+// therefore absent from preflight. Reopening it after preflight does not change created_at, so the
+// old HWM-only real sweep admitted it and raised a same-priority tie after FMD/PPR had committed.
+// The returned snapshot allowlist makes candidate membership monotonic for the cycle: HS waits for
+// the next cycle even though its current status becomes scheduled.
+func TestPreflightSnapshotExcludesPreexistingRowReopenedAfterPreflight(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versions := seedShotCapVersions(t, ctx, proto, "vaccination.rv05snapshot", 3)
+
+	const goatID = "10000000-0000-4000-8000-00000000f403"
+	const shedID = "00000000-0000-4000-8000-00000000d403"
+	seedParkConsolidationShed(t, ctx, pool, shedID, "rv05-snapshot-shed")
+	seedReserveGoats(t, ctx, pool, shedID, cbePark, goatID)
+
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	windowEnd := due.AddDate(0, 0, 5)
+	planner := domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 2}
+	plans := []oblapp.SweepVersionPriority{
+		{VersionID: versions[0].versionID, Config: rv05VaccineIdentity(versions[0], "FMD", 5, planner)},
+		{VersionID: versions[1].versionID, Config: rv05VaccineIdentity(versions[1], "PPR", 5, planner)},
+		{VersionID: versions[2].versionID, Config: rv05VaccineIdentity(versions[2], "HS", 5, planner)},
+	}
+
+	for i, status := range []string{"scheduled", "scheduled", "deferred"} {
+		if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+			TenantID: tenantID, ProtocolVersionID: versions[i].versionID, RuleID: versions[i].ruleID,
+			TargetType: "goat", TargetID: goatID, ScopeType: "shed", ScopeID: shedID,
+			DueAt: due, WindowEnd: &windowEnd, Status: status,
+			IdempotencyKey: "rv05snapshot-" + []string{"FMD", "PPR", "HS"}[i], Sequence: 1,
+		}); err != nil || !applied {
+			t.Fatalf("insert obligation %d: applied=%v err=%v", i, applied, err)
+		}
+	}
+
+	sweeper := oblapp.NewSweeperService(repo, nil, nil)
+	hwm, err := sweeper.CaptureSweepHighWaterMark(ctx)
+	if err != nil {
+		t.Fatalf("capture high-water mark: %v", err)
+	}
+	snapshot, err := sweeper.PreflightVisitShotCapTiesWithSnapshot(ctx, tenantID, plans, due, hwm)
+	if err != nil {
+		t.Fatalf("preflight before reopen: %v", err)
+	}
+
+	if _, changed, err := repo.ReopenDeferredObligationByIdempotencyKey(ctx, tenantID, "rv05snapshot-HS", due, nil); err != nil || !changed {
+		t.Fatalf("reopen pre-existing HS after preflight: changed=%v err=%v", changed, err)
+	}
+
+	session := oblapp.NewSweepSession()
+	for _, plan := range plans {
+		if _, err := sweeper.SweepVersionWithSessionNoFinalizeSnapshot(ctx, tenantID, plan.VersionID, plan.Config, due, session, hwm, snapshot); err != nil {
+			t.Fatalf("snapshot sweep version %s: %v", plan.VersionID, err)
+		}
+	}
+
+	if got := countRows(t, ctx, pool, `
+SELECT count(*) FROM obligation_instances oi JOIN obligation_batches b ON b.batch_id = oi.batch_id
+WHERE oi.tenant_id=$1 AND oi.target_id=$2
+  AND b.status NOT IN ('canceled','superseded')`, tenantID, goatID); got != 2 {
+		t.Fatalf("shots committed after reopen race = %d, want 2 (FMD + PPR only)", got)
+	}
+	var hsBatchID *string
+	if err := pool.QueryRow(ctx, `
+SELECT batch_id::text FROM obligation_instances WHERE tenant_id=$1 AND idempotency_key=$2`,
+		tenantID, "rv05snapshot-HS").Scan(&hsBatchID); err != nil {
+		t.Fatalf("read reopened HS: %v", err)
+	}
+	if hsBatchID != nil {
+		t.Fatalf("reopened HS was batched in the preflight cycle (batch_id=%s), want deferred to next cycle", *hsBatchID)
+	}
+}
+
 // TestUnboundedPreflightThenSweepStillPartialCommitsWithoutHWM independently demonstrates the RV-05
 // hazard at runtime using ONLY the pre-existing unbounded entry points (zero createdAtHWM /
 // SweepVersionWithSessionNoFinalize): with no shared high-water mark, a same-priority obligation
