@@ -228,7 +228,7 @@ class ScanViewModel @Inject constructor(
         )
 
     /** Manual ring tap: advances the next REAL pending roster row (from the current computed
-     *  state) to DONE by recording its obligation in the draft overlay, and pushes a feed row. */
+     *  state) to DONE in the draft overlay only. It is not an RFID capture. */
     private fun onManualTap() {
         val row = state.value.roster.firstOrNull { it.status == ScanStatus.PENDING } ?: return
         markRowDone(row)
@@ -248,8 +248,15 @@ class ScanViewModel @Inject constructor(
             return
         }
         when (row.status) {
-            ScanStatus.PENDING -> markRowDone(row, capturedTag = tag)
-            ScanStatus.DONE -> Unit
+            ScanStatus.PENDING -> {
+                markRowDone(row)
+                recordRosterScan(tag = tag, fallbackTag = row.primaryTag)
+            }
+            ScanStatus.DONE -> {
+                if (row.obligationId in _localDone.value) {
+                    recordRosterScan(tag = tag, fallbackTag = row.primaryTag)
+                }
+            }
             ScanStatus.SKIPPED -> _feed.update {
                 prependFeed(
                     ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED),
@@ -262,18 +269,21 @@ class ScanViewModel @Inject constructor(
     /** Shared by a real tag-match ([onTagRead]) and a manual ring tap ([onManualTap]): records
      * [row]'s obligation as locally DONE (unsynced) in the draft overlay and pushes a feed row.
      * The combine re-derives the roster + counts from this set on the next emission. */
-    private fun markRowDone(row: RosterRow, capturedTag: String = row.primaryTag) {
+    private fun markRowDone(row: RosterRow) {
         if (row.obligationId.isBlank()) return
         _localDone.update { it + row.obligationId }
         _feed.update {
             prependFeed(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE), it)
         }
+    }
+
+    private fun recordRosterScan(tag: String, fallbackTag: String) {
         val selectedTaskId = taskId ?: return
         viewModelScope.launch {
             scanCaptureRepository.recordScan(
                 taskId = selectedTaskId,
                 fieldKey = ROSTER_SCAN_FIELD_KEY,
-                tag = capturedTag.ifBlank { row.primaryTag },
+                tag = tag.ifBlank { fallbackTag },
             )
         }
     }

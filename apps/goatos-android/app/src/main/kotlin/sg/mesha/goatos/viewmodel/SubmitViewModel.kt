@@ -618,7 +618,7 @@ class SubmitViewModel @Inject constructor(
             FormFieldType.NUMBER, FormFieldType.TEXT -> !(answer as? JsonPrimitive)?.content.isNullOrBlank()
             FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER ->
                 !(answer as? JsonPrimitive)?.content.isNullOrBlank()
-            FormFieldType.GOAT_SCAN -> currentScans.any { it.matchesGoatScanField(key) }
+            FormFieldType.GOAT_SCAN -> currentScans.any { it.matchesGoatScanField(key, currentForm.rosterScanTargetFieldKey()) }
             FormFieldType.VIDEO_PROOF -> currentProofs.any { it.fieldKey == key }
             FormFieldType.UNKNOWN -> false
         }
@@ -668,7 +668,7 @@ class SubmitViewModel @Inject constructor(
             )
         }
         FormFieldType.GOAT_SCAN -> {
-            val count = currentScans.count { it.matchesGoatScanField(key) }
+            val count = currentScans.count { it.matchesGoatScanField(key, currentForm.rosterScanTargetFieldKey()) }
             FormFieldUi(
                 key = key,
                 label = label,
@@ -740,7 +740,7 @@ class SubmitViewModel @Inject constructor(
             when (field.type) {
                 FormFieldType.GOAT_SCAN -> {
                     val tags = scans
-                        .filter { it.matchesGoatScanField(field.key) }
+                        .filter { it.matchesGoatScanField(field.key, form.rosterScanTargetFieldKey()) }
                         .map { it.tag }
                         .distinct()
                     if (tags.isEmpty()) null else field.key to JsonArray(tags.map { JsonPrimitive(it) })
@@ -770,5 +770,8 @@ class SubmitViewModel @Inject constructor(
     }
 }
 
-private fun ScannedGoatRow.matchesGoatScanField(scanFieldKey: String): Boolean =
-    fieldKey == scanFieldKey || fieldKey == ROSTER_SCAN_FIELD_KEY
+private fun FormSpec.rosterScanTargetFieldKey(): String? =
+    fields.singleOrNull { it.type == FormFieldType.GOAT_SCAN }?.key
+
+private fun ScannedGoatRow.matchesGoatScanField(scanFieldKey: String, rosterScanTargetFieldKey: String?): Boolean =
+    fieldKey == scanFieldKey || (fieldKey == ROSTER_SCAN_FIELD_KEY && scanFieldKey == rosterScanTargetFieldKey)

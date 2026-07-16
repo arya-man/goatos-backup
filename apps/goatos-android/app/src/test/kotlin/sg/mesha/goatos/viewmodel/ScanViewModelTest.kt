@@ -30,6 +30,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
+import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
 import sg.mesha.goatos.core.data.forms.FormSpec
@@ -114,6 +115,71 @@ class ScanViewModelTest {
 
         val answer = submitSync.lastRequest?.answers?.get("goat_ids") as? JsonArray
         assertEquals(listOf(JsonPrimitive("TAG-100")), answer)
+    }
+
+    @Test
+    fun `manual ring tap does not persist a scan capture but later reader tag does`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        scanVm.onEvent(ScanEvent.Tap)
+        advanceUntilIdle()
+
+        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+        assertEquals(emptyList<String>(), scanCaptures.tagsForTask("task-1"))
+
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
+    }
+
+    @Test
+    fun `roster scan capture is not fanned out across multiple scan fields`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        scanCaptures.recordScan(taskId = "task-1", fieldKey = ROSTER_SCAN_FIELD_KEY, tag = "TAG-100")
+        val submitSync = CapturingSubmitSyncRepository()
+        val submitVm = SubmitViewModel(
+            repo = FakeTaskRepository(
+                task = TaskSummaryDto(taskId = "task-1", sopVersionId = "sop-1", scopeId = "shed-1", title = "Shed 1"),
+                form = FormSpec(
+                    schemaVersion = "goatos.sop-form.v1",
+                    fields = listOf(
+                        FormField(key = "goat_ids", label = "Vaccinated goats", type = FormFieldType.GOAT_SCAN, required = false),
+                        FormField(key = "witness_goat_ids", label = "Witness goats", type = FormFieldType.GOAT_SCAN, required = false),
+                    ),
+                    rules = emptyList(),
+                ),
+            ),
+            syncRepository = submitSync,
+            scanCaptureRepository = scanCaptures,
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            scanSource = FakeScanSource(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            savedStateHandle = SavedStateHandle(mapOf("taskId" to "task-1")),
+        )
+        backgroundScope.launch { submitVm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue("optional scan fields should not block submission", submitVm.state.value.canSubmit)
+        submitVm.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+
+        assertTrue("submission should still be enqueued", submitSync.lastRequest != null)
+        assertEquals(null, submitSync.lastRequest?.answers?.get("goat_ids"))
+        assertEquals(null, submitSync.lastRequest?.answers?.get("witness_goat_ids"))
     }
 
     @Test
