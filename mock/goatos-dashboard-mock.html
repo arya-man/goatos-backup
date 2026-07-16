@@ -607,6 +607,8 @@
   /* operator Overview: day picker + own task list (mirrors the field app, read-only —
      the operator completes tasks and uploads proof on the phone, not in the console) */
   .hrms .hx-daystrip{display:flex;gap:7px;overflow-x:auto;padding-bottom:12px;margin-bottom:13px;border-bottom:1px solid var(--line2)}
+  /* strip sitting directly on a card (Tasks & Proof) — full-bleed rule, no extra gap */
+  .hrms .hx-daystrip.hx-strip-bar{padding:12px 14px;margin-bottom:0}
   .hrms .hx-day{flex:none;min-width:60px;border:1px solid var(--line);background:var(--panel);border-radius:11px;padding:8px 6px;cursor:pointer;font:inherit;color:var(--muted);text-align:center;transition:.12s}
   .hrms .hx-day:hover{border-color:var(--brand)}
   .hrms .hx-day.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand-d)}
@@ -2018,8 +2020,9 @@
 
       <!-- ===== HRMS · Tasks &amp; Proof ===== -->
       <div class="subpanel hrms" data-sub="tasks">
-        <div class="phead"><div><div class="crumb">HR / People / <b>Tasks &amp; Proof</b></div><h1>Tasks &amp; Proof</h1><div class="sub">Each person's daily tasks with time and the proof they uploaded. Assigned by the manager — not the same as vaccination/operational obligations.</div></div><div class="sp"></div><span class="scopebadge" id="hxSb2"><svg class="ic" style="width:14px"><use href="#i-user"/></svg>Direct reports only</span></div>
+        <div class="phead"><div><div class="crumb">HR / People / <b>Tasks &amp; Proof</b></div><h1>Tasks &amp; Proof</h1><div class="sub" id="hxTasksSub">Each person's daily tasks with time and the proof they uploaded. Assigned by the manager — not the same as vaccination/operational obligations.</div></div><div class="sp"></div><span class="scopebadge" id="hxSb2"><svg class="ic" style="width:14px"><use href="#i-user"/></svg>Direct reports only</span></div>
         <div class="card">
+          <div class="hx-daystrip hx-strip-bar" id="hxTaskDayStrip"></div>
           <div class="tbar">
             <div class="tsearch"><svg class="ic" style="width:15px"><use href="#i-search"/></svg><input id="hxTaskQ" placeholder="Filter tasks or people…"></div>
             <div class="chipset" id="hxTaskSt"><span class="chip on" data-st="all">Any status</span><span class="chip" data-st="done">Done</span><span class="chip" data-st="pend">Pending</span><span class="chip" data-st="miss">Missed</span></div>
@@ -4834,50 +4837,114 @@ var HR_LEAVE=[
 ];
 var HR_MGR='ramesh';                      /* the line manager the mgr-scope view is drawn for */
 var HR_ME='suresh';                       /* the individual contributor the self-scope view is drawn for */
-/* Per-person task history, powering the "My day" day picker on Overview. Keyed by person so
-   a manager and an operator each look back at their OWN days. Weekday labels follow the HRMS
-   mocks' convention that 15 Jul 2026 is a Tuesday. `tasks:null` on today means "read
-   HR_TASKS[person]", so today's list can never drift from the rest of the console. */
+/* ---- the calendar spine: one entry per day, shared by every day picker ----
+   Weekday labels follow the HRMS mocks' convention that 15 Jul 2026 is a Tuesday. */
+var HR_TODAY='2026-07-15';
+var HR_DAYS=[
+  {k:'2026-07-09',dow:'Wed',dn:'9', lab:'Wed 9 Jul'},
+  {k:'2026-07-10',dow:'Thu',dn:'10',lab:'Thu 10 Jul'},
+  {k:'2026-07-11',dow:'Fri',dn:'11',lab:'Fri 11 Jul'},
+  {k:'2026-07-12',dow:'Sat',dn:'12',lab:'Sat 12 Jul',rest:true},
+  {k:'2026-07-13',dow:'Sun',dn:'13',lab:'Sun 13 Jul',rest:true},
+  {k:'2026-07-14',dow:'Mon',dn:'14',lab:'Mon 14 Jul'},
+  {k:'2026-07-15',dow:'Tue',dn:'15',lab:'Tue 15 Jul',today:true}
+];
+/* Per-person, per-day clock-in + tasks. TODAY IS DELIBERATELY ABSENT here — hrDayRec()
+   reads HR_CLOCK/HR_TASKS for HR_TODAY, so today can never drift from the rest of the
+   console. A person with no record for a day (or a rest day) simply has no tasks. */
 var HR_HISTORY={
-  suresh:[
-    {k:'2026-07-09',dow:'Wed',dn:'9',lab:'Wed 9 Jul',clock:'07:55',tasks:[
+  ramesh:{
+    '2026-07-09':{clock:'08:40',tasks:[
+      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
+      {t:'Weekly shed hygiene walkthrough',due:'16:00',st:'done',proof:true}]},
+    '2026-07-10':{clock:'08:47',tasks:[
+      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
+      {t:'Vaccination drive sign-off — K1',due:'15:00',st:'done',proof:true}]},
+    '2026-07-11':{clock:'08:33',tasks:[
+      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
+      {t:'Roster & leave review',due:'14:00',st:'miss',proof:false}]},
+    '2026-07-14':{clock:'08:55',tasks:[
+      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
+      {t:'Weekly shed hygiene walkthrough',due:'16:00',st:'done',proof:true}]}
+  },
+  suresh:{
+    '2026-07-09':{clock:'07:55',tasks:[
       {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
       {t:'Clean & refill feed troughs',due:'12:00',st:'done',proof:true},
       {t:'Evening shed lock-up check',due:'17:30',st:'done',proof:true}]},
-    {k:'2026-07-10',dow:'Thu',dn:'10',lab:'Thu 10 Jul',clock:'08:04',tasks:[
+    '2026-07-10':{clock:'08:04',tasks:[
       {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
       {t:'Water line refill log',due:'09:00',st:'miss',proof:false},
       {t:'Evening shed lock-up check',due:'17:30',st:'done',proof:true}]},
-    {k:'2026-07-11',dow:'Fri',dn:'11',lab:'Fri 11 Jul',clock:'07:51',tasks:[
+    '2026-07-11':{clock:'07:51',tasks:[
       {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
       {t:'Clean & refill feed troughs',due:'12:00',st:'done',proof:true}]},
-    {k:'2026-07-12',dow:'Sat',dn:'12',lab:'Sat 12 Jul',clock:null,rest:true,tasks:[]},
-    {k:'2026-07-13',dow:'Sun',dn:'13',lab:'Sun 13 Jul',clock:null,rest:true,tasks:[]},
-    {k:'2026-07-14',dow:'Mon',dn:'14',lab:'Mon 14 Jul',clock:'08:12',tasks:[
+    '2026-07-14':{clock:'08:12',tasks:[
       {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
       {t:'Bedding replacement — Shed B',due:'13:00',st:'done',proof:true},
-      {t:'Evening shed lock-up check',due:'17:30',st:'miss',proof:false}]},
-    {k:'2026-07-15',dow:'Tue',dn:'15',lab:'Tue 15 Jul',clock:null,today:true,tasks:null}
-  ],
-  ramesh:[
-    {k:'2026-07-09',dow:'Wed',dn:'9',lab:'Wed 9 Jul',clock:'08:40',tasks:[
-      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
-      {t:'Weekly shed hygiene walkthrough',due:'16:00',st:'done',proof:true}]},
-    {k:'2026-07-10',dow:'Thu',dn:'10',lab:'Thu 10 Jul',clock:'08:47',tasks:[
-      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
-      {t:'Vaccination drive sign-off — K1',due:'15:00',st:'done',proof:true}]},
-    {k:'2026-07-11',dow:'Fri',dn:'11',lab:'Fri 11 Jul',clock:'08:33',tasks:[
-      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
-      {t:'Roster & leave review',due:'14:00',st:'miss',proof:false}]},
-    {k:'2026-07-12',dow:'Sat',dn:'12',lab:'Sat 12 Jul',clock:null,rest:true,tasks:[]},
-    {k:'2026-07-13',dow:'Sun',dn:'13',lab:'Sun 13 Jul',clock:null,rest:true,tasks:[]},
-    {k:'2026-07-14',dow:'Mon',dn:'14',lab:'Mon 14 Jul',clock:'08:55',tasks:[
-      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
-      {t:'Weekly shed hygiene walkthrough',due:'16:00',st:'done',proof:true}]},
-    {k:'2026-07-15',dow:'Tue',dn:'15',lab:'Tue 15 Jul',clock:null,today:true,tasks:null}
-  ]
+      {t:'Evening shed lock-up check',due:'17:30',st:'miss',proof:false}]}
+  },
+  lakshmi:{
+    '2026-07-09':{clock:'08:05',tasks:[
+      {t:'Water line refill log',due:'09:00',st:'done',proof:true},
+      {t:'Bedding replacement — Shed B',due:'13:00',st:'done',proof:true}]},
+    '2026-07-10':{clock:'08:15',tasks:[
+      {t:'Water line refill log',due:'09:00',st:'done',proof:true},
+      {t:'Bedding replacement — Shed B',due:'13:00',st:'done',proof:true}]},
+    '2026-07-11':{clock:'08:02',tasks:[
+      {t:'Water line refill log',due:'09:00',st:'done',proof:true}]},
+    '2026-07-14':{clock:'08:20',tasks:[
+      {t:'Water line refill log',due:'09:00',st:'done',proof:true},
+      {t:'Bedding replacement — Shed B',due:'13:00',st:'miss',proof:false}]}
+  },
+  anita:{
+    '2026-07-09':{clock:'08:25',tasks:[
+      {t:'Sick-pen round & notes',due:'09:00',st:'done',proof:true},
+      {t:'Weekly hygiene audit form',due:'14:00',st:'done',proof:true}]},
+    '2026-07-10':{clock:'08:30',tasks:[
+      {t:'Sick-pen round & notes',due:'09:00',st:'done',proof:true}]},
+    '2026-07-11':{clock:'08:18',tasks:[
+      {t:'Sick-pen round & notes',due:'09:00',st:'done',proof:true},
+      {t:'Weekly hygiene audit form',due:'14:00',st:'miss',proof:false}]},
+    '2026-07-14':{clock:'08:22',tasks:[
+      {t:'Sick-pen round & notes',due:'09:00',st:'done',proof:true}]}
+  },
+  manoj:{
+    '2026-07-09':{clock:'08:00',tasks:[
+      {t:'Shed gate & fence check',due:'08:30',st:'done',proof:true},
+      {t:'Feed distribution — evening',due:'17:00',st:'done',proof:true}]},
+    '2026-07-10':{clock:'08:08',tasks:[
+      {t:'Shed gate & fence check',due:'08:30',st:'done',proof:true},
+      {t:'Feed distribution — evening',due:'17:00',st:'done',proof:true}]},
+    '2026-07-11':{clock:'08:03',tasks:[
+      {t:'Shed gate & fence check',due:'08:30',st:'done',proof:true},
+      {t:'Feed distribution — evening',due:'17:00',st:'miss',proof:false}]},
+    '2026-07-14':{clock:'08:05',tasks:[
+      {t:'Shed gate & fence check',due:'08:30',st:'done',proof:true},
+      {t:'Feed distribution — evening',due:'17:00',st:'done',proof:true}]}
+  },
+  ravi:{
+    '2026-07-09':{clock:'08:18',tasks:[{t:'Bedding replacement log',due:'09:00',st:'done',proof:true}]},
+    '2026-07-10':{clock:'08:25',tasks:[{t:'Bedding replacement log',due:'09:00',st:'done',proof:true}]},
+    '2026-07-11':{clock:'08:30',tasks:[{t:'Bedding replacement log',due:'09:00',st:'miss',proof:false}]},
+    '2026-07-14':{clock:'08:22',tasks:[{t:'Bedding replacement log',due:'09:00',st:'done',proof:true}]}
+  },
+  vijay:{
+    '2026-07-09':{clock:'08:35',tasks:[{t:'Parks morning briefing',due:'08:00',st:'done',proof:true}]},
+    '2026-07-10':{clock:'08:44',tasks:[{t:'Parks morning briefing',due:'08:00',st:'done',proof:true}]},
+    '2026-07-11':{clock:'08:39',tasks:[{t:'Parks morning briefing',due:'08:00',st:'done',proof:true}]},
+    '2026-07-14':{clock:'08:41',tasks:[{t:'Parks morning briefing',due:'08:00',st:'done',proof:true}]}
+  }
 };
-var hxOpDay='2026-07-15';
+/* one clock-in + task list for a person on a day; today always comes from the live console data */
+function hrDayRec(person,k){
+  if(!person)return {clock:null,tasks:[]};
+  if(k===HR_TODAY)return {clock:HR_CLOCK[person]||null,tasks:HR_TASKS[person]||[]};
+  var r=(HR_HISTORY[person]||{})[k];
+  return {clock:r?(r.clock||null):null,tasks:r?(r.tasks||[]):[]};
+}
+function hrDayMeta(k){var d=HR_DAYS.filter(function(x){return x.k===k;})[0];return d||HR_DAYS[HR_DAYS.length-1];}
+var hxDay=HR_TODAY;   /* the day both pickers (Overview + Tasks & Proof) are looking at */
 var HR_FULL_ROLES=['coo','hrdir'];        /* console roles that get full-org HR visibility */
 var HR_SELF_ROLES=['operator'];           /* console roles with no reports — own record only */
 var hxTaskSt='all', hxTaskQ='';
@@ -4906,40 +4973,47 @@ function hrStTag(st){return st==='done'?'<span class="tag t-ok">Done</span>':st=
 function hrWho(id){var p=HR_PEOPLE[id];
   return '<div class="hx-who"><span class="av">'+p.av+'</span><span><div class="hx-n">'+p.name+(id===hrMe()?' <span class="tag t-mut" style="margin-left:4px">you</span>':'')+'</div><div class="hx-s">'+p.role+'</div></span></div>';}
 
-/* ---- Overview "My day": day picker + own tasks (operator AND line manager) ---- */
-function hrMyDays(){return HR_HISTORY[hrMe()]||[];}
-function hrOpDay(k){var ds=hrMyDays();var d=ds.filter(function(x){return x.k===k;})[0];return d||ds[ds.length-1];}
-function hrOpTasksFor(d){return d.tasks===null?(HR_TASKS[hrMe()]||[]):d.tasks;}   /* today reads the live list */
-function hrOpClockFor(d){return d.today?HR_CLOCK[hrMe()]:d.clock;}
-function hrOpPick(k){hxOpDay=k;hrRenderDash();}
-function hrRenderOpDash(){
-  var sel=hrOpDay(hxOpDay);
-  hrEl('hxDayStrip').innerHTML=hrMyDays().map(function(d){
-    var ts=hrOpTasksFor(d), done=ts.filter(function(x){return x.st==='done';}).length;
-    var rt=d.rest?'rest':done+'/'+ts.length;
-    var cls=d.rest?'hx-rest':(ts.length&&done===ts.length)?'hx-full':'hx-part';
-    return '<button class="hx-day'+(d.k===hxOpDay?' on':'')+(d.today?' hx-today':'')+'" onclick="hrOpPick(\''+d.k+'\')">'+
+/* ---- shared day picker: one strip renderer, used by Overview and Tasks & Proof ----
+   `people` is whose tasks the day counts summarise: just me on Overview, my reports (or the
+   whole org) on Tasks & Proof. Same spine, same click target, different totals. */
+function hrDayStripHtml(people){
+  return HR_DAYS.map(function(d){
+    var tot=0,done=0;
+    people.forEach(function(id){
+      var ts=hrDayRec(id,d.k).tasks;
+      tot+=ts.length; done+=ts.filter(function(x){return x.st==='done';}).length;
+    });
+    var rt=tot?done+'/'+tot:'rest';
+    var cls=!tot?'hx-rest':(done===tot)?'hx-full':'hx-part';
+    return '<button class="hx-day'+(d.k===hxDay?' on':'')+(d.today?' hx-today':'')+'" onclick="hrDayPick(\''+d.k+'\')">'+
       '<span class="hx-dow">'+d.dow+'</span><span class="hx-dn">'+d.dn+'</span><span class="hx-rt '+cls+'">'+rt+'</span></button>';
   }).join('');
-  var ts=hrOpTasksFor(sel), done=ts.filter(function(x){return x.st==='done';}).length;
+}
+/* one selected day across both pages — "which day am I looking at" is a single idea */
+function hrDayPick(k){hxDay=k;hrRenderDash();hrRenderTasks();}
+function hrTaskRow(t){
+  var kCls=t.st==='done'?'hx-ok':t.st==='pend'?'hx-pend':'hx-miss';
+  var kIco=t.st==='done'?'#i-check':t.st==='pend'?'#i-clock':'#i-x';
+  return '<div class="hx-optask hx-o-'+t.st+'"><span class="hx-tk '+kCls+'"><svg class="ic" style="width:14px"><use href="'+kIco+'"/></svg></span>'+
+    '<span class="hx-tt"><b>'+t.t+'</b><span class="hx-tm"><span class="mono">Due '+t.due+'</span>'+
+    (t.proof?' · proof ✓':t.st==='done'?'':' · no proof')+'</span></span>'+hrStTag(t.st)+'</div>';
+}
+function hrRenderOpDash(){
+  var me=hrMe(), sel=hrDayMeta(hxDay), rec=hrDayRec(me,hxDay), ts=rec.tasks;
+  var done=ts.filter(function(x){return x.st==='done';}).length;
+  hrEl('hxDayStrip').innerHTML=hrDayStripHtml([me]);
   hrEl('hxOpDayTitle').textContent='My tasks · '+sel.lab+(sel.today?' (today)':'');
   hrEl('hxOpDayCount').textContent=ts.length?done+' of '+ts.length+' done':'rest day';
-  var kCls=function(st){return st==='done'?'hx-ok':st==='pend'?'hx-pend':'hx-miss';};
-  var kIco=function(st){return st==='done'?'#i-check':st==='pend'?'#i-clock':'#i-x';};
-  hrEl('hxOpTasks').innerHTML=ts.length?ts.map(function(t){
-    return '<div class="hx-optask hx-o-'+t.st+'"><span class="hx-tk '+kCls(t.st)+'"><svg class="ic" style="width:14px"><use href="'+kIco(t.st)+'"/></svg></span>'+
-      '<span class="hx-tt"><b>'+t.t+'</b><span class="hx-tm"><span class="mono">Due '+t.due+'</span>'+
-      (t.proof?' · proof ✓':t.st==='done'?'':' · no proof')+'</span></span>'+hrStTag(t.st)+'</div>';
-  }).join(''):'<div class="hx-empty">Rest day — no tasks were assigned.</div>';
-  return {sel:sel,ts:ts,done:done};
+  hrEl('hxOpTasks').innerHTML=ts.length?ts.map(hrTaskRow).join('')
+    :'<div class="hx-empty">'+(sel.rest?'Rest day — no tasks were assigned.':'No tasks were assigned on '+sel.lab+'.')+'</div>';
+  return {sel:sel,ts:ts,done:done,clock:rec.clock};
 }
-
 function hrRenderDash(){
   /* Overview is the personal "My day" page — operator and line manager only. Full-org
      viewers (COO / HR Director) have no Overview at all: the leaf is hidden in hrmsApply
      and go() redirects them to Tasks & Proof, so there is nothing to render here. */
   if(!hrMe())return;
-  var o=hrRenderOpDash(), ci=hrOpClockFor(o.sel);
+  var o=hrRenderOpDash(), ci=o.clock;
   var pend=o.ts.filter(function(x){return x.st==='pend'&&!x.proof;}).length;
   /* the heading follows the picked day — "today" must never sit above a past day's numbers */
   hrEl('hxDashTitle').textContent=o.sel.today?'My day today':'My day \u00b7 '+o.sel.lab;
@@ -4960,17 +5034,31 @@ function hrTaskPeople(){var s=hrScope();
   if(s==='full')return Object.keys(HR_PEOPLE).filter(function(id){return id!=='ceo';});
   if(s==='self')return [HR_ME];
   return hrKids(HR_MGR);}
-function hrTaskRows(){var rows=[];hrTaskPeople().forEach(function(id){(HR_TASKS[id]||[]).forEach(function(t){rows.push({t:t.t,due:t.due,st:t.st,proof:t.proof,who:id});});});return rows;}
+/* rows for the day the picker is on — not just today */
+function hrTaskRows(){var rows=[];hrTaskPeople().forEach(function(id){
+  hrDayRec(id,hxDay).tasks.forEach(function(t){rows.push({t:t.t,due:t.due,st:t.st,proof:t.proof,who:id});});});
+  return rows;}
 function hrRenderTasks(){
-  var rows=hrTaskRows();
+  if(!hrEl('hxTaskBody'))return;
+  var sel=hrDayMeta(hxDay);
+  var all=hrTaskRows();                                   /* the day's tasks, before filters */
+  var done=all.filter(function(r){return r.st==='done';}).length;
+  var rows=all;
   if(hxTaskSt!=='all')rows=rows.filter(function(r){return r.st===hxTaskSt;});
   if(hxTaskQ){var q=hxTaskQ.toLowerCase();rows=rows.filter(function(r){return r.t.toLowerCase().indexOf(q)>=0||HR_PEOPLE[r.who].name.toLowerCase().indexOf(q)>=0;});}
-  hrEl('hxTaskCount').textContent=rows.length+(rows.length===1?' task':' tasks');
+  hrEl('hxTaskDayStrip').innerHTML=hrDayStripHtml(hrTaskPeople());
+  hrEl('hxTasksSub').textContent=sel.lab+(sel.today?' (today)':'')+' · '+
+    (hrFull()?'every person’s':'your team’s')+' daily tasks and the proof they uploaded. Assigned by the manager — not the same as vaccination/operational obligations.';
+  /* assigned vs completed for the picked day; narrows to a subset when a filter is on */
+  hrEl('hxTaskCount').textContent=(rows.length===all.length)
+    ?(all.length?all.length+' assigned · '+done+' done':'no tasks assigned')
+    :rows.length+' of '+all.length+' tasks';
   hrEl('hxTaskBody').innerHTML=rows.length?rows.map(function(r){
     return '<tr style="cursor:pointer" onclick="hrOpenPerson(\''+r.who+'\')"><td>'+hrWho(r.who)+'</td>'+
       '<td style="font-weight:650">'+r.t+'</td><td class="mono">'+r.due+'</td><td>'+hrStTag(r.st)+'</td>'+
       '<td>'+(r.proof?'<span class="hx-prooflink"><svg class="ic" style="width:14px"><use href="#i-cam"/></svg>View</span>':'<span class="hx-noproof">no proof</span>')+'</td></tr>';
-  }).join(''):'<tr><td colspan="5" class="muted" style="padding:22px;text-align:center">No tasks match this filter.</td></tr>';
+  }).join(''):'<tr><td colspan="5" class="muted" style="padding:22px;text-align:center">'+
+    (all.length?'No tasks match this filter.':(sel.rest?'Rest day — no tasks were assigned.':'No tasks were assigned on '+sel.lab+'.'))+'</td></tr>';
 }
 function hrNode(id,self){var p=HR_PEOPLE[id],ts=HR_TASKS[id]||[];
   var done=ts.filter(function(x){return x.st==='done';}).length;
