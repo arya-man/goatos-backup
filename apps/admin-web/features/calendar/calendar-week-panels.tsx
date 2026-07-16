@@ -35,6 +35,7 @@ export function RhythmCard({
   dayFilter,
   allWeek,
   allWeekHref,
+  dateLabelByDay,
   presentation,
 }: {
   rhythmDayHref: (day: CalendarRhythmDay) => string;
@@ -42,6 +43,7 @@ export function RhythmCard({
   dayFilter?: string;
   allWeek: boolean;
   allWeekHref: string;
+  dateLabelByDay?: Record<string, string>;
   presentation: CalendarPresentation;
 }) {
   const days = presentation.rhythm.days;
@@ -73,6 +75,7 @@ export function RhythmCard({
               aria-disabled={day.enabled ? undefined : "true"}
             >
               <div className="d">{day.day}</div>
+              {dateLabelByDay?.[day.day] ? <div className="rdate">{dateLabelByDay[day.day]}</div> : null}
               <div className={`mode ${day.tone}`}>{day.label}</div>
             </Link>
           ))}

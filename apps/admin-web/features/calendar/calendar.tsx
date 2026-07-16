@@ -58,6 +58,12 @@ function dateHeading(key: string, today: string, pageContract: AdminUiPageContra
   return `${wd} · ${optionLabel(pageContract, "calendar_months", String(d.getMonth())).slice(0, 3).toUpperCase()} ${d.getDate()}`;
 }
 
+function compactDateLabel(key: string, pageContract: AdminUiPageContract): string {
+  const d = new Date(`${key}T00:00:00+05:30`);
+  if (Number.isNaN(d.getTime())) return key;
+  return `${optionLabel(pageContract, "calendar_months", String(d.getMonth())).slice(0, 3)} ${d.getDate()}`;
+}
+
 function EventRow({
   event,
   href,
@@ -425,7 +431,6 @@ export async function VaccinationCalendarPage({
           clearOwnerHref={hrefWith({ owner_key: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           dayFilter={effectiveDayFilter}
           allWeekHref={hrefWith({ day: "week", event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
-          clearDayHref={hrefWith({ day: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           rhythmDayHref={(day) =>
             hrefWith({ ...presentationQueryToSearch(day.query), event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })
           }
@@ -433,7 +438,7 @@ export async function VaccinationCalendarPage({
         />
       )}
 
-      {events.length === 0 ? <EmptyState ok={list.ok} presentation={presentation} mode={historyMode ? "history" : "week"} pageContract={pageContract} /> : null}
+      {historyMode && events.length === 0 ? <EmptyState ok={list.ok} presentation={presentation} mode="history" pageContract={pageContract} /> : null}
       {list.ok ? <EventPager nextHref={listNextHref} prevHref={listPrevHref} page={listPage} rowsOnPage={listOnPage} pageContract={pageContract} /> : null}
 
       {sel ? (
@@ -470,7 +475,6 @@ function WeekView({
   clearOwnerHref,
   dayFilter,
   allWeekHref,
-  clearDayHref,
   rhythmDayHref,
   pageContract,
 }: {
@@ -486,7 +490,6 @@ function WeekView({
   clearOwnerHref: string;
   dayFilter?: string;
   allWeekHref: string;
-  clearDayHref: string;
   rhythmDayHref: (day: CalendarRhythmDay) => string;
   pageContract: AdminUiPageContract;
 }) {
@@ -498,6 +501,9 @@ function WeekView({
   const selectedOwnerLabel = ownerScopeLabel(ownerKey, ownerMeta);
   const todayWeekday = weekdayOf(`${today}T00:00:00+05:30`);
   const weekDays = enumerateWeekDays(weekWindow(anchorDay).dateFrom);
+  const dateLabelByDay = Object.fromEntries(
+    weekDays.map((dayDate) => [weekdayOf(`${dayDate}T00:00:00+05:30`), compactDateLabel(dayDate, pageContract)]),
+  );
   // Selected-day Sunday check drives the rest-day empty copy — derived from the actual date,
   // not a weekday string literal (which the admin-ui contract-literal guard forbids).
   const selectedDate = dayFilter ? weekDays.find((d) => weekdayOf(`${d}T00:00:00+05:30`) === dayFilter) : undefined;
@@ -520,6 +526,7 @@ function WeekView({
         dayFilter={dayFilter}
         allWeek={allWeek}
         allWeekHref={allWeekHref}
+        dateLabelByDay={dateLabelByDay}
         presentation={presentation}
       />
       <div className="card">
@@ -563,13 +570,19 @@ function WeekView({
                 );
               })
             ) : sorted.length === 0 ? (
-              <div className="cal-empty">
-                {copy(pageContract, selectedIsSunday ? "calendar.week.rest_day" : "calendar.week.day_empty")}
+              <div>
+                {selectedDate ? <div className={selectedDate === today ? "dh today" : "dh"}>{dateHeading(selectedDate, today, pageContract)}</div> : null}
+                <div className="cal-empty">
+                  {copy(pageContract, selectedIsSunday ? "calendar.week.rest_day" : "calendar.week.day_empty")}
+                </div>
               </div>
             ) : (
-              sorted.map((event) => (
-                <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} driveHref={driveHref} ownerMeta={ownerMeta} pageContract={pageContract} />
-              ))
+              <div>
+                {selectedDate ? <div className={selectedDate === today ? "dh today" : "dh"}>{dateHeading(selectedDate, today, pageContract)}</div> : null}
+                {sorted.map((event) => (
+                  <EventRow key={event.event_id} event={event} href={eventHref(event.event_id)} driveHref={driveHref} ownerMeta={ownerMeta} pageContract={pageContract} />
+                ))}
+              </div>
             )}
           </div>
         </div>
