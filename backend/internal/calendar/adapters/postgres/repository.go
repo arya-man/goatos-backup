@@ -1810,11 +1810,13 @@ marker_rows AS (
     count(*) FILTER (WHERE event_type = 'vaccination_drive')::bigint AS drive_count
   FROM source_events
   WHERE system = false
+    AND due_at >= $2::timestamptz
+    AND due_at < $3::timestamptz
     AND event_type <> 'vaccination_dose_due'
     AND event_type <> 'vaccination_history'
     AND ($4::text = '' OR owner_key = $4::text)
     AND ($5::text = '' OR status = $5::text)
-    AND ($5::text <> '' OR status NOT IN ('completed', 'canceled'))
+    AND ($5::text <> '' OR status NOT IN ('completed', 'canceled', 'deferred'))
     AND ($6::text = '' OR park_id::text = nullif($6::text, ''))
     AND ($7::text = '' OR shed_id::text = nullif($7::text, ''))
     AND ($8::bool OR park_id = ANY($9::uuid[]) OR shed_id = ANY($10::uuid[]))

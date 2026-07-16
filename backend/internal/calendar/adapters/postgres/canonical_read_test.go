@@ -101,3 +101,13 @@ LIMIT 21`, testTenantID, dateFrom, dateToExclusive)
 		t.Fatalf("canonical read keyset driver is not index-backed:\n%s", plan)
 	}
 }
+
+func TestCalendarDefaultListAndMarkersHideDeferredHolds(t *testing.T) {
+	const defaultOpenPredicate = "status NOT IN ('completed', 'canceled', 'deferred')"
+	if !strings.Contains(calendarCanonicalListSQL, defaultOpenPredicate) {
+		t.Fatalf("calendar list default predicate does not hide deferred holds")
+	}
+	if !strings.Contains(calendarDateMarkersSQL, defaultOpenPredicate) {
+		t.Fatalf("calendar date marker default predicate does not hide deferred holds")
+	}
+}

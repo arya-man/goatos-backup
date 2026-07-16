@@ -1299,7 +1299,7 @@ canonical_selected AS (
     )
     AND ($4::text = '' OR owner_key = $4::text)
     AND ($5::text = '' OR status = $5::text)
-    AND ($5::text <> '' OR status NOT IN ('completed', 'canceled'))
+    AND ($5::text <> '' OR status NOT IN ('completed', 'canceled', 'deferred'))
     AND ($6::text = '' OR park_id::text = nullif($6::text, ''))
     AND ($7::text = '' OR shed_id::text = nullif($7::text, ''))
     AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))

@@ -3,7 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info } from "lucide-rea
 import { actionFeedbackCopy, copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, hrefWithPagedCursor, hrefPreviousPagedCursor, boundedInt, type RouteSearchParams } from "@/lib/search-params";
 import { backendScope, parseScope, scopeHref } from "@/lib/scope";
-import { fmtDate as fmtIstDate, todayIso } from "@/lib/format";
+import { todayIso } from "@/lib/format";
 import { Tag } from "@/components/ui-primitives";
 import {
   eventTypeMeta,
@@ -26,15 +26,14 @@ import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCal
 import { CalendarEventDrawer } from "./calendar-event-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
 import { enumerateWeekDays, historyWindow, monthWindow, weekWindow } from "./calendar-window";
+import { calendarEventDateKey, calendarEventWeekday, filterEventsForSelectedWeek } from "./calendar-window-events";
 import { DriveProgressCard } from "./calendar-drive-card";
 import { OwnerLegend, RhythmCard } from "./calendar-week-panels";
 
 const PATH = "/calendar";
 
 function weekdayOf(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", weekday: "short" }).format(d);
+  return calendarEventWeekday(iso);
 }
 
 function istToday(): string {
@@ -48,9 +47,7 @@ function timeOf(iso: string): string {
 }
 
 function dateKey(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
-  return fmtIstDate(iso);
+  return calendarEventDateKey(iso);
 }
 
 function dateHeading(key: string, today: string, pageContract: AdminUiPageContract): string {
@@ -496,7 +493,7 @@ function WeekView({
   // Rhythm strip is the day selector. A specific weekday shows ONLY that day's drives, with NO
   // day heading in the body (the strip already names the day). "All week" (allWeek) opts into the
   // 7-day, day-separated vertical list with per-day headings.
-  const scoped = dayFilter ? events.filter((event) => weekdayOf(event.due_at) === dayFilter) : events;
+  const scoped = filterEventsForSelectedWeek(events, anchorDay, dayFilter);
   const sorted = [...scoped].sort((a, b) => a.due_at.localeCompare(b.due_at));
   const selectedOwnerLabel = ownerScopeLabel(ownerKey, ownerMeta);
   const todayWeekday = weekdayOf(`${today}T00:00:00+05:30`);
