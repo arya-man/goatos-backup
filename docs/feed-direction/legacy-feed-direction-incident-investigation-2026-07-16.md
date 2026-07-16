@@ -7,10 +7,10 @@ Script screenshots).
 
 This document validates the supplied `Feed-Counting-and-Video-Verification-Flow`
 guide against the repository's sanitized source findings and the execution-log
-screenshots. It deliberately separates facts from hypotheses. The legacy Apps
-Script source, live execution history, and live Slack history are not present in
-this Git checkout, so this report does not claim to have inspected those systems
-directly.
+screenshots. It deliberately separates facts from hypotheses. The live legacy
+Apps Script project was checked read-only in the `goatos-sheets`
+Google Cloud project. Live Slack message history was not independently exported
+by this report, so Slack delivery remains a separate verification step.
 
 ## Executive conclusion
 
@@ -35,11 +35,11 @@ consistent with the failed delivery attempt. The script could not complete the
 outbound HTTP call. A sheet flag, if it was written before that call or by a
 separate path, must not be treated as proof that Slack received the message.
 
-What is not proven yet:
+What this error still does not prove:
 
 - which Google account exhausted the quota;
 - who created the 07:15 trigger;
-- how many UrlFetch calls the function made that day;
+- the total UrlFetch calls across the executing account that day;
 - whether duplicate triggers, manual reruns, retries, or another Apps Script
   project consumed the rest of that account's quota;
 - whether a Slack message was posted and later deleted.
@@ -62,6 +62,46 @@ creator, current viewer, and Slack poster can be different identities.
    Google exception `Service invoked too many times for one day: urlfetch`.
 5. The Slack screenshots show experiment-related CBE/CPT channel names, but they
    do not provide a complete code-level channel inventory.
+
+### Live `goatos-sheets` evidence
+
+The bound Apps Script project is `Feed-Format` in the legacy `goatos-sheets`
+project. Its execution history for 16 July shows:
+
+- `sendMorningConsumptionMessages` started at 07:13:27 IST and completed after
+  987 seconds (about 16.5 minutes).
+- `sendPackingFeedDirections` started at 07:23:11 IST and completed after 1,648
+  seconds (about 27.5 minutes), overlapping the morning consumption run.
+- A separate `sendMorningConsumptionMessages` execution started at 09:15:45
+  IST with process type `EDITOR` and was canceled after 40 seconds. This lines
+  up with the supplied 09:16 UrlFetch error and is consistent with a manual or
+  editor-initiated rerun, not the scheduled 07:15 run.
+- The web app handled 843 `doPost` executions from 06:26 to 10:29 IST,
+  including one timeout. Each `file_shared` event first calls Slack
+  `files.info`; consumption uploads can make additional Slack calls.
+- In the same 00:30–05:00 UTC morning window, the web app handled 624 events on
+  14 July and 1,037 on 15 July. Therefore the 843 events on 16 July are real
+  load, but they are not sufficient proof that a one-day traffic spike caused
+  the quota failure.
+
+The source also contains two different consumption trigger setup paths at
+07:15: `sendMorningConsumptionMessages` and
+`createConsumptionListItemsFromDirections`. Only the former was observed in
+the 16 July execution history; the latter was not observed there. This is a
+configuration risk, not proof that both triggers were active.
+
+The critical source behavior is:
+
+- `sendMorningConsumptionMessages` makes two Slack `chat.postMessage` calls per
+  relevant non-experiment shed: a root message and a threaded upload prompt.
+- `sendPackingFeedDirections` sends experiment-shed messages through its own
+  packing path and sends an additional prompt for eligible normal sheds.
+- `doPost` makes a `files.info` UrlFetch for each non-duplicate file event, then
+  the consumption handler may fetch a permalink and post a water/completion
+  message.
+- `wrapWithRetry_` schedules up to three additional executions after an error;
+  its final failure alert makes another UrlFetch call. This can multiply usage
+  after a transient failure.
 
 ### Repository evidence
 
@@ -278,9 +318,20 @@ The most likely explanations, in descending order, are:
    message count understates the fetch count.
 4. A separate quota or runtime issue exists in addition to UrlFetch.
 
-These are hypotheses until the execution history and trigger list are checked.
-The screenshot proves the quota error; it does not identify which of the four
-caused the extra usage.
+The live execution history rules out one earlier assumption: the scheduled
+07:15 morning function itself completed. The supplied error occurred during a
+later editor/manual execution after the account had already accumulated enough
+UrlFetch usage to be rejected. The exact accumulated source is still not
+available from Apps Script's process metadata: it requires the executing
+account's complete quota context, including other scripts and trigger owners.
+
+The evidence therefore supports this incident statement:
+
+> The scheduled 07:15 run completed. A later editor/manual rerun at about 09:16
+> attempted more Slack calls after the executing account's rolling UrlFetch
+> budget was already exhausted. The current project shows several fetch-heavy
+> paths and retry multiplication, but it does not prove which other execution
+> consumed the remaining budget.
 
 This is also not the normal shape of a Slack API rate-limit error. Slack's
 documented response is normally a Slack error such as `ratelimited`/HTTP 429,
@@ -396,14 +447,15 @@ This report should be updated after the following artifacts are obtained:
 - confirmation of whether the script was manually run or retried before 09:16;
 - the script's exact success/processed-state write order.
 
-Until those artifacts are available, the defensible incident statement is:
+Until the executing account's full quota context and detailed execution log are
+available, the defensible incident statement is:
 
-> On 16 July, the morning Session 1 consumption automation attempted to call
-> Slack but Apps Script rejected UrlFetch because the executing account's daily
-> UrlFetch quota was exhausted. The exact source of the accumulated usage and
-> whether any prior messages were posted require Apps Script execution and
-> trigger-owner evidence. The Yashoda 2 count disagreement is a separate
-> unresolved source-data defect.
+> On 16 July, the scheduled 07:15 run completed. A later editor/manual morning
+> rerun attempted to call Slack after the executing account's rolling UrlFetch
+> quota was exhausted. The project contains multiple fetch-heavy paths and
+> retry multiplication, but the exact account-wide source of the accumulated
+> usage requires the trigger owner's execution/quota evidence. The Yashoda 2
+> count disagreement is a separate unresolved source-data defect.
 
 ## References
 
