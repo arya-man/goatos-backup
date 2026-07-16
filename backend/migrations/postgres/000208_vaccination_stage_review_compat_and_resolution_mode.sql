@@ -1,12 +1,13 @@
 -- +goose Up
 -- Release-1 compatible-writer fix for the VACC-REV-10 open-uniqueness change.
 --
--- 000207 DROPPED the (tenant_id, idempotency_key) open index and added a (tenant_id, goat_id) UNIQUE
--- index. That is NOT migrate-first-safe: staging runs migrations BEFORE updating the API/worker, so
--- the still-live previous-release recorder runs `ON CONFLICT (tenant_id, idempotency_key)` (index gone
--- -> "no unique or exclusion constraint matching") and its INSERT path would also violate the new
--- (tenant_id, goat_id) UNIQUE index. A UNIQUE (tenant, goat) index simply cannot coexist with the old
--- binary.
+-- The first draft of 000207 dropped the (tenant_id, idempotency_key) open index and added a
+-- (tenant_id, goat_id) UNIQUE index. That shape is NOT migrate-first-safe: staging runs migrations
+-- BEFORE updating the API/worker, so the still-live previous-release recorder runs
+-- `ON CONFLICT (tenant_id, idempotency_key)` (index gone -> "no unique or exclusion constraint
+-- matching") and its INSERT path could also violate the new (tenant_id, goat_id) UNIQUE index. The
+-- current 000207 source keeps the old index; this migration is still the compatibility repair for
+-- environments that crossed the unsafe draft and the stage-free key rollout for every environment.
 --
 -- This migration restores the compatible target and achieves per-goat open uniqueness through a
 -- STAGE-FREE idempotency key instead (key = 'vacc-stage-review:'||tenant||':'||goat, which the new
@@ -46,9 +47,9 @@ SET idempotency_key = 'vacc-stage-review:' || tenant_id::text || ':' || goat_id:
     updated_at = now()
 WHERE status = 'open';
 
--- Restore the compatible open-unique target (dropped by 000207) and remove the old-binary-breaking
--- (tenant, goat) UNIQUE index. With a stage-free per-goat key, this index enforces one open item per
--- goat.
+-- Ensure the compatible open-unique target exists and remove any old-binary-breaking (tenant, goat)
+-- UNIQUE index left by the unsafe draft. With a stage-free per-goat key, this index enforces one open
+-- item per goat.
 DROP INDEX IF EXISTS vaccination_stage_review_items_open_goat_unique;
 CREATE UNIQUE INDEX IF NOT EXISTS vaccination_stage_review_items_open_idem_unique
   ON vaccination_stage_review_items (tenant_id, idempotency_key)

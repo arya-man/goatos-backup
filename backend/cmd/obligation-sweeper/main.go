@@ -102,10 +102,7 @@ func run(args []string) error {
 
 	protocolRepo := protocolpg.NewRepository(pool, pgCfg.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(pool, pgCfg.QueryTimeout)
-	var reserver obligationapp.StockReserver
-	if cfg.VaccineItemID != "" {
-		reserver = inventoryapp.NewService(inventorypg.NewRepository(pool, pgCfg.QueryTimeout))
-	}
+	reserver := inventoryapp.NewService(inventorypg.NewRepository(pool, pgCfg.QueryTimeout))
 	var creator obligationapp.TaskCreator
 	if cfg.ActorID != "" {
 		sopService := sopapp.NewService(soppg.NewRepository(pool, pgCfg.QueryTimeout))
@@ -289,7 +286,8 @@ func buildSweepConfig(ctx context.Context, protocolRepo *protocolpg.Repository, 
 		}
 
 		ruleSOP := strings.TrimSpace(rule.SopVersionID)
-		if ruleSOP == "" || ruleSOP == versionSOP {
+		ruleVaccineItemID := strings.TrimSpace(ruleVaccineID.VaccineItemID)
+		if (ruleSOP == "" || ruleSOP == versionSOP) && ruleVaccineItemID == "" {
 			continue
 		}
 		if out.RuleConfigs == nil {
@@ -297,7 +295,7 @@ func buildSweepConfig(ctx context.Context, protocolRepo *protocolpg.Repository, 
 		}
 		out.RuleConfigs[rule.RuleID] = obligationapp.SweepRuleConfig{
 			SOPVersionID:  ruleSOP,
-			VaccineItemID: out.VaccineItemID,
+			VaccineItemID: ruleVaccineItemID,
 			DosesPerGoat:  out.DosesPerGoat,
 		}
 	}

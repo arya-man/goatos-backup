@@ -8,9 +8,15 @@
 -- closure. The composite FK already enforced practical tenant integrity.
 
 SET lock_timeout = '10s';
-ALTER TABLE obligation_status_events
-  ADD CONSTRAINT obligation_status_events_tenant_id_fkey
-    FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) NOT VALID;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'obligation_status_events'::regclass AND conname = 'obligation_status_events_tenant_id_fkey') THEN
+    ALTER TABLE obligation_status_events
+      ADD CONSTRAINT obligation_status_events_tenant_id_fkey
+        FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) NOT VALID;
+  END IF;
+END
+$$;
 
 SET lock_timeout = '10s';
 ALTER TABLE obligation_status_events

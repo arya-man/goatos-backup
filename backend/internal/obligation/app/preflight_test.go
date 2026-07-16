@@ -188,9 +188,9 @@ func TestPreflightVisitShotCapTiesReplaysFallbackBeforeNextPlan(t *testing.T) {
 		MinParkMergeSheds:   2,
 	}
 	plans := []SweepVersionPriority{
-		{VersionID: "v-a", Config: SweepConfig{VaccineCode: "ET+TT", DrivePlanner: planner, ParkConsolidation: park}},
-		{VersionID: "v-b", Config: SweepConfig{VaccineCode: "FMD", DrivePlanner: planner}},
-		{VersionID: "v-c", Config: SweepConfig{VaccineCode: "HS", DrivePlanner: planner}},
+		{VersionID: "v-a", Config: SweepConfig{VaccineCode: "Unmapped Vaccine Alpha", DrivePlanner: planner, ParkConsolidation: park}},
+		{VersionID: "v-b", Config: SweepConfig{VaccineCode: "Unmapped Vaccine Beta", DrivePlanner: planner}},
+		{VersionID: "v-c", Config: SweepConfig{VaccineCode: "Unmapped Vaccine Gamma", DrivePlanner: planner}},
 	}
 	plans = SortSweepVersionsByPriority(plans)
 

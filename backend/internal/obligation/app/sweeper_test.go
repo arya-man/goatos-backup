@@ -184,6 +184,51 @@ func TestSweeperUsesRuleSpecificExecutionConfig(t *testing.T) {
 	}
 }
 
+func TestSweeperFinalizesRuleSpecificStockWithoutVersionStockItem(t *testing.T) {
+	repo := &fakeSweepRepo{
+		finalizationPages: [][]domain.PlannedBatchFinalization{{
+			{
+				BatchID:             "batch-fmd",
+				RuleID:              "rule-fmd",
+				ScopeType:           "shed",
+				ScopeID:             "shed-1",
+				AttachedObligations: 2,
+				HasSOPTask:          true,
+			},
+			{
+				BatchID:             "batch-hs",
+				RuleID:              "rule-hs",
+				ScopeType:           "shed",
+				ScopeID:             "shed-1",
+				AttachedObligations: 3,
+				HasSOPTask:          true,
+			},
+		}},
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		DosesPerGoat: 1,
+		RuleConfigs: map[string]SweepRuleConfig{
+			"rule-fmd": {VaccineItemID: "item-fmd", DosesPerGoat: 1},
+			"rule-hs":  {VaccineItemID: "item-hs", DosesPerGoat: 2},
+		},
+	}, time.Now())
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if reserver.calls != 2 || reserver.batchCalls != 1 || repo.countBatchCalls != 1 {
+		t.Fatalf("stock finalization calls reserve=%d batchReserve=%d count=%d, want 2/1/1", reserver.calls, reserver.batchCalls, repo.countBatchCalls)
+	}
+	if got := strings.Join(reserver.itemIDs, ","); got != "item-fmd,item-hs" {
+		t.Fatalf("reservation item IDs = %s, want per-rule item-fmd,item-hs", got)
+	}
+	if got := qtyKeys(reserver.quantities); got != "2,6" {
+		t.Fatalf("reservation quantities = %s, want per-rule dose quantities 2,6", got)
+	}
+}
+
 func TestSweeperMovesOverflowDoseToNextDriveWhenAnimalShotCapReached(t *testing.T) {
 	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{

@@ -62,7 +62,7 @@ func TestBuildSweepConfigOnlyCachesCompleteRuleVaccineIdentity(t *testing.T) {
 	matrixRuleID, err := proto.CreateRule(ctx, protodomain.NewRule{
 		TenantID: ruleIdentityTenant, ProtocolVersionID: versionID, DoseCode: "booster_1", Sequence: 2,
 		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", DueWindowDays: 7,
-		EligibilityJSON: []byte(`{"vaccine":{"code":"fmd","compatibility_group":"combo-a"}}`), ProofPolicy: []byte(`{}`),
+		EligibilityJSON: []byte(`{"vaccine":{"code":"fmd","compatibility_group":"combo-a","inventory_item_id":"item-fmd"}}`), ProofPolicy: []byte(`{}`),
 	})
 	if err != nil {
 		t.Fatalf("matrix rule: %v", err)
@@ -83,5 +83,15 @@ func TestBuildSweepConfigOnlyCachesCompleteRuleVaccineIdentity(t *testing.T) {
 	}
 	if id.VaccineCode != "fmd" {
 		t.Fatalf("matrix rule cached vaccine code = %q, want fmd", id.VaccineCode)
+	}
+	if id.VaccineItemID != "item-fmd" {
+		t.Fatalf("matrix rule cached vaccine item id = %q, want item-fmd", id.VaccineItemID)
+	}
+	ruleCfg, ok := cfg.RuleConfigs[matrixRuleID]
+	if !ok {
+		t.Fatal("matrix rule with per-rule inventory item must populate RuleConfigs")
+	}
+	if ruleCfg.VaccineItemID != "item-fmd" {
+		t.Fatalf("matrix rule config vaccine item id = %q, want item-fmd", ruleCfg.VaccineItemID)
 	}
 }

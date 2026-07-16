@@ -29,26 +29,23 @@ func TestBatchSessionUsesComboWhenKnown(t *testing.T) {
 }
 
 func TestVaccineMatrixPriority(t *testing.T) {
-	if got := VaccineMatrixPriority("ET+TT"); got != 1 {
-		t.Fatalf("ET+TT priority = %d, want 1", got)
+	cases := map[string]int32{
+		"ET+TT":       1,
+		"ET_TT":       1,
+		"PPR":         2,
+		"Goat Pox":    3,
+		"GOAT_POX":    3,
+		"Sheep Pox":   3,
+		"SHEEP_POX":   3,
+		"Blue Tongue": 4,
+		"BLUE_TONGUE": 4,
+		"FMD":         5,
+		"HS":          6,
 	}
-	if got := VaccineMatrixPriority("PPR"); got != 2 {
-		t.Fatalf("PPR priority = %d, want 2", got)
-	}
-	if got := VaccineMatrixPriority("Goat Pox"); got != 3 {
-		t.Fatalf("Goat Pox priority = %d, want 3", got)
-	}
-	if got := VaccineMatrixPriority("Sheep Pox"); got != 3 {
-		t.Fatalf("Sheep Pox priority = %d, want 3", got)
-	}
-	if got := VaccineMatrixPriority("Blue Tongue"); got != 4 {
-		t.Fatalf("Blue Tongue priority = %d, want 4", got)
-	}
-	if got := VaccineMatrixPriority("FMD"); got != 5 {
-		t.Fatalf("FMD priority = %d, want 5", got)
-	}
-	if got := VaccineMatrixPriority("HS"); got != 5 {
-		t.Fatalf("HS priority = %d, want 5", got)
+	for code, want := range cases {
+		if got := VaccineMatrixPriority(code); got != want {
+			t.Fatalf("%s priority = %d, want %d", code, got, want)
+		}
 	}
 }
 

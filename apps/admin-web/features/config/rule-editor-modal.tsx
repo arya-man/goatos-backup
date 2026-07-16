@@ -983,12 +983,13 @@ export function RuleEditorModal({
       vaccine: {
         code: preset.code,
         name: preset.name,
-        type: optionKeyOrFallback(vaccineTypeOptions, preset.vaccineType),
-        pathogenClass: optionKeyOrFallback(
+        type: requireOptionKey(vaccineTypeOptions, preset.vaccineType, "vaccine_types"),
+        pathogenClass: requireOptionKey(
           pathogenClassOptions,
           preset.pathogenClass,
+          "vaccine_pathogen_classes",
         ),
-        courseType: optionKeyOrFallback(courseTypeOptions, preset.courseType),
+        courseType: requireOptionKey(courseTypeOptions, preset.courseType, "vaccine_course_types"),
         inventoryItemId: "",
         manufacturer: "tracked-matrix",
         disease: preset.disease,
@@ -1123,13 +1124,13 @@ export function RuleEditorModal({
     const value = Number(raw ?? 0);
     return Number.isFinite(value) ? value : 0;
   }
-  function optionKeyOrFallback(
-    options: AdminUiOption[],
-    desired: string,
-  ): string {
-    return options.some((option) => option.key === desired)
-      ? desired
-      : firstKey(options, "source_option");
+  function requireOptionKey(options: AdminUiOption[], desired: string, groupId: string): string {
+    if (desired && options.some((option) => option.key === desired)) {
+      return desired;
+    }
+    throw new Error(
+      `Admin-web source vaccine preset has invalid ${groupId} option ${desired || "<empty>"}`,
+    );
   }
   function slugSource(value: string): string {
     return value

@@ -1,7 +1,33 @@
 -- +goose Up
 -- The accepted 5k-50k scale envelope does not need monthly partition
 -- maintenance. Rebuild the three append-only parents as ordinary indexed
--- tables while preserving any rows present in a non-production environment.
+-- tables. This is not an online hot-table migration: the default path only runs
+-- on an empty/disposable operational-history set. A maintainer who intentionally
+-- runs it on a non-empty non-production database must set the session GUC
+-- goatos.allow_nonempty_operational_history_departition=on after stopping all
+-- writers and taking a backup.
+
+DO $$
+DECLARE
+  nonempty_table text;
+BEGIN
+  SELECT table_name INTO nonempty_table
+  FROM (
+    SELECT 'goat_identity_events' AS table_name, EXISTS (SELECT 1 FROM goat_identity_events LIMIT 1) AS has_rows
+    UNION ALL
+    SELECT 'audit_log', EXISTS (SELECT 1 FROM audit_log LIMIT 1)
+    UNION ALL
+    SELECT 'obligation_status_events', EXISTS (SELECT 1 FROM obligation_status_events LIMIT 1)
+  ) checks
+  WHERE has_rows
+  LIMIT 1;
+
+  IF nonempty_table IS NOT NULL
+     AND lower(COALESCE(current_setting('goatos.allow_nonempty_operational_history_departition', true), '')) <> 'on' THEN
+    RAISE EXCEPTION '000212 refuses to rewrite non-empty %. Stop writers, take a backup, and set goatos.allow_nonempty_operational_history_departition=on only for an intentional disposable/non-production cutover.', nonempty_table;
+  END IF;
+END
+$$;
 
 DROP FUNCTION IF EXISTS goatos_ensure_partition_coverage(timestamptz, integer);
 DROP FUNCTION IF EXISTS goatos_assert_partition_coverage(timestamptz, integer);

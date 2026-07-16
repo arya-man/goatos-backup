@@ -17,8 +17,8 @@ var approvedDriveCombos = map[string][]string{
 
 // VaccineMatrixPriority returns disease priority from the source matrix (lower = schedule first).
 func VaccineMatrixPriority(vaccineCode string) int32 {
-	switch strings.ToLower(strings.TrimSpace(vaccineCode)) {
-	case "et+tt":
+	switch normalizedVaccineMatrixCode(vaccineCode) {
+	case "et+tt", "et tt":
 		return 1
 	case "ppr":
 		return 2
@@ -26,11 +26,19 @@ func VaccineMatrixPriority(vaccineCode string) int32 {
 		return 3
 	case "blue tongue":
 		return 4
-	case "fmd", "hs":
+	case "fmd":
 		return 5
+	case "hs":
+		return 6
 	default:
 		return 0
 	}
+}
+
+func normalizedVaccineMatrixCode(vaccineCode string) string {
+	code := strings.ToLower(strings.TrimSpace(vaccineCode))
+	code = strings.NewReplacer("_", " ", "-", " ").Replace(code)
+	return strings.Join(strings.Fields(code), " ")
 }
 
 // DrivePlannerFromRuleDSL extracts sweep planner settings from a published vaccination rule_dsl.

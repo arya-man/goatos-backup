@@ -9,27 +9,57 @@
 
 SET lock_timeout = '10s';
 -- seed-migration-guard:ignore owner=ravi issue=GOS-REV-01 reason=foreign-key-only repair expiry=2026-12-31
-ALTER TABLE goat_identity_events
-  ADD CONSTRAINT goat_identity_events_tenant_id_fkey
-    FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) NOT VALID,
-  ADD CONSTRAINT goat_identity_events_goat_id_fkey
-    FOREIGN KEY (goat_id) REFERENCES goats(goat_id) NOT VALID,
-  ADD CONSTRAINT goat_identity_events_decision_id_fkey
-    FOREIGN KEY (decision_id) REFERENCES identity_decisions(decision_id) NOT VALID,
-  ADD CONSTRAINT goat_identity_events_goat_tenant_fk
-    FOREIGN KEY (tenant_id, goat_id) REFERENCES goats(tenant_id, goat_id) NOT VALID,
-  ADD CONSTRAINT goat_identity_events_decision_tenant_fk
-    FOREIGN KEY (tenant_id, decision_id) REFERENCES identity_decisions(tenant_id, decision_id) NOT VALID;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'goat_identity_events'::regclass AND conname = 'goat_identity_events_tenant_id_fkey') THEN
+    ALTER TABLE goat_identity_events
+      ADD CONSTRAINT goat_identity_events_tenant_id_fkey
+        FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'goat_identity_events'::regclass AND conname = 'goat_identity_events_goat_id_fkey') THEN
+    ALTER TABLE goat_identity_events
+      ADD CONSTRAINT goat_identity_events_goat_id_fkey
+        FOREIGN KEY (goat_id) REFERENCES goats(goat_id) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'goat_identity_events'::regclass AND conname = 'goat_identity_events_decision_id_fkey') THEN
+    ALTER TABLE goat_identity_events
+      ADD CONSTRAINT goat_identity_events_decision_id_fkey
+        FOREIGN KEY (decision_id) REFERENCES identity_decisions(decision_id) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'goat_identity_events'::regclass AND conname = 'goat_identity_events_goat_tenant_fk') THEN
+    ALTER TABLE goat_identity_events
+      ADD CONSTRAINT goat_identity_events_goat_tenant_fk
+        FOREIGN KEY (tenant_id, goat_id) REFERENCES goats(tenant_id, goat_id) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'goat_identity_events'::regclass AND conname = 'goat_identity_events_decision_tenant_fk') THEN
+    ALTER TABLE goat_identity_events
+      ADD CONSTRAINT goat_identity_events_decision_tenant_fk
+        FOREIGN KEY (tenant_id, decision_id) REFERENCES identity_decisions(tenant_id, decision_id) NOT VALID;
+  END IF;
+END
+$$;
 
 SET lock_timeout = '10s';
 -- seed-migration-guard:ignore owner=ravi issue=GOS-REV-01 reason=foreign-key-only repair expiry=2026-12-31
-ALTER TABLE audit_log
-  ADD CONSTRAINT audit_log_tenant_id_fkey
-    FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) NOT VALID,
-  ADD CONSTRAINT audit_log_decision_id_fkey
-    FOREIGN KEY (decision_id) REFERENCES identity_decisions(decision_id) NOT VALID,
-  ADD CONSTRAINT audit_log_decision_tenant_fk
-    FOREIGN KEY (tenant_id, decision_id) REFERENCES identity_decisions(tenant_id, decision_id) NOT VALID;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'audit_log'::regclass AND conname = 'audit_log_tenant_id_fkey') THEN
+    ALTER TABLE audit_log
+      ADD CONSTRAINT audit_log_tenant_id_fkey
+        FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'audit_log'::regclass AND conname = 'audit_log_decision_id_fkey') THEN
+    ALTER TABLE audit_log
+      ADD CONSTRAINT audit_log_decision_id_fkey
+        FOREIGN KEY (decision_id) REFERENCES identity_decisions(decision_id) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'audit_log'::regclass AND conname = 'audit_log_decision_tenant_fk') THEN
+    ALTER TABLE audit_log
+      ADD CONSTRAINT audit_log_decision_tenant_fk
+        FOREIGN KEY (tenant_id, decision_id) REFERENCES identity_decisions(tenant_id, decision_id) NOT VALID;
+  END IF;
+END
+$$;
 
 SET lock_timeout = '10s';
 -- seed-migration-guard:ignore owner=ravi issue=GOS-REV-01 reason=foreign-key-only repair expiry=2026-12-31

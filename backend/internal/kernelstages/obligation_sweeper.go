@@ -153,10 +153,7 @@ type ObligationSweeperStage struct {
 func NewObligationSweeperStage(deps Deps, cfg SweeperConfig) *ObligationSweeperStage {
 	protocolRepo := protocolpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
 	obligationRepo := obligationpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout)
-	var reserver obligationapp.StockReserver
-	if strings.TrimSpace(cfg.VaccineItemID) != "" {
-		reserver = inventoryapp.NewService(inventorypg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout))
-	}
+	reserver := inventoryapp.NewService(inventorypg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout))
 	creator := buildSweeperTaskCreator(deps, cfg.ActorID)
 	sweeper := obligationapp.NewSweeperService(obligationRepo, creator, reserver)
 	calendar := calendarapp.NewService(calendarpg.NewRepository(deps.Pool, deps.PgCfg.QueryTimeout))
@@ -356,7 +353,8 @@ func (s *ObligationSweeperStage) buildSweepConfig(ctx context.Context, cfg Sweep
 		}
 
 		ruleSOP := strings.TrimSpace(rule.SopVersionID)
-		if ruleSOP == "" || ruleSOP == versionSOP {
+		ruleVaccineItemID := strings.TrimSpace(ruleVaccineID.VaccineItemID)
+		if (ruleSOP == "" || ruleSOP == versionSOP) && ruleVaccineItemID == "" {
 			continue
 		}
 		if out.RuleConfigs == nil {
@@ -364,7 +362,7 @@ func (s *ObligationSweeperStage) buildSweepConfig(ctx context.Context, cfg Sweep
 		}
 		out.RuleConfigs[rule.RuleID] = obligationapp.SweepRuleConfig{
 			SOPVersionID:  ruleSOP,
-			VaccineItemID: out.VaccineItemID,
+			VaccineItemID: ruleVaccineItemID,
 			DosesPerGoat:  out.DosesPerGoat,
 		}
 	}

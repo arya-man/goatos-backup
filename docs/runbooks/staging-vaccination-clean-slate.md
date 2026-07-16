@@ -110,7 +110,16 @@ source shed.
    not a clean reset because migration 000168 owns tables in the separate
    `analytics` schema.
 6. Apply every migration from the deployed artifact and verify the final
-   migration version.
+   migration version. Migration `000212` intentionally refuses to rewrite
+   non-empty operational history tables unless
+   `goatos.allow_nonempty_operational_history_departition=on` is set for that
+   migration session. In this clean-slate runbook the normal path is an empty
+   schema, so do not set the override. Set it only for a reviewed disposable
+   rehearsal where all writers are paused, the backup from step 4 is recorded,
+   and the operator explicitly accepts that `goat_identity_events`,
+   `audit_log`, and `obligation_status_events` will be rebuilt in place before
+   seed closeout. After such a rehearsal, rerun migration validation and the
+   FK/orphan checks before seeding.
 7. Seed, in order:
    - founder/builder email grants;
    - reviewed roster/workforce from roster mapping, attendance/leave, and

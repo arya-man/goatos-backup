@@ -1,9 +1,9 @@
 -- +goose Up
--- VACC-REV-10 defect fix: OPEN-item uniqueness must be per (tenant, goat), not per
--- (tenant, idempotency_key). The idempotency_key embedded the observed management stage, so a goat
--- moving from a stale K1 to a stale K2 minted a DIFFERENT key and received a SECOND open review item
--- for the SAME goat. A stage/age mismatch is a per-goat condition: one open item per goat, updated in
--- place as the observed stage/age changes, resolved once, and re-opened only after a resolution.
+-- VACC-REV-10 preparation: collapse existing duplicate OPEN items per (tenant, goat), but do NOT
+-- change the open-item uniqueness indexes in this migration. The first shipped draft of this migration
+-- temporarily dropped the predecessor writer's ON CONFLICT target and added a hard (tenant, goat)
+-- unique index before the compatible writer was live. That is not migrate-first safe. The later
+-- compatibility-aware migrations own the index rollout.
 
 -- Collapse any existing duplicate OPEN items per (tenant, goat): keep the newest, resolve the rest so
 -- the new unique index can be created and the operator sees one row per affected goat.
@@ -24,16 +24,12 @@ FROM (
 WHERE v.review_item_id = ranked.review_item_id
   AND ranked.rn > 1;
 
-DROP INDEX IF EXISTS vaccination_stage_review_items_open_idem_unique;
-
--- One OPEN item per goat, independent of the observed stage. A recurrence after resolution still
--- opens a new occurrence (partial index on status = 'open').
-CREATE UNIQUE INDEX vaccination_stage_review_items_open_goat_unique
-  ON vaccination_stage_review_items (tenant_id, goat_id)
-  WHERE status = 'open';
+-- Intentionally retain vaccination_stage_review_items_open_idem_unique here. A still-live predecessor
+-- binary uses ON CONFLICT (tenant_id, idempotency_key) WHERE status='open'; dropping that index before
+-- the writer rollout causes 42P10 on every write. The hard goat-unique index is added later after the
+-- stage-free idempotency repair.
 
 -- +goose Down
-DROP INDEX IF EXISTS vaccination_stage_review_items_open_goat_unique;
-CREATE UNIQUE INDEX vaccination_stage_review_items_open_idem_unique
-  ON vaccination_stage_review_items (tenant_id, idempotency_key)
-  WHERE status = 'open';
+-- No index rollback: this migration no longer changes indexes, and the duplicate-resolution update is
+-- intentionally not reversed.
+SELECT 1;

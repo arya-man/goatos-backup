@@ -90,6 +90,7 @@ type RuleVaccineIdentity struct {
 	VaccineCode      string
 	VaccinePriority  int32
 	CompatibilityGrp string
+	VaccineItemID    string
 }
 
 // SweepConfig carries the per-version batch config resolved by the caller from the protocol version:
@@ -1059,7 +1060,7 @@ func (s *SweeperService) MarkMissed(ctx context.Context, tenantID string, missed
 	}
 }
 
-// ExtractRuleVaccineIdentity extracts vaccine identity (code, priority, compatibility group)
+// ExtractRuleVaccineIdentity extracts vaccine identity (code, priority, compatibility group, stock item)
 // from a rule's eligibility_json, which is populated during matrix publish from the matrix row.
 // BUG #1 fix: thread per-vaccine identity through sweeper instead of using version-level wrapper.
 func ExtractRuleVaccineIdentity(eligibilityJSON []byte) RuleVaccineIdentity {
@@ -1078,6 +1079,7 @@ func ExtractRuleVaccineIdentity(eligibilityJSON []byte) RuleVaccineIdentity {
 	var vaccine struct {
 		Code             string `json:"code"`
 		CompatibilityGrp string `json:"compatibility_group"`
+		InventoryItemID  string `json:"inventory_item_id"`
 	}
 	if err := json.Unmarshal(payload.Vaccine, &vaccine); err != nil {
 		return RuleVaccineIdentity{}
@@ -1087,6 +1089,7 @@ func ExtractRuleVaccineIdentity(eligibilityJSON []byte) RuleVaccineIdentity {
 		VaccineCode:      vaccineCode,
 		VaccinePriority:  VaccineMatrixPriority(vaccineCode),
 		CompatibilityGrp: strings.TrimSpace(vaccine.CompatibilityGrp),
+		VaccineItemID:    strings.TrimSpace(vaccine.InventoryItemID),
 	}
 }
 
