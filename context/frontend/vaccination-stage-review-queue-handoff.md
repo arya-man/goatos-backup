@@ -47,7 +47,7 @@ are scheduled off vaccination-history anchors and never enter this check.
   **Idempotent**: replay on an already-resolved/missing item returns `404`.
 
 Table `vaccination_stage_review_items` (migrations `000196`, `000207`, `000208`,
-`000210`). Lifecycle `open -> resolved`. **Open uniqueness is per (tenant, goat),
+`000210`, `000211`). Lifecycle `open -> resolved`. **Open uniqueness is per (tenant, goat),
 now enforced at the DATABASE layer** by a `(tenant_id, goat_id) WHERE
 status='open'` partial unique index (`000210`). History: `000207` first added
 that index, `000208` reverted to a stage-free idempotency key because the index
@@ -63,6 +63,10 @@ CONFLICT (idempotency_key)` FIRST insert still works during rollout — dropping
 would 42P10 every predecessor write, not just duplicates; drop it in a later
 release after predecessors drain) and adds `age_cutoff_weeks`. A goat drifting
 K1 → K2 **updates the one open item in place**.
+
+`000211` is the forward upgrade repair for databases that already applied the originally shipped
+`000210`, which dropped the predecessor writer's idempotency-key conflict target. It restores that
+index without relying on edits to a migration version the database has already recorded as applied.
 
 ### Enrichment gap (blocks the row design below — NOT built)
 
