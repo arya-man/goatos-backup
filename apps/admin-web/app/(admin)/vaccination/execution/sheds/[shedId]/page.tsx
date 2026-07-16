@@ -13,5 +13,9 @@ export default async function Page({
 }) {
   const { shedId } = await params;
   const sp = (await searchParams) ?? {};
-  return <VaccinationShedDetailPage shedId={shedId} searchParams={sp} pageContract={await requireAdminWebPageContract("shed-execution")} />;
+  const [pageContract, passportPageContract] = await Promise.all([
+    requireAdminWebPageContract("shed-execution"),
+    requireAdminWebPageContract("goat-passport"),
+  ]);
+  return <VaccinationShedDetailPage shedId={shedId} searchParams={sp} pageContract={pageContract} passportPageContract={passportPageContract} />;
 }

@@ -90,7 +90,7 @@ export async function VaccinationDriveDetail({
         <div className="hd"><h3>{event.title} · {summary.park_name}</h3></div>
         <div className="bd">
           <div className="ddhero">
-            <svg className="ring" viewBox="0 0 70 70" width="92" height="92" aria-hidden="true">
+            <svg className="dring" viewBox="0 0 70 70" width="92" height="92" aria-hidden="true">
               <circle className="rbg" cx="35" cy="35" r={ringRadius} />
               <circle className="rfg" cx="35" cy="35" r={ringRadius} strokeDasharray={ringCircumference.toFixed(1)} strokeDashoffset={ringOffset.toFixed(1)} transform="rotate(-90 35 35)" />
               <text x="35" y="35" className="rtx" textAnchor="middle" dominantBaseline="central">{pct}%</text>

@@ -9,8 +9,16 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
   calendar: {
     "calendar.picker.previous_month": "Previous month",
     "calendar.picker.next_month": "Next month",
+    "calendar.picker.previous_year": "Previous year",
+    "calendar.picker.next_year": "Next year",
     "calendar.picker.drive_hint": "drive day",
     "calendar.picker.other_hint": "other due work",
+  },
+  "goat-passport": {
+    "drawer.passport.aria": "Animal Passport",
+    "drawer.passport.close_label": "Close Animal Passport drawer",
+    "action.full_change_history": "Full change history",
+    "action.close": "Close",
   },
 };
 

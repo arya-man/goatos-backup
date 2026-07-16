@@ -107,6 +107,10 @@
   .pscope{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 10px;font-weight:600;font-size:12.5px;color:var(--ink);cursor:pointer;white-space:nowrap;flex:none}
   .pscope:hover{border-color:var(--brand)}
   .pscope b{color:var(--brand-d)}
+  .pscope.date-scope{cursor:default}
+  .pscope.date-scope.stale{border-color:color-mix(in srgb,var(--warn) 48%,var(--line));background:color-mix(in srgb,var(--warn) 9%,var(--bg))}
+  .scope-reset{display:inline-flex;align-items:center;min-height:24px;margin-left:4px;padding:1px 7px;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--info);font-weight:800;font-size:11px;text-decoration:none}
+  .scope-reset:hover{border-color:var(--info);text-decoration:none}
   #pscopeMenu{position:fixed;top:auto;right:auto}
   .helpgrid{display:grid;grid-template-columns:auto 1fr;gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:10px;overflow:hidden;margin-top:4px}
   .helpgrid>div{background:var(--panel);padding:8px 11px;font-size:12.5px}
@@ -791,6 +795,8 @@
   .rday.today:not(.included){box-shadow:inset 0 -2px 0 color-mix(in srgb,var(--brand) 55%,transparent)}
   .rday .d{font-weight:700;font-size:12px}.rday .rdate{font-size:10px;color:var(--muted);margin-top:2px}.rday .mode{font-size:9.5px;font-weight:800;letter-spacing:.5px;margin-top:3px}
   .rday-all{display:grid;place-items:center;flex:none;min-width:78px;font-weight:700;font-size:12px}
+  .rday-nav{display:grid;place-items:center;flex:none;min-width:44px;font-size:24px;font-weight:800;padding:9px 8px}
+  .rday-current{display:grid;place-items:center;flex:none;min-width:86px;font-weight:700;font-size:12px}
   .mode.plan{color:var(--info)}.mode.log{color:var(--amber)}.mode.exec{color:var(--brand-d)}.mode.rest{color:var(--muted)}
   .calpicker-months{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:10px 0 12px}
   .calpicker-months a{border:1px solid var(--line);border-radius:8px;padding:7px 4px;text-align:center;text-decoration:none;color:var(--muted);font-size:11px;font-weight:800}

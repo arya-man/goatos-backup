@@ -87,7 +87,7 @@ export function backendScope(scope: Scope): { parkId?: string; asOf?: string } {
 export function scopeHref(
   basePath: string,
   scope: Scope,
-  overrides: Partial<{ park: string | null; mode: ScopeMode; range: RangeKey; asOf: string; domain: string | null }> = {},
+  overrides: Partial<{ park: string | null; mode: ScopeMode; range: RangeKey; asOf: string | null; domain: string | null }> = {},
   // Page-specific filters (severity, state, bucket, …) layered ON TOP of the preserved top-bar scope. This
   // is how CT/AC/PA/WF/Execution build their filter links without dropping scope — never hand-roll
   // URLSearchParams for a scoped link.
@@ -97,7 +97,7 @@ export function scopeHref(
   const park = "park" in overrides ? overrides.park : scope.parkId ?? null;
   const mode = overrides.mode ?? (park ? "park" : scope.mode);
   const range = overrides.range ?? scope.range;
-  const asOf = overrides.asOf ?? scope.asOf;
+  const asOf = "asOf" in overrides ? overrides.asOf : scope.asOf;
   const domain = "domain" in overrides ? overrides.domain : scope.domain ?? null;
   if (mode === "park") {
     p.set("scope_mode", "park");

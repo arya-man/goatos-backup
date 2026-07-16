@@ -64,6 +64,13 @@ function compactDateLabel(key: string, pageContract: AdminUiPageContract): strin
   return `${optionLabel(pageContract, "calendar_months", String(d.getMonth())).slice(0, 3)} ${d.getDate()}`;
 }
 
+function addDaysKey(key: string, days: number): string {
+  const d = new Date(`${key}T00:00:00+05:30`);
+  if (Number.isNaN(d.getTime())) return key;
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function EventRow({
   event,
   href,
@@ -233,6 +240,42 @@ export async function VaccinationCalendarPage({
   const driveHref = (id: string) => scopeHref(`/calendar/drive/${encodeURIComponent(id)}`, scope);
   const closeHref = hrefWith({ event: undefined, targets_cursor: undefined, targets_page: undefined, targets_cursor_stack: undefined });
   const weekHref = hrefWith({
+    status: undefined,
+    view: undefined,
+    event: undefined,
+    cursor: undefined,
+    page: undefined,
+    cursor_stack: undefined,
+    targets_cursor: undefined,
+    targets_page: undefined,
+    targets_cursor_stack: undefined,
+  });
+  const previousWeekHref = hrefWith({
+    as_of: addDaysKey(anchorKey, -7),
+    status: undefined,
+    view: undefined,
+    event: undefined,
+    cursor: undefined,
+    page: undefined,
+    cursor_stack: undefined,
+    targets_cursor: undefined,
+    targets_page: undefined,
+    targets_cursor_stack: undefined,
+  });
+  const currentWeekHref = hrefWith({
+    as_of: today,
+    status: undefined,
+    view: undefined,
+    event: undefined,
+    cursor: undefined,
+    page: undefined,
+    cursor_stack: undefined,
+    targets_cursor: undefined,
+    targets_page: undefined,
+    targets_cursor_stack: undefined,
+  });
+  const nextWeekHref = hrefWith({
+    as_of: addDaysKey(anchorKey, 7),
     status: undefined,
     view: undefined,
     event: undefined,
@@ -431,6 +474,9 @@ export async function VaccinationCalendarPage({
           clearOwnerHref={hrefWith({ owner_key: undefined, event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
           dayFilter={effectiveDayFilter}
           allWeekHref={hrefWith({ day: "week", event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })}
+          previousWeekHref={previousWeekHref}
+          currentWeekHref={currentWeekHref}
+          nextWeekHref={nextWeekHref}
           rhythmDayHref={(day) =>
             hrefWith({ ...presentationQueryToSearch(day.query), event: undefined, cursor: undefined, page: undefined, cursor_stack: undefined })
           }
@@ -475,6 +521,9 @@ function WeekView({
   clearOwnerHref,
   dayFilter,
   allWeekHref,
+  previousWeekHref,
+  currentWeekHref,
+  nextWeekHref,
   rhythmDayHref,
   pageContract,
 }: {
@@ -490,6 +539,9 @@ function WeekView({
   clearOwnerHref: string;
   dayFilter?: string;
   allWeekHref: string;
+  previousWeekHref: string;
+  currentWeekHref: string;
+  nextWeekHref: string;
   rhythmDayHref: (day: CalendarRhythmDay) => string;
   pageContract: AdminUiPageContract;
 }) {
@@ -526,6 +578,12 @@ function WeekView({
         dayFilter={dayFilter}
         allWeek={allWeek}
         allWeekHref={allWeekHref}
+        previousWeekHref={previousWeekHref}
+        currentWeekHref={currentWeekHref}
+        nextWeekHref={nextWeekHref}
+        previousWeekLabel={copy(pageContract, "action.previous")}
+        currentWeekLabel={presentation.week.title}
+        nextWeekLabel={copy(pageContract, "action.next")}
         dateLabelByDay={dateLabelByDay}
         presentation={presentation}
       />

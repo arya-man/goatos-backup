@@ -35,14 +35,6 @@ type RouteLabelRule = AdminWebBootstrapResponse["route_labels"][number];
 type NavCounts = { actionCenter: number | null; pc: number | null };
 type TrailItem = { label: string; href: string };
 
-// Top-bar data-freshness pill ("data <asOf> · fresh / Nd old") is HIDDEN for now.
-// Reason: the as-of/freshness value is not yet backed by a real point-in-time
-// data-freshness signal from the read models, so the chip would assert a
-// freshness guarantee the backend cannot yet honor. Re-enable by flipping this
-// to true once the freshness/as-of contract is implemented end-to-end.
-// See: apps/admin-web/AGENTS.md → "Scope Chrome Rule" (top bar owns as-of scope).
-const SHOW_DATA_FRESHNESS_PILL = false;
-
 const iconByToken: Record<string, ElementType> = {
   "bar-chart-3": BarChart3,
   "calendar-days": CalendarDays,
@@ -193,6 +185,8 @@ export function MeshaShell({
   });
   const today = todayIso();
   const freshness = dateFreshnessLabel(scope.asOf, today, contract);
+  const scopedDate = scope.asOf ?? today;
+  const isHistoricalDate = Boolean(scope.asOf && scope.asOf !== today);
   const navCountsHref = scopeHref("/api/nav-counts", renderedScope);
   const actionCenterBadge = visibleBadge(navCounts.actionCenter);
   const pcBadge = visibleBadge(navCounts.pc);
@@ -466,24 +460,26 @@ export function MeshaShell({
             <div className="pm-hint">{contract.top_bar.park_selector.hint}</div>
           </div>
         </div>
-        {/* Point-in-time freshness only. Range filtering is not implemented, so the top bar must not render
-            a clickable Date range / Last 30 days control.
-            HIDDEN via SHOW_DATA_FRESHNESS_PILL until the freshness/as-of signal is backed end-to-end. */}
-        {SHOW_DATA_FRESHNESS_PILL ? (
-          <div
-            className="pscope"
-            style={{ marginRight: 4 }}
-            title={`${shellCopy(contract, "date.data_prefix")} ${scope.asOf ?? today} · ${freshness}`}
-            aria-label={`${shellCopy(contract, "date.data_prefix")} ${scope.asOf ?? today} · ${freshness}`}
-          >
-            <CalendarDays className="ic" style={{ width: 14 }} aria-hidden="true" />
-            <span>{shellCopy(contract, "date.data_prefix")}</span>
-            <b>{scope.asOf ?? today}</b>
-            <span className="muted small" style={{ marginLeft: 2 }}>
-              · {freshness}
-            </span>
-          </div>
-        ) : null}
+        {/* Point-in-time date scope only. This is deliberately visible: process-integrity screens honor
+            `as_of`, so carrying a bookmarked historical date must never look like today's live queue. */}
+        <div
+          className={`pscope date-scope ${isHistoricalDate ? "stale" : ""}`}
+          style={{ marginRight: 4 }}
+          title={`${shellCopy(contract, "date.data_prefix")} ${scopedDate} · ${freshness}`}
+          aria-label={`${shellCopy(contract, "date.data_prefix")} ${scopedDate} · ${freshness}`}
+        >
+          <CalendarDays className="ic" style={{ width: 14 }} aria-hidden="true" />
+          <span>{shellCopy(contract, "date.data_prefix")}</span>
+          <b>{scopedDate}</b>
+          <span className="muted small" style={{ marginLeft: 2 }}>
+            · {freshness}
+          </span>
+          {isHistoricalDate ? (
+            <Link href={scopeHref(pathname, scope, { asOf: null })} replace scroll={false} className="scope-reset" title="Reset date scope to today">
+              Today
+            </Link>
+          ) : null}
+        </div>
         <button
           type="button"
           className="iconbtn"

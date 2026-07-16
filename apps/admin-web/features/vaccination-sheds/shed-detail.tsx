@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, CalendarClock, Syringe, UserRound, Warehouse } from "lucide-react";
+import { ArrowLeft, CalendarClock, Syringe, UserRound, Warehouse, X } from "lucide-react";
 import {
+  getGoatPassport,
   getVaccinationShedAnimals,
   getVaccinationShedDetail,
 } from "@/lib/api/server";
+import type { GoatPassportResponse } from "@/lib/api/server";
 import type {
   VaccinationCapacityStatus,
   VaccinationOperationsCounts,
@@ -14,12 +16,14 @@ import type {
   VaccinationShedVaccineRow,
 } from "@/lib/api/vaccination-sheds";
 import { Tag, InfoTooltip, ClipText, type Tone } from "@/components/ui-primitives";
-import { fmtDate } from "@/lib/format";
+import { dash, fmtDate } from "@/lib/format";
 import { copy, optionLabel, optionTone, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { parseScope, scopeHref } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
+import { HerdPassportVaccinationBlock } from "@/features/counts";
 
 const ANIMAL_PAGE_SIZE = 100;
+type GoatPassport = GoatPassportResponse["goat"];
 
 // Nonzero obligation counts to surface in the vaccine-breakdown Counts cell. Labels come from the
 // work_state_filter_chips contract group (never hardcoded); `accepted` maps to the "completed" chip.
@@ -66,6 +70,44 @@ function Stat({ label, value }: { label: string; value: number }) {
       <div className="v">{value}</div>
     </div>
   );
+}
+
+function hrefWithParam(pathname: string, params: RouteSearchParams, key: string, value: string | null): string {
+  const next = new URLSearchParams();
+  for (const [paramKey, paramValue] of Object.entries(params)) {
+    if (paramKey === key) continue;
+    if (Array.isArray(paramValue)) {
+      for (const item of paramValue) if (item) next.append(paramKey, item);
+    } else if (paramValue) {
+      next.set(paramKey, paramValue);
+    }
+  }
+  if (value) next.set(key, value);
+  const qs = next.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
+function withHash(href: string, hash: string): string {
+  return href.includes("#") ? href : `${href}#${hash}`;
+}
+
+function passportStatusTone(value: string | null | undefined, kind: "lifecycle" | "health" | "breeding"): Tone {
+  const v = String(value ?? "").toLowerCase();
+  if (!v) return "mut";
+  if (kind === "health") {
+    if (["healthy", "normal", "ok"].includes(v)) return "ok";
+    if (["sick", "critical", "dead"].includes(v)) return "dng";
+    if (v.includes("treatment") || v.includes("watch") || v.includes("quarantine")) return "warn";
+    return "info";
+  }
+  if (kind === "breeding") {
+    if (v.includes("pregnant") || v.includes("lactating") || v.includes("ai")) return "info";
+    if (v.includes("open") || v.includes("none")) return "mut";
+    return "ok";
+  }
+  if (["alive", "active"].includes(v)) return "ok";
+  if (["sold", "died", "culled", "lost", "inactive"].includes(v)) return "dng";
+  return "mut";
 }
 
 function PlannedSessionsCard({ detail, pageContract }: { detail: VaccinationShedDetail; pageContract: AdminUiPageContract }) {
@@ -187,11 +229,13 @@ function AnimalRosterCard({
   rows,
   nextCursor,
   loadMoreHref,
+  passportHref,
   pageContract,
 }: {
   rows: VaccinationShedAnimalRow[];
   nextCursor: string | null;
   loadMoreHref: string | null;
+  passportHref: (goatId: string) => string;
   pageContract: AdminUiPageContract;
 }) {
   const cols = tableLabels(pageContract, "shed-animals");
@@ -223,7 +267,9 @@ function AnimalRosterCard({
                 {rows.map((a) => (
                   <tr key={a.goatId}>
                     <td>
-                      <span className="gid">{a.displayId}</span>
+                      <Link href={passportHref(a.goatId)} replace scroll={false} className="gid">
+                        {a.displayId}
+                      </Link>
                     </td>
                     <td className="muted">{a.tag1 ?? copy(pageContract, "label.placeholder")}</td>
                     <td className="muted">{a.tag2 ?? copy(pageContract, "label.placeholder")}</td>
@@ -251,6 +297,88 @@ function AnimalRosterCard({
   );
 }
 
+function ShedAnimalPassportDrawer({
+  goat,
+  goatId,
+  error,
+  closeHref,
+  fullPassportHref,
+  pageContract,
+}: {
+  goat: GoatPassport | null;
+  goatId: string;
+  error: string | null;
+  closeHref: string;
+  fullPassportHref: string;
+  pageContract: AdminUiPageContract;
+}) {
+  return (
+    <>
+      <Link href={closeHref} replace className="veil" aria-label={copy(pageContract, "drawer.passport.close_label")} scroll={false} />
+      <aside className="drawer on" aria-label={copy(pageContract, "drawer.passport.aria")}>
+        <div className="dh">
+          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)", fontWeight: 800 }}>
+            G
+          </span>
+          <div>
+            <div className="mt">{goat?.display_id ?? goatId.slice(0, 8)}</div>
+            <h2>{copy(pageContract, "drawer.passport.aria")}</h2>
+          </div>
+          <span className="sp" style={{ flex: 1 }} />
+          <Link href={closeHref} replace className="iconbtn" aria-label={copy(pageContract, "drawer.passport.close_label")} scroll={false}>
+            <X className="ic" />
+          </Link>
+        </div>
+        <div className="dc">
+          {goat ? (
+            <>
+              <div className="helpgrid" style={{ marginBottom: 12 }}>
+                <div className="hk">{copy(pageContract, "label.display_id")}</div>
+                <div><span className="gid">{goat.display_id}</span></div>
+                <div className="hk">{copy(pageContract, "label.tag_1")}</div>
+                <div className="mono">{dash(goat.summary.animal_identifier_1)}</div>
+                <div className="hk">{copy(pageContract, "label.tag_2")}</div>
+                <div className="mono">{dash(goat.summary.animal_identifier_2)}</div>
+              </div>
+              <div className="helpgrid">
+                <div className="hk">{copy(pageContract, "label.location")}</div>
+                <div>{dash(goat.summary.location_path.display)}</div>
+                <div className="hk">{copy(pageContract, "label.breed_sex")}</div>
+                <div>{dash([goat.summary.breed, goat.summary.sex].filter(Boolean).join(" / "))}</div>
+                <div className="hk">{copy(pageContract, "label.lifecycle")}</div>
+                <div>
+                  <Tag tone={passportStatusTone(goat.summary.lifecycle_status, "lifecycle")}>{dash(goat.summary.lifecycle_status)}</Tag>
+                </div>
+                <div className="hk">{copy(pageContract, "label.health")}</div>
+                <div>
+                  <Tag tone={passportStatusTone(goat.summary.health_status, "health")}>{dash(goat.summary.health_status)}</Tag>
+                </div>
+                <div className="hk">{copy(pageContract, "label.reproductive")}</div>
+                <div>
+                  <Tag tone={passportStatusTone(goat.summary.reproductive_status, "breeding")}>{dash(goat.summary.reproductive_status)}</Tag>
+                </div>
+              </div>
+              <HerdPassportVaccinationBlock goatId={goat.goat_id} />
+            </>
+          ) : (
+            <div className="alert">
+              <b>{copy(pageContract, "fallback.title")}</b>&nbsp;{error ?? copy(pageContract, "fallback.body")}
+            </div>
+          )}
+        </div>
+        <div className="df">
+          <Link href={fullPassportHref} className="btn p">
+            {copy(pageContract, "action.full_change_history")}
+          </Link>
+          <Link href={closeHref} replace className="btn" scroll={false}>
+            {copy(pageContract, "action.close")}
+          </Link>
+        </div>
+      </aside>
+    </>
+  );
+}
+
 // Shed-wise vaccination detail — planned sessions (with capacity), per-vaccine breakdown, and the shed's
 // animal roster. Route: /vaccination/execution/sheds/{shedId}. Back returns to the board's exact
 // filtered/paginated state via the ?ret param the board attached; falls back to /vaccination#sheds.
@@ -258,19 +386,23 @@ export async function VaccinationShedDetailPage({
   shedId,
   searchParams,
   pageContract,
+  passportPageContract,
 }: {
   shedId: string;
   searchParams?: RouteSearchParams;
   pageContract: AdminUiPageContract;
+  passportPageContract: AdminUiPageContract;
 }) {
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
   const ret = one(sp, "ret");
   const animalsCursor = one(sp, "animals_cursor");
+  const selectedGoatId = one(sp, "goat_passport");
 
-  const [detailResult, animalsResult] = await Promise.all([
+  const [detailResult, animalsResult, passportResult] = await Promise.all([
     getVaccinationShedDetail(shedId),
     getVaccinationShedAnimals(shedId, { cursor: animalsCursor, limit: ANIMAL_PAGE_SIZE }),
+    selectedGoatId ? getGoatPassport(selectedGoatId) : Promise.resolve(null),
   ]);
 
   const fallbackBack = ret && ret.startsWith("/vaccination") ? ret : `${scopeHref("/vaccination", scope)}#sheds`;
@@ -290,6 +422,11 @@ export async function VaccinationShedDetailPage({
   const loadMoreHref = nextCursor
     ? scopeHref(`/vaccination/execution/sheds/${encodeURIComponent(shedId)}`, scope, { mode: "park", park: detail.parkId }, { ret, animals_cursor: nextCursor }) + "#animals"
     : null;
+  const currentPath = `/vaccination/execution/sheds/${encodeURIComponent(shedId)}`;
+  const passportHref = (goatId: string) => withHash(hrefWithParam(currentPath, sp, "goat_passport", goatId), "animals");
+  const closePassportHref = withHash(hrefWithParam(currentPath, sp, "goat_passport", null), "animals");
+  const selectedGoat = passportResult && passportResult.ok ? passportResult.data.goat : null;
+  const selectedGoatError = passportResult && !passportResult.ok ? passportResult.error.message : null;
 
   const statusTone = optionTone(pageContract, "shed_status_chips", detail.status) as Tone;
   const capacityTone = optionTone(pageContract, "capacity_chips", detail.capacity as VaccinationCapacityStatus) as Tone;
@@ -351,7 +488,17 @@ export async function VaccinationShedDetailPage({
       {/* Planned sessions ABOVE the vaccine breakdown (capacity/session-splitting plan). */}
       <PlannedSessionsCard detail={detail} pageContract={pageContract} />
       <VaccineBreakdownCard detail={detail} pageContract={pageContract} />
-      <AnimalRosterCard rows={animals} nextCursor={nextCursor} loadMoreHref={loadMoreHref} pageContract={pageContract} />
+      <AnimalRosterCard rows={animals} nextCursor={nextCursor} loadMoreHref={loadMoreHref} passportHref={passportHref} pageContract={pageContract} />
+      {selectedGoatId ? (
+        <ShedAnimalPassportDrawer
+          goat={selectedGoat}
+          goatId={selectedGoatId}
+          error={selectedGoatError}
+          closeHref={closePassportHref}
+          fullPassportHref={`/goats/${encodeURIComponent(selectedGoatId)}`}
+          pageContract={passportPageContract}
+        />
+      ) : null}
     </div>
   );
 }

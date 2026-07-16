@@ -35,6 +35,12 @@ export function RhythmCard({
   dayFilter,
   allWeek,
   allWeekHref,
+  previousWeekHref,
+  currentWeekHref,
+  nextWeekHref,
+  previousWeekLabel,
+  currentWeekLabel,
+  nextWeekLabel,
   dateLabelByDay,
   presentation,
 }: {
@@ -43,6 +49,12 @@ export function RhythmCard({
   dayFilter?: string;
   allWeek: boolean;
   allWeekHref: string;
+  previousWeekHref: string;
+  currentWeekHref: string;
+  nextWeekHref: string;
+  previousWeekLabel: string;
+  currentWeekLabel: string;
+  nextWeekLabel: string;
   dateLabelByDay?: Record<string, string>;
   presentation: CalendarPresentation;
 }) {
@@ -55,6 +67,12 @@ export function RhythmCard({
           {presentation.rhythm.title} <span className="muted small">— {presentation.rhythm.note}</span>
         </div>
         <div className="rhythm">
+          <Link href={previousWeekHref} replace scroll={false} className="rday rday-nav" aria-label={previousWeekLabel}>
+            ‹
+          </Link>
+          <Link href={currentWeekHref} replace scroll={false} className="rday rday-current">
+            {currentWeekLabel}
+          </Link>
           {/* Leading "All week" selector: highlighted when the whole-week vertical list is active;
               otherwise a specific day chip carries the highlight. This is the day/week selector. */}
           <Link
@@ -79,6 +97,9 @@ export function RhythmCard({
               <div className={`mode ${day.tone}`}>{day.label}</div>
             </Link>
           ))}
+          <Link href={nextWeekHref} replace scroll={false} className="rday rday-nav" aria-label={nextWeekLabel}>
+            ›
+          </Link>
         </div>
       </div>
     </div>
