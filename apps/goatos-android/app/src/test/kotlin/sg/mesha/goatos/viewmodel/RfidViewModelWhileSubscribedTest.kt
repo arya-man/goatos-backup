@@ -17,7 +17,9 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.rfid.RfidRead
+import sg.mesha.goatos.rfid.RfidReaderDevice
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
 
@@ -47,7 +49,7 @@ class RfidViewModelWhileSubscribedTest {
     @Test
     fun `upstream RFID status stream is collected only while state has subscribers`() = runTest(dispatcher) {
         val reader = FakeRfidReaderPort()
-        val viewModel = RfidViewModel(reader)
+        val viewModel = RfidViewModel(reader, NoopAnalytics())
 
         // No UI subscriber yet -> WhileSubscribed keeps the upstream cold.
         assertEquals(0, reader.activeStatusCollectors)
@@ -82,6 +84,8 @@ class RfidViewModelWhileSubscribedTest {
         private val _status = MutableStateFlow(RfidReaderStatus.NOT_PAIRED)
         override val status: StateFlow<RfidReaderStatus> = _status
         override val reads: SharedFlow<RfidRead> = MutableSharedFlow()
+        override val readerName: StateFlow<String?> = MutableStateFlow(null)
+        override val devices: StateFlow<List<RfidReaderDevice>> = MutableStateFlow(emptyList())
 
         val activeStatusCollectors: Int get() = _status.subscriptionCount.value
 

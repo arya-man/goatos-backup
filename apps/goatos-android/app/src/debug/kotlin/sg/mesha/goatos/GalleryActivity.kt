@@ -1,6 +1,9 @@
 package sg.mesha.goatos
 
+import android.Manifest
 import android.os.Bundle
+import android.os.Build
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -8,8 +11,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -22,10 +31,12 @@ import sg.mesha.goatos.feature.profile.AlertsScreen
 import sg.mesha.goatos.feature.profile.ProfileScreen
 import sg.mesha.goatos.feature.profile.RfidScreen
 import sg.mesha.goatos.feature.record.RecordScreen
+import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanScreen
 import sg.mesha.goatos.feature.sheds.ShedsScreen
 import sg.mesha.goatos.feature.submit.SubmitScreen
 import sg.mesha.goatos.feature.timetable.TimetableScreen
+import sg.mesha.goatos.rfid.KeyboardWedgeRfidReader
 import sg.mesha.goatos.ui.sampleAlertsState
 import sg.mesha.goatos.ui.sampleCalendarState
 import sg.mesha.goatos.ui.sampleCalendarWithCoverageState
@@ -51,24 +62,43 @@ import sg.mesha.goatos.ui.sampleTimetableState
  *   you|overdue|reschedule|timetable
  */
 class GalleryActivity : ComponentActivity() {
+    private lateinit var rfidReader: KeyboardWedgeRfidReader
+    private lateinit var bleScanner: BleRfidScanner
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        val screen = intent.getStringExtra("screen")?.lowercase() ?: "calendar"
+        requestBlePermissionsIfNeeded()
+        rfidReader = KeyboardWedgeRfidReader(this)
+        bleScanner = BleRfidScanner(this)
+        val initialScreen = intent.getStringExtra("screen")?.lowercase() ?: "calendar"
         setContent {
             GoatOsTheme {
                 ProvideAppLocale {
+                    var screen by remember { mutableStateOf(initialScreen) }
                     Box(Modifier.fillMaxSize().background(MeshaColors.Bg)) {
                         when (screen) {
                             "login" -> LoginScreen(onSignInEmail = { _, _ -> }, onGoogle = {}, onForgotPassword = {})
                             "calendar" -> CalendarScreen(state = sampleCalendarState())
                             "calendar_coverage" -> CalendarScreen(state = sampleCalendarWithCoverageState())
                             "sheds" -> ShedsScreen(state = sampleShedsState())
-                            "scan" -> ScanScreen(state = sampleScanState())
+                            "scan" -> ScanScreen(
+                                state = sampleScanState(),
+                                onEvent = { event ->
+                                    if (event == ScanEvent.ReconnectReader) screen = "rfid"
+                                },
+                            )
                             "submit" -> SubmitScreen(state = sampleSubmitState())
                             "overview", "leadership" -> LeadershipScreen(state = sampleLeadershipState())
                             "record" -> RecordScreen(state = sampleRecordState())
-                            "rfid" -> RfidScreen(state = sampleRfidState())
+                            "rfid" -> BleRfidScannerScreen(
+                                scanner = bleScanner,
+                                hidReader = rfidReader,
+                                openBluetoothSettings = rfidReader::openSystemPairing,
+                            )
+                            "rfid_scan" -> DebugVaccinationRfidScanScreen(reader = rfidReader)
+                            "rfid_hid" -> StandaloneHidRfidScreen(reader = rfidReader)
+                            "rfid_mock" -> RfidScreen(state = sampleRfidState())
                             "alerts" -> AlertsScreen(state = sampleAlertsState())
                             "you", "profile" -> ProfileScreen(state = sampleProfileState())
                             "overdue" -> OverdueScreen(state = sampleOverdueState())
@@ -79,6 +109,24 @@ class GalleryActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (::rfidReader.isInitialized && rfidReader.onKeyEvent(event)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun requestBlePermissionsIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val missing = listOf(
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.BLUETOOTH_CONNECT,
+        ).filter { permission ->
+            ContextCompat.checkSelfPermission(this, permission) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), 77)
         }
     }
 }

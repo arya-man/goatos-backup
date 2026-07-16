@@ -4,6 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -12,6 +14,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsFunnels
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
@@ -19,9 +23,12 @@ import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.feature.scan.RosterRow
 import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanFeedEntry
+import sg.mesha.goatos.feature.scan.ScanReaderConnection
 import sg.mesha.goatos.feature.scan.ScanStatus
+import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
 import sg.mesha.goatos.rfid.RfidReaderPort
+import sg.mesha.goatos.rfid.RfidReaderStatus
 import javax.inject.Inject
 
 /**
@@ -43,12 +50,14 @@ import javax.inject.Inject
 class ScanViewModel @Inject constructor(
     private val repo: ExecutionRepository,
     private val reader: RfidReaderPort,
+    private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")
     private val taskId: String? = savedStateHandle.get<String>("taskId")
     private var nextCursor: String? = null
+    private var readerRefreshJob: Job? = null
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     private val observedResource: StateFlow<Resource<ScanRosterResponseDto>> =
@@ -91,6 +100,8 @@ class ScanViewModel @Inject constructor(
         _selectedVaccineGroupId,
         _localDone,
         _feed,
+        reader.status,
+        reader.readerName,
     ) { values: Array<Any?> ->
         val resource = values[0] as Resource<ScanRosterResponseDto>
         val isRefreshing = values[1] as Boolean
@@ -101,6 +112,8 @@ class ScanViewModel @Inject constructor(
         val selectedGroupId = values[6] as String?
         val localDone = values[7] as Set<String>
         val feed = values[8] as List<ScanFeedEntry>
+        val readerStatus = values[9] as RfidReaderStatus
+        val readerName = values[10] as String?
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
         val base = dto?.let { applyResource(it, localDone) } ?: emptyScanState()
@@ -115,6 +128,7 @@ class ScanViewModel @Inject constructor(
             vaccineGroups = base.vaccineGroups.map { group ->
                 group.copy(active = group.id == selectedGroupId)
             },
+            readerConnection = readerStatus.toScanReaderConnection(readerName),
         )
     }.stateIn(
         viewModelScope,
@@ -131,9 +145,25 @@ class ScanViewModel @Inject constructor(
     }
 
     /** Enable/disable keyboard-wedge capture with the Scan screen's composition lifecycle. */
-    fun setCaptureActive(active: Boolean) = reader.setCaptureEnabled(active)
+    fun setCaptureActive(active: Boolean) {
+        reader.setCaptureEnabled(active)
+        if (active) {
+            reader.refreshStatus()
+            if (readerRefreshJob?.isActive == true) return
+            readerRefreshJob = viewModelScope.launch {
+                while (true) {
+                    reader.refreshStatus()
+                    delay(READER_REFRESH_MS)
+                }
+            }
+        } else {
+            readerRefreshJob?.cancel()
+            readerRefreshJob = null
+        }
+    }
 
     override fun onCleared() {
+        readerRefreshJob?.cancel()
         reader.setCaptureEnabled(false)
     }
 
@@ -159,7 +189,8 @@ class ScanViewModel @Inject constructor(
     }
 
     private fun loadRosterAndRefresh() {
-        if (shedId.isNullOrBlank()) return
+        val id = shedId ?: return
+        AnalyticsFunnels.trackScanStarted(analytics, id)
         refresh()
     }
 
@@ -173,9 +204,25 @@ class ScanViewModel @Inject constructor(
                 _rosterExpanded.value = !_rosterExpanded.value
             ScanEvent.Tap -> onManualTap()
             ScanEvent.LoadMore -> loadMore()
-            ScanEvent.Submit, ScanEvent.Back -> Unit // navigation — handled by the host.
+            ScanEvent.Submit,
+            ScanEvent.Back,
+            ScanEvent.ReconnectReader -> Unit // navigation — handled by the host.
         }
     }
+
+    private fun RfidReaderStatus.toScanReaderConnection(readerName: String?): ScanReaderConnection =
+        ScanReaderConnection(
+            readerName = readerName ?: "RFID reader",
+            statusLabel = when (this) {
+                RfidReaderStatus.READY -> "Reader connected"
+                RfidReaderStatus.PAIRED_NOT_READY -> "Reader disconnected"
+                RfidReaderStatus.NOT_PAIRED -> "Reader not paired"
+                RfidReaderStatus.PERMISSION_NEEDED -> "Bluetooth permission needed"
+                RfidReaderStatus.BLUETOOTH_OFF -> "Bluetooth off"
+            },
+            connected = this == RfidReaderStatus.READY,
+            actionLabel = "Reconnect",
+        )
 
     /** Manual ring tap: advances the next REAL pending roster row (from the current computed
      *  state) to DONE by recording its obligation in the draft overlay, and pushes a feed row. */
@@ -267,6 +314,7 @@ class ScanViewModel @Inject constructor(
 
 private const val SCAN_PAGE_SIZE = 20
 private const val MAX_SCAN_FEED_ENTRIES = 100
+private const val READER_REFRESH_MS = 1_000L
 
 private fun emptyScanState(): ScanUiState = ScanUiState(
     shedLabel = "",
@@ -274,12 +322,12 @@ private fun emptyScanState(): ScanUiState = ScanUiState(
     ringDone = 0,
     ringTotal = 0,
     ringUnitLabel = "",
-    tapHint = "",
+    tapHint = "Hold the Bluetooth reader near the goat tag. A known tag is marked Done; an unknown tag is marked Skipped.",
     vaccineGroups = emptyList(),
     doneCount = 0,
     pendingCount = 0,
     skippedCount = 0,
-    tileLabels = sg.mesha.goatos.feature.scan.ScanTileLabels("", "", ""),
+    tileLabels = ScanTileLabels("Done", "Pending", "Skipped"),
     feed = emptyList(),
     roster = emptyList(),
     listTitle = "",
@@ -287,4 +335,10 @@ private fun emptyScanState(): ScanUiState = ScanUiState(
     canSubmit = false,
     scanEnabled = false,
     isRefreshing = true,
+    readerConnection = ScanReaderConnection(
+        readerName = "RFID reader",
+        statusLabel = "Checking reader connection",
+        connected = false,
+        actionLabel = "Reconnect",
+    ),
 )

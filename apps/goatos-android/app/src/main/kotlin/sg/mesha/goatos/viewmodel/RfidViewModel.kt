@@ -3,14 +3,20 @@ package sg.mesha.goatos.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.feature.profile.RfidConnectionState
 import sg.mesha.goatos.feature.profile.RfidDetailStatus
 import sg.mesha.goatos.feature.profile.RfidEvent
+import sg.mesha.goatos.feature.profile.RfidReaderRow
 import sg.mesha.goatos.feature.profile.RfidUiState
+import sg.mesha.goatos.rfid.RfidReaderDevice
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
 import javax.inject.Inject
@@ -24,6 +30,7 @@ import javax.inject.Inject
 @HiltViewModel
 class RfidViewModel @Inject constructor(
     private val reader: RfidReaderPort,
+    private val analytics: AnalyticsPort,
 ) : ViewModel() {
 
     // Lifecycle-safe (MOB-010): `state` IS the WhileSubscribed projection of the hardware status
@@ -32,8 +39,9 @@ class RfidViewModel @Inject constructor(
     // MutableStateFlow via an eager init collector — that permanent subscriber defeats WhileSubscribed
     // and collects the hardware forever (the exact battery drain this fix targets).
     val state: StateFlow<RfidUiState> =
-        reader.status
-            .map { fromStatus(it) }
+        combine(reader.status, reader.readerName, reader.devices, readerRefreshPulse()) { status, readerName, devices, _ ->
+            fromStatus(status, readerName, devices)
+        }
             .stateIn(
                 viewModelScope,
                 SharingStarted.WhileSubscribed(5_000),
@@ -41,26 +49,50 @@ class RfidViewModel @Inject constructor(
             )
 
     init {
+        analytics.track(AnalyticsEvents.RFID_READER_SCREEN_OPENED)
         reader.refreshStatus()
     }
 
     fun onEvent(event: RfidEvent) {
         when (event) {
-            // Android owns HID connection — every action opens the system pairing flow,
-            // except a test-read which just re-checks readiness.
-            RfidEvent.Pair,
-            RfidEvent.Disconnect,
-            is RfidEvent.SelectReader -> reader.openSystemPairing()
-            RfidEvent.TestRead -> reader.refreshStatus()
+            // Android owns HID connection. Only the explicit Bluetooth-settings action
+            // leaves the app; row taps and test-read just re-check readiness in place.
+            RfidEvent.Pair -> {
+                trackAction("open_pairing")
+                reader.openSystemPairing()
+            }
+            RfidEvent.Disconnect -> {
+                trackAction("open_pairing_disconnected")
+                reader.openSystemPairing()
+            }
+            RfidEvent.TestRead -> {
+                trackAction("test_read")
+                reader.refreshStatus()
+            }
+            is RfidEvent.SelectReader -> {
+                trackAction("select_reader")
+                reader.refreshStatus()
+            }
         }
     }
 
-    private fun fromStatus(status: RfidReaderStatus): RfidUiState {
+    private fun trackAction(action: String) {
+        analytics.track(
+            AnalyticsEvents.RFID_READER_ACTION,
+            mapOf(AnalyticsEvents.Params.ACTION to action),
+        )
+    }
+
+    private fun fromStatus(
+        status: RfidReaderStatus,
+        readerName: String? = reader.readerName.value,
+        devices: List<RfidReaderDevice> = reader.devices.value,
+    ): RfidUiState {
         val (detailStatus, connectionState) = when (status) {
             RfidReaderStatus.READY ->
                 RfidDetailStatus.READY to RfidConnectionState.CONNECTED
             RfidReaderStatus.PAIRED_NOT_READY ->
-                RfidDetailStatus.PAIRED_NOT_READY to RfidConnectionState.SCANNING
+                RfidDetailStatus.PAIRED_NOT_READY to RfidConnectionState.DISCONNECTED
             RfidReaderStatus.NOT_PAIRED ->
                 RfidDetailStatus.NOT_PAIRED to RfidConnectionState.DISCONNECTED
             RfidReaderStatus.PERMISSION_NEEDED ->
@@ -71,12 +103,27 @@ class RfidViewModel @Inject constructor(
         return RfidUiState(
             detailStatus = detailStatus,
             connectionState = connectionState,
-            // The keyboard-wedge port surfaces no standing device name (only per-read
-            // RfidRead.deviceName), so leave this null — the screen omits the name row rather than
-            // showing a hardcoded label. A real reader name from a future port is passed through
-            // verbatim (a device identifier is never localized); the header title is a localized
-            // static string owned by RfidScreen.
-            readerName = null,
+            readerName = readerName,
+            discovered = devices.map { device ->
+                RfidReaderRow(
+                    id = device.id,
+                    name = device.name,
+                    detail = device.detail,
+                    signalLabel = device.signalLabel,
+                )
+            },
         )
+    }
+
+    private fun readerRefreshPulse() = flow {
+        while (true) {
+            reader.refreshStatus()
+            emit(Unit)
+            delay(READER_REFRESH_MS)
+        }
+    }
+
+    private companion object {
+        const val READER_REFRESH_MS = 1_000L
     }
 }

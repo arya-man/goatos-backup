@@ -35,11 +35,18 @@ object AnalyticsEvents {
     /** User signed out; the session was cleared. */
     const val SIGN_OUT = "sign_out"
 
+    /** RFID reader setup screen opened. */
+    const val RFID_READER_SCREEN_OPENED = "rfid_reader_screen_opened"
+
+    /** Operator triggered an RFID reader setup action. */
+    const val RFID_READER_ACTION = "rfid_reader_action"
+
     /** Standard event parameter keys. */
     object Params {
         const val METHOD = "method"
         const val REASON = "reason"
         const val CHROME = "chrome"
+        const val ACTION = "action"
     }
 
     /** Durable user-property keys (set via [AnalyticsPort.setUserProperty]). */

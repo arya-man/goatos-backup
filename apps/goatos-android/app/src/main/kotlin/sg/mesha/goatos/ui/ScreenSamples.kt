@@ -37,6 +37,7 @@ import sg.mesha.goatos.feature.profile.SettingKind
 import sg.mesha.goatos.feature.profile.SettingRow
 import sg.mesha.goatos.feature.record.RecordUiState
 import sg.mesha.goatos.feature.record.VaccineGroupRow
+import sg.mesha.goatos.feature.scan.ScanReaderConnection
 import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
 import sg.mesha.goatos.feature.sheds.ShedRow
@@ -129,7 +130,7 @@ fun sampleScanState(): ScanUiState = ScanUiState(
     ringDone = 12,
     ringTotal = 40,
     ringUnitLabel = "vaccinated",
-    tapHint = "Tap reader to animal — reader shows its due vaccine",
+    tapHint = "Hold the Bluetooth reader near the goat tag. A known tag is marked Done; an unknown tag is marked Skipped.",
     vaccineGroups = emptyList(),
     doneCount = 12,
     pendingCount = 26,
@@ -144,6 +145,12 @@ fun sampleScanState(): ScanUiState = ScanUiState(
     isRefreshing = false,
     lastSyncedAt = System.currentTimeMillis(),
     isOffline = false,
+    readerConnection = ScanReaderConnection(
+        readerName = "IDT RHLS-3",
+        statusLabel = "Reader disconnected",
+        connected = false,
+        actionLabel = "Reconnect",
+    ),
 )
 
 fun sampleSubmitState(): SubmitUiState = SubmitUiState(
@@ -277,6 +284,7 @@ fun sampleRfidState(): RfidUiState = RfidUiState(
     detailStatus = RfidDetailStatus.READY,
     connectionState = RfidConnectionState.CONNECTED,
     readerName = "Chainway R3",
+    pairedLabel = "Paired · battery 84%",
 )
 
 // Mock-exact snapshot of mock/vaccination-mobile-mock.html #v-alerts `.notif` cards.

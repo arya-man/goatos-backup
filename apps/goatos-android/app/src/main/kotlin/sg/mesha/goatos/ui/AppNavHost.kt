@@ -383,6 +383,7 @@ fun AppNavHost(
                             ),
                         ) { launchSingleTop = true }
                         ScanEvent.Back -> navController.popBackStack()
+                        ScanEvent.ReconnectReader -> navController.navigate(Routes.RFID) { launchSingleTop = true }
                         else -> vm.onEvent(event)
                     }
                 },

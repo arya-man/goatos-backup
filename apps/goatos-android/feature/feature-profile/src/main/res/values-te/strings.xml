@@ -40,6 +40,8 @@
     <string name="rfid_detail_action_open_bluetooth">Bluetooth సెట్టింగ్‌లను తెరవండి</string>
     <string name="rfid_detail_action_pair_reader">Reader ను జత చేయండి</string>
     <string name="rfid_detail_test_label">పరీక్ష స్కాన్</string>
+    <string name="rfid_detail_hid_note">Reader Bluetooth keyboard లాగా పనిచేస్తుంది. Tag scan అయితే అది ID type చేసి enter నొక్కుతుంది — app ఆ event ను capture చేస్తుంది, కాబట్టి operator tag ను చేతితో type చేయడు.</string>
+    <string name="rfid_detail_action_rescan">Reader లను మళ్లీ scan చేయండి</string>
 
     <!-- Alerts screen chrome -->
     <string name="alerts_screen_title">హెచ్చరికలు</string>
