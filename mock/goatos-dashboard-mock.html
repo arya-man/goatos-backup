@@ -694,13 +694,19 @@
       <div class="leaf" data-go="inventory" data-sub="reorder">Reorder &amp; audit</div>
     </div>
 
-    <div class="ggrp" data-grp="hr" title="4 SLA breaches"><svg class="ic"><use href="#i-people"/></svg>HR / People<span class="gct">4</span></div>
+    <div class="ggrp" data-grp="hr" data-href="hrms-web-mock.html" title="HRMS vertical — opens the HRMS mock (upcoming design)"><svg class="ic"><use href="#i-people"/></svg>HR / People<span class="gct">4</span></div>
+    <!-- UPCOMING: the 4 tabs below are superseded by the HRMS vertical mock
+         (mock/hrms-web-mock.html), which replaces them with its own subtabs:
+         Overview · Tasks &amp; Proof · Org Chart · Leave · Attendance.
+         HR / People above now navigates straight to that mock. The legacy
+         subnav is kept here, commented, until the HRMS design is signed off.
     <div class="subnav" data-grp="hr">
       <div class="leaf" data-go="people" data-sub="operators">Operators</div>
       <div class="leaf" data-go="people" data-sub="hr">HR · recruit &amp; payroll</div>
       <div class="leaf" data-go="people" data-sub="sla" title="4 alerts not acknowledged within the 10-minute window">Response SLA<span class="lct">4</span></div>
       <div class="leaf" data-go="people" data-sub="penalties">Penalties</div>
     </div>
+    -->
 
     <div class="ggrp" data-grp="farmernet"><svg class="ic"><use href="#i-sprout"/></svg>Farmer Network<svg class="ic chev"><use href="#i-chev"/></svg></div>
     <div class="subnav" data-grp="farmernet">
@@ -2448,7 +2454,11 @@ function toggleNav(){
 }
 document.querySelectorAll('.ggrp').forEach(g=>g.addEventListener('click',()=>{
   const lay=document.querySelector('.layout');if(lay.classList.contains('rail')){lay.classList.remove('rail');}
-  const grp=g.dataset.grp,sn=document.querySelector('.subnav[data-grp="'+grp+'"]'),willOpen=!sn.classList.contains('open');
+  /* a group can hand off to another mock page instead of opening a subnav (HR / People -> HRMS) */
+  if(g.dataset.href){location.href=g.dataset.href;return;}
+  const grp=g.dataset.grp,sn=document.querySelector('.subnav[data-grp="'+grp+'"]');
+  if(!sn)return;
+  const willOpen=!sn.classList.contains('open');
   sn.classList.toggle('open',willOpen);g.classList.toggle('open',willOpen);
 }));
 document.querySelectorAll('.nav,.ggrp').forEach(n=>{if(!n.title)n.title=n.textContent.trim();});
