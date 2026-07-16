@@ -8,7 +8,7 @@ import type {
   VaccinationExecutionWorkState,
 } from "@/lib/api/vaccination-execution";
 import { one, type RouteSearchParams } from "@/lib/search-params";
-import { backendScope, parseScope, scopeHref } from "@/lib/scope";
+import { parseScope, scopeHref } from "@/lib/scope";
 import {
   SEVERITY_ORDER,
   SEVERITY_RANK,
@@ -35,6 +35,7 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { ShedEventActions } from "./shed-event-actions";
+import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.
 const ATTENTION_STATES = new Set<VaccinationExecutionWorkState>(["overdue", "missed", "blocked", "rejected"]);
@@ -207,7 +208,7 @@ export async function VaccinationExecutionBoard({
   const stateFilter = (WORK_STATE_ORDER.find((s) => s === one(sp, "state")) ?? "all") as VaccinationExecutionWorkState | "all";
   const severityFilter = (SEVERITY_ORDER.find((s) => s === one(sp, "severity")) ?? "all") as VaccinationExecutionSeverity | "all";
   const scope = parseScope(sp);
-  const { parkId, asOf } = backendScope(scope);
+  const { parkId } = vaccinationCurrentViewScope(scope);
   const pageSizeOptions = tablePageSizes(pageContract, "shed-events");
   const requestedBackendLimit = pageSizeOptions.find((size) => String(size) === one(sp, "exec_limit")) ?? 10;
   const executionCursor = one(sp, "exec_cursor");
@@ -216,7 +217,6 @@ export async function VaccinationExecutionBoard({
     executionResult ??
     (await getVaccinationExecution({
       parkId,
-      asOf,
       workState: stateFilter === "all" ? undefined : stateFilter,
       limit: requestedBackendLimit,
       cursor: executionCursor,

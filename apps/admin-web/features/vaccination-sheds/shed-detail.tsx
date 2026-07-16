@@ -16,7 +16,7 @@ import type {
 import { Tag, InfoTooltip, ClipText, type Tone } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 import { copy, optionLabel, optionTone, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { backendScope, parseScope, scopeHref } from "@/lib/scope";
+import { parseScope, scopeHref } from "@/lib/scope";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
 const ANIMAL_PAGE_SIZE = 100;
@@ -265,12 +265,11 @@ export async function VaccinationShedDetailPage({
 }) {
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
-  const { asOf } = backendScope(scope);
   const ret = one(sp, "ret");
   const animalsCursor = one(sp, "animals_cursor");
 
   const [detailResult, animalsResult] = await Promise.all([
-    getVaccinationShedDetail(shedId, { asOf }),
+    getVaccinationShedDetail(shedId),
     getVaccinationShedAnimals(shedId, { cursor: animalsCursor, limit: ANIMAL_PAGE_SIZE }),
   ]);
 

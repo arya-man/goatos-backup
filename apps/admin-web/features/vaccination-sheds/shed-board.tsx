@@ -15,11 +15,12 @@ import {
   tablePageSizes,
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
-import { backendScope, parseScope, scopeHref } from "@/lib/scope";
+import { parseScope, scopeHref } from "@/lib/scope";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
 import { VaccinationTablePager, type VaccinationPageSize } from "@/features/preventive-care-vaccination";
 import { ShedFilterBar } from "./shed-filter-bar";
+import { vaccinationCurrentViewScope } from "./shed-scope";
 
 // Merged CEO status headline order (highest priority first) — matches the backend headline priority and
 // the shed_status_chips contract group. Used to validate the ?sheds_status filter and render chips.
@@ -41,7 +42,7 @@ function OwnerCell({ owner, missingLabel }: { owner: VaccinationShedSummaryRow["
 export function getVaccinationShedSummaryParams(searchParams: RouteSearchParams | undefined, pageContract: AdminUiPageContract) {
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
-  const { parkId, asOf } = backendScope(scope);
+  const { parkId } = vaccinationCurrentViewScope(scope);
 
   const status = SHED_STATUS_ORDER.find((s) => s === one(sp, "sheds_status"));
   const capacity = CAPACITY_ORDER.find((c) => c === one(sp, "sheds_capacity"));
@@ -52,14 +53,13 @@ export function getVaccinationShedSummaryParams(searchParams: RouteSearchParams 
   const page = boundedInt(one(sp, "sheds_page"), 1, 1, 1_000_000);
   const offset = (page - 1) * limit;
 
-  return { sp, scope, parkId, asOf, status, capacity, search, limit, page, offset, pageSizeOptions };
+  return { sp, scope, parkId, status, capacity, search, limit, page, offset, pageSizeOptions };
 }
 
 export function loadVaccinationShedSummary(searchParams: RouteSearchParams | undefined, pageContract: AdminUiPageContract) {
   const params = getVaccinationShedSummaryParams(searchParams, pageContract);
   return getVaccinationShedSummary({
     parkId: params.parkId,
-    asOf: params.asOf,
     status: params.status,
     capacity: params.capacity,
     search: params.search,
@@ -83,7 +83,6 @@ export async function VaccinationShedBoard({
   summaryResult?: ApiResult<VaccinationShedSummaryResponse>;
 }) {
   const {
-    sp,
     scope,
     status: statusFilter,
     capacity: capacityFilter,
@@ -168,7 +167,17 @@ export async function VaccinationShedBoard({
         ))}
       </div>
 
-      {rows.length === 0 ? (
+      {!result.ok ? (
+        <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
+          <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--danger)", flexShrink: 0 }} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <b style={{ fontSize: 14 }}>{copy(pageContract, "section.sheds.unavailable_title")}</b>
+            <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
+              {copy(pageContract, "section.sheds.unavailable_body")} {result.error.message}
+            </span>
+          </div>
+        </div>
+      ) : rows.length === 0 ? (
         <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "18px 16px", flexWrap: "wrap" }}>
           <Layers className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--brand)", flexShrink: 0 }} />
           <div style={{ minWidth: 0, flex: 1 }}>

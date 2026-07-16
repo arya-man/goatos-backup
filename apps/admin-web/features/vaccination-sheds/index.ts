@@ -4,3 +4,4 @@
 // as the primary vaccination table (see docs/runbooks/staging-vaccination-seed-preflight.md).
 export { VaccinationShedBoard, loadVaccinationShedSummary } from "./shed-board";
 export { VaccinationShedDetailPage } from "./shed-detail";
+export { vaccinationCurrentViewScope } from "./shed-scope";
