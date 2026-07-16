@@ -1,11 +1,12 @@
 import { isAuthRequiredError, listSops } from "@/lib/api/server";
 import { isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
-import { type RouteSearchParams } from "@/lib/search-params";
+import { one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { parseScope } from "@/lib/scope";
 import { loadVaccinationShedSummary, VaccinationShedBoard } from "@/features/vaccination-sheds";
 import { VaccinationSopButton } from "./sop-quick-view";
-import { VaccinationHeaderActions } from "./vaccination-action-dialogs";
+import { VaccinationFullScheduleButton, VaccinationHeaderActions } from "./vaccination-action-dialogs";
+import { loadVaccinationFullSchedule, VaccinationFullSchedule, vaccinationScheduleYear } from "./full-vaccine-schedule";
 
 // Linked vaccination SOP for the header quick-view. Derived from the REAL /admin/sops data (same source as
 // /sops), filtered to the vaccination slice and reduced to the primary (active preferred) SOP + its latest
@@ -51,14 +52,17 @@ export async function VaccinationOperationsPage({
 }) {
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
+  const isFullSchedule = one(sp, "view") === "schedule";
+  const scheduleYear = vaccinationScheduleYear(sp);
 
   const linkedSopPromise = loadLinkedVaccinationSop();
-  const shedSummaryPromise = loadVaccinationShedSummary(sp, pageContract);
+  const shedSummaryPromise = isFullSchedule ? undefined : loadVaccinationShedSummary(sp, pageContract);
+  const fullSchedulePromise = isFullSchedule ? loadVaccinationFullSchedule(sp, scope) : undefined;
   const driveSteps = optionGroup(pageContract, "drive_steps").map((step) => {
     const [title, detail] = (step.title || "").split("|");
     return { key: step.key, step: step.label, title, detail };
   });
-  const [linkedSop, shedSummary] = await Promise.all([linkedSopPromise, shedSummaryPromise]);
+  const [linkedSop, shedSummary, fullSchedule] = await Promise.all([linkedSopPromise, shedSummaryPromise, fullSchedulePromise]);
 
   return (
     <div className="screen on">
@@ -72,9 +76,14 @@ export async function VaccinationOperationsPage({
         </div>
         <div className="sp" style={{ flex: 1 }} />
         <VaccinationSopButton view={linkedSop.view} error={linkedSop.error} authRequired={linkedSop.authRequired} pageContract={pageContract} />
+        <VaccinationFullScheduleButton scope={scope} pageContract={pageContract} active={isFullSchedule} year={scheduleYear} />
         <VaccinationHeaderActions scope={scope} pageContract={pageContract} />
       </div>
 
+      {isFullSchedule ? (
+        <VaccinationFullSchedule searchParams={sp} scope={scope} pageContract={pageContract} scheduleResult={fullSchedule} />
+      ) : (
+        <>
       {/* Drive mechanic — Target → Group → Route → Execute (mock band). */}
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="bd">
@@ -93,6 +102,8 @@ export async function VaccinationOperationsPage({
       {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
           and merged status. Rows deep-link to the shed detail. This is the MAIN vaccination table. */}
       <VaccinationShedBoard searchParams={sp} pageContract={pageContract} summaryResult={shedSummary} />
+        </>
+      )}
     </div>
   );
 }

@@ -101,6 +101,32 @@ function passportStatusTone(value: string | null | undefined, kind: "lifecycle" 
   return "mut";
 }
 
+function humanStatus(value: string | null | undefined): string {
+  return String(value ?? "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function animalVaccinationWorkLabel(pageContract: AdminUiPageContract, status: string | undefined): string {
+  const key = String(status ?? "no_record") === "done" ? "up_to_date" : String(status ?? "no_record");
+  try {
+    return copy(pageContract, `animals.status.${key}`);
+  } catch {
+    return humanStatus(key);
+  }
+}
+
+function animalVaccinationWorkTone(status: string | undefined): Tone {
+  const key = String(status ?? "no_record") === "done" ? "up_to_date" : String(status ?? "no_record");
+  if (["dead", "culled", "lost", "inactive", "due", "missed"].includes(key)) return "dng";
+  if (["sick", "under_treatment", "quarantine", "icu", "deferred"].includes(key)) return "warn";
+  if (key === "scheduled") return "info";
+  if (key === "up_to_date") return "ok";
+  return "mut";
+}
+
 function PlannedSessionsCard({ detail, pageContract }: { detail: VaccinationShedDetail; pageContract: AdminUiPageContract }) {
   const cols = table(pageContract, "planned-sessions").columns.filter((c) => c.visible);
   const sessions: VaccinationPlannedSession[] = detail.plannedSessions ?? [];
@@ -229,7 +255,19 @@ function AnimalRosterCard({
   passportHref: (goatId: string) => string;
   pageContract: AdminUiPageContract;
 }) {
-  const cols = tableLabels(pageContract, "shed-animals");
+  const cols = [
+    copy(pageContract, "animals.column.display_id"),
+    copy(pageContract, "animals.column.tag_1"),
+    copy(pageContract, "animals.column.tag_2"),
+    copy(pageContract, "animals.column.breed"),
+    copy(pageContract, "animals.column.sex"),
+    copy(pageContract, "animals.column.age"),
+    copy(pageContract, "animals.column.lifecycle"),
+    copy(pageContract, "animals.column.health"),
+    copy(pageContract, "animals.column.last_vax_date"),
+    copy(pageContract, "animals.column.next_vax_date"),
+    copy(pageContract, "animals.column.vax_work"),
+  ];
   return (
     <section id="animals" className="card" style={{ scrollMarginTop: 80 }}>
       <div className="hd">
@@ -246,7 +284,7 @@ function AnimalRosterCard({
       ) : (
         <>
           <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-            <table>
+            <table className="shed-animal-roster-table">
               <thead>
                 <tr>
                   {cols.map((c) => (
@@ -268,7 +306,23 @@ function AnimalRosterCard({
                     <td className="muted">{a.sex}</td>
                     <td className="muted">{a.age ?? copy(pageContract, "label.placeholder")}</td>
                     <td>
-                      <ClipText title={a.status}>{a.status}</ClipText>
+                      {a.lifecycleStatus ? (
+                        <Tag tone={passportStatusTone(a.lifecycleStatus, "lifecycle")}>{humanStatus(a.lifecycleStatus)}</Tag>
+                      ) : (
+                        <span className="muted">{copy(pageContract, "label.placeholder")}</span>
+                      )}
+                    </td>
+                    <td>
+                      {a.healthStatus ? (
+                        <Tag tone={passportStatusTone(a.healthStatus, "health")}>{humanStatus(a.healthStatus)}</Tag>
+                      ) : (
+                        <span className="muted">{copy(pageContract, "label.placeholder")}</span>
+                      )}
+                    </td>
+                    <td className="muted">{a.lastDose ? fmtDate(a.lastDose) : copy(pageContract, "label.placeholder")}</td>
+                    <td className="muted">{a.nextDue ? fmtDate(a.nextDue) : copy(pageContract, "label.placeholder")}</td>
+                    <td>
+                      <Tag tone={animalVaccinationWorkTone(a.status)}>{animalVaccinationWorkLabel(pageContract, a.status)}</Tag>
                     </td>
                   </tr>
                 ))}

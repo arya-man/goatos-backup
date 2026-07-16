@@ -299,7 +299,6 @@ func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([
 	return out, nil
 }
 
-
 // VaccinationGaps returns the bounded, keyset-paginated per-animal exclusion rows (missing date of
 // birth / breed) for a tenant, optionally scoped to one park. Ordered and cursor-paginated by goat_id
 // (the primary key), so a park with many gapped animals is never returned in one unbounded response.
@@ -415,6 +414,14 @@ func timePtr(v pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
+func timeStringPtr(v pgtype.Timestamptz) *string {
+	if !v.Valid {
+		return nil
+	}
+	s := v.Time.Format(time.RFC3339)
+	return &s
+}
+
 func int32Ptr(v pgtype.Int4) *int32 {
 	if !v.Valid || v.Int32 <= 0 {
 		return nil
@@ -422,7 +429,6 @@ func int32Ptr(v pgtype.Int4) *int32 {
 	i := v.Int32
 	return &i
 }
-
 
 // vaccinationExecutionSQL is point-in-time correct as of $7 (as_of): completions are bounded by as_of and
 // the obligation bucket is reconstructed AT as_of (completed via completed_at/as_of-bounded completion;
@@ -830,7 +836,6 @@ WHERE NOT $10::boolean
 ORDER BY grouped.sort_rank, grouped.sort_due_micros, grouped.sort_row_key
 LIMIT ($5::int + 1);
 `
-
 
 // vaccinationOperationsSQL is point-in-time correct as of $2 (as_of). It does NOT bucket off the stored
 // obligation_instances.status (which is the state NOW); it reconstructs the state the obligation had AT
@@ -1766,14 +1771,18 @@ func (r *Repository) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) 
 	out := []domain.ShedAnimalRow{}
 	for rows.Next() {
 		var row domain.ShedAnimalRow
-		var tag1, tag2, breed, age pgtype.Text
-		if err := rows.Scan(&row.GoatID, &row.DisplayID, &tag1, &tag2, &breed, &row.Sex, &age, &row.Status); err != nil {
+		var tag1, tag2, breed, age, health pgtype.Text
+		var lastDose, nextDue pgtype.Timestamptz
+		if err := rows.Scan(&row.GoatID, &row.DisplayID, &tag1, &tag2, &breed, &row.Sex, &age, &row.Lifecycle, &health, &lastDose, &nextDue, &row.Status); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan shed animals: %w", err)
 		}
 		row.Tag1 = textPtr(tag1)
 		row.Tag2 = textPtr(tag2)
 		row.Breed = textPtr(breed)
 		row.Age = textPtr(age)
+		row.Health = textPtr(health)
+		row.LastDose = timeStringPtr(lastDose)
+		row.NextDue = timeStringPtr(nextDue)
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -1784,8 +1793,9 @@ func (r *Repository) ShedAnimals(ctx context.Context, q domain.ShedAnimalQuery) 
 
 // shedAnimalListSQL is a bounded keyset scan of alive goats in one shed (goat_id > $3 drives the
 // PK-ordered window, LIMIT bounds the page). Display ID + both tag identities are returned as-is; a null
-// tag becomes NULL -> the UI renders "-", never a "missing id" badge. status is 'due' when the animal
-// has any actionable-now vaccination obligation, else 'done'.
+// tag becomes NULL -> the UI renders "-", never a "missing id" badge. Last dose is the latest accepted
+// vaccination completion; next due is the earliest open vaccination obligation date. status describes
+// current vaccination work, not animal health or lifecycle.
 const shedAnimalListSQL = `
 SELECT
   g.goat_id::text,
@@ -1799,24 +1809,17 @@ SELECT
       floor(extract(epoch FROM (now() - g.dob::timestamptz)) / 86400)::int::text || 'd'
     ELSE NULLIF(g.age_band, '')
   END AS age,
+  g.lifecycle_status,
+  NULLIF(g.health_status, '') AS health_status,
+  vhist.last_dose,
+  vnext.next_due,
   CASE
-    WHEN EXISTS (
-      SELECT 1
-      FROM obligation_instances oi
-      JOIN protocol_versions pv
-        ON pv.tenant_id = oi.tenant_id
-       AND pv.protocol_version_id = oi.protocol_version_id
-      JOIN protocol_definitions pd
-        ON pd.tenant_id = pv.tenant_id
-       AND pd.protocol_id = pv.protocol_id
-       AND pd.category = 'vaccination'
-      WHERE oi.tenant_id = g.tenant_id
-        AND oi.target_type = 'goat'
-        AND oi.target_id = g.goat_id
-        AND ( oi.status IN ('due', 'in_progress')
-              OR (oi.status = 'scheduled' AND oi.due_at <= now()) )
-    ) THEN 'due'
-    ELSE 'done'
+    WHEN g.lifecycle_status <> 'alive' THEN g.lifecycle_status
+    WHEN COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu') THEN g.health_status
+    WHEN vnext.actionable_now THEN 'due'
+    WHEN vnext.next_due IS NOT NULL THEN 'scheduled'
+    WHEN vhist.last_dose IS NOT NULL THEN 'up_to_date'
+    ELSE 'no_record'
   END AS status
 FROM goats g
 LEFT JOIN goat_identifiers aid1
@@ -1831,9 +1834,32 @@ LEFT JOIN goat_identifiers aid2
  AND aid2.status = 'active'
 LEFT JOIN breeds b
   ON b.breed_id = g.breed_id
+LEFT JOIN LATERAL (
+  SELECT MAX(vc.administered_at) AS last_dose
+  FROM vaccination_completions vc
+  WHERE vc.tenant_id = g.tenant_id
+    AND vc.goat_id = g.goat_id
+    AND vc.status = 'accepted'
+) vhist ON true
+LEFT JOIN LATERAL (
+  SELECT
+    MIN(oi.due_at) AS next_due,
+    BOOL_OR(oi.status IN ('due', 'in_progress', 'missed') OR (oi.status = 'scheduled' AND oi.due_at <= now())) AS actionable_now
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  WHERE oi.tenant_id = g.tenant_id
+    AND oi.target_type = 'goat'
+    AND oi.target_id = g.goat_id
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+) vnext ON true
 WHERE g.tenant_id = $1::uuid
   AND g.shed_id = $2::uuid
-  AND g.lifecycle_status = 'alive'
   AND g.merged_into_goat_id IS NULL
   AND g.goat_id > $3::uuid
 ORDER BY g.goat_id ASC

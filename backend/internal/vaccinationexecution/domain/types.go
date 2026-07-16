@@ -609,7 +609,8 @@ type ShedVaccineRow struct {
 
 // ShedAnimalRow is one animal in the shed-detail roster: the three identities the UI shows. Tag1/Tag2
 // are nil when the animal has no such identifier on record — the UI renders "-", never a "missing id"
-// badge. goatId is the opaque keyset cursor.
+// badge. LastDose is the latest accepted vaccination timestamp for the animal. goatId is the opaque
+// keyset cursor.
 type ShedAnimalRow struct {
 	GoatID    string  `json:"goatId"`
 	DisplayID string  `json:"displayId"`
@@ -618,6 +619,10 @@ type ShedAnimalRow struct {
 	Breed     *string `json:"breed,omitempty"`
 	Sex       string  `json:"sex"`
 	Age       *string `json:"age,omitempty"`
+	Lifecycle string  `json:"lifecycleStatus"`
+	Health    *string `json:"healthStatus,omitempty"`
+	LastDose  *string `json:"lastDose,omitempty"`
+	NextDue   *string `json:"nextDue,omitempty"`
 	Status    string  `json:"status"`
 }
 

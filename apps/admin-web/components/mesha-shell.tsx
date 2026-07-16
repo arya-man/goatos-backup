@@ -161,6 +161,10 @@ export function MeshaShell({
   // params, so the bar can never disagree with a page body.
   const scope = parseScope(Object.fromEntries((searchParams ?? new URLSearchParams()).entries()));
   const searchKey = searchParams?.toString() ?? "";
+  const preserveVaccinationSchedule =
+    pathname === "/vaccination" && searchParams?.get("view") === "schedule"
+      ? { view: "schedule", schedule_year: searchParams.get("schedule_year") ?? undefined }
+      : {};
   const defaultPark = parks[0] ?? null;
   const activeParkId = scope.parkId;
   const renderedScope = activeParkId ? { ...scope, mode: "park" as const, parkId: activeParkId } : scope;
@@ -353,6 +357,12 @@ export function MeshaShell({
   function navActive(leaf: NavItem): boolean {
     return active === leaf.href;
   }
+  function currentScopeHref(
+    overrides: Parameters<typeof scopeHref>[2] = {},
+    extra: Record<string, string | undefined> = {},
+  ): string {
+    return scopeHref(pathname, scope, overrides, { ...preserveVaccinationSchedule, ...extra });
+  }
 
   return (
     <>
@@ -381,7 +391,7 @@ export function MeshaShell({
             not force a park filter; users choose a concrete park separately from the park picker. */}
         <div className="parkpick" style={{ marginRight: 6 }}>
           <Link
-            href={scopeHref(pathname, scope, { park: null, mode: "company" })}
+            href={currentScopeHref({ park: null, mode: "company" })}
             replace
             scroll={false}
             className={renderedScope.mode === "company" ? "on" : ""}
@@ -390,7 +400,7 @@ export function MeshaShell({
             {companyScopeOption?.label}
           </Link>
           <Link
-            href={defaultPark ? scopeHref(pathname, scope, { park: activeParkId ?? null, mode: "park" }) : scopeHref(pathname, scope)}
+            href={defaultPark ? currentScopeHref({ park: activeParkId ?? null, mode: "park" }) : currentScopeHref()}
             replace
             scroll={false}
             className={renderedScope.mode === "park" ? "on" : ""}
@@ -427,7 +437,7 @@ export function MeshaShell({
             <div className="pm-label">{contract.top_bar.park_selector.label}</div>
             <div className="pm-list">
               <Link
-                href={scopeHref(pathname, scope, { park: null, mode: renderedScope.mode })}
+                href={currentScopeHref({ park: null, mode: renderedScope.mode })}
                 replace
                 scroll={false}
                 onClick={closeMenus}
@@ -444,7 +454,7 @@ export function MeshaShell({
               {parks.map((p) => (
                 <Link
                   key={p.id}
-                  href={scopeHref(pathname, scope, { park: p.id, mode: "park" })}
+                  href={currentScopeHref({ park: p.id, mode: "park" })}
                   replace
                   scroll={false}
                   onClick={closeMenus}
@@ -475,7 +485,7 @@ export function MeshaShell({
             · {freshness}
           </span>
           {isHistoricalDate ? (
-            <Link href={scopeHref(pathname, scope, { asOf: null })} replace scroll={false} className="scope-reset" title="Reset date scope to today">
+            <Link href={currentScopeHref({ asOf: null })} replace scroll={false} className="scope-reset" title="Reset date scope to today">
               Today
             </Link>
           ) : null}

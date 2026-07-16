@@ -610,10 +610,13 @@ export async function getVaccinationOperations(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<VaccinationOperationsResponse>("/vaccination/operations", {
-      cache: "no-store",
-      query: compactQuery({ park_id: params.parkId, as_of: params.asOf, due_before: params.dueBefore, limit: params.limit, cursor: params.cursor }),
-    }),
+    withApiTimeout(6000, (signal) =>
+      client.request<VaccinationOperationsResponse>("/vaccination/operations", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({ park_id: params.parkId, as_of: params.asOf, due_before: params.dueBefore, limit: params.limit, cursor: params.cursor }),
+      }),
+    ),
   );
 }
 
@@ -1525,7 +1528,24 @@ export async function request<T>(fn: () => Promise<T>): Promise<ApiResult<T>> {
   }
 }
 
+async function withApiTimeout<T>(ms: number, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fn(controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function normalizeApiError(error: unknown): ApiUiError {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return {
+      kind: "backend_down",
+      message: "The backend took too long to return vaccination data. Try again after the local API finishes warming up.",
+      retryable: true,
+    };
+  }
   if (error instanceof GoatOSApiError) {
     const envelope = parseEnvelope(error.body);
     const code = envelope?.code;

@@ -3201,6 +3201,10 @@ export interface components {
             /** @enum {string} */
             sex: "female" | "male";
             age?: string | null;
+            lifecycleStatus: string;
+            healthStatus?: string | null;
+            lastDose?: string | null;
+            nextDue?: string | null;
             status: string;
         };
         VaccinationShedAnimalPage: {
