@@ -9,6 +9,8 @@ plist_path="$plist_dir/$label.plist"
 log_dir="$repo_root/.codex-goatos-render/logs"
 launchd_stdout="$log_dir/local-stack-launchd.out.log"
 launchd_stderr="$log_dir/local-stack-launchd.err.log"
+api_port="${GOATOS_LOCAL_API_PORT:-8080}"
+web_port="${GOATOS_LOCAL_WEB_PORT:-3300}"
 
 usage() {
   cat <<EOF
@@ -76,8 +78,89 @@ bootstrap() {
   launchctl kickstart -k "$domain/$label"
 }
 
+listener_pids() {
+  local port="$1"
+  lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+}
+
+pid_cwd() {
+  local pid="$1"
+  lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
+}
+
+kill_port_listeners() {
+  local port="$1"
+  local pids pid
+  pids="$(listener_pids "$port" | tr '\n' ' ')"
+  if [ -z "${pids// }" ]; then
+    return 0
+  fi
+
+  echo "freeing port $port: killing listener pid(s): $pids"
+  # shellcheck disable=SC2086
+  kill $pids >/dev/null 2>&1 || true
+  for _ in $(seq 1 20); do
+    if [ -z "$(listener_pids "$port" | tr '\n' ' ')" ]; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  for pid in $(listener_pids "$port"); do
+    kill -9 "$pid" >/dev/null 2>&1 || true
+  done
+}
+
+supervisor_pids() {
+  ps -axo pid=,command= \
+    | awk -v me="$$" '/run-local-stack-supervised[.]sh/ && $1 != me { print $1 }'
+}
+
+kill_orphan_supervisors() {
+  local pids pid
+  pids="$(supervisor_pids | tr '\n' ' ')"
+  if [ -z "${pids// }" ]; then
+    return 0
+  fi
+
+  echo "stopping local stack supervisor pid(s): $pids"
+  # shellcheck disable=SC2086
+  kill $pids >/dev/null 2>&1 || true
+  for _ in $(seq 1 20); do
+    if [ -z "$(supervisor_pids | tr '\n' ' ')" ]; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  for pid in $(supervisor_pids); do
+    kill -9 "$pid" >/dev/null 2>&1 || true
+  done
+}
+
+show_port_owner() {
+  local port="$1"
+  local pids pid cwd
+  pids="$(listener_pids "$port" | tr '\n' ' ')"
+  if [ -z "${pids// }" ]; then
+    echo "port $port: free"
+    return 0
+  fi
+
+  for pid in $pids; do
+    cwd="$(pid_cwd "$pid")"
+    if [[ "$cwd" == "$repo_root"* ]]; then
+      echo "port $port: pid $pid cwd=$cwd (current repo)"
+    else
+      echo "port $port: pid $pid cwd=${cwd:-unknown} (not current repo)"
+    fi
+  done
+}
+
 status() {
   echo "LaunchAgent: $plist_path"
+  echo "repo: $repo_root"
+  if command -v git >/dev/null 2>&1 && git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "repo commit: $(git -C "$repo_root" rev-parse --short HEAD)"
+  fi
   if [ -f "$plist_path" ]; then
     if plist_points_to_repo; then
       echo "plist: current repo"
@@ -95,6 +178,8 @@ status() {
   fi
   echo
   echo "Ports:"
+  show_port_owner "$api_port"
+  show_port_owner "$web_port"
   lsof -nP -iTCP:8080 -sTCP:LISTEN || true
   lsof -nP -iTCP:3300 -sTCP:LISTEN || true
   echo
@@ -123,6 +208,9 @@ case "$cmd" in
   install)
     write_plist
     bootout_if_loaded
+    kill_orphan_supervisors
+    kill_port_listeners "$api_port"
+    kill_port_listeners "$web_port"
     bootstrap
     status
     ;;
@@ -130,11 +218,17 @@ case "$cmd" in
     if ! plist_points_to_repo; then
       write_plist
       bootout_if_loaded
+      kill_orphan_supervisors
+      kill_port_listeners "$api_port"
+      kill_port_listeners "$web_port"
       bootstrap
     else
       if is_loaded; then
         launchctl kickstart "$domain/$label" >/dev/null 2>&1 || true
       else
+        kill_orphan_supervisors
+        kill_port_listeners "$api_port"
+        kill_port_listeners "$web_port"
         bootstrap
       fi
     fi
@@ -142,6 +236,9 @@ case "$cmd" in
     ;;
   stop)
     bootout_if_loaded
+    kill_orphan_supervisors
+    kill_port_listeners "$api_port"
+    kill_port_listeners "$web_port"
     status
     ;;
   restart)
@@ -149,6 +246,9 @@ case "$cmd" in
       write_plist
     fi
     bootout_if_loaded
+    kill_orphan_supervisors
+    kill_port_listeners "$api_port"
+    kill_port_listeners "$web_port"
     bootstrap
     status
     ;;
@@ -160,6 +260,9 @@ case "$cmd" in
     ;;
   uninstall)
     bootout_if_loaded
+    kill_orphan_supervisors
+    kill_port_listeners "$api_port"
+    kill_port_listeners "$web_port"
     rm -f "$plist_path"
     status
     ;;

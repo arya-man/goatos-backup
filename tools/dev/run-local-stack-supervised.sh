@@ -85,6 +85,21 @@ port_busy() {
   nc -z "$target_host" "$target_port" >/dev/null 2>&1
 }
 
+port_listener_pids() {
+  local target_port="$1"
+  lsof -nP -tiTCP:"$target_port" -sTCP:LISTEN 2>/dev/null || true
+}
+
+log_port_listener_context() {
+  local target_port="$1"
+  local pid
+  for pid in $(port_listener_pids "$target_port"); do
+    local cwd
+    cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)"
+    log "Port $target_port listener pid=$pid cwd=${cwd:-unknown}."
+  done
+}
+
 api_ready() {
   curl -fsS "$api_base_url/readyz" >/dev/null 2>&1
 }
@@ -193,8 +208,9 @@ seed_closeout_if_present() {
 
 start_api() {
   if api_ready; then
-    log "Using existing Goat OS API at $api_base_url."
-    return 0
+    log "Refusing to reuse an existing Goat OS API at $api_base_url; restart the local service so the current checkout owns the port."
+    log_port_listener_context "$api_port"
+    return 1
   fi
 
   if port_busy "$host" "$api_port"; then
@@ -214,8 +230,9 @@ start_api() {
 
 start_web() {
   if web_ready; then
-    log "Using existing Mesha admin-web at http://$host:$web_port."
-    return 0
+    log "Refusing to reuse an existing Mesha admin-web at http://$host:$web_port; restart the local service so the current checkout owns the port."
+    log_port_listener_context "$web_port"
+    return 1
   fi
 
   if port_busy "$host" "$web_port"; then
