@@ -4823,29 +4823,49 @@ var HR_LEAVE=[
 ];
 var HR_MGR='ramesh';                      /* the line manager the mgr-scope view is drawn for */
 var HR_ME='suresh';                       /* the individual contributor the self-scope view is drawn for */
-/* The operator's own task history, powering the Overview day picker. Weekday labels follow
-   the HRMS mocks' convention that 15 Jul 2026 is a Tuesday. `tasks:null` on today means
-   "read HR_TASKS[HR_ME]", so today's list can never drift from the rest of the console. */
-var HR_OP_HISTORY=[
-  {k:'2026-07-09',dow:'Wed',dn:'9',lab:'Wed 9 Jul',clock:'07:55',tasks:[
-    {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
-    {t:'Clean & refill feed troughs',due:'12:00',st:'done',proof:true},
-    {t:'Evening shed lock-up check',due:'17:30',st:'done',proof:true}]},
-  {k:'2026-07-10',dow:'Thu',dn:'10',lab:'Thu 10 Jul',clock:'08:04',tasks:[
-    {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
-    {t:'Water line refill log',due:'09:00',st:'miss',proof:false},
-    {t:'Evening shed lock-up check',due:'17:30',st:'done',proof:true}]},
-  {k:'2026-07-11',dow:'Fri',dn:'11',lab:'Fri 11 Jul',clock:'07:51',tasks:[
-    {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
-    {t:'Clean & refill feed troughs',due:'12:00',st:'done',proof:true}]},
-  {k:'2026-07-12',dow:'Sat',dn:'12',lab:'Sat 12 Jul',clock:null,rest:true,tasks:[]},
-  {k:'2026-07-13',dow:'Sun',dn:'13',lab:'Sun 13 Jul',clock:null,rest:true,tasks:[]},
-  {k:'2026-07-14',dow:'Mon',dn:'14',lab:'Mon 14 Jul',clock:'08:12',tasks:[
-    {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
-    {t:'Bedding replacement — Shed B',due:'13:00',st:'done',proof:true},
-    {t:'Evening shed lock-up check',due:'17:30',st:'miss',proof:false}]},
-  {k:'2026-07-15',dow:'Tue',dn:'15',lab:'Tue 15 Jul',clock:null,today:true,tasks:null}
-];
+/* Per-person task history, powering the "My day" day picker on Overview. Keyed by person so
+   a manager and an operator each look back at their OWN days. Weekday labels follow the HRMS
+   mocks' convention that 15 Jul 2026 is a Tuesday. `tasks:null` on today means "read
+   HR_TASKS[person]", so today's list can never drift from the rest of the console. */
+var HR_HISTORY={
+  suresh:[
+    {k:'2026-07-09',dow:'Wed',dn:'9',lab:'Wed 9 Jul',clock:'07:55',tasks:[
+      {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
+      {t:'Clean & refill feed troughs',due:'12:00',st:'done',proof:true},
+      {t:'Evening shed lock-up check',due:'17:30',st:'done',proof:true}]},
+    {k:'2026-07-10',dow:'Thu',dn:'10',lab:'Thu 10 Jul',clock:'08:04',tasks:[
+      {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
+      {t:'Water line refill log',due:'09:00',st:'miss',proof:false},
+      {t:'Evening shed lock-up check',due:'17:30',st:'done',proof:true}]},
+    {k:'2026-07-11',dow:'Fri',dn:'11',lab:'Fri 11 Jul',clock:'07:51',tasks:[
+      {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
+      {t:'Clean & refill feed troughs',due:'12:00',st:'done',proof:true}]},
+    {k:'2026-07-12',dow:'Sat',dn:'12',lab:'Sat 12 Jul',clock:null,rest:true,tasks:[]},
+    {k:'2026-07-13',dow:'Sun',dn:'13',lab:'Sun 13 Jul',clock:null,rest:true,tasks:[]},
+    {k:'2026-07-14',dow:'Mon',dn:'14',lab:'Mon 14 Jul',clock:'08:12',tasks:[
+      {t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},
+      {t:'Bedding replacement — Shed B',due:'13:00',st:'done',proof:true},
+      {t:'Evening shed lock-up check',due:'17:30',st:'miss',proof:false}]},
+    {k:'2026-07-15',dow:'Tue',dn:'15',lab:'Tue 15 Jul',clock:null,today:true,tasks:null}
+  ],
+  ramesh:[
+    {k:'2026-07-09',dow:'Wed',dn:'9',lab:'Wed 9 Jul',clock:'08:40',tasks:[
+      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
+      {t:'Weekly shed hygiene walkthrough',due:'16:00',st:'done',proof:true}]},
+    {k:'2026-07-10',dow:'Thu',dn:'10',lab:'Thu 10 Jul',clock:'08:47',tasks:[
+      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
+      {t:'Vaccination drive sign-off — K1',due:'15:00',st:'done',proof:true}]},
+    {k:'2026-07-11',dow:'Fri',dn:'11',lab:'Fri 11 Jul',clock:'08:33',tasks:[
+      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
+      {t:'Roster & leave review',due:'14:00',st:'miss',proof:false}]},
+    {k:'2026-07-12',dow:'Sat',dn:'12',lab:'Sat 12 Jul',clock:null,rest:true,tasks:[]},
+    {k:'2026-07-13',dow:'Sun',dn:'13',lab:'Sun 13 Jul',clock:null,rest:true,tasks:[]},
+    {k:'2026-07-14',dow:'Mon',dn:'14',lab:'Mon 14 Jul',clock:'08:55',tasks:[
+      {t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},
+      {t:'Weekly shed hygiene walkthrough',due:'16:00',st:'done',proof:true}]},
+    {k:'2026-07-15',dow:'Tue',dn:'15',lab:'Tue 15 Jul',clock:null,today:true,tasks:null}
+  ]
+};
 var hxOpDay='2026-07-15';
 var HR_FULL_ROLES=['coo','hrdir'];        /* console roles that get full-org HR visibility */
 var HR_SELF_ROLES=['operator'];           /* console roles with no reports — own record only */
@@ -4875,14 +4895,15 @@ function hrStTag(st){return st==='done'?'<span class="tag t-ok">Done</span>':st=
 function hrWho(id){var p=HR_PEOPLE[id];
   return '<div class="hx-who"><span class="av">'+p.av+'</span><span><div class="hx-n">'+p.name+(id===hrMe()?' <span class="tag t-mut" style="margin-left:4px">you</span>':'')+'</div><div class="hx-s">'+p.role+'</div></span></div>';}
 
-/* ---- operator Overview: day picker + own tasks ---- */
-function hrOpDay(k){var d=HR_OP_HISTORY.filter(function(x){return x.k===k;})[0];return d||HR_OP_HISTORY[HR_OP_HISTORY.length-1];}
-function hrOpTasksFor(d){return d.tasks===null?(HR_TASKS[HR_ME]||[]):d.tasks;}   /* today reads the live list */
-function hrOpClockFor(d){return d.today?HR_CLOCK[HR_ME]:d.clock;}
+/* ---- Overview "My day": day picker + own tasks (operator AND line manager) ---- */
+function hrMyDays(){return HR_HISTORY[hrMe()]||[];}
+function hrOpDay(k){var ds=hrMyDays();var d=ds.filter(function(x){return x.k===k;})[0];return d||ds[ds.length-1];}
+function hrOpTasksFor(d){return d.tasks===null?(HR_TASKS[hrMe()]||[]):d.tasks;}   /* today reads the live list */
+function hrOpClockFor(d){return d.today?HR_CLOCK[hrMe()]:d.clock;}
 function hrOpPick(k){hxOpDay=k;hrRenderDash();}
 function hrRenderOpDash(){
   var sel=hrOpDay(hxOpDay);
-  hrEl('hxDayStrip').innerHTML=HR_OP_HISTORY.map(function(d){
+  hrEl('hxDayStrip').innerHTML=hrMyDays().map(function(d){
     var ts=hrOpTasksFor(d), done=ts.filter(function(x){return x.st==='done';}).length;
     var rt=d.rest?'rest':done+'/'+ts.length;
     var cls=d.rest?'hx-rest':(ts.length&&done===ts.length)?'hx-full':'hx-part';
@@ -4903,8 +4924,9 @@ function hrRenderOpDash(){
 }
 
 function hrRenderDash(){
-  /* operator sees their own tasks for the picked day, not a roster */
-  if(hrSelf()){
+  /* Overview is "My day" for anyone who has their own tasks — an operator AND a line
+     manager. Only full-org viewers (COO / HR Director) get the roster rollup instead. */
+  if(hrMe()){
     hrEl('hxTeamCard').style.display='none';
     hrEl('hxOpCard').style.display='';
     var o=hrRenderOpDash(), ci=hrOpClockFor(o.sel);
@@ -4912,7 +4934,7 @@ function hrRenderDash(){
     /* the heading follows the picked day — "today" must never sit above a past day's numbers */
     hrEl('hxDashTitle').textContent=o.sel.today?'My day today':'My day · '+o.sel.lab;
     hrEl('hxDashSub').textContent=o.sel.today
-      ?'Tuesday, 15 July 2026 · your own tasks, leave and clock-in'
+      ?'Tuesday, 15 July 2026 · '+(hrSelf()?'your own tasks, leave and clock-in':'your own tasks and clock-in · your team is under Tasks & Proof and Attendance')
       :'Looking back at '+o.sel.lab+' · your tasks and clock-in for that day';
     hrEl('hxKClock').textContent=ci||'—';
     hrEl('hxKClockDl').textContent=ci?'on '+o.sel.lab:o.sel.rest?'rest day':'not clocked in';
@@ -4949,7 +4971,13 @@ function hrRenderDash(){
   var dld=hrEl('hxKDoneDl');
   if(dld)dld.textContent=tt?Math.round(td/tt*100)+'% complete':'no tasks assigned';
 }
-function hrTaskRows(){var rows=[];hrTeam().forEach(function(id){(HR_TASKS[id]||[]).forEach(function(t){rows.push({t:t.t,due:t.due,st:t.st,proof:t.proof,who:id});});});return rows;}
+/* Tasks & Proof is a SUPERVISION view: a manager sees the people under them, not their own
+   tasks (those live on Overview / "My day"). hrTeam() stays the roster for Attendance. */
+function hrTaskPeople(){var s=hrScope();
+  if(s==='full')return Object.keys(HR_PEOPLE).filter(function(id){return id!=='ceo';});
+  if(s==='self')return [HR_ME];
+  return hrKids(HR_MGR);}
+function hrTaskRows(){var rows=[];hrTaskPeople().forEach(function(id){(HR_TASKS[id]||[]).forEach(function(t){rows.push({t:t.t,due:t.due,st:t.st,proof:t.proof,who:id});});});return rows;}
 function hrRenderTasks(){
   var rows=hrTaskRows();
   if(hxTaskSt!=='all')rows=rows.filter(function(r){return r.st===hxTaskSt;});
@@ -5068,10 +5096,12 @@ function hrmsApply(){
   ['hxSb1','hxSb2','hxSb3','hxSb4'].forEach(function(b){var el=hrEl(b);if(!el)return;
     el.className='scopebadge'+(full?'':' park');
     el.innerHTML='<svg class="ic" style="width:14px"><use href="'+ico+'"/></svg>'+txt;});
-  hrEl('hxDashTitle').textContent=full?'Organization today':self?'My day today':'My team today';
-  hrEl('hxDashSub').textContent=full?'Tuesday, 15 July 2026 · all people'
-    :self?'Tuesday, 15 July 2026 · your own tasks, leave and clock-in'
-    :'Tuesday, 15 July 2026 · you + your direct reports (one layer)';
+  /* Overview title/sub belong to hrRenderDash for anyone with their own day (operator,
+     line manager) — it knows which day is picked. Only the full-org rollup is set here. */
+  if(!hrMe()){
+    hrEl('hxDashTitle').textContent='Organization today';
+    hrEl('hxDashSub').textContent='Tuesday, 15 July 2026 · all people';
+  }
   hrEl('hxOrgSub').textContent=full?'Full reporting structure. Click any person for tasks and proof.'
     :self?'Your position and who you report to. You have no direct reports.'
     :'Your position and the people who report directly to you. Deeper layers are hidden for a line manager.';
