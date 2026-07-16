@@ -1569,8 +1569,29 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 }
 
 // unbatchedDueKeysetSelect mirrors ListUnbatchedDueForVersion's projection + filters exactly, wrapped
-// in a CTE so the outer query can keyset-page on the SAME computed ORDER BY columns (species/stage are
-// CASE expressions, not raw columns, so the cursor predicate must reference the CTE aliases). RV-02.
+// in a CTE so the outer query can keyset-page on a stable ORDER BY tuple (RV-02).
+//
+// RV-06: the ORDER BY / keyset tuple is deliberately (scope_type, scope_id, rule_id, due_at,
+// obligation_id) -- raw obligation_instances columns backed in full by the existing partial index
+// obligation_instances_unbatched_due_version_idx (tenant_id, protocol_version_id, scope_type,
+// scope_id, rule_id, due_at, obligation_id) WHERE batch_id IS NULL AND status IN (...), see migration
+// 000140. It previously also sorted on target_species/target_animal_stage, computed CASE expressions
+// resolved via LEFT JOINs to goats/shed_profiles/animal_stage_lookup that no index can back -- so
+// Postgres had to materialize and re-sort the ENTIRE remaining candidate tail on every late page,
+// WHILE the caller (PreflightVisitShotCapTies, called under LockTenantSweep) held the per-tenant
+// advisory lock for the whole scan. Dropping them from the DB-level ORDER BY is safe: obligation_id
+// is a unique primary key, so the 5-column tuple is still a strict total order (no ties, no rows
+// skipped or repeated across pages), and groupUnbatchedDue (due_grouping.go) buckets rows into
+// dueGroups by a map key, not by assuming any physical input order -- grouping correctness does not
+// depend on species/stage sort position. species/stage are still SELECTed (still needed for the
+// group key itself), just no longer part of the index-order sort.
+//
+// RV-05: the CTE also accepts an optional created_at high-water mark ($4, NULL = unbounded). See
+// SweeperService.CaptureSweepHighWaterMark: PreflightVisitShotCapTies and the real per-version sweep
+// share ONE high-water mark captured at the start of a locked sweep run, so an obligation generated
+// concurrently (outside the tenant-sweep lock -- vaccination/app's InsertObligation callers do not
+// hold it) after that instant is invisible to BOTH the write-free preview and the real writes this
+// cycle, and is naturally picked up next cycle (which re-preflights against its own fresh HWM).
 const unbatchedDueKeysetSelect = `
 WITH candidates AS (
   SELECT oi.obligation_id::text AS obligation_id,
@@ -1600,6 +1621,7 @@ WITH candidates AS (
     AND oi.status IN ('scheduled', 'due', 'missed')
     AND oi.batch_id IS NULL
     AND oi.due_at <= $3
+    AND ($4::timestamptz IS NULL OR oi.created_at <= $4::timestamptz)
     AND (
       oi.target_type <> 'goat'
       OR (
@@ -1618,16 +1640,24 @@ FROM candidates
 `
 
 const unbatchedDueKeysetOrderLimit = `
-ORDER BY scope_type, scope_id, rule_id, target_species, target_animal_stage, due_at, obligation_id
-LIMIT $4`
+ORDER BY scope_type, scope_id, rule_id, due_at, obligation_id
+LIMIT $5`
 
 // ListUnbatchedDueForVersionKeyset is the write-free preflight's full-scan sibling of
-// ListUnbatchedDueForVersion (RV-02). The real sweep advances its pages by BATCHING rows (they leave
+// ListUnbatchedDueForVersion (RV-02), unbounded by any created_at high-water mark. after == nil
+// starts from the beginning. See ListUnbatchedDueForVersionKeysetHWM for the RV-05 bounded variant.
+func (r *Repository) ListUnbatchedDueForVersionKeyset(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32) ([]domain.UnbatchedDue, error) {
+	return r.ListUnbatchedDueForVersionKeysetHWM(ctx, tenantID, versionID, dueBefore, after, limit, time.Time{})
+}
+
+// ListUnbatchedDueForVersionKeysetHWM is ListUnbatchedDueForVersionKeyset bounded ALSO by
+// createdAtHWM (RV-05): a zero createdAtHWM means unbounded (identical to
+// ListUnbatchedDueForVersionKeyset). The real sweep advances its pages by BATCHING rows (they leave
 // the unbatched set); a dry-run preflight cannot, so it keyset-pages on the query's own stable
 // ORDER BY tuple and processes every page exactly like the real sweep processes each of its pages --
 // so a conflicting obligation beyond the first page is caught BEFORE any write, not committed-then-
-// aborted. after == nil starts from the beginning.
-func (r *Repository) ListUnbatchedDueForVersionKeyset(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32) ([]domain.UnbatchedDue, error) {
+// aborted.
+func (r *Repository) ListUnbatchedDueForVersionKeysetHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, after *domain.UnbatchedDueCursor, limit int32, createdAtHWM time.Time) ([]domain.UnbatchedDue, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1641,16 +1671,16 @@ func (r *Repository) ListUnbatchedDueForVersionKeyset(ctx context.Context, tenan
 	if limit <= 0 {
 		limit = 1000
 	}
-	args := []any{tenant, version, pgconv.Timestamptz(dueBefore), limit}
+	args := []any{tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), limit}
 	sql := unbatchedDueKeysetSelect + unbatchedDueKeysetOrderLimit
 	if after != nil {
 		dueAt := after.DueAt
 		sql = unbatchedDueKeysetSelect +
-			"WHERE (scope_type, scope_id, rule_id, target_species, target_animal_stage, due_at, obligation_id) > ($5, $6, $7, $8, $9, $10, $11)" +
+			"WHERE (scope_type, scope_id, rule_id, due_at, obligation_id) > ($6, $7, $8, $9, $10)" +
 			unbatchedDueKeysetOrderLimit
-		args = append(args, after.ScopeType, after.ScopeID, after.RuleID, after.TargetSpecies, after.TargetAnimalStage, pgconv.Timestamptz(dueAt), after.ObligationID)
+		args = append(args, after.ScopeType, after.ScopeID, after.RuleID, pgconv.Timestamptz(dueAt), after.ObligationID)
 	}
-	// scale-guard:ignore: keyset pagination on the query's own ORDER BY tuple, bounded to LIMIT per page; read-only preflight, no OFFSET.
+	// scale-guard:ignore: keyset pagination on the query's own indexed ORDER BY tuple, bounded to LIMIT per page; read-only preflight/HWM-bounded real-sweep read, no OFFSET.
 	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list unbatched due keyset: %w", err)
@@ -1678,9 +1708,58 @@ func (r *Repository) ListUnbatchedDueForVersionKeyset(ctx context.Context, tenan
 	return out, nil
 }
 
+// ListUnbatchedDueForVersionHWM is the RV-05 real-sweep-path sibling of ListUnbatchedDueForVersion:
+// identical unbounded semantics when createdAtHWM is zero, plus the same created_at <= createdAtHWM
+// bound ListUnbatchedDueForVersionKeysetHWM applies for the preflight path, so both read the
+// IDENTICAL frozen candidate set for a locked sweep cycle. It is the first-page equivalent of the
+// keyset call (after == nil): the real sweep does not keyset-page (it advances by BATCHING rows out
+// of the unbatched set between calls), so this always re-reads from the beginning.
+func (r *Repository) ListUnbatchedDueForVersionHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, createdAtHWM time.Time) ([]domain.UnbatchedDue, error) {
+	return r.ListUnbatchedDueForVersionKeysetHWM(ctx, tenantID, versionID, dueBefore, nil, limit, createdAtHWM)
+}
+
+// CaptureSweepHighWaterMark returns the DATABASE SERVER's current time (RV-05), used as the frozen
+// created_at boundary shared by PreflightVisitShotCapTies and this run's real per-version sweep
+// (ListUnbatchedDueForVersionHWM / ListUnbatchedDueForVersionKeysetHWM / the park-consolidation HWM
+// read). Using the database's own clock (rather than the caller's local wall clock) keeps the
+// boundary consistent with obligation_instances.created_at, which is also assigned by the database
+// (DEFAULT now()). Callers should capture this ONCE per locked sweep cycle, immediately after
+// acquiring LockTenantSweep and before running PreflightVisitShotCapTies, and thread the SAME value
+// through every read in that cycle.
+func (r *Repository) CaptureSweepHighWaterMark(ctx context.Context) (time.Time, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	var hwm time.Time
+	if err := r.pool.QueryRow(ctx, "SELECT now()").Scan(&hwm); err != nil {
+		return time.Time{}, fmt.Errorf("obligation: capture sweep high-water mark: %w", err)
+	}
+	return hwm, nil
+}
+
+// nullableTimestamptzOrNil renders a zero time.Time as a NULL timestamptz parameter (unbounded) and
+// a non-zero one as its normal valid value, matching the `$N::timestamptz IS NULL OR ...` bound
+// pattern used by the HWM-aware queries in this file.
+func nullableTimestamptzOrNil(t time.Time) pgtype.Timestamptz {
+	if t.IsZero() {
+		return pgtype.Timestamptz{}
+	}
+	return pgconv.Timestamptz(t)
+}
+
 // ListUnbatchedShedDueForParkConsolidation lists shed-scoped unbatched obligations with their park
-// parent location for the second-pass park drive planner.
+// parent location for the second-pass park drive planner, unbounded by any created_at high-water
+// mark. See ListUnbatchedShedDueForParkConsolidationHWM for the RV-05 bounded variant.
 func (r *Repository) ListUnbatchedShedDueForParkConsolidation(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor) ([]domain.ParkConsolidationCandidate, error) {
+	return r.ListUnbatchedShedDueForParkConsolidationHWM(ctx, tenantID, versionID, dueBefore, limit, after, time.Time{})
+}
+
+// ListUnbatchedShedDueForParkConsolidationHWM is ListUnbatchedShedDueForParkConsolidation bounded
+// ALSO by createdAtHWM (RV-05): a zero createdAtHWM means unbounded (identical to
+// ListUnbatchedShedDueForParkConsolidation). Used by BOTH the real park-consolidation write pass
+// (park_consolidation.go) and its write-free preflight replay (preflight.go), so the two share the
+// SAME frozen candidate set for one locked sweep cycle -- see unbatchedDueKeysetSelect's doc comment
+// for why that matters.
+func (r *Repository) ListUnbatchedShedDueForParkConsolidationHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time) ([]domain.ParkConsolidationCandidate, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1764,6 +1843,7 @@ WHERE o.tenant_id = $1
   AND o.batch_id IS NULL
   AND o.scope_type = 'shed'
   AND o.due_at <= $3
+  AND ($4::timestamptz IS NULL OR o.created_at <= $4::timestamptz)
   AND (
     o.target_type <> 'goat'
     OR (
@@ -1792,12 +1872,12 @@ SELECT
   first_batching_hold_until
 FROM candidates
 WHERE (
-    $4::text = ''
+    $5::text = ''
     OR (park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id)
-      > ($4::text, $5::text, $6::text, $7::text, $8::timestamptz, $9::text)
+      > ($5::text, $6::text, $7::text, $8::text, $9::timestamptz, $10::text)
   )
 ORDER BY park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id
-LIMIT $10`, tenant, version, pgconv.Timestamptz(dueBefore), cursorParkID, cursorRuleID, cursorSpecies, cursorStage, cursorDue, cursorObligationID, limit)
+LIMIT $11`, tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), cursorParkID, cursorRuleID, cursorSpecies, cursorStage, cursorDue, cursorObligationID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list park consolidation candidates: %w", err)
 	}
@@ -2395,7 +2475,11 @@ func (r *Repository) CreateBatchWithObligations(ctx context.Context, in domain.N
 	}()
 	qtx := r.queries.WithTx(tx)
 
-	lockKey := fmt.Sprintf("%s:obligation-batch:%s:%s:%s", in.TenantID, in.ProtocolVersionID, in.ScopeType, in.ScopeID)
+	// RV-03: fold the CANONICAL (already-parsed, re-rendered lowercase) uuid form into the lock key,
+	// not the caller's raw uuid strings. hashtext() hashes raw text bytes, so an uppercase-hex and a
+	// lowercase-hex representation of the identical tenant/version/scope uuid would otherwise hash
+	// to two different advisory-lock ids and let two concurrent attaches for the same scope race.
+	lockKey := fmt.Sprintf("%s:obligation-batch:%s:%s:%s", pgconv.UUIDString(tenant), pgconv.UUIDString(version), in.ScopeType, pgconv.UUIDString(scope))
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, lockKey); err != nil {
 		return "", 0, fmt.Errorf("obligation: batch scope lock: %w", err)
 	}

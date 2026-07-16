@@ -45,7 +45,7 @@ func TestPreflightVisitShotCapTiesDetectsCrossVersionTieWriteFree(t *testing.T) 
 		{VersionID: "v-gamma", Config: SweepConfig{VaccineCode: "Unmapped Vaccine Gamma", SOPVersionID: "sop-1", VaccineItemID: "vaccine-1", DrivePlanner: planner}},
 	}
 
-	err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due)
+	err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due, time.Time{})
 	var tieErr *ShotCapPriorityTieError
 	if err == nil || !errors.As(err, &tieErr) {
 		t.Fatalf("err = %v, want *ShotCapPriorityTieError", err)
@@ -98,7 +98,7 @@ func TestPreflightVisitShotCapTiesCleanWhenNoConflict(t *testing.T) {
 	}
 	plans = SortSweepVersionsByPriority(plans)
 
-	if err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due); err != nil {
+	if err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due, time.Time{}); err != nil {
 		t.Fatalf("PreflightVisitShotCapTies: %v, want nil (no unresolved tie)", err)
 	}
 

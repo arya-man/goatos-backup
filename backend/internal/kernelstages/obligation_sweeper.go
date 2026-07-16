@@ -223,21 +223,36 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 	defer func() { _ = releaseSweep(context.Background()) }()
 
 	if acquired {
+		// RV-05: freeze a high-water mark for this locked cycle BEFORE the preflight read, so both
+		// PreflightVisitShotCapTies and every real per-version sweep below read the IDENTICAL
+		// candidate set (created_at <= createdAtHWM). Obligation generation (vaccination/app's
+		// generation.go/booster.go InsertObligation) does not participate in this tenant-sweep lock,
+		// so without a shared HWM a third, equal-priority obligation could be inserted AFTER preflight
+		// cleared the run but BEFORE the real sweep re-reads -- triggering a mid-sweep tie after
+		// earlier plans in this loop already committed their batches (a partial medical plan). With
+		// the HWM, that obligation is invisible to this whole cycle and is naturally caught by next
+		// cycle's own fresh preflight instead.
+		createdAtHWM, err := s.sweeper.CaptureSweepHighWaterMark(ctx)
+		if err != nil {
+			return fmt.Errorf("capture sweep high-water mark: %w", err)
+		}
+
 		// VAX-REV-04: detect a cross-version shot-cap priority tie BEFORE sweeping a single plan for
 		// real. Without this, a later plan's tie aborted the loop below while earlier plans' batches/
 		// SOP tasks/stock reservations were already committed -- a silent, arbitrary partial commit.
 		// See obligationapp.PreflightVisitShotCapTies.
-		if err := s.sweeper.PreflightVisitShotCapTies(ctx, cfg.TenantID, plans, dueBefore); err != nil {
+		if err := s.sweeper.PreflightVisitShotCapTies(ctx, cfg.TenantID, plans, dueBefore, createdAtHWM); err != nil {
 			return fmt.Errorf("preflight shot-cap ties: %w", err)
 		}
 
 		session := obligationapp.NewSweepSession()
-		// BUG #6 / R2-04: use SweepVersionWithSessionNoFinalize so AlignComboDrives can run BEFORE any
-		// stock is reserved or SOP task is created -- reserving/tasking a combo batch on its
+		// BUG #6 / R2-04: use SweepVersionWithSessionNoFinalizeHWM so AlignComboDrives can run BEFORE
+		// any stock is reserved or SOP task is created -- reserving/tasking a combo batch on its
 		// pre-alignment planned_date would permanently exclude it from the alignment candidate query
-		// (sop_task_id IS NULL AND NOT context ? 'stock_reservation').
+		// (sop_task_id IS NULL AND NOT context ? 'stock_reservation'). The HWM variant (RV-05) bounds
+		// every real-sweep read to the SAME createdAtHWM the preflight above used.
 		for _, plan := range plans {
-			result, err := s.sweeper.SweepVersionWithSessionNoFinalize(ctx, cfg.TenantID, plan.VersionID, plan.Config, dueBefore, session)
+			result, err := s.sweeper.SweepVersionWithSessionNoFinalizeHWM(ctx, cfg.TenantID, plan.VersionID, plan.Config, dueBefore, session, createdAtHWM)
 			if err != nil {
 				return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
 			}

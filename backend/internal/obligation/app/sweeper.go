@@ -162,6 +162,68 @@ func (s *SweeperService) LockTenantSweep(ctx context.Context, tenantID string) (
 	return true, func(context.Context) error { return nil }, nil
 }
 
+// sweepHighWaterMarkCapturer is implemented by the production Postgres repo (RV-05): it returns the
+// database server's current time, the frozen boundary that PreflightVisitShotCapTies and the real
+// per-version sweep both bound their unbatched-due candidate reads by (created_at <=
+// createdAtHWM), so an obligation generated concurrently -- outside the tenant-sweep lock, e.g. by
+// vaccination/app's generation.go/booster.go InsertObligation callers -- cannot introduce a
+// same-priority tie mid-sweep after earlier plans already committed. A repo that does not implement
+// this (simple test fakes, single-process, no concurrent generator to race) is used unbounded.
+type sweepHighWaterMarkCapturer interface {
+	CaptureSweepHighWaterMark(ctx context.Context) (time.Time, error)
+}
+
+// CaptureSweepHighWaterMark returns the RV-05 high-water mark for one locked sweep cycle (zero
+// time.Time when the repo does not support it, meaning "unbounded" everywhere it is threaded).
+// Callers MUST capture this ONCE per cycle -- right after acquiring LockTenantSweep and before
+// calling PreflightVisitShotCapTies -- and pass the SAME value to PreflightVisitShotCapTies and
+// every SweepVersionWithSessionNoFinalizeHWM call in that cycle.
+func (s *SweeperService) CaptureSweepHighWaterMark(ctx context.Context) (time.Time, error) {
+	if capturer, ok := s.repo.(sweepHighWaterMarkCapturer); ok {
+		return capturer.CaptureSweepHighWaterMark(ctx)
+	}
+	return time.Time{}, nil
+}
+
+// hwmUnbatchedDueLister is implemented by the production Postgres repo (RV-05): the real-sweep-path
+// sibling of unbatchedDueKeysetLister (preflight.go), bounding the unbatched-due read ALSO by
+// created_at <= createdAtHWM.
+type hwmUnbatchedDueLister interface {
+	ListUnbatchedDueForVersionHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, createdAtHWM time.Time) ([]domain.UnbatchedDue, error)
+}
+
+// listUnbatchedDueForVersionBounded reads the unbatched-due candidate page, bounded by createdAtHWM
+// when both createdAtHWM is set AND the repo supports hwmUnbatchedDueLister (RV-05); otherwise it
+// falls back to the plain, unbounded ListUnbatchedDueForVersion (test fakes; or createdAtHWM left
+// zero by a caller not participating in the HWM protocol -- e.g. the standalone
+// SweepVersion/SweepVersionWithSession/SweepVersionWithSessionNoFinalize entry points, which keep
+// their pre-RV-05 unbounded behavior so no existing caller's semantics change).
+func (s *SweeperService) listUnbatchedDueForVersionBounded(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, createdAtHWM time.Time) ([]domain.UnbatchedDue, error) {
+	if !createdAtHWM.IsZero() {
+		if lister, ok := s.repo.(hwmUnbatchedDueLister); ok {
+			return lister.ListUnbatchedDueForVersionHWM(ctx, tenantID, versionID, dueBefore, limit, createdAtHWM)
+		}
+	}
+	return s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, limit)
+}
+
+// hwmParkConsolidationLister is the RV-05 sibling of hwmUnbatchedDueLister for the park-
+// consolidation candidate read (park_consolidation.go / preflight.go's park replay).
+type hwmParkConsolidationLister interface {
+	ListUnbatchedShedDueForParkConsolidationHWM(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time) ([]domain.ParkConsolidationCandidate, error)
+}
+
+// listUnbatchedShedDueForParkConsolidationBounded is listUnbatchedDueForVersionBounded's sibling for
+// the park-consolidation candidate read.
+func (s *SweeperService) listUnbatchedShedDueForParkConsolidationBounded(ctx context.Context, tenantID, versionID string, dueBefore time.Time, limit int32, after *domain.ParkConsolidationCursor, createdAtHWM time.Time) ([]domain.ParkConsolidationCandidate, error) {
+	if !createdAtHWM.IsZero() {
+		if lister, ok := s.repo.(hwmParkConsolidationLister); ok {
+			return lister.ListUnbatchedShedDueForParkConsolidationHWM(ctx, tenantID, versionID, dueBefore, limit, after, createdAtHWM)
+		}
+	}
+	return s.repo.ListUnbatchedShedDueForParkConsolidation(ctx, tenantID, versionID, dueBefore, limit, after)
+}
+
 // SweepVersion batches all currently-unbatched due obligations for a version (due_at <= dueBefore).
 // It uses a private, single-call shot-cap session: MaxShotsPerAnimalPerDrive is enforced only
 // within this one version's own obligations. A caller sweeping multiple protocol
@@ -170,7 +232,7 @@ func (s *SweeperService) LockTenantSweep(ctx context.Context, tenantID string) (
 // per vaccine and can over-schedule an animal with more than MaxShotsPerAnimalPerDrive shots on
 // one visit.
 func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
-	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, NewSweepSession(), true)
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, NewSweepSession(), true, time.Time{})
 }
 
 // SweepVersionWithSession behaves like SweepVersion but claims MaxShotsPerAnimalPerDrive slots
@@ -180,7 +242,7 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 // vaccines claim an over-subscribed animal's slots first; an unresolved same-priority conflict
 // is reported as *ShotCapPriorityTieError rather than resolved by call/arrival order.
 func (s *SweeperService) SweepVersionWithSession(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
-	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), true)
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), true, time.Time{})
 }
 
 // SweepVersionWithSessionNoFinalize is like SweepVersionWithSession but defers BOTH stock
@@ -192,10 +254,21 @@ func (s *SweeperService) SweepVersionWithSession(ctx context.Context, tenantID, 
 // until then, no batch produced or repaired by this call has its stock reserved or its SOP task
 // created.
 func (s *SweeperService) SweepVersionWithSessionNoFinalize(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
-	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), false)
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), false, time.Time{})
 }
 
-func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, finalizeNow bool) (domain.SweepResult, error) {
+// SweepVersionWithSessionNoFinalizeHWM behaves exactly like SweepVersionWithSessionNoFinalize but
+// bounds every unbatched-due candidate read (main loop, park consolidation, shed fallback) to
+// createdAtHWM (RV-05, zero = unbounded, identical to SweepVersionWithSessionNoFinalize). Production
+// orchestration (kernelstages.ObligationSweeperStage.Run, cmd/obligation-sweeper) MUST call this
+// instead of SweepVersionWithSessionNoFinalize, passing the SAME createdAtHWM captured via
+// CaptureSweepHighWaterMark and threaded to the preceding PreflightVisitShotCapTies call in this
+// cycle, so preflight and the real writes agree on one frozen candidate set.
+func (s *SweeperService) SweepVersionWithSessionNoFinalizeHWM(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, createdAtHWM time.Time) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), false, createdAtHWM)
+}
+
+func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, finalizeNow bool, createdAtHWM time.Time) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	// R2-04 fix: only finalize retry/pre-existing planned batches up front when this call owns its
 	// own finalization end to end (finalizeNow=true, i.e. no subsequent AlignComboDrives pass is
@@ -218,7 +291,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	touchedScopes := make(map[string]bool)
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
 	for {
-		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
+		rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM)
 		if err != nil {
 			return res, err
 		}
@@ -251,7 +324,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 			break
 		}
 	}
-	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session)
+	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session, createdAtHWM)
 	if err != nil {
 		return res, err
 	}
@@ -260,7 +333,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	res.Batches += parkRes.ParkBatches
 	res.Obligations += parkRes.ParkObligations
 
-	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session)
+	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session, createdAtHWM)
 	if err != nil {
 		return res, err
 	}
@@ -436,17 +509,17 @@ func deferShedGroupToPark(cfg SweepConfig, scopeType string, obligationCount int
 // including missed singletons, so coverage is never left behind after the park merge pass.
 func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	return s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, NewSweepSession())
+	return s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, NewSweepSession(), time.Time{})
 }
 
-func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession) (domain.SweepResult, error) {
+func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession, createdAtHWM time.Time) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	if !cfg.ParkConsolidation.Enabled {
 		return res, nil
 	}
 	touchedScopes := make(map[string]bool)
 	for {
-		rows, err := s.repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, s.page)
+		rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM)
 		if err != nil {
 			return res, err
 		}

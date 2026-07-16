@@ -42,7 +42,7 @@ func TestPreflightDetectsSingleVersionMatrixTie(t *testing.T) {
 	}
 	plans := []SweepVersionPriority{{VersionID: "v-matrix", Config: cfg}}
 
-	err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due)
+	err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due, time.Time{})
 	var tieErr *ShotCapPriorityTieError
 	if err == nil || !errors.As(err, &tieErr) {
 		t.Fatalf("err = %v, want *ShotCapPriorityTieError from a single-version matrix tie", err)
@@ -139,7 +139,7 @@ func TestPreflightDetectsTieBeyondFirstPage(t *testing.T) {
 	}
 	plans := []SweepVersionPriority{{VersionID: "v-matrix", Config: cfg}}
 
-	err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due)
+	err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due, time.Time{})
 	var tieErr *ShotCapPriorityTieError
 	if err == nil || !errors.As(err, &tieErr) {
 		t.Fatalf("err = %v, want *ShotCapPriorityTieError caught on a page beyond the first", err)

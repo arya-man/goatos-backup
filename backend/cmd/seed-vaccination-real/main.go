@@ -1209,8 +1209,10 @@ func countFabricatedMissingAnchorWork(candidates []missingAnchorCandidate) int {
 }
 
 // missingAnchorReconcilePageSize bounds each keyset page of the missing-anchor reconciliation scan
-// so the postflight check never streams the whole cohort (potentially millions of joined rows) into
-// the process at once (RV-04).
+// so the postflight check never streams the whole cohort into the process at once (RV-04). At the
+// accepted 5k-50k operational envelope (real data ~2.5k animals), a 50k-obligation cohort is still
+// only ONE page at this size -- paging here is defensive hygiene against an unbounded read, not an
+// OOM guard for a multi-million-row table that does not exist in this envelope.
 const missingAnchorReconcilePageSize = 5000
 
 // countFabricatedMissingAnchorWorkPaged returns how many active, non-deferred birth_age/post_arrival
@@ -1228,9 +1230,19 @@ const missingAnchorReconcilePageSize = 5000
 // fewer than a full page. A sparse or zero-candidate tenant therefore examines at most one page of
 // PK-index entries per query instead of scanning every obligation to find a full page of matches --
 // the earlier "LIMIT after the selective join/NOT EXISTS" shape could examine the whole table for a
-// healthy tenant and time out at 1-5M animals. Memory stays O(page): only ids and the running count
-// are held, never the cohort.
+// healthy tenant even at the 5k-50k operational envelope's upper bound. Memory stays O(page): only
+// ids and the running count are held, never the cohort.
 func countFabricatedMissingAnchorWorkPaged(ctx context.Context, pool *pgxpool.Pool, tenantID string) (int, error) {
+	return countFabricatedMissingAnchorWorkPagedWithPageSize(ctx, pool, tenantID, missingAnchorReconcilePageSize)
+}
+
+// countFabricatedMissingAnchorWorkPagedWithPageSize is countFabricatedMissingAnchorWorkPaged with
+// an overridable base-page size, so a test can force the pagination boundary to fall after just a
+// handful of seeded rows (a page size of 2-3) instead of needing to bulk-seed
+// missingAnchorReconcilePageSize (5000) real rows to exercise the SAME "first page empty, match on
+// a later page" code path (RV-04). Production always calls countFabricatedMissingAnchorWorkPaged,
+// which fixes pageSize at missingAnchorReconcilePageSize.
+func countFabricatedMissingAnchorWorkPagedWithPageSize(ctx context.Context, pool *pgxpool.Pool, tenantID string, pageSize int32) (int, error) {
 	fabricated := 0
 	afterID := "00000000-0000-0000-0000-000000000000"
 	for {
@@ -1242,11 +1254,11 @@ FROM obligation_instances
 WHERE tenant_id = $1::uuid
   AND obligation_id > $2::uuid
 ORDER BY obligation_id
-LIMIT $3`, tenantID, afterID, missingAnchorReconcilePageSize)
+LIMIT $3`, tenantID, afterID, pageSize)
 		if err != nil {
 			return 0, err
 		}
-		ids := make([]string, 0, missingAnchorReconcilePageSize)
+		ids := make([]string, 0, pageSize)
 		for baseRows.Next() {
 			var id string
 			if err := baseRows.Scan(&id); err != nil {
@@ -1318,7 +1330,7 @@ WHERE oi.tenant_id = $1::uuid
 		}
 		rows.Close()
 
-		if len(ids) < missingAnchorReconcilePageSize {
+		if int32(len(ids)) < pageSize {
 			return fabricated, nil
 		}
 		afterID = ids[len(ids)-1]

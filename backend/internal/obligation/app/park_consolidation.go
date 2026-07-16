@@ -12,10 +12,10 @@ import (
 
 func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	return s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, NewSweepSession())
+	return s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, NewSweepSession(), time.Time{})
 }
 
-func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession) (domain.SweepResult, error) {
+func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession, createdAtHWM time.Time) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	settings := cfg.ParkConsolidation
 	if !settings.Enabled {
@@ -34,7 +34,7 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 	var after *domain.ParkConsolidationCursor
 	seenCursors := map[string]struct{}{}
 	for {
-		rows, err := s.repo.ListUnbatchedShedDueForParkConsolidation(ctx, tenantID, versionID, dueBefore, s.page, after)
+		rows, err := s.listUnbatchedShedDueForParkConsolidationBounded(ctx, tenantID, versionID, dueBefore, s.page, after, createdAtHWM)
 		if err != nil {
 			return res, err
 		}

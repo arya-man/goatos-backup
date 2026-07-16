@@ -39,7 +39,7 @@ func TestPreflightDetectsParkConsolidationTie(t *testing.T) {
 		{VersionID: "v-b", Config: SweepConfig{VaccineCode: "Unmapped Vaccine Beta", ParkConsolidation: park, DrivePlanner: planner}},
 	}
 
-	err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due)
+	err := svc.PreflightVisitShotCapTies(context.Background(), "tenant-1", plans, due, time.Time{})
 	var tieErr *ShotCapPriorityTieError
 	if err == nil || !errors.As(err, &tieErr) {
 		t.Fatalf("err = %v, want *ShotCapPriorityTieError from park-consolidation replay", err)

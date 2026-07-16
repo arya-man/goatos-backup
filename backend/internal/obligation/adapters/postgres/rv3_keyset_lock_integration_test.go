@@ -66,7 +66,11 @@ func seedUnbatchedDue(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n i
 
 // TestListUnbatchedDueForVersionKeysetPagesEveryRowOnce is the RV-02 SQL guard: the keyset scan
 // must return EVERY unbatched-due candidate exactly once, in the stable ORDER BY order, across many
-// small pages -- the property the preflight relies on to catch a tie beyond the first page.
+// small pages -- the property the preflight relies on to catch a tie beyond the first page. RV-06
+// dropped target_species/target_animal_stage from the ORDER BY (they are computed CASE expressions
+// with no supporting index; see unbatchedDueKeysetSelect's doc comment), so cursorAdvanced below
+// checks the tuple the DB now actually guarantees: (scope_type, scope_id, rule_id, due_at,
+// obligation_id), still a strict total order because obligation_id is a unique primary key.
 func TestListUnbatchedDueForVersionKeysetPagesEveryRowOnce(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -121,7 +125,6 @@ func TestListUnbatchedDueForVersionKeysetPagesEveryRowOnce(t *testing.T) {
 func cursorAdvanced(prev, next domain.UnbatchedDue) bool {
 	for _, cmp := range [][2]string{
 		{prev.ScopeType, next.ScopeType}, {prev.ScopeID, next.ScopeID}, {prev.RuleID, next.RuleID},
-		{prev.TargetSpecies, next.TargetSpecies}, {prev.TargetAnimalStage, next.TargetAnimalStage},
 	} {
 		if cmp[0] != cmp[1] {
 			return cmp[0] < cmp[1]
@@ -174,4 +177,56 @@ func TestLockTenantSweepSerializes(t *testing.T) {
 		t.Fatalf("third lock after release: acquired=%v err=%v, want true/nil", acquired3, err)
 	}
 	_ = release3(ctx)
+}
+
+// TestLockTenantSweepCanonicalizesUUIDCase is the RV-03 guard: two textually different-cased
+// representations of the SAME Postgres tenant uuid must fold to the SAME advisory-lock key. Before
+// the fix, LockTenantSweep hashed the caller's RAW tenant-id string (hashtext(namespace+tenantID)):
+// an uppercase-hex tenant id and a lowercase-hex tenant id for the identical uuid value hash to two
+// DIFFERENT lock ids, so a second sweeper calling with the differently-cased form of the SAME
+// tenant would wrongly observe pg_try_advisory_lock == true while the first sweeper still held its
+// own lock -- two sweepers racing the same tenant's priority arbitration simultaneously. With the
+// fix (canonicalUUID normalizes to lowercase before hashing), the second call must observe
+// acquired == false, exactly like TestLockTenantSweepSerializes' same-string case.
+func TestLockTenantSweepCanonicalizesUUIDCase(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Must contain hex letters (a-f) so upper/lower-casing actually changes the string -- an
+	// all-digit uuid would be identical either way and prove nothing.
+	const lowerTenant = "0000000a-bcde-4000-8000-00000000000f"
+	const upperTenant = "0000000A-BCDE-4000-8000-00000000000F"
+
+	acquiredLower, releaseLower, err := repo.LockTenantSweep(ctx, lowerTenant)
+	if err != nil || !acquiredLower {
+		t.Fatalf("lowercase lock: acquired=%v err=%v, want true/nil", acquiredLower, err)
+	}
+	releasedLower := false
+	defer func() {
+		if !releasedLower {
+			_ = releaseLower(ctx)
+		}
+	}()
+
+	acquiredUpper, releaseUpper, err := repo.LockTenantSweep(ctx, upperTenant)
+	if err != nil {
+		t.Fatalf("uppercase lock attempt: %v", err)
+	}
+	if acquiredUpper {
+		_ = releaseUpper(ctx)
+		t.Fatalf("uppercase-cased tenant id acquired the sweep lock while the lowercase form of the SAME tenant still holds it; want acquired=false (RV-03: advisory-lock keys must canonicalize uuid case)")
+	}
+
+	if err := releaseLower(ctx); err != nil {
+		t.Fatalf("release lowercase: %v", err)
+	}
+	releasedLower = true
+	acquiredAfter, releaseAfter, err := repo.LockTenantSweep(ctx, upperTenant)
+	if err != nil || !acquiredAfter {
+		t.Fatalf("uppercase lock after lowercase release: acquired=%v err=%v, want true/nil", acquiredAfter, err)
+	}
+	_ = releaseAfter(ctx)
 }

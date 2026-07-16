@@ -19,12 +19,42 @@ import (
 // platform/worker's kernel-stage lock).
 const visitShotLockNamespace = "goatos:obligation:visit-shot:"
 
+// canonicalUUID parses id and re-renders it in Postgres's canonical lowercase-hex form (RV-03).
+// hashtext() -- used by every advisory-lock key in this file -- hashes the RAW BYTES of its input
+// text argument, so two textually different representations of the SAME Postgres uuid value (e.g.
+// an uppercase-hex tenant id one caller passes vs the lowercase form another caller passes for the
+// identical tenant) hash to two DIFFERENT lock ids unless every caller first normalizes to one
+// canonical string form. Without this, two sweepers racing the same tenant/visit under
+// differently-cased UUID strings would each acquire what they believe is "the" lock for that
+// tenant/visit and run concurrently, defeating the single-writer guarantee LockTenantSweep and
+// LockVisitShots exist to provide.
+func canonicalUUID(id string) (string, error) {
+	u, err := pgconv.UUID(id)
+	if err != nil {
+		return "", fmt.Errorf("invalid uuid %q: %w", id, err)
+	}
+	canon := pgconv.UUIDString(u)
+	if canon == "" {
+		return "", fmt.Errorf("empty or nil uuid %q", id)
+	}
+	return canon, nil
+}
+
 // visitShotLockKeyArg is the stable advisory-lock key argument for one (tenant, target, date)
-// visit. It is a pure function of its inputs, so any two processes (two sweep passes, two
-// concurrent worker replicas) compute the identical Postgres advisory-lock key for the same
-// animal's visit and therefore mutually exclude regardless of process identity or call order.
-func visitShotLockKeyArg(tenantID, targetID, dateKey string) string {
-	return visitShotLockNamespace + tenantID + ":" + targetID + ":" + dateKey
+// visit. tenantID and targetID are canonicalized (RV-03) before being folded into the key, so any
+// two processes (two sweep passes, two concurrent worker replicas) compute the identical Postgres
+// advisory-lock key for the same animal's visit and therefore mutually exclude regardless of
+// process identity, call order, OR the textual case/representation of the UUIDs each caller holds.
+func visitShotLockKeyArg(tenantID, targetID, dateKey string) (string, error) {
+	tenantCanon, err := canonicalUUID(tenantID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: visit-shot lock tenant id: %w", err)
+	}
+	targetCanon, err := canonicalUUID(targetID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: visit-shot lock target id: %w", err)
+	}
+	return visitShotLockNamespace + tenantCanon + ":" + targetCanon + ":" + dateKey, nil
 }
 
 // pgxQuerier is satisfied by both *pgxpool.Pool and *pgxpool.Conn, letting countVisitShots run
@@ -127,7 +157,12 @@ func (r *Repository) LockVisitShots(ctx context.Context, tenantID string, target
 
 	lockArgs := make([]string, 0, len(keys))
 	for _, targetID := range keys {
-		lockArgs = append(lockArgs, visitShotLockKeyArg(tenantID, targetID, dateKey))
+		key, keyErr := visitShotLockKeyArg(tenantID, targetID, dateKey)
+		if keyErr != nil {
+			conn.Release()
+			return nil, nil, fmt.Errorf("obligation: build visit-shot lock key: %w", keyErr)
+		}
+		lockArgs = append(lockArgs, key)
 	}
 	// Acquire every per-visit advisory lock in ONE round trip. unnest preserves array element order
 	// and lockArgs is built from the already-sorted key set, so every caller acquires any shared
@@ -165,12 +200,21 @@ const tenantSweepLockNamespace = "goatos:obligation:tenant-sweep:"
 // no concurrent lower-priority writer can commit a competing shot mid-sweep and invert the medical
 // plan by lock-acquisition order. The caller MUST call the returned release exactly once.
 func (r *Repository) LockTenantSweep(ctx context.Context, tenantID string) (bool, func(context.Context) error, error) {
+	// RV-03: canonicalize tenantID BEFORE folding it into the lock key. Without this, an uppercase-
+	// and a lowercase-hex string for the SAME tenant uuid hash to two different advisory-lock ids
+	// (hashtext hashes raw text bytes, not the parsed uuid value), so two sweepers for the same
+	// tenant could both observe pg_try_advisory_lock == true and run concurrently -- exactly the
+	// single-writer race this lock exists to prevent.
+	tenantCanon, err := canonicalUUID(tenantID)
+	if err != nil {
+		return false, nil, fmt.Errorf("obligation: tenant-sweep lock tenant id: %w", err)
+	}
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
 		return false, nil, fmt.Errorf("obligation: acquire tenant-sweep lock connection: %w", err)
 	}
 	var acquired bool
-	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext($1))", tenantSweepLockNamespace+tenantID).Scan(&acquired); err != nil {
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext($1))", tenantSweepLockNamespace+tenantCanon).Scan(&acquired); err != nil {
 		conn.Release()
 		return false, nil, fmt.Errorf("obligation: try tenant-sweep lock: %w", err)
 	}

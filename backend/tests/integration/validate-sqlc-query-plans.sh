@@ -349,6 +349,14 @@ LIMIT 1000;"
   # (tenant+due-window keyset over obligation_instances) is exactly what
   # validate_calendar_canonical_read_plan's CalendarCanonicalReadKeysetDriver proves is index-backed;
   # the full assembled query shape is proven by the Go-level canonical_read_plan_test.go.
+  #
+  # NOTE: the write-free preflight's OWN full-scan sibling of the query above --
+  # ListUnbatchedDueForVersionKeyset / ListUnbatchedDueForVersionHWM's unbatchedDueKeysetSelect CTE
+  # (internal/obligation/adapters/postgres/repository.go) -- is a SEPARATE raw-SQL query this
+  # ObligationListUnbatchedDueForVersion check does NOT cover (RV-06). It is validated below by
+  # validate_obligation_unbatched_due_keyset_plan with realistic seeded row counts, since that query
+  # keyset-pages across MANY pages while the caller holds the per-tenant sweep advisory lock -- a
+  # scale hazard the empty-table COSTS-OFF style check above cannot surface.
 
   explain_must_use_index "ObligationMarkMissedBefore" 'Seq Scan on obligation_instances|Seq Scan on obligation_batches' "EXPLAIN (COSTS OFF)
 WITH candidate AS (
@@ -381,6 +389,155 @@ WITH candidate AS (
 )
 SELECT obligation_id
 FROM candidate;"
+}
+
+# validate_obligation_unbatched_due_keyset_plan is the RV-06 gate for the write-free preflight's
+# full-scan sibling of ObligationListUnbatchedDueForVersion above:
+# ListUnbatchedDueForVersionKeyset / ListUnbatchedDueForVersionHWM's unbatchedDueKeysetSelect CTE
+# (internal/obligation/adapters/postgres/repository.go). It seeds a representative row count (6000
+# unbatched-due obligations for one protocol version -- near the top of the accepted 5k-50k
+# operational envelope; real data runs ~2.5k animals) and runs EXPLAIN (ANALYZE, BUFFERS) against
+# fresh statistics, matching how the real preflight scans while holding LockTenantSweep's per-tenant
+# advisory lock for the whole pass. Like every other check in this file it disables sequential scans
+# (this fixture -- one tenant/version pair with nothing else competing in the table -- makes nearly
+# every row match every predicate, so the natural planner cost model reasonably prefers a seq scan
+# on a table this size; forcing the index off is how the whole file gets a meaningful assertion out
+# of a small, single-tenant fixture instead of needing a much larger multi-tenant table).
+#
+# What changed (RV-06): before the fix, the ORDER BY additionally sorted on
+# target_species/target_animal_stage -- CASE expressions computed via LEFT JOINs to
+# goats/shed_profiles/animal_stage_lookup, which no index can back. After the fix the ORDER BY is
+# (scope_type, scope_id, rule_id, due_at, obligation_id): a raw-column tuple fully covered by
+# obligation_instances_unbatched_due_version_idx (migration 000140). obligation_id is a unique
+# primary key, so the 5-column tuple is still a strict total order (RV-02's exactly-once keyset
+# guarantee is unaffected) and the driving table access can be satisfied by an index scan in ORDER
+# BY order rather than requiring species/stage to be resolved via joins before any sort could even
+# begin -- structurally a strictly cheaper, strictly more indexable shape than before, never worse.
+#
+# The checks below test the driving scan + ORDER BY/keyset-tuple shape without the LEFT JOINs to
+# goats/location_operational_attributes/shed_profiles/animal_stage_lookup the real Go query also
+# carries (those joins enrich each row -- species/stage for Go-side grouping, health/quarantine
+# filtering -- and are resolved per already-selected row). The assertion made here is that
+# obligation_instances itself is NEVER sequentially scanned, at the first page or a page deep into
+# the candidate set (a "late page" keyset predicate positioned after 5000 of the 6000 rows) -- the
+# late-page case is exactly the scenario that matters: a preflight page many rows into the tail must
+# still resolve via an index, not degrade into a growing scan as the tail grows. Whether Postgres
+# additionally emits a Sort node for the handful of columns beyond the index (window_start/
+# window_end/batching_hold_count, needed by the Go struct but not part of the index) is a
+# cost-based, data-distribution-dependent planner choice this single-tenant/version/rule synthetic
+# fixture cannot reliably force either way (empirically verified: forcing enable_seqscan,
+# enable_bitmapscan, enable_hashjoin, and enable_mergejoin off in combination still lets the planner
+# pick a narrower non-covering index plus an explicit sort over the wider covering index, because
+# with every row sharing one (scope_type, scope_id, rule_id) tuple the covering index's leading
+# columns look non-selective to the cost estimator) -- that risk existed with the OLD ORDER BY too,
+# so the fix never makes it worse, and grouping (due_grouping.go's groupUnbatchedDue) is map-keyed
+# and does not depend on physical row order regardless.
+validate_obligation_unbatched_due_keyset_plan() {
+  printf '%s\n' "
+INSERT INTO tenants (tenant_id, name, status)
+VALUES ('00000000-0000-4000-8000-000000000001', 'sqlc-plan-tenant', 'active')
+ON CONFLICT (tenant_id) DO NOTHING;
+INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+VALUES ('40000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'vaccination.rv06.plan', 'RV-06 plan gate', 'vaccination', 'active')
+ON CONFLICT (protocol_id) DO NOTHING;
+INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy)
+VALUES ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', '40000000-0000-4000-8000-000000000001', 'tenant', 1, 'draft', DATE '2026-01-01', '{}'::jsonb, '{}'::jsonb)
+ON CONFLICT (protocol_version_id) DO NOTHING;
+INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, catch_up, eligibility_json, proof_policy)
+VALUES ('50000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'primary', 1, 'birth_age', 'pc_approval', '{}'::jsonb, '{}'::jsonb)
+ON CONFLICT (rule_id) DO NOTHING;
+-- target_type='tenant' (not 'goat') deliberately bypasses the goat-existence/health JOIN filters
+-- entirely (oi.target_type <> 'goat' short-circuits true), so this fixture needs no goats table
+-- rows to exercise the driving scan + ORDER BY at realistic scale.
+INSERT INTO obligation_instances (
+  obligation_id, tenant_id, protocol_version_id, rule_id, target_type, target_id,
+  scope_type, scope_id, due_at, status, idempotency_key, sequence
+)
+SELECT
+  ('60000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid,
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  '10000000-0000-4000-8000-000000000001'::uuid,
+  '50000000-0000-4000-8000-000000000001'::uuid,
+  'tenant',
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  'tenant',
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  -- Every row must get a DISTINCT due_at: obligation_instances_dup_guard is UNIQUE NULLS NOT
+  -- DISTINCT on (tenant_id, protocol_version_id, rule_id, target_type, target_id, due_at), and every
+  -- row here shares the same tenant/version/rule/target -- a repeating due_at (e.g. i modulo N) would
+  -- silently drop all but the first row per bucket via ON CONFLICT DO NOTHING.
+  TIMESTAMPTZ '2026-01-01 00:00:00+00' + i * INTERVAL '1 minute',
+  'scheduled',
+  'rv06-plan-gate-' || i::text,
+  1
+FROM generate_series(1, 6000) AS s(i)
+ON CONFLICT DO NOTHING;
+ANALYZE obligation_instances;
+" | run_psql
+
+  explain_must_use_index "ObligationUnbatchedDueKeysetFirstPage" 'Seq Scan on obligation_instances' "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+WITH candidates AS (
+  SELECT oi.obligation_id::text AS obligation_id,
+         oi.rule_id::text AS rule_id,
+         oi.scope_type AS scope_type,
+         COALESCE(oi.scope_id::text, '')::text AS scope_id,
+         COALESCE(oi.target_id::text, '')::text AS target_id,
+         ''::text AS target_species,
+         ''::text AS target_animal_stage,
+         ''::text AS target_reproductive_status,
+         oi.due_at AS due_at,
+         oi.window_start AS window_start,
+         oi.window_end AS window_end,
+         COALESCE(oi.batching_hold_count, 0)::int AS batching_hold_count,
+         oi.first_batching_hold_until AS first_batching_hold_until
+  FROM obligation_instances oi
+  WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND oi.protocol_version_id = '10000000-0000-4000-8000-000000000001'::uuid
+    AND oi.status IN ('scheduled', 'due', 'missed')
+    AND oi.batch_id IS NULL
+    AND oi.due_at <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
+    AND oi.target_type = 'tenant'
+)
+SELECT obligation_id, rule_id, scope_type, scope_id, target_id, target_species, target_animal_stage,
+       target_reproductive_status, due_at, window_start, window_end, batching_hold_count, first_batching_hold_until
+FROM candidates
+ORDER BY scope_type, scope_id, rule_id, due_at, obligation_id
+LIMIT 1000;"
+
+  # Late-page keyset predicate: positioned after row 5000 of 6000 (due_at = 2026-01-01 + 5000
+  # minutes = 2026-01-04 11:20:00+00, obligation_id = ...-000000005000, matching the fixture's
+  # per-row due_at = 2026-01-01 + i minutes above). This is the exact hazard RV-06 closes: without
+  # the fix, a page this deep into the candidate set forced Postgres to materialize + re-sort the
+  # remaining tail on every read while PreflightVisitShotCapTies held LockTenantSweep for the tenant.
+  explain_must_use_index "ObligationUnbatchedDueKeysetLatePage" 'Seq Scan on obligation_instances' "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF)
+WITH candidates AS (
+  SELECT oi.obligation_id::text AS obligation_id,
+         oi.rule_id::text AS rule_id,
+         oi.scope_type AS scope_type,
+         COALESCE(oi.scope_id::text, '')::text AS scope_id,
+         COALESCE(oi.target_id::text, '')::text AS target_id,
+         ''::text AS target_species,
+         ''::text AS target_animal_stage,
+         ''::text AS target_reproductive_status,
+         oi.due_at AS due_at,
+         oi.window_start AS window_start,
+         oi.window_end AS window_end,
+         COALESCE(oi.batching_hold_count, 0)::int AS batching_hold_count,
+         oi.first_batching_hold_until AS first_batching_hold_until
+  FROM obligation_instances oi
+  WHERE oi.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
+    AND oi.protocol_version_id = '10000000-0000-4000-8000-000000000001'::uuid
+    AND oi.status IN ('scheduled', 'due', 'missed')
+    AND oi.batch_id IS NULL
+    AND oi.due_at <= TIMESTAMPTZ '2026-12-31 00:00:00+00'
+    AND oi.target_type = 'tenant'
+)
+SELECT obligation_id, rule_id, scope_type, scope_id, target_id, target_species, target_animal_stage,
+       target_reproductive_status, due_at, window_start, window_end, batching_hold_count, first_batching_hold_until
+FROM candidates
+WHERE (scope_type, scope_id, rule_id, due_at, obligation_id) > ('tenant', '00000000-0000-4000-8000-000000000001', '50000000-0000-4000-8000-000000000001', TIMESTAMPTZ '2026-01-04 11:20:00+00', '60000000-0000-4000-8000-000000005000')
+ORDER BY scope_type, scope_id, rule_id, due_at, obligation_id
+LIMIT 1000;"
 }
 
 validate_inventory_fefo_plan() {
@@ -1303,6 +1460,7 @@ validate_obligation_open_by_goat_plan
 validate_obligation_planned_batch_finalization_plan
 validate_combo_align_keyset_plan
 validate_kernel_sweeper_hot_path_plans
+validate_obligation_unbatched_due_keyset_plan
 validate_inventory_fefo_plan
 validate_inventory_movements_ledger_plan
 validate_inventory_batch_reconcile_plan
