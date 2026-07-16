@@ -62,9 +62,9 @@ resource "google_project_iam_member" "github_deployer_clouddeploy_job_runner" {
 }
 
 resource "google_service_account_iam_member" "github_deployer_act_as_runtime" {
-  for_each = google_service_account.runtime
+  for_each = local.runtime_service_accounts
 
-  service_account_id = each.value.name
+  service_account_id = google_service_account.runtime[each.key].name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.github_deployer.email}"
 }

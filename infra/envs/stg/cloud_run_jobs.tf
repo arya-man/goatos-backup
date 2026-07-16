@@ -442,11 +442,11 @@ resource "google_cloud_run_v2_job" "kernel" {
 }
 
 resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker" {
-  for_each = google_cloud_run_v2_job.kernel
+  for_each = local.kernel_jobs
 
   project  = var.project_id
   location = var.region
-  name     = each.value.name
+  name     = google_cloud_run_v2_job.kernel[each.key].name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.runtime["scheduler"].email}"
 }

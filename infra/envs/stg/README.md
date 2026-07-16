@@ -32,10 +32,10 @@ Cloud SQL policy:  activation_policy = ALWAYS, db-g1-small, 20GB SSD
 Secret Manager:   containers only, no secret versions
 IAM:              runtime SAs, GitHub OIDC deployer, least-scope bindings
 Pub/Sub:          outbox topic, analytics/domain subscriptions, DLQ
-Cloud Tasks:      near-term kernel queue
-Cloud Run:        goatos-api-stg and goatos-admin-web-stg services
-Cloud Run Jobs:   migration and scheduled kernel workers
-Scheduler:        job invocations in Asia/Kolkata time
+Cloud Tasks:      retired from the 5k-to-50k kernel topology
+Cloud Run:        API, admin-web, and two-instance kernel-worker services
+Cloud Run Jobs:   migration plus transitional/manual repair workers
+Scheduler:        transitional jobs only; remove after kernel-worker parity proof
 GCS:              goatos-stg-media bucket and goatos-proof-signer-stg
 Monitoring:       Cloud Run errors, outbox dead letters, DLQ backlog, Cloud SQL CPU
 ```

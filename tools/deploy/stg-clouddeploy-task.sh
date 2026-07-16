@@ -7,6 +7,7 @@ REGION="${REGION:-asia-south1}"
 ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-goatos}"
 API_SERVICE="${API_SERVICE:-goatos-api-stg}"
 ADMIN_WEB_SERVICE="${ADMIN_WEB_SERVICE:-goatos-admin-web-stg}"
+KERNEL_WORKER_SERVICE="${KERNEL_WORKER_SERVICE:-goatos-kernel-worker-stg}"
 MIGRATE_JOB="${MIGRATE_JOB:-goatos-stg-migrate}"
 STG_API_URL="${STG_API_URL:-https://goatos-api-stg-awtrpmn4za-el.a.run.app}"
 STG_DASHBOARD_URL="${STG_DASHBOARD_URL:-https://stg.dashboard.mesha.sg}"
@@ -134,7 +135,7 @@ commit_sha=$COMMIT_SHA
 backend_image=$BACKEND_IMAGE
 migration_image=$MIGRATION_IMAGE
 admin_web_image=$ADMIN_WEB_IMAGE
-rollout_order=migrate,api,backend_jobs,admin_web,smoke_and_skew
+rollout_order=migrate,api,kernel_worker,backend_jobs,admin_web,smoke_and_skew
 EOF
 
   local manifest_uri="$output_path/goatos-stg-release.txt"
@@ -152,6 +153,12 @@ deploy() {
   local backend_prefix="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPOSITORY}/backend:"
   local updated_jobs=()
 
+  gcloud run services describe "$KERNEL_WORKER_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    >/dev/null 2>&1 \
+    || die "$KERNEL_WORKER_SERVICE is missing; apply the reviewed staging infrastructure before releasing"
+
   run gcloud run jobs update "$MIGRATE_JOB" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
@@ -166,6 +173,13 @@ deploy() {
     --quiet
 
   run gcloud run services update "$API_SERVICE" \
+    --project="$PROJECT_ID" \
+    --region="$REGION" \
+    --image="$BACKEND_IMAGE" \
+    --update-labels="commit_sha=${COMMIT_SHA},deployed_by=cloud-deploy" \
+    --quiet
+
+  run gcloud run services update "$KERNEL_WORKER_SERVICE" \
     --project="$PROJECT_ID" \
     --region="$REGION" \
     --image="$BACKEND_IMAGE" \
@@ -198,6 +212,7 @@ deploy() {
     --quiet
 
   [[ "$(service_image "$API_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$API_SERVICE image did not settle on $BACKEND_IMAGE"
+  [[ "$(service_image "$KERNEL_WORKER_SERVICE")" == "$BACKEND_IMAGE" ]] || die "$KERNEL_WORKER_SERVICE image did not settle on $BACKEND_IMAGE"
   [[ "$(service_image "$ADMIN_WEB_SERVICE")" == "$ADMIN_WEB_IMAGE" ]] || die "$ADMIN_WEB_SERVICE image did not settle on $ADMIN_WEB_IMAGE"
   [[ "$(job_image "$MIGRATE_JOB")" == "$MIGRATION_IMAGE" ]] || die "$MIGRATE_JOB image did not settle on $MIGRATION_IMAGE"
 
@@ -209,8 +224,8 @@ deploy() {
   smoke_http "$STG_API_URL/readyz" "204"
   curl -fsSIL "$STG_DASHBOARD_URL/login" >/dev/null
 
-  printf 'cloud-deploy-stg-ok commit=%s backend_jobs=%s api=%s admin=%s\n' \
-    "$COMMIT_SHA" "${#updated_jobs[@]}" "$BACKEND_IMAGE" "$ADMIN_WEB_IMAGE"
+  printf 'cloud-deploy-stg-ok commit=%s backend_jobs=%s api=%s kernel_worker=%s admin=%s\n' \
+    "$COMMIT_SHA" "${#updated_jobs[@]}" "$BACKEND_IMAGE" "$BACKEND_IMAGE" "$ADMIN_WEB_IMAGE"
   write_results "SUCCEEDED"
 }
 

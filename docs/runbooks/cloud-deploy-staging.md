@@ -8,7 +8,7 @@ task only.
 ## Why this exists
 
 The old staging path let one workflow build images, run migrations, update API,
-update worker jobs, update admin-web, and smoke the result. If the workflow or
+update worker services/jobs, update admin-web, and smoke the result. If the workflow or
 image source was stale, staging could run a mixed commit: API from one build,
 migration job from another build, and database schema from a third point in
 time.
@@ -46,13 +46,14 @@ The rollout task must keep this order:
 ```text
 1. Validate project goatos-stg, project number 514832198871, region asia-south1.
 2. Validate all release images live under asia-south1-docker.pkg.dev/goatos-stg/goatos.
-3. Update goatos-stg-migrate to the migration image.
-4. Execute goatos-stg-migrate and wait for success.
-5. Update goatos-api-stg to the backend image.
-6. Update every existing goatos-stg Cloud Run Job whose current image is the backend image.
-7. Update goatos-admin-web-stg to the admin-web image.
-8. Verify API/admin/migration/worker image skew is zero.
-9. Smoke /livez, /readyz, and https://stg.dashboard.mesha.sg/login.
+3. Require the Terraform-managed goatos-kernel-worker-stg service to exist before mutating the release.
+4. Update goatos-stg-migrate to the migration image.
+5. Execute goatos-stg-migrate and wait for success.
+6. Update goatos-api-stg and goatos-kernel-worker-stg to the backend image.
+7. Update every existing goatos-stg Cloud Run Job whose current image is the backend image.
+8. Update goatos-admin-web-stg to the admin-web image.
+9. Verify API/admin/kernel-worker/migration/worker-job image skew is zero.
+10. Smoke /livez, /readyz, and https://stg.dashboard.mesha.sg/login.
 ```
 
 Do not move migration after service deploy. Do not hand-maintain a stale worker
