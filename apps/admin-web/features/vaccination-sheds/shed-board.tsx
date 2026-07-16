@@ -39,6 +39,12 @@ function OwnerCell({ owner, missingLabel }: { owner: VaccinationShedSummaryRow["
   return <Tag tone="dng">{missingLabel}</Tag>;
 }
 
+function shedStatusLabel(pageContract: AdminUiPageContract, status: VaccinationShedStatus): string {
+  if (status === "scheduled") return copy(pageContract, "status.scheduled_drive");
+  if (status === "on_track") return copy(pageContract, "status.no_work_due");
+  return optionLabel(pageContract, "shed_status_chips", status);
+}
+
 export function getVaccinationShedSummaryParams(searchParams: RouteSearchParams | undefined, pageContract: AdminUiPageContract) {
   const sp = searchParams ?? {};
   const scope = parseScope(sp);
@@ -150,7 +156,7 @@ export async function VaccinationShedBoard({
         </Link>
         {SHED_STATUS_ORDER.map((s) => (
           <Link key={s} href={hrefWith({ sheds_status: s, sheds_page: "1" })} replace scroll={false} className={`chip${statusFilter === s ? " on" : ""}`}>
-            {optionLabel(pageContract, "shed_status_chips", s)}
+            {shedStatusLabel(pageContract, s)}
           </Link>
         ))}
       </div>
@@ -248,7 +254,7 @@ export async function VaccinationShedBoard({
                       {cell(<OwnerCell owner={row.backup} missingLabel={copy(pageContract, "label.backup_unassigned")} />)}
                       {cell(
                         <Tag tone={optionTone(pageContract, "shed_status_chips", row.status) as Tone}>
-                          {optionLabel(pageContract, "shed_status_chips", row.status)}
+                          {shedStatusLabel(pageContract, row.status)}
                         </Tag>,
                       )}
                     </tr>

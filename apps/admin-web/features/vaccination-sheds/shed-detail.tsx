@@ -24,6 +24,7 @@ import { HerdPassportVaccinationBlock } from "@/features/counts";
 
 const ANIMAL_PAGE_SIZE = 100;
 type GoatPassport = GoatPassportResponse["goat"];
+type ShedStatus = VaccinationShedDetail["status"];
 
 // Nonzero obligation counts to surface in the vaccine-breakdown Counts cell. Labels come from the
 // work_state_filter_chips contract group (never hardcoded); `accepted` maps to the "completed" chip.
@@ -34,6 +35,12 @@ const COUNT_CHIPS: { field: keyof VaccinationOperationsCounts; key: string }[] =
   { field: "rejected", key: "rejected" },
   { field: "accepted", key: "completed" },
 ];
+
+function shedStatusLabel(pageContract: AdminUiPageContract, status: ShedStatus): string {
+  if (status === "scheduled") return copy(pageContract, "status.scheduled_drive");
+  if (status === "on_track") return copy(pageContract, "status.no_work_due");
+  return optionLabel(pageContract, "shed_status_chips", status);
+}
 
 function NotFoundOrError({ shedId, message, backHref, pageContract }: { shedId: string; message: string; backHref: string; pageContract: AdminUiPageContract }) {
   return (
@@ -458,7 +465,7 @@ export async function VaccinationShedDetailPage({
           <Warehouse className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
           <h3>{copy(pageContract, "section.overview.title")}</h3>
           <div className="sp" style={{ flex: 1 }} />
-          <Tag tone={statusTone}>{optionLabel(pageContract, "shed_status_chips", detail.status)}</Tag>
+          <Tag tone={statusTone}>{shedStatusLabel(pageContract, detail.status)}</Tag>
           <Tag tone={capacityTone}>{optionLabel(pageContract, "capacity_chips", detail.capacity as VaccinationCapacityStatus)}</Tag>
         </div>
         <div className="bd">

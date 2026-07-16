@@ -348,10 +348,10 @@ export function MeshaShell({
     setRail((o) => !o);
   }
   function navHref(leaf: NavItem): string {
-    return scopeHref(leaf.href, renderedScope, leaf.domain ? { domain: leaf.domain } : {}, leaf.extra ?? {});
+    return scopeHref(leaf.href, renderedScope, {}, leaf.extra ?? {});
   }
   function navActive(leaf: NavItem): boolean {
-    return active === leaf.href && !leaf.domain;
+    return active === leaf.href;
   }
 
   return (

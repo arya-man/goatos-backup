@@ -935,6 +935,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.all_capacity":                          "All capacity",
 			"label.sheds_noun":                            "sheds",
 			"label.shed_noun":                             "shed",
+			"status.scheduled_drive":                      "Drive scheduled",
+			"status.no_work_due":                          "No work due",
 			"label.manager_unassigned":                    "Manager: unassigned",
 			"label.backup_unassigned":                     "Backup: unassigned",
 			"tooltip.sessions.label":                      "About planned sessions",
@@ -3767,8 +3769,8 @@ func shedStatusOptionGroup() domain.OptionGroup {
 			option("needs_review", "Needs review", "Capacity breach with no late animal — due work cannot fit the safe window", "dng"),
 			option("split", "Split", "Work safely split across multiple days, none overdue", "warn"),
 			option("due", "Due", "At least one due animal, none overdue", "warn"),
-			option("scheduled", "Scheduled", "Only future scheduled work", "info"),
-			option("on_track", "On track", "No open vaccination work", "ok"),
+			option("scheduled", "Drive scheduled", "Only future scheduled work", "info"),
+			option("on_track", "No work due", "No open vaccination work", "ok"),
 		},
 	}
 }
