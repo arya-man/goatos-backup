@@ -8,11 +8,9 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
-// TestMigration000213RestoresOperationalHistoryForeignKeys guards the 000212
-// departition rebuild: INCLUDING CONSTRAINTS copies CHECK/UNIQUE constraints,
-// but not foreign keys. It checks the complete pre-rebuild FK set and proves
-// the restored constraints reject orphaned history/audit rows.
-func TestMigration000213RestoresOperationalHistoryForeignKeys(t *testing.T) {
+// TestBaselineOperationalHistoryForeignKeys guards the clean-slate baseline:
+// operational history/audit tables must keep their parent FKs and reject orphan rows.
+func TestBaselineOperationalHistoryForeignKeys(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool, _ := startCorrectionWriteDB(t, ctx)
@@ -55,7 +53,7 @@ func TestMigration000213RestoresOperationalHistoryForeignKeys(t *testing.T) {
 		VALUES
 		  (gen_random_uuid(), $1, '10000000-0000-4000-8000-000000000001',
 		   'guard.invalid-decision', 1, now(), now(), '{}'::jsonb,
-		   '70000000-0000-4000-8000-000000000099', 'migration-000213-invalid-decision')`, meshaTenant); err == nil {
+		   '70000000-0000-4000-8000-000000000099', 'baseline-invalid-decision')`, meshaTenant); err == nil {
 		t.Fatal("orphaned goat_identity_events decision row was accepted")
 	}
 

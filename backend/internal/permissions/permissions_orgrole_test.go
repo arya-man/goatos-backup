@@ -213,8 +213,7 @@ func TestOrgTierPermissionsDoNotLeakBeyondKnownPermissions(t *testing.T) {
 
 // TestOrgRoleCatalogHasEntryForEveryComposedRole is a compile-time-adjacent
 // guard: every (tier, vertical) pair in AllTiers x AllVerticals must appear
-// in the hand-written seed list mirrored here from
-// migrations/postgres/000178_org_role_catalog.sql, so the Go tier catalog and
+// in the hand-written seed list mirrored here from the clean-slate baseline, so the Go tier catalog and
 // the Postgres org_role_catalog seed cannot silently drift apart (one adds a
 // vertical/tier without the other).
 func TestOrgRoleCatalogHasEntryForEveryComposedRole(t *testing.T) {

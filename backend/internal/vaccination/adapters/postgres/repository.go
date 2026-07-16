@@ -74,9 +74,9 @@ func (r *Repository) Ping(ctx context.Context) error {
 // still-live previous-release binary runs against the newly-migrated schema. BUT the advisory lock only
 // serializes writers that take it; a predecessor binary using `ON CONFLICT (tenant, idempotency_key)`
 // with a stage-suffixed key does not, and could otherwise insert a second open row for a goat. So
-// migration 000210 adds a hard `(tenant_id, goat_id) WHERE status='open'` unique index: any writer's
+// the baseline schema keeps a hard `(tenant_id, goat_id) WHERE status='open'` unique index: any writer's
 // DUPLICATE insert now FAILS CLOSED against it (error, retried next pass) instead of creating a second
-// open row. 000210 KEEPS the pre-existing (tenant, idempotency_key) open index too, so a predecessor's
+// open row. It also keeps the pre-existing (tenant, idempotency_key) open index, so a predecessor's
 // FIRST (non-duplicate) insert still succeeds via its ON CONFLICT target during rollout — only an actual
 // second stage-keyed row is rejected. The INSERT below carries `ON CONFLICT (tenant, goat) DO NOTHING`
 // so the bridge writer respects the per-goat index without erroring. cutoffWeeks is the effective age

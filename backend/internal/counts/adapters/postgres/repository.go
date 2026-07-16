@@ -438,7 +438,7 @@ func upsertShiftingReadiness(ctx context.Context, q readinessSubgateExec, tenant
 		EvidenceRef:   "shifting_events:" + shiftingEventID,
 		BlockerReason: "No blocker: append-only ShiftingEvent ledger write is durable with logical-key conflict protection and projection invalidation.",
 		ImplementationRef: "backend/internal/counts/adapters/postgres/repository.go:RecordShiftingEvent;" +
-			"backend/migrations/postgres/000118_counts_shifting_feed_projection.sql",
+			"backend/migrations/postgres/000001_goatos_clean_slate_baseline.sql",
 	}); err != nil {
 		return err
 	}
@@ -1078,7 +1078,7 @@ func (r *Repository) Readiness(ctx context.Context, tenantID string) (domain.Rea
 		Status:            domain.ReadinessBlocked,
 		GenerationAllowed: false,
 		// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=readiness-checked-at-absolute-instant expiry=2026-12-31
-		Subgates:          defaultSubgates(time.Now().UTC()),
+		Subgates: defaultSubgates(time.Now().UTC()),
 	}
 	rows, err := r.pool.Query(ctx, `
 SELECT subgate_id, status, owner, evidence_ref, blocker_reason, COALESCE(implementation_ref, ''), last_checked_at

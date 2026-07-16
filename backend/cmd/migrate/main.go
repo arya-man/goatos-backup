@@ -229,7 +229,7 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool, migrations []migra
 	}()
 
 	if _, err := conn.Exec(ctx, `
-CREATE TABLE IF NOT EXISTS goatos_schema_migrations (
+CREATE TABLE IF NOT EXISTS public.goatos_schema_migrations (
   version text PRIMARY KEY,
   filename text NOT NULL,
   checksum text NOT NULL,
@@ -292,7 +292,7 @@ CREATE TABLE IF NOT EXISTS goatos_schema_migrations (
 
 func appliedMigrationChecksum(ctx context.Context, conn *pgxpool.Conn, version string) (string, error) {
 	var checksum string
-	err := conn.QueryRow(ctx, `SELECT checksum FROM goatos_schema_migrations WHERE version = $1`, version).Scan(&checksum)
+	err := conn.QueryRow(ctx, `SELECT checksum FROM public.goatos_schema_migrations WHERE version = $1`, version).Scan(&checksum)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -308,7 +308,7 @@ type migrationExecutor interface {
 
 func recordMigration(ctx context.Context, exec migrationExecutor, migration migrationFile) error {
 	if _, err := exec.Exec(ctx, `
-INSERT INTO goatos_schema_migrations (version, filename, checksum)
+INSERT INTO public.goatos_schema_migrations (version, filename, checksum)
 VALUES ($1, $2, $3)`,
 		migration.Version, migration.Filename, migration.Checksum,
 	); err != nil {

@@ -1919,7 +1919,7 @@ CREATE TABLE analytics.crash_daily (
     top_issues jsonb DEFAULT '[]'::jsonb NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT crash_daily_counts_check CHECK (((fatal_count >= 0) AND (nonfatal_count >= 0))),
-    CONSTRAINT crash_daily_pct_check CHECK ((((crash_free_users_pct >= (0)::numeric) AND (crash_free_users_pct <= (100)::numeric)) AND ((crash_free_sessions_pct >= (0)::numeric) AND (crash_free_sessions_pct <= (100)::numeric))))
+    CONSTRAINT crash_daily_pct_check CHECK (((crash_free_users_pct >= (0)::numeric) AND (crash_free_users_pct <= (100)::numeric) AND ((crash_free_sessions_pct >= (0)::numeric) AND (crash_free_sessions_pct <= (100)::numeric))))
 );
 
 

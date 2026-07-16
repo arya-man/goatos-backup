@@ -2,9 +2,6 @@ package postgres
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1664,7 +1661,7 @@ func TestStageReviewItemOpenUniquePerGoat(t *testing.T) {
 }
 
 // TestStageReviewOpenUniqueRejectsDuplicate is the VACC-REV-10 round-5 migrate-first + DB-level guard:
-// migration 000210 KEEPS the (tenant, idempotency_key) open index AND adds a (tenant, goat) open index,
+// the baseline schema keeps the (tenant, idempotency_key) open index AND adds a (tenant, goat) open index,
 // so a still-live predecessor binary's `ON CONFLICT (tenant_id, idempotency_key)` writes keep working
 // for the FIRST row, while only an actual SECOND stage-keyed open row for the same goat fails closed.
 // Proven here: (1) predecessor FIRST insert (fresh goat, key K1) succeeds — the idem index is present;
@@ -1727,50 +1724,23 @@ func TestStageReviewOpenUniqueRejectsDuplicate(t *testing.T) {
 	}
 }
 
-// TestStageReviewMigration211RepairsPreviouslyApplied210 exercises the real upgrade path, not a
-// fresh database. The originally released 000210 dropped the predecessor writer's idempotency-key
-// conflict target. Recreate that deployed state, execute the committed 000211 Up SQL, and prove the
-// predecessor can write/replay while the per-goat index still rejects a stage-keyed duplicate.
-func TestStageReviewMigration211RepairsPreviouslyApplied210(t *testing.T) {
+// TestStageReviewBaselineKeepsIdempotencyAndPerGoatIndexes proves the clean-slate baseline keeps
+// both writer contracts: idempotency-key replay remains supported and one open stage review per goat
+// is enforced.
+func TestStageReviewBaselineKeepsIdempotencyAndPerGoatIndexes(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	// Simulate an environment that already ran the originally shipped 000210.
-	if _, err := pool.Exec(ctx, `DROP INDEX IF EXISTS vaccination_stage_review_items_open_idem_unique`); err != nil {
-		t.Fatalf("simulate original 000210: %v", err)
-	}
-	var absent bool
-	if err := pool.QueryRow(ctx, `SELECT to_regclass('vaccination_stage_review_items_open_idem_unique') IS NULL`).Scan(&absent); err != nil {
-		t.Fatalf("check simulated index state: %v", err)
-	}
-	if !absent {
-		t.Fatal("precondition: idempotency index should be absent after simulated original 000210")
-	}
-
-	migrationPath := filepath.Join("..", "..", "..", "..", "migrations", "postgres", "000211_restore_vaccination_stage_review_idem_index.sql")
-	raw, err := os.ReadFile(migrationPath)
-	if err != nil {
-		t.Fatalf("read 000211 migration: %v", err)
-	}
-	sections := strings.SplitN(string(raw), "-- +goose Down", 2)
-	if len(sections) != 2 {
-		t.Fatal("000211 migration is missing its goose Down marker")
-	}
-	upSQL := strings.TrimPrefix(sections[0], "-- +goose Up")
-	if _, err := pool.Exec(ctx, upSQL); err != nil {
-		t.Fatalf("apply 000211 Up: %v", err)
-	}
-
 	var idemPresent, goatPresent bool
 	if err := pool.QueryRow(ctx, `
 		SELECT to_regclass('vaccination_stage_review_items_open_idem_unique') IS NOT NULL,
 		       to_regclass('vaccination_stage_review_items_open_goat_unique') IS NOT NULL`).Scan(&idemPresent, &goatPresent); err != nil {
-		t.Fatalf("check repaired indexes: %v", err)
+		t.Fatalf("check baseline indexes: %v", err)
 	}
 	if !idemPresent || !goatPresent {
-		t.Fatalf("repaired indexes: idem=%v goat=%v, want both true", idemPresent, goatPresent)
+		t.Fatalf("baseline indexes: idem=%v goat=%v, want both true", idemPresent, goatPresent)
 	}
 
 	const goatID = "40000000-0000-4000-8000-0000000000d4"
@@ -1782,10 +1752,10 @@ func TestStageReviewMigration211RepairsPreviouslyApplied210(t *testing.T) {
 		SET observed_stage = EXCLUDED.observed_stage, observed_age_weeks = EXCLUDED.observed_age_weeks`
 	keyK1 := "vacc-stage-review:" + impTenant + ":" + goatID + ":K1"
 	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K1", 22, keyK1); err != nil {
-		t.Fatalf("predecessor first insert after 000211: %v", err)
+		t.Fatalf("idempotency first insert on baseline: %v", err)
 	}
 	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K1", 23, keyK1); err != nil {
-		t.Fatalf("predecessor replay after 000211: %v", err)
+		t.Fatalf("idempotency replay on baseline: %v", err)
 	}
 	keyK2 := "vacc-stage-review:" + impTenant + ":" + goatID + ":K2"
 	if _, err := pool.Exec(ctx, oldWriterSQL, impTenant, goatID, "K2", 30, keyK2); err == nil {

@@ -93,7 +93,7 @@ assert_calendar_missed_status_allowed() {
   constraint="$(psqlq "select pg_get_constraintdef(oid) from pg_constraint where conname='calendar_event_status_check'" 2>/dev/null || true)"
   case "$constraint" in
     *"'missed'"*) ;;
-    *) fail "local Postgres has stale calendar_event_status_check; re-apply backend/migrations/postgres/000103_calendar_missed_status_check.sql before running vaccination smoke" ;;
+    *) fail "local Postgres has stale calendar_event_status_check; rebuild it from the clean-slate baseline before running vaccination smoke" ;;
   esac
 }
 

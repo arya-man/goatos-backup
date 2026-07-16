@@ -54,30 +54,15 @@ validate_goose_structure() {
   done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
 }
 
-validate_review_repair_regressions() {
-  local m207="$repo_root/backend/migrations/postgres/000207_vaccination_stage_review_open_per_goat.sql"
-  local m212="$repo_root/backend/migrations/postgres/000212_departition_operational_history.sql"
-  local m213="$repo_root/backend/migrations/postgres/000213_restore_operational_history_foreign_keys.sql"
-  local m214="$repo_root/backend/migrations/postgres/000214_restore_obligation_status_events_tenant_fk.sql"
-
-  if grep -Eq 'DROP INDEX( IF EXISTS)? vaccination_stage_review_items_open_idem_unique' "$m207"; then
-    echo "000207 must not drop predecessor writer ON CONFLICT index vaccination_stage_review_items_open_idem_unique" >&2
+validate_clean_slate_baseline() {
+  local count
+  count="$(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
+  if [[ "$count" != "1" ]]; then
+    echo "clean-slate baseline expects exactly one Postgres migration, found $count" >&2
     exit 1
   fi
-  if grep -Eq 'CREATE UNIQUE INDEX( IF NOT EXISTS)? vaccination_stage_review_items_open_goat_unique' "$m207"; then
-    echo "000207 must not add hard goat uniqueness before the compatibility-aware rollout" >&2
-    exit 1
-  fi
-  if ! grep -q 'allow_nonempty_operational_history_departition' "$m212"; then
-    echo "000212 must fail closed on non-empty operational history unless the explicit cutover GUC is set" >&2
-    exit 1
-  fi
-  if ! grep -q 'pg_constraint' "$m213" || ! grep -q 'goat_identity_events_tenant_id_fkey' "$m213"; then
-    echo "000213 FK repair must use pg_constraint guards so NO TRANSACTION reruns are retry-safe" >&2
-    exit 1
-  fi
-  if ! grep -q 'pg_constraint' "$m214" || ! grep -q 'obligation_status_events_tenant_id_fkey' "$m214"; then
-    echo "000214 FK repair must use pg_constraint guards so NO TRANSACTION reruns are retry-safe" >&2
+  if [[ ! -f "$repo_root/backend/migrations/postgres/000001_goatos_clean_slate_baseline.sql" ]]; then
+    echo "missing clean-slate baseline migration 000001_goatos_clean_slate_baseline.sql" >&2
     exit 1
   fi
 }
@@ -105,7 +90,7 @@ expect_failure() {
 }
 
 validate_goose_structure
-validate_review_repair_regressions
+validate_clean_slate_baseline
 
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
@@ -243,11 +228,11 @@ BEGIN
     'audit_log'::regclass,
     'obligation_status_events'::regclass
   )) THEN
-    RAISE EXCEPTION 'operational history partition parent remains after 000212';
+    RAISE EXCEPTION 'operational history partition parent remains in clean-slate baseline';
   END IF;
 
   IF to_regprocedure('goatos_ensure_partition_coverage(timestamptz,integer)') IS NOT NULL THEN
-    RAISE EXCEPTION 'partition maintenance functions remain after 000212';
+    RAISE EXCEPTION 'partition maintenance functions remain in clean-slate baseline';
   END IF;
 END $$;
 SQL
