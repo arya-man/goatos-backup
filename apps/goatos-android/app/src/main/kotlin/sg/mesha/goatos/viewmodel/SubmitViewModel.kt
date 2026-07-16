@@ -33,6 +33,7 @@ import sg.mesha.goatos.core.data.capture.MAX_PROOFS_PER_TASK
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.data.forms.FormField
@@ -617,7 +618,7 @@ class SubmitViewModel @Inject constructor(
             FormFieldType.NUMBER, FormFieldType.TEXT -> !(answer as? JsonPrimitive)?.content.isNullOrBlank()
             FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER ->
                 !(answer as? JsonPrimitive)?.content.isNullOrBlank()
-            FormFieldType.GOAT_SCAN -> currentScans.any { it.fieldKey == key }
+            FormFieldType.GOAT_SCAN -> currentScans.any { it.matchesGoatScanField(key) }
             FormFieldType.VIDEO_PROOF -> currentProofs.any { it.fieldKey == key }
             FormFieldType.UNKNOWN -> false
         }
@@ -667,7 +668,7 @@ class SubmitViewModel @Inject constructor(
             )
         }
         FormFieldType.GOAT_SCAN -> {
-            val count = currentScans.count { it.fieldKey == key }
+            val count = currentScans.count { it.matchesGoatScanField(key) }
             FormFieldUi(
                 key = key,
                 label = label,
@@ -738,7 +739,10 @@ class SubmitViewModel @Inject constructor(
         ): Map<String, JsonElement> = form.fields.mapNotNull { field ->
             when (field.type) {
                 FormFieldType.GOAT_SCAN -> {
-                    val tags = scans.filter { it.fieldKey == field.key }.map { it.tag }
+                    val tags = scans
+                        .filter { it.matchesGoatScanField(field.key) }
+                        .map { it.tag }
+                        .distinct()
                     if (tags.isEmpty()) null else field.key to JsonArray(tags.map { JsonPrimitive(it) })
                 }
                 FormFieldType.VIDEO_PROOF -> null
@@ -765,3 +769,6 @@ class SubmitViewModel @Inject constructor(
         }
     }
 }
+
+private fun ScannedGoatRow.matchesGoatScanField(scanFieldKey: String): Boolean =
+    fieldKey == scanFieldKey || fieldKey == ROSTER_SCAN_FIELD_KEY

@@ -18,6 +18,8 @@ import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
+import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.feature.scan.RosterRow
@@ -50,6 +52,7 @@ import javax.inject.Inject
 class ScanViewModel @Inject constructor(
     private val repo: ExecutionRepository,
     private val reader: RfidReaderPort,
+    private val scanCaptureRepository: ScanCaptureRepository,
     private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -245,7 +248,7 @@ class ScanViewModel @Inject constructor(
             return
         }
         when (row.status) {
-            ScanStatus.PENDING -> markRowDone(row)
+            ScanStatus.PENDING -> markRowDone(row, capturedTag = tag)
             ScanStatus.DONE -> Unit
             ScanStatus.SKIPPED -> _feed.update {
                 prependFeed(
@@ -259,11 +262,19 @@ class ScanViewModel @Inject constructor(
     /** Shared by a real tag-match ([onTagRead]) and a manual ring tap ([onManualTap]): records
      * [row]'s obligation as locally DONE (unsynced) in the draft overlay and pushes a feed row.
      * The combine re-derives the roster + counts from this set on the next emission. */
-    private fun markRowDone(row: RosterRow) {
+    private fun markRowDone(row: RosterRow, capturedTag: String = row.primaryTag) {
         if (row.obligationId.isBlank()) return
         _localDone.update { it + row.obligationId }
         _feed.update {
             prependFeed(ScanFeedEntry(row.primaryTag, row.secondaryTag, row.vaccineLabel, ScanStatus.DONE), it)
+        }
+        val selectedTaskId = taskId ?: return
+        viewModelScope.launch {
+            scanCaptureRepository.recordScan(
+                taskId = selectedTaskId,
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = capturedTag.ifBlank { row.primaryTag },
+            )
         }
     }
 
@@ -292,8 +303,9 @@ class ScanViewModel @Inject constructor(
             doneCount = done,
             pendingCount = pending,
             skippedCount = skipped,
-            canSubmit = pending == 0 && nextCursor == null,
+            canSubmit = pending == 0 && dto.nextCursor == null,
             scanEnabled = true,
+            hasMore = dto.nextCursor != null,
         )
     }
 
