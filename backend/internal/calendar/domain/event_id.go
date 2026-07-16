@@ -14,6 +14,7 @@ type DriveTargetQuery struct {
 	Scope    ScopeFilter
 	Cursor   *DriveTargetCursor
 	Limit    int
+	Search   string
 }
 
 type DriveTargetCursor struct {

@@ -599,9 +599,20 @@ func TestCalendarVaccinationProjectionGroupsMultipleShedsAndVaccinesIntoOneAllDa
 
 	seedVaccinationObligation(t, ctx, pool, protocolB, versionB, ruleB, obligationB, dueAt.Add(10*time.Minute))
 	attachObligationToGoatScope(t, ctx, pool, obligationB, animalB, "shed", testShedB)
-	setCalendarGoatCurrentShed(t, ctx, pool, animalB, testParkA, testShedB)
 	seedProtocolRuleVaccineName(t, ctx, pool, versionB, ruleB, "PPR")
 	seedVaccinationBatchForShed(t, ctx, pool, batchB, versionB, testParkA, testShedB, dueAt.Add(10*time.Minute), obligationB)
+	// Real seeded park-drive rows can have no goat.current_location_id/shed_id and a stale/park
+	// obligation scope after batching. The roster still must display the animal's shed from the
+	// member batch, not a dash.
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET scope_type = 'park',
+    scope_id = $3::uuid,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, obligationB, testParkA); err != nil {
+		t.Fatalf("drift obligation scope after batching: %v", err)
+	}
 
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll, DateFrom: dueAt.Add(-time.Hour), DateTo: dueAt.Add(24 * time.Hour), Limit: 20,

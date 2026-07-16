@@ -91,12 +91,23 @@ LEFT JOIN locations goat_current_parent
 LEFT JOIN locations goat_current_grand
   ON goat_current_grand.tenant_id = g.tenant_id
  AND goat_current_grand.location_id = goat_current_parent.parent_location_id
+LEFT JOIN obligation_batches target_batch
+  ON target_batch.tenant_id = oi.tenant_id
+ AND target_batch.batch_id = oi.batch_id
+LEFT JOIN locations batch_scope_loc
+  ON batch_scope_loc.tenant_id = target_batch.tenant_id
+ AND batch_scope_loc.location_id = target_batch.scope_id
+LEFT JOIN locations batch_scope_parent
+  ON batch_scope_parent.tenant_id = target_batch.tenant_id
+ AND batch_scope_parent.location_id = batch_scope_loc.parent_location_id
 LEFT JOIN locations shed
   ON shed.tenant_id = g.tenant_id
  AND shed.location_id = COALESCE(
       CASE WHEN goat_current_loc.location_type = 'shed' THEN goat_current_loc.location_id END,
       CASE WHEN goat_current_parent.location_type = 'shed' THEN goat_current_parent.location_id END,
       CASE WHEN goat_current_grand.location_type = 'shed' THEN goat_current_grand.location_id END,
+      CASE WHEN batch_scope_loc.location_type = 'shed' THEN batch_scope_loc.location_id END,
+      CASE WHEN batch_scope_parent.location_type = 'shed' THEN batch_scope_parent.location_id END,
       g.shed_id
     )
  AND shed.location_type = 'shed'
@@ -203,6 +214,21 @@ SELECT
   due_at
 FROM animal_targets
 WHERE ($8::uuid IS NULL OR obligation_id > $8::uuid)
+  AND (
+    NULLIF($14::text, '') IS NULL
+    OR concat_ws(' ',
+      display_id,
+      animal_identifier_1,
+      animal_identifier_2,
+      shed_name,
+      stage,
+      lifecycle_status,
+      health_status,
+      exit_reason,
+      defer_status,
+      status
+    ) ILIKE '%' || $14::text || '%'
+  )
 ORDER BY obligation_id ASC
 LIMIT $13`
 
@@ -268,7 +294,7 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	rows, err := r.pool.Query(ctx, calendarDriveTargetsSQL,
 		q.TenantID, batchID, dueDay, parkID, shedID, tenantID, ruleID, cursorID,
-		tenantWide, parkIDs, shedIDs, isParkDrive, fetchLimit)
+		tenantWide, parkIDs, shedIDs, isParkDrive, fetchLimit, q.Search)
 	if err != nil {
 		return domain.CalendarDriveTargetListResponse{}, fmt.Errorf("calendar: list drive targets: %w", err)
 	}

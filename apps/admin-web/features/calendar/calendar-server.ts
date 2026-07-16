@@ -69,7 +69,7 @@ export async function getCalendarVaccinationEventDetail(eventId: string): Promis
 
 export async function getCalendarDriveTargets(
   eventId: string,
-  params: { cursor?: string; limit?: number } = {},
+  params: { cursor?: string; limit?: number; q?: string } = {},
 ): Promise<ApiResult<CalendarDriveTargetListResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -81,6 +81,7 @@ export async function getCalendarDriveTargets(
       query: compactQuery({
         cursor: params.cursor,
         limit: Math.min(params.limit ?? DEFAULT_TARGET_LIMIT, MAX_TARGET_LIMIT),
+        q: params.q,
       }),
     }),
   );

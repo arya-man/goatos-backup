@@ -1,7 +1,7 @@
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import Link from "next/link";
 import { type AdminUiPageContract, copy, optionLabel } from "@/lib/admin-ui-contract";
-import { one, type RouteSearchParams } from "@/lib/search-params";
+import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";
 import { fmtDate as fmtIstDate } from "@/lib/format";
 import { getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
@@ -19,6 +19,30 @@ function targetReason(item: CalendarDriveTarget): string {
   return "";
 }
 
+function hiddenInputs(params: RouteSearchParams, exclude: Set<string>) {
+  return Object.entries(params).flatMap(([key, value]) => {
+    if (exclude.has(key)) return [];
+    const values = Array.isArray(value) ? value : value ? [value] : [];
+    return values.map((item, index) => <input key={`${key}-${index}`} type="hidden" name={key} value={item} />);
+  });
+}
+
+function hrefWithoutKeys(pathname: string, params: RouteSearchParams, keys: Set<string>) {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (keys.has(key)) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item) next.append(key, item);
+      }
+    } else if (value) {
+      next.set(key, value);
+    }
+  }
+  const qs = next.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
 export async function VaccinationDriveDetail({
   eventId,
   searchParams,
@@ -32,10 +56,13 @@ export async function VaccinationDriveDetail({
   const scope = parseScope(sp);
   const backHref = scopeHref("/calendar", scope);
   const cursor = one(sp, "cursor");
+  const targetSearch = (one(sp, "q") ?? "").trim();
+  const page = boundedInt(one(sp, "page"), 1, 1, 1000000);
+  const detailPath = `/calendar/drive/${eventId}`;
 
   const [detail, targets] = await Promise.all([
     getCalendarVaccinationEventDetail(eventId),
-    getCalendarDriveTargets(eventId, { cursor, limit: 20 }),
+    getCalendarDriveTargets(eventId, { cursor, limit: 25, q: targetSearch || undefined }),
   ]);
 
   if (!detail.ok) {
@@ -89,6 +116,9 @@ export async function VaccinationDriveDetail({
   const rosterItems = targets && targets.ok ? targets.data.items : [];
   const nextCursor = targets && targets.ok ? targets.data.next_cursor : undefined;
   const targetsError = targets && !targets.ok ? targets.error : null;
+  const nextHref = nextCursor ? hrefWithPagedCursor(detailPath, sp, "cursor", nextCursor, "page", "cursor_stack") : null;
+  const prevHref = hrefPreviousPagedCursor(detailPath, sp, "cursor", "page", "cursor_stack");
+  const clearSearchHref = hrefWithoutKeys(detailPath, sp, new Set(["q", "cursor", "page", "cursor_stack"]));
 
   return (
     <div className="screen on">
@@ -135,6 +165,25 @@ export async function VaccinationDriveDetail({
       <div className="card">
         <div className="bd">
           <div className="lt">{copy(pageContract, "calendar.drive.animal_roster")}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between", flexWrap: "wrap", margin: "0 0 14px" }}>
+            <form action={detailPath} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 320, flex: "1 1 420px" }}>
+              {hiddenInputs(sp, new Set(["q", "cursor", "page", "cursor_stack"]))}
+              <label className="searchbox" style={{ flex: "1 1 280px", display: "flex", alignItems: "center", gap: 8 }}>
+                <Search className="ic" style={{ width: 15 }} aria-hidden="true" />
+                <input
+                  name="q"
+                  defaultValue={targetSearch}
+                  placeholder={copy(pageContract, "calendar.drive.search_placeholder")}
+                  style={{ width: "100%", background: "transparent", border: 0, outline: 0, color: "inherit" }}
+                />
+              </label>
+              <button type="submit" className="btn btn-primary">{copy(pageContract, "calendar.drive.search_action")}</button>
+              {targetSearch ? <Link href={clearSearchHref} className="btn">{copy(pageContract, "calendar.drive.clear_search")}</Link> : null}
+            </form>
+            <div className="sub" style={{ whiteSpace: "nowrap" }}>
+              {copy(pageContract, "calendar.drive.page_label")} {page} · {rosterItems.length} {copy(pageContract, "calendar.drive.rows_label")}
+            </div>
+          </div>
           {targetsError ? (
             <div style={{ padding: 16, textAlign: "center", color: "var(--danger)" }}>
               <b>{targetsError.code ?? targetsError.kind}</b>&nbsp;{targetsError.message}
@@ -163,13 +212,27 @@ export async function VaccinationDriveDetail({
                   </tbody>
                 </table>
               </div>
-              {nextCursor ? (
-                <div style={{ padding: 12, textAlign: "center", borderTop: "1px solid var(--border)" }}>
-                  <Link href={scopeHref(`/calendar/drive/${eventId}`, scope, {}, { cursor: nextCursor })} className="btn btn-primary">
-                    {copy(pageContract, "calendar.drive.load_more")}
+              <div style={{ padding: 12, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid var(--border)" }}>
+                {prevHref ? (
+                  <Link href={prevHref} className="btn">
+                    <ChevronLeft className="ic" /> {copy(pageContract, "calendar.drive.previous_page")}
                   </Link>
-                </div>
-              ) : null}
+                ) : (
+                  <span className="btn" aria-disabled="true" style={{ opacity: 0.45, pointerEvents: "none" }}>
+                    <ChevronLeft className="ic" /> {copy(pageContract, "calendar.drive.previous_page")}
+                  </span>
+                )}
+                <span className="sub">{copy(pageContract, "calendar.drive.page_label")} {page}</span>
+                {nextHref ? (
+                  <Link href={nextHref} className="btn btn-primary">
+                    {copy(pageContract, "calendar.drive.next_page")} <ChevronRight className="ic" />
+                  </Link>
+                ) : (
+                  <span className="btn" aria-disabled="true" style={{ opacity: 0.45, pointerEvents: "none" }}>
+                    {copy(pageContract, "calendar.drive.next_page")} <ChevronRight className="ic" />
+                  </span>
+                )}
+              </div>
             </>
           )}
         </div>

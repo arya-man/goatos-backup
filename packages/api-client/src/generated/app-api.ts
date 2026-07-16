@@ -5017,6 +5017,8 @@ export interface operations {
             query?: {
                 cursor?: string;
                 limit?: number;
+                /** @description Search roster by display id, tag, shed, stage, lifecycle, health, reason, or status. */
+                q?: string;
             };
             header?: never;
             path: {

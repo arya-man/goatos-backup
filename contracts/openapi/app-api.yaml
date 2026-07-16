@@ -2075,6 +2075,13 @@ paths:
             minimum: 1
             maximum: 50
             default: 10
+        - name: q
+          in: query
+          required: false
+          description: Search roster by display id, tag, shed, stage, lifecycle, health, reason, or status.
+          schema:
+            type: string
+            maxLength: 128
       responses:
         "200":
           description: Paginated herd animals for the selected vaccination drive.

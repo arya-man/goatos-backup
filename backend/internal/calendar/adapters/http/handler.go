@@ -90,6 +90,7 @@ func (h *Handler) ListDriveTargets(w stdhttp.ResponseWriter, r *stdhttp.Request)
 		TenantID: tenantID(r),
 		EventID:  r.PathValue("event_id"),
 		Scope:    calendarScope(r, permissions.CalendarRead),
+		Search:   strings.TrimSpace(query.Get("q")),
 	}
 	if raw := query.Get("cursor"); raw != "" {
 		cursor, err := domain.DecodeDriveTargetCursor(raw)
@@ -255,8 +256,8 @@ func (h *Handler) ResolveEscalation(w stdhttp.ResponseWriter, r *stdhttp.Request
 func (h *Handler) listQuery(w stdhttp.ResponseWriter, r *stdhttp.Request) (domain.Query, bool) {
 	query := r.URL.Query()
 	q := domain.Query{
-		TenantID:           tenantID(r),
-		OwnerKey:           query.Get("owner_key"),
+		TenantID:            tenantID(r),
+		OwnerKey:            query.Get("owner_key"),
 		IncludeDateMarkers:  query.Get("include_date_markers") == "true",
 		IncludeReminderRail: query.Get("include_reminder_rail") == "true",
 		Scope:               calendarScope(r, permissions.CalendarRead),
