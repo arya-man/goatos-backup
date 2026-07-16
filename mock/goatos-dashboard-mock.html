@@ -559,6 +559,50 @@
     .chain{overflow-x:auto;-webkit-overflow-scrolling:touch}
     .ostages,.opick{overflow-x:auto}
   }
+
+  /* ===== HRMS vertical (ported from mock/hrms-web-mock.html) =====
+     Every class here is hx- prefixed and scoped under .hrms so it cannot
+     collide with the console's existing .who/.onode/.oh/.nm/.rl/.tt/.tm/.n/.s.
+     Shared console primitives (.card .kpi .tag .grid .av .mono .chip .phead)
+     are REUSED, not redefined — the console stays the source of truth. */
+  .hrms .hx-who{display:flex;align-items:center;gap:9px}
+  .hrms .hx-who .hx-n{font-weight:650;font-size:13px}
+  .hrms .hx-who .hx-s{color:var(--muted);font-size:11.5px;margin-top:1px}
+  .hrms .hx-prooflink{display:inline-flex;align-items:center;gap:5px;color:var(--brand-d);font-weight:650;font-size:12px;cursor:pointer}
+  .hrms .hx-prooflink:hover{text-decoration:underline}
+  .hrms .hx-noproof{color:var(--faint);font-size:12px}
+
+  /* org tree */
+  .hrms .hx-orgscroll{overflow-x:auto;padding:6px 2px 12px}
+  .hrms .hx-tree{display:flex;flex-direction:column;align-items:center;min-width:min-content}
+  .hrms .hx-tier{display:flex;gap:16px;align-items:flex-start;justify-content:center}
+  .hrms .hx-branch{display:flex;flex-direction:column;align-items:center}
+  .hrms .hx-childwrap{display:flex;flex-direction:column;align-items:center}
+  .hrms .hx-connv{width:2px;height:18px;background:var(--line)}
+  .hrms .hx-onode{display:flex;flex-direction:column;gap:7px;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:10px 12px;box-shadow:var(--shadow);cursor:pointer;transition:.12s;position:relative;min-width:186px}
+  .hrms .hx-onode:hover{border-color:var(--brand)}
+  .hrms .hx-onode.hx-self{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+  .hrms .hx-onode .hx-oh{display:flex;align-items:center;gap:9px}
+  .hrms .hx-onode .hx-nm{font-weight:700;font-size:13px}
+  .hrms .hx-onode .hx-rl{color:var(--muted);font-size:11.5px;margin-top:1px}
+  .hrms .hx-onode .hx-om{display:flex;gap:12px;border-top:1px solid var(--line2);padding-top:6px;font-size:11.5px;color:var(--muted)}
+  .hrms .hx-selftag{position:absolute;right:10px;top:9px;font-size:9px;font-weight:800;letter-spacing:.4px;color:#08130B;background:var(--brand);padding:2px 7px;border-radius:20px}
+  .hrms .hx-lockedhint{display:flex;align-items:center;gap:9px;margin-top:14px;padding:11px 13px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:12.5px;background:var(--bg)}
+
+  /* drawer body bits (rendered inside the shared #infoDrawer) */
+  .hrms-dw .hx-fieldrow{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line2);font-size:13px}
+  .hrms-dw .hx-fieldrow .hx-k{color:var(--muted)}
+  .hrms-dw .hx-fieldrow .hx-v{font-weight:650;text-align:right}
+  .hrms-dw .hx-subh{font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin:16px 0 8px}
+  .hrms-dw .hx-tlist{display:flex;flex-direction:column;gap:7px}
+  .hrms-dw .hx-titem{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+  .hrms-dw .hx-tk{width:22px;height:22px;border-radius:50%;flex:none;display:grid;place-items:center}
+  .hrms-dw .hx-tk.hx-ok{background:var(--brand-soft);color:var(--brand-d)}
+  .hrms-dw .hx-tk.hx-pend{background:var(--warnx);color:var(--warn)}
+  .hrms-dw .hx-tk.hx-miss{background:var(--dangerx);color:var(--danger)}
+  .hrms-dw .hx-tt{flex:1;min-width:0;font-size:12.5px}
+  .hrms-dw .hx-tm{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+  .hrms-dw .hx-proofbig{border:1px dashed var(--line);border-radius:10px;padding:20px;display:grid;place-items:center;color:var(--muted);background:var(--bg)}
 </style>
 
 <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
@@ -584,6 +628,14 @@
   <symbol id="i-truck" viewBox="0 0 24 24"><path d="M2 6h11v9H2zM13 9h4l3 3v3h-7z"/><circle cx="6" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <!-- HRMS vertical icons -->
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-tree" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v5M5 17v-2h14v2M12 12v3"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></symbol>
   <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3 2 20h20L12 3z"/><path d="M12 9v5M12 17h.01"/></symbol>
   <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
   <symbol id="i-dna" viewBox="0 0 24 24"><path d="M5 4c0 6 14 8 14 16M19 4c0 6-14 8-14 16"/><path d="M8 6h8M8 18h8M10 9h4M10 15h4"/></symbol>
@@ -694,12 +746,24 @@
       <div class="leaf" data-go="inventory" data-sub="reorder">Reorder &amp; audit</div>
     </div>
 
-    <div class="ggrp" data-grp="hr" data-href="hrms-web-mock.html" title="HRMS vertical — opens the HRMS mock (upcoming design)"><svg class="ic"><use href="#i-people"/></svg>HR / People<span class="gct">4</span></div>
-    <!-- UPCOMING: the 4 tabs below are superseded by the HRMS vertical mock
-         (mock/hrms-web-mock.html), which replaces them with its own subtabs:
-         Overview · Tasks &amp; Proof · Org Chart · Leave · Attendance.
-         HR / People above now navigates straight to that mock. The legacy
-         subnav is kept here, commented, until the HRMS design is signed off.
+    <div class="ggrp" data-grp="hr" data-navkey="people" title="HRMS — team, tasks &amp; proof, leave, attendance"><svg class="ic"><use href="#i-people"/></svg>HR / People<span class="gct">4</span></div>
+    <div class="subnav" data-grp="hr">
+      <div class="leaf" data-go="people" data-sub="dash">Overview</div>
+      <div class="leaf" data-go="people" data-sub="tasks" title="Manager-assigned daily tasks and the proof uploaded against them">Tasks &amp; Proof<span class="lct">4</span></div>
+      <div class="leaf" data-go="people" data-sub="org">Org Chart</div>
+      <div class="leaf" data-go="people" data-sub="leave" title="2 requests waiting on a manager decision">Leave<span class="lct">2</span></div>
+      <div class="leaf" data-go="people" data-sub="attend">Attendance</div>
+    </div>
+    <!-- SUPERSEDED by the HRMS vertical above (ported from mock/hrms-web-mock.html).
+         These 4 leaves and their subpanels are kept, commented, until the HRMS
+         design is signed off. Their replacements:
+           Operators             -> Overview + Org Chart
+           HR · recruit & payroll -> Overview
+           Response SLA          -> Tasks & Proof (missed/pending)
+           Penalties             -> Tasks & Proof (missed)
+         Position & Coverage / Timetable / Roles & access / Audit log are NOT
+         superseded — they stay on the people screen (Admin / Data Ops owns the
+         last two and links to them).
     <div class="subnav" data-grp="hr">
       <div class="leaf" data-go="people" data-sub="operators">Operators</div>
       <div class="leaf" data-go="people" data-sub="hr">HR · recruit &amp; payroll</div>
@@ -737,14 +801,14 @@
       <div class="card" style="margin-bottom:16px;border-color:color-mix(in srgb,var(--danger) 28%,var(--line))"><div class="hd"><svg class="ic" style="color:var(--danger)"><use href="#i-warn"/></svg><h3>Critical alerts — top items across all parks</h3><div class="sp"></div><span class="tag t-dng">2 critical · 2 warning</span></div><div class="bd feed">
         <div class="fitem" style="cursor:pointer" onclick="go('inventory','reorder')"><span class="fic" style="background:var(--dangerx);color:var(--danger)"><svg class="ic"><use href="#i-box"/></svg></span><div class="tx"><b>Inventory · 2-week floor breached</b><div class="mt">Oxytetracycline LA 1.9-wk · auto-escalated to Founders + COO</div></div><span class="tag t-dng">critical</span></div>
         <div class="fitem" style="cursor:pointer" onclick="go('procurement','procurement')"><span class="fic" style="background:var(--dangerx);color:var(--danger)"><svg class="ic"><use href="#i-truck"/></svg></span><div class="tx"><b>Procurement · below buffer</b><div class="mt">Fattening 640/1000 · breeding 150/200 → CPO same-day</div></div><span class="tag t-dng">critical</span></div>
-        <div class="fitem" style="cursor:pointer" onclick="go('people','sla')"><span class="fic" style="background:var(--warnx);color:var(--warn)"><svg class="ic"><use href="#i-clock"/></svg></span><div class="tx"><b>Team · 4 SLA misses</b><div class="mt">10-min rule · escalating up the reporting line</div></div><span class="tag t-warn">warning</span></div>
+        <div class="fitem" style="cursor:pointer" onclick="go('people','tasks')"><span class="fic" style="background:var(--warnx);color:var(--warn)"><svg class="ic"><use href="#i-clock"/></svg></span><div class="tx"><b>Team · 4 SLA misses</b><div class="mt">10-min rule · escalating up the reporting line</div></div><span class="tag t-warn">warning</span></div>
         <div class="fitem" style="cursor:pointer" onclick="go('feed','execution')"><span class="fic" style="background:var(--warnx);color:var(--warn)"><svg class="ic"><use href="#i-leaf"/></svg></span><div class="tx"><b>Feed · FCR drift</b><div class="mt">6.8 vs target 6.2 · wastage flagged 3 sheds</div></div><span class="tag t-warn">warning</span></div>
       </div></div>
       <div class="card" style="margin-bottom:16px"><div class="hd"><svg class="ic" style="color:var(--amber)"><use href="#i-warn"/></svg><h3>All open alerts — every area, one place</h3></div><div class="bd" style="padding:0"><table><thead><tr><th>Area</th><th>Alert</th><th>Severity</th><th>Detail</th><th>Owner</th></tr></thead><tbody>
   <tr style="cursor:pointer" onclick="go('inventory','reorder')"><td>Inventory</td><td>2-week floor breached</td><td><span class="tag t-dng">critical</span></td><td>Oxytetracycline LA · 1.9 wk</td><td>CPO</td></tr>
   <tr style="cursor:pointer" onclick="go('procurement','procurement')"><td>Procurement</td><td>Below buffer</td><td><span class="tag t-dng">critical</span></td><td>Fattening 640/1000 · breeding 150/200</td><td>CPO</td></tr>
   <tr style="cursor:pointer" onclick="go('health','health')"><td>Health</td><td>Disease cluster</td><td><span class="tag t-dng">critical</span></td><td>Coccidiosis K2 · 7 ICU high-risk</td><td>Health Dir</td></tr>
-  <tr style="cursor:pointer" onclick="go('people','sla')"><td>Team</td><td>4 response-SLA misses</td><td><span class="tag t-warn">warning</span></td><td>10-min rule · escalating up the line</td><td>Directors</td></tr>
+  <tr style="cursor:pointer" onclick="go('people','tasks')"><td>Team</td><td>4 response-SLA misses</td><td><span class="tag t-warn">warning</span></td><td>10-min rule · escalating up the line</td><td>Directors</td></tr>
   <tr style="cursor:pointer" onclick="go('feed','execution')"><td>Feed</td><td>FCR drift</td><td><span class="tag t-warn">warning</span></td><td>6.8 vs 6.2 · wastage 3 sheds</td><td>Feed Dir</td></tr>
   <tr style="cursor:pointer" onclick="go('parks','sheds')"><td>Parks</td><td>Shed near capacity</td><td><span class="tag t-warn">warning</span></td><td>K1 Yashoda 11 at 96%</td><td>Park Head</td></tr>
   <tr style="cursor:pointer" onclick="go('breeding','births')"><td>Breeding</td><td>Untagged kids — 24h window</td><td><span class="tag t-warn">warning</span></td><td>3 kids · 2 IDs due · nudges out</td><td>Growth Mgr</td></tr>
@@ -754,7 +818,7 @@
   <tr style="cursor:pointer" onclick="go('parks','pc')"><td>Preventive Care (PC)</td><td>Feed lab borderline</td><td><span class="tag t-info">info</span></td><td>Masoor lot 7741 · aflatoxin borderline</td><td>Preventive Care (PC)</td></tr>
   <tr style="cursor:pointer" onclick="go('health','deaths')"><td>Health</td><td>Post-mortem pending</td><td><span class="tag t-info">info</span></td><td>CBE-1660 · tagged @health</td><td>Health Mgr</td></tr>
   <tr style="cursor:pointer" onclick="go('inventory','assets')"><td>Inventory</td><td>AI assets low</td><td><span class="tag t-info">info</span></td><td>AI gun / sheaths · 2.9 wk</td><td>Breeding</td></tr>
-  <tr style="cursor:pointer" onclick="go('people','hr')"><td>Team</td><td>Critical roles open</td><td><span class="tag t-info">info</span></td><td>2 open · onboarding ≤24h</td><td>HR</td></tr>
+  <tr style="cursor:pointer" onclick="go('people','dash')"><td>Team</td><td>Critical roles open</td><td><span class="tag t-info">info</span></td><td>2 open · onboarding ≤24h</td><td>HR</td></tr>
 </tbody></table></div></div>
 <div class="card" id="allparks" style="margin-bottom:16px"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-map"/></svg><h3>All parks — glimpse</h3><span class="pill b" style="margin-left:auto">drill into a park to scope its data</span></div><div class="bd"><div class="glimpse" id="glimpseGrid"></div></div></div>
       <div class="grid g4" style="margin-bottom:14px">
@@ -765,7 +829,7 @@
       </div>
       <div class="grid g4" style="margin-bottom:18px">
         <div class="kpi" style="cursor:pointer" onclick="go('health','health')"><span class="acc" style="background:var(--purple)"></span><div class="lab">Open problems</div><div class="val">37</div><div class="dl"><span class="muted">9 ICU · 3 due</span></div></div>
-        <div class="kpi" style="cursor:pointer" onclick="go('people','sla')"><span class="acc" style="background:var(--danger)"></span><div class="lab">SLA breaches</div><div class="val">4</div><div class="dl down">10-min rule</div></div>
+        <div class="kpi" style="cursor:pointer" onclick="go('people','tasks')"><span class="acc" style="background:var(--danger)"></span><div class="lab">SLA breaches</div><div class="val">4</div><div class="dl down">10-min rule</div></div>
         <div class="kpi" style="cursor:pointer" onclick="go('breeding','births')"><span class="acc" style="background:var(--teal)"></span><div class="lab">Births today</div><div class="val">4 <small>kids</small></div><div class="dl"><span class="muted">colostrum live</span></div></div>
         <div class="kpi" style="cursor:pointer" onclick="go('procurement','procurement')"><span class="acc" style="background:var(--brand)"></span><div class="lab">Fattening pipeline</div><div class="val">561<small>/800</small></div><div class="dl down">below buffer</div></div>
       </div>
@@ -782,7 +846,7 @@
             <tr style="cursor:pointer" onclick="go('parks','sheds')"><td><b>Parks</b></td><td><div class="bar" style="width:120px"><i style="width:91%"></i></div></td><td><span class="tag t-ok">on track</span></td></tr>
             <tr style="cursor:pointer" onclick="go('feed','directions')"><td><b>Feed</b></td><td><div class="bar" style="width:120px"><i style="width:66%;background:var(--amber)"></i></div></td><td><span class="tag t-warn">FCR drift</span></td></tr>
             <tr style="cursor:pointer" onclick="go('inventory','meds')"><td><b>Inventory</b></td><td><div class="bar" style="width:120px"><i style="width:48%;background:var(--danger)"></i></div></td><td><span class="tag t-dng">2 floors</span></td></tr>
-            <tr style="cursor:pointer" onclick="go('people','operators')"><td><b>Team</b></td><td><div class="bar" style="width:120px"><i style="width:71%;background:var(--amber)"></i></div></td><td><span class="tag t-warn">4 SLA</span></td></tr>
+            <tr style="cursor:pointer" onclick="go('people','dash')"><td><b>Team</b></td><td><div class="bar" style="width:120px"><i style="width:71%;background:var(--amber)"></i></div></td><td><span class="tag t-warn">4 SLA</span></td></tr>
           </table>
           <div class="note" style="margin-top:14px">Every card reads an <b>API-owned realtime projection</b> (Postgres is canonical truth; Go modular monolith owns the read models) — no frontend external reads. Built to hold at 1,000,000 goats.</div>
         </div></div>
@@ -803,7 +867,7 @@
         <div class="card"><div class="hd"><svg class="ic" style="color:var(--danger)"><use href="#i-warn"/></svg><h3>Blockers &amp; drift — same-day resolve</h3></div><div class="bd feed">
           <div class="fitem" style="cursor:pointer" onclick="go('inventory','reorder')"><span class="fic" style="background:var(--dangerx);color:var(--danger)"><svg class="ic"><use href="#i-box"/></svg></span><div class="tx"><b>Oxytet LA below 2-wk floor</b><div class="mt">Procurement · CPO → owner + deadline today</div></div><span class="tag t-dng">blocker</span></div>
           <div class="fitem" style="cursor:pointer" onclick="go('feed','execution')"><span class="fic" style="background:var(--warnx);color:var(--warn)"><svg class="ic"><use href="#i-leaf"/></svg></span><div class="tx"><b>FCR drift 3 days</b><div class="mt">Feed Director → corrective action assigned</div></div><span class="tag t-warn">drift</span></div>
-          <div class="fitem" style="cursor:pointer" onclick="go('people','sla')"><span class="fic" style="background:var(--purplex);color:var(--purple)"><svg class="ic"><use href="#i-clock"/></svg></span><div class="tx"><b>4 SLA breaches</b><div class="mt">Health Director · 10-min rule</div></div><span class="tag t-pur">escalate</span></div>
+          <div class="fitem" style="cursor:pointer" onclick="go('people','tasks')"><span class="fic" style="background:var(--purplex);color:var(--purple)"><svg class="ic"><use href="#i-clock"/></svg></span><div class="tx"><b>4 SLA breaches</b><div class="mt">Health Director · 10-min rule</div></div><span class="tag t-pur">escalate</span></div>
           <div class="note" style="margin-top:8px">COO has a <b>5-minute</b> response tier (vs Directors' 10-min). Metric flat 3 days or 5% drift auto-flags. "No surprises to Founders."</div>
         </div></div>
       </div>
@@ -1903,17 +1967,73 @@
     <!-- ===== PEOPLE ===== -->
     <section class="screen" data-screen="people">
       <div class="subtabs">
-        <button data-screen="people" data-sub="operators" class="on">Operators</button>
+        <button data-screen="people" data-sub="dash" class="on">Overview</button>
+        <button data-screen="people" data-sub="tasks">Tasks &amp; Proof<span class="cbq" id="hxTabTaskCt">4</span></button>
+        <button data-screen="people" data-sub="org">Org Chart</button>
+        <button data-screen="people" data-sub="leave">Leave<span class="cbq" id="hxTabLeaveCt">2</span></button>
+        <button data-screen="people" data-sub="attend">Attendance</button>
         <button data-screen="people" data-sub="positions">Position &amp; Coverage</button>
         <button data-screen="people" data-sub="timetable">Timetable</button>
         <button data-screen="people" data-sub="roles">Roles &amp; access</button>
-        <button data-screen="people" data-sub="sla">Response SLA</button>
         <button data-screen="people" data-sub="audit">Audit log</button>
-        <button data-screen="people" data-sub="penalties">Penalties</button>
-        <button data-screen="people" data-sub="hr">HR</button>
       </div>
 
-      <div class="subpanel on" data-sub="operators">
+      <!-- ===== HRMS · Overview ===== -->
+      <div class="subpanel on hrms" data-sub="dash">
+        <div class="phead"><div><div class="crumb">HR / People / <b>Overview</b></div><h1 id="hxDashTitle">My team today</h1><div class="sub" id="hxDashSub">Tuesday, 15 July 2026 · you + your direct reports (one layer)</div></div><div class="sp"></div><span class="scopebadge" id="hxSb1"><svg class="ic" style="width:14px"><use href="#i-user"/></svg>Direct reports only</span></div>
+        <div class="grid g4">
+          <div class="kpi"><div class="acc" style="background:var(--brand)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-clock"/></svg>Clocked in</div><div class="val" id="hxKClock">4<small> / 5</small></div><div class="dl" id="hxKClockDl">1 not yet in</div></div>
+          <div class="kpi"><div class="acc" style="background:var(--ok)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-check"/></svg>Tasks done</div><div class="val" id="hxKDone">7<small> / 12</small></div><div class="dl muted" id="hxKDoneDl">58% complete</div></div>
+          <div class="kpi"><div class="acc" style="background:var(--warn)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-list"/></svg>Pending proof</div><div class="val" id="hxKPend">4</div><div class="dl down">awaiting upload</div></div>
+          <div class="kpi"><div class="acc" style="background:var(--info)"></div><div class="lab"><svg class="ic" style="width:14px"><use href="#i-cal"/></svg>Leave to action</div><div class="val" id="hxKLeave">2</div><div class="dl muted">your approval</div></div>
+        </div>
+        <div class="card" style="margin-top:16px"><div class="hd"><h3>Today's completion by person</h3><div class="sp"></div><span class="tag t-mut" id="hxTeamCount">5 people</span></div>
+          <div class="bd" style="padding:0"><table><thead><tr><th>Person</th><th>Clock-in</th><th>Tasks done</th><th>Proof pending</th><th></th></tr></thead><tbody id="hxTeamBody"></tbody></table></div></div>
+      </div>
+
+      <!-- ===== HRMS · Tasks &amp; Proof ===== -->
+      <div class="subpanel hrms" data-sub="tasks">
+        <div class="phead"><div><div class="crumb">HR / People / <b>Tasks &amp; Proof</b></div><h1>Tasks &amp; Proof</h1><div class="sub">Each person's daily tasks with time and the proof they uploaded. Assigned by the manager — not the same as vaccination/operational obligations.</div></div><div class="sp"></div><span class="scopebadge" id="hxSb2"><svg class="ic" style="width:14px"><use href="#i-user"/></svg>Direct reports only</span></div>
+        <div class="card">
+          <div class="tbar">
+            <div class="tsearch"><svg class="ic" style="width:15px"><use href="#i-search"/></svg><input id="hxTaskQ" placeholder="Filter tasks or people…"></div>
+            <div class="chipset" id="hxTaskSt"><span class="chip on" data-st="all">Any status</span><span class="chip" data-st="done">Done</span><span class="chip" data-st="pend">Pending</span><span class="chip" data-st="miss">Missed</span></div>
+            <div class="sp"></div><span class="tcount" id="hxTaskCount">12 tasks</span>
+          </div>
+          <div class="bd" style="padding:0"><table><thead><tr><th>Person</th><th>Task</th><th>Due</th><th>Status</th><th>Proof</th></tr></thead><tbody id="hxTaskBody"></tbody></table></div></div>
+      </div>
+
+      <!-- ===== HRMS · Org Chart ===== -->
+      <div class="subpanel hrms" data-sub="org">
+        <div class="phead"><div><div class="crumb">HR / People / <b>Org Chart</b></div><h1>Organization Chart</h1><div class="sub" id="hxOrgSub">Your position and the people who report directly to you. Deeper layers are hidden for a line manager.</div></div><div class="sp"></div><span class="scopebadge" id="hxSb3"><svg class="ic" style="width:14px"><use href="#i-user"/></svg>Direct reports only</span></div>
+        <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-tree"/></svg><h3>Reporting structure</h3><div class="sp"></div><span class="tag t-info" id="hxOrgVisCount">1 manager · 3 reports</span></div>
+          <div class="bd"><div class="hx-orgscroll"><div class="hx-tree" id="hxOrgTree"></div></div>
+            <div class="hx-lockedhint" id="hxOrgLock"><svg class="ic"><use href="#i-lock"/></svg>Layers below your direct reports are hidden. Switch to <b>COO · Command</b> or <b>HR Director</b> (top-right) to see the full organization.</div>
+          </div></div>
+      </div>
+
+      <!-- ===== HRMS · Leave ===== -->
+      <div class="subpanel hrms" data-sub="leave">
+        <div class="phead"><div><div class="crumb">HR / People / <b>Leave</b></div><h1>Leave Requests</h1><div class="sub" id="hxLeaveSub">The manager decides — approve or reject. An approved request is final; there is no second step.</div></div><div class="sp"></div><button class="btn"><svg class="ic"><use href="#i-plus"/></svg>New request</button></div>
+        <div class="grid g3">
+          <div class="kpi"><div class="acc" style="background:var(--warn)"></div><div class="lab">Pending you</div><div class="val" id="hxLvAwait">2</div><div class="dl muted">to decide</div></div>
+          <div class="kpi"><div class="acc" style="background:var(--ok)"></div><div class="lab">Approved (30d)</div><div class="val" id="hxLvOk">7</div><div class="dl up">team</div></div>
+          <div class="kpi"><div class="acc" style="background:var(--danger)"></div><div class="lab">Rejected (30d)</div><div class="val" id="hxLvRej">1</div><div class="dl down">team</div></div>
+        </div>
+        <div class="card" style="margin-top:16px"><div class="hd"><h3>Requests</h3><div class="sp"></div><span class="tag t-mut" id="hxLeaveCount">5</span></div>
+          <div class="bd" style="padding:0"><table><thead><tr><th>Person</th><th>Type</th><th>Dates</th><th>Days</th><th>Balance</th><th>Decided by</th><th>Status</th></tr></thead><tbody id="hxLeaveBody"></tbody></table></div></div>
+      </div>
+
+      <!-- ===== HRMS · Attendance ===== -->
+      <div class="subpanel hrms" data-sub="attend">
+        <div class="phead"><div><div class="crumb">HR / People / <b>Attendance</b></div><h1>Clock-in Log</h1><div class="sub">Simple tap-to-clock timestamps from the mobile app.</div></div><div class="sp"></div><span class="scopebadge" id="hxSb4"><svg class="ic" style="width:14px"><use href="#i-user"/></svg>Direct reports only</span></div>
+        <div class="card"><div class="hd"><h3>Today · 15 July 2026</h3><div class="sp"></div><span class="tag t-ok" id="hxAttendOk">4 clocked in</span></div>
+          <div class="bd" style="padding:0"><table><thead><tr><th>Person</th><th>Clock-in</th><th>Clock-out</th><th>Status</th></tr></thead><tbody id="hxAttendBody"></tbody></table></div></div>
+      </div>
+
+      <!-- SUPERSEDED by the HRMS vertical (Operators -> superseded by HRMS Overview + Org Chart).
+     Kept for reference until the HRMS design is signed off.
+<div class="subpanel on" data-sub="operators">
         <div class="phead"><div><div class="crumb">Team / <b>Operators</b></div><h1>Operators</h1></div><div class="sp"></div><button class="btn" onclick="openBulk('operator')"><svg class="ic" style="width:13px"><use href="#i-arrow"/></svg>Import sheet</button><button class="btn p" onclick="openForm('operator')"><svg class="ic"><use href="#i-plus"/></svg>Add operator</button></div>
         <div class="charts" style="margin-bottom:16px"><div class="chartcard"><h4>SLA compliance</h4><div class="cap">% acked in 10 min · falling</div><div id="c-sla"></div></div><div class="chartcard"><h4>Tasks by status</h4><div class="cap">today</div><div style="display:flex;align-items:center;gap:12px"><div id="c-tasks"></div><div class="lg" style="flex-direction:column;gap:4px"><span><i class="sw" style="background:var(--brand)"></i>done 41</span><span><i class="sw" style="background:var(--amber)"></i>due 14</span><span><i class="sw" style="background:var(--danger)"></i>overdue 5</span></div></div></div><div class="chartcard"><h4>Penalties — 6 wk</h4><div class="cap">strikes issued</div><div id="c-pen"></div></div><div class="chartcard"><h4>Tasks by department</h4><div class="cap">open</div><div id="c-deptasks"></div></div><div class="chartcard"><h4>Approval queue</h4><div class="cap">count</div><div id="c-approval"></div></div><div class="chartcard"><h4>SLA bands</h4><div class="cap">tasks</div><div id="c-slabands"></div></div></div>
         <div class="grid g2">
@@ -1945,6 +2065,7 @@
           </div></div></div>
         </div>
       </div>
+    -->
 
       <div class="subpanel" data-sub="roles">
         <div class="phead"><div><div class="crumb">Team / <b>Roles &amp; access</b></div><h1>Roles &amp; Access (RBAC)</h1></div><div class="sp"></div><button class="btn p" onclick="openForm('role')"><svg class="ic"><use href="#i-plus"/></svg>New role / group</button></div>
@@ -1967,7 +2088,9 @@
         </tbody></table><div class="note" style="margin:12px 14px">Each row = a granular permission granted to a <b>group</b>; a person inherits via group membership, scoped to their park/shed/farm. Full CRUD via "New role / group".</div></div></div>
       </div>
 
-      <div class="subpanel" data-sub="sla">
+      <!-- SUPERSEDED by the HRMS vertical (Response SLA -> superseded by HRMS Tasks & Proof (pending/missed)).
+     Kept for reference until the HRMS design is signed off.
+<div class="subpanel" data-sub="sla">
         <div class="phead"><div><div class="crumb">Team / <b>Response SLA</b></div><h1>Response SLA <i class="ihelp" onclick="openHelp('sla')">i</i></h1><div class="sub">Are people answering their alerts in time? Every assigned alert must be acknowledged within <b>10 minutes</b>. This board shows who's slow so it can be chased before it hurts a goat.</div></div><div class="sp"></div><button class="btn p" onclick="slaAckModal()"><svg class="ic"><use href="#i-check"/></svg>Acknowledge / clear breach</button></div>
         <div class="card"><div class="hd"><svg class="ic" style="color:var(--danger)"><use href="#i-clock"/></svg><h3>10-minute response window — today</h3><span class="tag t-dng" style="margin-left:auto">4 not answered in time</span></div><div class="bd feed">
           <div class="fitem" style="cursor:pointer" onclick="go('health','health')"><div class="tx"><b>Diagnosis <span class="gid">CBE-2218</span> → Health Director</b><div class="mt">nobody acknowledged · 12 min 40 sec and counting</div></div><span class="sla brk">MISSED</span></div>
@@ -1975,6 +2098,7 @@
           <div class="fitem" style="cursor:pointer" onclick="go('breeding','births')"><div class="tx"><b>Birth report → Growth Mgr</b><div class="mt">acknowledged in 2 min 15 sec</div></div><span class="sla ok">ON TIME</span></div>
           <div class="note" style="margin-top:8px"><b>What happens on a miss:</b> the system re-sends the alert up the reporting line on its own — first the manager, then their boss, then the director — until someone acknowledges. The most serious alerts must be fully resolved within 4 hours.</div></div></div>
       </div>
+    -->
 
       <div class="subpanel" data-sub="audit">
         <div class="phead"><div><div class="crumb">Admin · Data-Ops / <b>Audit log</b></div><h1>Audit Log <i class="ihelp" onclick="openHelp('audit')">i</i></h1><div class="sub">Every action by every operator <b>and admin</b> — organised by <b>operation</b>, not by area. <b>Scoped to your hierarchy</b>: a manager sees only who reports up to them; COO/Founders see all. Use the top-bar <b>Company-wide / Park-wise</b>, park &amp; date-range controls to scope the log. Append-only · tamper-proof.</div></div><div class="sp"></div><button class="btn" onclick="exportModal('audit log')"><svg class="ic"><use href="#i-arrow"/></svg>Export</button></div>
@@ -1994,7 +2118,9 @@
         </div>
         <div class="card"><div class="hd"><svg class="ic" style="color:var(--brand)"><use href="#i-clock"/></svg><h3>Activity trail</h3><div class="sp"></div><span class="small muted" id="auditTrailMeta"></span></div><div class="bd" style="padding:0;overflow:auto"><div id="auditPagerTop" class="pager2" style="border-top:0;border-bottom:1px solid var(--line2)"></div><table data-enh="1"><thead><tr><th>Time</th><th>Operation</th><th>Operator</th><th>Action</th><th>Target</th><th>Result</th><th>Proof</th></tr></thead><tbody id="auditRows"></tbody></table><div id="auditPager" class="pager2"></div><div class="note" style="margin:12px 14px"><b>Append-only · tamper-proof.</b> Stock-draw mismatches, record deletions &amp; silent skips auto-raise anomalies into Penalties. Tap a row for the entity's full history; use the <b>Operators</b> filter to scope the trail to specific people.</div></div></div>
       </div>
-      <div class="subpanel" data-sub="penalties">
+      <!-- SUPERSEDED by the HRMS vertical (Penalties -> superseded by HRMS Tasks & Proof (missed)).
+     Kept for reference until the HRMS design is signed off.
+<div class="subpanel" data-sub="penalties">
         <div class="phead"><div><div class="crumb">Team / <b>Penalties</b></div><h1>Discipline · 3-strike</h1></div><div class="sp"></div><span class="tag t-mut">Warning → PIP → Termination</span><button class="btn p" onclick="openForm('penalty')"><svg class="ic"><use href="#i-plus"/></svg>Issue penalty</button></div>
         <div class="card"><div class="bd" style="padding:0"><table id="penaltyTbl"><thead><tr><th>Person</th><th>Role</th><th>Infractions</th><th>Stage</th></tr></thead><tbody>
           <tr><td>K. Murthy</td><td>Health Asst Mgr</td><td>2 skipped EOD · 1 SOP deviation</td><td><span class="tag t-warn">Strike 2 · PIP</span></td></tr>
@@ -2002,8 +2128,11 @@
           <tr style="background:var(--purplex)"><td>Dr. Rao</td><td><b>Health Director</b></td><td>poor protocol comms → operator failed SOP</td><td><span class="tag t-pur">Concurrent</span></td></tr>
         </tbody></table><div class="note" style="margin:12px 14px">HR can issue a <b>concurrent Director penalty</b> when a ground SOP failure traces to poor protocol communication — accountability flows up too.</div></div></div>
       </div>
+    -->
 
-      <div class="subpanel" data-sub="hr">
+      <!-- SUPERSEDED by the HRMS vertical (HR . recruit & payroll -> superseded by HRMS Overview).
+     Kept for reference until the HRMS design is signed off.
+<div class="subpanel" data-sub="hr">
         <div class="phead"><div><div class="crumb">Team / <b>HR</b></div><h1>HR · Recruit → Onboard → Staff → Pay</h1></div><div class="sp"></div><button class="btn p" onclick="openForm('operator')"><svg class="ic"><use href="#i-plus"/></svg>Open requisition</button></div>
         <div class="grid g4" style="margin-bottom:16px">
           <div class="kpi"><div class="lab">Open roles</div><div class="val">6</div><div class="dl down">2 critical</div></div>
@@ -2028,6 +2157,7 @@
           <div class="metagrid"><div><div class="k">KYC</div><div class="v"><span class="tag t-warn">1 pending</span></div></div><div><div class="k">NDA</div><div class="v"><span class="tag t-warn">1 pending</span></div></div><div><div class="k">Background check</div><div class="v"><span class="tag t-info">in progress</span></div></div><div><div class="k">Reference check</div><div class="v"><span class="tag t-ok">cleared</span></div></div></div>
           <div class="note" style="margin-top:10px"><b>Hard gate:</b> no on-site work without KYC + NDA + background + reference. Onboarding readiness ≤ 24h.</div></div></div>
       </div>
+    -->
 
       <!-- ===== POSITION & COVERAGE ===== -->
       <div class="subpanel" data-sub="positions">
@@ -2139,7 +2269,7 @@
   <div class="dbd"><div class="note" style="margin-bottom:6px">Each notification deep-links to its source and auto-resolves when the linked task closes. Escalations also live in <b>Team → Response SLA</b>; the work itself is in the <b>Action Center</b>.</div><div class="nlist">
     <div class="nrow unread" onclick="go('health','health')"><span class="nb" style="background:var(--dangerx);color:var(--danger)"><svg class="ic"><use href="#i-warn"/></svg></span><div><b>Escalation · reminder 3</b><div class="muted small">Diagnosis CBE-2218 unacknowledged 12 min — escalated to Health Director.</div><div class="muted small" style="margin-top:3px">2 min ago · FCM</div></div><svg class="ic go"><use href="#i-arrow"/></svg></div>
     <div class="nrow unread" onclick="go('inventory','reorder')"><span class="nb" style="background:var(--dangerx);color:var(--danger)"><svg class="ic"><use href="#i-box"/></svg></span><div><b>Stock floor</b><div class="muted small">Oxytetracycline LA below 2-week floor → Founders + COO.</div><div class="muted small" style="margin-top:3px">14 min ago</div></div><svg class="ic go"><use href="#i-arrow"/></svg></div>
-    <div class="nrow unread" onclick="go('people','sla')"><span class="nb" style="background:var(--purplex);color:var(--purple)"><svg class="ic"><use href="#i-video"/></svg></span><div><b>Verification needed</b><div class="muted small">8 videos awaiting central review.</div><div class="muted small" style="margin-top:3px">20 min ago</div></div><svg class="ic go"><use href="#i-arrow"/></svg></div>
+    <div class="nrow unread" onclick="go('people','tasks')"><span class="nb" style="background:var(--purplex);color:var(--purple)"><svg class="ic"><use href="#i-video"/></svg></span><div><b>Verification needed</b><div class="muted small">8 videos awaiting central review.</div><div class="muted small" style="margin-top:3px">20 min ago</div></div><svg class="ic go"><use href="#i-arrow"/></svg></div>
     <div class="nrow" onclick="go('breeding','births')"><span class="nb" style="background:var(--tealx);color:var(--teal)"><svg class="ic"><use href="#i-goat"/></svg></span><div><b>Colostrum 07:00 done</b><div class="muted small">9 kids fed &amp; verified. Next 11:00.</div><div class="muted small" style="margin-top:3px">07:14</div></div><svg class="ic go"><use href="#i-arrow"/></svg></div>
   </div></div>
 </aside>
@@ -2454,8 +2584,6 @@ function toggleNav(){
 }
 document.querySelectorAll('.ggrp').forEach(g=>g.addEventListener('click',()=>{
   const lay=document.querySelector('.layout');if(lay.classList.contains('rail')){lay.classList.remove('rail');}
-  /* a group can hand off to another mock page instead of opening a subnav (HR / People -> HRMS) */
-  if(g.dataset.href){location.href=g.dataset.href;return;}
   const grp=g.dataset.grp,sn=document.querySelector('.subnav[data-grp="'+grp+'"]');
   if(!sn)return;
   const willOpen=!sn.classList.contains('open');
@@ -3333,7 +3461,7 @@ var ROLES={
 var AUDIT_ROLES=['coo','healthdir','procdir','verification','parkhead','healthmgr','hrdir','investor'];
 var CUR_ROLE='coo';
 function setRole(r){var R=ROLES[r];if(!R)return;CUR_ROLE=r;if(typeof auditViewer!=='undefined')auditViewer=r;
- document.querySelectorAll('.nav[data-go],.ggrp[data-grp]').forEach(function(n){var key=n.dataset.go||n.dataset.grp;var show=(R.nav==='all')||R.nav.indexOf(key)>=0||key==='passport';n.style.display=show?'':'none';if(n.dataset.grp){var sn=document.querySelector('.subnav[data-grp="'+n.dataset.grp+'"]');if(sn)sn.style.display=show?'':'none';}});
+ document.querySelectorAll('.nav[data-go],.ggrp[data-grp]').forEach(function(n){var key=n.dataset.go||n.dataset.navkey||n.dataset.grp;var show=(R.nav==='all')||R.nav.indexOf(key)>=0||key==='passport';n.style.display=show?'':'none';if(n.dataset.grp){var sn=document.querySelector('.subnav[data-grp="'+n.dataset.grp+'"]');if(sn)sn.style.display=show?'':'none';}});
  document.querySelectorAll('#userMenu .pm-item').forEach(function(it){var oc=it.getAttribute('onclick')||'';it.classList.toggle('on',oc.indexOf("setRole('"+r+"')")>=0);});
  var _cfg=document.querySelector('.leaf[data-go="config"]');if(_cfg)_cfg.style.display=(r==='coo')?'':'none'; /* Config = CEO/COO/superadmin only */
  var _pb=document.getElementById('cfgPublishBtn');if(_pb){var sup=(r==='coo');_pb.disabled=!sup;_pb.style.opacity=sup?'1':'.45';_pb.textContent=sup?'Publish v4 → CBE override':'Publish — CEO/COO only';}
@@ -3344,6 +3472,7 @@ function setRole(r){var R=ROLES[r];if(!R)return;CUR_ROLE=r;if(typeof auditViewer
  document.body.dataset.role=r;document.body.dataset.canedit=R.canEdit;document.body.dataset.canverify=R.canVerify;
  if(typeof CUR_OP!=='undefined')CUR_OP=R.person;
  if(typeof logEvent==='function')logEvent({act:'Switched role view',tgt:R.label,res:'nav + scope re-gated',rc:'t-info',type:'role'});
+ if(typeof hrmsApply==='function')hrmsApply(); /* HRMS scope follows the console role — no second persona switch */
  var scr=document.querySelector('.screen.on');if(typeof go==='function')go(scr?scr.getAttribute('data-screen'):'command');
  if(typeof closeUserMenu==='function')closeUserMenu();}
 function modeLabel(){return SCOPE_MODE==='company'?('Company-wide · '+(scopeSel.size<PARKS.length?(typeof scopeLbl==='function'?scopeLbl():'subset'):PARKS.length+' parks')):('Park-wise · '+(typeof scopeLabel==='function'?scopeLabel():([...scopeSel][0]||'CBE')));}
@@ -4623,4 +4752,207 @@ function cfgSave(publish){var dsl=cfgReadDSL();var sup=(typeof CUR_ROLE!=='undef
 function cfgPublishRow(id){if(typeof CUR_ROLE==='undefined'||CUR_ROLE!=='coo'){cfgToast('Only CEO/COO can publish');return;}var r=RULES.filter(function(x){return x.id===id;})[0];if(!r)return;var vr=cfgValidatePublish(r.dsl||{});if(!vr.ok){cfgToast(vr.msg+' — opening editor');cfgEditRule(id);return;}r.status='published';r.eff='today → —';r.pub=(r.dsl.source&&r.dsl.source.approved_by)||'R. Teja';renderCfgRules();if(typeof syncVaccRulesBadge==='function')syncVaccRulesBadge();cfgToast('Published · immutable · source-backed · obligations will now generate');}
 function cfgImpact(){var el=document.getElementById('cfgImpactBody');if(!el)return;var sched=cfgSchedule||[];var affected=142;var perCycle=sched.filter(function(r){return r.repeat!=='yearly';}).length||sched.length;var annual=sched.filter(function(r){return r.repeat==='yearly';}).length;var catchup=sched.filter(function(r){return r.catch_up&&r.catch_up!=='next_cycle';}).length;var obligations=affected*perCycle;var stock=Math.round(obligations*1.05);var history=Math.round(affected*0.6);function c(k,v){return '<div style="background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 11px"><div class="muted" style="font-size:11px">'+k+'</div><div style="font-weight:740;font-size:16px">'+v+'</div></div>';}el.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:8px">'+c('Affected goats',affected)+c('Dose rows',sched.length)+c('Obligations / cycle',obligations)+c('Annual repeats',annual)+c('Catch-up rows',catchup)+c('Stock needed',stock+' doses')+c('SOP batches','3 drives')+c('Prior history',history)+'</div><div class="muted small" style="margin-top:8px"><b>Existing-history catch-up:</b> '+history+' goats → next-due from last accepted completion (not DOB). <b>Conflicts:</b> v3 published window open for CBE (warning) · no operator on K1-CBE drive (critical).</div><div class="muted small" style="margin-top:6px;font-style:italic">Mock math from schedule[] only. Backend computes from real eligibility + per-goat vaccination history + live inventory_stock.</div>';}
 if(document.getElementById('cfgRulesBody'))renderCfgRules();if(typeof syncVaccRulesBadge==='function')syncVaccRulesBadge();
+
+/* ===================== HRMS vertical (ported from mock/hrms-web-mock.html) =====================
+   Everything here is HR_/hr*-namespaced on purpose: the console already owns TASKS, PERSON,
+   openPerson, av() and $. Scope follows the console's OWN role switcher (CUR_ROLE) rather than
+   shipping a second persona control — COO / HR Director see the full org, every other role sees
+   the line-manager view (self + direct reports). Person + leave detail reuse the shared
+   #infoDrawer via openInfo(), so there is no second drawer implementation. */
+var HR_PEOPLE={
+  ceo:{name:'Anjali Rao',role:'CEO',av:'AR',mgr:null},
+  chro:{name:'Priya Nair',role:'CHRO',av:'PN',mgr:'ceo'},
+  coo:{name:'Deepak Iyer',role:'COO',av:'DI',mgr:'ceo'},
+  ramesh:{name:'Ramesh K.',role:'Health Manager',av:'RK',mgr:'coo'},
+  vijay:{name:'Vijay S.',role:'Parks Manager',av:'VS',mgr:'coo'},
+  suresh:{name:'Suresh M.',role:'Vaccinator',av:'SM',mgr:'ramesh'},
+  lakshmi:{name:'Lakshmi P.',role:'Field Assistant',av:'LP',mgr:'ramesh'},
+  anita:{name:'Anita D.',role:'Field Vet',av:'AD',mgr:'ramesh'},
+  manoj:{name:'Manoj T.',role:'Shed Operator',av:'MT',mgr:'vijay'},
+  ravi:{name:'Ravi B.',role:'Shed Operator',av:'RB',mgr:'vijay'}
+};
+var HR_CLOCK={ramesh:'08:52',suresh:'07:58',lakshmi:'08:10',anita:null,manoj:'08:05',ravi:'08:20',vijay:'08:41',chro:'09:02',coo:'08:30',ceo:'09:30'};
+/* plain manager-assigned daily tasks — NOT vaccination/operational obligations */
+var HR_TASKS={
+  suresh:[{t:'Morning attendance headcount — Shed A',due:'08:30',st:'done',proof:true},{t:'Clean & refill feed troughs',due:'12:00',st:'pend',proof:false},{t:'Evening shed lock-up check',due:'17:30',st:'pend',proof:false}],
+  lakshmi:[{t:'Water line refill log',due:'09:00',st:'done',proof:true},{t:'Bedding replacement — Shed B',due:'13:00',st:'pend',proof:false}],
+  anita:[{t:'Sick-pen round & notes',due:'09:00',st:'done',proof:true},{t:'Weekly hygiene audit form',due:'14:00',st:'miss',proof:false}],
+  ramesh:[{t:'Team standup & task assignment',due:'08:00',st:'done',proof:true},{t:'Weekly shed hygiene walkthrough',due:'16:00',st:'pend',proof:false}],
+  manoj:[{t:'Shed gate & fence check',due:'08:30',st:'done',proof:true},{t:'Feed distribution — evening',due:'17:00',st:'pend',proof:false}],
+  ravi:[{t:'Bedding replacement log',due:'09:00',st:'done',proof:true}],
+  vijay:[{t:'Parks morning briefing',due:'08:00',st:'done',proof:true}]
+};
+var HR_LEAVE=[
+  {id:'L-241',person:'suresh',type:'Casual',from:'18 Jul',to:'19 Jul',days:2,bal:'6 CL',status:'pend'},
+  {id:'L-238',person:'anita',type:'Sick',from:'16 Jul',to:'16 Jul',days:1,bal:'8 SL',status:'pend'},
+  {id:'L-235',person:'lakshmi',type:'Casual',from:'22 Jul',to:'24 Jul',days:3,bal:'4 CL',status:'ok'},
+  {id:'L-230',person:'manoj',type:'Earned',from:'10 Jul',to:'12 Jul',days:3,bal:'11 EL',status:'ok'},
+  {id:'L-226',person:'ravi',type:'Sick',from:'05 Jul',to:'05 Jul',days:1,bal:'9 SL',status:'rej'}
+];
+var HR_MGR='ramesh';                      /* the line manager the mgr-scope view is drawn for */
+var HR_FULL_ROLES=['coo','hrdir'];        /* console roles that get full-org HR visibility */
+var hxTaskSt='all', hxTaskQ='';
+
+function hrFull(){return typeof CUR_ROLE!=='undefined'&&HR_FULL_ROLES.indexOf(CUR_ROLE)>=0;}
+function hrKids(id){return Object.keys(HR_PEOPLE).filter(function(k){return HR_PEOPLE[k].mgr===id;});}
+function hrTeam(){return hrFull()?Object.keys(HR_PEOPLE).filter(function(id){return id!=='ceo';}):[HR_MGR].concat(hrKids(HR_MGR));}
+function hrScopedLeave(){return hrFull()?HR_LEAVE.slice():HR_LEAVE.filter(function(r){return hrKids(HR_MGR).indexOf(r.person)>=0;});}
+function hrEl(id){return document.getElementById(id);}
+function hrStTag(st){return st==='done'?'<span class="tag t-ok">Done</span>':st==='pend'?'<span class="tag t-warn">Pending</span>':'<span class="tag t-dng">Missed</span>';}
+function hrWho(id){var p=HR_PEOPLE[id];
+  return '<div class="hx-who"><span class="av">'+p.av+'</span><span><div class="hx-n">'+p.name+(id===HR_MGR&&!hrFull()?' <span class="tag t-mut" style="margin-left:4px">you</span>':'')+'</div><div class="hx-s">'+p.role+'</div></span></div>';}
+
+function hrRenderDash(){
+  var ppl=hrTeam(),ci=0,td=0,tt=0,pp=0;
+  hrEl('hxTeamCount').textContent=ppl.length+' people';
+  hrEl('hxTeamBody').innerHTML=ppl.map(function(id){
+    var ts=HR_TASKS[id]||[];
+    var done=ts.filter(function(x){return x.st==='done';}).length;
+    var pend=ts.filter(function(x){return x.st==='pend'&&!x.proof;}).length;
+    if(HR_CLOCK[id])ci++; td+=done; tt+=ts.length; pp+=pend;
+    return '<tr style="cursor:pointer" onclick="hrOpenPerson(\''+id+'\')"><td>'+hrWho(id)+'</td>'+
+      '<td>'+(HR_CLOCK[id]?'<span class="tag t-ok">'+HR_CLOCK[id]+'</span>':'<span class="tag t-dng">not in</span>')+'</td>'+
+      '<td><b>'+done+'</b><span class="muted"> / '+ts.length+'</span></td>'+
+      '<td>'+(pend?'<span class="tag t-warn">'+pend+'</span>':'<span class="tag t-ok">0</span>')+'</td>'+
+      '<td style="text-align:right"><svg class="ic" style="width:15px;opacity:.5"><use href="#i-chev"/></svg></td></tr>';
+  }).join('');
+  hrEl('hxKClock').innerHTML=ci+'<small> / '+ppl.length+'</small>';
+  hrEl('hxKDone').innerHTML=td+'<small> / '+tt+'</small>';
+  hrEl('hxKPend').textContent=pp;
+  hrEl('hxKLeave').textContent=hrScopedLeave().filter(function(r){return r.status==='pend';}).length;
+  /* captions are derived, never static — they must not contradict the value above them */
+  var out=ppl.length-ci;
+  var dlc=hrEl('hxKClockDl');
+  if(dlc){dlc.textContent=out?out+' not yet in':'all clocked in';dlc.className='dl '+(out?'down':'up');}
+  var dld=hrEl('hxKDoneDl');
+  if(dld)dld.textContent=tt?Math.round(td/tt*100)+'% complete':'no tasks assigned';
+}
+function hrTaskRows(){var rows=[];hrTeam().forEach(function(id){(HR_TASKS[id]||[]).forEach(function(t){rows.push({t:t.t,due:t.due,st:t.st,proof:t.proof,who:id});});});return rows;}
+function hrRenderTasks(){
+  var rows=hrTaskRows();
+  if(hxTaskSt!=='all')rows=rows.filter(function(r){return r.st===hxTaskSt;});
+  if(hxTaskQ){var q=hxTaskQ.toLowerCase();rows=rows.filter(function(r){return r.t.toLowerCase().indexOf(q)>=0||HR_PEOPLE[r.who].name.toLowerCase().indexOf(q)>=0;});}
+  hrEl('hxTaskCount').textContent=rows.length+(rows.length===1?' task':' tasks');
+  hrEl('hxTaskBody').innerHTML=rows.length?rows.map(function(r){
+    return '<tr style="cursor:pointer" onclick="hrOpenPerson(\''+r.who+'\')"><td>'+hrWho(r.who)+'</td>'+
+      '<td style="font-weight:650">'+r.t+'</td><td class="mono">'+r.due+'</td><td>'+hrStTag(r.st)+'</td>'+
+      '<td>'+(r.proof?'<span class="hx-prooflink"><svg class="ic" style="width:14px"><use href="#i-cam"/></svg>View</span>':'<span class="hx-noproof">no proof</span>')+'</td></tr>';
+  }).join(''):'<tr><td colspan="5" class="muted" style="padding:22px;text-align:center">No tasks match this filter.</td></tr>';
+}
+function hrNode(id,self){var p=HR_PEOPLE[id],ts=HR_TASKS[id]||[];
+  var done=ts.filter(function(x){return x.st==='done';}).length;
+  return '<div class="hx-onode'+(self?' hx-self':'')+'" onclick="hrOpenPerson(\''+id+'\')">'+(self?'<span class="hx-selftag">You</span>':'')+
+    '<div class="hx-oh"><span class="av">'+p.av+'</span><span><div class="hx-nm">'+p.name+'</div><div class="hx-rl">'+p.role+'</div></span></div>'+
+    '<div class="hx-om"><span><b>'+ts.length+'</b> tasks</span><span><b>'+done+'</b> done</span></div></div>';}
+function hrRenderOrg(){
+  var tree=hrEl('hxOrgTree');
+  if(!hrFull()){
+    var reports=hrKids(HR_MGR);
+    hrEl('hxOrgVisCount').textContent='1 manager · '+reports.length+' reports';
+    hrEl('hxOrgLock').style.display='';
+    tree.innerHTML='<div class="hx-branch">'+hrNode(HR_MGR,true)+'</div><div class="hx-connv"></div><div class="hx-tier">'+
+      reports.map(function(r){return '<div class="hx-branch">'+hrNode(r)+'</div>';}).join('')+'</div>';
+  }else{
+    hrEl('hxOrgLock').style.display='none';
+    hrEl('hxOrgVisCount').textContent=Object.keys(HR_PEOPLE).length+' people · full org';
+    var mgrs=hrKids('coo');
+    tree.innerHTML='<div class="hx-branch">'+hrNode('ceo')+'</div><div class="hx-connv"></div>'+
+      '<div class="hx-tier"><div class="hx-branch">'+hrNode('chro')+'</div><div class="hx-branch">'+hrNode('coo')+'</div></div><div class="hx-connv"></div>'+
+      '<div class="hx-tier">'+mgrs.map(function(m){return '<div class="hx-childwrap"><div class="hx-branch">'+hrNode(m)+'</div><div class="hx-connv"></div><div class="hx-tier">'+
+        hrKids(m).map(function(r){return '<div class="hx-branch">'+hrNode(r)+'</div>';}).join('')+'</div></div>';}).join('')+'</div>';
+  }
+}
+function hrRenderLeave(){
+  var rows=hrScopedLeave();
+  var stat={pend:'<span class="tag t-warn">Pending</span>',ok:'<span class="tag t-ok">Approved</span>',rej:'<span class="tag t-dng">Rejected</span>'};
+  var typeTag={Sick:'t-pur',Earned:'t-teal',Casual:'t-info'};
+  hrEl('hxLeaveCount').textContent=rows.length;
+  hrEl('hxLeaveBody').innerHTML=rows.map(function(r){
+    return '<tr style="cursor:pointer" onclick="hrOpenLeave(\''+r.id+'\')"><td>'+hrWho(r.person)+'</td>'+
+      '<td><span class="tag '+(typeTag[r.type]||'t-info')+'">'+r.type+'</span></td>'+
+      '<td>'+r.from+' – '+r.to+'</td><td>'+r.days+'</td><td class="mono">'+r.bal+'</td>'+
+      '<td>'+(r.status==='pend'?'<span class="muted">—</span>':HR_PEOPLE[HR_PEOPLE[r.person].mgr].name)+'</td>'+
+      '<td>'+stat[r.status]+'</td></tr>';
+  }).join('');
+  hrEl('hxLvAwait').textContent=rows.filter(function(r){return r.status==='pend';}).length;
+  hrEl('hxLvOk').textContent=rows.filter(function(r){return r.status==='ok';}).length;
+  hrEl('hxLvRej').textContent=rows.filter(function(r){return r.status==='rej';}).length;
+}
+function hrRenderAttend(){
+  var ppl=hrTeam(),inCt=0;
+  hrEl('hxAttendBody').innerHTML=ppl.map(function(id){
+    var ci=HR_CLOCK[id],late=ci&&ci>'09:00';
+    if(ci)inCt++;
+    return '<tr><td>'+hrWho(id)+'</td><td class="mono">'+(ci||'—')+'</td><td class="mono">—</td>'+
+      '<td>'+(!ci?'<span class="tag t-dng">Absent</span>':late?'<span class="tag t-warn">Late</span>':'<span class="tag t-ok">On time</span>')+'</td></tr>';
+  }).join('');
+  hrEl('hxAttendOk').textContent=inCt+' clocked in';
+}
+function hrOpenPerson(id){
+  var p=HR_PEOPLE[id],ts=HR_TASKS[id]||[];
+  var kCls=function(st){return st==='done'?'hx-ok':st==='pend'?'hx-pend':'hx-miss';};
+  var kIco=function(st){return st==='done'?'#i-check':st==='pend'?'#i-clock':'#i-x';};
+  var body='<div class="hrms-dw">'+
+    '<div class="hx-fieldrow"><span class="hx-k">Clock-in</span><span class="hx-v">'+(HR_CLOCK[id]?'<span class="tag t-ok">'+HR_CLOCK[id]+'</span>':'<span class="tag t-dng">not in</span>')+'</span></div>'+
+    '<div class="hx-fieldrow"><span class="hx-k">Reports to</span><span class="hx-v">'+(p.mgr?HR_PEOPLE[p.mgr].name:'—')+'</span></div>'+
+    '<div class="hx-fieldrow"><span class="hx-k">Tasks today</span><span class="hx-v">'+ts.filter(function(x){return x.st==='done';}).length+' / '+ts.length+' done</span></div>'+
+    '<div class="hx-subh">Daily tasks</div><div class="hx-tlist">'+ts.map(function(t){
+      return '<div class="hx-titem"><span class="hx-tk '+kCls(t.st)+'"><svg class="ic" style="width:14px"><use href="'+kIco(t.st)+'"/></svg></span>'+
+        '<span class="hx-tt"><b>'+t.t+'</b><span class="hx-tm"><span class="mono">'+t.due+'</span>'+(t.proof?' · proof ✓':t.st==='done'?'':' · no proof')+'</span></span>'+
+        (t.proof?'<span class="hx-prooflink"><svg class="ic" style="width:14px"><use href="#i-cam"/></svg></span>':'')+'</div>';
+    }).join('')+'</div>'+
+    '<div class="hx-subh">Latest proof</div><div class="hx-proofbig"><div style="text-align:center"><svg class="ic" style="width:30px"><use href="#i-cam"/></svg>'+
+    '<div style="font-size:12px;margin-top:6px">Photo — feed trough cleaning<br><span class="muted">captured 12:04 · geo-tag on</span></div></div></div></div>';
+  openInfo(p.role.toUpperCase()+' · HRMS',p.name,body,'<button class="btn" onclick="closeAll()">Close</button><button class="btn p"><svg class="ic"><use href="#i-check"/></svg>Nudge / Reassign</button>');
+}
+function hrOpenLeave(lid){
+  var r=HR_LEAVE.filter(function(x){return x.id===lid;})[0];if(!r)return;
+  var p=HR_PEOPLE[r.person];
+  var stat={pend:'<span class="tag t-warn">Pending</span>',ok:'<span class="tag t-ok">Approved</span>',rej:'<span class="tag t-dng">Rejected</span>'}[r.status];
+  var body='<div class="hrms-dw">'+
+    '<div class="hx-fieldrow"><span class="hx-k">Type</span><span class="hx-v">'+r.type+'</span></div>'+
+    '<div class="hx-fieldrow"><span class="hx-k">Dates</span><span class="hx-v">'+r.from+' – '+r.to+'</span></div>'+
+    '<div class="hx-fieldrow"><span class="hx-k">Duration</span><span class="hx-v">'+r.days+' day(s)</span></div>'+
+    '<div class="hx-fieldrow"><span class="hx-k">Balance after</span><span class="hx-v">'+r.bal+'</span></div>'+
+    '<div class="hx-fieldrow"><span class="hx-k">Decision by manager</span><span class="hx-v">'+HR_PEOPLE[p.mgr].name+'</span></div>'+
+    '<div class="hx-fieldrow"><span class="hx-k">Status</span><span class="hx-v">'+stat+'</span></div>'+
+    '<div class="hx-fieldrow"><span class="hx-k">Reason</span><span class="hx-v" style="max-width:60%">Family function / medical</span></div></div>';
+  var canDecide=r.status==='pend'&&(hrFull()||hrKids(HR_MGR).indexOf(r.person)>=0);
+  var foot=canDecide
+    ?'<button class="btn" style="color:var(--danger)"><svg class="ic"><use href="#i-x"/></svg>Reject</button><button class="btn p"><svg class="ic"><use href="#i-check"/></svg>Approve</button>'
+    :'<button class="btn" onclick="closeAll()">Close</button>';
+  openInfo('LEAVE · '+r.id,p.name,body,foot);
+}
+/* re-render every HRMS surface for the current console role */
+function hrmsApply(){
+  if(!hrEl('hxTeamBody'))return;                 /* people screen not in this build */
+  var full=hrFull();
+  var txt=full?'Full organization access':'Direct reports only', ico=full?'#i-shield':'#i-user';
+  ['hxSb1','hxSb2','hxSb3','hxSb4'].forEach(function(s){var el=hrEl(s);if(!el)return;
+    el.className='scopebadge'+(full?'':' park');
+    el.innerHTML='<svg class="ic" style="width:14px"><use href="'+ico+'"/></svg>'+txt;});
+  hrEl('hxDashTitle').textContent=full?'Organization today':'My team today';
+  hrEl('hxDashSub').textContent=full?'Tuesday, 15 July 2026 · all people':'Tuesday, 15 July 2026 · you + your direct reports (one layer)';
+  hrEl('hxOrgSub').textContent=full?'Full reporting structure. Click any person for tasks and proof.':'Your position and the people who report directly to you. Deeper layers are hidden for a line manager.';
+  hrEl('hxLeaveSub').textContent=full?'All requests across the org. The line manager approves or rejects — an approval is final.':'The manager decides — approve or reject. An approved request is final; there is no second step.';
+  hrRenderDash();hrRenderTasks();hrRenderOrg();hrRenderLeave();hrRenderAttend();
+  /* keep the sidebar + subtab counters honest for the current scope */
+  var pendTasks=hrTaskRows().filter(function(r){return r.st==='pend';}).length;
+  var pendLeave=hrScopedLeave().filter(function(r){return r.status==='pend';}).length;
+  if(hrEl('hxTabTaskCt'))hrEl('hxTabTaskCt').textContent=pendTasks;
+  if(hrEl('hxTabLeaveCt'))hrEl('hxTabLeaveCt').textContent=pendLeave;
+  var lf=document.querySelectorAll('.subnav[data-grp="hr"] .leaf .lct');
+  if(lf[0])lf[0].textContent=pendTasks;
+  if(lf[1])lf[1].textContent=pendLeave;
+  var gct=document.querySelector('.ggrp[data-grp="hr"] .gct');
+  if(gct)gct.textContent=pendTasks+pendLeave;
+}
+(function hrmsInit(){
+  var seg=hrEl('hxTaskSt');
+  if(seg)seg.querySelectorAll('.chip').forEach(function(b){b.addEventListener('click',function(){
+    hxTaskSt=b.dataset.st;seg.querySelectorAll('.chip').forEach(function(x){x.classList.toggle('on',x===b);});hrRenderTasks();});});
+  var q=hrEl('hxTaskQ');
+  if(q)q.addEventListener('input',function(){hxTaskQ=q.value.trim();hrRenderTasks();});
+  hrmsApply();
+})();
 </script>
