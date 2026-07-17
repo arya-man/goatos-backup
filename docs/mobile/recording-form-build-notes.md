@@ -20,7 +20,7 @@ form schema.
     block_submission_if · requires_supervisor_if`
 - Proof (signed-URL, direct-to-GCS — bytes never go through the API):
   `POST /app/proofs/uploads` → `{ proof{proof_id}, upload_url, upload_method, headers, expires_at }`
-  → `PUT <upload_url>` (raw bytes; local-dev fallback endpoint `PUT /app/proofs/{id}/upload`)
+  → `PUT <upload_url>` (raw bytes; local-dev fallback endpoint `PUT /app/proofs/{id}/upload?tenant_id=...&expires=...&sig=...`)
   → `POST /app/proofs/{id}/complete`.
 - Submit: `POST /app/tasks/{task_id}/submissions` with `{ answers:{key→value}, proof_refs:[…] }`.
 - Perms: proof endpoints are `TaskExecute`-gated.

@@ -97,14 +97,23 @@ func (s *Service) StoreUpload(ctx context.Context, tenantID, proofID, mimeType s
 }
 
 func (s *Service) DownloadURL(ctx context.Context, tenantID, proofID string) (string, error) {
+	_, url, err := s.DownloadArtifact(ctx, tenantID, proofID)
+	return url, err
+}
+
+func (s *Service) DownloadArtifact(ctx context.Context, tenantID, proofID string) (domain.Artifact, string, error) {
 	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
-		return "", ErrInvalid
+		return domain.Artifact{}, "", ErrInvalid
 	}
 	proof, err := s.repo.GetProof(ctx, tenantID, proofID)
 	if err != nil {
-		return "", err
+		return domain.Artifact{}, "", err
 	}
-	return s.storage.PrepareDownload(ctx, proof, s.ttl)
+	url, err := s.storage.PrepareDownload(ctx, proof, s.ttl)
+	if err != nil {
+		return domain.Artifact{}, "", err
+	}
+	return proof, url, nil
 }
 
 func (s *Service) OpenLocalDownload(ctx context.Context, tenantID, proofID string) (domain.Artifact, ports.ReadSeekCloser, error) {
@@ -197,12 +206,12 @@ func subjectBoundToTaskScope(proof domain.Artifact, binding sopdomain.ProofBindi
 	}
 }
 
-func (s *Service) VerifySignedURL(method, path, expires, signature string) bool {
+func (s *Service) VerifySignedURL(method, path, tenantID, expires, signature string) bool {
 	verifier, ok := s.storage.(ports.SignedURLVerifier)
 	if !ok {
 		return false
 	}
-	return verifier.Verify(method, path, expires, signature, s.now())
+	return verifier.Verify(method, path, tenantID, expires, signature, s.now())
 }
 
 func normalizeCreate(in *domain.CreateUpload) {
