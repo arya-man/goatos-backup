@@ -466,6 +466,8 @@
   .pbtn[disabled]{opacity:.4;cursor:default}
   .alert{display:flex;align-items:center;gap:13px;background:var(--dangerx);border:1px solid color-mix(in srgb,var(--danger) 32%,transparent);border-left:4px solid var(--danger);border-radius:12px;padding:13px 16px;margin-bottom:16px}
   .alert .ic{color:var(--danger)} .alert b{color:var(--danger)}
+  .alert.ok{background:var(--okx);border-color:color-mix(in srgb,var(--ok) 32%,transparent);border-left-color:var(--ok)}
+  .alert.ok .ic{color:var(--ok)} .alert.ok b{color:var(--brand-d)}
   .alert.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--amber) 32%,transparent);border-left-color:var(--amber)} .alert.warn .ic{color:var(--amber)} .alert.warn b{color:var(--amber)}
   .screen table{width:100%;border-collapse:collapse}
   .table-fixed{table-layout:fixed}

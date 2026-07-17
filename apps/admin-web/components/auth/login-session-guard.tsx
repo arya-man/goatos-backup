@@ -51,8 +51,8 @@ export function LoginSessionGuard({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?:
   if (!redirecting) return null;
 
   return (
-    <div className="alert" style={{ marginTop: 18, display: "flex", alignItems: "center", gap: 10 }}>
-      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+    <div className="alert ok" style={{ marginTop: 18, display: "flex", alignItems: "center", gap: 10 }}>
+      <Loader2 className="ic h-4 w-4 animate-spin" aria-hidden="true" />
       <span className="muted small">Session found. Opening dashboard…</span>
     </div>
   );
