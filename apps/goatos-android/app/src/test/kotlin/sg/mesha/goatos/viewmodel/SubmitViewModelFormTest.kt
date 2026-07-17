@@ -231,7 +231,54 @@ class SubmitViewModelFormTest {
         assertEquals(1, request?.proofRefs?.size)
         assertEquals("server-proof-administration", request?.proofRefs?.first()?.proofId)
         assertEquals("administration", request?.proofRefs?.first()?.subjectType)
+        assertEquals("completed", request?.proofRefs?.first()?.uploadState)
         assertTrue("nothing enqueues twice for a cancelled + successful capture", proofCaptureSource.captureCount == 2)
+    }
+
+    @Test
+    fun `a failed optional video_proof does not block an otherwise complete form`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(taskId = "task-optional-proof", sopVersionId = "sop-optional-proof", scopeId = "shed-9", title = "Optional proof", rowVersion = 1)
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField(key = "cold_chain_verified", label = "Cold chain verified", type = FormFieldType.BOOLEAN, required = true),
+                FormField(key = "extra_video", label = "Extra video", type = FormFieldType.VIDEO_PROOF, required = false),
+            ),
+            rules = emptyList(),
+        )
+        val repository = FakeFormTasksRepository(task, form)
+        val sync = CapturingSyncRepository()
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val proofCaptureSource = FakeProofCaptureSource()
+        val viewModel = viewModel(
+            repository,
+            sync,
+            "task-optional-proof",
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = proofCaptureSource,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+
+        advanceUntilIdle()
+        viewModel.onEvent(SubmitEvent.FormToggle("cold_chain_verified", true))
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.canSubmit)
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://optional.mp4", startedAtMs = 2_000L, endedAtMs = 5_000L))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("extra_video"))
+        advanceUntilIdle()
+        val optionalProofId = viewModel.state.value.formRunner?.fields?.single { it.key == "extra_video" }?.proofItems?.single()?.id
+        proofCaptureRepository.markFailed(optionalProofId!!, "network gave up")
+        advanceUntilIdle()
+
+        assertTrue("failed optional proof should not wedge submit", viewModel.state.value.canSubmit)
+        assertNull(viewModel.state.value.formRunner?.blockedReason)
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals(0, sync.lastRequest?.proofRefs?.size)
+        assertEquals(JsonPrimitive(true), sync.lastRequest?.answers?.get("cold_chain_verified"))
     }
 
     @Test
