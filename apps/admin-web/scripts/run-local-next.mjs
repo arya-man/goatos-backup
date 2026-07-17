@@ -112,11 +112,14 @@ async function prepareLocalEnvironment() {
 
   // DRV-R3 single-owner prep: when the stack orchestrator (run-local-stack.sh / supervised) already
   // migrated + seeded + ran closeout, it hands off GOATOS_LOCAL_DB_PREPARED=1 so this wrapper does NOT
-  // repeat those DB mutations (it still mints the dev token, which is the wrapper's own job).
+  // repeat those heavier DB mutations. The local dev grant is intentionally still ensured below:
+  // it is idempotent, and a disposable reseed without this row makes /admin-web/bootstrap fail with
+  // permission_denied even though the dev token is valid.
   const alreadyPrepared =
     process.env.GOATOS_LOCAL_DB_PREPARED === "1" || process.env.GOATOS_LOCAL_DB_PREPARED === "true";
   if (alreadyPrepared) {
     console.log("Local database already prepared by the stack orchestrator; skipping migrate/seed/closeout.");
+    ensureLocalDevGrant(localEnv, tenantId, userId, role);
   } else {
     // DRV-R3a fail-closed guard: refuse to migrate/seed unless the target is a TRUSTED local docker DB.
     // An inherited DATABASE_URL OR the no-docker 127.0.0.1:5433 fallback (a Cloud SQL Auth Proxy also
@@ -126,8 +129,7 @@ async function prepareLocalEnvironment() {
     console.log("Applying Goat OS local migrations before admin-web start.");
     runGo(["run", "./cmd/migrate", "-timeout=10m"], localEnv);
 
-    console.log(`Preparing local dev auth for tenant ${tenantId}, user ${userId}, role ${role}.`);
-    runGo(["run", "./cmd/seed-dev-grant", "-tenant-id", tenantId, "-user-id", userId, "-role", role], localEnv);
+    ensureLocalDevGrant(localEnv, tenantId, userId, role);
     runSeedCloseoutIfPresent(localEnv);
   }
 
@@ -146,6 +148,11 @@ async function prepareLocalEnvironment() {
   await validateBackendAuth(envWithToken);
   console.log(`Local admin token refreshed. Open http://${host}:${port}/`);
   return envWithToken;
+}
+
+function ensureLocalDevGrant(localEnv, tenantId, userId, role) {
+  console.log(`Preparing local dev auth for tenant ${tenantId}, user ${userId}, role ${role}.`);
+  runGo(["run", "./cmd/seed-dev-grant", "-tenant-id", tenantId, "-user-id", userId, "-role", role], localEnv);
 }
 
 function detectDockerDatabaseUrl() {

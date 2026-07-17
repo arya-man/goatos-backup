@@ -47,11 +47,9 @@ check "assert allows trusted DB" 1 "$r"
 
 sup="$here/run-local-stack-supervised.sh"
 
-# 7. DRV-R3b: the refresher sleeps BEFORE its first recompute (no immediate mutation on start/restart).
-sleep_line=$(grep -nE '^[[:space:]]*sleep "\$interval"' "$sup" | head -1 | cut -d: -f1)
-recompute_line=$(grep -nE 'run_projection_refresh vaccination_shed' "$sup" | head -1 | cut -d: -f1)
-if [ -n "$sleep_line" ] && [ -n "$recompute_line" ] && [ "$sleep_line" -lt "$recompute_line" ]; then r=1; else r=0; fi
-check "supervised refresher sleeps before first recompute (DRV-R3b)" 1 "$r"
+# 7. Vaccination execution/schedule local stack must not revive projection refresh loops.
+if grep -qE 'run_projection_refresh|vaccination_[a-z_]*projection' "$sup"; then r=0; else r=1; fi
+check "supervised stack has no vaccination projection refresher" 1 "$r"
 
 # 8. DRV-R3b: migrate/seed/closeout are NOT invoked inside the restart while-loop.
 loop_body=$(awk '/^while \[ "\$stop_requested" = "0" \]; do/{f=1} f{print} f&&/^done$/{exit}' "$sup")
@@ -61,5 +59,13 @@ check "supervised does not re-migrate/seed inside the restart loop (DRV-R3b)" 1 
 # 9. Both stack scripts hand off GOATOS_LOCAL_DB_PREPARED=1 to dev:local (single-owner prep).
 if grep -q 'GOATOS_LOCAL_DB_PREPARED=1 npm' "$here/run-local-stack.sh" && grep -q 'GOATOS_LOCAL_DB_PREPARED=1 npm' "$sup"; then r=1; else r=0; fi
 check "stack scripts hand off GOATOS_LOCAL_DB_PREPARED=1 to dev:local" 1 "$r"
+
+# 10. The admin-web wrapper still ensures the idempotent dev grant when DB prep was handed off.
+# A fresh disposable DB without this grant boots with a valid token but /admin-web/bootstrap returns
+# permission_denied, so this must not be coupled to migrate/seed-closeout.
+next_script="$(cd "$here/../.." && pwd)/apps/admin-web/scripts/run-local-next.mjs"
+prepared_block=$(awk '/if \(alreadyPrepared\) \{/{f=1} f{print} f&&/\} else \{/{exit}' "$next_script")
+if printf '%s\n' "$prepared_block" | grep -q 'ensureLocalDevGrant'; then r=1; else r=0; fi
+check "admin-web prepared path still ensures local dev grant" 1 "$r"
 
 if [ "$fail" = "0" ]; then echo "db-mutation-guard: all tests passed"; else echo "db-mutation-guard: FAILURES"; exit 1; fi
