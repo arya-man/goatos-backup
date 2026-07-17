@@ -182,6 +182,8 @@ func TestRouteRegistryCoversImplementedProtectedRoutes(t *testing.T) {
 		{"GET", "/app/tasks"},
 		{"GET", "/app/tasks/63000000-0000-4000-8000-000000000001"},
 		{"GET", "/app/sop-versions/62000000-0000-4000-8000-000000000001"},
+		{"POST", "/app/tasks/63000000-0000-4000-8000-000000000001/scan-captures"},
+		{"POST", "/app/tasks/63000000-0000-4000-8000-000000000001/scan-attempts"},
 		{"POST", "/app/tasks/63000000-0000-4000-8000-000000000001/submissions"},
 		{"GET", "/procurement/source-entry/loads"},
 		{"POST", "/procurement/source-entry/loads"},

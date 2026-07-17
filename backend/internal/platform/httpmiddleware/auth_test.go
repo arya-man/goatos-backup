@@ -432,6 +432,27 @@ func TestAuthFailsClosedForUnregisteredProtectedRoute(t *testing.T) {
 	assertAuthErrorCode(t, rec, "route_not_registered")
 }
 
+func TestAuthAllowsAppScanTaskWrites(t *testing.T) {
+	mw := testBearerMiddleware(t, fakeGrantSource{roles: map[string][]string{authTestUser + "|" + authTestTenant: {permissions.RoleOperator}}})
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	for _, path := range []string{
+		"/app/tasks/63000000-0000-4000-8000-000000000001/scan-captures",
+		"/app/tasks/63000000-0000-4000-8000-000000000001/scan-attempts",
+	} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, path, nil)
+			req.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestFieldRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T) {
 	scopedGrant := permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: "86000000-0000-4000-8000-000000000701"}
 	mw := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {scopedGrant}}})
