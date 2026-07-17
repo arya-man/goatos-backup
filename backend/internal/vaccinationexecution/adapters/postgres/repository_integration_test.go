@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -801,6 +803,51 @@ func TestVaccinationScheduleCanonicalParkScopeFiltersRows(t *testing.T) {
 	for _, row := range rows {
 		if row.ParkID != otherPark {
 			t.Fatalf("park-scoped schedule returned park %s, want only %s", row.ParkID, otherPark)
+		}
+	}
+}
+
+func TestVaccinationScheduleCanonicalAuthGrantFiltersDirectRepositoryCall(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+	otherPark := "70000000-0000-4000-8000-000000000095"
+	otherShed := "70000000-0000-4000-8000-000000000096"
+	otherGoat := "70000000-0000-4000-8000-000000000097"
+	execProjectionSQL(t, ctx, pool, "other auth park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status)
+		 VALUES ($1, $2, 'park', 'PARK-SCHED-AUTH-2', 'CPT Auth Park', 'active')`,
+		otherPark, testTenant)
+	execProjectionSQL(t, ctx, pool, "other auth shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, status)
+		 VALUES ($1, $2, 'shed', 'SHED-SCHED-AUTH-2', 'K1 Auth Other Shed', $3, 'active')`,
+		otherShed, testTenant, otherPark)
+	insertProjectionGoat(t, ctx, pool, otherGoat, otherShed, otherPark)
+	insertProjectionObligation(t, ctx, pool, "70000000-0000-4000-8000-000000000098", "", otherGoat, "scheduled", "2026-06-26 00:00:00+00", "vaccexec-schedule-auth-other-park")
+
+	authCtx := httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{
+		Role:      permissions.RoleParkHead,
+		ScopeType: "park",
+		ScopeID:   testPark,
+	}})
+	repo := NewRepository(pool, 5*time.Second)
+	rows, err := repo.VaccinationSchedule(authCtx, domain.ScheduleQuery{
+		TenantID:   testTenant,
+		MonthStart: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationSchedule: %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatal("authorized park schedule rows missing")
+	}
+	for _, row := range rows {
+		if row.ParkID != testPark {
+			t.Fatalf("direct repository call leaked park %s, want only authorized park %s", row.ParkID, testPark)
 		}
 	}
 }

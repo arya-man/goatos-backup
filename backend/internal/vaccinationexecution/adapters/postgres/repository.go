@@ -285,6 +285,7 @@ func (r *Repository) vaccinationScheduleWindowRows(ctx context.Context, q domain
 	if q.ParkID != nil {
 		parkID = *q.ParkID
 	}
+	restrictParks := authorizedParkFilter(ctx, q.TenantID)
 	cursorParkID, cursorParkName, cursorShedID, cursorShedName, cursorStage := "", "", "", "", ""
 	if q.Cursor != nil {
 		cursorParkID = q.Cursor.ParkID
@@ -294,7 +295,7 @@ func (r *Repository) vaccinationScheduleWindowRows(ctx context.Context, q domain
 		cursorStage = q.Cursor.Stage
 	}
 	rows, err := r.pool.Query(ctx, vaccinationScheduleWindowSQL, q.TenantID, asOf, monthStart, monthEnd, parkID,
-		cursorParkID, cursorShedID, cursorStage, cursorParkName, cursorShedName, limit)
+		cursorParkID, cursorShedID, cursorStage, cursorParkName, cursorShedName, limit, restrictParks)
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: schedule source rows: %w", err)
 	}
@@ -577,6 +578,7 @@ windowed AS (
   WHERE park_uuid IS NOT NULL
     AND (due_in_window OR accepted_in_window)
     AND ($5::text = '' OR park_uuid = NULLIF($5, '')::uuid)
+    AND ($12::uuid[] IS NULL OR park_uuid = ANY($12::uuid[]))
 ),
 cohort_page AS (
   SELECT windowed.park_uuid, windowed.shed_uuid, windowed.stage

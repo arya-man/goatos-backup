@@ -4,6 +4,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 export const REQUIRED_CANONICAL_TABLES = Object.freeze([
   "goats",
   "obligation_instances",
+  "vaccination_completions",
+  "protocol_rules",
+  "locations",
 ]);
 
 export const FORBIDDEN_DELETED_TABLES = Object.freeze([

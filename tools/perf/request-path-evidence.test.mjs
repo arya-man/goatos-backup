@@ -9,6 +9,8 @@ function passingStats() {
       goats: { seq_scan: 0, idx_scan: 12 },
       obligation_instances: { seq_scan: 0, idx_scan: 18 },
       vaccination_completions: { seq_scan: 0, idx_scan: 4 },
+      protocol_rules: { seq_scan: 0, idx_scan: 2 },
+      locations: { seq_scan: 0, idx_scan: 8 },
     },
   };
 }
