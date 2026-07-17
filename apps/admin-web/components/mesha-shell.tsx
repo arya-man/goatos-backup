@@ -161,8 +161,9 @@ export function MeshaShell({
   // params, so the bar can never disagree with a page body.
   const scope = parseScope(Object.fromEntries((searchParams ?? new URLSearchParams()).entries()));
   const searchKey = searchParams?.toString() ?? "";
+  const isVaccinationFullSchedule = pathname === "/vaccination" && searchParams?.get("view") === "schedule";
   const preserveVaccinationSchedule =
-    pathname === "/vaccination" && searchParams?.get("view") === "schedule"
+    isVaccinationFullSchedule
       ? { view: "schedule", schedule_year: searchParams.get("schedule_year") ?? undefined }
       : {};
   const defaultPark = parks[0] ?? null;
@@ -389,27 +390,29 @@ export function MeshaShell({
             an app-wide scope. */}
         {/* Scope mode toggle — Company-wide (rollup) vs Park-wise (park/shed breakdown). Park-wise does
             not force a park filter; users choose a concrete park separately from the park picker. */}
-        <div className="parkpick" style={{ marginRight: 6 }}>
-          <Link
-            href={currentScopeHref({ park: null, mode: "company" })}
-            replace
-            scroll={false}
-            className={renderedScope.mode === "company" ? "on" : ""}
-            title={companyScopeOption?.title ?? ""}
-          >
-            {companyScopeOption?.label}
-          </Link>
-          <Link
-            href={defaultPark ? currentScopeHref({ park: activeParkId ?? null, mode: "park" }) : currentScopeHref()}
-            replace
-            scroll={false}
-            className={renderedScope.mode === "park" ? "on" : ""}
-            title={defaultPark ? (parkScopeOption?.title ?? "") : shellCopy(contract, "scope.no_parks_for_park_scope")}
-            aria-disabled={!defaultPark}
-          >
-            {parkScopeOption?.label}
-          </Link>
-        </div>
+        {isVaccinationFullSchedule ? null : (
+          <div className="parkpick" style={{ marginRight: 6 }}>
+            <Link
+              href={currentScopeHref({ park: null, mode: "company" })}
+              replace
+              scroll={false}
+              className={renderedScope.mode === "company" ? "on" : ""}
+              title={companyScopeOption?.title ?? ""}
+            >
+              {companyScopeOption?.label}
+            </Link>
+            <Link
+              href={defaultPark ? currentScopeHref({ park: activeParkId ?? null, mode: "park" }) : currentScopeHref()}
+              replace
+              scroll={false}
+              className={renderedScope.mode === "park" ? "on" : ""}
+              title={defaultPark ? (parkScopeOption?.title ?? "") : shellCopy(contract, "scope.no_parks_for_park_scope")}
+              aria-disabled={!defaultPark}
+            >
+              {parkScopeOption?.label}
+            </Link>
+          </div>
+        )}
         {/* Park / shed scope chip (mock .pscope). park_id is backend-honored; per-shed scope is NOT wired in
             this slice, so the label reads "· all sheds" and the menu disables shed selection with a reason —
             never a faked shed filter. The UI shows the human label; links write the backend-safe ?park=uuid. */}
@@ -472,24 +475,26 @@ export function MeshaShell({
         </div>
         {/* Point-in-time date scope only. This is deliberately visible: process-integrity screens honor
             `as_of`, so carrying a bookmarked historical date must never look like today's live queue. */}
-        <div
-          className={`pscope date-scope ${isHistoricalDate ? "stale" : ""}`}
-          style={{ marginRight: 4 }}
-          title={`${shellCopy(contract, "date.data_prefix")} ${scopedDate} · ${freshness}`}
-          aria-label={`${shellCopy(contract, "date.data_prefix")} ${scopedDate} · ${freshness}`}
-        >
-          <CalendarDays className="ic" style={{ width: 14 }} aria-hidden="true" />
-          <span>{shellCopy(contract, "date.data_prefix")}</span>
-          <b>{scopedDate}</b>
-          <span className="muted small" style={{ marginLeft: 2 }}>
-            · {freshness}
-          </span>
-          {isHistoricalDate ? (
-            <Link href={currentScopeHref({ asOf: null })} replace scroll={false} className="scope-reset" title="Reset date scope to today">
-              Today
-            </Link>
-          ) : null}
-        </div>
+        {isVaccinationFullSchedule ? null : (
+          <div
+            className={`pscope date-scope ${isHistoricalDate ? "stale" : ""}`}
+            style={{ marginRight: 4 }}
+            title={`${shellCopy(contract, "date.data_prefix")} ${scopedDate} · ${freshness}`}
+            aria-label={`${shellCopy(contract, "date.data_prefix")} ${scopedDate} · ${freshness}`}
+          >
+            <CalendarDays className="ic" style={{ width: 14 }} aria-hidden="true" />
+            <span>{shellCopy(contract, "date.data_prefix")}</span>
+            <b>{scopedDate}</b>
+            <span className="muted small" style={{ marginLeft: 2 }}>
+              · {freshness}
+            </span>
+            {isHistoricalDate ? (
+              <Link href={currentScopeHref({ asOf: null })} replace scroll={false} className="scope-reset" title="Reset date scope to today">
+                Today
+              </Link>
+            ) : null}
+          </div>
+        )}
         <button
           type="button"
           className="iconbtn"

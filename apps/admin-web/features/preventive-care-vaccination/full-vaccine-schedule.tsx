@@ -340,7 +340,13 @@ export async function VaccinationFullSchedule({
                         const view = scheduleCellView(cell, year, pageContract);
                         return (
                           <td key={protocol.protocolId} className={`schedule-cell state-${view.state}`} title={view.title}>
-                            <Link href={detailHref(row, vaccinationScheduleCellAsOf(cell, year))} className="schedule-cell-link" scroll={false} title={copy(pageContract, "schedule.row.open_title")}>
+                            <Link
+                              href={detailHref(row, vaccinationScheduleCellAsOf(cell, year))}
+                              className="schedule-cell-link"
+                              scroll={false}
+                              prefetch={false}
+                              title={copy(pageContract, "schedule.row.open_title")}
+                            >
                               <span>{view.label}</span>
                               {view.state !== "no_record" ? <Tag tone={STATE_TONE[view.state]}>{legend.find((item) => item.key === view.state)?.label ?? view.state}</Tag> : null}
                             </Link>
