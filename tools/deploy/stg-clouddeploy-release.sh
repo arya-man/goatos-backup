@@ -7,6 +7,9 @@ REGION="${REGION:-asia-south1}"
 ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-goatos}"
 DELIVERY_PIPELINE="${DELIVERY_PIPELINE:-goatos-stg}"
 TARGET_ID="${TARGET_ID:-goatos-stg}"
+WAIT_FOR_ROLLOUT="${GOATOS_STG_RELEASE_WAIT:-1}"
+ROLLOUT_TIMEOUT_SECONDS="${GOATOS_STG_ROLLOUT_TIMEOUT_SECONDS:-1800}"
+ROLLOUT_POLL_SECONDS="${GOATOS_STG_ROLLOUT_POLL_SECONDS:-20}"
 
 die() {
   echo "ERROR: $*" >&2
@@ -65,3 +68,96 @@ gcloud deploy releases create "$release_id" \
   --deploy-parameters="customTarget/commitSha=${commit_sha},customTarget/backendImage=${backend_image},customTarget/migrationImage=${migration_image},customTarget/adminWebImage=${admin_web_image}"
 
 echo "Release submitted: $release_id"
+
+rollout_id="${release_id}-to-${TARGET_ID}-0001"
+
+wait_for_rollout() {
+  local deadline state description
+  deadline=$(( $(date +%s) + ROLLOUT_TIMEOUT_SECONDS ))
+  echo "Waiting for rollout: $rollout_id"
+  while true; do
+    state="$(
+      gcloud deploy rollouts describe "$rollout_id" \
+        --project="$PROJECT_ID" \
+        --region="$REGION" \
+        --delivery-pipeline="$DELIVERY_PIPELINE" \
+        --release="$release_id" \
+        --format='value(state)' 2>/dev/null || true
+    )"
+    description="$(
+      gcloud deploy rollouts describe "$rollout_id" \
+        --project="$PROJECT_ID" \
+        --region="$REGION" \
+        --delivery-pipeline="$DELIVERY_PIPELINE" \
+        --release="$release_id" \
+        --format='value(stateDescription)' 2>/dev/null || true
+    )"
+    case "$state" in
+      SUCCEEDED)
+        echo "Rollout succeeded: $rollout_id"
+        return 0
+        ;;
+      FAILED|CANCELLED|HALTED)
+        die "rollout $rollout_id ended in $state ${description:+- $description}"
+        ;;
+      "")
+        echo "rollout state: not available yet"
+        ;;
+      *)
+        echo "rollout state: $state${description:+ - $description}"
+        ;;
+    esac
+    if (( $(date +%s) >= deadline )); then
+      die "timed out waiting for rollout $rollout_id after ${ROLLOUT_TIMEOUT_SECONDS}s"
+    fi
+    sleep "$ROLLOUT_POLL_SECONDS"
+  done
+}
+
+expect_service_image() {
+  local service="$1"
+  local expected="$2"
+  local line actual created ready
+  line="$(
+    gcloud run services describe "$service" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --format='value(spec.template.spec.containers[0].image,status.latestCreatedRevisionName,status.latestReadyRevisionName)'
+  )"
+  IFS=$'\t' read -r actual created ready <<<"$line"
+  [[ "$actual" == "$expected" ]] || die "$service image stale: got $actual want $expected"
+  [[ "$created" == "$ready" ]] || die "$service has unready latest revision: created=$created ready=$ready"
+  echo "verified service image: $service -> $actual ($ready)"
+}
+
+expect_job_image() {
+  local job="$1"
+  local expected="$2"
+  local actual
+  actual="$(
+    gcloud run jobs describe "$job" \
+      --project="$PROJECT_ID" \
+      --region="$REGION" \
+      --format='value(spec.template.spec.template.spec.containers[0].image)'
+  )"
+  [[ "$actual" == "$expected" ]] || die "$job image stale: got $actual want $expected"
+  echo "verified job image: $job -> $actual"
+}
+
+verify_stg_images() {
+  echo "Verifying staging images for $commit_sha"
+  expect_service_image goatos-api-stg "$backend_image"
+  expect_service_image goatos-admin-web-stg "$admin_web_image"
+  expect_service_image goatos-kernel-worker-stg "$backend_image"
+  expect_job_image goatos-stg-migrate "$migration_image"
+  expect_job_image goatos-stg-outbox-dlq "$backend_image"
+  expect_job_image goatos-stg-analytics-rollup "$backend_image"
+  echo "STG image parity verified for $commit_sha"
+}
+
+if [[ "$WAIT_FOR_ROLLOUT" == "1" ]]; then
+  wait_for_rollout
+  verify_stg_images
+else
+  echo "Rollout wait skipped by GOATOS_STG_RELEASE_WAIT=0; image parity not verified."
+fi
