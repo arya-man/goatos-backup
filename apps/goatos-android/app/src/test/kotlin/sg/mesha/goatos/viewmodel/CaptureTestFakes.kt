@@ -128,6 +128,22 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         return AppResult.Ok(Unit)
     }
 
+    fun markSynced(id: String, serverProofId: String) {
+        val index = rows.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.SYNCED, serverProofId = serverProofId)
+            flow.value = rows.toList()
+        }
+    }
+
+    fun markFailed(id: String, error: String) {
+        val index = rows.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.FAILED, lastError = error)
+            flow.value = rows.toList()
+        }
+    }
+
     override suspend fun clearForTask(taskId: String) {
         rows.clear()
         flow.value = emptyList()

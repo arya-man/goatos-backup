@@ -89,9 +89,9 @@ interface ScannedGoatDao {
 /**
  * One captured proof video for a task's `video_proof` recording-form field
  * (docs/mobile/proof-capture-sync-and-e2e.md §2/§3). Written to Room BEFORE any network call;
- * [syncStatus] tracks the real outbox `PROOF_UPLOAD` row this capture drives (metadata
- * registration — see `core-network`'s `ProofUploadRequestDto` kdoc for the signed-URL binary
- * PUT boundary this build does not perform).
+ * [syncStatus] tracks the real outbox `PROOF_UPLOAD` row this capture drives: register the
+ * server proof, stream bytes to the returned signed URL, complete the proof, then persist the
+ * returned server proof id.
  */
 @Entity(
     tableName = "proof_capture",

@@ -383,6 +383,80 @@ func TestSubmitAcceptedWritesMovementPayload(t *testing.T) {
 	}
 }
 
+func TestSubmitRejectsForgedProofRefsBeforeRepoWrite(t *testing.T) {
+	repo := newFakeRepo()
+	proofs := &fakeProofValidator{err: errors.New("proof does not belong to task")}
+	service := NewService(repo).WithProofValidator(proofs)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "retry-forged-proof",
+			Answers:        validAnswers(),
+			ProofRefs: []domain.ProofReference{{
+				ProofID:     "10000000-0000-4000-8000-000000000111",
+				ProofType:   "video",
+				SubjectType: "batch",
+				UploadState: "completed",
+			}},
+		},
+	}, "trace")
+	if err == nil {
+		t.Fatal("SubmitTask() error = nil, want invalid proof refs")
+	}
+	if appErr, ok := err.(*Error); !ok || appErr.Code != "invalid_proof_refs" {
+		t.Fatalf("err = %#v, want invalid_proof_refs", err)
+	}
+	if repo.lastSubmit.TaskID != "" {
+		t.Fatalf("repo write happened despite rejected proof refs: %#v", repo.lastSubmit)
+	}
+	if proofs.calls != 1 || proofs.binding.TaskID != testTaskID || proofs.binding.ScopeID != testScopeID {
+		t.Fatalf("proof validator calls=%d binding=%#v", proofs.calls, proofs.binding)
+	}
+}
+
+func TestSubmitNormalizesProofRefsThroughServerValidator(t *testing.T) {
+	repo := newFakeRepo()
+	normalized := []domain.ProofReference{{
+		ProofID:     "10000000-0000-4000-8000-000000000111",
+		ProofType:   "video",
+		SubjectType: "batch",
+		UploadState: "completed",
+		Metadata:    map[string]any{"storage_provider": "local"},
+	}}
+	proofs := &fakeProofValidator{resolved: normalized}
+	service := NewService(repo).WithProofValidator(proofs)
+
+	_, err := service.SubmitTask(context.Background(), ports.SubmitTaskCommand{
+		TenantID: testTenantID,
+		ActorID:  testActorID,
+		TaskID:   testTaskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   testVersionID,
+			IdempotencyKey: "retry-server-proof",
+			Answers:        validAnswers(),
+			ProofRefs: []domain.ProofReference{{
+				ProofID:     "10000000-0000-4000-8000-000000000111",
+				ProofType:   "video",
+				SubjectType: "client-forged-subject",
+				UploadState: "completed",
+			}},
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("SubmitTask() error = %v", err)
+	}
+	if proofs.calls != 1 {
+		t.Fatalf("proof validator calls = %d, want 1", proofs.calls)
+	}
+	if got := repo.lastSubmit.Body.ProofRefs; len(got) != 1 || got[0].SubjectType != "batch" || got[0].Metadata["storage_provider"] != "local" {
+		t.Fatalf("proof refs persisted without server normalization: %#v", got)
+	}
+}
+
 func TestSubmitVaccinationRecordsSubmissionFanoutStatus(t *testing.T) {
 	repo := newFakeRepo()
 	repo.task.SOPCode = "vaccination.drive"
@@ -1201,4 +1275,22 @@ type fakeSubmissionHook struct {
 func (f *fakeSubmissionHook) OnTaskSubmitted(context.Context, string, domain.TaskSummary, domain.SubmissionSummary) error {
 	f.submitted++
 	return f.err
+}
+
+type fakeProofValidator struct {
+	calls    int
+	binding  domain.ProofBinding
+	refs     []domain.ProofReference
+	resolved []domain.ProofReference
+	err      error
+}
+
+func (f *fakeProofValidator) ResolveProofRefs(_ context.Context, _ string, binding domain.ProofBinding, refs []domain.ProofReference) ([]domain.ProofReference, error) {
+	f.calls++
+	f.binding = binding
+	f.refs = refs
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.resolved, nil
 }
