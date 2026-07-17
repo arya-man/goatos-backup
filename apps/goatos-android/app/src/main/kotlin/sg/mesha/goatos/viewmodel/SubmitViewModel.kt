@@ -601,7 +601,13 @@ class SubmitViewModel @Inject constructor(
     private fun buildFormRunnerState(form: FormSpec, task: TaskSummaryDto): FormRunnerState? {
         if (form.isEmpty) return null
         val fields = form.fields.map { field -> field.toFieldUi() }
-        val unreadyProof = currentProofs.firstOrNull { !it.isCompletedProofRef() }
+        val requiredUnansweredProofKeys = form.fields
+            .filter { it.type == FormFieldType.VIDEO_PROOF && it.required && !it.isAnswered() }
+            .map { it.key }
+            .toSet()
+        val unreadyProof = currentProofs.firstOrNull {
+            it.fieldKey in requiredUnansweredProofKeys && !it.isCompletedProofRef()
+        }
         val unmet = form.fields.firstOrNull { field -> !field.isAnswered() }
         return FormRunnerState(
             title = "Recording form",
@@ -766,13 +772,15 @@ class SubmitViewModel @Inject constructor(
          *  list. Submit gating requires [serverProofId] to be present; never send a local Room id
          *  as a proof ref, because the backend review path requires completed server proof rows. */
         fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs.mapNotNull { row ->
-            val serverProofId = row.serverProofId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val serverProofId = row.serverProofId
+                ?.takeIf { row.syncStatus == CaptureSyncStatus.SYNCED && it.isNotBlank() }
+                ?: return@mapNotNull null
             ProofReferenceDto(
                 proofId = serverProofId,
                 proofType = "video",
                 subjectType = row.proofSubject.wireValue,
                 subjectId = null,
-                uploadState = row.syncStatus.name.lowercase(),
+                uploadState = "completed",
                 metadata = buildMap {
                     put("field_key", JsonPrimitive(row.fieldKey))
                     row.caption?.takeIf { it.isNotBlank() }?.let { put("caption", JsonPrimitive(it)) }
