@@ -758,8 +758,8 @@ func TestVaccinationScheduleProjectionServesMaterializedMonthAndMarksDirty(t *te
 	if err != nil {
 		t.Fatalf("RebuildDirtyVaccinationScheduleWindows: %v", err)
 	}
-	if summary.Windows != 1 || summary.Rows == 0 {
-		t.Fatalf("dirty rebuild summary: want one rebuilt window with rows, got %+v", summary)
+	if summary.Windows == 0 || summary.Rows == 0 {
+		t.Fatalf("dirty rebuild summary: want rebuilt windows with rows, got %+v", summary)
 	}
 	_, freshAgain, err := repo.VaccinationSchedule(ctx, q)
 	if err != nil {
@@ -768,6 +768,106 @@ func TestVaccinationScheduleProjectionServesMaterializedMonthAndMarksDirty(t *te
 	if freshAgain.FreshnessStatus != "green" || freshAgain.Stale || freshAgain.RebuildRequired {
 		t.Fatalf("fresh-after-dirty state: want green/fresh, got %+v", freshAgain)
 	}
+}
+
+func TestVaccinationScheduleDirtyLimitClaimsSourceScopeBeforeExpansion(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	month := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	parkID := testPark
+	tenantQ := domain.ScheduleQuery{TenantID: testTenant, MonthStart: month, Limit: 50}
+	parkQ := domain.ScheduleQuery{TenantID: testTenant, ParkID: &parkID, MonthStart: month, Limit: 50}
+
+	if _, err := repo.RebuildVaccinationScheduleWindow(ctx, tenantQ, "test-initial"); err != nil {
+		t.Fatalf("initial tenant rebuild: %v", err)
+	}
+	if _, err := repo.RebuildVaccinationScheduleWindow(ctx, parkQ, "test-initial"); err != nil {
+		t.Fatalf("initial park rebuild: %v", err)
+	}
+	tenantBefore := scheduleState(t, ctx, repo, tenantQ).ProjectionVersion
+	parkBefore := scheduleState(t, ctx, repo, parkQ).ProjectionVersion
+
+	execProjectionSQL(t, ctx, pool, "dirty shed schedule month",
+		`SELECT vaccination_schedule_mark_dirty($1::uuid, 'shed', $2::uuid, TIMESTAMPTZ '2026-06-24 00:00:00+00', 'test.dirty.limit')`,
+		testTenant, testShed)
+
+	summary, err := repo.RebuildDirtyVaccinationScheduleWindows(ctx, testTenant, 1, "test-dirty-limit")
+	if err != nil {
+		t.Fatalf("RebuildDirtyVaccinationScheduleWindows: %v", err)
+	}
+	if summary.Windows != 2 {
+		t.Fatalf("dirty-limit=1 should claim one dirty source scope then rebuild tenant+park windows, got summary %+v", summary)
+	}
+
+	tenantAfter := scheduleState(t, ctx, repo, tenantQ)
+	parkAfter := scheduleState(t, ctx, repo, parkQ)
+	if tenantAfter.ProjectionVersion <= tenantBefore || parkAfter.ProjectionVersion <= parkBefore {
+		t.Fatalf("tenant/park versions must both advance after one shed dirty row: tenant %d->%d park %d->%d",
+			tenantBefore, tenantAfter.ProjectionVersion, parkBefore, parkAfter.ProjectionVersion)
+	}
+	if tenantAfter.FreshnessStatus != "green" || tenantAfter.Stale || tenantAfter.RebuildRequired {
+		t.Fatalf("tenant state after dirty-limit rebuild: want green/fresh, got %+v", tenantAfter)
+	}
+	if parkAfter.FreshnessStatus != "green" || parkAfter.Stale || parkAfter.RebuildRequired {
+		t.Fatalf("park state after dirty-limit rebuild: want green/fresh, got %+v", parkAfter)
+	}
+	assertDirtyScheduleMonthCount(t, ctx, pool, month, 0)
+}
+
+func TestVaccinationScheduleHorizonRebuildClearsSatisfiedDirtyScopes(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	month := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	parkID := testPark
+	tenantQ := domain.ScheduleQuery{TenantID: testTenant, MonthStart: month, Limit: 50}
+	parkQ := domain.ScheduleQuery{TenantID: testTenant, ParkID: &parkID, MonthStart: month, Limit: 50}
+
+	if _, err := repo.RebuildVaccinationScheduleWindow(ctx, tenantQ, "test-initial"); err != nil {
+		t.Fatalf("initial tenant rebuild: %v", err)
+	}
+	if _, err := repo.RebuildVaccinationScheduleWindow(ctx, parkQ, "test-initial"); err != nil {
+		t.Fatalf("initial park rebuild: %v", err)
+	}
+	execProjectionSQL(t, ctx, pool, "dirty shed schedule month",
+		`SELECT vaccination_schedule_mark_dirty($1::uuid, 'shed', $2::uuid, TIMESTAMPTZ '2026-06-24 00:00:00+00', 'test.horizon')`,
+		testTenant, testShed)
+
+	if _, err := repo.RebuildVaccinationScheduleWindow(ctx, tenantQ, "test-horizon"); err != nil {
+		t.Fatalf("horizon tenant rebuild: %v", err)
+	}
+	tenantMid := scheduleState(t, ctx, repo, tenantQ)
+	parkMid := scheduleState(t, ctx, repo, parkQ)
+	if tenantMid.FreshnessStatus != "green" || tenantMid.Stale || tenantMid.RebuildRequired {
+		t.Fatalf("tenant state after tenant-only horizon rebuild: want green/fresh, got %+v", tenantMid)
+	}
+	if parkMid.FreshnessStatus != "yellow" || !parkMid.Stale || !parkMid.RebuildRequired {
+		t.Fatalf("park state after tenant-only horizon rebuild: want yellow/stale until park window rebuilds, got %+v", parkMid)
+	}
+
+	if _, err := repo.RebuildVaccinationScheduleWindow(ctx, parkQ, "test-horizon"); err != nil {
+		t.Fatalf("horizon park rebuild: %v", err)
+	}
+	tenantAfter := scheduleState(t, ctx, repo, tenantQ)
+	parkAfter := scheduleState(t, ctx, repo, parkQ)
+	if tenantAfter.FreshnessStatus != "green" || tenantAfter.Stale || tenantAfter.RebuildRequired {
+		t.Fatalf("tenant state after horizon tenant+park rebuild: want green/fresh, got %+v", tenantAfter)
+	}
+	if parkAfter.FreshnessStatus != "green" || parkAfter.Stale || parkAfter.RebuildRequired {
+		t.Fatalf("park state after horizon tenant+park rebuild: want green/fresh, got %+v", parkAfter)
+	}
+	assertDirtyScheduleMonthCount(t, ctx, pool, month, 0)
 }
 
 func TestVaccinationScheduleProjectionPaginatesWithoutTruncatingCursor(t *testing.T) {
@@ -823,6 +923,26 @@ func TestVaccinationScheduleProjectionPaginatesWithoutTruncatingCursor(t *testin
 	}
 	if cursor.ShedID != "70000000-0000-4000-8000-000000000500" {
 		t.Fatalf("cursor shed = %s want 500th shed", cursor.ShedID)
+	}
+}
+
+func scheduleState(t *testing.T, ctx context.Context, repo *Repository, q domain.ScheduleQuery) domain.ScheduleProjectionState {
+	t.Helper()
+	_, state, err := repo.VaccinationSchedule(ctx, q)
+	if err != nil {
+		t.Fatalf("VaccinationSchedule state: %v", err)
+	}
+	return state
+}
+
+func assertDirtyScheduleMonthCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, month time.Time, want int) {
+	t.Helper()
+	var got int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM vaccination_schedule_projection_dirty_scopes WHERE tenant_id = $1::uuid AND year_month = $2::date AND status = 'dirty'`, testTenant, month).Scan(&got); err != nil {
+		t.Fatalf("count dirty schedule scopes: %v", err)
+	}
+	if got != want {
+		t.Fatalf("dirty schedule scopes for %s = %d, want %d", month.Format("2006-01-02"), got, want)
 	}
 }
 

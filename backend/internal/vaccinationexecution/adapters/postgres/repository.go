@@ -302,7 +302,7 @@ func (r *Repository) VaccinationSchedule(ctx context.Context, q domain.ScheduleQ
 	if asOf.Valid {
 		state.AsOf = asOf.Time
 	}
-	dirty, err := r.scheduleProjectionDirty(ctx, q.TenantID, q.ParkID, monthStart)
+	dirty, err := r.scheduleProjectionDirty(ctx, q.TenantID, q.ParkID, monthStart, state.ProjectedAt)
 	if err != nil {
 		return nil, domain.ScheduleProjectionState{}, err
 	}
@@ -412,6 +412,9 @@ func (r *Repository) RebuildVaccinationScheduleWindow(ctx context.Context, q dom
 	if _, err := tx.Exec(ctx, `DELETE FROM vaccination_schedule_projection_rows WHERE tenant_id = $1::uuid AND scope_type = $2 AND scope_id = $3::uuid AND year_month = $4::date AND projection_version <> $5::bigint`, q.TenantID, scopeType, scopeID, monthStart, version); err != nil {
 		return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule prune rows: %w", err)
 	}
+	if _, err := tx.Exec(ctx, scheduleProjectionClearSatisfiedDirtySQL, q.TenantID, monthStart); err != nil {
+		return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule clear satisfied dirty scopes: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule rebuild commit: %w", err)
 	}
@@ -436,21 +439,18 @@ func (r *Repository) RebuildDirtyVaccinationScheduleWindows(ctx context.Context,
 	}
 	defer rows.Close()
 	type window struct {
-		dirtyID    string
 		tenantID   string
 		scopeType  string
 		scopeID    string
 		monthStart time.Time
 	}
 	windows := []window{}
-	dirtyIDs := map[string]bool{}
 	for rows.Next() {
 		var w window
-		if err := rows.Scan(&w.dirtyID, &w.tenantID, &w.scopeType, &w.scopeID, &w.monthStart); err != nil {
+		if err := rows.Scan(&w.tenantID, &w.scopeType, &w.scopeID, &w.monthStart); err != nil {
 			return domain.ScheduleRebuildSummary{}, fmt.Errorf("vaccination execution: scan dirty schedule window: %w", err)
 		}
 		windows = append(windows, w)
-		dirtyIDs[w.dirtyID] = true
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ScheduleRebuildSummary{}, fmt.Errorf("vaccination execution: iterate dirty schedule windows: %w", err)
@@ -475,15 +475,6 @@ func (r *Repository) RebuildDirtyVaccinationScheduleWindows(ctx context.Context,
 		}
 		summary.Windows++
 		summary.Rows += state.RowCount
-	}
-	ids := make([]string, 0, len(dirtyIDs))
-	for id := range dirtyIDs {
-		ids = append(ids, id)
-	}
-	if len(ids) > 0 {
-		if _, err := r.pool.Exec(ctx, scheduleProjectionMarkDirtyRebuiltSQL, ids); err != nil {
-			return summary, fmt.Errorf("vaccination execution: mark dirty schedule windows rebuilt: %w", err)
-		}
 	}
 	return summary, nil
 }
@@ -564,13 +555,13 @@ func nullableString(s *string) any {
 	return *s
 }
 
-func (r *Repository) scheduleProjectionDirty(ctx context.Context, tenantID string, parkID *string, monthStart time.Time) (bool, error) {
+func (r *Repository) scheduleProjectionDirty(ctx context.Context, tenantID string, parkID *string, monthStart time.Time, projectedAt time.Time) (bool, error) {
 	scopeID := ""
 	if parkID != nil {
 		scopeID = *parkID
 	}
 	var dirty bool
-	if err := r.pool.QueryRow(ctx, scheduleProjectionDirtySQL, tenantID, scopeID, monthStart).Scan(&dirty); err != nil {
+	if err := r.pool.QueryRow(ctx, scheduleProjectionDirtySQL, tenantID, scopeID, monthStart, projectedAt).Scan(&dirty); err != nil {
 		return false, fmt.Errorf("vaccination execution: schedule dirty: %w", err)
 	}
 	return dirty, nil
@@ -710,8 +701,7 @@ ORDER BY park_name, shed_name, stage, park_id, shed_id, protocol_name, protocol_
 
 const scheduleProjectionPendingDirtySQL = `
 WITH dirty AS (
-  SELECT d.dirty_scope_id,
-         d.tenant_id,
+  SELECT d.tenant_id,
          d.year_month,
          d.scope_type,
          d.scope_id,
@@ -723,28 +713,26 @@ WITH dirty AS (
    AND l.location_type = 'shed'
   WHERE d.status = 'dirty'
     AND (NULLIF($1::text, '') IS NULL OR d.tenant_id = $1::uuid)
+  ORDER BY d.year_month, d.scope_type, d.scope_id
+  LIMIT $2::int
 )
-SELECT dirty_scope_id::text, tenant_id::text, 'tenant' AS rebuild_scope_type,
-       '00000000-0000-0000-0000-000000000000' AS rebuild_scope_id, year_month
-FROM dirty
-UNION ALL
-SELECT dirty_scope_id::text, tenant_id::text, 'park' AS rebuild_scope_type,
-       CASE
-         WHEN scope_type = 'park' THEN scope_id::text
-         WHEN scope_type = 'shed' AND parent_location_id IS NOT NULL THEN parent_location_id::text
-         ELSE '00000000-0000-0000-0000-000000000000'
-       END AS rebuild_scope_id,
-       year_month
-FROM dirty
-WHERE scope_type IN ('park', 'shed')
-ORDER BY year_month, rebuild_scope_type, rebuild_scope_id
-LIMIT $2::int;`
-
-const scheduleProjectionMarkDirtyRebuiltSQL = `
-UPDATE vaccination_schedule_projection_dirty_scopes
-SET status = 'rebuilt', rebuilt_at = now(), updated_at = now()
-WHERE dirty_scope_id = ANY(ARRAY(SELECT unnest($1::text[])::uuid))
-  AND status = 'dirty';`
+SELECT tenant_id::text, rebuild_scope_type, rebuild_scope_id, year_month
+FROM (
+  SELECT 0 AS rebuild_order, tenant_id, 'tenant' AS rebuild_scope_type,
+         '00000000-0000-0000-0000-000000000000' AS rebuild_scope_id, year_month
+  FROM dirty
+  UNION ALL
+  SELECT 1 AS rebuild_order, tenant_id, 'park' AS rebuild_scope_type,
+         CASE
+           WHEN scope_type = 'park' THEN scope_id::text
+           WHEN scope_type = 'shed' AND parent_location_id IS NOT NULL THEN parent_location_id::text
+           ELSE '00000000-0000-0000-0000-000000000000'
+         END AS rebuild_scope_id,
+         year_month
+  FROM dirty
+  WHERE scope_type IN ('park', 'shed')
+) rebuilds
+ORDER BY year_month, rebuild_order, rebuild_scope_id;`
 
 const scheduleProjectionStateUpsertSQL = `
 INSERT INTO vaccination_schedule_projection_state (
@@ -773,6 +761,7 @@ SELECT EXISTS (
   WHERE d.tenant_id = $1::uuid
     AND d.year_month = $3::date
     AND d.status = 'dirty'
+    AND d.last_dirty_at > $4::timestamptz
     AND (
       NULLIF($2::text, '') IS NULL
       OR d.scope_type = 'tenant'
@@ -788,25 +777,64 @@ SELECT EXISTS (
     )
 );`
 
-const scheduleProjectionClearDirtySQL = `
+const scheduleProjectionClearSatisfiedDirtySQL = `
+WITH states AS (
+  SELECT scope_type, scope_id, projected_at
+  FROM vaccination_schedule_projection_state
+  WHERE tenant_id = $1::uuid
+    AND year_month = $2::date
+    AND serving_state = 'fresh'
+    AND stale = false
+    AND rebuild_required = false
+),
+ready AS (
+  SELECT d.dirty_scope_id
+  FROM vaccination_schedule_projection_dirty_scopes d
+  LEFT JOIN locations l
+    ON l.tenant_id = d.tenant_id
+   AND l.location_id = d.scope_id
+   AND l.location_type = 'shed'
+  WHERE d.tenant_id = $1::uuid
+    AND d.year_month = $2::date
+    AND d.status = 'dirty'
+    AND EXISTS (
+      SELECT 1
+      FROM states tenant_state
+      WHERE tenant_state.scope_type = 'tenant'
+        AND tenant_state.scope_id = '00000000-0000-0000-0000-000000000000'::uuid
+        AND tenant_state.projected_at >= d.last_dirty_at
+    )
+    AND (
+      d.scope_type = 'tenant'
+      OR (
+        d.scope_type = 'park'
+        AND EXISTS (
+          SELECT 1
+          FROM states park_state
+          WHERE park_state.scope_type = 'park'
+            AND park_state.scope_id = d.scope_id
+            AND park_state.projected_at >= d.last_dirty_at
+        )
+      )
+      OR (
+        d.scope_type = 'shed'
+        AND (
+          l.parent_location_id IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM states park_state
+            WHERE park_state.scope_type = 'park'
+              AND park_state.scope_id = l.parent_location_id
+              AND park_state.projected_at >= d.last_dirty_at
+          )
+        )
+      )
+    )
+)
 UPDATE vaccination_schedule_projection_dirty_scopes d
 SET status = 'rebuilt', rebuilt_at = now(), updated_at = now()
-WHERE d.tenant_id = $1::uuid
-  AND d.year_month = $2::date
-  AND d.status = 'dirty'
-  AND (
-    $3 = 'tenant'
-    OR d.scope_type = 'tenant'
-    OR (d.scope_type = 'park' AND d.scope_id = $4::uuid)
-    OR EXISTS (
-      SELECT 1
-      FROM locations l
-      WHERE l.tenant_id = d.tenant_id
-        AND l.location_id = d.scope_id
-        AND l.location_type = 'shed'
-        AND l.parent_location_id = NULLIF($4::text, '')::uuid
-    )
-  );`
+FROM ready
+WHERE d.dirty_scope_id = ready.dirty_scope_id;`
 
 const zeroUUID = "00000000-0000-0000-0000-000000000000"
 
