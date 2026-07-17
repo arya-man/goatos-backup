@@ -595,6 +595,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/vaccination/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Projection-backed vaccination Full Schedule for one materialized month. */
+        get: operations["getVaccinationSchedule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/vaccination/execution": {
         parameters: {
             query?: never;
@@ -2558,6 +2575,10 @@ export interface components {
             status: string;
             /** Format: int64 */
             lagSeconds: number;
+            servingState?: string;
+            stale?: boolean;
+            rebuildRequired?: boolean;
+            rowCount?: number;
         };
         VaccinationExecutionResponse: {
             /** @enum {string} */
@@ -4345,6 +4366,7 @@ export interface operations {
                 protocol_version_id?: string;
                 due_after?: string;
                 due_before?: string;
+                /** @description Opaque pagination cursor returned as next_cursor by the previous response. */
                 cursor?: string;
                 limit?: number;
             };
@@ -4601,6 +4623,37 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
+        };
+    };
+    getVaccinationSchedule: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                /** @description Calendar year in the business timezone. Defaults to the current year. */
+                year?: number;
+                /** @description Calendar month in the business timezone. Defaults to the current month. */
+                month?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vaccination schedule matrix + per-cohort detail for the materialized month. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VaccinationOperationsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServerError"];
         };
     };
     listVaccinationExecution: {

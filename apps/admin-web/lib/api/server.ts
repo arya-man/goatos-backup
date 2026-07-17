@@ -620,6 +620,25 @@ export async function getVaccinationOperations(
   );
 }
 
+// Projection-backed Full Schedule read model. The month/window must already be materialized by the
+// backend projector; cold windows return projection_unavailable instead of running the operations CTE.
+export async function getVaccinationSchedule(
+  params: { parkId?: string; year: number; month: number; limit?: number; cursor?: string } = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
+): Promise<ApiResult<VaccinationOperationsResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    withApiTimeout(6000, (signal) =>
+      client.request<VaccinationOperationsResponse>("/vaccination/schedule", {
+        cache: "no-store",
+        signal,
+        query: compactQuery({ park_id: params.parkId, year: params.year, month: params.month, limit: params.limit, cursor: params.cursor }),
+      }),
+    ),
+  );
+}
+
 export async function getVaccinationExecutionShedDrilldown(
   shedId: string,
   params: { asOf?: string } = {},

@@ -13,6 +13,9 @@ type Repository interface {
 	// pre-cursor window total, so the request path never fetches the whole server-filtered set.
 	ListVaccinationExecutionPage(ctx context.Context, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error)
 	VaccinationOperations(ctx context.Context, q domain.OperationsQuery) ([]domain.OperationsRow, error)
+	// VaccinationSchedule returns the precomputed Full Schedule month/window rows.
+	// Cold windows with no last-good projection return domain.ErrScheduleProjectionUnavailable.
+	VaccinationSchedule(ctx context.Context, q domain.ScheduleQuery) ([]domain.OperationsRow, domain.ScheduleProjectionState, error)
 	// ScanRoster returns one keyset page of per-animal scan obligations for the mobile scan screen
 	// (Rows + NextCursor); the shed's completion counts are computed server-side, not by loading the
 	// full roster on the device.

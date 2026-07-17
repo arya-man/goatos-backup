@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { CalendarDays, Layers, MapPinned, Warehouse } from "lucide-react";
 import {
-  getVaccinationOperations,
+  getVaccinationSchedule,
   type ApiResult,
   type VaccinationOperationsCell,
   type VaccinationOperationsCohort,
@@ -16,8 +16,10 @@ import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { ClipText, Tag, type Tone } from "@/components/ui-primitives";
 import { sortVaccinationProtocols, vaccinationDriveDisplayName, vaccinationVaccineDisplayName } from "./vaccine-display";
 import { vaccinationScheduleCellAsOf, vaccinationScheduleCohortAsOf } from "./full-vaccine-schedule-links";
+import { isInScheduleMonth } from "./full-vaccine-schedule-month";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
+const CURRENT_MONTH = Number(todayIso().slice(5, 7));
 const PAGE_LIMIT = 500;
 
 type ScheduleState = "overdue" | "due_soon" | "up_to_date" | "scheduled" | "no_record";
@@ -40,14 +42,17 @@ function selectedScheduleYear(searchParams: RouteSearchParams | undefined): numb
   return boundedInt(one(searchParams ?? {}, "schedule_year"), CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR + 5);
 }
 
-function yearEndInstant(year: number): string {
-  return `${year}-12-31T23:59:59+05:30`;
+function selectedScheduleMonth(searchParams: RouteSearchParams | undefined): number {
+  return boundedInt(one(searchParams ?? {}, "schedule_month"), CURRENT_MONTH, 1, 12);
 }
 
-function isInYear(iso: string | undefined, year: number): boolean {
-  if (!iso) return false;
-  const date = new Date(iso);
-  return !Number.isNaN(date.getTime()) && date.getFullYear() === year;
+function selectedScheduleCursor(searchParams: RouteSearchParams | undefined): string | undefined {
+  const cursor = one(searchParams ?? {}, "schedule_cursor");
+  return cursor && cursor.length <= 512 ? cursor : undefined;
+}
+
+function monthLabel(year: number, month: number): string {
+  return new Intl.DateTimeFormat("en", { month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).format(new Date(Date.UTC(year, month - 1, 1)));
 }
 
 function humanize(value: string | undefined): string {
@@ -80,6 +85,7 @@ function isScheduleWrapperProtocol(protocol: VaccinationOperationsProtocol): boo
 function scheduleCellView(
   cell: VaccinationOperationsCell | undefined,
   year: number,
+  month: number,
   pageContract: AdminUiPageContract,
 ): ScheduleCellView {
   if (!cell) {
@@ -89,7 +95,7 @@ function scheduleCellView(
       title: copy(pageContract, "schedule.cell.no_record_title"),
     };
   }
-  const dateIso = isInYear(cell.nextDue, year) ? cell.nextDue : isInYear(cell.lastDose, year) ? cell.lastDose : undefined;
+  const dateIso = isInScheduleMonth(cell.nextDue, year, month) ? cell.nextDue : isInScheduleMonth(cell.lastDose, year, month) ? cell.lastDose : undefined;
   if (!dateIso) {
     return {
       state: "no_record",
@@ -118,18 +124,19 @@ function scheduleCellVaccines(cell: VaccinationOperationsCell | undefined, pageC
   return labels.length > 0 ? labels.join(", ") : copy(pageContract, "schedule.cell.no_record");
 }
 
-async function loadFullSchedule(scope: Scope, year: number): Promise<ApiResult<VaccinationOperationsResponse>> {
-  const { parkId, asOf } = backendScope(scope);
-  return getVaccinationOperations({
+async function loadFullSchedule(scope: Scope, year: number, month: number, cursor?: string): Promise<ApiResult<VaccinationOperationsResponse>> {
+  const { parkId } = backendScope(scope);
+  return getVaccinationSchedule({
     parkId,
-    asOf,
-    dueBefore: yearEndInstant(year),
+    year,
+    month,
+    cursor,
     limit: PAGE_LIMIT,
   });
 }
 
 export async function loadVaccinationFullSchedule(searchParams: RouteSearchParams | undefined, scope: Scope) {
-  return loadFullSchedule(scope, selectedScheduleYear(searchParams));
+  return loadFullSchedule(scope, selectedScheduleYear(searchParams), selectedScheduleMonth(searchParams), selectedScheduleCursor(searchParams));
 }
 
 export function vaccinationScheduleYear(searchParams: RouteSearchParams | undefined): number {
@@ -148,7 +155,9 @@ export async function VaccinationFullSchedule({
   scheduleResult?: ApiResult<VaccinationOperationsResponse>;
 }) {
   const year = selectedScheduleYear(searchParams);
-  const result = scheduleResult ?? (await loadFullSchedule(scope, year));
+  const month = selectedScheduleMonth(searchParams);
+  const cursor = selectedScheduleCursor(searchParams);
+  const result = scheduleResult ?? (await loadFullSchedule(scope, year, month, cursor));
   const protocols = result.ok ? sortVaccinationProtocols(result.data.protocols) : [];
   const rows = result.ok
     ? [...result.data.cohorts].sort((a, b) =>
@@ -163,7 +172,7 @@ export async function VaccinationFullSchedule({
   let overdueCells = 0;
   for (const row of rows) {
     for (const protocol of protocols) {
-      const state = scheduleCellView(row.cells.find((cell) => cell.protocolId === protocol.protocolId), year, pageContract).state;
+      const state = scheduleCellView(row.cells.find((cell) => cell.protocolId === protocol.protocolId), year, month, pageContract).state;
       if (state !== "no_record") activeCells += 1;
       if (state === "overdue") overdueCells += 1;
     }
@@ -173,10 +182,20 @@ export async function VaccinationFullSchedule({
   const fixedColumns = scheduleTable.columns.filter((column) => column.visible);
   const legend = optionGroup(pageContract, "schedule_status_legend");
   const singleScheduleColumn = protocols.length === 1 && protocols.every(isScheduleWrapperProtocol);
-  const currentScheduleHref = scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year) });
+  const currentScheduleHref = scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(month) });
+  const freshness = result.ok ? result.data.freshness : undefined;
+  const staleSchedule = Boolean(freshness?.stale || freshness?.rebuildRequired || (freshness?.status && freshness.status !== "green"));
+  const nextScheduleHref =
+    result.ok && result.data.next_cursor
+      ? scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(month), schedule_cursor: result.data.next_cursor })
+      : null;
 
   function yearHref(nextYear: number) {
-    return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(nextYear) });
+    return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(nextYear), schedule_month: String(month) });
+  }
+
+  function monthHref(nextMonth: number) {
+    return scopeHref("/vaccination", scope, {}, { view: "schedule", schedule_year: String(year), schedule_month: String(nextMonth) });
   }
 
   function detailHref(row: VaccinationOperationsCohort, asOf?: string): string {
@@ -254,6 +273,11 @@ export async function VaccinationFullSchedule({
       </div>
 
       <div className="chips vaccination-schedule-legend" aria-label={copy(pageContract, "schedule.legend.aria")}>
+        {Array.from({ length: 12 }, (_, idx) => idx + 1).map((m) => (
+          <Link key={m} href={monthHref(m)} className={m === month ? "chip on" : "chip"} scroll={false} aria-current={m === month ? "page" : undefined}>
+            {monthLabel(year, m)}
+          </Link>
+        ))}
         {legend.map((item) => (
           <span key={item.key} className="chip">
             <span className={`schedule-dot state-${item.key}`} aria-hidden="true" />
@@ -283,83 +307,103 @@ export async function VaccinationFullSchedule({
           </div>
         </div>
       ) : (
-        <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.full_schedule.title")}>
-          <table className="full-vaccine-schedule-table" style={{ minWidth: singleScheduleColumn ? 1040 : Math.max(1040, 430 + protocols.length * 142) }}>
-            <thead>
-              <tr>
-                {fixedColumns.map((column) => (
-                  <th key={column.key}>{column.label}</th>
-                ))}
-                {singleScheduleColumn ? (
-                  <>
-                    <th>{copy(pageContract, "schedule.column.vaccines")}</th>
-                    <th>{copy(pageContract, "schedule.column.next_due")}</th>
-                    <th>{copy(pageContract, "schedule.column.status")}</th>
-                  </>
-                ) : (
-                  protocols.map((protocol) => <th key={protocol.protocolId}>{vaccinationDriveDisplayName(protocol.name)}</th>)
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const byProtocol = new Map(row.cells.map((cell) => [cell.protocolId, cell]));
-                const wrapperCell = singleScheduleColumn ? byProtocol.get(protocols[0].protocolId) : undefined;
-                const wrapperView = singleScheduleColumn ? scheduleCellView(wrapperCell, year, pageContract) : null;
-                return (
-                  <tr key={`${row.parkId}-${row.shedId}-${row.stage}-${row.ageBand ?? "all"}`} className="schedule-click-row">
-                    <td>
-                      {rowLink(row, <ClipText title={row.parkName}>{row.parkName}</ClipText>)}
-                    </td>
-                    <td>
-                      {rowLink(row, <ClipText title={row.shedName} className="strong">{row.shedName}</ClipText>)}
-                    </td>
-                    <td>
-                      {rowLink(row, <ClipText title={rowType(row, pageContract)}>{rowType(row, pageContract)}</ClipText>)}
-                    </td>
-                    <td className="muted">{rowLink(row, row.animals, "num")}</td>
-                    {singleScheduleColumn && wrapperView ? (
-                      <>
-                        <td>
-                          {rowLink(row, <ClipText title={scheduleCellVaccines(wrapperCell, pageContract)}>{scheduleCellVaccines(wrapperCell, pageContract)}</ClipText>)}
-                        </td>
-                        <td className={`schedule-date-cell state-${wrapperView.state}`} title={wrapperView.title}>
-                          {rowLink(row, wrapperView.label, "schedule-date-link")}
-                        </td>
-                        <td className={`schedule-status-cell state-${wrapperView.state}`} title={wrapperView.title}>
-                          {rowLink(
-                            row,
-                            wrapperView.state !== "no_record" ? <Tag tone={STATE_TONE[wrapperView.state]}>{legend.find((item) => item.key === wrapperView.state)?.label ?? wrapperView.state}</Tag> : wrapperView.label,
-                            "schedule-status-link",
-                          )}
-                        </td>
-                      </>
-                    ) : (
-                      protocols.map((protocol) => {
-                        const cell = byProtocol.get(protocol.protocolId);
-                        const view = scheduleCellView(cell, year, pageContract);
-                        return (
-                          <td key={protocol.protocolId} className={`schedule-cell state-${view.state}`} title={view.title}>
-                            <Link
-                              href={detailHref(row, vaccinationScheduleCellAsOf(cell, year))}
-                              className="schedule-cell-link"
-                              scroll={false}
-                              prefetch={false}
-                              title={copy(pageContract, "schedule.row.open_title")}
-                            >
-                              <span>{view.label}</span>
-                              {view.state !== "no_record" ? <Tag tone={STATE_TONE[view.state]}>{legend.find((item) => item.key === view.state)?.label ?? view.state}</Tag> : null}
-                            </Link>
+        <>
+          {staleSchedule ? (
+            <div className="bd" style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", flexWrap: "wrap", borderTop: "1px solid var(--line)" }}>
+              <CalendarDays className="ic" aria-hidden="true" style={{ width: 18, height: 18, color: "var(--warn)", flexShrink: 0 }} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <b style={{ fontSize: 14 }}>{copy(pageContract, "section.full_schedule.stale_title")}</b>
+                <span className="muted small" style={{ display: "block", marginTop: 2, lineHeight: 1.5 }}>
+                  {copy(pageContract, "section.full_schedule.stale_body")}
+                </span>
+              </div>
+            </div>
+          ) : null}
+          <div className="bd" style={{ padding: 0, overflowX: "auto" }} tabIndex={0} role="group" aria-label={copy(pageContract, "section.full_schedule.title")}>
+            <table className="full-vaccine-schedule-table" style={{ minWidth: singleScheduleColumn ? 1040 : Math.max(1040, 430 + protocols.length * 142) }}>
+              <thead>
+                <tr>
+                  {fixedColumns.map((column) => (
+                    <th key={column.key}>{column.label}</th>
+                  ))}
+                  {singleScheduleColumn ? (
+                    <>
+                      <th>{copy(pageContract, "schedule.column.vaccines")}</th>
+                      <th>{copy(pageContract, "schedule.column.next_due")}</th>
+                      <th>{copy(pageContract, "schedule.column.status")}</th>
+                    </>
+                  ) : (
+                    protocols.map((protocol) => <th key={protocol.protocolId}>{vaccinationDriveDisplayName(protocol.name)}</th>)
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => {
+                  const byProtocol = new Map(row.cells.map((cell) => [cell.protocolId, cell]));
+                  const wrapperCell = singleScheduleColumn ? byProtocol.get(protocols[0].protocolId) : undefined;
+                  const wrapperView = singleScheduleColumn ? scheduleCellView(wrapperCell, year, month, pageContract) : null;
+                  return (
+                    <tr key={`${row.parkId}-${row.shedId}-${row.stage}-${row.ageBand ?? "all"}`} className="schedule-click-row">
+                      <td>
+                        {rowLink(row, <ClipText title={row.parkName}>{row.parkName}</ClipText>)}
+                      </td>
+                      <td>
+                        {rowLink(row, <ClipText title={row.shedName} className="strong">{row.shedName}</ClipText>)}
+                      </td>
+                      <td>
+                        {rowLink(row, <ClipText title={rowType(row, pageContract)}>{rowType(row, pageContract)}</ClipText>)}
+                      </td>
+                      <td className="muted">{rowLink(row, row.animals, "num")}</td>
+                      {singleScheduleColumn && wrapperView ? (
+                        <>
+                          <td>
+                            {rowLink(row, <ClipText title={scheduleCellVaccines(wrapperCell, pageContract)}>{scheduleCellVaccines(wrapperCell, pageContract)}</ClipText>)}
                           </td>
-                        );
-                      })
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                          <td className={`schedule-date-cell state-${wrapperView.state}`} title={wrapperView.title}>
+                            {rowLink(row, wrapperView.label, "schedule-date-link")}
+                          </td>
+                          <td className={`schedule-status-cell state-${wrapperView.state}`} title={wrapperView.title}>
+                            {rowLink(
+                              row,
+                              wrapperView.state !== "no_record" ? <Tag tone={STATE_TONE[wrapperView.state]}>{legend.find((item) => item.key === wrapperView.state)?.label ?? wrapperView.state}</Tag> : wrapperView.label,
+                              "schedule-status-link",
+                            )}
+                          </td>
+                        </>
+                      ) : (
+                        protocols.map((protocol) => {
+                          const cell = byProtocol.get(protocol.protocolId);
+                          const view = scheduleCellView(cell, year, month, pageContract);
+                          return (
+                            <td key={protocol.protocolId} className={`schedule-cell state-${view.state}`} title={view.title}>
+                              <Link
+                                href={detailHref(row, vaccinationScheduleCellAsOf(cell, year))}
+                                className="schedule-cell-link"
+                                scroll={false}
+                                prefetch={false}
+                                title={copy(pageContract, "schedule.row.open_title")}
+                              >
+                                <span>{view.label}</span>
+                                {view.state !== "no_record" ? <Tag tone={STATE_TONE[view.state]}>{legend.find((item) => item.key === view.state)?.label ?? view.state}</Tag> : null}
+                              </Link>
+                            </td>
+                          );
+                        })
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {nextScheduleHref ? (
+            <div className="bd" style={{ padding: "12px 16px", borderTop: "1px solid var(--line)", display: "flex", justifyContent: "flex-end" }}>
+              <Link href={nextScheduleHref} className="btn sm" scroll={false}>
+                {copy(pageContract, "section.full_schedule.next_rows")}
+              </Link>
+            </div>
+          ) : null}
+        </>
       )}
     </section>
   );

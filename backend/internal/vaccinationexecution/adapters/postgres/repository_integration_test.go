@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -701,6 +702,128 @@ func insertProjectionCompletion(t *testing.T, ctx context.Context, pool *pgxpool
 		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, administered_at, status, idempotency_key, recorded_by)
 		 VALUES ($1, $2, $3, $4, $5, TIMESTAMPTZ '2026-06-20 09:00:00+00', 'accepted', $6, $7)`,
 		completionID, testTenant, obligationID, batchID, goatID, key, testOperator)
+}
+
+func TestVaccinationScheduleProjectionServesMaterializedMonthAndMarksDirty(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	month := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	q := domain.ScheduleQuery{TenantID: testTenant, MonthStart: month, Limit: 50}
+
+	if _, _, err := repo.VaccinationSchedule(ctx, q); !errors.Is(err, domain.ErrScheduleProjectionUnavailable) {
+		t.Fatalf("cold VaccinationSchedule: want ErrScheduleProjectionUnavailable, got %v", err)
+	}
+
+	state, err := repo.RebuildVaccinationScheduleWindow(ctx, q, "test")
+	if err != nil {
+		t.Fatalf("RebuildVaccinationScheduleWindow: %v", err)
+	}
+	if state.RowCount == 0 || state.FreshnessStatus != "green" || state.ServingState != "fresh" {
+		t.Fatalf("rebuilt state: want green/fresh rows, got %+v", state)
+	}
+
+	rows, served, err := repo.VaccinationSchedule(ctx, q)
+	if err != nil {
+		t.Fatalf("VaccinationSchedule: %v", err)
+	}
+	if len(rows) != state.RowCount || served.FreshnessStatus != "green" || served.RebuildRequired {
+		t.Fatalf("served schedule: rows=%d state=%+v rebuilt=%+v", len(rows), served, state)
+	}
+	if opsRowByStage(rows, "K1") == nil {
+		t.Fatalf("served schedule: want K1 row, got %#v", rows)
+	}
+
+	execProjectionSQL(t, ctx, pool, "dirty schedule month",
+		`SELECT vaccination_schedule_mark_dirty($1::uuid, 'shed', $2::uuid, TIMESTAMPTZ '2026-06-24 00:00:00+00', 'test.dirty')`,
+		testTenant, testShed)
+
+	staleRows, stale, err := repo.VaccinationSchedule(ctx, q)
+	if err != nil {
+		t.Fatalf("dirty VaccinationSchedule: %v", err)
+	}
+	if len(staleRows) != len(rows) {
+		t.Fatalf("dirty schedule should keep serving last-good rows: got %d want %d", len(staleRows), len(rows))
+	}
+	if stale.FreshnessStatus != "yellow" || stale.ServingState != "stale" || !stale.Stale || !stale.RebuildRequired {
+		t.Fatalf("dirty schedule state: want yellow/stale rebuild required, got %+v", stale)
+	}
+
+	summary, err := repo.RebuildDirtyVaccinationScheduleWindows(ctx, testTenant, 50, "test-dirty-worker")
+	if err != nil {
+		t.Fatalf("RebuildDirtyVaccinationScheduleWindows: %v", err)
+	}
+	if summary.Windows != 1 || summary.Rows == 0 {
+		t.Fatalf("dirty rebuild summary: want one rebuilt window with rows, got %+v", summary)
+	}
+	_, freshAgain, err := repo.VaccinationSchedule(ctx, q)
+	if err != nil {
+		t.Fatalf("fresh-after-dirty VaccinationSchedule: %v", err)
+	}
+	if freshAgain.FreshnessStatus != "green" || freshAgain.Stale || freshAgain.RebuildRequired {
+		t.Fatalf("fresh-after-dirty state: want green/fresh, got %+v", freshAgain)
+	}
+}
+
+func TestVaccinationScheduleProjectionPaginatesWithoutTruncatingCursor(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	execProjectionSQL(t, ctx, pool, "schedule state",
+		`INSERT INTO vaccination_schedule_projection_state (
+		   tenant_id, scope_type, scope_id, year_month, projection_version, projected_at, as_of,
+		   freshness_status, serving_state, row_count, generated_by
+		 ) VALUES ($1::uuid, 'tenant', '00000000-0000-0000-0000-000000000000'::uuid, DATE '2026-06-01', 1, now(), TIMESTAMPTZ '2026-06-24 12:00:00+00', 'green', 'fresh', 501, 'test')`,
+		testTenant)
+	execProjectionSQL(t, ctx, pool, "schedule rows",
+		`INSERT INTO vaccination_schedule_projection_rows (
+		   tenant_id, scope_type, scope_id, year_month, projection_version,
+		   park_id, park_name, shed_id, shed_name, stage, age_band,
+		   protocol_id, protocol_name, animals, next_due, last_dose, vaccine_names,
+		   overdue_count, due_count, in_progress_count, scheduled_count, missed_count,
+		   deferred_count, accepted_count, proof_pending_count, rejected_count, total_count
+		 )
+		 SELECT $1::uuid, 'tenant', '00000000-0000-0000-0000-000000000000'::uuid, DATE '2026-06-01', 1,
+		        $2::uuid, 'CBE Park',
+		        ('70000000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid,
+		        'Shed ' || lpad(n::text, 3, '0'),
+		        'K1', NULL,
+		        $3::uuid, 'PPR', 1, TIMESTAMPTZ '2026-06-24 00:00:00+00', NULL, ARRAY['PPR']::text[],
+		        0, 1, 0, 0, 0,
+		        0, 0, 0, 0, 1
+		 FROM generate_series(1, 501) AS n`,
+		testTenant, testPark, testProtocol)
+
+	repo := NewRepository(pool, 5*time.Second)
+	svc := vaccexecapp.NewService(repo)
+	resp, err := svc.VaccinationSchedule(ctx, domain.ScheduleQuery{
+		TenantID:   testTenant,
+		MonthStart: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Limit:      500,
+	})
+	if err != nil {
+		t.Fatalf("VaccinationSchedule: %v", err)
+	}
+	if len(resp.Cohorts) != 500 {
+		t.Fatalf("cohorts = %d want 500", len(resp.Cohorts))
+	}
+	if resp.NextCursor == nil {
+		t.Fatal("next cursor missing for 501 materialized cohorts")
+	}
+	cursor, err := domain.DecodeOperationsCursor(*resp.NextCursor)
+	if err != nil {
+		t.Fatalf("decode next cursor: %v", err)
+	}
+	if cursor.ShedID != "70000000-0000-4000-8000-000000000500" {
+		t.Fatalf("cursor shed = %s want 500th shed", cursor.ShedID)
+	}
 }
 
 func rowByBatch(rows []domain.ExecutionProjection, batchID string) *domain.ExecutionProjection {

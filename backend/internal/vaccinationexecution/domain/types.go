@@ -2,10 +2,16 @@
 package domain
 
 import (
+	"errors"
 	"time"
 )
 
 const SourceAPI = "api"
+
+// ErrScheduleProjectionUnavailable means a requested schedule window has no last-good
+// projection rows to serve. Callers must surface this as an honest unavailable state,
+// not fall back to a large canonical read on the request path.
+var ErrScheduleProjectionUnavailable = errors.New("vaccinationexecution: schedule projection unavailable")
 
 type WorkState string
 
@@ -58,6 +64,10 @@ type ProjectionFreshness struct {
 	AsOf              time.Time `json:"asOf"`
 	Status            string    `json:"status"`
 	LagSeconds        int64     `json:"lagSeconds"`
+	ServingState      string    `json:"servingState,omitempty"`
+	Stale             bool      `json:"stale,omitempty"`
+	RebuildRequired   bool      `json:"rebuildRequired,omitempty"`
+	RowCount          int       `json:"rowCount,omitempty"`
 }
 
 type VerificationStatus string
@@ -249,6 +259,33 @@ type OperationsQuery struct {
 	HistoricalAsOf bool
 	Limit          int
 	Cursor         *OperationsCursor
+}
+
+// ScheduleQuery reads the Full Schedule projection for a single month/window.
+// MonthStart is the first local business day of the requested month, stored as
+// midnight in the Goat OS business timezone.
+type ScheduleQuery struct {
+	TenantID   string
+	ParkID     *string
+	MonthStart time.Time
+	Limit      int
+	Cursor     *OperationsCursor
+}
+
+type ScheduleProjectionState struct {
+	ProjectionVersion int64
+	ProjectedAt       time.Time
+	AsOf              time.Time
+	FreshnessStatus   string
+	ServingState      string
+	Stale             bool
+	RebuildRequired   bool
+	RowCount          int
+}
+
+type ScheduleRebuildSummary struct {
+	Windows int
+	Rows    int
 }
 
 // ScanRosterRow represents a single per-animal vaccination obligation for mobile scan screen.

@@ -30,6 +30,7 @@ type Reader interface {
 	VaccinationExecutionPage(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ExecutionResponse, error)
 	ShedDrilldown(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ShedDrilldown, bool, error)
 	VaccinationOperations(ctx context.Context, q vaccexecd.OperationsQuery) (vaccexecd.OperationsResponse, error)
+	VaccinationSchedule(ctx context.Context, q vaccexecd.ScheduleQuery) (vaccexecd.OperationsResponse, error)
 	ScanRoster(ctx context.Context, q vaccexecd.ScanRosterQuery) (vaccexecd.ScanRosterResult, error)
 	TaskOptionValues(ctx context.Context, tenantID, taskID string) (vaccexecd.TaskOptionValuesResponse, error)
 	// VaccinationGaps backs the mobile data-gaps overlay (animals excluded from coverage + reason).
@@ -104,6 +105,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /vaccination/operations", h.VaccinationOperations)
+	mux.HandleFunc("GET /vaccination/schedule", h.VaccinationSchedule)
 	mux.HandleFunc("GET /vaccination/sheds", h.ListShedSummary)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}", h.GetShedDetail)
 	mux.HandleFunc("GET /vaccination/sheds/{shed_id}/animals", h.GetShedAnimals)
@@ -178,6 +180,71 @@ func (h *Handler) VaccinationOperations(w http.ResponseWriter, r *http.Request) 
 	resp, err := h.reader.VaccinationOperations(r.Context(), q)
 	if err != nil {
 		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, resp)
+}
+
+// VaccinationSchedule serves the Full Schedule month/window projection. It never falls back to the
+// canonical operations CTE on the request path; a cold/missing projection returns projection_unavailable.
+func (h *Handler) VaccinationSchedule(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	now := h.now()
+	year := now.Year()
+	month := int(now.Month())
+	if raw := query.Get("year"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < now.Year()-1 || n > now.Year()+5 {
+			h.badRequest(w, r, "invalid_year", "year must be within the supported schedule window")
+			return
+		}
+		year = n
+	}
+	if raw := query.Get("month"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 12 {
+			h.badRequest(w, r, "invalid_month", "month must be 1-12")
+			return
+		}
+		month = n
+	}
+	q := vaccexecd.ScheduleQuery{
+		TenantID:   tenantID(r),
+		MonthStart: time.Date(year, time.Month(month), 1, 0, 0, 0, 0, biztime.DefaultLocation()),
+		Limit:      defaultDrilldownLimit,
+	}
+	if parkID := query.Get("park_id"); parkID != "" {
+		if !uuidutil.IsUUIDString(parkID) {
+			h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+			return
+		}
+		q.ParkID = &parkID
+	}
+	if limit := query.Get("limit"); limit != "" {
+		n, err := strconv.Atoi(limit)
+		if err != nil || n <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		if n > maxExecutionLimit {
+			n = maxExecutionLimit
+		}
+		q.Limit = n
+	}
+	if rawCursor := query.Get("cursor"); rawCursor != "" {
+		cursor, err := vaccexecd.DecodeOperationsCursor(rawCursor)
+		if err != nil {
+			h.badRequest(w, r, "invalid_cursor", "cursor must be a valid vaccination schedule cursor")
+			return
+		}
+		q.Cursor = &cursor
+	}
+	if !h.applyScheduleParkScope(w, r, &q) {
+		return
+	}
+	resp, err := h.reader.VaccinationSchedule(r.Context(), q)
+	if err != nil {
+		h.readScheduleError(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
@@ -937,6 +1004,26 @@ func (h *Handler) rejectHistoricalAsOf(w http.ResponseWriter, r *http.Request, p
 // readShedError maps a shed-summary/shed-detail read-path error to HTTP.
 func (h *Handler) readShedError(w http.ResponseWriter, r *http.Request, err error) {
 	h.internal(w, r, err)
+}
+
+func (h *Handler) readScheduleError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, vaccexecd.ErrScheduleProjectionUnavailable) {
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
+			errorEnvelope{Code: "projection_unavailable", Message: "vaccination schedule read model is temporarily unavailable", TraceID: traceID(r)}, err)
+		return
+	}
+	h.internal(w, r, err)
+}
+
+func (h *Handler) applyScheduleParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.ScheduleQuery) bool {
+	parkID, ok := h.authorizedParkID(w, r, optionalString(q.ParkID))
+	if !ok {
+		return false
+	}
+	if parkID != "" {
+		q.ParkID = &parkID
+	}
+	return true
 }
 
 func (h *Handler) applyOperationsParkScope(w http.ResponseWriter, r *http.Request, q *vaccexecd.OperationsQuery) bool {

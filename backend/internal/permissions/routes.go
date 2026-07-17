@@ -146,6 +146,7 @@ var protectedRoutes = []Route{
 	{OperationID: "getWorkflowDrilldown", Method: "GET", Pattern: "/workflows/{row_id}", Permissions: []string{ObligationRead}},
 	{OperationID: "getVaccinationWorkflowDrilldown", Method: "GET", Pattern: "/vaccination/workflows/{row_id}", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationOperations", Method: "GET", Pattern: "/vaccination/operations", Permissions: []string{ObligationRead, VaccinationRead}},
+	{OperationID: "getVaccinationSchedule", Method: "GET", Pattern: "/vaccination/schedule", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "listVaccinationExecution", Method: "GET", Pattern: "/vaccination/execution", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/vaccination/execution/sheds/{shed_id}", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "listVaccinationShedSummary", Method: "GET", Pattern: "/vaccination/sheds", Permissions: []string{LocationsRead, ObligationRead, VaccinationRead}},

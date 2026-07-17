@@ -121,6 +121,35 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 	if err != nil {
 		return domain.OperationsResponse{}, err
 	}
+	return operationsResponseFromRows(rows, q.Limit)
+}
+
+func (s *Service) VaccinationSchedule(ctx context.Context, q domain.ScheduleQuery) (domain.OperationsResponse, error) {
+	rows, state, err := s.repo.VaccinationSchedule(ctx, q)
+	if err != nil {
+		return domain.OperationsResponse{}, err
+	}
+	resp, err := operationsResponseFromRows(rows, q.Limit)
+	if err != nil {
+		return domain.OperationsResponse{}, err
+	}
+	resp.Freshness = &domain.ProjectionFreshness{
+		ProjectionVersion: state.ProjectionVersion,
+		ProjectedAt:       state.ProjectedAt,
+		AsOf:              state.AsOf,
+		Status:            state.FreshnessStatus,
+		LagSeconds:        int64(time.Since(state.ProjectedAt).Seconds()),
+		ServingState:      state.ServingState,
+		Stale:             state.Stale,
+		RebuildRequired:   state.RebuildRequired,
+		RowCount:          state.RowCount,
+	}
+	return resp, nil
+}
+
+// operationsResponseFromRows rolls the flat cohort × protocol rows into the matrix + per-cohort
+// detail shape shared by /vaccination/operations and /vaccination/schedule.
+func operationsResponseFromRows(rows []domain.OperationsRow, limit int) (domain.OperationsResponse, error) {
 	protocolSeen := map[string]bool{}
 	protocols := []domain.OperationsProtocol{}
 	cohortIndex := map[string]int{}
@@ -172,8 +201,8 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 		}
 	}
 	var nextCursor *string
-	if q.Limit > 0 && len(cohorts) > q.Limit {
-		last := cohorts[q.Limit-1]
+	if limit > 0 && len(cohorts) > limit {
+		last := cohorts[limit-1]
 		encoded, err := domain.EncodeOperationsCursor(domain.OperationsCursor{
 			ParkID:   last.ParkID,
 			ParkName: last.ParkName,
@@ -185,7 +214,7 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 			return domain.OperationsResponse{}, err
 		}
 		nextCursor = &encoded
-		cohorts = cohorts[:q.Limit]
+		cohorts = cohorts[:limit]
 		visibleProtocols := make(map[string]bool)
 		for _, cohort := range cohorts {
 			for _, cell := range cohort.Cells {

@@ -39,6 +39,9 @@ resumable, and measurable.
 - capped read-time rollups that fetch a larger raw slice, aggregate it in
   app/service/frontend state, then hide pagination/truncation and present the
   collapsed result as business truth
+- business-calendar hardcodes that derive operational month/year/window state
+  from the server/browser default timezone instead of the Goat OS business
+  timezone
 
 ## Indexed predicates and guard-authoring safety
 
@@ -80,6 +83,36 @@ That pattern is still compute-on-read, still partial when the raw slice is
 truncated, and still unsafe at 1M animals even if it looks fine on a local
 fixture. If a temporary UI collapse is needed for a mock/demo, it must be
 clearly partial/debug-only and must not invent authoritative totals.
+
+## Business-calendar timezone anti-pattern
+
+Goat OS operational dates are business-calendar facts, not server-local display
+facts. Any schedule, calendar, freshness window, SLA bucket, or month/year
+filter must use the declared business timezone explicitly (`Asia/Kolkata` for
+the current Mesha/VGoats operating model). It is a hardcoded correctness
+anti-pattern to compute those buckets with runtime-local extraction such as:
+
+- JavaScript `new Date(iso).getMonth()` / `getFullYear()` for business month
+  checks;
+- Go `time.Now()` / `t.Month()` without converting to `biztime.DefaultLocation()`
+  for operational windows;
+- SQL `date_trunc` without the intended business timezone when the source value
+  is `timestamptz`;
+- frontend filtering that uses the browser/server timezone and then displays
+  the result as the business schedule.
+
+The failure mode is subtle: `2026-08-01T00:00:00+05:30` is August in IST but
+July on a UTC server. A Full Schedule, Calendar, or Action Center month filter
+that uses server-local month extraction can drop or mis-bucket exactly the
+boundary rows operators care about.
+
+Fixes must normalize through the business timezone at the layer where the
+bucket is computed. In admin-web, use `Intl.DateTimeFormat(..., { timeZone:
+"Asia/Kolkata" })` or an equivalent shared helper for business month/year
+checks. In Go, use `biztime.DefaultLocation()` before deriving dates. In SQL,
+use `AT TIME ZONE 'Asia/Kolkata'` intentionally and cover the expression with
+tests or plan evidence when it is on a hot path. Every new date-window fix needs
+a boundary test for an IST-midnight value that crosses the UTC day/month.
 
 ## STG stale-content anti-pattern
 

@@ -25,6 +25,10 @@ summary below — open the canonical chapters and read the live detail.
   `import`/projection tables.
 - Any hot-path read/API, list endpoint, dashboard slice, or cohort/bulk sweep.
 - Reviewing a "fix" that raises a timeout or caps a page instead of changing shape.
+- Any schedule, calendar, freshness, date-window, or month/year filter logic in
+  frontend or backend code. Business calendar logic must be explicit about the
+  Goat OS business timezone; server-local date extraction is a correctness
+  anti-pattern.
 - Any staging deploy or E2E handoff after backend, admin-web, worker, job, seed,
   migration, or read-model changes. A mixed-SHA STG environment is a scale and
   correctness anti-pattern, not a valid debug target.
@@ -55,6 +59,9 @@ summary below — open the canonical chapters and read the live detail.
 6. non-SARGable predicate → normalized column / expression index / `pg_trgm` GIN.
 7. polling full scan / unbounded / non-terminating worker tick → keyset-chunked
    `FOR UPDATE SKIP LOCKED`, resumable cursor, never restart at zero.
+8. business-calendar hardcode / server-local date extraction → use an explicit
+   business timezone (`Asia/Kolkata` today) for month/year/window checks and add
+   boundary tests for IST midnight crossing UTC day/month.
 
 Genuinely-bounded case → annotate the exact line `// scale-guard:ignore: <reason>`;
 never disable the guard. The five named canonical screen reads are the ONLY

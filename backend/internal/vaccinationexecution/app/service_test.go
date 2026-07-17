@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ type fakeRepo struct {
 	shedRows    []domain.ShedSummaryProjection
 	shedAnimals []domain.ShedAnimalRow
 	capacityCfg domain.CapacityConfig
+	schedule    domain.ScheduleProjectionState
 	err         error
 }
 
@@ -66,6 +68,24 @@ func (r fakeRepo) VaccinationOperations(_ context.Context, _ domain.OperationsQu
 		return nil, r.err
 	}
 	return r.opsRows, nil
+}
+
+func (r fakeRepo) VaccinationSchedule(_ context.Context, _ domain.ScheduleQuery) ([]domain.OperationsRow, domain.ScheduleProjectionState, error) {
+	if r.err != nil {
+		return nil, domain.ScheduleProjectionState{}, r.err
+	}
+	state := r.schedule
+	if state.ProjectionVersion == 0 {
+		state = domain.ScheduleProjectionState{
+			ProjectionVersion: 1,
+			ProjectedAt:       time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+			AsOf:              time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+			FreshnessStatus:   "green",
+			ServingState:      "fresh",
+			RowCount:          len(r.opsRows),
+		}
+	}
+	return r.opsRows, state, nil
 }
 
 func (r fakeRepo) ListVaccinationExecutionPage(_ context.Context, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error) {
@@ -250,6 +270,57 @@ func TestVaccinationGapsNoNextCursorWhenUnderLimit(t *testing.T) {
 	}
 	if resp.NextCursor != nil {
 		t.Fatalf("next cursor = %v want nil (fewer rows than limit)", *resp.NextCursor)
+	}
+}
+
+func TestVaccinationSchedulePaginatesByCohortAndSurfacesStaleState(t *testing.T) {
+	rows := make([]domain.OperationsRow, 0, 501)
+	for i := 1; i <= 501; i++ {
+		rows = append(rows, domain.OperationsRow{
+			ParkID:       "70000000-0000-4000-8000-000000000001",
+			ParkName:     "CBE Park",
+			ShedID:       fmt.Sprintf("70000000-0000-4000-8000-%012d", i),
+			ShedName:     fmt.Sprintf("Shed %03d", i),
+			Stage:        "K1",
+			ProtocolID:   "90000000-0000-4000-8000-000000000001",
+			ProtocolName: "PPR",
+			Animals:      1,
+			TotalCount:   1,
+		})
+	}
+	svc := NewService(fakeRepo{
+		opsRows: rows,
+		schedule: domain.ScheduleProjectionState{
+			ProjectionVersion: 7,
+			ProjectedAt:       time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+			AsOf:              time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+			FreshnessStatus:   "yellow",
+			ServingState:      "stale",
+			Stale:             true,
+			RebuildRequired:   true,
+			RowCount:          501,
+		},
+	})
+
+	resp, err := svc.VaccinationSchedule(context.Background(), domain.ScheduleQuery{TenantID: "tenant", Limit: 500})
+	if err != nil {
+		t.Fatalf("VaccinationSchedule() error = %v", err)
+	}
+	if len(resp.Cohorts) != 500 {
+		t.Fatalf("cohorts = %d want 500", len(resp.Cohorts))
+	}
+	if resp.NextCursor == nil {
+		t.Fatal("next cursor missing for 501 schedule cohorts")
+	}
+	cursor, err := domain.DecodeOperationsCursor(*resp.NextCursor)
+	if err != nil {
+		t.Fatalf("decode next cursor: %v", err)
+	}
+	if cursor.ShedID != "70000000-0000-4000-8000-000000000500" {
+		t.Fatalf("cursor shed = %s want 500th shed", cursor.ShedID)
+	}
+	if resp.Freshness == nil || resp.Freshness.Status != "yellow" || !resp.Freshness.Stale || !resp.Freshness.RebuildRequired || resp.Freshness.ServingState != "stale" || resp.Freshness.RowCount != 501 {
+		t.Fatalf("freshness = %#v want stale/rebuild row_count=501", resp.Freshness)
 	}
 }
 

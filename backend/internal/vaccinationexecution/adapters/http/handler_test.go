@@ -26,6 +26,9 @@ type fakeReader struct {
 	last          domain.ExecutionQuery
 	ops           domain.OperationsResponse
 	lastOps       domain.OperationsQuery
+	schedule      domain.OperationsResponse
+	lastSchedule  domain.ScheduleQuery
+	scheduleErr   error
 	roster        []domain.ScanRosterRow
 	lastRoster    domain.ScanRosterQuery
 	rosterNext    *domain.ScanRosterCursor
@@ -57,6 +60,14 @@ type fakeWriter struct {
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
 	f.lastOps = q
 	return f.ops, nil
+}
+
+func (f *fakeReader) VaccinationSchedule(_ context.Context, q domain.ScheduleQuery) (domain.OperationsResponse, error) {
+	f.lastSchedule = q
+	if f.scheduleErr != nil {
+		return domain.OperationsResponse{}, f.scheduleErr
+	}
+	return f.schedule, nil
 }
 
 func (f *fakeReader) VaccinationExecution(_ context.Context, q domain.ExecutionQuery) ([]domain.ExecutionRow, error) {
@@ -212,6 +223,55 @@ func TestVaccinationExecutionDefaultsAndRejectsScopedPark(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "park_scope_forbidden") {
 		t.Fatalf("body=%s, want park_scope_forbidden", rec.Body.String())
+	}
+}
+
+func TestVaccinationScheduleParsesMonthWindow(t *testing.T) {
+	reader := &fakeReader{schedule: domain.OperationsResponse{Source: domain.SourceAPI}}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/schedule?park_id=30000000-0000-4000-8000-000000000001&year=2026&month=8&limit=9000", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if reader.lastSchedule.TenantID != "00000000-0000-4000-8000-000000000001" {
+		t.Fatalf("tenant = %q", reader.lastSchedule.TenantID)
+	}
+	if reader.lastSchedule.ParkID == nil || *reader.lastSchedule.ParkID != "30000000-0000-4000-8000-000000000001" {
+		t.Fatalf("park = %v", reader.lastSchedule.ParkID)
+	}
+	if reader.lastSchedule.MonthStart.Format("2006-01-02") != "2026-08-01" {
+		t.Fatalf("month start = %s", reader.lastSchedule.MonthStart)
+	}
+	if reader.lastSchedule.Limit != maxExecutionLimit {
+		t.Fatalf("limit = %d want %d", reader.lastSchedule.Limit, maxExecutionLimit)
+	}
+}
+
+func TestVaccinationScheduleProjectionUnavailableReturns503(t *testing.T) {
+	reader := &fakeReader{scheduleErr: domain.ErrScheduleProjectionUnavailable}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(reader, &fakeWriter{}))
+
+	req := httptest.NewRequest(http.MethodGet, "/vaccination/schedule?year=2026&month=8", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d want 503 body=%s", rec.Code, rec.Body.String())
+	}
+	var body errorEnvelope
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Code != "projection_unavailable" {
+		t.Fatalf("code = %q want projection_unavailable", body.Code)
 	}
 }
 

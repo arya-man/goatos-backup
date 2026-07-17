@@ -909,6 +909,12 @@ paths:
             type: integer
             minimum: 1
             maximum: 500
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque pagination cursor returned as next_cursor by the previous response.
+          schema:
+            type: string
       responses:
         "200":
           description: Action Center rows.
@@ -1386,6 +1392,57 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "500":
+          $ref: "#/components/responses/ServerError"
+  /vaccination/schedule:
+    get:
+      tags:
+        - Vaccination
+      operationId: getVaccinationSchedule
+      summary: Projection-backed vaccination Full Schedule for one materialized month.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: year
+          in: query
+          required: false
+          description: Calendar year in the business timezone. Defaults to the current year.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+        - name: month
+          in: query
+          required: false
+          description: Calendar month in the business timezone. Defaults to the current month.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Vaccination schedule matrix + per-cohort detail for the materialized month.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaccinationOperationsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
           $ref: "#/components/responses/ServerError"
   /vaccination/execution:
     get:
@@ -7052,6 +7109,15 @@ components:
         lagSeconds:
           type: integer
           format: int64
+          minimum: 0
+        servingState:
+          type: string
+        stale:
+          type: boolean
+        rebuildRequired:
+          type: boolean
+        rowCount:
+          type: integer
           minimum: 0
     VaccinationExecutionResponse:
       type: object
