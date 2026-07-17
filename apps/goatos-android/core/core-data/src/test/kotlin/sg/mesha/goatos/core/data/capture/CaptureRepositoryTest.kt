@@ -333,6 +333,47 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `proof upload success without a server proof id is quarantined as failed`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                dispatchers = unconfinedDispatchers,
+            )
+
+            val captured = (
+                repo.capture(
+                    taskId = "task-corrupt-proof-result",
+                    fieldKey = "administration_video",
+                    subject = ProofSubject.ADMINISTRATION,
+                    localUri = "file://admin.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-corrupt-proof-result",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+                ).value
+
+            val itemId = sync.enqueueCalls.single().outboxItemId
+            repo.observeProofs("task-corrupt-proof-result").first().first { it.id == captured.id }
+            sync.emit(itemId, SyncItemStatus.SUCCEEDED, resultJson = """{"proof":{}}""")
+
+            val row = repo.observeProofs("task-corrupt-proof-result").first().first { it.id == captured.id }
+            assertEquals(CaptureSyncStatus.FAILED, row.syncStatus)
+            assertEquals(null, row.serverProofId)
+            assertEquals("Proof upload finished without a server proof id. Record this video again.", row.lastError)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `a new repository instance over the SAME Room database sees prior captures (process-death restore proxy)`() = runTest {
         val db = newDb()
         try {

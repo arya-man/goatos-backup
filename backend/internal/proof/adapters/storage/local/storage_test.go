@@ -3,6 +3,8 @@ package local
 import (
 	"context"
 	"net/url"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,5 +54,29 @@ func TestSignedLocalURLsCarryTenantAndUseSignedMediaRoutes(t *testing.T) {
 	}
 	if !storage.Verify("GET", downloadURL.Path, localTestTenant, downloadURL.Query().Get("expires"), downloadURL.Query().Get("sig"), time.Now().UTC()) {
 		t.Fatal("signed download URL did not verify")
+	}
+}
+
+func TestLocalPathStaysInsideBaseDir(t *testing.T) {
+	baseDir := t.TempDir()
+	storage := New(baseDir, "local-proof-secret")
+
+	path, err := storage.localPath("/tenant/proofs/video.mp4")
+	if err != nil {
+		t.Fatalf("localPath() error = %v", err)
+	}
+	rel, err := filepath.Rel(baseDir, path)
+	if err != nil {
+		t.Fatalf("relative path: %v", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		t.Fatalf("localPath escaped base dir: %q", path)
+	}
+
+	if _, err := storage.localPath("../escape.mp4"); err == nil {
+		t.Fatal("localPath accepted an escaping object key")
+	}
+	if _, err := storage.Store(context.Background(), domain.Artifact{ObjectKey: "../../escape.mp4"}, strings.NewReader("proof"), "video/mp4"); err == nil {
+		t.Fatal("Store accepted an escaping object key")
 	}
 }

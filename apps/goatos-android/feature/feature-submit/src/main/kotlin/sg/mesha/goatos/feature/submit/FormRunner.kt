@@ -57,6 +57,7 @@ data class ProofItemUi(
     val label: String,
     val caption: String = "",
     val editableCaption: Boolean = false,
+    val retryable: Boolean = false,
     /** "PENDING" / "IN_FLIGHT" / "SYNCED" / "FAILED" — mirrors the Room row's sync status
      *  (Photos/Drive "uploading…/synced" model). */
     val syncStatus: String = "PENDING",
@@ -114,6 +115,7 @@ fun FormRunner(
     modifier: Modifier = Modifier,
     onCaption: (key: String, proofId: String, caption: String) -> Unit = { _, _, _ -> },
     onRemoveProof: (key: String, proofId: String) -> Unit = { _, _ -> },
+    onRetryProof: (key: String, proofId: String) -> Unit = { _, _ -> },
 ) {
     Column(modifier.fillMaxWidth().background(MeshaColors.Bg)) {
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp)) {
@@ -129,7 +131,7 @@ fun FormRunner(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(state.fields, key = { it.key }) { field ->
-                FieldCard(field, onToggle, onText, onScan, onPick, onCaptureVideo, onCaption, onRemoveProof)
+                FieldCard(field, onToggle, onText, onScan, onPick, onCaptureVideo, onCaption, onRemoveProof, onRetryProof)
             }
         }
         SubmitBar(state, onSubmit)
@@ -153,10 +155,11 @@ fun FormFieldsColumn(
     modifier: Modifier = Modifier,
     onCaption: (key: String, proofId: String, caption: String) -> Unit = { _, _, _ -> },
     onRemoveProof: (key: String, proofId: String) -> Unit = { _, _ -> },
+    onRetryProof: (key: String, proofId: String) -> Unit = { _, _ -> },
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         fields.forEach { field ->
-            FieldCard(field, onToggle, onText, onScan, onPick, onCaptureVideo, onCaption, onRemoveProof)
+            FieldCard(field, onToggle, onText, onScan, onPick, onCaptureVideo, onCaption, onRemoveProof, onRetryProof)
         }
     }
 }
@@ -171,6 +174,7 @@ private fun FieldCard(
     onCaptureVideo: (String) -> Unit,
     onCaption: (String, String, String) -> Unit,
     onRemoveProof: (String, String) -> Unit,
+    onRetryProof: (String, String) -> Unit,
 ) {
     Column(
         Modifier
@@ -195,7 +199,7 @@ private fun FieldCard(
             FieldKindUi.TEXT -> TextControl(field, numeric = false, onText)
             FieldKindUi.GOAT_SCAN -> ScanZoneControl(field, onScan)
             FieldKindUi.PICKER -> PickerControl(field, onPick)
-            FieldKindUi.VIDEO_PROOF -> ProofBoxControl(field, onCaptureVideo, onCaption, onRemoveProof)
+            FieldKindUi.VIDEO_PROOF -> ProofBoxControl(field, onCaptureVideo, onCaption, onRemoveProof, onRetryProof)
             FieldKindUi.UNKNOWN -> Text(
                 "Unsupported field — update the app to record this.",
                 color = MeshaColors.Faint,
@@ -346,6 +350,7 @@ private fun ProofBoxControl(
     onCaptureVideo: (String) -> Unit,
     onCaption: (String, String, String) -> Unit,
     onRemoveProof: (String, String) -> Unit,
+    onRetryProof: (String, String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (field.canCaptureMore) {
@@ -375,7 +380,7 @@ private fun ProofBoxControl(
                 )
             }
         }
-        field.proofItems.forEach { item -> ProofItemRow(field.key, item, onCaption, onRemoveProof) }
+        field.proofItems.forEach { item -> ProofItemRow(field.key, item, onCaption, onRemoveProof, onRetryProof) }
     }
 }
 
@@ -385,6 +390,7 @@ private fun ProofItemRow(
     item: ProofItemUi,
     onCaption: (String, String, String) -> Unit,
     onRemoveProof: (String, String) -> Unit,
+    onRetryProof: (String, String) -> Unit,
 ) {
     Row(
         Modifier
@@ -429,6 +435,17 @@ private fun ProofItemRow(
                     .size(16.dp)
                     .clip(CircleShape)
                     .clickable(onClick = { onRemoveProof(fieldKey, item.id) }),
+            )
+        }
+        if (item.retryable) {
+            Icon(
+                MeshaIcons.Refresh,
+                contentDescription = "Retry proof upload",
+                tint = MeshaColors.Brand,
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = { onRetryProof(fieldKey, item.id) }),
             )
         }
     }

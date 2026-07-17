@@ -414,6 +414,45 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `a failed proof row exposes a retry action wired to the proof upload repository`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(taskId = "task-required-retry-proof", sopVersionId = "sop-required-retry-proof", scopeId = "shed-2", title = "Required proof", rowVersion = 1)
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField(key = "administration_video", label = "Administration video", type = FormFieldType.VIDEO_PROOF, required = true),
+            ),
+            rules = emptyList(),
+        )
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val proofCaptureSource = FakeProofCaptureSource()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form),
+            CapturingSyncRepository(),
+            "task-required-retry-proof",
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = proofCaptureSource,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://admin-failed.mp4", startedAtMs = 1_000L, endedAtMs = 4_000L))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("administration_video"))
+        advanceUntilIdle()
+        val failedProofId = viewModel.state.value.formRunner?.fields?.single()?.proofItems?.single()?.id
+        proofCaptureRepository.markFailed(failedProofId!!, "network gave up")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.formRunner?.fields?.single()?.proofItems?.single()?.retryable == true)
+
+        viewModel.onEvent(SubmitEvent.ProofRetryRequested("administration_video", failedProofId))
+        advanceUntilIdle()
+
+        val retried = viewModel.state.value.formRunner?.fields?.single()?.proofItems?.single()
+        assertEquals("PENDING", retried?.syncStatus)
+        assertFalse(retried?.retryable == true)
+    }
+
+    @Test
     fun `five failed proof rows do not block replacement capture at the ViewModel layer`() = runTest(dispatcher) {
         val task = TaskSummaryDto(taskId = "task-five-failed-proof", sopVersionId = "sop-five-failed-proof", scopeId = "shed-2", title = "Required proof", rowVersion = 1)
         val form = FormSpec(

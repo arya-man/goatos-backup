@@ -295,6 +295,7 @@ class SubmitViewModel @Inject constructor(
             is SubmitEvent.CaptureVideoRequested -> requestVideoCapture(event.key)
             is SubmitEvent.ProofCaptionChanged -> updateProofCaption(event.proofId, event.caption)
             is SubmitEvent.ProofRemoved -> removeProof(event.proofId)
+            is SubmitEvent.ProofRetryRequested -> retryProofUpload(event.proofId)
         }
     }
 
@@ -384,6 +385,12 @@ class SubmitViewModel @Inject constructor(
         val task = currentTask ?: return
         if (outboxItemId != null) return
         viewModelScope.launch { proofCaptureRepository.remove(task.taskId, proofId) }
+    }
+
+    private fun retryProofUpload(proofId: String) {
+        val task = currentTask ?: return
+        if (outboxItemId != null) return
+        viewModelScope.launch { proofCaptureRepository.retryUpload(task.taskId, proofId) }
     }
 
     private fun renderDraft() {
@@ -733,6 +740,7 @@ class SubmitViewModel @Inject constructor(
         label = if (isExtraSlot) caption?.ifBlank { null } ?: "Extra video" else fieldLabel,
         caption = caption.orEmpty(),
         editableCaption = isExtraSlot,
+        retryable = syncStatus == CaptureSyncStatus.FAILED,
         syncStatus = syncStatus.name,
     )
 
