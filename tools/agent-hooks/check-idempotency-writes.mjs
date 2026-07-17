@@ -128,18 +128,25 @@ function walkDir(dir) {
   return results;
 }
 
+function baselineKey(rel, line) {
+  return `${rel}:${line}`;
+}
+
+function parseBaselineContent(content) {
+  const lines = content.split("\n").filter((l) => l && !l.startsWith("#"));
+  const offenders = new Set();
+  for (const line of lines) {
+    const match = line.match(/^(.+?):(\d+):\s/);
+    if (match) {
+      offenders.add(baselineKey(match[1], Number(match[2])));
+    }
+  }
+  return offenders;
+}
+
 function readBaseline() {
   try {
-    const content = readFileSync(baselineFile, "utf8");
-    const lines = content.split("\n").filter((l) => l && !l.startsWith("#"));
-    const offenders = new Set();
-    for (const line of lines) {
-      const match = line.match(/^([^\s:]+):/);
-      if (match) {
-        offenders.add(match[1]);
-      }
-    }
-    return offenders;
+    return parseBaselineContent(readFileSync(baselineFile, "utf8"));
   } catch {
     return new Set();
   }
@@ -202,11 +209,25 @@ DO UPDATE SET
     }
   }
 
+  const baseline = parseBaselineContent("backend/internal/example/repository.go:12: idempotency_key = EXCLUDED.idempotency_key\n");
+  let baselinePassed = true;
+  if (!baseline.has("backend/internal/example/repository.go:12")) {
+    baselinePassed = false;
+    console.error("idempotency-writes self-test FAILED: baseline did not store path:line key");
+  }
+  if (baseline.has("backend/internal/example/repository.go:99")) {
+    baselinePassed = false;
+    console.error("idempotency-writes self-test FAILED: baseline matched every offender in a file");
+  }
+  if (!baselinePassed) {
+    failed++;
+  }
+
   if (failed > 0) {
-    console.error(`idempotency-writes: ${failed}/${bad.length} self-tests failed`);
+    console.error(`idempotency-writes: ${failed}/${bad.length + 1} self-tests failed`);
     process.exit(1);
   }
-  console.log(`idempotency-writes: all ${bad.length} self-tests passed`);
+  console.log(`idempotency-writes: all ${bad.length + 1} self-tests passed`);
 }
 
 function runScan(writeBaseline = false) {
@@ -250,7 +271,7 @@ function runScan(writeBaseline = false) {
   }
 
   const baseline = readBaseline();
-  const newViolations = violations.filter((v) => !baseline.has(v.rel));
+  const newViolations = violations.filter((v) => !baseline.has(baselineKey(v.rel, v.line)));
 
   if (newViolations.length > 0) {
     console.error(

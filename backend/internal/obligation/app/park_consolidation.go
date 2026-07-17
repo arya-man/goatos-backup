@@ -118,7 +118,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 	// version-level wrapper (cfg.VaccineCode/planner.VaccinePriority) -- a park merge routinely mixes
 	// several distinct matrix vaccines in one candidate set.
 	orderedRemaining := orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
-	selected, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
+	selected, shotClaims, err := selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 	if err != nil {
 		_ = release(ctx)
 		return remaining, 0, true, err
@@ -135,7 +135,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 				return remaining, 0, true, err
 			}
 			orderedRemaining = orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
-			selected, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
+			selected, shotClaims, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 			if err != nil {
 				_ = release(ctx)
 				return remaining, 0, true, err
@@ -168,9 +168,11 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		QuantityUnit:      "dose",
 	}, selected)
 	if createErr != nil {
+		session.releaseClaims(shotClaims)
 		return remaining, 0, true, createErr
 	}
 	if n == 0 {
+		session.releaseClaims(shotClaims)
 		return remaining, 0, true, nil
 	}
 	if holdErr := s.recordParkBatchingHoldIfNeeded(ctx, tenantID, selected, selectedRows, plannedDate, asOf); holdErr != nil {

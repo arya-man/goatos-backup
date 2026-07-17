@@ -39,6 +39,13 @@ type shotCapClaim struct {
 	priority    int32
 }
 
+type shotCapReservation struct {
+	obligationID string
+	key          string
+	vaccineCode  string
+	priority     int32
+}
+
 // NewSweepSession starts a fresh cross-version sweep session with empty shot-cap state.
 func NewSweepSession() *SweepSession {
 	return &SweepSession{
@@ -151,6 +158,24 @@ func (s *SweepSession) claim(key, vaccineCode string, priority int32) {
 	s.visitClaims[key] = shotCapClaim{vaccineCode: vaccineCode, priority: priority}
 }
 
+func (s *SweepSession) releaseClaims(claims []shotCapReservation) {
+	for i := len(claims) - 1; i >= 0; i-- {
+		claim := claims[i]
+		if s.visitShotCounts[claim.key] > 0 {
+			s.visitShotCounts[claim.key]--
+		}
+		if s.visitShotCounts[claim.key] == 0 {
+			delete(s.visitShotCounts, claim.key)
+			delete(s.visitClaims, claim.key)
+			continue
+		}
+		last, ok := s.visitClaims[claim.key]
+		if ok && strings.EqualFold(last.vaccineCode, claim.vaccineCode) && last.priority == claim.priority {
+			delete(s.visitClaims, claim.key)
+		}
+	}
+}
+
 // rejectOrTie returns the explicit blocker when a same-priority, different-vaccine obligation
 // competes for a visit key that is already at cap, or nil when the rejection is an ordinary,
 // resolvable priority-ordered overflow (including a vaccine overflowing its own earlier claim,
@@ -193,15 +218,16 @@ func (s *SweepSession) claimComboBatchTargets(targetIDs []string, date time.Time
 // swept in this run) instead of a private per-call map, and it surfaces
 // ShotCapPriorityTieError when the cap would force a same-priority, different-vaccine drop
 // instead of silently picking an arrival-order winner.
-func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDate *time.Time, maxShots int32, vaccineCode string, priority int32, session *SweepSession) ([]string, error) {
+func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDate *time.Time, maxShots int32, vaccineCode string, priority int32, session *SweepSession) ([]string, []shotCapReservation, error) {
 	if maxShots <= 0 || plannedDate == nil {
 		ids := make([]string, 0, len(rows))
 		for _, row := range rows {
 			ids = append(ids, row.ObligationID)
 		}
-		return ids, nil
+		return ids, nil, nil
 	}
 	selected := make([]string, 0, len(rows))
+	claims := make([]shotCapReservation, 0, len(rows))
 	for _, row := range rows {
 		if strings.TrimSpace(row.TargetID) == "" {
 			selected = append(selected, row.ObligationID)
@@ -210,14 +236,16 @@ func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDa
 		key := visitShotCountKey(*plannedDate, row.TargetID)
 		if session.visitShotCounts[key] >= maxShots {
 			if err := session.rejectOrTie(key, vaccineCode, priority, row.TargetID, *plannedDate); err != nil {
-				return nil, err
+				session.releaseClaims(claims)
+				return nil, nil, err
 			}
 			continue
 		}
 		session.claim(key, vaccineCode, priority)
+		claims = append(claims, shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: vaccineCode, priority: priority})
 		selected = append(selected, row.ObligationID)
 	}
-	return selected, nil
+	return selected, claims, nil
 }
 
 // ruleVaccineIdentityResolver resolves a park-consolidation candidate's OWN rule to its vaccine
@@ -234,15 +262,16 @@ type ruleVaccineIdentityResolver = func(ruleID string) RuleVaccineIdentity
 // several rules/vaccines at once, so the caller supplies identityFor to resolve each row's OWN
 // vaccine identity (R2-05(b) fix) instead of a single vaccineCode/priority pair applied to every
 // row.
-func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, identityFor ruleVaccineIdentityResolver, session *SweepSession) ([]string, error) {
+func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, identityFor ruleVaccineIdentityResolver, session *SweepSession) ([]string, []shotCapReservation, error) {
 	if maxShots <= 0 || plannedDate == nil || len(selected) == 0 {
-		return selected, nil
+		return selected, nil, nil
 	}
 	selectedSet := make(map[string]struct{}, len(selected))
 	for _, id := range selected {
 		selectedSet[id] = struct{}{}
 	}
 	out := make([]string, 0, len(selected))
+	claims := make([]shotCapReservation, 0, len(selected))
 	for _, row := range rows {
 		if _, ok := selectedSet[row.ObligationID]; !ok {
 			continue
@@ -255,14 +284,16 @@ func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCa
 		key := visitShotCountKey(*plannedDate, row.TargetID)
 		if session.visitShotCounts[key] >= maxShots {
 			if err := session.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, *plannedDate); err != nil {
-				return nil, err
+				session.releaseClaims(claims)
+				return nil, nil, err
 			}
 			continue
 		}
 		session.claim(key, identity.VaccineCode, identity.VaccinePriority)
+		claims = append(claims, shotCapReservation{obligationID: row.ObligationID, key: key, vaccineCode: identity.VaccineCode, priority: identity.VaccinePriority})
 		out = append(out, row.ObligationID)
 	}
-	return out, nil
+	return out, claims, nil
 }
 
 // SweepVersionPriority pairs a protocol version with its resolved sweep config, letting a

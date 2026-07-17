@@ -42,6 +42,46 @@ func TestSweeperSkipsSideEffectsWhenAttachClaimsNoRows(t *testing.T) {
 	}
 }
 
+func TestSweeperRollsBackShotCapClaimWhenAttachNoOps(t *testing.T) {
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"version-noop": {
+				{ObligationID: "obl-noop", RuleID: "rule-noop", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due},
+			},
+			"version-valid": {
+				{ObligationID: "obl-valid", RuleID: "rule-valid", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due},
+			},
+		},
+		createBatchAttachedSeq: []int64{0, 1},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	cfg := SweepConfig{
+		VaccineCode:  "PPR",
+		DrivePlanner: domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 1},
+	}
+
+	first, err := svc.SweepVersionWithSessionAsOf(context.Background(), "tenant-1", "version-noop", cfg, due, due, session)
+	if err != nil {
+		t.Fatalf("first SweepVersionWithSessionAsOf: %v", err)
+	}
+	if first.Obligations != 0 {
+		t.Fatalf("first result = %#v, want no attached obligations", first)
+	}
+	second, err := svc.SweepVersionWithSessionAsOf(context.Background(), "tenant-1", "version-valid", cfg, due, due, session)
+	if err != nil {
+		t.Fatalf("second SweepVersionWithSessionAsOf: %v", err)
+	}
+	if second.Obligations != 1 {
+		t.Fatalf("second result = %#v, want later valid obligation to attach after rollback", second)
+	}
+	key := visitShotCountKey(due, "goat-1")
+	if session.visitShotCounts[key] != 1 {
+		t.Fatalf("shot count after no-op then attach = %d, want 1", session.visitShotCounts[key])
+	}
+}
+
 func TestSweeperMarksBatchBlockedWhenStockReservationFails(t *testing.T) {
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
@@ -1128,6 +1168,7 @@ type fakeSweepRepo struct {
 	createBatchID             string
 	createBatchIDs            []string
 	createBatchAttached       int64
+	createBatchAttachedSeq    []int64
 	attachAll                 bool
 	createBatchCalls          int
 	setTaskCalls              int
@@ -1183,6 +1224,9 @@ func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.
 		batchID = f.createBatchIDs[idx]
 	}
 	attached := f.createBatchAttached
+	if idx := f.createBatchCalls - 1; idx >= 0 && idx < len(f.createBatchAttachedSeq) {
+		attached = f.createBatchAttachedSeq[idx]
+	}
 	if f.attachAll {
 		attached = int64(len(ids))
 	}

@@ -536,7 +536,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 	}
 	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
 	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
-	selectedIDs, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 	if err != nil {
 		_ = release(ctx)
 		return false, 0, err
@@ -551,7 +551,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			if err != nil {
 				return false, 0, err
 			}
-			selectedIDs, err = selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+			selectedIDs, shotClaims, err = selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 			if err != nil {
 				_ = release(ctx)
 				return false, 0, err
@@ -565,7 +565,10 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 	}()
 
 	idChunks := splitObligationIDs(selectedIDs, planner.MaxGoatsPerDrive)
+	claimChunks := splitShotCapReservations(shotClaims, selectedIDs, idChunks)
 	for _, chunk := range idChunks {
+		claimChunk := claimChunks[0]
+		claimChunks = claimChunks[1:]
 		if len(chunk) == 0 {
 			continue
 		}
@@ -584,9 +587,11 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			QuantityUnit:      "dose",
 		}, chunk)
 		if createErr != nil {
+			session.releaseClaims(claimChunk)
 			return batched, obligations, createErr
 		}
 		if n == 0 {
+			session.releaseClaims(claimChunk)
 			continue
 		}
 		batched = true
@@ -639,6 +644,23 @@ func selectedUnbatchedRows(rows []domain.UnbatchedDue, selected []string) []doma
 	for _, row := range rows {
 		if _, ok := selectedSet[row.ObligationID]; ok {
 			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func splitShotCapReservations(claims []shotCapReservation, selectedIDs []string, chunks [][]string) [][]shotCapReservation {
+	out := make([][]shotCapReservation, len(chunks))
+	if len(claims) == 0 || len(selectedIDs) == 0 {
+		return out
+	}
+	claimsByID := make(map[string][]shotCapReservation, len(claims))
+	for _, claim := range claims {
+		claimsByID[claim.obligationID] = append(claimsByID[claim.obligationID], claim)
+	}
+	for chunkIndex, chunk := range chunks {
+		for _, id := range chunk {
+			out[chunkIndex] = append(out[chunkIndex], claimsByID[id]...)
 		}
 	}
 	return out
