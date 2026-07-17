@@ -4,9 +4,11 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import org.junit.Assert.assertEquals
@@ -47,6 +49,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@OptIn(ExperimentalCoroutinesApi::class)
 class CaptureRepositoryTest {
 
     private val unconfinedDispatchers = object : DispatcherProvider {
@@ -93,7 +96,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = CoroutineScope(Dispatchers.Unconfined),
+                appScope = backgroundScope,
                 dispatchers = unconfinedDispatchers,
             )
 
@@ -135,6 +138,100 @@ class CaptureRepositoryTest {
 
             // Every capture queued a registration write through the SAME durable outbox path.
             assertEquals(5, sync.enqueueCalls.size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `terminally failed proof rows do not exhaust the active capture cap`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+            )
+
+            val capturedIds = (0 until 5).map { index ->
+                (
+                    repo.capture(
+                        taskId = "task-failed-cap",
+                        fieldKey = "extra_video_$index",
+                        subject = ProofSubject.EXTRA,
+                        localUri = "file://failed-$index.mp4",
+                        mimeType = "video/mp4",
+                        caption = null,
+                        scopeType = "task",
+                        scopeId = "task-failed-cap",
+                        capturedStartMs = 1_000L,
+                        capturedEndMs = 4_000L,
+                        capturedByPrincipalId = "operator-1",
+                    ) as AppResult.Ok
+                    ).value.id
+            }
+            capturedIds.forEach { id ->
+                db.proofCaptureDao().updateStatus(id, CaptureSyncStatus.FAILED.name, null, "network gave up")
+            }
+
+            val replacement = repo.capture(
+                taskId = "task-failed-cap",
+                fieldKey = "administration_video",
+                subject = ProofSubject.ADMINISTRATION,
+                localUri = "file://replacement.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "task",
+                scopeId = "task-failed-cap",
+                capturedStartMs = 5_000L,
+                capturedEndMs = 8_000L,
+                capturedByPrincipalId = "operator-1",
+            )
+
+            assertTrue("failed rows must not permanently burn the 5-video cap", replacement is AppResult.Ok)
+            assertEquals(CaptureSyncStatus.PENDING, repo.observeProofs("task-failed-cap").first().first().syncStatus)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `retryUpload re-arms a failed proof outbox row`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+            )
+            val captured = (
+                repo.capture(
+                    taskId = "task-retry-proof",
+                    fieldKey = "administration_video",
+                    subject = ProofSubject.ADMINISTRATION,
+                    localUri = "file://admin.mp4",
+                    mimeType = "video/mp4",
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = "task-retry-proof",
+                    capturedStartMs = 1_000L,
+                    capturedEndMs = 4_000L,
+                    capturedByPrincipalId = "operator-1",
+                ) as AppResult.Ok
+                ).value
+            advanceUntilIdle()
+            val itemId = sync.enqueueCalls.single().outboxItemId
+            db.proofCaptureDao().updateStatus(captured.id, CaptureSyncStatus.FAILED.name, null, "network gave up")
+
+            val retry = repo.retryUpload("task-retry-proof", captured.id)
+
+            assertTrue(retry is AppResult.Ok)
+            assertEquals(listOf(itemId), sync.retryCalls)
+            assertEquals(CaptureSyncStatus.PENDING, repo.observeProofs("task-retry-proof").first().single().syncStatus)
         } finally {
             db.close()
         }
@@ -244,6 +341,7 @@ private class FakeSyncRepository : SyncRepository {
 
     val enqueueCalls = mutableListOf<EnqueueCall>()
     val scanCalls = mutableListOf<ScanCall>()
+    val retryCalls = mutableListOf<String>()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private var nextId = 0
 
@@ -307,7 +405,10 @@ private class FakeSyncRepository : SyncRepository {
 
     override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> = error("unused")
 
-    override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
+    override suspend fun retry(itemId: String): AppResult<Unit> {
+        retryCalls += itemId
+        return AppResult.Ok(Unit)
+    }
 
     override suspend fun triggerDrain() = Unit
 }

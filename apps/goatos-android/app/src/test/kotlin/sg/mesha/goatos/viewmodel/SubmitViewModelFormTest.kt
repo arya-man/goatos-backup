@@ -282,6 +282,137 @@ class SubmitViewModelFormTest {
     }
 
     @Test
+    fun `a pending optional video_proof blocks submit so it is not silently orphaned`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(taskId = "task-optional-pending-proof", sopVersionId = "sop-optional-pending-proof", scopeId = "shed-9", title = "Optional proof", rowVersion = 1)
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField(key = "cold_chain_verified", label = "Cold chain verified", type = FormFieldType.BOOLEAN, required = true),
+                FormField(key = "extra_video", label = "Extra video", type = FormFieldType.VIDEO_PROOF, required = false),
+            ),
+            rules = emptyList(),
+        )
+        val sync = CapturingSyncRepository()
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val proofCaptureSource = FakeProofCaptureSource()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form),
+            sync,
+            "task-optional-pending-proof",
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = proofCaptureSource,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+
+        advanceUntilIdle()
+        viewModel.onEvent(SubmitEvent.FormToggle("cold_chain_verified", true))
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.canSubmit)
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://optional-pending.mp4", startedAtMs = 2_000L, endedAtMs = 5_000L))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("extra_video"))
+        advanceUntilIdle()
+
+        assertFalse("pending optional proof must wait instead of being dropped from proof_refs", viewModel.state.value.canSubmit)
+        assertEquals("Wait for proof upload to finish before submitting.", viewModel.state.value.formRunner?.blockedReason)
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+        assertNull(sync.lastRequest)
+
+        val proofId = viewModel.state.value.formRunner?.fields?.single { it.key == "extra_video" }?.proofItems?.single()?.id
+        proofCaptureRepository.markSynced(proofId!!, "server-proof-extra")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.canSubmit)
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+
+        assertEquals("server-proof-extra", sync.lastRequest?.proofRefs?.single()?.proofId)
+    }
+
+    @Test
+    fun `a second pending proof on an already answered required field blocks submit`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(taskId = "task-second-proof", sopVersionId = "sop-second-proof", scopeId = "shed-2", title = "Sumathi 1", rowVersion = 1)
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField(key = "administration_video", label = "Administration video", type = FormFieldType.VIDEO_PROOF, required = true),
+            ),
+            rules = emptyList(),
+        )
+        val sync = CapturingSyncRepository()
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val proofCaptureSource = FakeProofCaptureSource()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form),
+            sync,
+            "task-second-proof",
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = proofCaptureSource,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://admin-1.mp4", startedAtMs = 1_000L, endedAtMs = 4_000L))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("administration_video"))
+        advanceUntilIdle()
+        val firstProofId = viewModel.state.value.formRunner?.fields?.single()?.proofItems?.single()?.id
+        proofCaptureRepository.markSynced(firstProofId!!, "server-proof-admin-1")
+        advanceUntilIdle()
+        assertTrue(viewModel.state.value.canSubmit)
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://admin-2.mp4", startedAtMs = 5_000L, endedAtMs = 8_000L))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("administration_video"))
+        advanceUntilIdle()
+
+        assertFalse("second pending proof must wait instead of being dropped", viewModel.state.value.canSubmit)
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+        assertNull(sync.lastRequest)
+    }
+
+    @Test
+    fun `a failed required video_proof can be re-recorded instead of exhausting the field`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(taskId = "task-required-failed-proof", sopVersionId = "sop-required-failed-proof", scopeId = "shed-2", title = "Required proof", rowVersion = 1)
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField(key = "administration_video", label = "Administration video", type = FormFieldType.VIDEO_PROOF, required = true),
+            ),
+            rules = emptyList(),
+        )
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val proofCaptureSource = FakeProofCaptureSource()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form),
+            CapturingSyncRepository(),
+            "task-required-failed-proof",
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = proofCaptureSource,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://admin-failed.mp4", startedAtMs = 1_000L, endedAtMs = 4_000L))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("administration_video"))
+        advanceUntilIdle()
+        val failedProofId = viewModel.state.value.formRunner?.fields?.single()?.proofItems?.single()?.id
+        proofCaptureRepository.markFailed(failedProofId!!, "network gave up")
+        advanceUntilIdle()
+
+        val field = viewModel.state.value.formRunner?.fields?.single()
+        assertFalse(viewModel.state.value.canSubmit)
+        assertTrue("terminal failed proof must not consume the only capture slot", field?.canCaptureMore == true)
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://admin-retry.mp4", startedAtMs = 5_000L, endedAtMs = 8_500L))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("administration_video"))
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.state.value.formRunner?.fields?.single()?.proofItems?.size)
+        assertEquals(2, proofCaptureSource.captureCount)
+    }
+
+    @Test
     fun `cold cache, no-task-assigned, and task-load-failed states never render fixture farm identity`() = runTest(dispatcher) {
         // Cold cache: task id present, Room + network both never answer (never call refreshTaskDetail
         // successfully) — exercised via a repository whose Flow never emits real data.

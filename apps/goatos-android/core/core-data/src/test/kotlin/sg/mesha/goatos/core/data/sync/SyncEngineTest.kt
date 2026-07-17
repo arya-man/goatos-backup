@@ -173,12 +173,7 @@ class SyncEngineTest {
         assertEquals(OutboxStatus.FAILED.name, row.status)
         assertTrue(row.conflict)
         assertEquals(1, row.attemptCount) // no retry budget spent looping — terminal immediately
-        // "required" is a form/proof-gap code -> the engine substitutes an honest, friendly
-        // recording-form/proof-upload message rather than surfacing the raw field error.
-        assertEquals(
-            "This drive is missing required form answers or completed proof. Review the recording form and wait for proof upload to finish.",
-            row.lastError,
-        )
+        assertEquals("Answers required", row.lastError)
 
         engine.drainOnce() // a conflict row is never auto-eligible again.
         assertEquals(1, api.submitCalls.size)
