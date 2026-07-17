@@ -302,7 +302,7 @@ func (r *Repository) VaccinationSchedule(ctx context.Context, q domain.ScheduleQ
 	if asOf.Valid {
 		state.AsOf = asOf.Time
 	}
-	dirty, err := r.scheduleProjectionDirty(ctx, q.TenantID, q.ParkID, monthStart, state.ProjectedAt)
+	dirty, err := r.scheduleProjectionDirty(ctx, q.TenantID, q.ParkID, monthStart, state.AsOf)
 	if err != nil {
 		return nil, domain.ScheduleProjectionState{}, err
 	}
@@ -779,7 +779,7 @@ SELECT EXISTS (
 
 const scheduleProjectionClearSatisfiedDirtySQL = `
 WITH states AS (
-  SELECT scope_type, scope_id, projected_at
+  SELECT scope_type, scope_id, as_of
   FROM vaccination_schedule_projection_state
   WHERE tenant_id = $1::uuid
     AND year_month = $2::date
@@ -802,7 +802,7 @@ ready AS (
       FROM states tenant_state
       WHERE tenant_state.scope_type = 'tenant'
         AND tenant_state.scope_id = '00000000-0000-0000-0000-000000000000'::uuid
-        AND tenant_state.projected_at >= d.last_dirty_at
+        AND tenant_state.as_of >= d.last_dirty_at
     )
     AND (
       d.scope_type = 'tenant'
@@ -813,7 +813,7 @@ ready AS (
           FROM states park_state
           WHERE park_state.scope_type = 'park'
             AND park_state.scope_id = d.scope_id
-            AND park_state.projected_at >= d.last_dirty_at
+            AND park_state.as_of >= d.last_dirty_at
         )
       )
       OR (
@@ -825,7 +825,7 @@ ready AS (
             FROM states park_state
             WHERE park_state.scope_type = 'park'
               AND park_state.scope_id = l.parent_location_id
-              AND park_state.projected_at >= d.last_dirty_at
+              AND park_state.as_of >= d.last_dirty_at
           )
         )
       )

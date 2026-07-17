@@ -870,6 +870,72 @@ func TestVaccinationScheduleHorizonRebuildClearsSatisfiedDirtyScopes(t *testing.
 	assertDirtyScheduleMonthCount(t, ctx, pool, month, 0)
 }
 
+func TestVaccinationScheduleDirtyFreshnessUsesSourceWatermarkNotFinishTime(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	month := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	parkID := testPark
+	tenantQ := domain.ScheduleQuery{TenantID: testTenant, MonthStart: month, Limit: 50}
+	parkQ := domain.ScheduleQuery{TenantID: testTenant, ParkID: &parkID, MonthStart: month, Limit: 50}
+
+	execProjectionSQL(t, ctx, pool, "clear fixture dirty scopes for watermark test",
+		`DELETE FROM vaccination_schedule_projection_dirty_scopes WHERE tenant_id = $1::uuid AND year_month = $2::date`,
+		testTenant, month)
+	execProjectionSQL(t, ctx, pool, "seed fresh-looking schedule states with old source watermark",
+		`INSERT INTO vaccination_schedule_projection_state (
+		   tenant_id, scope_type, scope_id, year_month, projection_version, projected_at, as_of,
+		   freshness_status, serving_state, stale, rebuild_required, row_count, generated_by
+		 ) VALUES
+		   ($1::uuid, 'tenant', '00000000-0000-0000-0000-000000000000'::uuid, $2::date, 1,
+		    TIMESTAMPTZ '2026-06-24 10:03:00+00', TIMESTAMPTZ '2026-06-24 10:00:00+00',
+		    'green', 'fresh', false, false, 0, 'test-watermark'),
+		   ($1::uuid, 'park', $3::uuid, $2::date, 2,
+		    TIMESTAMPTZ '2026-06-24 10:03:00+00', TIMESTAMPTZ '2026-06-24 10:00:00+00',
+		    'green', 'fresh', false, false, 0, 'test-watermark')`,
+		testTenant, month, testPark)
+	execProjectionSQL(t, ctx, pool, "dirty after source watermark but before finish time",
+		`INSERT INTO vaccination_schedule_projection_dirty_scopes (
+		   tenant_id, scope_type, scope_id, year_month, reason, status, dirty_count,
+		   first_dirty_at, last_dirty_at, updated_at
+		 ) VALUES (
+		   $1::uuid, 'shed', $2::uuid, $3::date, 'test.watermark', 'dirty', 1,
+		   TIMESTAMPTZ '2026-06-24 10:01:00+00',
+		   TIMESTAMPTZ '2026-06-24 10:01:00+00',
+		   TIMESTAMPTZ '2026-06-24 10:01:00+00'
+		 )`,
+		testTenant, testShed, month)
+
+	tenantState := scheduleState(t, ctx, repo, tenantQ)
+	parkState := scheduleState(t, ctx, repo, parkQ)
+	if tenantState.FreshnessStatus != "yellow" || !tenantState.Stale || !tenantState.RebuildRequired {
+		t.Fatalf("tenant state must stay stale when dirty is after source watermark but before finish time, got %+v", tenantState)
+	}
+	if parkState.FreshnessStatus != "yellow" || !parkState.Stale || !parkState.RebuildRequired {
+		t.Fatalf("park state must stay stale when dirty is after source watermark but before finish time, got %+v", parkState)
+	}
+
+	if _, err := pool.Exec(ctx, scheduleProjectionClearSatisfiedDirtySQL, testTenant, month); err != nil {
+		t.Fatalf("clear dirty using old source watermark: %v", err)
+	}
+	assertDirtyScheduleMonthCount(t, ctx, pool, month, 1)
+
+	execProjectionSQL(t, ctx, pool, "advance source watermark past dirty time",
+		`UPDATE vaccination_schedule_projection_state
+		 SET as_of = TIMESTAMPTZ '2026-06-24 10:02:00+00'
+		 WHERE tenant_id = $1::uuid AND year_month = $2::date`,
+		testTenant, month)
+	if _, err := pool.Exec(ctx, scheduleProjectionClearSatisfiedDirtySQL, testTenant, month); err != nil {
+		t.Fatalf("clear dirty using advanced source watermark: %v", err)
+	}
+	assertDirtyScheduleMonthCount(t, ctx, pool, month, 0)
+}
+
 func TestVaccinationScheduleProjectionPaginatesWithoutTruncatingCursor(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
