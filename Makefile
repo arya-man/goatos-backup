@@ -368,10 +368,13 @@ scale-guard:
 # a commit with no mobile Kotlin passes instantly. See
 # docs/decisions/mobile-data-fetch-anti-patterns.md. `mobile-guard-audit` scans the whole tree.
 mobile-guard:
+	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --self-test
+	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test
 	node tools/agent-hooks/check-mobile-list-fetch.mjs
 
 mobile-guard-audit:
+	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --all
 
 # nav-composition-guard: block hardcoded per-role/per-module nav templates. Navigation (nav bar,
