@@ -1,5 +1,7 @@
 package sg.mesha.goatos.feature.submit
 
+// telemetry:exempt pure stateless renderer; SubmitViewModel owns submit/proof intents and the sync/outbox layer owns write lifecycle telemetry.
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
