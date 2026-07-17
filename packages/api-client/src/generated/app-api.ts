@@ -1142,7 +1142,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get exact summary counts from the herd register summary projection. */
+        /** Get exact scoped herd counts from canonical goats. */
         get: operations["getHerdRegisterSummary"];
         put?: never;
         post?: never;
@@ -5635,7 +5635,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Exact summary counts from projection. */
+            /** @description Exact scoped counts from canonical goats. */
             200: {
                 headers: {
                     [name: string]: unknown;

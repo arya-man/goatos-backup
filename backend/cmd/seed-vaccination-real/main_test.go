@@ -234,6 +234,33 @@ func TestSeedGenerationErrorAllowsPartialFailureWhenFlagged(t *testing.T) {
 	}
 }
 
+func TestValidateOwnerPrerequisitesRejectsOwnerlessSeed(t *testing.T) {
+	err := validateOwnerPrerequisites(ownerPrerequisiteCounts{})
+	if err == nil {
+		t.Fatal("ownerless vaccination seed must be rejected")
+	}
+	for _, want := range []string{
+		"active workforce_members",
+		"active assigned workforce_positions",
+		"seed-vaccination-source-full",
+		"Refusing to create owner-missing vaccination work",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want %q", err, want)
+		}
+	}
+}
+
+func TestValidateOwnerPrerequisitesAcceptsSeededRoster(t *testing.T) {
+	err := validateOwnerPrerequisites(ownerPrerequisiteCounts{
+		ActiveMembers:           31,
+		ActiveAssignedPositions: 32,
+	})
+	if err != nil {
+		t.Fatalf("seeded roster prerequisites rejected: %v", err)
+	}
+}
+
 func TestSourceVaccinationDateIsHistoryUsesBusinessDateNotClockTime(t *testing.T) {
 	loc := mustKolkata(t)
 	sourceDate := time.Date(2026, time.July, 11, 0, 0, 0, 0, loc)

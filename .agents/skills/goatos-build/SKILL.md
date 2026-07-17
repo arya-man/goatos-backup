@@ -208,6 +208,12 @@ one product; this skill is the navigation layer.
   source. Reference pattern: `backend/cmd/seed-shed-positions` (`-generate-provisional`
   writes the artifact; `-mapping` applies it; `-strict` blocks gaps AND unreviewed
   provisional rows).
+- **Vaccination source seed is ownership-dependent.** For local/dev/staging
+  vaccination rehearsals, run `make seed-vaccination-source-full`; do not treat
+  `backend/cmd/seed-vaccination-real` as a standalone whole-setup command. The
+  vaccination seed must fail if HRMS roster/position prerequisites are missing,
+  because creating due work before owners/operators exist produces broken
+  Action Center owner/operator assignment states.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the

@@ -2474,32 +2474,43 @@ func defaultString(value, fallback string) string {
 	return value
 }
 
-// GetHerdRegisterSummary reads exact summary counts from herd_register_summary_projection.
-// Returns the scoped summary rows (all matching the filter dimensions) for business KPIs.
+// GetHerdRegisterSummary reads exact summary counts from canonical goats.
+// Returns a single scoped summary row for business KPIs.
 func (r *Repository) GetHerdRegisterSummary(ctx context.Context, req domain.HerdRegisterSummaryQuery) (domain.HerdRegisterSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
 	const query = `
 SELECT
-  park_id::text,
-  farm_id::text,
-  current_location_id::text,
-  breed,
-  sex,
-  lifecycle_status,
-  active_count,
-  adult_count,
-  kid_count,
-  untagged_kid_count,
-  projected_at
-FROM herd_register_summary_projection
-WHERE tenant_id = $1
-  AND lifecycle_status = COALESCE(NULLIF($2, ''), lifecycle_status)
-  AND ($3 = '' OR park_id = NULLIF($3, '')::uuid)
-  AND ($4 = '' OR breed = $4)
-  AND ($5 = '' OR sex = $5)
-ORDER BY park_id, farm_id, current_location_id, breed, sex, lifecycle_status`
+  (NULLIF($3, '')::uuid)::text AS park_id,
+  NULL::text AS farm_id,
+  NULL::text AS current_location_id,
+  NULLIF($4, '') AS breed,
+  COALESCE(NULLIF($5, ''), 'all') AS sex,
+  COALESCE(NULLIF($2, ''), 'all') AS lifecycle_status,
+  count(*) FILTER (WHERE g.lifecycle_status = 'alive') AS active_count,
+  count(*) FILTER (WHERE g.lifecycle_status = 'alive' AND NOT herd_register_is_kid(g.age_band, g.management_stage)) AS adult_count,
+  count(*) FILTER (WHERE g.lifecycle_status = 'alive' AND herd_register_is_kid(g.age_band, g.management_stage)) AS kid_count,
+  count(*) FILTER (
+    WHERE g.lifecycle_status = 'alive'
+      AND herd_register_is_kid(g.age_band, g.management_stage)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM goat_identifiers gi
+        WHERE gi.tenant_id = g.tenant_id
+          AND gi.goat_id = g.goat_id
+          AND gi.identifier_type = 'animal_identifier_1'
+          AND gi.status = 'active'
+      )
+  ) AS untagged_kid_count,
+  now() AS projected_at
+FROM goats g
+WHERE g.tenant_id = $1
+  AND g.merged_into_goat_id IS NULL
+  AND ($2 = '' OR g.lifecycle_status = $2)
+  AND ($3 = '' OR g.park_id = NULLIF($3, '')::uuid)
+  AND ($4 = '' OR g.breed = $4)
+  AND ($5 = '' OR g.sex = $5)`
 
 	rows, err := r.pool.Query(ctx, query,
 		req.TenantID,

@@ -198,6 +198,7 @@ func run(args []string) error {
 	sourcePath := fs.String("source", "/Users/ravi/mesha/source-material/vgoats-seed", "path to source data directory")
 	purgeFixtures := fs.Bool("purge-fixtures", true, "purge leftover synthetic dev fixtures (trigger-seed protocol family, synthetic G-0000NN goats, junk-named sheds, stale calendar projections) so every surface shows only real herd data")
 	allowPartialGeneration := fs.Bool("allow-partial-generation", false, "allow seed to exit successfully when kernel generation isolates per-goat failures")
+	allowOwnerlessSeed := fs.Bool("allow-ownerless-seed", false, "dangerous/dev-only: allow vaccination seed when HRMS roster/position prerequisites are absent")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -220,6 +221,13 @@ func run(args []string) error {
 	}
 	defer pool.Close()
 
+	if err := requireOwnerPrerequisites(ctx, pool, *tenantID, *allowOwnerlessSeed); err != nil {
+		return err
+	}
+	if err := seedAnimalStageLookup(ctx, pool, *tenantID); err != nil {
+		return err
+	}
+
 	goats, err := loadGoats(*sourcePath)
 	if err != nil {
 		return fmt.Errorf("load goats: %w", err)
@@ -241,6 +249,101 @@ func run(args []string) error {
 	// projection recompute. Surviving summaries (eligibility rollup, counts) are
 	// recomputed by seed-closeout.
 	return nil
+}
+
+type ownerPrerequisiteCounts struct {
+	ActiveMembers           int
+	ActiveAssignedPositions int
+}
+
+func requireOwnerPrerequisites(ctx context.Context, pool *pgxpool.Pool, tenantID string, allowOwnerlessSeed bool) error {
+	if allowOwnerlessSeed {
+		return nil
+	}
+
+	var counts ownerPrerequisiteCounts
+	if err := pool.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM workforce_members WHERE tenant_id=$1::uuid AND status='active') AS active_members,
+  (SELECT count(*) FROM workforce_positions WHERE tenant_id=$1::uuid AND status='active' AND workforce_member_id IS NOT NULL) AS active_assigned_positions`,
+		tenantID).Scan(&counts.ActiveMembers, &counts.ActiveAssignedPositions); err != nil {
+		return fmt.Errorf("load owner prerequisites: %w", err)
+	}
+	return validateOwnerPrerequisites(counts)
+}
+
+func validateOwnerPrerequisites(counts ownerPrerequisiteCounts) error {
+	missing := make([]string, 0, 2)
+	if counts.ActiveMembers == 0 {
+		missing = append(missing, "active workforce_members")
+	}
+	if counts.ActiveAssignedPositions == 0 {
+		missing = append(missing, "active assigned workforce_positions")
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("owner preflight failed: missing %s; run `make seed-vaccination-source-full` or run `go run ./cmd/seed-roster-real` before seed-vaccination-real. Refusing to create owner-missing vaccination work", strings.Join(missing, " and "))
+}
+
+type seedAnimalStage struct {
+	Code      string
+	Name      string
+	MinAgeDay *int32
+	MaxAgeDay *int32
+	SortOrder int
+}
+
+func seedAnimalStageLookup(ctx context.Context, pool *pgxpool.Pool, tenantID string) error {
+	stages := []seedAnimalStage{
+		{Code: "K0", Name: "Newborn", MinAgeDay: int32Ptr(0), MaxAgeDay: int32Ptr(1), SortOrder: 0},
+		{Code: "K1", Name: "Milk training", MinAgeDay: int32Ptr(2), MaxAgeDay: int32Ptr(7), SortOrder: 10},
+		{Code: "K2", Name: "Milk drinking", MinAgeDay: int32Ptr(8), MaxAgeDay: int32Ptr(42), SortOrder: 20},
+		{Code: "K3", Name: "Weaned kids", MinAgeDay: int32Ptr(43), SortOrder: 30},
+		{Code: "F2", Name: "Fattening", SortOrder: 40},
+		{Code: "F2-Male", Name: "Fattening male", SortOrder: 41},
+		{Code: "F2-Female", Name: "Fattening female", SortOrder: 42},
+		{Code: "Buck", Name: "Buck", SortOrder: 50},
+		{Code: "Mother", Name: "Mother", SortOrder: 60},
+		{Code: "Milking", Name: "Milking", SortOrder: 70},
+		{Code: "M0", Name: "Mother newborn", SortOrder: 80},
+		{Code: "Warmup", Name: "Warmup", SortOrder: 90},
+		{Code: "Pregnant", Name: "Pregnant", SortOrder: 100},
+		{Code: "Non-Pregnant", Name: "Non-pregnant", SortOrder: 110},
+		{Code: "ICU", Name: "ICU", SortOrder: 120},
+		{Code: "Quarantine", Name: "Quarantine", SortOrder: 130},
+	}
+	for _, stage := range stages {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO animal_stage_lookup (
+  animal_stage_id, tenant_id, stage_code, name, min_age_days, max_age_days,
+  sort_order, status
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, $6, $7, 'active'
+)
+ON CONFLICT (tenant_id, stage_code) DO UPDATE
+SET name = EXCLUDED.name,
+    min_age_days = EXCLUDED.min_age_days,
+    max_age_days = EXCLUDED.max_age_days,
+    sort_order = EXCLUDED.sort_order,
+    status = 'active',
+    updated_at = now()`,
+			detUUID("animal_stage_lookup", tenantID, stage.Code),
+			tenantID,
+			stage.Code,
+			stage.Name,
+			stage.MinAgeDay,
+			stage.MaxAgeDay,
+			stage.SortOrder,
+		); err != nil {
+			return fmt.Errorf("seed animal stage %s: %w", stage.Code, err)
+		}
+	}
+	return nil
+}
+
+func int32Ptr(v int32) *int32 {
+	return &v
 }
 
 func analyzePostSeedTables(ctx context.Context, pool *pgxpool.Pool) error {

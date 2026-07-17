@@ -369,7 +369,7 @@ export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<G
 
 // Herd Register summary read model. The row list stays on bounded /goats/search
 // (searchGoats) because those render fields (tag1/tag2, weight, health, breeding)
-// are NOT in the projection; KPI totals come from the exact summary projection.
+// are separate from the KPI totals; totals come from canonical scoped goat counts.
 
 export type HerdRegisterSummaryCounts = {
   parkId: string | null;
@@ -396,7 +396,7 @@ export type HerdRegisterSummaryParams = {
   sex?: string;
 };
 
-/** Read exact summary counts from the herd_register_summary_projection. */
+/** Read exact summary counts from canonical goats. */
 export async function getHerdRegisterSummary(
   params: HerdRegisterSummaryParams,
 ): Promise<ApiResult<HerdRegisterSummaryResponse>> {

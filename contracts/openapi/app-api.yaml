@@ -2779,7 +2779,7 @@ paths:
       tags:
         - Herd Register
       operationId: getHerdRegisterSummary
-      summary: Get exact summary counts from the herd register summary projection.
+      summary: Get exact scoped herd counts from canonical goats.
       parameters:
         - name: lifecycle_status
           in: query
@@ -2808,7 +2808,7 @@ paths:
             description: Filter by sex
       responses:
         "200":
-          description: Exact summary counts from projection.
+          description: Exact scoped counts from canonical goats.
           content:
             application/json:
               schema:
