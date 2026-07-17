@@ -198,6 +198,16 @@
       "ciStep": "mobile-guard"
     },
     {
+      "id": "android-camera-only-proof-capture",
+      "script": "tools/agent-hooks/check-android-camera-only-proof-capture.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-camera-only-proof-capture.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --self-test",
+      "owningDoc": "docs/mobile/proof-video-verification-flow.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
+    },
+    {
       "id": "admin-web-request-reads",
       "script": "tools/agent-hooks/check-admin-web-request-reads.mjs",
       "makeTarget": "admin-web-request-reads-guard",
