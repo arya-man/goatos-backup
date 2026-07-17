@@ -97,10 +97,10 @@
   .ihelp:hover{border-color:var(--brand);color:var(--brand)}
   /* Hover/focus info popover (Sessions + Capacity tooltips). CSS-only, no JS: the .tip text is always in
      the DOM (read/testable), revealed on hover/focus-within. Modeled on the .parkmenu popover idiom. */
-  .tipwrap{position:relative;display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;margin:-12px -10px}
-  .tipwrap .ihelp{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:999px;color:transparent;font-size:0;line-height:1;text-transform:none;letter-spacing:0}
-  .tipwrap .ihelp::before{content:"i";display:inline-grid;place-items:center;width:18px;height:18px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:11px;font-weight:800;line-height:1}
-  .tipwrap .ihelp:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+  .tipwrap{position:relative;display:inline-flex;align-items:center;justify-content:center;margin-left:5px;vertical-align:middle}
+  .tipwrap .ihelp{display:inline-grid;place-items:center;width:18px;height:18px;margin-left:0;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:11px;font-weight:800;line-height:1;text-transform:none;letter-spacing:0;cursor:help}
+  .tipwrap .ihelp:hover{border-color:var(--line);background:var(--bg);color:var(--ink)}
+  .tipwrap .ihelp:focus-visible{outline:2px solid var(--ring);outline-offset:2px;border-color:var(--brand);color:var(--brand)}
   .tipwrap .tip{position:absolute;z-index:60;top:calc(100% + 6px);left:0;min-width:230px;max-width:300px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:9px 11px;font-size:12px;line-height:1.5;font-weight:500;color:var(--ink);text-transform:none;letter-spacing:normal;white-space:normal;opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-4px);transition:opacity .14s,transform .14s,visibility .14s}
   .tipwrap:hover .tip,.tipwrap:focus-within .tip{opacity:1;visibility:visible;transform:translateY(0)}
   th .tipwrap .tip{right:0;left:auto}
