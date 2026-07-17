@@ -44,6 +44,7 @@ import sg.mesha.goatos.feature.scan.RosterRow
 import sg.mesha.goatos.feature.scan.ScanError
 import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanFeedEntry
+import sg.mesha.goatos.feature.scan.ScanFeedTone
 import sg.mesha.goatos.feature.scan.ScanReaderConnection
 import sg.mesha.goatos.feature.scan.ScanScreen
 import sg.mesha.goatos.feature.scan.ScanStatus
@@ -436,6 +437,11 @@ private fun vaccinationScanStateForReads(
                 else -> "not due in this shed"
             },
             status = read.status,
+            tone = when {
+                read.duplicate -> ScanFeedTone.DUPLICATE
+                read.status == ScanStatus.SKIPPED -> ScanFeedTone.REJECTED
+                else -> ScanFeedTone.ACCEPTED
+            },
         )
     }
     val knownRows = sampleRosterGoats.map { goat ->

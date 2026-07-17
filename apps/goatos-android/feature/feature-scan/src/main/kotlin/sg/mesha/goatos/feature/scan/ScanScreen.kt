@@ -84,6 +84,9 @@ import sg.mesha.goatos.core.ui.SyncStatusIndicator
  */
 enum class ScanStatus { DONE, PENDING, SKIPPED }
 
+/** Tone for the live scan feed. A duplicate can be a DONE row without being success-colored. */
+enum class ScanFeedTone { ACCEPTED, DUPLICATE, REJECTED }
+
 /** A backend-tagged vaccine group used as a filter chip on the roster. */
 data class VaccineGroup(
     val id: String,
@@ -110,6 +113,10 @@ data class ScanFeedEntry(
     val secondaryTag: String?,
     val vaccineLabel: String,      // "FMD · 1st" or "skip · <reason>"
     val status: ScanStatus,        // DONE or SKIPPED
+    val tone: ScanFeedTone = when (status) {
+        ScanStatus.SKIPPED -> ScanFeedTone.REJECTED
+        else -> ScanFeedTone.ACCEPTED
+    },
 )
 
 /**
@@ -196,6 +203,7 @@ private object ScanTokens {
     val brand = MeshaColors.Brand
     val brandD = MeshaColors.BrandD
     val danger = MeshaColors.Danger
+    val warning = Color(0xFFF2B84B)
     val muted = MeshaColors.Muted
     val faint = MeshaColors.Faint
     val ink = MeshaColors.Ink
@@ -204,6 +212,7 @@ private object ScanTokens {
     val surf3 = MeshaColors.Surf3
     val okX = MeshaColors.OkX        // ~.16 alpha brand
     val dangerX = MeshaColors.DangerX  // ~.15 alpha danger
+    val warningX = Color(0x24F2B84B)
     val brandSoft = MeshaColors.BrandTint
     val onPrimary = MeshaColors.OnBrand
 }
@@ -301,8 +310,13 @@ fun ScanScreen(
                 if (state.feed.isEmpty()) {
                     item { FeedEmpty() }
                 } else {
-                    // MOB-011: Use stable keys for dynamic feed items to avoid recomposition on insert
-                    items(state.feed, key = { entry -> "${entry.primaryTag}|${entry.vaccineLabel}|${entry.status}" }, contentType = { "feed_row" }) { entry -> FeedRow(entry) }
+                    // Feed events can repeat the same tag/label/status when an operator rescans.
+                    // Include the visible index so Compose keys stay unique for the rolling log.
+                    itemsIndexed(
+                        state.feed,
+                        key = { index, entry -> "${entry.primaryTag}|${entry.vaccineLabel}|${entry.status}|${entry.tone}|$index" },
+                        contentType = { _, _ -> "feed_row" },
+                    ) { _, entry -> FeedRow(entry) }
                 }
                 item { Spacer(Modifier.height(8.dp)) }
             }
@@ -679,14 +693,19 @@ private fun CountTile(
 // --------------------------------------------------------------------------- feed
 @Composable
 private fun FeedRow(entry: ScanFeedEntry) {
-    val tagColor = if (entry.status == ScanStatus.SKIPPED) ScanTokens.danger else ScanTokens.ink
+    val toneColor = when (entry.tone) {
+        ScanFeedTone.ACCEPTED -> ScanTokens.brandD
+        ScanFeedTone.DUPLICATE -> ScanTokens.warning
+        ScanFeedTone.REJECTED -> ScanTokens.danger
+    }
+    val tagColor = if (entry.tone == ScanFeedTone.ACCEPTED) ScanTokens.ink else toneColor
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        StatusGlyph(entry.status)
+        StatusGlyph(entry.status, tone = entry.tone)
         Spacer(Modifier.width(10.dp))
         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -702,7 +721,7 @@ private fun FeedRow(entry: ScanFeedEntry) {
                 TwoTagsBadge()
             }
         }
-        Text(entry.vaccineLabel, color = ScanTokens.muted, fontSize = 11.sp)
+        Text(entry.vaccineLabel, color = toneColor, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -732,9 +751,10 @@ private fun TwoTagsBadge() {
 }
 
 @Composable
-private fun StatusGlyph(status: ScanStatus, notDue: Boolean = false) {
+private fun StatusGlyph(status: ScanStatus, notDue: Boolean = false, tone: ScanFeedTone? = null) {
     val (bg, fg, glyph) = when {
         notDue -> Triple(ScanTokens.dangerX, ScanTokens.danger, "✕")
+        tone == ScanFeedTone.DUPLICATE -> Triple(ScanTokens.warningX, ScanTokens.warning, "!")
         status == ScanStatus.DONE -> Triple(ScanTokens.okX, ScanTokens.brandD, "✓")
         status == ScanStatus.SKIPPED -> Triple(ScanTokens.dangerX, ScanTokens.danger, "✕")
         else -> Triple(ScanTokens.surf3, ScanTokens.muted, "·")

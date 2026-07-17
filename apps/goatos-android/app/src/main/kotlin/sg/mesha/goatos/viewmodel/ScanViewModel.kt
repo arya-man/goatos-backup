@@ -28,6 +28,7 @@ import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.feature.scan.RosterRow
 import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanFeedEntry
+import sg.mesha.goatos.feature.scan.ScanFeedTone
 import sg.mesha.goatos.feature.scan.ScanReaderConnection
 import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.scan.ScanTileLabels
@@ -293,7 +294,13 @@ class ScanViewModel @Inject constructor(
                     )
                     _feed.update {
                         prependFeed(
-                            ScanFeedEntry(row.primaryTag, row.secondaryTag, "already scanned · ${row.vaccineLabel}", ScanStatus.DONE),
+                            ScanFeedEntry(
+                                row.primaryTag,
+                                row.secondaryTag,
+                                "already scanned · ${row.vaccineLabel}",
+                                ScanStatus.DONE,
+                                ScanFeedTone.DUPLICATE,
+                            ),
                             it,
                         )
                     }
