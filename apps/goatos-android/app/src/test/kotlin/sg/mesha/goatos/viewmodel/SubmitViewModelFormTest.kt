@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
 import sg.mesha.goatos.core.data.forms.FormSpec
@@ -410,6 +411,57 @@ class SubmitViewModelFormTest {
 
         assertEquals(2, viewModel.state.value.formRunner?.fields?.single()?.proofItems?.size)
         assertEquals(2, proofCaptureSource.captureCount)
+    }
+
+    @Test
+    fun `five failed proof rows do not block replacement capture at the ViewModel layer`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(taskId = "task-five-failed-proof", sopVersionId = "sop-five-failed-proof", scopeId = "shed-2", title = "Required proof", rowVersion = 1)
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField(key = "administration_video", label = "Administration video", type = FormFieldType.VIDEO_PROOF, required = true, repeat = true),
+            ),
+            rules = emptyList(),
+        )
+        val proofCaptureRepository = FakeProofCaptureRepository()
+        val proofCaptureSource = FakeProofCaptureSource()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form),
+            CapturingSyncRepository(),
+            "task-five-failed-proof",
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = proofCaptureSource,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        repeat(5) { index ->
+            val captured = proofCaptureRepository.capture(
+                taskId = "task-five-failed-proof",
+                fieldKey = "administration_video",
+                subject = ProofSubject.ADMINISTRATION,
+                localUri = "file://failed-$index.mp4",
+                mimeType = "video/mp4",
+                caption = null,
+                scopeType = "task",
+                scopeId = "task-five-failed-proof",
+                capturedStartMs = index * 1_000L,
+                capturedEndMs = index * 1_000L + 500L,
+                capturedByPrincipalId = "operator-1",
+            ) as AppResult.Ok
+            proofCaptureRepository.markFailed(captured.value.id, "network gave up")
+        }
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.formRunner?.fields?.single()?.canCaptureMore == true)
+
+        proofCaptureSource.queue(CapturedVideo(localUri = "file://replacement.mp4", startedAtMs = 10_000L, endedAtMs = 13_000L))
+        viewModel.onEvent(SubmitEvent.CaptureVideoRequested("administration_video"))
+        advanceUntilIdle()
+
+        assertEquals(1, proofCaptureSource.captureCount)
+        assertEquals("file://replacement.mp4", proofCaptureRepository.captureCalls.last().localUri)
+        assertEquals(6, viewModel.state.value.formRunner?.fields?.single()?.proofItems?.size)
     }
 
     @Test

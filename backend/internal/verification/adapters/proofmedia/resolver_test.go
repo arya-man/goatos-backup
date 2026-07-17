@@ -2,9 +2,16 @@ package proofmedia
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	localstorage "github.com/vgoats/goatos/backend/internal/proof/adapters/storage/local"
+	proofapp "github.com/vgoats/goatos/backend/internal/proof/app"
 	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
+	"github.com/vgoats/goatos/backend/internal/proof/ports"
 )
 
 func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
@@ -30,6 +37,63 @@ func TestResolveMediaIncludesProofMetadataForVideoPlayback(t *testing.T) {
 	}
 }
 
+func TestLocalUploadCompletePreservesDurationForVerificationMedia(t *testing.T) {
+	ctx := context.Background()
+	repo := newMemoryProofRepo()
+	service := proofapp.NewService(repo, localstorage.New(t.TempDir(), "local-proof-secret"))
+	subjectID := "30000000-0000-4000-8000-000000000001"
+
+	target, err := service.CreateUpload(ctx, proofdomain.CreateUpload{
+		TenantID:    "00000000-0000-4000-8000-000000000001",
+		ProofType:   "video",
+		MimeType:    "video/mp4",
+		ScopeType:   "task",
+		ScopeID:     "20000000-0000-4000-8000-000000000001",
+		SubjectType: "shed",
+		SubjectID:   &subjectID,
+	})
+	if err != nil {
+		t.Fatalf("CreateUpload() error = %v", err)
+	}
+
+	if _, err := service.StoreUpload(ctx, target.Proof.TenantID, target.Proof.ProofID, "video/mp4", strings.NewReader("proof-video-bytes")); err != nil {
+		t.Fatalf("StoreUpload() error = %v", err)
+	}
+	storedAfterPut, err := repo.GetProof(ctx, target.Proof.TenantID, target.Proof.ProofID)
+	if err != nil {
+		t.Fatalf("GetProof() after PUT error = %v", err)
+	}
+	if storedAfterPut.UploadState == "completed" {
+		t.Fatalf("local PUT completed proof before mobile metadata arrived: %#v", storedAfterPut)
+	}
+
+	duration := int64(4200)
+	completed, err := service.CompleteUpload(ctx, proofdomain.CompleteUpload{
+		TenantID:   target.Proof.TenantID,
+		ProofID:    target.Proof.ProofID,
+		MimeType:   "video/mp4",
+		DurationMS: &duration,
+	})
+	if err != nil {
+		t.Fatalf("CompleteUpload() error = %v", err)
+	}
+	if completed.DurationMS == nil || *completed.DurationMS != duration {
+		t.Fatalf("completed proof DurationMS=%v, want %d", completed.DurationMS, duration)
+	}
+
+	resolver := NewResolver(service)
+	media, err := resolver.ResolveMedia(ctx, target.Proof.TenantID, []string{target.Proof.ProofID})
+	if err != nil {
+		t.Fatalf("ResolveMedia() error = %v", err)
+	}
+	if len(media) != 1 {
+		t.Fatalf("media len=%d, want 1", len(media))
+	}
+	if media[0].DurationMS == nil || *media[0].DurationMS != duration {
+		t.Fatalf("resolved media DurationMS=%v, want %d", media[0].DurationMS, duration)
+	}
+}
+
 type richDownloader struct {
 	proof proofdomain.Artifact
 	url   string
@@ -42,3 +106,93 @@ func (d richDownloader) DownloadURL(context.Context, string, string) (string, er
 func (d richDownloader) DownloadArtifact(context.Context, string, string) (proofdomain.Artifact, string, error) {
 	return d.proof, d.url, nil
 }
+
+type memoryProofRepo struct {
+	mu     sync.Mutex
+	proofs map[string]proofdomain.Artifact
+	next   int
+}
+
+func newMemoryProofRepo() *memoryProofRepo {
+	return &memoryProofRepo{proofs: make(map[string]proofdomain.Artifact)}
+}
+
+func (r *memoryProofRepo) CreateProof(_ context.Context, in proofdomain.CreateUpload, provider string) (proofdomain.Artifact, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.next++
+	proofID := fmt.Sprintf("10000000-0000-4000-8000-%012d", r.next)
+	now := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
+	proof := proofdomain.Artifact{
+		ProofID:         proofID,
+		TenantID:        in.TenantID,
+		StorageProvider: provider,
+		ObjectKey:       in.TenantID + "/" + proofID + ".mp4",
+		MimeType:        in.MimeType,
+		UploadState:     "pending",
+		ScopeType:       in.ScopeType,
+		ScopeID:         in.ScopeID,
+		SubjectType:     in.SubjectType,
+		SubjectID:       in.SubjectID,
+		ProofType:       in.ProofType,
+		Metadata:        map[string]any{},
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		RowVersion:      1,
+	}
+	r.proofs[proofID] = proof
+	return proof, nil
+}
+
+func (r *memoryProofRepo) GetProof(_ context.Context, _ string, proofID string) (proofdomain.Artifact, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	proof, ok := r.proofs[proofID]
+	if !ok {
+		return proofdomain.Artifact{}, ports.ErrNotFound
+	}
+	return proof, nil
+}
+
+func (r *memoryProofRepo) GetProofsByIDs(_ context.Context, _ string, proofIDs []string) (map[string]proofdomain.Artifact, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]proofdomain.Artifact, len(proofIDs))
+	for _, proofID := range proofIDs {
+		if proof, ok := r.proofs[proofID]; ok {
+			out[proofID] = proof
+		}
+	}
+	return out, nil
+}
+
+func (r *memoryProofRepo) CompleteProof(_ context.Context, in proofdomain.CompleteUpload) (proofdomain.Artifact, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	proof, ok := r.proofs[in.ProofID]
+	if !ok {
+		return proofdomain.Artifact{}, ports.ErrNotFound
+	}
+	if proof.UploadState == "completed" {
+		return proof, nil
+	}
+	now := time.Date(2026, 7, 17, 10, 1, 0, 0, time.UTC)
+	proof.ContentHash = in.ContentHash
+	proof.MimeType = in.MimeType
+	proof.SizeBytes = in.SizeBytes
+	proof.DurationMS = in.DurationMS
+	proof.UploadState = "completed"
+	proof.UploadedAt = &now
+	proof.UpdatedAt = now
+	proof.RowVersion++
+	if proof.Metadata == nil {
+		proof.Metadata = map[string]any{}
+	}
+	for key, value := range in.Metadata {
+		proof.Metadata[key] = value
+	}
+	r.proofs[in.ProofID] = proof
+	return proof, nil
+}
+
+var _ ports.Repository = (*memoryProofRepo)(nil)

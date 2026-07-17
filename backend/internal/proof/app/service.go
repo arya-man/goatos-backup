@@ -86,14 +86,10 @@ func (s *Service) StoreUpload(ctx context.Context, tenantID, proofID, mimeType s
 	if err != nil {
 		return domain.Artifact{}, err
 	}
-	return s.repo.CompleteProof(ctx, domain.CompleteUpload{
-		TenantID:    tenantID,
-		ProofID:     proofID,
-		ContentHash: stored.ContentHash,
-		MimeType:    stored.MimeType,
-		SizeBytes:   stored.SizeBytes,
-		Metadata:    proof.Metadata,
-	})
+	proof.ContentHash = stored.ContentHash
+	proof.MimeType = stored.MimeType
+	proof.SizeBytes = stored.SizeBytes
+	return proof, nil
 }
 
 func (s *Service) DownloadURL(ctx context.Context, tenantID, proofID string) (string, error) {
