@@ -166,6 +166,76 @@ func TestListPlannedComboBatchesOneToManyTargetsAggregatedOnce(t *testing.T) {
 	}
 }
 
+func TestUpdateBatchPlannedDateOneToManyPageBoundaryScheduledDateParkScopeStatusMatrixMergesUnfinalizedDuplicate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.combo.merge", Name: "Combo Merge", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("definition: %v", err)
+	}
+	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), RuleDsl: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	ruleID, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval", DueWindowDays: 30,
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	const goatA = "10000000-0000-4000-8000-00000000aa01"
+	const goatB = "10000000-0000-4000-8000-00000000aa02"
+	seedComboGoat(t, ctx, pool, goatA)
+	seedComboGoat(t, ctx, pool, goatB)
+	day1 := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	obA := insertComboObligation(t, ctx, repo, versionID, ruleID, goatA, "park", cbePark, "combo-merge-a", day1)
+	obB := insertComboObligation(t, ctx, repo, versionID, ruleID, goatB, "park", cbePark, "combo-merge-b", day2)
+
+	batchA, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID, ScopeType: "park", ScopeID: cbePark,
+		Session: "combo:FMD+HS", PlannedDate: &day1, Status: "planned",
+		EstimatedTargets: 1, PlannedQuantity: "1", QuantityUnit: "dose",
+	}, []string{obA})
+	if err != nil || attached != 1 {
+		t.Fatalf("batch A: attached=%d err=%v", attached, err)
+	}
+	batchB, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID, ScopeType: "park", ScopeID: cbePark,
+		Session: "combo:FMD+HS", PlannedDate: &day2, Status: "planned",
+		EstimatedTargets: 1, PlannedQuantity: "1", QuantityUnit: "dose",
+	}, []string{obB})
+	if err != nil || attached != 1 {
+		t.Fatalf("batch B: attached=%d err=%v", attached, err)
+	}
+
+	if err := repo.UpdateBatchPlannedDate(ctx, tenantID, batchA, day2); err != nil {
+		t.Fatalf("UpdateBatchPlannedDate merge: %v", err)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2 AND status='superseded' AND context->>'merged_into_batch_id'=$3`, tenantID, batchA, batchB); got != 1 {
+		t.Fatalf("source superseded rows = %d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND batch_id=$2`, tenantID, batchB); got != 2 {
+		t.Fatalf("target attached obligations = %d, want 2", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2 AND status='planned' AND planned_date=$3::date AND estimated_targets=2 AND planned_quantity=2`, tenantID, batchB, day2); got != 1 {
+		t.Fatalf("target merged batch rows = %d, want planned target with summed counts", got)
+	}
+}
+
 // TestListPlannedComboBatchesMultiPageKeysetCoversAll proves the pagination claim: with more
 // candidate batches than one page can hold, the keyset loop returns ALL of them exactly once, and a
 // scope/session group that straddles a page boundary is not split (its members are contiguous in

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -2241,17 +2242,21 @@ func (r *Repository) ListPlannedComboBatches(ctx context.Context, tenantID strin
 	// AlignComboDrives can enforce MaxShotsPerAnimalPerDrive when co-locating combo batches
 	// onto a shared date without an N+1 fan-out over the (typically small) combo batch set.
 	rows, err := r.pool.Query(ctx, `
--- projection-review: membership=planned combo:% batches with sop_task_id IS NULL and no stock_reservation context, plus their obligation_instances target_ids via the LATERAL array_agg(DISTINCT target_id); group_key=batch_id (one row per batch); join_cardinality=LATERAL pre-aggregates the 1:N obligation_instances so the outer grain stays one-row-per-batch with no JOIN fan-out; pagination=single LIMIT page here, exhaustive keyset over (scope_type,scope_id,session,planned_date,batch_id) lives in ListPlannedComboBatchesKeyset so groups never split across pages; scope=batch scope_type/scope_id (park or shed)
+-- projection-review: membership=planned combo:% batches with sop_task_id IS NULL and no stock_reservation context, plus their obligation_instances target_ids and intersected safe window via the LATERAL aggregate; group_key=batch_id (one row per batch); join_cardinality=LATERAL pre-aggregates the 1:N obligation_instances so the outer grain stays one-row-per-batch with no JOIN fan-out; pagination=single LIMIT page here, exhaustive keyset over (scope_type,scope_id,session,planned_date,batch_id) lives in ListPlannedComboBatchesKeyset so groups never split across pages; scope=batch scope_type/scope_id (park or shed)
 SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
        COALESCE(b.scope_id::text, '')::text AS scope_id,
        COALESCE(b.session, '')::text AS session,
        b.planned_date,
+       oi.safe_start,
+       oi.safe_end,
        COALESCE(oi.target_ids, ARRAY[]::text[]) AS target_ids
 FROM obligation_batches b
 LEFT JOIN LATERAL (
-    SELECT array_agg(DISTINCT o.target_id::text) AS target_ids
+    SELECT array_agg(DISTINCT o.target_id::text) AS target_ids,
+           max(COALESCE(o.window_start, o.due_at)::date) AS safe_start,
+           min(COALESCE(o.window_end, o.due_at)::date) AS safe_end
     FROM obligation_instances o
     WHERE o.tenant_id = b.tenant_id
       AND o.batch_id = b.batch_id
@@ -2271,12 +2276,18 @@ LIMIT $3`, tenant, pgconv.Date(&dueDay), limit)
 	out := make([]domain.ComboDriveBatch, 0)
 	for rows.Next() {
 		var row domain.ComboDriveBatch
-		var planned pgtype.Date
-		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &row.TargetIDs); err != nil {
+		var planned, safeStart, safeEnd pgtype.Date
+		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &safeStart, &safeEnd, &row.TargetIDs); err != nil {
 			return nil, fmt.Errorf("obligation: scan planned combo batch: %w", err)
 		}
 		if planned.Valid {
 			row.PlannedDate = pgconv.DateValue(planned)
+		}
+		if safeStart.Valid {
+			row.SafeStart = pgconv.DateValue(safeStart)
+		}
+		if safeEnd.Valid {
+			row.SafeEnd = pgconv.DateValue(safeEnd)
 		}
 		out = append(out, row)
 	}
@@ -2344,17 +2355,21 @@ func (r *Repository) ListPlannedComboBatchesKeyset(ctx context.Context, tenantID
 	}
 
 	query := `
--- projection-review: membership=planned combo:% batches with sop_task_id IS NULL and no stock_reservation context, plus their obligation_instances target_ids via the LATERAL array_agg(DISTINCT target_id); group_key=batch_id (one row per batch); join_cardinality=LATERAL pre-aggregates the 1:N obligation_instances so the outer grain stays one-row-per-batch with no JOIN fan-out; pagination=keyset over IMMUTABLE (scope_type,scope_id,session,batch_id) matching ORDER BY, cursor tuple > last row -- planned_date is deliberately excluded from both the cursor and ORDER BY because AlignComboDrives mutates it mid-pagination (R2-06); a (scope_type,scope_id,session) group is contiguous in this order but MAY span more than one page, so the caller must assemble the full group across page boundaries rather than assume one page always holds it whole; scope=batch scope_type/scope_id (park or shed)
+-- projection-review: membership=planned combo:% batches with sop_task_id IS NULL and no stock_reservation context, plus their obligation_instances target_ids and intersected safe window via the LATERAL aggregate; group_key=batch_id (one row per batch); join_cardinality=LATERAL pre-aggregates the 1:N obligation_instances so the outer grain stays one-row-per-batch with no JOIN fan-out; pagination=keyset over IMMUTABLE (scope_type,scope_id,session,batch_id) matching ORDER BY, cursor tuple > last row -- planned_date is deliberately excluded from both the cursor and ORDER BY because AlignComboDrives mutates it mid-pagination (R2-06); a (scope_type,scope_id,session) group is contiguous in this order but MAY span more than one page, so the caller must assemble the full group across page boundaries rather than assume one page always holds it whole; scope=batch scope_type/scope_id (park or shed)
 SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
        COALESCE(b.scope_id::text, '')::text AS scope_id,
        COALESCE(b.session, '')::text AS session,
        b.planned_date,
+       oi.safe_start,
+       oi.safe_end,
        COALESCE(oi.target_ids, ARRAY[]::text[]) AS target_ids
 FROM obligation_batches b
 LEFT JOIN LATERAL (
-    SELECT array_agg(DISTINCT o.target_id::text) AS target_ids
+    SELECT array_agg(DISTINCT o.target_id::text) AS target_ids,
+           max(COALESCE(o.window_start, o.due_at)::date) AS safe_start,
+           min(COALESCE(o.window_end, o.due_at)::date) AS safe_end
     FROM obligation_instances o
     WHERE o.tenant_id = b.tenant_id
       AND o.batch_id = b.batch_id
@@ -2374,12 +2389,18 @@ LIMIT $` + strconv.Itoa(argIdx)
 	out := make([]domain.ComboDriveBatch, 0)
 	for rows.Next() {
 		var row domain.ComboDriveBatch
-		var planned pgtype.Date
-		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &row.TargetIDs); err != nil {
+		var planned, safeStart, safeEnd pgtype.Date
+		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &safeStart, &safeEnd, &row.TargetIDs); err != nil {
 			return nil, fmt.Errorf("obligation: scan planned combo batch: %w", err)
 		}
 		if planned.Valid {
 			row.PlannedDate = pgconv.DateValue(planned)
+		}
+		if safeStart.Valid {
+			row.SafeStart = pgconv.DateValue(safeStart)
+		}
+		if safeEnd.Valid {
+			row.SafeEnd = pgconv.DateValue(safeEnd)
 		}
 		out = append(out, row)
 	}
@@ -2407,13 +2428,107 @@ SET planned_date = $3::date,
     updated_at = now()
 WHERE tenant_id = $1
   AND batch_id = $2
-  AND status = 'planned'
-  AND sop_task_id IS NULL`, tenant, batch, pgconv.Date(&plannedDate))
+	AND status = 'planned'
+	AND sop_task_id IS NULL`, tenant, batch, pgconv.Date(&plannedDate))
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			if mergeErr := r.mergeUnfinalizedBatchIntoPlannedDate(ctx, tenant, batch, plannedDate); mergeErr == nil {
+				return nil
+			}
+		}
 		return fmt.Errorf("obligation: update batch planned date: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ports.ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repository) mergeUnfinalizedBatchIntoPlannedDate(ctx context.Context, tenant, sourceBatch pgtype.UUID, plannedDate time.Time) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("obligation: begin merge aligned batch: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var moved int64
+	var retired bool
+	err = tx.QueryRow(ctx, `
+WITH source AS (
+    SELECT *
+    FROM obligation_batches
+    WHERE tenant_id = $1
+      AND batch_id = $2
+      AND status = 'planned'
+      AND sop_task_id IS NULL
+      AND NOT (context ? 'stock_reservation')
+    FOR UPDATE
+),
+target AS (
+    SELECT b.batch_id
+    FROM obligation_batches b
+    JOIN source s ON true
+    WHERE b.tenant_id = s.tenant_id
+      AND b.batch_id <> s.batch_id
+      AND b.protocol_version_id = s.protocol_version_id
+      AND b.scope_type = s.scope_type
+      AND b.scope_id = s.scope_id
+      AND COALESCE(b.session, '') = COALESCE(s.session, '')
+      AND b.planned_date IS NOT DISTINCT FROM $3::date
+      AND b.window_start IS NOT DISTINCT FROM s.window_start
+      AND b.window_end IS NOT DISTINCT FROM s.window_end
+      AND b.status = 'planned'
+      AND b.sop_task_id IS NULL
+      AND NOT (b.context ? 'stock_reservation')
+    ORDER BY b.batch_id
+    LIMIT 1
+    FOR UPDATE
+),
+moved AS (
+    UPDATE obligation_instances oi
+    SET batch_id = (SELECT batch_id FROM target),
+        updated_at = now()
+    WHERE oi.tenant_id = $1
+      AND oi.batch_id = $2
+      AND EXISTS (SELECT 1 FROM target)
+    RETURNING 1
+),
+target_update AS (
+    UPDATE obligation_batches b
+    SET estimated_targets = b.estimated_targets + source.estimated_targets,
+        planned_quantity = COALESCE(b.planned_quantity, 0) + COALESCE(source.planned_quantity, 0),
+        updated_at = now(),
+        row_version = b.row_version + 1
+    FROM source, target
+    WHERE b.tenant_id = source.tenant_id
+      AND b.batch_id = target.batch_id
+    RETURNING 1
+),
+retired AS (
+    UPDATE obligation_batches b
+    SET status = 'superseded',
+        updated_at = now(),
+        row_version = b.row_version + 1,
+        context = b.context || jsonb_build_object(
+            'merged_into_batch_id', (SELECT batch_id::text FROM target),
+            'merged_planned_date', $3::date::text
+        )
+    WHERE b.tenant_id = $1
+      AND b.batch_id = $2
+      AND EXISTS (SELECT 1 FROM target)
+    RETURNING 1
+)
+SELECT (SELECT count(*) FROM moved), EXISTS (SELECT 1 FROM retired)`,
+		tenant, sourceBatch, pgconv.Date(&plannedDate)).Scan(&moved, &retired)
+	if err != nil {
+		return fmt.Errorf("obligation: merge aligned batch: %w", err)
+	}
+	if !retired {
+		return ports.ErrNotFound
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("obligation: commit merge aligned batch: %w", err)
 	}
 	return nil
 }

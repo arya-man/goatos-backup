@@ -192,6 +192,16 @@ must use India/local operational dates:
 - GoatOS may hold a due shed/tag group for up to **7 calendar days** to combine
   it with another compatible same-park drive group, but only if every animal
   remains inside its medical safe window.
+- The planner may maximize output only across animals that are individually
+  feasible on the picked drive date. A larger drive is invalid if even one
+  attached obligation's safe window has already ended before that planned date.
+- Combo-session alignment is subject to the same hard rule after batching:
+  moving a built batch to a shared combo date is valid only when that date is
+  inside every attached obligation's safe window.
+- Snapshot/backfill sweeps must drain the bounded candidate set across repeated
+  safe passes. A first pass that batches only part of a group because of shot
+  caps or safe-window filtering must retry the remaining candidates within their
+  own safe windows instead of leaving them as calendar micro-drives.
 - This batching hold is **one-time per obligation/dose cycle**. Once a due item
   has been held to overlap with a later compatible group, it cannot be held
   again to chase the next group. No rolling postponement.

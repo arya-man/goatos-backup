@@ -583,6 +583,59 @@ func TestSweepVersionSnapshotFallbackPrioritizesRuleVaccinesWithinSingleMatrix(t
 	}
 }
 
+func TestSweepVersionSnapshotDrainsPartialShotCapLeftovers(t *testing.T) {
+	winEnd := time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-capped", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+		{ObligationID: "obl-open", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-2", DueAt: due, WindowEnd: &winEnd},
+	}
+	baseRepo := &fakeSweepRepo{rows: rows, attachAll: true}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	key := visitShotCountKey(due, "goat-1")
+	session.claim(key, "ET+TT", 1)
+	session.claim(key, "PPR", 2)
+	snapshot := &SweepCandidateSnapshot{byVersion: map[string][]string{
+		"v-fmd": {"obl-capped", "obl-open"},
+	}}
+
+	result, err := svc.SweepVersionWithSessionNoFinalizeSnapshot(
+		context.Background(),
+		"tenant-1",
+		"v-fmd",
+		SweepConfig{
+			VaccineCode: "FMD",
+			DrivePlanner: domain.DrivePlannerSettings{
+				Enabled:                   true,
+				MaxShotsPerAnimalPerDrive: 2,
+			},
+			ParkConsolidation: domain.ParkConsolidationSettings{Enabled: false},
+		},
+		due,
+		session,
+		time.Now(),
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalizeSnapshot: %v", err)
+	}
+	if result.Obligations != 2 {
+		t.Fatalf("result = %#v, want both snapshot obligations drained", result)
+	}
+	dates := obligationIDPlannedDates(repo.fakeSweepRepo)
+	if dates["obl-open"] != "2026-07-01" {
+		t.Fatalf("dates=%#v, want open goat batched on original date", dates)
+	}
+	if dates["obl-capped"] != "2026-07-02" {
+		t.Fatalf("dates=%#v, want capped goat retried onto next safe date, not stranded", dates)
+	}
+	if len(repo.rows) != 0 {
+		t.Fatalf("remaining rows = %#v, want snapshot drained", repo.rows)
+	}
+}
+
 // TestSweepVersionWithSessionBlocksOnUnresolvedPriorityTie covers BUG2 requirement 3: when more
 // than MaxShotsPerAnimalPerDrive vaccines compete for one animal's visit and the deciding
 // (boundary) vaccines resolve to the SAME priority, the sweeper must surface an explicit
@@ -1231,6 +1284,11 @@ func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.
 		attached = int64(len(ids))
 	}
 	if attached > 0 {
+		attachedCount := int(attached)
+		if attachedCount > len(ids) {
+			attachedCount = len(ids)
+		}
+		f.removeAttachedObligations(ids[:attachedCount])
 		f.createdFinalization = append(f.createdFinalization, domain.PlannedBatchFinalization{
 			BatchID:             batchID,
 			RuleID:              ruleIDFromSession(in.Session),
@@ -1242,6 +1300,43 @@ func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.
 		})
 	}
 	return batchID, attached, nil
+}
+
+func (f *fakeSweepRepo) removeAttachedObligations(ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	attached := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		attached[id] = struct{}{}
+	}
+	f.rows = removeUnbatchedDueIDs(f.rows, attached)
+	for versionID, rows := range f.rowsByVersion {
+		f.rowsByVersion[versionID] = removeUnbatchedDueIDs(rows, attached)
+	}
+	f.parkRows = removeParkConsolidationIDs(f.parkRows, attached)
+}
+
+func removeUnbatchedDueIDs(rows []domain.UnbatchedDue, attached map[string]struct{}) []domain.UnbatchedDue {
+	out := rows[:0]
+	for _, row := range rows {
+		if _, ok := attached[row.ObligationID]; ok {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func removeParkConsolidationIDs(rows []domain.ParkConsolidationCandidate, attached map[string]struct{}) []domain.ParkConsolidationCandidate {
+	out := rows[:0]
+	for _, row := range rows {
+		if _, ok := attached[row.ObligationID]; ok {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 func (f *fakeSweepRepo) SetBatchSOPTask(_ context.Context, _, _, taskID string) error {

@@ -110,6 +110,11 @@ func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID stri
 			if batch.PlannedDate != nil && businessDate(*batch.PlannedDate).Equal(*target) {
 				continue
 			}
+			if !comboBatchFeasibleAtDate(batch, *target) {
+				// The batch is already a real planned drive. Do not "club" it onto a later combo
+				// date if any attached obligation would cross its medical safe window.
+				continue
+			}
 			// Lock this batch's animals on the target date and refresh their persisted shot count
 			// BEFORE the cap check, and HOLD the lock across UpdateBatchPlannedDate (RV-02): the old
 			// read-only seed released immediately, leaving a read-then-write window in which a
@@ -193,6 +198,17 @@ func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID stri
 		}
 	}
 	return aligned, fmt.Errorf("obligation: combo batch alignment exceeded 10000 pages without draining")
+}
+
+func comboBatchFeasibleAtDate(batch domain.ComboDriveBatch, target time.Time) bool {
+	targetDay := businessDate(target)
+	if batch.SafeStart != nil && targetDay.Before(businessDate(*batch.SafeStart)) {
+		return false
+	}
+	if batch.SafeEnd != nil && targetDay.After(businessDate(*batch.SafeEnd)) {
+		return false
+	}
+	return true
 }
 
 // comboBatchExceedsShotCapAtDate reports whether moving batch onto target would push any of its

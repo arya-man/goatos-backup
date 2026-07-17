@@ -257,7 +257,7 @@ func snapshotIDSet(candidateIDs []string) map[string]struct{} {
 
 func filterUnbatchedDueSnapshot(rows []domain.UnbatchedDue, candidateIDs []string) []domain.UnbatchedDue {
 	allowed := snapshotIDSet(candidateIDs)
-	out := rows[:0]
+	out := make([]domain.UnbatchedDue, 0, len(rows))
 	for _, row := range rows {
 		if _, ok := allowed[row.ObligationID]; ok {
 			out = append(out, row)
@@ -268,7 +268,7 @@ func filterUnbatchedDueSnapshot(rows []domain.UnbatchedDue, candidateIDs []strin
 
 func filterParkConsolidationSnapshot(rows []domain.ParkConsolidationCandidate, candidateIDs []string) []domain.ParkConsolidationCandidate {
 	allowed := snapshotIDSet(candidateIDs)
-	out := rows[:0]
+	out := make([]domain.ParkConsolidationCandidate, 0, len(rows))
 	for _, row := range rows {
 		if _, ok := allowed[row.ObligationID]; ok {
 			out = append(out, row)
@@ -410,42 +410,77 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
 	parkCandidateIDs := candidateIDs
 	if candidateIDs != nil {
-		// Preserve the snapshot sentinel even when no shed group defers to park:
-		// nil means legacy/unbounded, while a non-nil empty slice means the
-		// preflight snapshot has no remaining park/fallback candidates.
-		parkCandidateIDs = []string{}
-		parkCandidateSeen := map[string]struct{}{}
-		var snapshotRows []domain.UnbatchedDue
-		for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
-			rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, chunk)
-			if err != nil {
-				return res, err
+		for {
+			// Preserve the snapshot sentinel even when no shed group defers to park:
+			// nil means legacy/unbounded, while a non-nil empty slice means the
+			// preflight snapshot has no remaining park/fallback candidates.
+			parkCandidateIDs = []string{}
+			parkCandidateSeen := map[string]struct{}{}
+			var snapshotRows []domain.UnbatchedDue
+			for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
+				rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, chunk)
+				if err != nil {
+					return res, err
+				}
+				snapshotRows = append(snapshotRows, rows...)
 			}
-			snapshotRows = append(snapshotRows, rows...)
-		}
-		order, groups := groupUnbatchedDue(snapshotRows, planner.SpeciesGroupingPolicy)
-		order = orderDueGroupsByVaccinePriority(order, groups, cfg)
+			if len(snapshotRows) == 0 {
+				break
+			}
 
-		for _, k := range order {
-			g := groups[k]
-			if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
-				parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
-				continue
+			order, groups := groupUnbatchedDue(snapshotRows, planner.SpeciesGroupingPolicy)
+			order = orderDueGroupsByVaccinePriority(order, groups, cfg)
+
+			var progressed int64
+			for _, k := range order {
+				g := groups[k]
+				if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
+					parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
+					continue
+				}
+				batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, dueBefore, session, g)
+				if err != nil {
+					return res, err
+				}
+				if !batched {
+					parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
+					continue
+				}
+				if !touchedScopes[k] {
+					res.Batches++
+					touchedScopes[k] = true
+				}
+				res.Obligations += int(n)
+				progressed += n
 			}
-			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, dueBefore, session, g)
+			parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
 			if err != nil {
 				return res, err
 			}
-			if !batched {
-				parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
-				continue
+			res.ParkBatches += parkRes.ParkBatches
+			res.ParkObligations += parkRes.ParkObligations
+			res.Batches += parkRes.ParkBatches
+			res.Obligations += parkRes.ParkObligations
+			progressed += int64(parkRes.ParkObligations)
+
+			fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
+			if err != nil {
+				return res, err
 			}
-			if !touchedScopes[k] {
-				res.Batches++
-				touchedScopes[k] = true
+			res.Batches += fallbackRes.Batches
+			res.Obligations += fallbackRes.Obligations
+			progressed += int64(fallbackRes.Obligations)
+
+			if progressed == 0 || progressed >= int64(len(snapshotRows)) {
+				break
 			}
-			res.Obligations += int(n)
 		}
+		if finalizeNow {
+			if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
+				return res, err
+			}
+		}
+		return res, nil
 	} else {
 		for {
 			rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, nil)

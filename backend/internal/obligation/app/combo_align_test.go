@@ -139,6 +139,46 @@ func TestAlignComboDrivesClustersAroundOutlier(t *testing.T) {
 	}
 }
 
+func TestAlignComboDrivesSkipsBatchOutsideSafeWindow(t *testing.T) {
+	d1 := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	repo := &fakeComboAlignRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		comboBatches: []domain.ComboDriveBatch{
+			{
+				BatchID:     "batch-expiring",
+				ScopeType:   "shed",
+				ScopeID:     "shed-1",
+				Session:     "combo:FMD+HS",
+				PlannedDate: &d1,
+				SafeEnd:     &d1,
+				TargetIDs:   []string{"goat-1"},
+			},
+			{
+				BatchID:     "batch-target",
+				ScopeType:   "shed",
+				ScopeID:     "shed-1",
+				Session:     "combo:FMD+HS",
+				PlannedDate: &d2,
+				SafeEnd:     &d2,
+				TargetIDs:   []string{"goat-2"},
+			},
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 7, d1, 2, NewSweepSession())
+	if err != nil {
+		t.Fatalf("AlignComboDrives: %v", err)
+	}
+	if aligned != 0 {
+		t.Fatalf("aligned = %d, want 0 because the earlier batch expires before the shared date", aligned)
+	}
+	if len(repo.updates) != 0 {
+		t.Fatalf("updates = %#v, want none outside safe window", repo.updates)
+	}
+}
+
 // TestAlignComboDrivesAlignsWithinShotCap is the sanity-check sibling: when no member animal
 // would be pushed past the cap, normal cross-version combo alignment still happens.
 func TestAlignComboDrivesAlignsWithinShotCap(t *testing.T) {

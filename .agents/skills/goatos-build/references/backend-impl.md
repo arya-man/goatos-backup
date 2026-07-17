@@ -75,6 +75,15 @@ drive inside the authored safe window and one-time batching hold. Do not group
 vaccination batches by exact `due_at` or exact window before the planner scores
 compatible work. Exact-date micro-drives are allowed only when no compatible work
 can be safely clubbed before the earliest selected animal's last safe date.
+The final selector that attaches obligations to a batch must re-check every
+obligation against the picked `planned_date`; never treat a group-level winning
+date as proof that every row in the group is still inside its own safe window.
+Post-batch combo alignment is also a planner step: before moving an existing
+batch onto a shared combo drive date, intersect the attached obligations' safe
+windows and skip the move if the target date falls outside that envelope.
+Snapshot/HWM sweeps must keep retrying the bounded preflight candidate set until
+no eligible candidate remains or no progress is possible, so a partial shot-cap
+selection cannot strand leftovers that later render as fake micro-drives.
 Backfill/window sweeps must keep `asOf` separate from `dueBefore`: `asOf` is the
 operational sweep day for hold/backdating/planned-date math, while `dueBefore`
 is only the obligation eligibility cutoff. Batched Calendar, Vaccination

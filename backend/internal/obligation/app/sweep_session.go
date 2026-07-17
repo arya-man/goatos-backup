@@ -219,7 +219,7 @@ func (s *SweepSession) claimComboBatchTargets(targetIDs []string, date time.Time
 // ShotCapPriorityTieError when the cap would force a same-priority, different-vaccine drop
 // instead of silently picking an arrival-order winner.
 func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDate *time.Time, maxShots int32, vaccineCode string, priority int32, session *SweepSession) ([]string, []shotCapReservation, error) {
-	if maxShots <= 0 || plannedDate == nil {
+	if plannedDate == nil {
 		ids := make([]string, 0, len(rows))
 		for _, row := range rows {
 			ids = append(ids, row.ObligationID)
@@ -229,6 +229,22 @@ func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDa
 	selected := make([]string, 0, len(rows))
 	claims := make([]shotCapReservation, 0, len(rows))
 	for _, row := range rows {
+		if !driveCandidateFeasibleOnDate(*plannedDate, driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		}) {
+			continue
+		}
+		if maxShots <= 0 {
+			selected = append(selected, row.ObligationID)
+			continue
+		}
 		if strings.TrimSpace(row.TargetID) == "" {
 			selected = append(selected, row.ObligationID)
 			continue
@@ -263,7 +279,7 @@ type ruleVaccineIdentityResolver = func(ruleID string) RuleVaccineIdentity
 // vaccine identity (R2-05(b) fix) instead of a single vaccineCode/priority pair applied to every
 // row.
 func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, identityFor ruleVaccineIdentityResolver, session *SweepSession) ([]string, []shotCapReservation, error) {
-	if maxShots <= 0 || plannedDate == nil || len(selected) == 0 {
+	if plannedDate == nil || len(selected) == 0 {
 		return selected, nil, nil
 	}
 	selectedSet := make(map[string]struct{}, len(selected))
@@ -274,6 +290,22 @@ func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCa
 	claims := make([]shotCapReservation, 0, len(selected))
 	for _, row := range rows {
 		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		if !driveCandidateFeasibleOnDate(*plannedDate, driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		}) {
+			continue
+		}
+		if maxShots <= 0 {
+			out = append(out, row.ObligationID)
 			continue
 		}
 		if strings.TrimSpace(row.TargetID) == "" {

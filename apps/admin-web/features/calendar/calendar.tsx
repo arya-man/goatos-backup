@@ -197,7 +197,7 @@ export async function VaccinationCalendarPage({
   ]);
 
   const events = list.ok ? list.data.items : [];
-  const pickerEvents = markers?.ok ? markers.data.items : events;
+  const pickerEvents = datePickerOpen ? (markers?.ok ? markers.data.items : []) : events;
   if (list.ok && !list.data.presentation) {
     throw new Error(copy(pageContract, "error.presentation_missing"));
   }
@@ -837,7 +837,7 @@ function CalendarDatePicker({
           if (cell === null) return <span key={`out-${index}`} className="calpicker-day out" />;
           const dayEvents = byDate.get(cell.key) ?? [];
           const marker = markerByDate.get(cell.key);
-          const hasDrive = dayEvents.length > 0;
+          const hasDrive = (marker?.drive_count ?? 0) > 0 || dayEvents.some((event) => event.event_type === "vaccination_drive" || (event.drive_summary?.total_count ?? 0) > 0);
           const hasHistory = (marker?.completed_count ?? 0) > 0;
           const hasOpenWork = (marker?.open_count ?? 0) > 0;
           const tones = markerTonesForDate(marker, dayEvents).slice(0, 1);
