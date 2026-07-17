@@ -233,6 +233,8 @@ func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cf
 	if planner.Enabled {
 		if picked := pickBestDriveDateWithHold(asOf, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
 			plannedDate = picked
+		} else {
+			return false, nil
 		}
 	}
 	targetIDs := distinctUnbatchedTargetIDs(g.rows)

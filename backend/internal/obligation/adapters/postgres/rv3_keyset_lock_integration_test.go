@@ -121,6 +121,38 @@ func TestListUnbatchedDueForVersionKeysetPagesEveryRowOnce(t *testing.T) {
 	}
 }
 
+func TestListUnbatchedDueForVersionUsesRuleWindowWhenInstanceWindowMissing(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	versionID, dueBefore := seedUnbatchedDue(t, ctx, pool, 1)
+	if _, err := pool.Exec(ctx,
+		`UPDATE protocol_rules SET due_window_days = 5 WHERE tenant_id = $1 AND protocol_version_id = $2`,
+		tenantID, versionID); err != nil {
+		t.Fatalf("set rule due window: %v", err)
+	}
+	repo := NewRepository(pool, 5*time.Second)
+	want := time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC)
+
+	rows, err := repo.ListUnbatchedDueForVersion(ctx, tenantID, versionID, dueBefore, 10)
+	if err != nil {
+		t.Fatalf("ListUnbatchedDueForVersion: %v", err)
+	}
+	if len(rows) != 1 || rows[0].WindowEnd == nil || !rows[0].WindowEnd.Equal(want) {
+		t.Fatalf("plain unbatched effective window_end = %#v, want %s", rows, want)
+	}
+
+	keysetRows, err := repo.ListUnbatchedDueForVersionKeyset(ctx, tenantID, versionID, dueBefore, nil, 10)
+	if err != nil {
+		t.Fatalf("ListUnbatchedDueForVersionKeyset: %v", err)
+	}
+	if len(keysetRows) != 1 || keysetRows[0].WindowEnd == nil || !keysetRows[0].WindowEnd.Equal(want) {
+		t.Fatalf("keyset unbatched effective window_end = %#v, want %s", keysetRows, want)
+	}
+}
+
 func cursorAdvanced(prev, next domain.UnbatchedDue) bool {
 	for _, cmp := range [][2]string{
 		{prev.ScopeType, next.ScopeType}, {prev.ScopeID, next.ScopeID}, {prev.RuleID, next.RuleID},

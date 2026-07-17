@@ -135,8 +135,7 @@ func pickBestDriveDateUntil(now time.Time, rows []driveCandidate, priority int32
 	if fallback := pickEarliestFeasibleDriveDateAtOrAfter(now, rows); fallback != nil {
 		return fallback
 	}
-	day := businessDate(now)
-	return &day
+	return nil
 }
 
 func pickEarliestFeasibleDriveDateAtOrAfter(now time.Time, rows []driveCandidate) *time.Time {
@@ -158,14 +157,6 @@ func pickEarliestFeasibleDriveDateAtOrAfter(now time.Time, rows []driveCandidate
 	return bestDate
 }
 
-func pickEarliestFeasibleDriveDateAtOrAfterOrNow(now time.Time, rows []driveCandidate) *time.Time {
-	if picked := pickEarliestFeasibleDriveDateAtOrAfter(now, rows); picked != nil {
-		return picked
-	}
-	day := businessDate(now)
-	return &day
-}
-
 func pickBestDriveDateWithHold(now time.Time, rows []driveCandidate, planner domain.DrivePlannerSettings) *time.Time {
 	if len(rows) == 0 {
 		return nil
@@ -173,7 +164,7 @@ func pickBestDriveDateWithHold(now time.Time, rows []driveCandidate, planner dom
 	earliest := earliestDriveDueDate(rows)
 	if alreadyHeld(rows, planner.MaxBatchingHoldCount) {
 		if earliest.Before(businessDate(now)) {
-			return pickEarliestFeasibleDriveDateAtOrAfterOrNow(now, rows)
+			return pickEarliestFeasibleDriveDateAtOrAfter(now, rows)
 		}
 		return &earliest
 	}
@@ -182,7 +173,7 @@ func pickBestDriveDateWithHold(now time.Time, rows []driveCandidate, planner dom
 	}
 	holdUntil := earliest.AddDate(0, 0, int(planner.MaxBatchingHoldDays))
 	if holdUntil.Before(businessDate(now)) {
-		return pickEarliestFeasibleDriveDateAtOrAfterOrNow(now, rows)
+		return pickEarliestFeasibleDriveDateAtOrAfter(now, rows)
 	}
 	return pickBestDriveDateUntil(now, rows, planner.VaccinePriority, &holdUntil)
 }
@@ -314,7 +305,10 @@ func driveLatestDate(row driveCandidate) time.Time {
 	if row.WindowEnd != nil && !row.WindowEnd.IsZero() {
 		return businessDate(*row.WindowEnd)
 	}
-	return time.Date(9999, 12, 31, 0, 0, 0, 0, biztime.DefaultLocation())
+	if !row.DueAt.IsZero() {
+		return businessDate(row.DueAt)
+	}
+	return driveEarliestDate(row)
 }
 
 func splitObligationIDs(ids []string, max int32) [][]string {

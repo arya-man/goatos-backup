@@ -1590,10 +1590,13 @@ WITH candidates AS (
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.reproductive_status, '')::text ELSE '' END AS target_reproductive_status,
          oi.due_at AS due_at,
          oi.window_start AS window_start,
-         oi.window_end AS window_end,
+         COALESCE(oi.window_end, oi.due_at + make_interval(days => GREATEST(COALESCE(pr.due_window_days, 0), 0))) AS window_end,
          COALESCE(oi.batching_hold_count, 0)::int AS batching_hold_count,
          oi.first_batching_hold_until AS first_batching_hold_until
   FROM obligation_instances oi
+  LEFT JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.rule_id = oi.rule_id
   LEFT JOIN goats g
     ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id AND oi.target_type = 'goat'
   LEFT JOIN location_operational_attributes loa

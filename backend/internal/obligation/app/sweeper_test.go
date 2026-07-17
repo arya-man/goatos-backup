@@ -107,10 +107,11 @@ func TestSweeperCreatesSideEffectsAfterAttach(t *testing.T) {
 func TestSweeperGroupsByRuleAndReservesAgainstPlannedDate(t *testing.T) {
 	dueA := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
 	dueB := time.Date(2026, time.August, 15, 9, 30, 0, 0, time.UTC)
+	windowEnd := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
-			{ObligationID: "obl-1", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueA},
-			{ObligationID: "obl-2", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueB},
+			{ObligationID: "obl-1", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueA, WindowEnd: &windowEnd},
+			{ObligationID: "obl-2", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueB, WindowEnd: &windowEnd},
 		},
 		createBatchIDs: []string{"batch-a", "batch-b"},
 		attachAll:      true,
@@ -148,12 +149,45 @@ func TestSweeperGroupsByRuleAndReservesAgainstPlannedDate(t *testing.T) {
 	}
 }
 
-func TestSweeperUsesRuleSpecificExecutionConfig(t *testing.T) {
-	due := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
+func TestSweeperDoesNotReserveNoWindowObligationsWeeksLate(t *testing.T) {
+	dueA := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
+	dueB := time.Date(2026, time.August, 15, 9, 30, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
-			{ObligationID: "obl-a", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: due},
-			{ObligationID: "obl-b", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: due},
+			{ObligationID: "obl-1", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueA},
+			{ObligationID: "obl-2", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueB},
+		},
+		createBatchIDs: []string{"batch-a", "batch-b"},
+		attachAll:      true,
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineItemID: "vaccine-1",
+		DosesPerGoat:  1,
+	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if result.Batches != 0 || result.Obligations != 0 {
+		t.Fatalf("result = %#v, want no late no-window work", result)
+	}
+	if len(repo.createdBatches) != 0 {
+		t.Fatalf("created batches = %d, want 0", len(repo.createdBatches))
+	}
+	if reserver.calls != 0 {
+		t.Fatalf("reservation calls = %d, want 0", reserver.calls)
+	}
+}
+
+func TestSweeperUsesRuleSpecificExecutionConfig(t *testing.T) {
+	due := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
+	windowEnd := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-a", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: due, WindowEnd: &windowEnd},
+			{ObligationID: "obl-b", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: due, WindowEnd: &windowEnd},
 		},
 		createBatchIDs: []string{"batch-a", "batch-b"},
 		attachAll:      true,

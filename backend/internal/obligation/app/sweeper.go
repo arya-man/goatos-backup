@@ -524,6 +524,8 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 	if planner.Enabled {
 		if picked := pickBestDriveDateWithHold(asOf, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
 			plannedDate = picked
+		} else {
+			return false, 0, nil
 		}
 	}
 	targetIDs := distinctUnbatchedTargetIDs(g.rows)
