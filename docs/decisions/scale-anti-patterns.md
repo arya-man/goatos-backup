@@ -81,6 +81,41 @@ truncated, and still unsafe at 1M animals even if it looks fine on a local
 fixture. If a temporary UI collapse is needed for a mock/demo, it must be
 clearly partial/debug-only and must not invent authoritative totals.
 
+## STG stale-content anti-pattern
+
+A staging environment running mixed commits is not a valid E2E target. It is the
+deployment equivalent of a stale read model: API, admin-web, workers, jobs,
+migrations, seeds, and database-generated rows can each be correct in isolation
+while the combined system lies. This is especially dangerous for Calendar,
+Action Center, Protocol Adherence, vaccination execution, and Full Schedule,
+where frontend screens read backend-owned contracts and derived operational
+state.
+
+Before calling any deployed-STG check green, prove all of these at the same
+time:
+
+- local `HEAD` equals current `origin/main`;
+- API Cloud Run service image matches that exact SHA;
+- admin-web Cloud Run service image matches that exact SHA;
+- kernel worker service image matches that backend SHA;
+- migration, DLQ, analytics, seed, and any other feature-involved Cloud Run jobs
+  match that exact backend/migration SHA;
+- database migrations and generated/seeded rows were produced after that code
+  reached the environment, or were explicitly rerun from that SHA;
+- browser proof uses `https://stg.dashboard.mesha.sg`, not localhost.
+
+If `origin/main` moves while a deploy is building, rolling out, or being tested,
+the environment is stale again. Create a new Cloud Deploy release for the new
+main SHA, wait for rollout success, and re-run service/job image parity before
+continuing. Do not debug UI symptoms, performance, grants, or data correctness
+against mixed frontend/backend/job/database state.
+
+The normal staging authority is Cloud Deploy. For an explicitly authorized
+break-glass local repair, `tools/deploy/stg-clouddeploy-release.sh` must wait
+for the rollout and verify image parity for API, admin-web, kernel worker,
+migrate, DLQ, and analytics. Skipping rollout wait or image parity invalidates
+the handoff.
+
 The narrow Calendar exception is accepted vaccination completion history: a
 read-only timeline behind the explicit `status=completed` path. That history is
 not active work, not a park-drive rollup, and not a second projection row. It

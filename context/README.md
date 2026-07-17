@@ -110,6 +110,9 @@ Environment, load testing, and doc hygiene
 Disposable GCP one-million scale test setup, evidence, cleanup, and publication handoff
   context/execution/gcp-disposable-1m-scale-test-handoff-2026-07-13.md
 
+STG latest deploy and vaccination Full Schedule read-model handoff
+  context/execution/stg-latest-deploy-e2e-handoff-2026-07-17.md
+
 SOP + vaccination backend handoff
   context/execution/sop-vaccination-backend-handoff.md
 

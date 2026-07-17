@@ -25,6 +25,9 @@ summary below — open the canonical chapters and read the live detail.
   `import`/projection tables.
 - Any hot-path read/API, list endpoint, dashboard slice, or cohort/bulk sweep.
 - Reviewing a "fix" that raises a timeout or caps a page instead of changing shape.
+- Any staging deploy or E2E handoff after backend, admin-web, worker, job, seed,
+  migration, or read-model changes. A mixed-SHA STG environment is a scale and
+  correctness anti-pattern, not a valid debug target.
 
 ## Canonical detail (read these — do NOT duplicate here)
 - **Review chapter:** [`.agents/skills/goatos-code-review/references/kernel-and-scale.md`](../goatos-code-review/references/kernel-and-scale.md) — scale + idempotency review checklist.
@@ -38,6 +41,10 @@ summary below — open the canonical chapters and read the live detail.
   grandfathered debt, not a pass. Registered in `tools/ci/guardrail-manifest.json`.
 - `make validate-sqlc-plans` — EXPLAIN proof: no Seq Scan on large tables.
 - `make admin-web-request-reads-guard` — the admin-web SSR twin (full-table walk).
+- `tools/deploy/stg-clouddeploy-release.sh` — for break-glass local STG repair,
+  waits for Cloud Deploy and verifies API, admin-web, worker, migration, DLQ, and
+  analytics images all match the same current main SHA. Never skip rollout/image
+  parity for an E2E handoff.
 
 ## At a glance (detail in the links above)
 1. compute-on-read / god-CTE → materialized read model, indexed lookup.
@@ -52,3 +59,8 @@ summary below — open the canonical chapters and read the live detail.
 Genuinely-bounded case → annotate the exact line `// scale-guard:ignore: <reason>`;
 never disable the guard. The five named canonical screen reads are the ONLY
 compute-on-read exemption — scoped, plan-tested; see the envelope ADR above.
+
+STG handoff rule → no stale-content exceptions. Before any deployed-STG E2E claim,
+verify `HEAD == origin/main` and every STG service/job image matches that exact
+SHA. If `origin/main` moves during or after rollout, redeploy and re-verify the
+new SHA before debugging UI behavior.
