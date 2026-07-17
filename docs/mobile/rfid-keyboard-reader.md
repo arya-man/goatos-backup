@@ -3,6 +3,10 @@
 Status: V1 implementation rule. This supersedes the earlier SDK-first wording
 for the RFID reader in the Android mobile docs.
 
+Runtime sync contract: see
+[`docs/runbooks/rfid-scan-capture-sync.md`](../runbooks/rfid-scan-capture-sync.md)
+for the implemented Room -> outbox -> backend draft -> Submit merge path.
+
 ## Decision
 
 The current field reader is a Bluetooth HID keyboard-wedge RFID reader. It is
