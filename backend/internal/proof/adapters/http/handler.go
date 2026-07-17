@@ -26,7 +26,7 @@ type Service interface {
 	StoreUpload(ctx context.Context, tenantID, proofID, mimeType string, body io.Reader) (domain.Artifact, error)
 	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
 	OpenLocalDownload(ctx context.Context, tenantID, proofID string) (domain.Artifact, ports.ReadSeekCloser, error)
-	VerifySignedURL(method, path, expires, signature string) bool
+	VerifySignedURL(method, path, tenantID, expires, signature string) bool
 }
 
 type Handler struct {
@@ -47,6 +47,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PUT /app/proofs/{proof_id}/upload", h.UploadLocal)
 	mux.HandleFunc("POST /app/proofs/{proof_id}/complete", h.CompleteUpload)
 	mux.HandleFunc("GET /app/proofs/{proof_id}/download", h.Download)
+}
+
+func RegisterSigned(mux *http.ServeMux, h *Handler) {
+	mux.HandleFunc("PUT /app/proofs/{proof_id}/upload", h.UploadLocalSigned)
+	mux.HandleFunc("GET /app/proofs/{proof_id}/download/signed", h.DownloadSigned)
 }
 
 type createUploadRequest struct {
@@ -132,13 +137,29 @@ func (h *Handler) CreateUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UploadLocal(w http.ResponseWriter, r *http.Request) {
-	if !h.verifySignedURL(r) {
+	if !h.verifySignedURL(r, tenantID(r)) {
 		httpresponse.WriteError(w, r, h.log, http.StatusForbidden,
 			errorEnvelope{Code: "invalid_upload_url", Message: "upload URL is invalid or expired", TraceID: traceID(r)}, nil)
 		return
 	}
 	defer r.Body.Close()
 	proof, err := h.service.StoreUpload(r.Context(), tenantID(r), r.PathValue("proof_id"), r.Header.Get("Content-Type"), http.MaxBytesReader(w, r.Body, maxLocalUploadBytes))
+	if err != nil {
+		h.respondErr(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, map[string]proofResponse{"proof": toProofResponse(proof)})
+}
+
+func (h *Handler) UploadLocalSigned(w http.ResponseWriter, r *http.Request) {
+	tenantID := signedTenantID(r)
+	if !h.verifySignedURL(r, tenantID) {
+		httpresponse.WriteError(w, r, h.log, http.StatusForbidden,
+			errorEnvelope{Code: "invalid_upload_url", Message: "upload URL is invalid or expired", TraceID: traceID(r)}, nil)
+		return
+	}
+	defer r.Body.Close()
+	proof, err := h.service.StoreUpload(r.Context(), tenantID, r.PathValue("proof_id"), r.Header.Get("Content-Type"), http.MaxBytesReader(w, r.Body, maxLocalUploadBytes))
 	if err != nil {
 		h.respondErr(w, r, err)
 		return
@@ -168,7 +189,7 @@ func (h *Handler) CompleteUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
-	if h.verifySignedURL(r) {
+	if h.verifySignedURL(r, tenantID(r)) {
 		proof, reader, err := h.service.OpenLocalDownload(r.Context(), tenantID(r), r.PathValue("proof_id"))
 		if err == nil {
 			defer reader.Close()
@@ -192,9 +213,25 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, downloadURLResponse{DownloadURL: url})
 }
 
-func (h *Handler) verifySignedURL(r *http.Request) bool {
+func (h *Handler) DownloadSigned(w http.ResponseWriter, r *http.Request) {
+	tenantID := signedTenantID(r)
+	if !h.verifySignedURL(r, tenantID) {
+		httpresponse.WriteError(w, r, h.log, http.StatusForbidden,
+			errorEnvelope{Code: "invalid_download_url", Message: "download URL is invalid or expired", TraceID: traceID(r)}, nil)
+		return
+	}
+	proof, reader, err := h.service.OpenLocalDownload(r.Context(), tenantID, r.PathValue("proof_id"))
+	if err != nil {
+		h.respondErr(w, r, err)
+		return
+	}
+	defer reader.Close()
+	http.ServeContent(w, r, proof.ProofID, proof.UpdatedAt, reader)
+}
+
+func (h *Handler) verifySignedURL(r *http.Request, tenantID string) bool {
 	q := r.URL.Query()
-	return h.service.VerifySignedURL(r.Method, r.URL.Path, q.Get("expires"), q.Get("sig"))
+	return h.service.VerifySignedURL(r.Method, r.URL.Path, tenantID, q.Get("expires"), q.Get("sig"))
 }
 
 func (h *Handler) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
@@ -260,6 +297,8 @@ func toProofResponse(p domain.Artifact) proofResponse {
 }
 
 func tenantID(r *http.Request) string { return httpmiddleware.TenantIDFromContext(r.Context()) }
+
+func signedTenantID(r *http.Request) string { return strings.TrimSpace(r.URL.Query().Get("tenant_id")) }
 
 func actorPtr(r *http.Request) *string {
 	if a := httpmiddleware.ActorIDFromContext(r.Context()); a != "" {

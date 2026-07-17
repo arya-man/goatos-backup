@@ -914,7 +914,7 @@ export async function listVerificationQueue(
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
+  const result = await request(() =>
     client.request<VerificationQueueResponse>("/verification/queue", {
       cache: "no-store",
       query: compactQuery({
@@ -927,6 +927,29 @@ export async function listVerificationQueue(
       }),
     }),
   );
+  if (!result.ok) return result;
+  return { ok: true, data: absolutizeVerificationMedia(result.data, config.data.baseUrl) };
+}
+
+function absolutizeVerificationMedia(queue: VerificationQueueResponse, baseUrl: string): VerificationQueueResponse {
+  return {
+    ...queue,
+    items: queue.items.map((item) => ({
+      ...item,
+      media: item.media.map((media) => ({
+        ...media,
+        download_url: absolutizeBackendURL(media.download_url, baseUrl),
+      })),
+    })),
+  };
+}
+
+function absolutizeBackendURL(value: string, baseUrl: string): string {
+  try {
+    return new URL(value, baseUrl).toString();
+  } catch {
+    return value;
+  }
 }
 
 // ---- Proof upload wrappers for vaccination drawer ----

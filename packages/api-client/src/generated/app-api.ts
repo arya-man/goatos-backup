@@ -3883,6 +3883,7 @@ export interface operations {
         parameters: {
             query: {
                 expires: string;
+                tenant_id: string;
                 sig: string;
             };
             header?: never;

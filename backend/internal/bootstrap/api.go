@@ -532,6 +532,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 
 	mux := http.NewServeMux()
 	authaudit.Register(mux, authAuditHandler)
+	proofhttp.RegisterSigned(mux, proofHandler)
 	mux.Handle("/", authz.Wrap(instrumentedProtectedMux))
 
 	// PanicRecovery is outermost so it catches panics in auth and RequestContext.
