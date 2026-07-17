@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 import { normalizeApiLatencyEndpoints } from "./api-latency-policy.mjs";
 
@@ -11,6 +13,7 @@ const defaultEndpoints = [
   { name: "calendar_vaccination", method: "GET", path: "/calendar/vaccination/events?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
   { name: "calendar_vaccination_completed_history", method: "GET", path: "/calendar/vaccination/events?status=completed&limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
   { name: "calendar_vaccination_date_markers", method: "GET", path: "/calendar/vaccination/events?include_date_markers=true&limit=1", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
+  { name: "vaccination_schedule", method: "GET", path: "/vaccination/schedule?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
   { name: "vaccination_execution", method: "GET", path: "/vaccination/execution?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
   { name: "vaccination_operations", method: "GET", path: "/vaccination/operations?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
   { name: "vaccination_shed_summary", method: "GET", path: "/vaccination/sheds?limit=50", p90_ms: 300, p95_ms: 500, p99_ms: 1000 },
@@ -36,7 +39,7 @@ const startedAt = new Date().toISOString();
 const dataset = {
   label: args.datasetLabel ?? process.env.GOATOS_PERF_DATASET_LABEL ?? "unspecified",
   animal_equivalent_cardinality: numberArg(args.datasetAnimals ?? process.env.GOATOS_PERF_DATASET_ANIMALS, 0, true),
-  projection_rows: numberArg(args.datasetProjectionRows ?? process.env.GOATOS_PERF_DATASET_PROJECTION_ROWS, 0, true),
+  canonical_rows: numberArg(args.datasetCanonicalRows ?? process.env.GOATOS_PERF_DATASET_CANONICAL_ROWS, 0, true),
   certification_boundary: args.certificationBoundary ?? process.env.GOATOS_PERF_CERTIFICATION_BOUNDARY ?? "local_latency_only",
 };
 
@@ -80,6 +83,7 @@ if (failOnThreshold && results.some((result) => !result.passed)) {
 }
 
 async function runEndpoint(endpoint) {
+  endpoint = { ...endpoint, path: expandPath(endpoint.path) };
   for (let i = 0; i < warmup; i++) {
     await requestOnce(endpoint);
   }
@@ -222,6 +226,38 @@ function boolArg(value, fallback) {
 
 function trimTrailingSlash(value) {
   return String(value).replace(/\/+$/, "");
+}
+
+function expandPath(path) {
+  const today = new Date();
+  return String(path)
+    .replaceAll("{today}", formatDate(today))
+    .replaceAll("{today_minus_30}", formatDate(addDays(today, -30)))
+    .replaceAll("{today_plus_1}", formatDate(addDays(today, 1)))
+    .replaceAll("{today_plus_7}", formatDate(addDays(today, 7)))
+    .replaceAll("{today_plus_30}", formatDate(addDays(today, 30)));
+}
+
+function addDays(date, days) {
+  const copy = new Date(date.getTime());
+  copy.setUTCDate(copy.getUTCDate() + days);
+  return copy;
+}
+
+function formatDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function sha256File(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function currentGitSha() {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return "unknown";
+  }
 }
 
 function fail(message) {

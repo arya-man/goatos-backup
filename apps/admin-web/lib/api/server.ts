@@ -620,8 +620,7 @@ export async function getVaccinationOperations(
   );
 }
 
-// Projection-backed Full Schedule read model. The month/window must already be materialized by the
-// backend projector; cold windows return projection_unavailable instead of running the operations CTE.
+// Full Schedule reads a canonical server-side monthly window; there is no schedule projection warmup.
 export async function getVaccinationSchedule(
   params: { parkId?: string; year: number; month: number; limit?: number; cursor?: string } = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 },
 ): Promise<ApiResult<VaccinationOperationsResponse>> {

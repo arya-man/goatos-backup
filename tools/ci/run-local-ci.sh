@@ -115,6 +115,7 @@ run_backend() {
   step "atomic-readmodel-sync-guard" make atomic-readmodel-sync-guard
   step "config-validate-guard"    make config-validate-guard
   step "seed-migration-guard"     make seed-migration-guard
+  step "vaccination-schedule-canonical-guard" make vaccination-schedule-canonical-guard
   step "india-date-guard"         make india-date-guard
   step "local-single-db-guard"    make local-single-db-guard
   if postgres_tests_enabled; then

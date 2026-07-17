@@ -259,6 +259,7 @@ func (h *Handler) listQuery(w stdhttp.ResponseWriter, r *stdhttp.Request) (domai
 		TenantID:            tenantID(r),
 		OwnerKey:            query.Get("owner_key"),
 		IncludeDateMarkers:  query.Get("include_date_markers") == "true",
+		MarkersOnly:         query.Get("markers_only") == "true",
 		IncludeReminderRail: query.Get("include_reminder_rail") == "true",
 		Scope:               calendarScope(r, permissions.CalendarRead),
 	}

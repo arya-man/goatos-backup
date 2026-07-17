@@ -168,6 +168,16 @@
       "ciStep": "seed-migration-guard"
     },
     {
+      "id": "vaccination-schedule-canonical",
+      "script": "tools/agent-hooks/check-vaccination-schedule-canonical.mjs",
+      "makeTarget": "vaccination-schedule-canonical-guard",
+      "realCheck": "node tools/agent-hooks/check-vaccination-schedule-canonical.mjs",
+      "selfTest": "node tools/agent-hooks/check-vaccination-schedule-canonical.mjs --self-test",
+      "owningDoc": "docs/decisions/operational-kernel-5k-50k-scale-envelope.md",
+      "requiredInCI": true,
+      "ciStep": "vaccination-schedule-canonical-guard"
+    },
+    {
       "id": "india-business-date",
       "script": "tools/agent-hooks/check-india-business-date.mjs",
       "makeTarget": "india-date-guard",

@@ -126,11 +126,10 @@ surface loudly instead of serving 500s against missing tables/columns.
   different worktree; the guard was designed against the committed `main`
   copy of that script). Its `start_api`'s reuse-if-healthy check now behaves
   correctly against the sharpened `/readyz`, without needing script changes.
-- Known remaining tail (separate change): several `tools/perf/*.sql`
-  (`seed-scale-shaped-projections.sql`, `explain-vaccination-shed-scale.sql`,
-  `scale-cardinality.sql`, `request-path-usage.sql`) still reference the
-  projection tables dropped in migration 000187. They were NOT removed here
-  because they are wired into the `ci.yml` and `android-quality.yml` scale/
-  latency jobs (`psql -f ...`); deleting the files alone would break those
-  workflows. Retiring or canonical-converting that scale job (and its scripts
-  together) is the projection cutover's remaining CI tail, tracked separately.
+- Follow-up completed: the old scale-shaped projection perf scripts were
+  retired or canonical-converted. `seed-scale-shaped-projections.sql` now loads
+  canonical vaccination rows for the 5k-50k envelope, and CI uses
+  `hot-paths.canonical-reads.json` plus request-path evidence to prove deleted
+  projection tables are not serving dependencies. Future changes to those
+  canonical checks must keep the fixture, API probe, and evidence validator in
+  sync.

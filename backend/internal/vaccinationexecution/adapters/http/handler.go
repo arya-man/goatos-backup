@@ -185,8 +185,8 @@ func (h *Handler) VaccinationOperations(w http.ResponseWriter, r *http.Request) 
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
 }
 
-// VaccinationSchedule serves the Full Schedule month/window projection. It never falls back to the
-// canonical operations CTE on the request path; a cold/missing projection returns projection_unavailable.
+// VaccinationSchedule serves the Full Schedule month/window directly from canonical vaccination
+// obligations and completions.
 func (h *Handler) VaccinationSchedule(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	now := h.now()
@@ -244,7 +244,7 @@ func (h *Handler) VaccinationSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.reader.VaccinationSchedule(r.Context(), q)
 	if err != nil {
-		h.readScheduleError(w, r, err)
+		h.internal(w, r, err)
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, resp)
@@ -989,8 +989,7 @@ func isHistoricalAsOf(parsed, now time.Time) bool {
 
 // rejectHistoricalAsOf writes a 400 and returns true when as_of is any past instant. Historical
 // point-in-time reads are not supported: there is no per-as_of snapshot store, so advertising them
-// only produced a misleading projection_unavailable 503 when no snapshot matched the requested
-// instant (the normal production case). Persisting immutable historical snapshots is the follow-up
+// only produced misleading current-view reads. Persisting immutable historical snapshots is the follow-up
 // that would re-enable this cleanly.
 func (h *Handler) rejectHistoricalAsOf(w http.ResponseWriter, r *http.Request, parsed, now time.Time) bool {
 	if isHistoricalAsOf(parsed, now) {
@@ -1003,15 +1002,6 @@ func (h *Handler) rejectHistoricalAsOf(w http.ResponseWriter, r *http.Request, p
 
 // readShedError maps a shed-summary/shed-detail read-path error to HTTP.
 func (h *Handler) readShedError(w http.ResponseWriter, r *http.Request, err error) {
-	h.internal(w, r, err)
-}
-
-func (h *Handler) readScheduleError(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, vaccexecd.ErrScheduleProjectionUnavailable) {
-		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable,
-			errorEnvelope{Code: "projection_unavailable", Message: "vaccination schedule read model is temporarily unavailable", TraceID: traceID(r)}, err)
-		return
-	}
 	h.internal(w, r, err)
 }
 

@@ -125,26 +125,11 @@ func (s *Service) VaccinationOperations(ctx context.Context, q domain.Operations
 }
 
 func (s *Service) VaccinationSchedule(ctx context.Context, q domain.ScheduleQuery) (domain.OperationsResponse, error) {
-	rows, state, err := s.repo.VaccinationSchedule(ctx, q)
+	rows, err := s.repo.VaccinationSchedule(ctx, q)
 	if err != nil {
 		return domain.OperationsResponse{}, err
 	}
-	resp, err := operationsResponseFromRows(rows, q.Limit)
-	if err != nil {
-		return domain.OperationsResponse{}, err
-	}
-	resp.Freshness = &domain.ProjectionFreshness{
-		ProjectionVersion: state.ProjectionVersion,
-		ProjectedAt:       state.ProjectedAt,
-		AsOf:              state.AsOf,
-		Status:            state.FreshnessStatus,
-		LagSeconds:        int64(time.Since(state.ProjectedAt).Seconds()),
-		ServingState:      state.ServingState,
-		Stale:             state.Stale,
-		RebuildRequired:   state.RebuildRequired,
-		RowCount:          state.RowCount,
-	}
-	return resp, nil
+	return operationsResponseFromRows(rows, q.Limit)
 }
 
 // operationsResponseFromRows rolls the flat cohort × protocol rows into the matrix + per-cohort

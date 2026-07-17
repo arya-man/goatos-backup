@@ -178,6 +178,7 @@ export async function VaccinationCalendarPage({
         dateFrom: pickerWindow.dateFrom,
         dateTo: pickerWindow.dateTo,
         includeDateMarkers: true,
+        markersOnly: true,
         limit: 1,
       })
     : Promise.resolve(null);

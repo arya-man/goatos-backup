@@ -7,11 +7,9 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails guardrail-registration-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard scale-certification-docs-guard scale-guard clinical-defer-guard vaccination-drive-clubbing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures process-integrity-projection-recompute vaccination-shed-projection-recompute process-integrity-latency-gate api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard
+.PHONY: seed-state-guard check guardrails guardrail-registration-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard scale-certification-docs-guard scale-guard clinical-defer-guard vaccination-drive-clubbing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-closeout seed-closeout-dry-run seed-vaccination-source-full legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
-.PHONY: vaccination-execution-projection-recompute vaccination-operations-projection-recompute vaccination-schedule-projection-recompute
-
 setup-crg: ai-setup
 
 ai-setup:
@@ -103,6 +101,7 @@ guardrails:
 	node tools/agent-hooks/check-refresh-binding.mjs
 	bash tools/agent-hooks/check-contract-drift.sh
 	$(MAKE) aggregate-projection-guard
+	$(MAKE) vaccination-schedule-canonical-guard
 	$(MAKE) scale-certification-docs-guard
 	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
 	$(MAKE) api-latency-policy-test
@@ -153,6 +152,10 @@ stg-promotion-guard-install:
 aggregate-projection-guard:
 	node tools/agent-hooks/check-aggregate-projection-review.mjs --self-test
 	node tools/agent-hooks/check-aggregate-projection-review.mjs
+
+vaccination-schedule-canonical-guard:
+	node tools/agent-hooks/check-vaccination-schedule-canonical.mjs --self-test
+	node tools/agent-hooks/check-vaccination-schedule-canonical.mjs
 
 scale-certification-docs-guard:
 	node tools/agent-hooks/check-scale-certification-docs.mjs --self-test
@@ -566,26 +569,8 @@ legacy-god-sheet-sync-apply:
 verify-google-dev-seed-fixtures:
 	python3 tools/dev/verify-google-dev-seed-fixtures.py
 
-process-integrity-projection-recompute:
-	cd backend && go run ./cmd/process-integrity-projection-recompute
-
-vaccination-shed-projection-recompute:
-	cd backend && go run ./cmd/vaccination-shed-projection-recompute
-
-vaccination-execution-projection-recompute:
-	cd backend && go run ./cmd/vaccination-execution-projection-recompute
-
-vaccination-operations-projection-recompute:
-	cd backend && go run ./cmd/vaccination-operations-projection-recompute
-
-vaccination-schedule-projection-recompute:
-	cd backend && go run ./cmd/vaccination-schedule-projection-recompute
-
-process-integrity-latency-gate:
-	cd backend && go run ./cmd/process-integrity-latency-check
-
 api-latency-policy-test:
-	node --test tools/perf/api-latency-policy.test.mjs tools/perf/api-latency-evidence.test.mjs tools/perf/scale-plan-evidence.test.mjs tools/perf/request-path-evidence.test.mjs
+	node --test tools/perf/api-latency-policy.test.mjs tools/perf/api-latency-evidence.test.mjs tools/perf/request-path-evidence.test.mjs
 
 api-latency-gate:
 	node tools/perf/api-latency-gate.mjs --manifest tools/perf/hot-paths.vaccination.json

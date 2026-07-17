@@ -136,7 +136,7 @@ commit_sha=$COMMIT_SHA
 backend_image=$BACKEND_IMAGE
 migration_image=$MIGRATION_IMAGE
 admin_web_image=$ADMIN_WEB_IMAGE
-rollout_order=migrate,vaccination_schedule_projection,api,kernel_worker,manual_backend_jobs,admin_web,smoke_and_skew
+rollout_order=migrate,api,kernel_worker,manual_backend_jobs,admin_web,smoke_and_skew
 EOF
 
   local manifest_uri="$output_path/goatos-stg-release.txt"

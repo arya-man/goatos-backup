@@ -19,15 +19,16 @@ ever disagree, stop the seed and resolve the contract first.
 
 This runbook assumes the 5k-to-50k operational-kernel envelope accepted in
 `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`. That ADR drops the
-five screen projection tables (`calendar_event_projections`,
+screen projection tables (`calendar_event_projections`,
 `process_integrity_projection_rows`, `vaccination_shed_projection_rows`,
 `vaccination_execution_projection_rows`, and
-`vaccination_operations_projection_rows`), retires the separately scheduled
+`vaccination_operations_projection_rows`, plus Full Schedule's
+`vaccination_schedule_projection_*` family), retires the separately scheduled
 projectors and partition maintenance in favor of one kernel worker, and serves
-the vaccination shed/execution/operations, process-integrity, and Calendar
-screens from canonical indexed SQL per request. Dropping those projection tables
-in a destructive staging rebuild is therefore expected, not a defect: the current
-rows are test data, and the old split-worker/projection topology is recoverable
+the vaccination schedule/shed/execution/operations, process-integrity, and
+Calendar screens from canonical indexed SQL per request. Dropping those
+projection tables in a destructive staging rebuild is therefore expected, not a
+defect: the current rows are test data, and the old split-worker topology is recoverable
 from the `kernel-split-workers-v1` tag. The vaccination date/anchor business
 semantics below are orthogonal to projections and are unchanged; only the
 projection-backed verification and enable steps differ. Small indexed summaries
@@ -134,14 +135,15 @@ source shed.
    if any invariant below is violated. Do not bypass it or hand-edit its rows.
 9. Recompute the small indexed summaries the UI still serves using the deployed
    artifact: `vaccination_eligibility_rollups`, and the Counts summary if Counts
-   is visible. Under the 5k-to-50k envelope the five screen projection tables
+   is visible. Under the 5k-to-50k envelope the screen projection tables
    (`calendar_event_projections`, `process_integrity_projection_rows`,
    `vaccination_shed_projection_rows`, `vaccination_execution_projection_rows`,
-   and `vaccination_operations_projection_rows`) are dropped, not repopulated;
-   the vaccination shed, execution, operations, process-integrity, and Calendar
-   screens read canonical indexed SQL per request, so there is no projector
-   recompute step for them. Staging is green for those screens when their
-   canonical-read APIs return `200`, not when a projector reports complete.
+   and `vaccination_operations_projection_rows`, plus Full Schedule's
+   `vaccination_schedule_projection_*` family) are dropped, not repopulated; the
+   vaccination schedule, shed, execution, operations, process-integrity, and
+   Calendar screens read canonical indexed SQL per request, so there is no
+   projector recompute step for them. Staging is green for those screens when
+   their canonical-read APIs return `200`, not when a projector reports complete.
 10. Run the obligation sweeper's operational stage only after the seed and the
     surviving summaries are clean. It remains the backstop for time-derived
     due/missed state; it no longer refreshes any screen projection, and the
@@ -179,11 +181,11 @@ postflight must also record the surrounding counts.
   shared-staging test/story/dummy/local protocol or obligation data.
 - Every imported vaccination shed has reviewed manager and backup ownership.
 - `vaccination_eligibility_rollups` is populated and capacity buffer is 7 days.
-- The vaccination shed, execution, operations, process-integrity, and Calendar
+- The vaccination shed, execution, operations, Full Schedule, process-integrity, and Calendar
   screens have no projection tables to reconcile under this envelope; their
   correctness is proven by canonical-read APIs, not by a projector build time.
 - `GET /vaccination/sheds`, `GET /vaccination/execution`, and
-  `GET /vaccination/operations` return `200` served from canonical indexed SQL,
+  `GET /vaccination/operations`, plus `GET /vaccination/schedule`, return `200` served from canonical indexed SQL,
   and their grouped counts reconcile to canonical obligation counts. There is no
   `projection_unavailable` state to wait out; a non-`200` here means the seed or
   the canonical read path is not complete.

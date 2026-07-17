@@ -2060,6 +2060,13 @@ paths:
           schema:
             type: boolean
             default: false
+        - name: markers_only
+          in: query
+          required: false
+          description: Return date_markers without running the paged event-list query. Intended for the month-picker marker request.
+          schema:
+            type: boolean
+            default: false
         - name: include_reminder_rail
           in: query
           required: false

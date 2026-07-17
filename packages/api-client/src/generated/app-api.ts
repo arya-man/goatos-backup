@@ -5020,6 +5020,8 @@ export interface operations {
                 date_to?: string;
                 /** @description Include bounded per-day counts for complete month-grid rendering. */
                 include_date_markers?: boolean;
+                /** @description Return date_markers without running the paged event-list query. Intended for the month-picker marker request. */
+                markers_only?: boolean;
                 /** @description Include the whole-filtered-week reminder/escalation rail summary (week view). Separate from include_date_markers so the week list gets the rail without paying for month date-markers. */
                 include_reminder_rail?: boolean;
                 cursor?: string;

@@ -33,10 +33,9 @@ output "pubsub_domain_events_subscription" {
 output "cloud_run_explicit_jobs" {
   description = "Cloud Run Job names retained for deploy-time or manual execution; none is scheduled."
   value = {
-    migrate                        = google_cloud_run_v2_job.migrate.name
-    outbox_dlq                     = google_cloud_run_v2_job.outbox_dlq.name
-    vaccination_schedule_projector = google_cloud_run_v2_job.vaccination_schedule_projector.name
-    analytics_rollup               = google_cloud_run_v2_job.analytics_rollup.name
+    migrate          = google_cloud_run_v2_job.migrate.name
+    outbox_dlq       = google_cloud_run_v2_job.outbox_dlq.name
+    analytics_rollup = google_cloud_run_v2_job.analytics_rollup.name
   }
 }
 

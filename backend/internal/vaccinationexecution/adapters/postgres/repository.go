@@ -1,4 +1,5 @@
-// Package postgres implements vaccination-execution read-model projections over Postgres.
+// Package postgres implements canonical vaccination execution reads over Postgres.
+// projection-review: membership=tenant-scoped vaccination obligation/completion rows selected by each endpoint's date window and scope filter; group_key=endpoint-specific park/shed/stage/batch/rule/protocol grain carried through SQL comments below; join_cardinality=completion and terminal status history are pre-aggregated per obligation before joining and goat/location/protocol joins are keyed by tenant plus stable ids; pagination=all serving reads use keyset or bounded cohort pages with totals computed before page truncation; scope=tenant plus explicit park/shed filters resolved from canonical location ids.
 package postgres
 
 import (
@@ -104,8 +105,7 @@ func (r *Repository) ListVaccinationExecutionPage(ctx context.Context, q domain.
 	// list directly from the canonical obligation/completion/SOP tables via the keyset-paginated
 	// vaccinationExecutionSQL instead of the vaccination_execution_projection_rows read model. A canonical
 	// read cannot be stale relative to the canonical write, so the serving-projection freshness gate (and
-	// its read-through-vs-503 failure mode) is removed. The projection table + projector stay in the tree
-	// as additive read-through infrastructure for a later scale-out step. Freshness is nil (always current).
+	// its read-through-vs-503 failure mode) is removed. Freshness is nil (always current).
 	rows, err := r.pool.Query(ctx, vaccinationExecutionSQL,
 		q.TenantID, parkID, shedID, dueBefore, q.Limit, workState, asOf, closedAfter, severity,
 		cursorPresent, cursorRank, cursorDueMicros, cursorRowKey)
@@ -250,9 +250,8 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	// 5k-50k envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md): serve operations
 	// directly from the canonical obligation/completion tables via the keyset-paginated
 	// vaccinationOperationsSQL instead of vaccination_operations_projection_rows. Canonical reads are never
-	// stale relative to the canonical write, so the serving-projection freshness gate is removed. The
-	// projection table + projector remain as additive read-through infrastructure for a later scale-out
-	// step. Freshness is nil (always current).
+	// stale relative to the canonical write, so the serving-projection freshness gate is removed.
+	// Freshness is nil (always current).
 	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL,
 		q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName)
 	if err != nil {
@@ -262,12 +261,9 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	return scanOperationsRows(rows, nil)
 }
 
-func (r *Repository) VaccinationSchedule(ctx context.Context, q domain.ScheduleQuery) ([]domain.OperationsRow, domain.ScheduleProjectionState, error) {
+func (r *Repository) VaccinationSchedule(ctx context.Context, q domain.ScheduleQuery) ([]domain.OperationsRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	monthStart, _ := scheduleMonthWindow(q.MonthStart)
-	scopeType, scopeID := scheduleScope(q.ParkID)
-	authorizedParks := authorizedParkFilter(ctx, q.TenantID)
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 500
@@ -275,7 +271,20 @@ func (r *Repository) VaccinationSchedule(ctx context.Context, q domain.ScheduleQ
 	if limit > 500 {
 		limit = 500
 	}
-	fetchLimit := limit + 1
+	monthStart, monthEnd := scheduleMonthWindow(q.MonthStart)
+	asOf := time.Now().In(biztime.DefaultLocation())
+	rows, err := r.vaccinationScheduleWindowRows(ctx, q, monthStart, monthEnd, asOf, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *Repository) vaccinationScheduleWindowRows(ctx context.Context, q domain.ScheduleQuery, monthStart, monthEnd, asOf time.Time, limit int) ([]domain.OperationsRow, error) {
+	parkID := ""
+	if q.ParkID != nil {
+		parkID = *q.ParkID
+	}
 	cursorParkID, cursorParkName, cursorShedID, cursorShedName, cursorStage := "", "", "", "", ""
 	if q.Cursor != nil {
 		cursorParkID = q.Cursor.ParkID
@@ -284,199 +293,13 @@ func (r *Repository) VaccinationSchedule(ctx context.Context, q domain.ScheduleQ
 		cursorShedName = q.Cursor.ShedName
 		cursorStage = q.Cursor.Stage
 	}
-
-	var state domain.ScheduleProjectionState
-	var projectedAt, asOf pgtype.Timestamptz
-	err := r.pool.QueryRow(ctx, scheduleProjectionStateSQL, q.TenantID, scopeType, scopeID, monthStart, authorizedParks).Scan(
-		&state.ProjectionVersion, &projectedAt, &asOf, &state.FreshnessStatus, &state.ServingState, &state.Stale, &state.RebuildRequired, &state.RowCount,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, domain.ScheduleProjectionState{}, domain.ErrScheduleProjectionUnavailable
-	}
+	rows, err := r.pool.Query(ctx, vaccinationScheduleWindowSQL, q.TenantID, asOf, monthStart, monthEnd, parkID,
+		cursorParkID, cursorShedID, cursorStage, cursorParkName, cursorShedName, limit)
 	if err != nil {
-		return nil, domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule state: %w", err)
-	}
-	if projectedAt.Valid {
-		state.ProjectedAt = projectedAt.Time
-	}
-	if asOf.Valid {
-		state.AsOf = asOf.Time
-	}
-	dirty, err := r.scheduleProjectionDirty(ctx, q.TenantID, q.ParkID, monthStart, state.AsOf)
-	if err != nil {
-		return nil, domain.ScheduleProjectionState{}, err
-	}
-	if dirty {
-		state.FreshnessStatus = "yellow"
-		state.ServingState = "stale"
-		state.Stale = true
-		state.RebuildRequired = true
-	}
-	rows, err := r.pool.Query(ctx, scheduleProjectionRowsSQL,
-		q.TenantID, scopeType, scopeID, monthStart, state.ProjectionVersion, authorizedParks,
-		cursorParkID, cursorParkName, cursorShedID, cursorShedName, cursorStage, fetchLimit,
-	)
-	if err != nil {
-		return nil, domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule rows: %w", err)
+		return nil, fmt.Errorf("vaccination execution: schedule source rows: %w", err)
 	}
 	defer rows.Close()
-	out, err := scanOperationsRows(rows, &domain.ProjectionFreshness{
-		ProjectionVersion: state.ProjectionVersion,
-		ProjectedAt:       state.ProjectedAt,
-		AsOf:              state.AsOf,
-		Status:            state.FreshnessStatus,
-		LagSeconds:        int64(time.Since(state.ProjectedAt).Seconds()),
-	})
-	if err != nil {
-		return nil, domain.ScheduleProjectionState{}, err
-	}
-	return out, state, nil
-}
-
-// RebuildVaccinationScheduleWindow recomputes one tenant/park/month schedule scope and swaps only
-// that scope's rows. It is intended for seed/backfill/dirty-scope workers, not the request path.
-func (r *Repository) RebuildVaccinationScheduleWindow(ctx context.Context, q domain.ScheduleQuery, generatedBy string) (domain.ScheduleProjectionState, error) {
-	monthStart, monthEnd := scheduleMonthWindow(q.MonthStart)
-	scopeType, scopeID := scheduleScope(q.ParkID)
-	asOf := time.Now().In(biztime.DefaultLocation())
-	sourceRows := []domain.OperationsRow{}
-	var cursor *domain.OperationsCursor
-	for {
-		pageRows, err := r.VaccinationOperations(ctx, domain.OperationsQuery{
-			TenantID:  q.TenantID,
-			ParkID:    q.ParkID,
-			AsOf:      asOf,
-			DueBefore: monthEnd,
-			Limit:     500,
-			Cursor:    cursor,
-		})
-		if err != nil {
-			return domain.ScheduleProjectionState{}, err
-		}
-		visible, next := operationsRowsPage(pageRows, 500)
-		sourceRows = append(sourceRows, visible...)
-		if next == nil {
-			break
-		}
-		cursor = next
-	}
-	filtered := sourceRows[:0]
-	for _, row := range sourceRows {
-		if scheduleRowInWindow(row, monthStart, monthEnd) {
-			filtered = append(filtered, row)
-		}
-	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule rebuild begin: %w", err)
-	}
-	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1::text), hashtext($2::text))`, q.TenantID, scopeType+":"+scopeID+":"+monthStart.Format("2006-01-02")); err != nil {
-		return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule rebuild lock: %w", err)
-	}
-	var version int64
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(projection_version), 0) + 1 FROM vaccination_schedule_projection_state WHERE tenant_id = $1::uuid`, q.TenantID).Scan(&version); err != nil {
-		return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule version: %w", err)
-	}
-	if len(filtered) > 0 {
-		copyRows := make([][]any, 0, len(filtered))
-		for _, row := range filtered {
-			copyRows = append(copyRows, []any{
-				q.TenantID, scopeType, scopeID, monthStart, version,
-				row.ParkID, row.ParkName, row.ShedID, row.ShedName, row.Stage, nullableString(row.AgeBand),
-				row.ProtocolID, row.ProtocolName, row.Animals, row.NextDue, row.LastDose, row.VaccineNames,
-				row.OverdueCount, row.DueCount, row.InProgressCount, row.ScheduledCount, row.MissedCount,
-				row.DeferredCount, row.AcceptedCount, row.ProofPendingCount, row.RejectedCount, row.TotalCount,
-			})
-		}
-		_, err := tx.CopyFrom(ctx,
-			pgx.Identifier{"vaccination_schedule_projection_rows"},
-			[]string{
-				"tenant_id", "scope_type", "scope_id", "year_month", "projection_version",
-				"park_id", "park_name", "shed_id", "shed_name", "stage", "age_band",
-				"protocol_id", "protocol_name", "animals", "next_due", "last_dose", "vaccine_names",
-				"overdue_count", "due_count", "in_progress_count", "scheduled_count", "missed_count",
-				"deferred_count", "accepted_count", "proof_pending_count", "rejected_count", "total_count",
-			},
-			pgx.CopyFromRows(copyRows),
-		)
-		if err != nil {
-			return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule copy rows: %w", err)
-		}
-	}
-	_, err = tx.Exec(ctx, scheduleProjectionStateUpsertSQL,
-		q.TenantID, scopeType, scopeID, monthStart, version, asOf, "green", "fresh", false, false, len(filtered), generatedBy)
-	if err != nil {
-		return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule upsert state: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM vaccination_schedule_projection_rows WHERE tenant_id = $1::uuid AND scope_type = $2 AND scope_id = $3::uuid AND year_month = $4::date AND projection_version <> $5::bigint`, q.TenantID, scopeType, scopeID, monthStart, version); err != nil {
-		return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule prune rows: %w", err)
-	}
-	if _, err := tx.Exec(ctx, scheduleProjectionClearSatisfiedDirtySQL, q.TenantID, monthStart); err != nil {
-		return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule clear satisfied dirty scopes: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return domain.ScheduleProjectionState{}, fmt.Errorf("vaccination execution: schedule rebuild commit: %w", err)
-	}
-	now := time.Now().In(biztime.DefaultLocation())
-	return domain.ScheduleProjectionState{
-		ProjectionVersion: version,
-		ProjectedAt:       now,
-		AsOf:              asOf,
-		FreshnessStatus:   "green",
-		ServingState:      "fresh",
-		RowCount:          len(filtered),
-	}, nil
-}
-
-func (r *Repository) RebuildDirtyVaccinationScheduleWindows(ctx context.Context, tenantID string, limit int, generatedBy string) (domain.ScheduleRebuildSummary, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 200
-	}
-	rows, err := r.pool.Query(ctx, scheduleProjectionPendingDirtySQL, tenantID, limit)
-	if err != nil {
-		return domain.ScheduleRebuildSummary{}, fmt.Errorf("vaccination execution: list dirty schedule windows: %w", err)
-	}
-	defer rows.Close()
-	type window struct {
-		tenantID   string
-		scopeType  string
-		scopeID    string
-		monthStart time.Time
-	}
-	windows := []window{}
-	for rows.Next() {
-		var w window
-		if err := rows.Scan(&w.tenantID, &w.scopeType, &w.scopeID, &w.monthStart); err != nil {
-			return domain.ScheduleRebuildSummary{}, fmt.Errorf("vaccination execution: scan dirty schedule window: %w", err)
-		}
-		windows = append(windows, w)
-	}
-	if err := rows.Err(); err != nil {
-		return domain.ScheduleRebuildSummary{}, fmt.Errorf("vaccination execution: iterate dirty schedule windows: %w", err)
-	}
-	seen := map[string]bool{}
-	var summary domain.ScheduleRebuildSummary
-	for _, w := range windows {
-		key := w.tenantID + "|" + w.scopeType + "|" + w.scopeID + "|" + w.monthStart.Format("2006-01-02")
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		q := domain.ScheduleQuery{TenantID: w.tenantID, MonthStart: w.monthStart}
-		if w.scopeType == "park" && w.scopeID != zeroUUID {
-			parkID := w.scopeID
-			q.ParkID = &parkID
-		}
-		// scale-guard:ignore: off-request dirty-scope projector; bounded by claimed dirty windows, version-swaps rows, and never runs on the request path.
-		state, err := r.RebuildVaccinationScheduleWindow(ctx, q, generatedBy)
-		if err != nil {
-			return summary, err
-		}
-		summary.Windows++
-		summary.Rows += state.RowCount
-	}
-	return summary, nil
+	return scanOperationsRows(rows, nil)
 }
 
 func operationsRowsPage(rows []domain.OperationsRow, limit int) ([]domain.OperationsRow, *domain.OperationsCursor) {
@@ -529,42 +352,6 @@ func scheduleMonthWindow(anchor time.Time) (time.Time, time.Time) {
 	start := time.Date(local.Year(), local.Month(), 1, 0, 0, 0, 0, biztime.DefaultLocation())
 	end := start.AddDate(0, 1, 0).Add(-time.Nanosecond)
 	return start, end
-}
-
-func scheduleScope(parkID *string) (string, string) {
-	if parkID != nil && *parkID != "" {
-		return "park", *parkID
-	}
-	return "tenant", zeroUUID
-}
-
-func scheduleRowInWindow(row domain.OperationsRow, start, end time.Time) bool {
-	if row.NextDue != nil && !row.NextDue.Before(start) && !row.NextDue.After(end) {
-		return true
-	}
-	if row.LastDose != nil && !row.LastDose.Before(start) && !row.LastDose.After(end) {
-		return true
-	}
-	return false
-}
-
-func nullableString(s *string) any {
-	if s == nil {
-		return nil
-	}
-	return *s
-}
-
-func (r *Repository) scheduleProjectionDirty(ctx context.Context, tenantID string, parkID *string, monthStart time.Time, projectedAt time.Time) (bool, error) {
-	scopeID := ""
-	if parkID != nil {
-		scopeID = *parkID
-	}
-	var dirty bool
-	if err := r.pool.QueryRow(ctx, scheduleProjectionDirtySQL, tenantID, scopeID, monthStart, projectedAt).Scan(&dirty); err != nil {
-		return false, fmt.Errorf("vaccination execution: schedule dirty: %w", err)
-	}
-	return dirty, nil
 }
 
 func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([]domain.OperationsRow, error) {
@@ -657,184 +444,213 @@ func (r *Repository) VaccinationGaps(ctx context.Context, q domain.GapsQuery) ([
 	return out, nil
 }
 
-const scheduleProjectionStateSQL = `
-SELECT projection_version, projected_at, as_of, freshness_status, serving_state,
-       stale, rebuild_required, row_count
-FROM vaccination_schedule_projection_state
-WHERE tenant_id = $1::uuid
-  AND scope_type = $2
-  AND scope_id = $3::uuid
-  AND year_month = $4::date
-  AND ($5::uuid[] IS NULL OR scope_type = 'tenant' OR scope_id = ANY($5::uuid[]));`
-
-const scheduleProjectionRowsSQL = `
-WITH page_cohorts AS (
-  SELECT park_id, park_name, shed_id, shed_name, stage
-  FROM vaccination_schedule_projection_rows
-  WHERE tenant_id = $1::uuid
-    AND scope_type = $2
-    AND scope_id = $3::uuid
-    AND year_month = $4::date
-    AND projection_version = $5::bigint
-    AND ($6::uuid[] IS NULL OR park_id = ANY($6::uuid[]))
-    AND (
-      NULLIF($7::text, '') IS NULL
-      OR (park_name, shed_name, stage, park_id, shed_id) >
-         ($8::text, $10::text, $11::text, NULLIF($7::text, '')::uuid, NULLIF($9::text, '')::uuid)
-    )
-  GROUP BY park_id, park_name, shed_id, shed_name, stage
-  ORDER BY park_name, shed_name, stage, park_id, shed_id
-  LIMIT $12::int
-)
-SELECT park_id::text, park_name, shed_id::text, shed_name, stage, age_band,
-       protocol_id::text, protocol_name, animals, next_due, last_dose,
-       vaccine_names, overdue_count, due_count, in_progress_count, scheduled_count,
-       missed_count, deferred_count, accepted_count, proof_pending_count, rejected_count, total_count
-FROM vaccination_schedule_projection_rows r
-JOIN page_cohorts pc USING (park_id, park_name, shed_id, shed_name, stage)
-WHERE r.tenant_id = $1::uuid
-  AND r.scope_type = $2
-  AND r.scope_id = $3::uuid
-  AND r.year_month = $4::date
-  AND r.projection_version = $5::bigint
-ORDER BY park_name, shed_name, stage, park_id, shed_id, protocol_name, protocol_id;`
-
-const scheduleProjectionPendingDirtySQL = `
-WITH dirty AS (
-  SELECT d.tenant_id,
-         d.year_month,
-         d.scope_type,
-         d.scope_id,
-         l.parent_location_id
-  FROM vaccination_schedule_projection_dirty_scopes d
-  LEFT JOIN locations l
-    ON l.tenant_id = d.tenant_id
-   AND l.location_id = d.scope_id
-   AND l.location_type = 'shed'
-  WHERE d.status = 'dirty'
-    AND (NULLIF($1::text, '') IS NULL OR d.tenant_id = $1::uuid)
-  ORDER BY d.year_month, d.scope_type, d.scope_id
-  LIMIT $2::int
-)
-SELECT tenant_id::text, rebuild_scope_type, rebuild_scope_id, year_month
-FROM (
-  SELECT 0 AS rebuild_order, tenant_id, 'tenant' AS rebuild_scope_type,
-         '00000000-0000-0000-0000-000000000000' AS rebuild_scope_id, year_month
-  FROM dirty
-  UNION ALL
-  SELECT 1 AS rebuild_order, tenant_id, 'park' AS rebuild_scope_type,
-         CASE
-           WHEN scope_type = 'park' THEN scope_id::text
-           WHEN scope_type = 'shed' AND parent_location_id IS NOT NULL THEN parent_location_id::text
-           ELSE '00000000-0000-0000-0000-000000000000'
-         END AS rebuild_scope_id,
-         year_month
-  FROM dirty
-  WHERE scope_type IN ('park', 'shed')
-) rebuilds
-ORDER BY year_month, rebuild_order, rebuild_scope_id;`
-
-const scheduleProjectionStateUpsertSQL = `
-INSERT INTO vaccination_schedule_projection_state (
-  tenant_id, scope_type, scope_id, year_month, projection_version, projected_at, as_of,
-  freshness_status, serving_state, stale, rebuild_required, row_count, generated_by, updated_at
-) VALUES (
-  $1::uuid, $2, $3::uuid, $4::date, $5::bigint, now(), $6::timestamptz,
-  $7, $8, $9::boolean, $10::boolean, $11::int, NULLIF($12, ''), now()
-)
-ON CONFLICT (tenant_id, scope_type, scope_id, year_month) DO UPDATE SET
-  projection_version = EXCLUDED.projection_version,
-  projected_at = EXCLUDED.projected_at,
-  as_of = EXCLUDED.as_of,
-  freshness_status = EXCLUDED.freshness_status,
-  serving_state = EXCLUDED.serving_state,
-  stale = EXCLUDED.stale,
-  rebuild_required = EXCLUDED.rebuild_required,
-  row_count = EXCLUDED.row_count,
-  generated_by = EXCLUDED.generated_by,
-  updated_at = EXCLUDED.updated_at;`
-
-const scheduleProjectionDirtySQL = `
-SELECT EXISTS (
-  SELECT 1
-  FROM vaccination_schedule_projection_dirty_scopes d
-  WHERE d.tenant_id = $1::uuid
-    AND d.year_month = $3::date
-    AND d.status = 'dirty'
-    AND d.last_dirty_at > $4::timestamptz
-    AND (
-      NULLIF($2::text, '') IS NULL
-      OR d.scope_type = 'tenant'
-      OR (d.scope_type = 'park' AND d.scope_id = NULLIF($2::text, '')::uuid)
-      OR EXISTS (
-        SELECT 1
-        FROM locations l
-        WHERE l.tenant_id = d.tenant_id
-          AND l.location_id = d.scope_id
-          AND l.location_type = 'shed'
-          AND l.parent_location_id = NULLIF($2::text, '')::uuid
-      )
-    )
-);`
-
-const scheduleProjectionClearSatisfiedDirtySQL = `
-WITH states AS (
-  SELECT scope_type, scope_id, as_of
-  FROM vaccination_schedule_projection_state
-  WHERE tenant_id = $1::uuid
-    AND year_month = $2::date
-    AND serving_state = 'fresh'
-    AND stale = false
-    AND rebuild_required = false
+const vaccinationScheduleWindowSQL = `
+-- projection-review: membership=obligation_instances whose due_at or accepted completion falls inside the requested month window; group_key=(park_uuid,shed_uuid,stage,protocol_id,protocol_name) with month-window due/accepted membership applied before cohort pagination; join_cardinality=completions/asof_terminal are pre-aggregated one row per obligation and goat/location/protocol joins are keyed 1:1, while COUNT(DISTINCT goat_id) protects animal counts from multi-vaccine one-to-many obligations; pagination=cohort_page keysets groups before the final aggregate so page boundaries never truncate a cohort or change total_count; scope=tenant plus optional park filter resolved through raw.direct_park_uuid or the shed parent, with status buckets derived from as_of-effective eff_status.
+WITH completions AS (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(asof_status ORDER BY
+      CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,
+      administered_at DESC,
+      created_at DESC))[1] AS effective_status,
+    MAX(administered_at) FILTER (WHERE asof_status = 'accepted') AS last_accepted_at
+  FROM (
+    SELECT
+      obligation_id, administered_at, created_at,
+      CASE
+        WHEN status IN ('accepted', 'rejected') AND verified_at IS NOT NULL AND verified_at > $2::timestamptz THEN 'recorded'
+        ELSE status
+      END AS asof_status
+    FROM vaccination_completions
+    WHERE tenant_id = $1::uuid
+      AND COALESCE(administered_at, created_at) <= $2::timestamptz
+  ) c
+  GROUP BY obligation_id
 ),
-ready AS (
-  SELECT d.dirty_scope_id
-  FROM vaccination_schedule_projection_dirty_scopes d
-  LEFT JOIN locations l
-    ON l.tenant_id = d.tenant_id
-   AND l.location_id = d.scope_id
-   AND l.location_type = 'shed'
-  WHERE d.tenant_id = $1::uuid
-    AND d.year_month = $2::date
-    AND d.status = 'dirty'
-    AND EXISTS (
-      SELECT 1
-      FROM states tenant_state
-      WHERE tenant_state.scope_type = 'tenant'
-        AND tenant_state.scope_id = '00000000-0000-0000-0000-000000000000'::uuid
-        AND tenant_state.as_of >= d.last_dirty_at
-    )
+asof_terminal AS (
+  SELECT
+    obligation_id,
+    (ARRAY_AGG(event_type ORDER BY occurred_at DESC, obligation_event_id DESC)
+       FILTER (WHERE occurred_at <= $2::timestamptz))[1] AS asof_terminal_type,
+    true AS has_terminal_event
+  FROM obligation_status_events
+  WHERE tenant_id = $1::uuid
+    AND event_type IN ('missed', 'waived', 'deferred')
+  GROUP BY obligation_id
+),
+raw AS (
+  SELECT
+    oi.obligation_id,
+    oi.rule_id,
+    oi.due_at,
+    oi.window_start,
+    oi.window_end,
+    oi.completed_at,
+    oi.status AS stored_status,
+    te.asof_terminal_type,
+    te.has_terminal_event,
+    pd.protocol_id,
+    pd.name AS protocol_name,
+    COALESCE(
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'display_name', ''),
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'name', ''),
+      NULLIF(pr.eligibility_json -> 'vaccine' ->> 'code', ''),
+      NULLIF(pr.dose_code, '')
+    ) AS vaccine_name,
+    g.age_band,
+    COALESCE(NULLIF(g.management_stage, ''), 'Unknown') AS stage,
+    oi.target_id AS goat_id,
+    g.shed_id AS shed_uuid,
+    g.park_id AS direct_park_uuid,
+    c.effective_status AS completion_status,
+    c.last_accepted_at
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id
+   AND pr.rule_id = oi.rule_id
+  LEFT JOIN goats g
+    ON oi.target_type = 'goat'
+   AND g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.merged_into_goat_id IS NULL
+  LEFT JOIN completions c
+    ON c.obligation_id = oi.obligation_id
+  LEFT JOIN asof_terminal te
+    ON te.obligation_id = oi.obligation_id
+  WHERE oi.tenant_id = $1::uuid
+    AND oi.target_type = 'goat'
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'completed', 'missed', 'waived')
     AND (
-      d.scope_type = 'tenant'
-      OR (
-        d.scope_type = 'park'
-        AND EXISTS (
-          SELECT 1
-          FROM states park_state
-          WHERE park_state.scope_type = 'park'
-            AND park_state.scope_id = d.scope_id
-            AND park_state.as_of >= d.last_dirty_at
-        )
-      )
-      OR (
-        d.scope_type = 'shed'
-        AND (
-          l.parent_location_id IS NULL
-          OR EXISTS (
-            SELECT 1
-            FROM states park_state
-            WHERE park_state.scope_type = 'park'
-              AND park_state.scope_id = l.parent_location_id
-              AND park_state.as_of >= d.last_dirty_at
-          )
-        )
-      )
+      oi.due_at <= $4::timestamptz
+      OR c.last_accepted_at BETWEEN $3::timestamptz AND $4::timestamptz
     )
+),
+located AS (
+  SELECT
+    raw.*,
+    COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
+    CASE
+      WHEN raw.due_at < $2::timestamptz THEN 'overdue'
+      WHEN COALESCE(raw.window_start, raw.due_at) <= $2::timestamptz THEN 'due'
+      ELSE 'scheduled'
+    END AS open_bucket
+  FROM raw
+  LEFT JOIN locations shed_loc
+    ON shed_loc.tenant_id = $1::uuid
+   AND shed_loc.location_id = raw.shed_uuid
+   AND shed_loc.location_type = 'shed'
+  WHERE raw.shed_uuid IS NOT NULL
+),
+effective AS (
+  SELECT
+    located.*,
+    CASE
+      WHEN located.stored_status = 'completed' THEN
+        CASE
+          WHEN located.completed_at IS NOT NULL AND located.completed_at <= $2::timestamptz THEN 'completed'
+          WHEN located.completed_at IS NULL AND located.completion_status IS NOT NULL THEN 'completed'
+          ELSE located.open_bucket
+        END
+      WHEN located.stored_status IN ('missed', 'waived', 'deferred') THEN
+        CASE
+          WHEN located.asof_terminal_type IS NOT NULL THEN located.asof_terminal_type
+          WHEN located.has_terminal_event THEN located.open_bucket
+          ELSE located.stored_status
+        END
+      WHEN located.stored_status = 'in_progress' THEN 'in_progress'
+      ELSE located.open_bucket
+    END AS eff_status,
+    (located.due_at BETWEEN $3::timestamptz AND $4::timestamptz) AS due_in_window,
+    (located.last_accepted_at BETWEEN $3::timestamptz AND $4::timestamptz) AS accepted_in_window
+  FROM located
+),
+windowed AS (
+  SELECT *
+  FROM effective
+  WHERE park_uuid IS NOT NULL
+    AND (due_in_window OR accepted_in_window)
+    AND ($5::text = '' OR park_uuid = NULLIF($5, '')::uuid)
+),
+cohort_page AS (
+  SELECT windowed.park_uuid, windowed.shed_uuid, windowed.stage
+  FROM windowed
+  JOIN locations shed
+    ON shed.tenant_id = $1::uuid
+   AND shed.location_id = windowed.shed_uuid
+   AND shed.location_type = 'shed'
+   AND shed.status = 'active'
+  JOIN locations park
+    ON park.tenant_id = $1::uuid
+   AND park.location_id = windowed.park_uuid
+   AND park.location_type = 'park'
+   AND park.status = 'active'
+  WHERE (
+    NULLIF($6::text, '') IS NULL
+    OR (park.name, shed.name, windowed.stage, windowed.park_uuid, windowed.shed_uuid) >
+       ($9::text, $10::text, $8::text, NULLIF($6::text, '')::uuid, NULLIF($7::text, '')::uuid)
+  )
+  GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.stage
+  ORDER BY park.name, shed.name, windowed.stage, windowed.park_uuid, windowed.shed_uuid
+  LIMIT $11::int
 )
-UPDATE vaccination_schedule_projection_dirty_scopes d
-SET status = 'rebuilt', rebuilt_at = now(), updated_at = now()
-FROM ready
-WHERE d.dirty_scope_id = ready.dirty_scope_id;`
+SELECT
+  windowed.park_uuid,
+  park.name AS park_name,
+  windowed.shed_uuid,
+  shed.name AS shed_name,
+  windowed.stage,
+  (ARRAY_AGG(windowed.age_band) FILTER (WHERE windowed.age_band IS NOT NULL))[1] AS age_band,
+  windowed.protocol_id,
+  windowed.protocol_name,
+  COUNT(DISTINCT windowed.goat_id)::bigint AS animals,
+  MIN(windowed.due_at) FILTER (WHERE windowed.due_in_window AND windowed.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due,
+  MAX(windowed.last_accepted_at) FILTER (WHERE windowed.accepted_in_window) AS last_dose,
+  COALESCE(
+    ARRAY_REMOVE(
+      ARRAY_AGG(DISTINCT windowed.vaccine_name ORDER BY windowed.vaccine_name)
+        FILTER (WHERE windowed.vaccine_name IS NOT NULL AND windowed.vaccine_name <> ''),
+      NULL
+    ),
+    ARRAY[]::text[]
+  ) AS vaccine_names,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status = 'overdue')::bigint AS overdue_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status = 'due')::bigint AS due_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status = 'in_progress')::bigint AS in_progress_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status = 'scheduled')::bigint AS scheduled_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status = 'missed')::bigint AS missed_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.eff_status IN ('waived', 'deferred'))::bigint AS deferred_count,
+  COUNT(*) FILTER (WHERE windowed.eff_status = 'completed' AND windowed.completion_status = 'accepted' AND (windowed.due_in_window OR windowed.accepted_in_window))::bigint AS accepted_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.completion_status = 'recorded')::bigint AS proof_pending_count,
+  COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.completion_status = 'rejected')::bigint AS rejected_count,
+  COUNT(*)::bigint AS total_count
+FROM windowed
+JOIN cohort_page page
+  ON page.park_uuid = windowed.park_uuid
+ AND page.shed_uuid = windowed.shed_uuid
+ AND page.stage = windowed.stage
+JOIN locations shed
+  ON shed.tenant_id = $1::uuid
+ AND shed.location_id = windowed.shed_uuid
+ AND shed.location_type = 'shed'
+ AND shed.status = 'active'
+JOIN locations park
+  ON park.tenant_id = $1::uuid
+ AND park.location_id = windowed.park_uuid
+ AND park.location_type = 'park'
+ AND park.status = 'active'
+GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.stage, windowed.protocol_id, windowed.protocol_name
+ORDER BY
+  park.name COLLATE "C" ASC, windowed.park_uuid ASC,
+  shed.name COLLATE "C" ASC, windowed.shed_uuid ASC,
+  windowed.stage COLLATE "C" ASC,
+  windowed.protocol_name COLLATE "C" ASC, windowed.protocol_id ASC;`
 
 const zeroUUID = "00000000-0000-0000-0000-000000000000"
 

@@ -17,7 +17,6 @@ type fakeRepo struct {
 	shedRows    []domain.ShedSummaryProjection
 	shedAnimals []domain.ShedAnimalRow
 	capacityCfg domain.CapacityConfig
-	schedule    domain.ScheduleProjectionState
 	err         error
 }
 
@@ -70,22 +69,11 @@ func (r fakeRepo) VaccinationOperations(_ context.Context, _ domain.OperationsQu
 	return r.opsRows, nil
 }
 
-func (r fakeRepo) VaccinationSchedule(_ context.Context, _ domain.ScheduleQuery) ([]domain.OperationsRow, domain.ScheduleProjectionState, error) {
+func (r fakeRepo) VaccinationSchedule(_ context.Context, _ domain.ScheduleQuery) ([]domain.OperationsRow, error) {
 	if r.err != nil {
-		return nil, domain.ScheduleProjectionState{}, r.err
+		return nil, r.err
 	}
-	state := r.schedule
-	if state.ProjectionVersion == 0 {
-		state = domain.ScheduleProjectionState{
-			ProjectionVersion: 1,
-			ProjectedAt:       time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
-			AsOf:              time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
-			FreshnessStatus:   "green",
-			ServingState:      "fresh",
-			RowCount:          len(r.opsRows),
-		}
-	}
-	return r.opsRows, state, nil
+	return r.opsRows, nil
 }
 
 func (r fakeRepo) ListVaccinationExecutionPage(_ context.Context, q domain.ExecutionQuery) (domain.ExecutionProjectionPage, error) {
@@ -290,16 +278,6 @@ func TestVaccinationSchedulePaginatesByCohortAndSurfacesStaleState(t *testing.T)
 	}
 	svc := NewService(fakeRepo{
 		opsRows: rows,
-		schedule: domain.ScheduleProjectionState{
-			ProjectionVersion: 7,
-			ProjectedAt:       time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
-			AsOf:              time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
-			FreshnessStatus:   "yellow",
-			ServingState:      "stale",
-			Stale:             true,
-			RebuildRequired:   true,
-			RowCount:          501,
-		},
 	})
 
 	resp, err := svc.VaccinationSchedule(context.Background(), domain.ScheduleQuery{TenantID: "tenant", Limit: 500})
@@ -319,8 +297,8 @@ func TestVaccinationSchedulePaginatesByCohortAndSurfacesStaleState(t *testing.T)
 	if cursor.ShedID != "70000000-0000-4000-8000-000000000500" {
 		t.Fatalf("cursor shed = %s want 500th shed", cursor.ShedID)
 	}
-	if resp.Freshness == nil || resp.Freshness.Status != "yellow" || !resp.Freshness.Stale || !resp.Freshness.RebuildRequired || resp.Freshness.ServingState != "stale" || resp.Freshness.RowCount != 501 {
-		t.Fatalf("freshness = %#v want stale/rebuild row_count=501", resp.Freshness)
+	if resp.Freshness != nil {
+		t.Fatalf("canonical schedule freshness = %#v, want nil projection envelope", resp.Freshness)
 	}
 }
 

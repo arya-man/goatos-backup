@@ -222,16 +222,16 @@ read-model note below):
    queries. (Projection-level "days overdue" derived for display is fine; the
    canonical status transition must be persisted.)
 7. **Dashboards/reports sliced by dimension without the projection rule —
-   except the five ADR-exempted canonical screen reads.** Slicing by
+   except the six ADR-exempted canonical screen reads.** Slicing by
    month/date/breed/farm/shed/load/status/etc. must follow
    `docs/decisions/high-scale-dashboard-projections.md` — durable projections,
-   not raw scans — for every path EXCEPT the five screens the 5k-50k ADR moves
+   not raw scans — for every path EXCEPT the six screens the 5k-50k ADR moves
    to canonical reads. Under `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`
-   the active runtime keeps **0 of the five named screen projections**
+   the active runtime keeps **0 of the six named screen projections**
    (`calendar_event_projections`, `process_integrity_projection_rows`,
    `vaccination_shed_projection_rows`, `vaccination_execution_projection_rows`,
-   `vaccination_operations_projection_rows`): those screens read canonical
-   indexed SQL — a keyset-paginated ~20-row **list read**, plus an indexed
+   `vaccination_operations_projection_rows`, and `vaccination_schedule_projection_*`):
+   those screens read canonical indexed SQL — a keyset-paginated ~20-row **list read**, plus an indexed
    **summary aggregate** for rollups/counts. These reads are explicitly exempted
    from the compute-on-read ban (see the read-model note below); the ban still
    holds for every other path. `vaccination_eligibility_rollups` and the counts
@@ -344,13 +344,14 @@ are distinct and must not be conflated under the word "bounded":
   the first extraction candidate, and they MUST be plan-tested against the
   ~500k upper-bound row count, not only the 5k list case.
 
-Only these five named screen reads default to canonical SQL and are exempted
+Only these six named screen reads default to canonical SQL and are exempted
 from the seven scale anti-patterns above: `calendar_event_projections`,
 `process_integrity_projection_rows`, `vaccination_shed_projection_rows`,
 `vaccination_execution_projection_rows`, and
-`vaccination_operations_projection_rows` (0 projectors/tables in the active
-runtime). `vaccination_eligibility_rollups` and the counts summaries remain
-durable read models. **compute-on-read stays banned everywhere else.**
+`vaccination_operations_projection_rows`, plus Full Schedule
+`vaccination_schedule_projection_*` (0 projectors/tables in the active runtime).
+`vaccination_eligibility_rollups` and the counts summaries remain durable read
+models. **compute-on-read stays banned everywhere else.**
 
 The exemption is machine-scoped, never blanket. `make scale-guard` (the CI
 `guardrails` job) still blocks the compute-on-read/god-CTE shape mechanically;
@@ -368,7 +369,7 @@ for any change touching one of these five reads:
       exempted read that is not plan-tested is a defect
 - [ ] The guard remains fully active for every other path in
       `backend/internal/**`; no global disable, no widening the exemption beyond
-      the five named screens
+      the six named screens
 - [ ] A screen that later earns its own projection drops the annotation and
       returns under full guard enforcement (see the scale-out ladder in the ADR)
 

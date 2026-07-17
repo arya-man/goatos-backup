@@ -286,27 +286,16 @@ immediately after staging seed, verify the event/projection chain:
   ack messages.
 - Trigger or wait for the required staging jobs:
   - obligation sweeper
-  - calendar vaccination projector
   - counts projection recompute
   - vaccination eligibility rollup recompute
-  - process-integrity projection/update jobs
-  - vaccination shed projection recompute
-  - vaccination execution projection recompute
-  - vaccination operations projection recompute
   - outbox publisher if it is a separate service/job
-- A seed is incomplete if any live vaccination API returns
-  `projection_unavailable`. After the source seed, these endpoints must return
-  `200` from the target tenant without falling back to canonical table replay:
+- A seed is incomplete if any live vaccination API fails to return canonical
+  data. After the source seed, these endpoints must return `200` from the
+  target tenant without any projector warmup:
   - `GET /vaccination/sheds`
   - `GET /vaccination/execution`
   - `GET /vaccination/operations`
-- Projection state must be fresh and non-empty for the seeded tenant:
-  `vaccination_shed_projection_state`,
-  `vaccination_execution_projection_state`,
-  `vaccination_operations_projection_state`, and
-  `process_integrity_projection_state` must have a serving projection version,
-  `serving_state IN ('fresh','stale','rebuilding')`, no unexplained
-  `last_error`, and `projected_at/as_of` after the final source seed write.
+  - `GET /vaccination/schedule`
 - Verify DLQ/dead-letter counts are zero or explicitly explained.
 - Verify Action Center, Calendar, Protocol Adherence, Workflows, and the
   shed-wise vaccination page match the seeded DB counts.
@@ -391,11 +380,10 @@ To make the red items green:
 5. Drain or explain outbox rows. Before staging demo, failed rows must be zero
    and pending rows must either be zero or an intentional currently-running async
    queue with documented consumers.
-6. Recompute Calendar/Action Center/process-integrity and vaccination
-   shed/execution/operations projections from the seeded obligations. Verify
-   sidebar badges, `/vaccination`, `/vaccination/execution`, and
-   `/vaccination/operations` all return backend rows instead of
-   `projection_unavailable`.
+6. Run the obligation sweeper and verify Calendar, Action Center,
+   process-integrity, `/vaccination`, `/vaccination/execution`,
+   `/vaccination/operations`, and `/vaccination/schedule` all return canonical
+   backend rows. Do not wait for or recreate retired vaccination projections.
 7. Seed HRMS vaccination ownership before vaccination demo from the reviewed
    roster mapping, attendance/leave, and timetable source files; create/resolve
    Preventive Care Manager and Backup Manager workforce members, then run

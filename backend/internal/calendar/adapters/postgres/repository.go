@@ -77,10 +77,14 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	}
 	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
 	// Canonical is the only path now: no freshness gate, no read-through fallback branch.
-	items, err := r.listEventsCanonical(ctx, q.TenantID, q.DateFrom, requestedToExclusive,
-		ownerKey, status, parkID, shedID, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs)
-	if err != nil {
-		return domain.CalendarEventListResponse{}, err
+	items := []domain.CalendarEvent{}
+	if !q.MarkersOnly {
+		var err error
+		items, err = r.listEventsCanonical(ctx, q.TenantID, q.DateFrom, requestedToExclusive,
+			ownerKey, status, parkID, shedID, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs)
+		if err != nil {
+			return domain.CalendarEventListResponse{}, err
+		}
 	}
 	dateMarkers := []domain.CalendarDateMarker{}
 	if q.IncludeDateMarkers {
@@ -125,7 +129,7 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 		reminderRail = &rail
 	}
 	var next *string
-	if len(items) > limit {
+	if !q.MarkersOnly && len(items) > limit {
 		items = items[:limit]
 		last := items[len(items)-1]
 		cursor, err := domain.EncodeCalendarCursor(domain.CalendarCursor{DueAt: last.DueAt, EventID: last.EventID})

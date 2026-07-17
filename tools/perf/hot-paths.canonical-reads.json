@@ -6,26 +6,27 @@
       "action_center_counts",
       "protocol_adherence",
       "calendar_vaccination",
+      "vaccination_schedule",
       "vaccination_shed_summary",
       "vaccination_execution",
       "vaccination_operations"
     ],
     "evidence_boundaries": {
-      "million_scale_projection_backed": [
+      "canonical_5k_50k_serving_reads": [
         "control_tower",
         "action_center",
         "action_center_counts",
         "protocol_adherence",
         "calendar_vaccination",
+        "vaccination_schedule",
         "vaccination_shed_summary"
       ],
-      "canonical_1300_projection_backed": [
+      "local_nonempty_latency_only": [
         "vaccination_execution",
         "vaccination_operations"
       ]
     },
     "excluded": {
-      "projection_build_throughput": "Disposable fixture loading and projection rebuild throughput are excluded; the probe certifies serving reads only.",
       "async_architecture": "Pub/Sub delivery, DLQ recovery, idempotency concurrency, and consumer backpressure require separate architecture/load gates."
     }
   },
@@ -73,12 +74,22 @@
     {
       "name": "calendar_vaccination",
       "method": "GET",
-      "path": "/calendar/vaccination/events?limit=50",
+      "path": "/calendar/vaccination/events?date_from={today}&date_to={today_plus_7}&limit=50",
       "p90_ms": 300,
       "p95_ms": 500,
       "p99_ms": 1000,
       "max_response_bytes": 524288,
       "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "vaccination_schedule",
+      "method": "GET",
+      "path": "/vaccination/schedule?limit=50",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "cohorts", "min": 1 }
     },
     {
       "name": "vaccination_shed_summary",

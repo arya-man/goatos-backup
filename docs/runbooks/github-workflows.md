@@ -925,7 +925,7 @@ publish              downloads all report artifacts, assembles _site/ with a
 
 The scale-audit-e2e-report job generates an HTML report that binds the
 scale-audit findings (local/backend E2E proof) to the results of the latency
-gates (api-latency-gate and process-integrity-latency-check) for the same
+gates (api-latency-gate plus canonical request-path evidence) for the same
 commit SHA.
 
 **Certification states:**

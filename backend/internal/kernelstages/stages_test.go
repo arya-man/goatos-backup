@@ -12,7 +12,6 @@ var (
 	_ worker.StageRunner = (*OutboxRelayStage)(nil)
 	_ worker.StageRunner = (*DomainConsumerStage)(nil)
 	_ worker.StageRunner = (*VaccinationGenerationStage)(nil)
-	_ worker.StageRunner = (*VaccinationScheduleProjectionStage)(nil)
 	_ worker.StageRunner = (*ObligationSweeperStage)(nil)
 	_ worker.StageRunner = (*NotificationDispatcherStage)(nil)
 	_ worker.StageRunner = (*InventoryBatchReconcilerStage)(nil)
@@ -33,7 +32,6 @@ func TestStageNamesAreStableAndUnique(t *testing.T) {
 		(&ObligationSweeperStage{}).Name(),
 		(&OutboxRelayStage{}).Name(),
 		(&NotificationDispatcherStage{}).Name(),
-		(&VaccinationScheduleProjectionStage{}).Name(),
 		(&VaccinationGenerationStage{}).Name(),
 		(&SopReviewFanoutRetryStage{}).Name(),
 		(&DomainConsumerStage{}).Name(),

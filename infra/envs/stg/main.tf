@@ -34,10 +34,6 @@ locals {
       account_id   = "goatos-migrate-stg"
       display_name = "Goat OS staging migration job runtime"
     }
-    vaccination_schedule_projector = {
-      account_id   = "goatos-vacc-sched-proj-stg"
-      display_name = "Goat OS staging vaccination schedule projector runtime"
-    }
     legacy_sync = {
       account_id   = "goatos-legacy-sync-stg"
       display_name = "Goat OS staging legacy sync runtime"
@@ -51,7 +47,6 @@ locals {
     "kernel_worker",
     "outbox_dlq",
     "migrate",
-    "vaccination_schedule_projector",
     "legacy_sync",
   ])
 
@@ -63,7 +58,6 @@ locals {
         "kernel_worker",
         "outbox_dlq",
         "migrate",
-        "vaccination_schedule_projector",
         "legacy_sync",
       ]
     }

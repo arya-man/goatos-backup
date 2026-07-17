@@ -202,7 +202,6 @@ if [ "$run_live" = "1" ]; then
   run_step "live vaccination chain proof" "DATABASE_URL='$local_database_url' bash tools/dev/vaccination-chain-proof.sh"
   run_step "live procurement vaccination matrix" "GOATOS_E2E_RUN_ID='$run_id' DATABASE_URL='$local_database_url' bash tools/dev/procurement-vaccination-e2e-matrix.sh"
   if [ "$run_perf" = "1" ]; then
-    run_step "live process-integrity DB latency gate" "cd backend && DATABASE_URL='$local_database_url' GOATOS_TENANT_ID='$tenant_id' go run ./cmd/process-integrity-latency-check"
     run_step "live API latency gate" "export GOATOS_ENV=local GOATOS_AUTH_MODE=bearer GOATOS_AUTH_ISSUER=goatos-local GOATOS_AUTH_AUDIENCE=goatos-api GOATOS_AUTH_HS256_SECRET='$auth_secret' GOATOS_AUTH_MAX_TOKEN_TTL=24h GOATOS_TENANT_ID='$tenant_id' GOATOS_LOCAL_USER_ID='$local_user_id' GOATOS_API_BASE_URL='$api_base_url' DATABASE_URL='$local_database_url'; export GOATOS_BEARER_TOKEN=\"\$(cd backend && go run ./cmd/mint-dev-token -tenant-id '$tenant_id' -user-id '$local_user_id' -ttl 2h 2>/dev/null)\"; node tools/perf/api-latency-gate.mjs --manifest tools/perf/hot-paths.vaccination.json --output '$report_dir/api-latency-gate.json'"
   fi
   if [ "$run_browser" = "1" ]; then
@@ -213,9 +212,9 @@ if [ "$run_live" = "1" ]; then
 fi
 
 if [ "$run_static" != "1" ]; then
-  not_run "broad read/list query plan is index-backed or projection-backed" "static plan guard was disabled"
+  not_run "broad read/list query plan is canonical-index-backed" "static plan guard was disabled"
 else
-  passed_if "broad read/list query plan is index-backed or projection-backed" "make validate-sqlc-plans and validate-hot-index-migrations logs in $report_dir" "static guards: hot-index migrations" "static guards: sqlc hot plans"
+  passed_if "broad read/list query plan is canonical-index-backed" "make validate-sqlc-plans and validate-hot-index-migrations logs in $report_dir" "static guards: hot-index migrations" "static guards: sqlc hot plans"
 fi
 
 if [ "$run_tests" = "1" ]; then
@@ -244,9 +243,8 @@ if [ "$run_live" = "1" ]; then
   passed_if "sweeper creates batch/drive/task" "live vaccination-chain-proof.log" "live vaccination chain proof"
   passed_if "read model refresh and API surfaces reflect process state" "live vaccination-chain-proof.log" "live vaccination chain proof"
   if [ "$run_perf" = "1" ]; then
-    passed_if "process-integrity DB hot-path p95 thresholds" "process-integrity-latency-check JSON in live-process-integrity-db-latency-gate.log" "live process-integrity DB latency gate"
     passed_if "API hot-path p95/p99 thresholds" "api-latency-gate JSON at $report_dir/api-latency-gate.json" "live API latency gate"
-    passed_if "vaccinationexecution live CTE hot reads have explicit p95/p99 evidence" "api-latency-gate manifest includes /vaccination/execution, /vaccination/operations, and /vaccination/sheds" "live API latency gate"
+    passed_if "vaccination canonical hot reads have explicit p95/p99 evidence" "api-latency-gate manifest includes /vaccination/schedule, /vaccination/execution, /vaccination/operations, and /vaccination/sheds" "live API latency gate"
   else
     not_run "hot-path latency gates" "GOATOS_KERNEL_E2E_RUN_PERF=0"
   fi

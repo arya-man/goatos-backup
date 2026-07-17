@@ -23,12 +23,7 @@ docker build -f apps/admin-web/Dockerfile -t goatos-admin-web:local .
 /app/bin/domain-event-processed-sweeper
 /app/bin/generate-vaccination-obligations
 /app/bin/vaccination-eligibility-rollup-recompute
-/app/bin/process-integrity-projection-recompute
-/app/bin/vaccination-shed-projection-recompute
-/app/bin/vaccination-execution-projection-recompute
-/app/bin/vaccination-operations-projection-recompute
 /app/bin/obligation-sweeper
-/app/bin/calendar-vaccination-projector
 /app/bin/calendar-reminder-sweeper
 /app/bin/calendar-escalation-sweeper
 /app/bin/notification-dispatcher
@@ -89,35 +84,11 @@ changed → outbox/Pub-Sub → incremental projector) is documented in the comma
 header and migration `000156`; until it lands, run the recompute after bulk
 changes.
 
-The vaccination dashboard and command surfaces are projection-backed. After any
-bulk seed/import/backfill, rebuild the matching read models before UI or API
-verification. These commands are packaged in the same backend runtime image:
-
-```bash
-docker run --rm \
-  -e DATABASE_URL="${DATABASE_URL}" \
-  -e GOATOS_TENANT_ID="${GOATOS_TENANT_ID}" \
-  --entrypoint /app/bin/process-integrity-projection-recompute \
-  goatos-backend:local -tenant-id "${GOATOS_TENANT_ID}"
-
-docker run --rm \
-  -e DATABASE_URL="${DATABASE_URL}" \
-  -e GOATOS_TENANT_ID="${GOATOS_TENANT_ID}" \
-  --entrypoint /app/bin/vaccination-shed-projection-recompute \
-  goatos-backend:local -tenant-id "${GOATOS_TENANT_ID}"
-
-docker run --rm \
-  -e DATABASE_URL="${DATABASE_URL}" \
-  -e GOATOS_TENANT_ID="${GOATOS_TENANT_ID}" \
-  --entrypoint /app/bin/vaccination-execution-projection-recompute \
-  goatos-backend:local -tenant-id "${GOATOS_TENANT_ID}"
-
-docker run --rm \
-  -e DATABASE_URL="${DATABASE_URL}" \
-  -e GOATOS_TENANT_ID="${GOATOS_TENANT_ID}" \
-  --entrypoint /app/bin/vaccination-operations-projection-recompute \
-  goatos-backend:local -tenant-id "${GOATOS_TENANT_ID}"
-```
+The vaccination dashboard, Calendar, execution, operations, shed board, and
+Full Schedule surfaces now serve from canonical indexed tables. After any bulk
+seed/import/backfill, run migration + seed closeout + obligation sweeper, then
+verify those APIs directly. Do not warm or repopulate deleted dashboard
+projection tables.
 
 For shared dev/staging Cloud SQL, also set the environment-specific target guard
 variables (`GOATOS_ENV`, `GOATOS_ALLOW_DEV_CLOUDSQL_TARGET` /

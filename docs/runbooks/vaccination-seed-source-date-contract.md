@@ -299,15 +299,9 @@ The current reviewed bundle must include:
    that through `tools/dev/seed-closeout.sh --dry-run` output; otherwise a seed
    can log that the command ran while leaving that summary empty.
 
-   Where a pre-cutover checkout still contains the retired screen projectors
-   (`process-integrity-projection-recompute`,
-   `vaccination-shed-projection-recompute`,
-   `vaccination-execution-projection-recompute`,
-   `vaccination-operations-projection-recompute`, and the
-   `calendar-vaccination-projector` upcoming/history passes), they may still be
-   run for that checkout, but they are no longer the seed-green criterion for
-   those screens; the canonical-read APIs in step 11 are. After the cutover in
-   the ADR they are removed from `seed-closeout` entirely.
+   The retired screen projector commands are not a seed-green criterion and
+   must not be run to make dashboard pages look healthy. The canonical-read
+   APIs in step 11 are the proof.
 11. Verify Action Center buckets, shed status, execution rows, operations rows,
    next due dates, and capacity session splits through backend APIs using
    server-owned live time. Seed-green for these screens is the canonical-read

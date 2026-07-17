@@ -158,19 +158,10 @@ Known seed commands and staging readiness:
 - `backend/cmd/vaccination-eligibility-rollup-recompute`
   - Must run after goat/vaccination seed.
   - Populates `vaccination_eligibility_rollups` for cheap config preview.
-- `backend/cmd/process-integrity-projection-recompute`
-  - Must run after goat/vaccination seed and after sweeper changes.
-  - Populates Action Center, Control Tower, Protocol Adherence, Workflow, and
-    grouped sidebar-count read models.
-- `backend/cmd/vaccination-shed-projection-recompute`
-  - Must run after goat/vaccination seed and after sweeper changes.
-  - Populates the shed-wise `/vaccination` read model.
-- `backend/cmd/vaccination-execution-projection-recompute`
-  - Must run after goat/vaccination seed and after sweeper changes.
-  - Populates `/vaccination/execution`.
-- `backend/cmd/vaccination-operations-projection-recompute`
-  - Must run after goat/vaccination seed and after sweeper changes.
-  - Populates `/vaccination/operations`.
+- Process Integrity, Calendar, `/vaccination`, `/vaccination/execution`,
+  `/vaccination/operations`, and `/vaccination/schedule` now serve from
+  canonical indexed tables. Do not run or recreate retired projection
+  recompute commands for those vaccination surfaces after seed/sweeper changes.
 
 ## Problem Statements Captured
 
@@ -276,14 +267,10 @@ Strict rule:
       explicit config/review gaps; none are silently dropped because a rule was
       missing at seed time.
     - `vaccination_eligibility_rollups` has rows.
-    - `vaccination_shed_projection_state`,
-      `vaccination_execution_projection_state`,
-      `vaccination_operations_projection_state`, and
-      `process_integrity_projection_state` have a serving version built after
-      the final seed write.
-    - `GET /vaccination/sheds`, `GET /vaccination/execution`, and
-      `GET /vaccination/operations` return `200`, not
-      `projection_unavailable`.
+    - `GET /vaccination/sheds`, `GET /vaccination/execution`,
+      `GET /vaccination/operations`, and `GET /vaccination/schedule` return
+      `200` directly from canonical indexed tables. A failure here is a
+      seed/query/API bug, not a projector-warmup step.
     - capacity config/rule uses buffer 7.
 15. Stop the Cloud SQL proxy when finished.
 

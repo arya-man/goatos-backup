@@ -253,28 +253,6 @@ func TestVaccinationScheduleParsesMonthWindow(t *testing.T) {
 	}
 }
 
-func TestVaccinationScheduleProjectionUnavailableReturns503(t *testing.T) {
-	reader := &fakeReader{scheduleErr: domain.ErrScheduleProjectionUnavailable}
-	mux := http.NewServeMux()
-	Register(mux, NewHandler(reader, &fakeWriter{}))
-
-	req := httptest.NewRequest(http.MethodGet, "/vaccination/schedule?year=2026&month=8", nil)
-	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"))
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d want 503 body=%s", rec.Code, rec.Body.String())
-	}
-	var body errorEnvelope
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body.Code != "projection_unavailable" {
-		t.Fatalf("code = %q want projection_unavailable", body.Code)
-	}
-}
-
 func TestListVaccinationExecutionRejectsInvalidQuery(t *testing.T) {
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(&fakeReader{}, &fakeWriter{}))
@@ -574,7 +552,7 @@ func TestExecutionParsesAsOf(t *testing.T) {
 	}
 
 	// A prior-day as_of is a historical point-in-time request: an honest 400, never a misleading
-	// projection_unavailable 503. 06:00Z on 2026-07-10 is 11:30 IST the prior business day.
+	// current-view response. 06:00Z on 2026-07-10 is 11:30 IST the prior business day.
 	assertHistoricalAsOfRejected(t, mux, "/vaccination/execution?as_of=2026-07-10T06:00:00Z")
 	// VE-001 guard: an EARLIER-SAME-DAY instant is also historical (06:00Z = 11:30 IST, before
 	// serverNow 18:15 IST) and must not slip through to return a misleading current snapshot.
@@ -589,8 +567,7 @@ func TestExecutionParsesAsOf(t *testing.T) {
 }
 
 // assertHistoricalAsOfRejected asserts a past as_of on a vaccination-execution read is a 400
-// historical_as_of_unsupported (current-view-only contract), not a 200 misleading current snapshot
-// and not a projection_unavailable 503.
+// historical_as_of_unsupported (current-view-only contract), not a 200 misleading current snapshot.
 func assertHistoricalAsOfRejected(t *testing.T, mux http.Handler, target string) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, target, nil)

@@ -170,15 +170,6 @@ func run(ctx context.Context, args []string) error {
 			kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),
 		)
 
-		// Schedule projection (every 5 minutes, isolated): refresh materialized
-		// Full Schedule windows marked dirty by writes/imports. Cold deploy horizon
-		// creation is still owned by the deploy-time Cloud Run Job; this stage keeps
-		// the read model current between deploys without serving request-path rebuilds.
-		supervisor.RegisterCadenceWithTimeout("vaccination-schedule-projection", 5*time.Minute,
-			durationEnv("GOATOS_VACCINATION_SCHEDULE_PROJECTION_TIMEOUT", 180*time.Second),
-			kernelstages.NewVaccinationScheduleProjectionStage(deps, tenantID),
-		)
-
 		// Generation (hourly): idempotently generate/recheck effective vaccination
 		// obligations. Event-triggered generation still runs via the domain consumer.
 		supervisor.RegisterCadence("generation", 1*time.Hour,
