@@ -233,7 +233,7 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 		// real. Without this, a later plan's tie aborted the loop below while earlier plans' batches/
 		// SOP tasks/stock reservations were already committed -- a silent, arbitrary partial commit.
 		// See obligationapp.PreflightVisitShotCapTies.
-		snapshot, err := s.sweeper.PreflightVisitShotCapTiesWithSnapshot(ctx, cfg.TenantID, plans, dueBefore, createdAtHWM)
+		snapshot, err := s.sweeper.PreflightVisitShotCapTiesWithSnapshotAsOf(ctx, cfg.TenantID, plans, now, dueBefore, createdAtHWM)
 		if err != nil {
 			return fmt.Errorf("preflight shot-cap ties: %w", err)
 		}
@@ -245,7 +245,7 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 		// (sop_task_id IS NULL AND NOT context ? 'stock_reservation'). The HWM variant (RV-05) bounds
 		// every real-sweep read to the successful preflight's exact candidate membership.
 		for _, plan := range plans {
-			result, err := s.sweeper.SweepVersionWithSessionNoFinalizeSnapshot(ctx, cfg.TenantID, plan.VersionID, plan.Config, dueBefore, session, createdAtHWM, snapshot)
+			result, err := s.sweeper.SweepVersionWithSessionNoFinalizeSnapshotAsOf(ctx, cfg.TenantID, plan.VersionID, plan.Config, now, dueBefore, session, createdAtHWM, snapshot)
 			if err != nil {
 				return fmt.Errorf("sweep version %s: %w", plan.VersionID, err)
 			}
@@ -265,7 +265,7 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 		// batch's FINAL (aligned) planned_date.
 		if len(plans) > 0 {
 			alignWindowDays, maxShotsPerAnimalPerDrive := obligationapp.ComboAlignmentSettingsForPlans(plans)
-			if _, err := s.sweeper.AlignComboDrives(ctx, cfg.TenantID, alignWindowDays, dueBefore, maxShotsPerAnimalPerDrive, session); err != nil {
+			if _, err := s.sweeper.AlignComboDrivesAsOf(ctx, cfg.TenantID, alignWindowDays, now, dueBefore, maxShotsPerAnimalPerDrive, session); err != nil {
 				return fmt.Errorf("align combo drives: %w", err)
 			}
 			for _, plan := range plans {

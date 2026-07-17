@@ -636,30 +636,41 @@ stay available to detail and audit surfaces.
    on July 4 and July 5 can join a July 10 compatible drive; if the nearest
    compatible drive is July 12, they are grouped into a smaller drive inside
    their 7-day buffer instead of waiting.
-8. Enforce per-animal shot cap. Default policy is
+8. Keep sweep day and eligibility horizon separate. `asOf` is the operational
+   business day used for hold-cap, backdating, planned-date, and combo-alignment
+   decisions. `dueBefore` is only the cutoff for which unbatched obligations are
+   loaded. A sweep run on Aug 20 with `dueBefore=Aug31` must still plan the
+   Aug19/Aug20 clubbed drive on Aug 20, not Aug31 and not the earliest animal
+   due date.
+9. Batched read models are drive-date-first. Calendar, Vaccination Execution,
+   Process Integrity, Action Center, Protocol Adherence, and Control Tower style
+   rows must render, sort, and classify batched drive work from
+   `obligation_batches.planned_date`; animal `due_at` remains per-animal
+   obligation truth and is only the fallback for unbatched work.
+10. Enforce per-animal shot cap. Default policy is
    `max_shots_per_animal_per_drive = 2`. Same-day compatible vaccine candidates
    are not unlimited. If more than 2 vaccines are due for an animal, choose the
    highest-priority compatible pair and schedule the rest by the governed gaps:
    live→live 4 weeks, live→killed 2 weeks, killed→killed 2 weeks, kid booster
    3 weeks, plus any row-specific `min_gap_days`.
-9. Score safe candidates deterministically. Hard constraints are not scores.
+11. Score safe candidates deterministically. Hard constraints are not scores.
    Scored factors are urgency/earliest deadline, animals covered, disease
    priority, stock expiry, worker/route efficiency, cold-chain route duration,
    and fairness to small sheds that have already waited.
-10. Pick the best candidate with stable tie-breakers:
+12. Pick the best candidate with stable tie-breakers:
    earliest deadline, higher medical priority, more animals covered, expiring
    stock, lower route cost, then oldest waiting shed bucket.
-11. Assign resources under transaction/lease control: create or update
+13. Assign resources under transaction/lease control: create or update
    `obligation_batches`, attach obligations, reserve stock where vaccination
    policy requires it, create the SOP task, and store worker/verifier/proof
    requirements. Concurrent planners must use idempotency keys and row locks so
    two workers cannot claim the same obligations.
-12. Execute and reconcile by scan. Missing animals stay open/missed/follow-up;
+14. Execute and reconcile by scan. Missing animals stay open/missed/follow-up;
    shifted-in eligible animals become explicit extras; shifted-out animals move to
    the destination bucket; newly sick/pregnant/quarantined animals defer or block;
    deaths/sales cancel; unreadable tags create identity exceptions; proof
    rejection and cold-chain failure create rework.
-13. Replan incrementally. Events such as `animal.exited`,
+15. Replan incrementally. Events such as `animal.exited`,
     `animal.location.changed`, `animal.health.changed`, future/proven
     `animal.reproductive_status.changed`, `proof.rejected`, `stock.shortfall`, or
     `cold_chain.failed` invalidate only the affected animal, bucket, vaccine

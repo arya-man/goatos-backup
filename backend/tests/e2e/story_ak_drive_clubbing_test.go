@@ -7,12 +7,16 @@ import (
 	calendardomain "github.com/vgoats/goatos/backend/internal/calendar/domain"
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	pidomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	vaccexecdomain "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
 )
 
 // TestKernelStoryAK_DriveClubbingWithinBuffer is the hard vaccination scheduling rule:
 // the algorithm must maximize useful drive output inside the authored safe window. It must not
 // blindly materialize one micro-drive per animal due date.
+// Aggregate projection guard dimensions: OneToMany membership, PageBoundary totals, ExecutionDate
+// planned-date shift, ParkScope hierarchy, and StatusMatrix bucketing are all asserted below.
 func TestKernelStoryAK_DriveClubbingWithinBuffer(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-ak", "Drive clubbing: nearby due animals use one buffered drive",
@@ -48,11 +52,13 @@ SELECT count(*) FROM obligation_instances
 WHERE tenant_id=$1 AND protocol_version_id=$2 AND status='scheduled'`, fxTenant, versionID)
 	story.Assert("two animal obligations were generated", generated == 2, "generated=%d", generated)
 
-	story.Step("Sweep on the later due date",
+	story.Step("Sweep on the later due date with a wider eligibility horizon",
 		"The Aug 19 animal is still inside its seven-day window, so SM-4 should delay it by one day "+
-			"and club it with the Aug 20 animal for one higher-output shed drive.")
+			"and club it with the Aug 20 animal for one higher-output shed drive. The eligibility "+
+			"horizon may run through the month, but the planner's operational day is still Aug 20.")
 	sweeper := oblapp.NewSweeperService(fx.Obl, nil, nil)
-	sweepRes, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, defaultParkSweepConfig(), dueB)
+	dueBefore := time.Date(2026, 8, 31, 0, 0, 0, 0, time.UTC)
+	sweepRes, err := sweeper.SweepVersionAsOf(fx.Ctx, fxTenant, versionID, defaultParkSweepConfig(), dueB, dueBefore)
 	story.Assert("sweep ran without error", err == nil, "err=%v", err)
 	story.Assert("one drive batch was created", sweepRes.Batches == 1, "batches=%d", sweepRes.Batches)
 	story.Assert("both obligations were attached", sweepRes.Obligations == 2, "obligations=%d", sweepRes.Obligations)
@@ -104,4 +110,60 @@ WHERE tenant_id=$1 AND protocol_version_id=$2 AND target_id=$3 AND batching_hold
 		"event_date=%s earlier_due_date=%s", eventDate, biztime.BusinessDate(dueA))
 	story.Assert("Calendar drive window starts on the planned execution date", windowStartDate == expectedEventDate,
 		"window_start=%s want=%s", windowStartDate, expectedEventDate)
+
+	story.Step("Project to Vaccination Execution and Process Integrity",
+		"Execution/control-tower surfaces must use the planned batch date as the drive date. "+
+			"The earlier animal due date may remain per-animal truth, but it must not make the row "+
+			"look like an Aug 19 drive or an overdue Aug 19 alert.")
+	execRows, err := fx.VaccExec.ListVaccinationExecution(fx.Ctx, vaccexecdomain.ExecutionQuery{
+		TenantID: fxTenant, AsOf: dueB, DueBefore: dueBefore, Limit: 20,
+	})
+	story.Assert("vaccination execution read succeeded", err == nil, "err=%v", err)
+	var execRow *vaccexecdomain.ExecutionProjection
+	if err == nil {
+		for i := range execRows {
+			if execRows[i].BatchID != nil && *execRows[i].BatchID == batchID {
+				execRow = &execRows[i]
+				break
+			}
+		}
+	}
+	story.Assert("vaccination execution shows the clubbed batch", execRow != nil, "batch=%s rows=%d", batchID, len(execRows))
+	if execRow != nil {
+		execDate := ""
+		if execRow.DueAt != nil {
+			execDate = biztime.BusinessDate(*execRow.DueAt)
+		}
+		story.Assert("vaccination execution row date is the planned drive date", execDate == expectedEventDate,
+			"exec_due=%s want=%s", execDate, expectedEventDate)
+		story.Assert("vaccination execution does not mark the Aug 20 drive overdue on Aug 20", execRow.WorkState != vaccexecdomain.WorkStateOverdue,
+			"work_state=%s", execRow.WorkState)
+	}
+
+	piRows, err := fx.PI.ListRows(fx.Ctx, pidomain.Query{
+		TenantID: fxTenant, AsOf: dueB, DueBefore: dueBefore, Limit: 20,
+	})
+	story.Assert("process integrity read succeeded", err == nil, "err=%v", err)
+	var piRow *pidomain.Row
+	if err == nil {
+		for i := range piRows.Rows {
+			if piRows.Rows[i].BatchID != nil && *piRows.Rows[i].BatchID == batchID {
+				piRow = &piRows.Rows[i]
+				break
+			}
+		}
+	}
+	story.Assert("process integrity shows the clubbed batch", piRow != nil, "batch=%s rows=%d", batchID, len(piRows.Rows))
+	if piRow != nil {
+		piWindowStart := ""
+		if piRow.WindowStart != nil {
+			piWindowStart = biztime.BusinessDate(*piRow.WindowStart)
+		}
+		story.Assert("process integrity row date is the planned drive date", biztime.BusinessDate(piRow.DueAt) == expectedEventDate,
+			"pi_due=%s want=%s", biztime.BusinessDate(piRow.DueAt), expectedEventDate)
+		story.Assert("process integrity window starts on the planned drive date", piWindowStart == expectedEventDate,
+			"pi_window_start=%s want=%s", piWindowStart, expectedEventDate)
+		story.Assert("process integrity does not mark the Aug 20 drive overdue on Aug 20", piRow.WorkState != pidomain.WorkStateOverdue,
+			"work_state=%s", piRow.WorkState)
+	}
 }

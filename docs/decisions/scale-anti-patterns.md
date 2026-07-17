@@ -219,7 +219,11 @@ Required behavior: maximize compatible animals per shed/park visit inside the
 selected animals' safe windows. Default policy allows one batching hold of up to
 seven days (`max_batching_hold_days=7`, `max_batching_hold_count=1`). Micro-drives
 are valid only when no compatible work can be clubbed before the earliest
-selected animal's last safe date. CI guard:
+selected animal's last safe date. Backfills and proof sweeps must not reuse the
+eligibility horizon as "today": keep `asOf` for planner date math and
+`dueBefore` for loading candidates. Batched read models must use batch
+`planned_date` as the drive date; using the earliest member animal `due_at` for
+execution/control-tower rows is the same micro-drive leak in projection form. CI guard:
 `make vaccination-drive-clubbing-guard`.
 
 ## Projection rebuild anti-patterns

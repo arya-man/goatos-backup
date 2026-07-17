@@ -88,7 +88,11 @@ Rule shapes a reviewer checks (illustrative values — verify against source):
   animals' medical windows and the one-time hold budget. The planner's job is to
   maximize safe output per shed/park visit; a 1-2 animal micro-drive is valid
   only when no compatible unbatched work is reachable before the earliest
-  selected animal's last safe date. Required guard:
+  selected animal's last safe date. Review wide-window sweeps for an explicit
+  `asOf` vs `dueBefore` split: `asOf` is the planner's "today", and `dueBefore`
+  is only the load cutoff. Batched read models must use
+  `obligation_batches.planned_date` as the displayed/sort/status date, not the
+  earliest member animal `due_at`. Required guard:
   `make vaccination-drive-clubbing-guard`.
 - **Seed source dates are history anchors, not due work:** when reviewing seed,
   import, or replay code, verify trusted past source dates are preserved as

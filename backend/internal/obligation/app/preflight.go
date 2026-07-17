@@ -119,6 +119,12 @@ func (s *SweeperService) PreflightVisitShotCapTies(ctx context.Context, tenantID
 // PreflightVisitShotCapTies and also returns the exact candidate membership that passed it. The
 // production orchestration must pass this snapshot to every real per-version sweep in the cycle.
 func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshot(ctx context.Context, tenantID string, plans []SweepVersionPriority, dueBefore time.Time, createdAtHWM time.Time) (*SweepCandidateSnapshot, error) {
+	return s.PreflightVisitShotCapTiesWithSnapshotAsOf(ctx, tenantID, plans, dueBefore, dueBefore, createdAtHWM)
+}
+
+// PreflightVisitShotCapTiesWithSnapshotAsOf is PreflightVisitShotCapTiesWithSnapshot with split
+// asOf/dueBefore semantics. It must mirror the real sweep's asOf-driven planned-date math.
+func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshotAsOf(ctx context.Context, tenantID string, plans []SweepVersionPriority, asOf, dueBefore time.Time, createdAtHWM time.Time) (*SweepCandidateSnapshot, error) {
 	snapshot := newSweepCandidateSnapshot(plans)
 	if len(plans) == 0 {
 		return snapshot, nil
@@ -183,7 +189,7 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshot(ctx context.Conte
 					parkCandidateIDs = append(parkCandidateIDs, g.ids...)
 					continue
 				}
-				claimedAny, err := s.preflightGroup(ctx, tenantID, plan.Config, planner, dueBefore, preflight, g, claimed)
+				claimedAny, err := s.preflightGroup(ctx, tenantID, plan.Config, planner, asOf, preflight, g, claimed)
 				if err != nil {
 					return nil, err
 				}
@@ -208,10 +214,10 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshot(ctx context.Conte
 			}
 		}
 		parkClaimed := make(map[string]struct{})
-		if err := s.preflightParkConsolidation(ctx, tenantID, plan, dueBefore, preflight, claimed, parkClaimed, createdAtHWM, parkCandidateIDs); err != nil {
+		if err := s.preflightParkConsolidation(ctx, tenantID, plan, asOf, dueBefore, preflight, claimed, parkClaimed, createdAtHWM, parkCandidateIDs); err != nil {
 			return nil, err
 		}
-		if err := s.preflightRemainingShedObligations(ctx, tenantID, plan, dueBefore, preflight, claimed, parkClaimed, createdAtHWM, parkCandidateIDs); err != nil {
+		if err := s.preflightRemainingShedObligations(ctx, tenantID, plan, asOf, dueBefore, preflight, claimed, parkClaimed, createdAtHWM, parkCandidateIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -222,10 +228,10 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshot(ctx context.Conte
 // dueGroup, write-free. See PreflightVisitShotCapTies for why this must mirror batchDueGroup
 // exactly. Every obligation it claims is recorded in claimed so the park-consolidation replay does
 // not double-count it.
-func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cfg SweepConfig, planner domain.DrivePlannerSettings, dueBefore time.Time, session *SweepSession, g *dueGroup, claimed map[string]struct{}) (bool, error) {
+func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cfg SweepConfig, planner domain.DrivePlannerSettings, asOf time.Time, session *SweepSession, g *dueGroup, claimed map[string]struct{}) (bool, error) {
 	plannedDate := batchPlannedDate(g.rows[0].DueAt)
 	if planner.Enabled {
-		if picked := pickBestDriveDateWithHold(dueBefore, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
+		if picked := pickBestDriveDateWithHold(asOf, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
 			plannedDate = picked
 		}
 	}
@@ -262,7 +268,7 @@ func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cf
 // plan, write-free, onto the shared preflight session (RV-01). Obligations already claimed by the
 // main-loop replay are excluded up front, matching the real flow where they are batched and removed
 // before park consolidation lists them.
-func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantID string, plan SweepVersionPriority, dueBefore time.Time, session *SweepSession, claimed map[string]struct{}, parkClaimed map[string]struct{}, createdAtHWM time.Time, candidateIDs []string) error {
+func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantID string, plan SweepVersionPriority, asOf, dueBefore time.Time, session *SweepSession, claimed map[string]struct{}, parkClaimed map[string]struct{}, createdAtHWM time.Time, candidateIDs []string) error {
 	cfg := plan.Config
 	settings := cfg.ParkConsolidation
 	if !settings.Enabled {
@@ -325,7 +331,7 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 		}
 	}
 
-	now := biztime.BusinessDayStart(dueBefore)
+	now := biztime.BusinessDayStart(asOf)
 	for _, rows := range groups {
 		if len(rows) == 0 {
 			continue
@@ -387,7 +393,7 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 
 // preflightRemainingShedObligations mirrors batchRemainingShedObligationsWithVisitCounts, write-free,
 // for shed rows not already claimed by the main-loop or park-consolidation replays.
-func (s *SweeperService) preflightRemainingShedObligations(ctx context.Context, tenantID string, plan SweepVersionPriority, dueBefore time.Time, session *SweepSession, claimed map[string]struct{}, parkClaimed map[string]struct{}, createdAtHWM time.Time, candidateIDs []string) error {
+func (s *SweeperService) preflightRemainingShedObligations(ctx context.Context, tenantID string, plan SweepVersionPriority, asOf, dueBefore time.Time, session *SweepSession, claimed map[string]struct{}, parkClaimed map[string]struct{}, createdAtHWM time.Time, candidateIDs []string) error {
 	cfg := plan.Config
 	if !cfg.ParkConsolidation.Enabled {
 		return nil
@@ -423,7 +429,7 @@ func (s *SweeperService) preflightRemainingShedObligations(ctx context.Context, 
 	order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
 	order = orderDueGroupsByVaccinePriority(order, groups, cfg)
 	for _, k := range order {
-		if _, err := s.preflightGroup(ctx, tenantID, cfg, planner, dueBefore, session, groups[k], claimed); err != nil {
+		if _, err := s.preflightGroup(ctx, tenantID, cfg, planner, asOf, session, groups[k], claimed); err != nil {
 			return err
 		}
 	}

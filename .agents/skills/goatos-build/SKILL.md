@@ -330,7 +330,12 @@ one product; this skill is the navigation layer.
   creates 1-2 animal micro-drives while nearby compatible animals are still
   inside buffer is a core algorithm bug. Micro-drives are valid only when no
   compatible work can be safely clubbed before the earliest selected animal's
-  last safe date. Guard: `make vaccination-drive-clubbing-guard`.
+  last safe date. Wide sweeps/backfills must pass separate `asOf` and
+  `dueBefore` values: `asOf` drives hold/backdating/planned-date math, while
+  `dueBefore` only selects eligible obligations. Batched execution/read-model
+  rows must display/sort/status by `obligation_batches.planned_date`, falling
+  back to animal `due_at` only for unbatched work. Guard:
+  `make vaccination-drive-clubbing-guard`.
 
 ## Must Not
 

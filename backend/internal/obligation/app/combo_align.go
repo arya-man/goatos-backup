@@ -51,6 +51,12 @@ func comboRowKey(row domain.ComboDriveBatch) comboGroupKey {
 // i.e. aligned -- only once its key changes or the query is exhausted) instead of being aligned as
 // page-local fragments that are each too small to see the rest of their own group.
 func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, alignWindowDays int32, dueBefore time.Time, maxShotsPerAnimalPerDrive int32, session *SweepSession) (int, error) {
+	return s.AlignComboDrivesAsOf(ctx, tenantID, alignWindowDays, dueBefore, dueBefore, maxShotsPerAnimalPerDrive, session)
+}
+
+// AlignComboDrivesAsOf aligns eligible combo batches loaded through dueBefore, while using asOf as
+// the operational business-day floor for planned-date alignment.
+func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID string, alignWindowDays int32, asOf, dueBefore time.Time, maxShotsPerAnimalPerDrive int32, session *SweepSession) (int, error) {
 	aligner, ok := s.repo.(ComboDriveAligner)
 	if !ok || alignWindowDays <= 0 {
 		return 0, nil
@@ -96,7 +102,7 @@ func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, 
 	}
 
 	alignComboCluster = func(batches []domain.ComboDriveBatch) error {
-		target := pickComboAlignDate(batches, dueBefore, window)
+		target := pickComboAlignDate(batches, asOf, window)
 		if target == nil {
 			return nil
 		}

@@ -12,10 +12,10 @@ import (
 
 func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	return s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, NewSweepSession(), time.Time{}, nil)
+	return s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, dueBefore, planner, NewSweepSession(), time.Time{}, nil)
 }
 
-func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession, createdAtHWM time.Time, candidateIDs []string) (domain.SweepResult, error) {
+func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession, createdAtHWM time.Time, candidateIDs []string) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	settings := cfg.ParkConsolidation
 	if !settings.Enabled {
@@ -73,7 +73,7 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 		}
 	}
 
-	now := biztime.BusinessDayStart(dueBefore)
+	now := biztime.BusinessDayStart(asOf)
 	for _, rows := range groups {
 		if len(rows) == 0 {
 			continue
@@ -81,7 +81,7 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 		parkID := rows[0].ParkID
 		remaining := append([]domain.ParkConsolidationCandidate(nil), rows...)
 		for len(remaining) >= int(minMergeTargets) && uniqueShedCount(remaining) >= int(minMergeSheds) {
-			next, attached, stop, err := s.parkMergeStep(ctx, tenantID, versionID, cfg, planner, now, dueBefore, session, parkID, remaining, minMergeTargets, minMergeSheds)
+			next, attached, stop, err := s.parkMergeStep(ctx, tenantID, versionID, cfg, planner, now, asOf, session, parkID, remaining, minMergeTargets, minMergeSheds)
 			if err != nil {
 				return res, err
 			}
@@ -107,7 +107,7 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 // stop is true when the caller's merge loop should not attempt another iteration for this park
 // (nothing left to merge, or a hard cap/error condition), whether or not this call itself attached
 // anything.
-func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, dueBefore time.Time, session *SweepSession, parkID string, remaining []domain.ParkConsolidationCandidate, minMergeTargets, minMergeSheds int32) (newRemaining []domain.ParkConsolidationCandidate, attached int64, stop bool, err error) {
+func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, asOf time.Time, session *SweepSession, parkID string, remaining []domain.ParkConsolidationCandidate, minMergeTargets, minMergeSheds int32) (newRemaining []domain.ParkConsolidationCandidate, attached int64, stop bool, err error) {
 	plannedDate, selected := pickBestParkDriveDate(now, remaining)
 	targetIDs := distinctParkTargetIDs(remaining)
 	release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
@@ -173,7 +173,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 	if n == 0 {
 		return remaining, 0, true, nil
 	}
-	if holdErr := s.recordParkBatchingHoldIfNeeded(ctx, tenantID, selected, selectedRows, plannedDate, dueBefore); holdErr != nil {
+	if holdErr := s.recordParkBatchingHoldIfNeeded(ctx, tenantID, selected, selectedRows, plannedDate, asOf); holdErr != nil {
 		return remaining, 0, true, holdErr
 	}
 	return removeRows(remaining, selected), n, false, nil

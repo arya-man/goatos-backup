@@ -927,6 +927,7 @@ func int32Ptr(v pgtype.Int4) *int32 {
 // sop_tasks.state / obligation_batches.status stay current-state.
 //
 // This is now the request-path serving read (ListVaccinationExecutionPage), not only the projector replay.
+// projection-review: membership=obligation_instances rows for one tenant due by $4, joined to obligation_batches by batch_id so batched rows use the canonical batch planned_date while unbatched rows fall back to obligation due_at; group_key=(park_uuid, shed_uuid, batch_id, rule_id, protocol_name, dose_code); join_cardinality=each obligation has at most one batch/task/goat row, vaccination_completions is filtered to the as_of-bounded effective row per obligation through the obligation_id join, and grouped COUNT/ARRAY_AGG operate on obligation grain so target counts cannot fan out; pagination=classified rows are keyset paginated after grouped aggregation with total_count over the full filtered set; scope=park/shed filters are resolved through located.park_uuid/shed_uuid with tenant scoping and status buckets from as_of-effective eff_status/work_state.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — keyset-paginated (~20 rows) canonical execution list, query-plan-tested (canonical_read_plan_test.go).
 const vaccinationExecutionSQL = `
 WITH asof_terminal AS (
@@ -961,6 +962,7 @@ raw AS (
     te.has_terminal_event,
     pr.dose_code,
     pd.name AS protocol_name,
+    ob.planned_date::timestamptz AS batch_planned_at,
     ob.status AS batch_status,
     ob.conducted_by,
     st.state AS task_state,
@@ -1033,22 +1035,23 @@ located AS (
   SELECT
     raw.*,
     COALESCE(raw.direct_park_uuid, shed_loc.parent_location_id) AS park_uuid,
+    COALESCE(raw.batch_planned_at, raw.due_at) AS execution_due_at,
     -- as_of-effective obligation status (reconstructed AT as_of, not the current stored status).
     CASE
       WHEN raw.obligation_status = 'completed' THEN
         CASE
           WHEN raw.completed_at IS NOT NULL AND raw.completed_at <= $7::timestamptz THEN 'completed'
           WHEN raw.completed_at IS NULL AND raw.completion_status IS NOT NULL THEN 'completed'
-          ELSE (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
         END
       WHEN raw.obligation_status IN ('missed', 'waived', 'deferred') THEN
         CASE
           WHEN raw.asof_terminal_type IS NOT NULL THEN raw.asof_terminal_type
-          WHEN raw.has_terminal_event THEN (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+          WHEN raw.has_terminal_event THEN (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
           ELSE raw.obligation_status
         END
       WHEN raw.obligation_status = 'in_progress' THEN 'in_progress'
-      ELSE (CASE WHEN raw.due_at < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
+      ELSE (CASE WHEN COALESCE(raw.batch_planned_at, raw.due_at) < $7::timestamptz THEN 'overdue' WHEN COALESCE(raw.batch_planned_at, raw.window_start, raw.due_at) <= $7::timestamptz THEN 'due' ELSE 'scheduled' END)
     END AS eff_status
   FROM raw
   LEFT JOIN locations shed_loc
@@ -1057,6 +1060,7 @@ located AS (
    AND shed_loc.location_type = 'shed'
   WHERE raw.shed_uuid IS NOT NULL
 ),
+-- projection-review: membership=located obligation-grain rows after tenant/category/scope resolution, with batch planned_date carried as execution_due_at for batched rows; group_key=(park_uuid,shed_uuid,batch_id,rule_id,protocol_name,dose_code); join_cardinality=located already contains one row per obligation and only 1:1 goat/batch/task/completion joins, so COUNT/ARRAY_AGG cannot multiply target counts; pagination=grouped rows feed classified keyset pagination and total_count over the full filtered set; scope=park/shed via located.park_uuid/shed_uuid and tenant-scoped location joins.
 grouped AS (
   SELECT
     located.park_uuid,
@@ -1065,7 +1069,7 @@ grouped AS (
     located.rule_id,
     located.protocol_name,
     located.dose_code,
-    MIN(located.due_at) AS due_at,
+    MIN(located.execution_due_at) AS due_at,
     COUNT(*)::bigint AS obligation_count,
     -- Bucket counts use the as_of-effective status; completion counts below use the as_of-bounded vc join.
     COUNT(*) FILTER (WHERE located.eff_status = 'scheduled')::bigint AS scheduled_count,
@@ -1088,7 +1092,7 @@ grouped AS (
         WHEN 'canceled' THEN 4
         ELSE 5
       END,
-      located.due_at DESC NULLS LAST
+      located.execution_due_at DESC NULLS LAST
     ) FILTER (WHERE located.batch_status IS NOT NULL))[1] AS batch_status,
     (ARRAY_AGG(located.task_state ORDER BY
       CASE located.task_state
@@ -1100,7 +1104,7 @@ grouped AS (
         WHEN 'accepted' THEN 5
         ELSE 6
       END,
-      located.due_at DESC NULLS LAST
+      located.execution_due_at DESC NULLS LAST
     ) FILTER (WHERE located.task_state IS NOT NULL))[1] AS task_state,
     COALESCE(
       (ARRAY_AGG(operator.display_name ORDER BY
@@ -1109,7 +1113,7 @@ grouped AS (
           WHEN located.assigned_to IS NOT NULL THEN 1
           ELSE 2
         END,
-        located.due_at DESC NULLS LAST,
+        located.execution_due_at DESC NULLS LAST,
         operator.updated_at DESC NULLS LAST,
         operator.workforce_member_id DESC
       ) FILTER (WHERE operator.display_name IS NOT NULL))[1],
@@ -1119,7 +1123,7 @@ grouped AS (
           WHEN default_operator.primary_location_id = located.park_uuid THEN 1
           ELSE 2
         END,
-        located.due_at DESC NULLS LAST,
+        located.execution_due_at DESC NULLS LAST,
         default_operator.updated_at DESC NULLS LAST,
         default_operator.workforce_member_id DESC
       ) FILTER (WHERE default_operator.display_name IS NOT NULL))[1]
@@ -1129,11 +1133,11 @@ grouped AS (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
          OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
     )::bigint AS health_deferred_count,
-    (ARRAY_AGG(located.obligation_id ORDER BY located.due_at DESC NULLS LAST, located.obligation_id DESC))[1]::text AS obligation_id,
-    (ARRAY_AGG(located.sop_task_id ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST))[1]::text AS sop_task_id,
-    (ARRAY_AGG(located.sop_version_id ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_version_id IS NOT NULL))[1]::text AS sop_version_id,
-    (ARRAY_AGG(located.sop_task_row_version ORDER BY located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_task_id IS NOT NULL))[1] AS sop_task_row_version,
-    (ARRAY_AGG(located.completion_id ORDER BY located.due_at DESC NULLS LAST, located.completion_id DESC NULLS LAST))[1]::text AS completion_id
+    (ARRAY_AGG(located.obligation_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.obligation_id DESC))[1]::text AS obligation_id,
+    (ARRAY_AGG(located.sop_task_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST))[1]::text AS sop_task_id,
+    (ARRAY_AGG(located.sop_version_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_version_id IS NOT NULL))[1]::text AS sop_version_id,
+    (ARRAY_AGG(located.sop_task_row_version ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_task_id IS NOT NULL))[1] AS sop_task_row_version,
+    (ARRAY_AGG(located.completion_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.completion_id DESC NULLS LAST))[1]::text AS completion_id
   FROM located
   JOIN locations shed
     ON shed.tenant_id = $1::uuid

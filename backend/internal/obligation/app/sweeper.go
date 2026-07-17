@@ -315,7 +315,14 @@ func appendSnapshotIDs(dst []string, seen map[string]struct{}, ids []string) []s
 // per vaccine and can over-schedule an animal with more than MaxShotsPerAnimalPerDrive shots on
 // one visit.
 func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
-	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, NewSweepSession(), true, time.Time{}, nil)
+	return s.SweepVersionAsOf(ctx, tenantID, versionID, cfg, dueBefore, dueBefore)
+}
+
+// SweepVersionAsOf batches all dueBefore-eligible obligations while using asOf as the operational
+// business day for hold/backdate/planned-date decisions. Backfills and wide-window proofs must pass
+// the real sweep day as asOf and the eligibility horizon as dueBefore.
+func (s *SweeperService) SweepVersionAsOf(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, asOf, dueBefore, NewSweepSession(), true, time.Time{}, nil)
 }
 
 // SweepVersionWithSession behaves like SweepVersion but claims MaxShotsPerAnimalPerDrive slots
@@ -325,7 +332,12 @@ func (s *SweeperService) SweepVersion(ctx context.Context, tenantID, versionID s
 // vaccines claim an over-subscribed animal's slots first; an unresolved same-priority conflict
 // is reported as *ShotCapPriorityTieError rather than resolved by call/arrival order.
 func (s *SweeperService) SweepVersionWithSession(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
-	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), true, time.Time{}, nil)
+	return s.SweepVersionWithSessionAsOf(ctx, tenantID, versionID, cfg, dueBefore, dueBefore, session)
+}
+
+// SweepVersionWithSessionAsOf is SweepVersionWithSession with split asOf/dueBefore semantics.
+func (s *SweeperService) SweepVersionWithSessionAsOf(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, asOf, dueBefore, sessionOrNew(session), true, time.Time{}, nil)
 }
 
 // SweepVersionWithSessionNoFinalize is like SweepVersionWithSession but defers BOTH stock
@@ -337,7 +349,13 @@ func (s *SweeperService) SweepVersionWithSession(ctx context.Context, tenantID, 
 // until then, no batch produced or repaired by this call has its stock reserved or its SOP task
 // created.
 func (s *SweeperService) SweepVersionWithSessionNoFinalize(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
-	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), false, time.Time{}, nil)
+	return s.SweepVersionWithSessionNoFinalizeAsOf(ctx, tenantID, versionID, cfg, dueBefore, dueBefore, session)
+}
+
+// SweepVersionWithSessionNoFinalizeAsOf is SweepVersionWithSessionNoFinalize with split
+// asOf/dueBefore semantics.
+func (s *SweeperService) SweepVersionWithSessionNoFinalizeAsOf(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, session *SweepSession) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, asOf, dueBefore, sessionOrNew(session), false, time.Time{}, nil)
 }
 
 // SweepVersionWithSessionNoFinalizeHWM behaves exactly like SweepVersionWithSessionNoFinalize but
@@ -346,17 +364,29 @@ func (s *SweeperService) SweepVersionWithSessionNoFinalize(ctx context.Context, 
 // compatibility and focused HWM tests; production orchestration uses
 // SweepVersionWithSessionNoFinalizeSnapshot so pre-existing rows cannot enter after preflight.
 func (s *SweeperService) SweepVersionWithSessionNoFinalizeHWM(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, createdAtHWM time.Time) (domain.SweepResult, error) {
-	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), false, createdAtHWM, nil)
+	return s.SweepVersionWithSessionNoFinalizeHWMAsOf(ctx, tenantID, versionID, cfg, dueBefore, dueBefore, session, createdAtHWM)
+}
+
+// SweepVersionWithSessionNoFinalizeHWMAsOf is SweepVersionWithSessionNoFinalizeHWM with split
+// asOf/dueBefore semantics.
+func (s *SweeperService) SweepVersionWithSessionNoFinalizeHWMAsOf(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, session *SweepSession, createdAtHWM time.Time) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, asOf, dueBefore, sessionOrNew(session), false, createdAtHWM, nil)
 }
 
 // SweepVersionWithSessionNoFinalizeSnapshot is the production RV-05 entry point. In addition to
 // the created-at HWM it constrains every candidate read to IDs observed by the successful
 // preflight, closing the deferred->scheduled/reschedule race for pre-existing rows.
 func (s *SweeperService) SweepVersionWithSessionNoFinalizeSnapshot(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, createdAtHWM time.Time, snapshot *SweepCandidateSnapshot) (domain.SweepResult, error) {
-	return s.sweepVersion(ctx, tenantID, versionID, cfg, dueBefore, sessionOrNew(session), false, createdAtHWM, snapshot.candidateIDs(versionID))
+	return s.SweepVersionWithSessionNoFinalizeSnapshotAsOf(ctx, tenantID, versionID, cfg, dueBefore, dueBefore, session, createdAtHWM, snapshot)
 }
 
-func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, session *SweepSession, finalizeNow bool, createdAtHWM time.Time, candidateIDs []string) (domain.SweepResult, error) {
+// SweepVersionWithSessionNoFinalizeSnapshotAsOf is the production RV-05 entry point with split
+// asOf/dueBefore semantics.
+func (s *SweeperService) SweepVersionWithSessionNoFinalizeSnapshotAsOf(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, session *SweepSession, createdAtHWM time.Time, snapshot *SweepCandidateSnapshot) (domain.SweepResult, error) {
+	return s.sweepVersion(ctx, tenantID, versionID, cfg, asOf, dueBefore, sessionOrNew(session), false, createdAtHWM, snapshot.candidateIDs(versionID))
+}
+
+func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, session *SweepSession, finalizeNow bool, createdAtHWM time.Time, candidateIDs []string) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	// R2-04 fix: only finalize retry/pre-existing planned batches up front when this call owns its
 	// own finalization end to end (finalizeNow=true, i.e. no subsequent AlignComboDrives pass is
@@ -402,7 +432,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 				parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
 				continue
 			}
-			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, dueBefore, session, g)
+			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, session, g)
 			if err != nil {
 				return res, err
 			}
@@ -435,7 +465,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 				if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
 					continue
 				}
-				batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, dueBefore, session, g)
+				batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, session, g)
 				if err != nil {
 					return res, err
 				}
@@ -453,7 +483,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 			}
 		}
 	}
-	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
+	parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
 	if err != nil {
 		return res, err
 	}
@@ -462,7 +492,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	res.Batches += parkRes.ParkBatches
 	res.Obligations += parkRes.ParkObligations
 
-	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
+	fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
 	if err != nil {
 		return res, err
 	}
@@ -489,10 +519,10 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 // between. If every row rejects on the first candidate date purely because it is already at cap
 // (not a priority tie), the group retries once against the next feasible overflow date, re-seeding
 // and re-locking for that new date.
-func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, dueBefore time.Time, session *SweepSession, g *dueGroup) (batched bool, obligations int64, err error) {
+func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, asOf time.Time, session *SweepSession, g *dueGroup) (batched bool, obligations int64, err error) {
 	plannedDate := batchPlannedDate(g.rows[0].DueAt)
 	if planner.Enabled {
-		if picked := pickBestDriveDateWithHold(dueBefore, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
+		if picked := pickBestDriveDateWithHold(asOf, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
 			plannedDate = picked
 		}
 	}
@@ -557,7 +587,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			continue
 		}
 		batched = true
-		if holdErr := s.recordBatchingHoldIfNeeded(ctx, tenantID, chunk, selectedUnbatchedRows(g.rows, chunk), plannedDate, dueBefore); holdErr != nil {
+		if holdErr := s.recordBatchingHoldIfNeeded(ctx, tenantID, chunk, selectedUnbatchedRows(g.rows, chunk), plannedDate, asOf); holdErr != nil {
 			return batched, obligations, holdErr
 		}
 		obligations += n
@@ -638,10 +668,10 @@ func deferShedGroupToPark(cfg SweepConfig, scopeType string, obligationCount int
 // including missed singletons, so coverage is never left behind after the park merge pass.
 func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	return s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, planner, NewSweepSession(), time.Time{}, nil)
+	return s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, dueBefore, planner, NewSweepSession(), time.Time{}, nil)
 }
 
-func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession, createdAtHWM time.Time, candidateIDs []string) (domain.SweepResult, error) {
+func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession, createdAtHWM time.Time, candidateIDs []string) (domain.SweepResult, error) {
 	var res domain.SweepResult
 	if !cfg.ParkConsolidation.Enabled {
 		return res, nil
@@ -660,7 +690,7 @@ func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx contex
 		order = orderDueGroupsByVaccinePriority(order, groups, cfg)
 		for _, k := range order {
 			g := groups[k]
-			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, dueBefore, session, g)
+			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, session, g)
 			if err != nil {
 				return res, err
 			}
@@ -688,7 +718,7 @@ func (s *SweeperService) batchRemainingShedObligationsWithVisitCounts(ctx contex
 		var progressed int64
 		for _, k := range order {
 			g := groups[k]
-			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, dueBefore, session, g)
+			batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, session, g)
 			if err != nil {
 				return res, err
 			}

@@ -74,9 +74,15 @@ must club compatible due obligations into the highest-output valid shed/park
 drive inside the authored safe window and one-time batching hold. Do not group
 vaccination batches by exact `due_at` or exact window before the planner scores
 compatible work. Exact-date micro-drives are allowed only when no compatible work
-can be safely clubbed before the earliest selected animal's last safe date. Run
-`make vaccination-drive-clubbing-guard` after changing generation, sweeper,
-drive planner, Calendar projection, or vaccination seed data.
+can be safely clubbed before the earliest selected animal's last safe date.
+Backfill/window sweeps must keep `asOf` separate from `dueBefore`: `asOf` is the
+operational sweep day for hold/backdating/planned-date math, while `dueBefore`
+is only the obligation eligibility cutoff. Batched Calendar, Vaccination
+Execution, and Process Integrity rows must render, sort, and classify by
+`obligation_batches.planned_date`, falling back to obligation `due_at` only for
+unbatched rows. Run `make vaccination-drive-clubbing-guard` after changing
+generation, sweeper, drive planner, Calendar/process projections, or vaccination
+seed data.
 
 For Calendar work, read
 `context/execution/calendar-vaccination-slice-parallel-handoff.md` and
