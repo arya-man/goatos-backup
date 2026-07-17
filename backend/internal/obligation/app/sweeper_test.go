@@ -104,7 +104,7 @@ func TestSweeperCreatesSideEffectsAfterAttach(t *testing.T) {
 	}
 }
 
-func TestSweeperGroupsByRuleAndDueDateAndReservesAgainstPlannedDate(t *testing.T) {
+func TestSweeperGroupsByRuleAndReservesAgainstPlannedDate(t *testing.T) {
 	dueA := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
 	dueB := time.Date(2026, time.August, 15, 9, 30, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
@@ -134,16 +134,16 @@ func TestSweeperGroupsByRuleAndDueDateAndReservesAgainstPlannedDate(t *testing.T
 	if repo.createdBatches[0].Session != "rule:rule-a" || repo.createdBatches[1].Session != "rule:rule-b" {
 		t.Fatalf("sessions = %q/%q, want rule sessions", repo.createdBatches[0].Session, repo.createdBatches[1].Session)
 	}
-	if got := dateKey(repo.createdBatches[0].PlannedDate); got != "2026-08-14" {
-		t.Fatalf("batch A planned date = %s, want 2026-08-14", got)
+	if got := dateKey(repo.createdBatches[0].PlannedDate); got != "2026-08-31" {
+		t.Fatalf("batch A planned date = %s, want 2026-08-31", got)
 	}
-	if got := dateKey(repo.createdBatches[1].PlannedDate); got != "2026-08-15" {
-		t.Fatalf("batch B planned date = %s, want 2026-08-15", got)
+	if got := dateKey(repo.createdBatches[1].PlannedDate); got != "2026-08-31" {
+		t.Fatalf("batch B planned date = %s, want 2026-08-31", got)
 	}
 	if reserver.calls != 2 {
 		t.Fatalf("reservation calls = %d, want 2", reserver.calls)
 	}
-	if got := validOnKeys(reserver.validOns); got != "2026-08-14,2026-08-15" {
+	if got := validOnKeys(reserver.validOns); got != "2026-08-31,2026-08-31" {
 		t.Fatalf("reservation validOn dates = %s, want planned dates", got)
 	}
 }

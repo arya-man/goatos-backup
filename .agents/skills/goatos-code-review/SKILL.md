@@ -237,6 +237,10 @@ named committed source and read the live value," not "compare to a number here."
   `docs/preventive-care-vaccination/vaccination-rules.md` and the seeded `rule_dsl`
   / config — never against a memorized week number or combo set. The allowed
   same-day bundles and inter-dose gaps are rule-doc + seeded-config truth.
+- **Vaccination drive clubbing.** Per-animal `due_at` is not a drive boundary.
+  Exact-date batching that creates 1-2 animal micro-drives while compatible
+  nearby animals are still inside buffer is a business-rule defect. Verify
+  `make vaccination-drive-clubbing-guard` for sweeper/planner/calendar changes.
 - **`cmd/*` binaries and crons.** Verify a referenced sweeper/worker actually
   exists under `backend/cmd/` before treating "the X cron does Y" as real. Real
   binaries include `obligation-sweeper`, `outbox-relay`, `outbox-dlq`,

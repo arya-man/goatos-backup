@@ -461,9 +461,12 @@ batch_events AS (
     SELECT
       ob.batch_id,
       ob.status AS batch_status,
-      COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AS due_at,
-      COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AS window_start,
-      COALESCE(ob.window_end, ob.window_start + interval '8 hours', ob.planned_date::timestamptz + interval '8 hours') AS window_end,
+      COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end) AS due_at,
+      COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end) AS window_start,
+      CASE
+        WHEN ob.planned_date IS NOT NULL THEN ob.planned_date::timestamptz + interval '8 hours'
+        ELSE COALESCE(ob.window_end, ob.window_start + interval '8 hours')
+      END AS window_end,
       scope_parent.location_id AS park_id,
       scope_parent.location_code AS park_code,
       ob.scope_id AS shed_id,
@@ -500,16 +503,29 @@ batch_events AS (
       ON scope_parent.tenant_id = ob.tenant_id AND scope_parent.location_id = scope_loc.parent_location_id
     WHERE ob.tenant_id = $1::uuid
       AND ob.scope_type = 'shed'
-      AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) >= $2::timestamptz
-      AND COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) < $3::timestamptz
+      AND (
+        (
+          ob.planned_date IS NOT NULL
+          AND ob.planned_date::timestamptz < $3::timestamptz
+          AND ob.planned_date::timestamptz + interval '1 day' > $2::timestamptz
+        )
+        OR (
+          ob.planned_date IS NULL
+          AND COALESCE(ob.window_start, ob.window_end) >= $2::timestamptz
+          AND COALESCE(ob.window_start, ob.window_end) < $3::timestamptz
+        )
+      )
       AND pd.category = 'vaccination'
       AND pv.status = 'published'
       AND ob.status NOT IN ('superseded', 'canceled')
     GROUP BY
       ob.batch_id,
       ob.status,
-      COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end),
-      COALESCE(ob.window_end, ob.window_start + interval '8 hours', ob.planned_date::timestamptz + interval '8 hours'),
+      COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end),
+      CASE
+        WHEN ob.planned_date IS NOT NULL THEN ob.planned_date::timestamptz + interval '8 hours'
+        ELSE COALESCE(ob.window_end, ob.window_start + interval '8 hours')
+      END,
       scope_parent.location_id,
       scope_parent.location_code,
       ob.scope_id,
@@ -605,8 +621,18 @@ obligation_drive_membership AS (
     WHERE oi2.tenant_id = $1::uuid AND oi2.batch_id IS NOT NULL
       AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
       AND ob2.status NOT IN ('superseded', 'canceled')
-      AND COALESCE(ob2.window_start, ob2.planned_date::timestamptz, ob2.window_end) >= $2::timestamptz
-      AND COALESCE(ob2.window_start, ob2.planned_date::timestamptz, ob2.window_end) < $3::timestamptz
+      AND (
+        (
+          ob2.planned_date IS NOT NULL
+          AND ob2.planned_date::timestamptz < $3::timestamptz
+          AND ob2.planned_date::timestamptz + interval '1 day' > $2::timestamptz
+        )
+        OR (
+          ob2.planned_date IS NULL
+          AND COALESCE(ob2.window_start, ob2.window_end) >= $2::timestamptz
+          AND COALESCE(ob2.window_start, ob2.window_end) < $3::timestamptz
+        )
+      )
   )
   SELECT
     oi.obligation_id,

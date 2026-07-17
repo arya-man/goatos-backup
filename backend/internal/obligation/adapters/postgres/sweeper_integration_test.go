@@ -196,7 +196,7 @@ func TestSM4bFinalizesPlannedBatchMissingSOPTask(t *testing.T) {
 	}
 }
 
-func TestSM4SweeperBatchesByScopeRuleAndDueDate(t *testing.T) {
+func TestSM4SweeperClubsNearbyDueDatesWithinSafeWindow(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -227,27 +227,29 @@ func TestSM4SweeperBatchesByScopeRuleAndDueDate(t *testing.T) {
 	}
 
 	const cpt = "00000000-0000-4000-8000-000000003002" // park
-	ins := func(target string, day int, key string) {
+	ins := func(target string, day int, key string, windowEnd *time.Time) {
 		_, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 			TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
 			TargetType: "park", TargetID: target, ScopeType: "park", ScopeID: target,
-			DueAt: time.Date(2026, 8, day, 0, 0, 0, 0, time.UTC), Status: "scheduled", IdempotencyKey: key, Sequence: 1,
+			DueAt: time.Date(2026, 8, day, 0, 0, 0, 0, time.UTC), WindowEnd: windowEnd, Status: "scheduled", IdempotencyKey: key, Sequence: 1,
 		})
 		if err != nil || !applied {
 			t.Fatalf("insert %s: applied=%v err=%v", key, applied, err)
 		}
 	}
-	ins(cbePark, 1, "o1")
-	ins(cbePark, 2, "o2")
-	ins(cpt, 1, "o3")
+	cbeWindowEnd := time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC)
+	cptWindowEnd := time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC)
+	ins(cbePark, 1, "o1", &cbeWindowEnd)
+	ins(cbePark, 2, "o2", nil)
+	ins(cpt, 1, "o3", &cptWindowEnd)
 
 	sweep := oblapp.NewSweeperService(repo, nil, nil)
-	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
-	if res.Batches != 3 { // cbe day 1 + cbe day 2 + cpt day 1
-		t.Fatalf("batches: want 3, got %d", res.Batches)
+	if res.Batches != 2 { // cbe day 1 delayed into cbe day 2 + cpt day 1
+		t.Fatalf("batches: want 2, got %d", res.Batches)
 	}
 	if res.Obligations != 3 {
 		t.Fatalf("obligations attached: want 3, got %d", res.Obligations)
@@ -255,11 +257,22 @@ func TestSM4SweeperBatchesByScopeRuleAndDueDate(t *testing.T) {
 	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE protocol_version_id=$1 AND batch_id IS NOT NULL`, versionID); got != 3 {
 		t.Fatalf("expected 3 batched obligations, got %d", got)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE protocol_version_id=$1`, versionID); got != 3 {
-		t.Fatalf("expected 3 batches, got %d", got)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE protocol_version_id=$1`, versionID); got != 2 {
+		t.Fatalf("expected 2 batches, got %d", got)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE protocol_version_id=$1 AND scope_id=$2 AND planned_date IN ('2026-08-01', '2026-08-02')`, versionID, cbePark); got != 2 {
-		t.Fatalf("expected cbe obligations on different due dates to split into 2 batches, got %d", got)
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM (
+  SELECT b.batch_id
+  FROM obligation_batches b
+  JOIN obligation_instances oi ON oi.batch_id = b.batch_id
+  WHERE b.protocol_version_id=$1
+    AND b.scope_id=$2
+    AND b.planned_date='2026-08-02'
+  GROUP BY b.batch_id
+  HAVING count(*) = 2
+) clubbed`, versionID, cbePark); got != 1 {
+		t.Fatalf("expected cbe nearby due dates to club into one 2-animal planned drive, got %d", got)
 	}
 
 	res2, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC))
@@ -444,8 +457,10 @@ func TestSM4SweeperRecordsOneTimeBatchingHoldMetadata(t *testing.T) {
 	versionID, ruleID := reserveTestVersion(t, ctx, proto, "vaccination.sweep.hold")
 
 	const goatID = "10000000-0000-4000-8000-00000000e301"
-	seedReserveGoats(t, ctx, pool, cbePark, cbePark, goatID)
+	const laterGoatID = "10000000-0000-4000-8000-00000000e302"
+	seedReserveGoats(t, ctx, pool, cbePark, cbePark, goatID, laterGoatID)
 	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	laterDue := time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC)
 	windowEnd := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
 	obID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
@@ -455,18 +470,66 @@ func TestSM4SweeperRecordsOneTimeBatchingHoldMetadata(t *testing.T) {
 	if err != nil || !applied {
 		t.Fatalf("insert hold target: applied=%v err=%v", applied, err)
 	}
+	if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: laterGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: laterDue, WindowEnd: &windowEnd, Status: "scheduled", IdempotencyKey: "hold-clubbed-later", Sequence: 1,
+	}); err != nil || !applied {
+		t.Fatalf("insert later club target: applied=%v err=%v", applied, err)
+	}
 
 	sweep := oblapp.NewSweeperService(repo, nil, nil)
-	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, due)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, laterDue)
 	if err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
-	if res.Obligations != 1 {
-		t.Fatalf("result=%#v, want one held obligation batched", res)
+	if res.Batches != 1 || res.Obligations != 2 {
+		t.Fatalf("result=%#v, want one clubbed batch with two obligations", res)
 	}
-	wantHoldUntil := time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances oi JOIN obligation_batches b ON b.batch_id=oi.batch_id WHERE oi.obligation_id=$1 AND oi.batching_hold_count=1 AND to_char(oi.first_batching_hold_until AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD')='2026-07-08' AND b.planned_date=$2::date`, obID, wantHoldUntil); got != 1 {
-		t.Fatalf("hold metadata rows = %d, want count=1 first_hold_until/planned_date=%s", got, wantHoldUntil)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances oi JOIN obligation_batches b ON b.batch_id=oi.batch_id WHERE oi.obligation_id=$1 AND oi.batching_hold_count=1 AND to_char(oi.first_batching_hold_until AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD')='2026-07-06' AND b.planned_date=$2::date`, obID, laterDue); got != 1 {
+		t.Fatalf("hold metadata rows = %d, want count=1 first_hold_until/planned_date=%s", got, laterDue)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE protocol_version_id=$1 AND batch_id IS NOT NULL`, versionID); got != 2 {
+		t.Fatalf("batched obligations = %d, want 2", got)
+	}
+}
+
+func TestSM4SweeperDoesNotBackdateOverdueHoldCap(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID, ruleID := reserveTestVersion(t, ctx, proto, "vaccination.sweep.overdue_hold_cap")
+
+	const goatID = "10000000-0000-4000-8000-00000000e351"
+	seedReserveGoats(t, ctx, pool, cbePark, cbePark, goatID)
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	sweepDay := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	windowEnd := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: due, WindowEnd: &windowEnd, Status: "scheduled", IdempotencyKey: "overdue-hold-cap", Sequence: 1,
+	}); err != nil || !applied {
+		t.Fatalf("insert overdue target: applied=%v err=%v", applied, err)
+	}
+
+	sweep := oblapp.NewSweeperService(repo, nil, nil)
+	res, err := sweep.SweepVersion(ctx, tenantID, versionID, oblapp.SweepConfig{}, sweepDay)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if res.Batches != 1 || res.Obligations != 1 {
+		t.Fatalf("result=%#v, want one micro-drive now", res)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2 AND planned_date=$3::date`, tenantID, versionID, sweepDay); got != 1 {
+		t.Fatalf("sweep-day batches = %d, want 1 planned on %s", got, sweepDay)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_batches WHERE tenant_id=$1 AND protocol_version_id=$2 AND planned_date=$3::date`, tenantID, versionID, due); got != 0 {
+		t.Fatalf("backdated batches = %d, want 0 on original due date %s", got, due)
 	}
 }
 

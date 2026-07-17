@@ -79,7 +79,7 @@ func TestSM4cReservesStockPerBatch(t *testing.T) {
 	reserver := invapp.NewService(invpg.NewRepository(pool, 5*time.Second))
 	sweep := oblapp.NewSweeperService(repo, nil, reserver)
 	cfg := oblapp.SweepConfig{VaccineItemID: item, DosesPerGoat: 1}
-	dueBefore := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	dueBefore := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	res, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, dueBefore)
 	if err != nil {
@@ -186,7 +186,7 @@ func TestSM4cReservesShedScopedDriveFromParkStock(t *testing.T) {
 	reserver := invapp.NewService(invpg.NewRepository(pool, 5*time.Second))
 	sweep := oblapp.NewSweeperService(repo, nil, reserver)
 	cfg := oblapp.SweepConfig{VaccineItemID: item, DosesPerGoat: 1}
-	dueBefore := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	dueBefore := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	res, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, dueBefore)
 	if err != nil {
@@ -357,7 +357,7 @@ func TestReserveSpansMultipleLotsSameLocation(t *testing.T) {
 	reserver := invapp.NewService(invpg.NewRepository(pool, 5*time.Second))
 	sweep := oblapp.NewSweeperService(repo, nil, reserver)
 	cfg := oblapp.SweepConfig{VaccineItemID: item, DosesPerGoat: 4} // 2 obligations x 4 = qty 8
-	dueBefore := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	dueBefore := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	if _, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, dueBefore); err != nil {
 		t.Fatalf("sweep: %v", err)
@@ -418,7 +418,7 @@ func TestReserveRollsUpToAncestorWhenNearestLocationInsufficient(t *testing.T) {
 	reserver := invapp.NewService(invpg.NewRepository(pool, 5*time.Second))
 	sweep := oblapp.NewSweeperService(repo, nil, reserver)
 	cfg := oblapp.SweepConfig{VaccineItemID: item, DosesPerGoat: 5} // 1 obligation x 5 = qty 5 (> shed's 2)
-	dueBefore := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	dueBefore := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	if _, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, dueBefore); err != nil {
 		t.Fatalf("sweep: %v", err)
@@ -477,7 +477,7 @@ func TestReserveBlocksWhenNoLocationCoversQty(t *testing.T) {
 	reserver := invapp.NewService(invpg.NewRepository(pool, 5*time.Second))
 	sweep := oblapp.NewSweeperService(repo, nil, reserver)
 	cfg := oblapp.SweepConfig{VaccineItemID: item, DosesPerGoat: 5} // qty 5 > any single location's 2
-	dueBefore := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	dueBefore := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	if _, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, dueBefore); err != nil {
 		t.Fatalf("sweep should mark the batch blocked and continue, got error: %v", err)
@@ -544,7 +544,7 @@ func TestReserveRetryDoesNotDoubleReserveAcrossLots(t *testing.T) {
 	reserver := invapp.NewService(invpg.NewRepository(pool, 5*time.Second))
 	sweep := oblapp.NewSweeperService(repo, nil, reserver)
 	cfg := oblapp.SweepConfig{VaccineItemID: item, DosesPerGoat: 4} // qty 8 across the 3 + 7 lots
-	dueBefore := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+	dueBefore := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 
 	if _, err := sweep.SweepVersion(ctx, tenantID, versionID, cfg, dueBefore); err != nil {
 		t.Fatalf("sweep: %v", err)

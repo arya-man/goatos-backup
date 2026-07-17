@@ -197,6 +197,31 @@ these specific, measured, plan-tested envelope reads, never blanket-disabled.
 This document backs `make scale-guard`; the guard code itself is unchanged by
 this reconciliation note.
 
+## Vaccination Drive Planner Anti-Patterns
+
+Vaccination scheduling is not "DOB + offset = one animal drive." Per-animal
+`due_at` rows are canonical obligation truth, but they are only inputs to the
+drive planner. A scheduler that groups by exact due date and emits one drive per
+animal/day is a defect even if every individual obligation date is medically
+correct.
+
+Forbidden:
+
+- using exact `due_at` / exact `window_start` / exact `window_end` as mandatory
+  drive boundaries before the planner scores compatible work;
+- creating 1-2 animal micro-drives while compatible animals in the same shed or
+  park are due nearby and can be delayed within the authored medical window plus
+  the one-time batching hold;
+- hiding bad drive fragmentation in Calendar by merging rows in the frontend;
+- repeatedly rolling a held animal forward to chase larger future drives.
+
+Required behavior: maximize compatible animals per shed/park visit inside the
+selected animals' safe windows. Default policy allows one batching hold of up to
+seven days (`max_batching_hold_days=7`, `max_batching_hold_count=1`). Micro-drives
+are valid only when no compatible work can be clubbed before the earliest
+selected animal's last safe date. CI guard:
+`make vaccination-drive-clubbing-guard`.
+
 ## Projection rebuild anti-patterns
 
 The `full (stop-the-world) MV refresh` rule above bans the delete+reinsert

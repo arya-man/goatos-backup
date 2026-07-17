@@ -63,7 +63,7 @@ func parkConsolidationProtocol(t *testing.T, ctx context.Context, pool *pgxpool.
 
 func insertShedObligation(t *testing.T, ctx context.Context, repo *Repository, versionID, ruleID, goatID, shedID, key string, due time.Time) {
 	t.Helper()
-	windowEnd := due.Add(7 * 24 * time.Hour)
+	windowEnd := due.Add(14 * 24 * time.Hour)
 	if _, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
 		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
 		TargetType: "goat", TargetID: goatID, ScopeType: "shed", ScopeID: shedID,

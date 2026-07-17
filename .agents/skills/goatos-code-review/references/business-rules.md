@@ -82,7 +82,14 @@ Rule shapes a reviewer checks (illustrative values — verify against source):
   `docs/preventive-care-vaccination/vaccination-rules.md`.
 - **Drive batching:** may hold a due shed/tag group up to the batching window to
   combine with a compatible same-park group — ONE-TIME per obligation/dose cycle,
-  no rolling postponement.
+  no rolling postponement. The individual animal's `due_at` is not a drive
+  boundary. REJECT exact-due-date batching that creates micro-drives while
+  compatible animals due nearby can be safely clubbed inside the selected
+  animals' medical windows and the one-time hold budget. The planner's job is to
+  maximize safe output per shed/park visit; a 1-2 animal micro-drive is valid
+  only when no compatible unbatched work is reachable before the earliest
+  selected animal's last safe date. Required guard:
+  `make vaccination-drive-clubbing-guard`.
 - **Seed source dates are history anchors, not due work:** when reviewing seed,
   import, or replay code, verify trusted past source dates are preserved as
   accepted history, open work on or before the backend business date is
@@ -123,6 +130,8 @@ default in migrations/config). Reviewer checks:
       approved standard schedule; mothers are kept vaccinated operationally.
 - [ ] Third-party/vendor vaccine claims used to suppress scheduled work
 - [ ] Rolling/repeated postponement in drive batching (one-time hold only)
+- [ ] Exact-due-date drive grouping for vaccination (per-animal due dates are
+      inputs to an output-maximizing planner, not one-drive-per-day boundaries)
 - [ ] **Species-lock leak** — a species-locked vaccine reaching the wrong species
       (goat-only → sheep, sheep-only → goat). Verify the lock lives in the
       eligibility config, not a comment.

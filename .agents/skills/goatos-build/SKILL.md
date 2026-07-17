@@ -322,6 +322,15 @@ one product; this skill is the navigation layer.
   expose, or schedule from mother-not-vaccinated / unknown-mother status. The
   source/wiki branch is ignored in GoatOS; mothers are kept vaccinated
   operationally and every kid uses the approved standard schedule.
+- For Preventive Care (PC) vaccination drive planning, individual due dates are
+  per-animal obligation truth, NOT drive boundaries. The sweeper/drive planner
+  must maximize compatible animals per shed/park visit inside the authored
+  medical window and one-time batching hold (`max_batching_hold_days`,
+  default 7; `max_batching_hold_count`, default 1). Exact-due-date grouping that
+  creates 1-2 animal micro-drives while nearby compatible animals are still
+  inside buffer is a core algorithm bug. Micro-drives are valid only when no
+  compatible work can be safely clubbed before the earliest selected animal's
+  last safe date. Guard: `make vaccination-drive-clubbing-guard`.
 
 ## Must Not
 

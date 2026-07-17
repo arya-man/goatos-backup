@@ -343,14 +343,24 @@ func obligationsFeasibleOnDate(day time.Time, rows []domain.ParkConsolidationCan
 	day = biztime.BusinessDayStart(day)
 	ids := make([]string, 0, len(rows))
 	for _, row := range rows {
-		earliest := obligationEarliestDate(row)
-		latest := obligationLatestDate(row)
-		if day.Before(earliest) || day.After(latest) {
+		if !parkObligationFeasibleOnDate(day, row) {
 			continue
 		}
 		ids = append(ids, row.ObligationID)
 	}
 	return ids
+}
+
+func parkObligationFeasibleOnDate(day time.Time, row domain.ParkConsolidationCandidate) bool {
+	if row.DueAt.IsZero() &&
+		(row.WindowStart == nil || row.WindowStart.IsZero()) &&
+		(row.WindowEnd == nil || row.WindowEnd.IsZero()) {
+		return true
+	}
+	day = biztime.BusinessDayStart(day)
+	earliest := obligationEarliestDate(row)
+	latest := obligationLatestDate(row)
+	return !day.Before(earliest) && !day.After(latest)
 }
 
 func obligationEarliestDate(row domain.ParkConsolidationCandidate) time.Time {
@@ -364,7 +374,7 @@ func obligationLatestDate(row domain.ParkConsolidationCandidate) time.Time {
 	if row.WindowEnd != nil && !row.WindowEnd.IsZero() {
 		return biztime.BusinessDayStart(*row.WindowEnd)
 	}
-	return biztime.BusinessDayStart(row.DueAt)
+	return time.Date(9999, 12, 31, 0, 0, 0, 0, biztime.DefaultLocation())
 }
 
 func parkDriveWindow(rows []domain.ParkConsolidationCandidate, selected []string) (*time.Time, *time.Time) {
@@ -384,7 +394,7 @@ func parkDriveWindow(rows []domain.ParkConsolidationCandidate, selected []string
 			s := start
 			windowStart = &s
 		}
-		if windowEnd == nil || end.After(*windowEnd) {
+		if row.WindowEnd != nil && !row.WindowEnd.IsZero() && (windowEnd == nil || end.After(*windowEnd)) {
 			e := end
 			windowEnd = &e
 		}

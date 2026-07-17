@@ -98,6 +98,7 @@ run_backend() {
   step "scale-guard"              make scale-guard
   step "scale-guard self-test"    bash -c 'cd tools/scale-guard && go test ./...'
   step "clinical-defer-guard"     make clinical-defer-guard
+  step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard
   step "kernel-worker-cutover-guard" make kernel-worker-cutover-guard
