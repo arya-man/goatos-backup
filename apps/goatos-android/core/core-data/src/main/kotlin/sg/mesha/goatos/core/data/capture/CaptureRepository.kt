@@ -326,8 +326,14 @@ class DefaultProofCaptureRepository(
                     when {
                         item.status == SyncItemStatus.IN_FLIGHT ->
                             dao.updateStatus(rowId, EntitySyncStatus.IN_FLIGHT.name, null, null)
-                        item.status == SyncItemStatus.SUCCEEDED ->
-                            dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, decodeServerProofId(item.resultJson), null)
+                        item.status == SyncItemStatus.SUCCEEDED -> {
+                            val proofId = decodeServerProofId(item.resultJson)
+                            if (proofId.isNullOrBlank()) {
+                                dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, corruptProofUploadResultMessage)
+                            } else {
+                                dao.updateStatus(rowId, EntitySyncStatus.SYNCED.name, proofId, null)
+                            }
+                        }
                         item.isDeadLetter || item.conflict ->
                             dao.updateStatus(rowId, EntitySyncStatus.FAILED.name, null, item.lastError)
                         else -> Unit // QUEUED / still-retrying FAILED — leave PENDING, another emission follows.
@@ -343,6 +349,8 @@ private fun decodeServerProofId(resultJson: String?): String? {
         .getOrNull()
         ?.takeIf { it.isNotBlank() }
 }
+
+private const val corruptProofUploadResultMessage = "Proof upload finished without a server proof id. Record this video again."
 
 private fun ProofCaptureEntity.toRow() = ProofCaptureRow(
     id = id,

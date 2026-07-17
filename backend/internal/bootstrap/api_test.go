@@ -150,10 +150,11 @@ func TestAuthMaxTokenTTLFromEnv(t *testing.T) {
 }
 
 func TestBuildProofStorageFailsClosedOutsideLocal(t *testing.T) {
-	for _, env := range []string{"dev", "stg", "staging", "prod", "production"} {
+	for _, env := range []string{"", "dev", "stg", "staging", "prod", "production"} {
 		t.Run(env+"/empty", func(t *testing.T) {
 			t.Setenv("GOATOS_ENV", env)
 			t.Setenv("GOATOS_MEDIA_STORAGE", "")
+			t.Setenv("GOATOS_LOCAL_MEDIA_SIGNING_SECRET", "local-proof-secret")
 			if _, err := buildProofStorage(); err == nil {
 				t.Fatal("empty GOATOS_MEDIA_STORAGE accepted outside local/test")
 			}
@@ -161,6 +162,7 @@ func TestBuildProofStorageFailsClosedOutsideLocal(t *testing.T) {
 		t.Run(env+"/local", func(t *testing.T) {
 			t.Setenv("GOATOS_ENV", env)
 			t.Setenv("GOATOS_MEDIA_STORAGE", "local")
+			t.Setenv("GOATOS_LOCAL_MEDIA_SIGNING_SECRET", "local-proof-secret")
 			if _, err := buildProofStorage(); err == nil {
 				t.Fatal("local proof storage accepted outside local/test")
 			}
@@ -169,14 +171,24 @@ func TestBuildProofStorageFailsClosedOutsideLocal(t *testing.T) {
 }
 
 func TestBuildProofStorageAllowsLocalOnlyForLocalTestDevelopment(t *testing.T) {
-	for _, env := range []string{"", "local", "test", "development"} {
+	for _, env := range []string{"local", "test", "development"} {
 		t.Run(env, func(t *testing.T) {
 			t.Setenv("GOATOS_ENV", env)
 			t.Setenv("GOATOS_MEDIA_STORAGE", "")
+			t.Setenv("GOATOS_LOCAL_MEDIA_SIGNING_SECRET", "local-proof-secret")
 			if _, err := buildProofStorage(); err != nil {
 				t.Fatalf("local proof storage rejected for %q: %v", env, err)
 			}
 		})
+	}
+}
+
+func TestBuildProofStorageRequiresLocalSigningSecret(t *testing.T) {
+	t.Setenv("GOATOS_ENV", "local")
+	t.Setenv("GOATOS_MEDIA_STORAGE", "local")
+	t.Setenv("GOATOS_LOCAL_MEDIA_SIGNING_SECRET", "")
+	if _, err := buildProofStorage(); err == nil {
+		t.Fatal("local proof storage accepted without a signing secret")
 	}
 }
 

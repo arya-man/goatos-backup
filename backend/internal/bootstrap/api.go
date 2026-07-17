@@ -198,7 +198,11 @@ func buildProofStorage() (proofports.Storage, error) {
 		if !localProofStorageAllowed(env) {
 			return nil, fmt.Errorf("GOATOS_MEDIA_STORAGE=local is only allowed for local/test environments")
 		}
-		return prooflocal.New(os.Getenv("GOATOS_LOCAL_MEDIA_DIR"), os.Getenv("GOATOS_LOCAL_MEDIA_SIGNING_SECRET")), nil
+		secret := strings.TrimSpace(os.Getenv("GOATOS_LOCAL_MEDIA_SIGNING_SECRET"))
+		if secret == "" {
+			return nil, fmt.Errorf("GOATOS_LOCAL_MEDIA_SIGNING_SECRET is required for local proof storage")
+		}
+		return prooflocal.New(os.Getenv("GOATOS_LOCAL_MEDIA_DIR"), secret), nil
 	case "gcs":
 		bucket := strings.TrimSpace(os.Getenv("GOATOS_GCS_BUCKET"))
 		email := strings.TrimSpace(os.Getenv("GOATOS_GCS_CLIENT_EMAIL"))
@@ -227,7 +231,7 @@ func buildProofStorage() (proofports.Storage, error) {
 
 func localProofStorageAllowed(env string) bool {
 	switch env {
-	case "", "local", "test", "development":
+	case "local", "test", "development":
 		return true
 	default:
 		return false
