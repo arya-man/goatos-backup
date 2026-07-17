@@ -45,6 +45,39 @@ data class ScannedGoatEntity(
     val syncStatus: String = CaptureSyncStatus.PENDING.name,
 )
 
+/**
+ * Append-only audit of every physical RFID reader hit on a scan task. Unlike
+ * [ScannedGoatEntity], this table is not a completion/counter source and is not deduped by tag:
+ * a duplicate primary-tag read, a secondary-tag alias read, an unknown tag, and a not-due tag
+ * are all operational evidence that the reader fired. Submit ignores this table; only accepted
+ * [ScannedGoatEntity] rows drive the final `GOAT_SCAN` answer.
+ */
+@Entity(
+    tableName = "rfid_scan_attempt",
+    indices = [
+        Index(value = ["idempotencyKey"], unique = true),
+        Index(value = ["taskId", "capturedAtMs"]),
+        Index(value = ["taskId", "goatId", "capturedAtMs"]),
+    ],
+)
+data class RfidScanAttemptEntity(
+    @PrimaryKey val id: String,
+    val taskId: String,
+    val fieldKey: String,
+    val tag: String,
+    val normalizedTag: String,
+    val goatId: String?,
+    val obligationId: String?,
+    /** accepted / duplicate / not_due / unknown */
+    val outcome: String,
+    /** primary / secondary / unknown */
+    val tagRole: String,
+    val reason: String?,
+    val capturedAtMs: Long,
+    val syncStatus: String = CaptureSyncStatus.PENDING.name,
+    val idempotencyKey: String,
+)
+
 @Dao
 interface ScannedGoatDao {
     /** Insert-or-ignore: the unique (taskId, fieldKey, tag) index makes a repeat scan of the
@@ -83,6 +116,30 @@ interface ScannedGoatDao {
         /** Safety cap, not a real page size — a shed's roster is capacity-bounded, this just
          *  keeps a single Room read from ever materializing an unbounded table. */
         const val MAX_SCANNED_PER_FIELD = 2000
+    }
+}
+
+@Dao
+interface RfidScanAttemptDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(entity: RfidScanAttemptEntity): Long
+
+    @Query("SELECT * FROM rfid_scan_attempt WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
+    fun observeForTask(taskId: String, limit: Int = MAX_ATTEMPTS_PER_TASK): Flow<List<RfidScanAttemptEntity>>
+
+    @Query("SELECT * FROM rfid_scan_attempt WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
+    suspend fun listForTask(taskId: String, limit: Int = MAX_ATTEMPTS_PER_TASK): List<RfidScanAttemptEntity>
+
+    @Query("DELETE FROM rfid_scan_attempt WHERE taskId = :taskId")
+    suspend fun clearForTask(taskId: String)
+
+    @Query("DELETE FROM rfid_scan_attempt")
+    suspend fun clearAll()
+
+    companion object {
+        /** Audit trail cap for a single task readback. The table remains append-only; this only
+         *  prevents any one UI/test read from materializing an unbounded history. */
+        const val MAX_ATTEMPTS_PER_TASK = 5000
     }
 }
 

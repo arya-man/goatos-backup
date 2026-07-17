@@ -19,6 +19,9 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
+import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
+import sg.mesha.goatos.core.data.capture.RfidScanTagRole
+import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
@@ -53,6 +56,7 @@ class ScanViewModel @Inject constructor(
     private val repo: ExecutionRepository,
     private val reader: RfidReaderPort,
     private val scanCaptureRepository: ScanCaptureRepository,
+    private val scanAttemptRepository: ScanAttemptRepository,
     private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -242,30 +246,73 @@ class ScanViewModel @Inject constructor(
     private fun onTagRead(tag: String) {
         val target = normalize(tag)
         if (target.isEmpty()) return
-        val row = state.value.roster.firstOrNull {
-            normalize(it.primaryTag) == target || it.secondaryTag?.let { t -> normalize(t) == target } == true
-        }
+        val row = state.value.roster.firstOrNull { it.matchesTag(target) }
         if (row == null) {
+            recordScanAttempt(
+                tag = tag,
+                row = null,
+                outcome = RfidScanAttemptOutcome.UNKNOWN,
+                tagRole = RfidScanTagRole.UNKNOWN,
+                reason = "unknown_tag",
+            )
             _feed.update { prependFeed(ScanFeedEntry(tag, null, "unknown tag · not in this shed", ScanStatus.SKIPPED), it) }
             return
         }
+        val tagRole = row.tagRoleFor(target)
         when (row.status) {
             ScanStatus.PENDING -> {
                 markRowDone(row)
                 _manualDone.update { it - row.obligationId }
+                recordScanAttempt(
+                    tag = tag,
+                    row = row,
+                    outcome = RfidScanAttemptOutcome.ACCEPTED,
+                    tagRole = tagRole,
+                    reason = null,
+                )
                 recordRosterScan(row = row, tag = tag)
             }
             ScanStatus.DONE -> {
                 if (row.obligationId in _manualDone.value) {
                     _manualDone.update { it - row.obligationId }
+                    recordScanAttempt(
+                        tag = tag,
+                        row = row,
+                        outcome = RfidScanAttemptOutcome.ACCEPTED,
+                        tagRole = tagRole,
+                        reason = "manual_done_replaced_by_reader_scan",
+                    )
                     recordRosterScan(row = row, tag = tag)
+                } else {
+                    recordScanAttempt(
+                        tag = tag,
+                        row = row,
+                        outcome = RfidScanAttemptOutcome.DUPLICATE,
+                        tagRole = tagRole,
+                        reason = "goat_already_scanned",
+                    )
+                    _feed.update {
+                        prependFeed(
+                            ScanFeedEntry(row.primaryTag, row.secondaryTag, "already scanned · ${row.vaccineLabel}", ScanStatus.DONE),
+                            it,
+                        )
+                    }
                 }
             }
-            ScanStatus.SKIPPED -> _feed.update {
-                prependFeed(
-                    ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED),
-                    it,
+            ScanStatus.SKIPPED -> {
+                recordScanAttempt(
+                    tag = tag,
+                    row = row,
+                    outcome = RfidScanAttemptOutcome.NOT_DUE,
+                    tagRole = tagRole,
+                    reason = "not_due",
                 )
+                _feed.update {
+                    prependFeed(
+                        ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED),
+                        it,
+                    )
+                }
             }
         }
     }
@@ -292,6 +339,30 @@ class ScanViewModel @Inject constructor(
                 tag = capturedTag,
                 goatId = row.goatId,
                 obligationId = row.obligationId,
+            )
+        }
+    }
+
+    private fun recordScanAttempt(
+        tag: String,
+        row: RosterRow?,
+        outcome: RfidScanAttemptOutcome,
+        tagRole: RfidScanTagRole,
+        reason: String?,
+    ) {
+        val selectedTaskId = taskId ?: return
+        val capturedTag = tag.ifBlank { row?.primaryTag.orEmpty() }
+        if (normalize(capturedTag).isEmpty()) return
+        viewModelScope.launch {
+            scanAttemptRepository.recordAttempt(
+                taskId = selectedTaskId,
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = capturedTag,
+                goatId = row?.goatId,
+                obligationId = row?.obligationId,
+                outcome = outcome,
+                tagRole = tagRole,
+                reason = reason,
             )
         }
     }
@@ -336,7 +407,16 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    private fun normalize(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
+private fun normalize(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
+
+private fun RosterRow.matchesTag(normalizedTag: String): Boolean =
+    normalize(primaryTag) == normalizedTag || secondaryTag?.let { normalize(it) == normalizedTag } == true
+
+private fun RosterRow.tagRoleFor(normalizedTag: String): RfidScanTagRole = when {
+    normalize(primaryTag) == normalizedTag -> RfidScanTagRole.PRIMARY
+    secondaryTag?.let { normalize(it) == normalizedTag } == true -> RfidScanTagRole.SECONDARY
+    else -> RfidScanTagRole.UNKNOWN
+}
 
     private fun prependFeed(entry: ScanFeedEntry, existing: List<ScanFeedEntry>): List<ScanFeedEntry> =
         (listOf(entry) + existing).take(MAX_SCAN_FEED_ENTRIES)

@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 
@@ -80,6 +81,53 @@ class CaptureRepositoryTest {
             assertEquals("scan:task-1:goat_scan:tag001", sync.scanCalls[0].idempotencyKey)
             assertEquals("goat-1", sync.scanCalls[0].request.goatId)
             assertEquals("obl-1", sync.scanCalls[0].request.obligationId)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `scan attempts are append-only and each attempt is queued for backend audit`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanAttemptRepository(
+                db.rfidScanAttemptDao(),
+                syncRepository = sync,
+                dispatchers = unconfinedDispatchers,
+                clock = { 123L + sync.attemptCalls.size },
+                idGenerator = { "attempt-${sync.attemptCalls.size}" },
+            )
+
+            repo.recordAttempt(
+                taskId = "task-1",
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "901007000504418",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                outcome = RfidScanAttemptOutcome.ACCEPTED,
+                tagRole = RfidScanTagRole.PRIMARY,
+                reason = null,
+            )
+            repo.recordAttempt(
+                taskId = "task-1",
+                fieldKey = ROSTER_SCAN_FIELD_KEY,
+                tag = "901007000504419",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                outcome = RfidScanAttemptOutcome.DUPLICATE,
+                tagRole = RfidScanTagRole.SECONDARY,
+                reason = "goat_already_scanned",
+            )
+
+            val attempts = repo.attemptsForTask("task-1")
+            assertEquals(listOf("901007000504418", "901007000504419"), attempts.map { it.tag })
+            assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), attempts.map { it.outcome })
+            assertEquals(2, sync.attemptCalls.size)
+            assertEquals("scan-attempt:task-1:attempt-0", sync.attemptCalls[0].idempotencyKey)
+            assertEquals("scan-attempt:task-1:attempt-1", sync.attemptCalls[1].idempotencyKey)
+            assertEquals("secondary", sync.attemptCalls[1].request.tagRole)
+            assertEquals("goat_already_scanned", sync.attemptCalls[1].request.reason)
         } finally {
             db.close()
         }
@@ -241,9 +289,11 @@ class CaptureRepositoryTest {
 private class FakeSyncRepository : SyncRepository {
     data class EnqueueCall(val idempotencyKey: String, val outboxItemId: String, val request: ProofUploadRequestDto)
     data class ScanCall(val idempotencyKey: String, val request: ScanCaptureRequestDto)
+    data class AttemptCall(val idempotencyKey: String, val request: ScanAttemptRequestDto)
 
     val enqueueCalls = mutableListOf<EnqueueCall>()
     val scanCalls = mutableListOf<ScanCall>()
+    val attemptCalls = mutableListOf<AttemptCall>()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private var nextId = 0
 
@@ -271,6 +321,16 @@ private class FakeSyncRepository : SyncRepository {
     ): AppResult<String> {
         scanCalls += ScanCall(idempotencyKey, request)
         return AppResult.Ok("scan-outbox-${scanCalls.size}")
+    }
+
+    override suspend fun enqueueScanAttempt(
+        taskId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): AppResult<String> {
+        attemptCalls += AttemptCall(idempotencyKey, request)
+        return AppResult.Ok("attempt-outbox-${attemptCalls.size}")
     }
 
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: RescheduleObligationRequestDto): AppResult<String> = error("unused")

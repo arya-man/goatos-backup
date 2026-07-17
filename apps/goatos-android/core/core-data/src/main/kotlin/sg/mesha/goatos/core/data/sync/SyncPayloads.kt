@@ -4,6 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
@@ -31,6 +32,14 @@ data class ShedSubmitPayload(
 data class ScanCapturePayload(
     @SerialName("task_id") val taskId: String,
     @SerialName("request") val request: ScanCaptureRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SCAN_ATTEMPT].
+ *  Append-only RFID reader audit event; does not affect Submit counters. */
+@Serializable
+data class ScanAttemptPayload(
+    @SerialName("task_id") val taskId: String,
+    @SerialName("request") val request: ScanAttemptRequestDto,
 )
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.RESCHEDULE]. */

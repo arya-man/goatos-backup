@@ -321,7 +321,23 @@ fun BleRfidScannerScreen(
 
 private enum class RfidDebugMode { CONNECT, SCAN }
 
-private data class DebugTagRead(val tag: String, val accepted: Boolean) {
+private data class DebugRosterGoat(
+    val primaryTag: String,
+    val secondaryTag: String? = null,
+    val skipped: Boolean = false,
+) {
+    val key: String = normalizeRfidTag(primaryTag)
+
+    fun matches(normalizedTag: String): Boolean =
+        normalizeRfidTag(primaryTag) == normalizedTag || secondaryTag?.let { normalizeRfidTag(it) == normalizedTag } == true
+}
+
+private data class DebugTagRead(
+    val tag: String,
+    val goatKey: String?,
+    val status: ScanStatus,
+    val duplicate: Boolean = false,
+) {
     val normalizedTag: String = normalizeRfidTag(tag)
 }
 
@@ -346,12 +362,21 @@ private fun RfidDrivenVaccinationScanScreen(
             val tag = read.tag.trim()
             val normalizedTag = normalizeRfidTag(tag)
             if (normalizedTag.isNotBlank()) {
-                if (reads.any { it.normalizedTag == normalizedTag }) {
-                    duplicateTag = tag
-                } else {
-                    duplicateTag = null
-                    reads = listOf(DebugTagRead(tag = tag, accepted = normalizedTag in sampleGreenRfids)) + reads
-                }
+                val goat = sampleRosterGoats.firstOrNull { it.matches(normalizedTag) }
+                val alreadyAccepted = goat != null && reads.any { it.goatKey == goat.key && it.status == ScanStatus.DONE && !it.duplicate }
+                duplicateTag = if (alreadyAccepted) tag else null
+                reads = listOf(
+                    DebugTagRead(
+                        tag = tag,
+                        goatKey = goat?.key,
+                        status = when {
+                            goat == null -> ScanStatus.SKIPPED
+                            goat.skipped -> ScanStatus.SKIPPED
+                            else -> ScanStatus.DONE
+                        },
+                        duplicate = alreadyAccepted,
+                    ),
+                ) + reads
             }
         }
     }
@@ -394,35 +419,39 @@ private fun vaccinationScanStateForReads(
     readerConnection: ScanReaderConnection,
     duplicateTag: String?,
 ): ScanUiState {
-    val acceptedTags = reads.filter { it.accepted }.map { it.normalizedTag }.toSet()
-    val rejectedReads = reads.filterNot { it.accepted }
-    val rejectedTags = rejectedReads.map { it.normalizedTag }.toSet()
-    val done = acceptedTags.size
-    val total = sampleRosterRfids.size
-    val skipped = rejectedTags.size
-    val pending = sampleRosterRfids.count { it !in acceptedTags && it !in rejectedTags }
+    val acceptedGoats = reads.filter { it.status == ScanStatus.DONE && !it.duplicate }.mapNotNull { it.goatKey }.toSet()
+    val skippedRosterGoats = reads.filter { it.status == ScanStatus.SKIPPED }.mapNotNull { it.goatKey }.toSet()
+    val unknownRejectedReads = reads.filter { it.status == ScanStatus.SKIPPED && it.goatKey == null }
+    val done = acceptedGoats.size
+    val total = sampleRosterGoats.size
+    val skipped = skippedRosterGoats.size + unknownRejectedReads.distinctBy { it.normalizedTag }.size
+    val pending = sampleRosterGoats.count { it.key !in acceptedGoats && it.key !in skippedRosterGoats }
     val feed = reads.take(12).map { read ->
         ScanFeedEntry(
             primaryTag = read.tag,
             secondaryTag = null,
-            vaccineLabel = if (read.accepted) "FMD + HS · due" else "not due in this shed",
-            status = if (read.accepted) ScanStatus.DONE else ScanStatus.SKIPPED,
+            vaccineLabel = when {
+                read.duplicate -> "already scanned · same goat"
+                read.status == ScanStatus.DONE -> "FMD + HS · due"
+                else -> "not due in this shed"
+            },
+            status = read.status,
         )
     }
-    val knownRows = sampleRosterRfids.map { tag ->
+    val knownRows = sampleRosterGoats.map { goat ->
         RosterRow(
-            primaryTag = tag,
-            secondaryTag = null,
+            primaryTag = goat.primaryTag,
+            secondaryTag = goat.secondaryTag,
             vaccineLabel = "FMD + HS · due",
             status = when {
-                normalizeRfidTag(tag) in rejectedTags -> ScanStatus.SKIPPED
-                normalizeRfidTag(tag) in acceptedTags -> ScanStatus.DONE
+                goat.key in skippedRosterGoats -> ScanStatus.SKIPPED
+                goat.key in acceptedGoats -> ScanStatus.DONE
                 else -> ScanStatus.PENDING
             },
-            unsynced = normalizeRfidTag(tag) in acceptedTags || normalizeRfidTag(tag) in rejectedTags,
+            unsynced = goat.key in acceptedGoats || goat.key in skippedRosterGoats,
         )
     }
-    val rejectedRows = rejectedReads.distinctBy { it.normalizedTag }.filterNot { it.normalizedTag in sampleRosterRfids }.map { read ->
+    val rejectedRows = unknownRejectedReads.distinctBy { it.normalizedTag }.map { read ->
         RosterRow(
             primaryTag = read.tag,
             secondaryTag = null,
@@ -475,17 +504,12 @@ private fun RfidReaderStatus.toScanReaderConnection(readerName: String?): ScanRe
         actionLabel = "Reconnect",
     )
 
-private val sampleAcceptedRfids = setOf(
-    "901007000504392",
-    "901007000504418",
-    "901007000504407",
-    "901007000504419",
-    "901007000504332",
+private val sampleRosterGoats = listOf(
+    DebugRosterGoat(primaryTag = "901007000504392"),
+    DebugRosterGoat(primaryTag = "901007000504418", secondaryTag = "901007000504419"),
+    DebugRosterGoat(primaryTag = "901007000504407", skipped = true),
+    DebugRosterGoat(primaryTag = "901007000504332"),
 )
-
-private val sampleSkippedRfids = setOf("901007000504407")
-private val sampleRosterRfids = sampleAcceptedRfids.toList()
-private val sampleGreenRfids = sampleAcceptedRfids - sampleSkippedRfids
 private fun normalizeRfidTag(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
 
 @Composable

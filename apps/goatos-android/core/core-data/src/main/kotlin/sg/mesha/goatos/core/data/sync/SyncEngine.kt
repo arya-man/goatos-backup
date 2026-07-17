@@ -204,6 +204,7 @@ class SyncEngine(
     private suspend fun dispatch(item: OutboxEntity): String = when (OutboxOpType.valueOf(item.opType)) {
         OutboxOpType.SHED_SUBMIT -> dispatchShedSubmit(item)
         OutboxOpType.SCAN_CAPTURE -> dispatchScanCapture(item)
+        OutboxOpType.SCAN_ATTEMPT -> dispatchScanAttempt(item)
         OutboxOpType.RESCHEDULE -> dispatchReschedule(item)
         OutboxOpType.PROOF_UPLOAD -> dispatchProofUpload(item)
         OutboxOpType.VERIFY_TASK -> dispatchVerifyTask(item)
@@ -226,6 +227,12 @@ class SyncEngine(
     private suspend fun dispatchScanCapture(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<ScanCapturePayload>(item.payloadJson)
         val response = api.recordScanCapture(payload.taskId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchScanAttempt(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ScanAttemptPayload>(item.payloadJson)
+        val response = api.recordScanAttempt(payload.taskId, item.idempotencyKey, payload.request)
         return syncJson.encodeToString(response)
     }
 

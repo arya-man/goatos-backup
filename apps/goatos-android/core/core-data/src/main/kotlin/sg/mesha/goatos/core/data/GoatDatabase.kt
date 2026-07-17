@@ -4,6 +4,8 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
+import sg.mesha.goatos.core.database.capture.RfidScanAttemptDao
+import sg.mesha.goatos.core.database.capture.RfidScanAttemptEntity
 import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.data.cache.AdherenceCacheDao
@@ -44,7 +46,9 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
  * category-filtered media queue (context/architecture/verifier-app-and-flow.md) offline-first
  * from day one, same as every other screen-facing read model. v6 (see [MIGRATION_5_6]) adds
  * backend goat/obligation ids to RFID scan captures so Submit can materialize completions by
- * goat id while still rendering/scanning RFID tags.
+ * goat id while still rendering/scanning RFID tags. v7 (see [MIGRATION_6_7]) adds an append-only
+ * RFID attempt audit table so duplicate/alias/unknown physical reads sync without affecting
+ * counters or Submit.
  */
 @Database(
     entities = [
@@ -61,10 +65,11 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         RosterCoverageCacheEntity::class,
         TaskDetailCacheEntity::class,
         ScannedGoatEntity::class,
+        RfidScanAttemptEntity::class,
         ProofCaptureEntity::class,
         VerificationQueueCacheEntity::class,
     ],
-    version = 6,
+    version = 7,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -85,6 +90,7 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun rosterCoverageCacheDao(): RosterCoverageCacheDao
     abstract fun taskDetailCacheDao(): TaskDetailCacheDao
     abstract fun scannedGoatDao(): ScannedGoatDao
+    abstract fun rfidScanAttemptDao(): RfidScanAttemptDao
     abstract fun proofCaptureDao(): ProofCaptureDao
     abstract fun verificationQueueCacheDao(): VerificationQueueCacheDao
 }

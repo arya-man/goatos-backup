@@ -4432,6 +4432,36 @@ CREATE TABLE public.sop_task_scan_captures (
 
 
 --
+-- Name: sop_task_scan_attempts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_task_scan_attempts (
+    attempt_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    field_key text NOT NULL,
+    tag text NOT NULL,
+    normalized_tag text NOT NULL,
+    goat_id uuid,
+    obligation_id uuid,
+    outcome text NOT NULL,
+    tag_role text DEFAULT 'unknown'::text NOT NULL,
+    reason text,
+    captured_by uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    captured_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sop_task_scan_attempts_field_key_check CHECK ((btrim(field_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_normalized_tag_check CHECK ((btrim(normalized_tag) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_outcome_check CHECK ((outcome = ANY (ARRAY['accepted'::text, 'duplicate'::text, 'not_due'::text, 'unknown'::text]))),
+    CONSTRAINT sop_task_scan_attempts_tag_check CHECK ((btrim(tag) <> ''::text)),
+    CONSTRAINT sop_task_scan_attempts_tag_role_check CHECK ((tag_role = ANY (ARRAY['primary'::text, 'secondary'::text, 'unknown'::text])))
+);
+
+
+--
 -- Name: sop_task_review_fanouts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -7860,6 +7890,14 @@ ALTER TABLE ONLY public.sop_task_scan_captures
 
 
 --
+-- Name: sop_task_scan_attempts sop_task_scan_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_attempts
+    ADD CONSTRAINT sop_task_scan_attempts_pkey PRIMARY KEY (attempt_id);
+
+
+--
 -- Name: sop_task_review_fanouts sop_task_review_fanouts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9990,6 +10028,27 @@ CREATE UNIQUE INDEX sop_task_scan_captures_task_field_tag_unique_idx ON public.s
 --
 
 CREATE INDEX sop_task_scan_captures_task_idx ON public.sop_task_scan_captures USING btree (tenant_id, task_id, captured_at, capture_id);
+
+
+--
+-- Name: sop_task_scan_attempts_idempotency_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_task_scan_attempts_idempotency_unique_idx ON public.sop_task_scan_attempts USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: sop_task_scan_attempts_task_goat_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_task_scan_attempts_task_goat_idx ON public.sop_task_scan_attempts USING btree (tenant_id, task_id, goat_id, captured_at, attempt_id);
+
+
+--
+-- Name: sop_task_scan_attempts_task_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_task_scan_attempts_task_idx ON public.sop_task_scan_attempts USING btree (tenant_id, task_id, captured_at, attempt_id);
 
 
 --
@@ -13168,6 +13227,30 @@ ALTER TABLE ONLY public.sop_task_scan_captures
 
 ALTER TABLE ONLY public.sop_task_scan_captures
     ADD CONSTRAINT sop_task_scan_captures_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: sop_task_scan_attempts sop_task_scan_attempts_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_attempts
+    ADD CONSTRAINT sop_task_scan_attempts_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
+
+
+--
+-- Name: sop_task_scan_attempts sop_task_scan_attempts_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_attempts
+    ADD CONSTRAINT sop_task_scan_attempts_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+
+
+--
+-- Name: sop_task_scan_attempts sop_task_scan_attempts_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_attempts
+    ADD CONSTRAINT sop_task_scan_attempts_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

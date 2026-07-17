@@ -9,6 +9,10 @@ import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
+import sg.mesha.goatos.core.data.capture.RfidScanAttemptRow
+import sg.mesha.goatos.core.data.capture.RfidScanTagRole
+import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ScannedGoatRow
 import sg.mesha.goatos.core.model.nav.NavState
@@ -56,6 +60,61 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
     override suspend fun clearForTask(taskId: String) {
         rows.clear()
         flow.value = emptyList()
+    }
+}
+
+class FakeScanAttemptRepository : ScanAttemptRepository {
+    data class AttemptCall(
+        val taskId: String,
+        val fieldKey: String,
+        val tag: String,
+        val goatId: String?,
+        val obligationId: String?,
+        val outcome: RfidScanAttemptOutcome,
+        val tagRole: RfidScanTagRole,
+        val reason: String?,
+    )
+
+    val calls = mutableListOf<AttemptCall>()
+    private val rows = mutableListOf<RfidScanAttemptRow>()
+    private val flow = MutableStateFlow<List<RfidScanAttemptRow>>(emptyList())
+
+    override fun observeAttempts(taskId: String): Flow<List<RfidScanAttemptRow>> =
+        flow.map { list -> list.filter { it.taskId == taskId } }
+
+    override suspend fun recordAttempt(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+        outcome: RfidScanAttemptOutcome,
+        tagRole: RfidScanTagRole,
+        reason: String?,
+    ) {
+        calls += AttemptCall(taskId, fieldKey, tag, goatId, obligationId, outcome, tagRole, reason)
+        rows += RfidScanAttemptRow(
+            id = "attempt-${rows.size}",
+            taskId = taskId,
+            fieldKey = fieldKey,
+            tag = tag,
+            normalizedTag = tag.filter { it.isLetterOrDigit() }.lowercase(),
+            goatId = goatId,
+            obligationId = obligationId,
+            outcome = outcome,
+            tagRole = tagRole,
+            reason = reason,
+            capturedAtMs = rows.size.toLong(),
+        )
+        flow.value = rows.toList()
+    }
+
+    override suspend fun attemptsForTask(taskId: String): List<RfidScanAttemptRow> =
+        rows.filter { it.taskId == taskId }
+
+    override suspend fun clearForTask(taskId: String) {
+        rows.removeAll { it.taskId == taskId }
+        flow.value = rows.toList()
     }
 }
 

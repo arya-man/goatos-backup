@@ -7,6 +7,8 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptResponseDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
@@ -23,6 +25,7 @@ import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by delegate {
     var submitAppTaskFn: (suspend (String, String, SubmitTaskRequestDto) -> SubmissionResponseDto)? = null
     var recordScanCaptureFn: (suspend (String, String, ScanCaptureRequestDto) -> ScanCaptureResponseDto)? = null
+    var recordScanAttemptFn: (suspend (String, String, ScanAttemptRequestDto) -> ScanAttemptResponseDto)? = null
     var rescheduleObligationFn: (suspend (String, String, RescheduleObligationRequestDto) -> RescheduleObligationResponseDto)? = null
     var registerProofFn: (suspend (String, ProofUploadRequestDto) -> ProofUploadResponseDto)? = null
     var submitVerificationVerdictFn: (suspend (String, String, VerificationVerdictRequestDto) -> VerificationVerdictResponseDto)? = null
@@ -66,6 +69,14 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     ): ScanCaptureResponseDto =
         recordScanCaptureFn?.invoke(taskId, idempotencyKey, request)
             ?: delegate.recordScanCapture(taskId, idempotencyKey, request)
+
+    override suspend fun recordScanAttempt(
+        taskId: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): ScanAttemptResponseDto =
+        recordScanAttemptFn?.invoke(taskId, idempotencyKey, request)
+            ?: delegate.recordScanAttempt(taskId, idempotencyKey, request)
 
     override suspend fun rescheduleObligation(
         obligationId: String,

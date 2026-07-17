@@ -17,10 +17,13 @@ import sg.mesha.goatos.auth.currentFirebaseIdTokenBlocking
 import sg.mesha.goatos.core.data.BootstrapCache
 import sg.mesha.goatos.core.data.BootstrapCacheDao
 import sg.mesha.goatos.core.data.capture.DefaultProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.DefaultScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.DefaultScanCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ScanAttemptRepository
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
+import sg.mesha.goatos.core.database.capture.RfidScanAttemptDao
 import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.data.AdherenceRepository
 import sg.mesha.goatos.core.data.BootstrapRepository
@@ -154,6 +157,9 @@ object AppModule {
 
     @Provides
     fun provideScannedGoatDao(db: GoatDatabase): ScannedGoatDao = db.scannedGoatDao()
+
+    @Provides
+    fun provideRfidScanAttemptDao(db: GoatDatabase): RfidScanAttemptDao = db.rfidScanAttemptDao()
 
     @Provides
     fun provideProofCaptureDao(db: GoatDatabase): ProofCaptureDao = db.proofCaptureDao()
@@ -294,6 +300,13 @@ object AppModule {
         dao: ScannedGoatDao,
         syncRepository: SyncRepository,
     ): ScanCaptureRepository = DefaultScanCaptureRepository(dao, syncRepository)
+
+    @Provides
+    @Singleton
+    fun provideScanAttemptRepository(
+        dao: RfidScanAttemptDao,
+        syncRepository: SyncRepository,
+    ): ScanAttemptRepository = DefaultScanAttemptRepository(dao, syncRepository)
 
     @Provides
     @Singleton

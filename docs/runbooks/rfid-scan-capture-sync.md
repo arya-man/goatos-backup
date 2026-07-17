@@ -16,6 +16,10 @@ submission.
 BLE/HID RFID reader
 -> Android hardware key capture
 -> ScanViewModel.onTagRead(...)
+-> ScanAttemptRepository.recordAttempt(...) for every physical read
+-> outbox SCAN_ATTEMPT item
+-> POST /app/tasks/{task_id}/scan-attempts
+-> backend sop_task_scan_attempts audit row
 -> ScanCaptureRepository.recordScan(...)
 -> Room scanned_goats row
 -> outbox SCAN_CAPTURE item
@@ -29,6 +33,12 @@ The scan screen updates immediately from local Room-backed state so the operator
 does not lose visible progress if the network is slow. The backend draft row
 protects progress after sync even if the operator leaves the scan screen before
 pressing Submit.
+
+There are two separate RFID streams:
+
+- scan attempts: append-only audit of every physical reader hit, including
+  accepted, duplicate, not-due, and unknown tags;
+- scan captures: de-duplicated accepted rows that drive Submit/counts.
 
 ## Android Local Contract
 
@@ -59,6 +69,16 @@ Duplicate RFID reads must be non-destructive:
 - the UI should surface "already scanned" feedback instead of appending another
   scan-feed row.
 
+The duplicate read still records a separate scan attempt. For a goat with two
+valid tags, scanning the primary tag and then the secondary tag should produce:
+
+```text
+scan attempts : accepted primary, duplicate secondary
+scan captures : one accepted capture
+UI counters   : Done remains 1
+Submit        : one goat
+```
+
 ## Backend Contract
 
 The app API endpoint is:
@@ -78,6 +98,18 @@ The backend validates:
 - the scan field is allowed by the task form.
 
 Accepted draft captures are stored in `sop_task_scan_captures`.
+
+Append-only reader attempts are stored in `sop_task_scan_attempts`. The app API
+endpoint is:
+
+```http
+POST /app/tasks/{task_id}/scan-attempts
+Idempotency-Key: scan-attempt:{taskId}:{attemptId}
+```
+
+Attempts are unique by `(tenant_id, idempotency_key)`, not by tag. This lets two
+physical reads of the same tag, or two aliases for the same goat, both remain
+visible to audit without incrementing Submit.
 
 The table has two important uniqueness guards:
 
@@ -140,13 +172,20 @@ row after the page is loaded, not fall through as an unknown tag.
 Keep these contracts pinned with focused tests:
 
 - Android ViewModel: scan same RFID twice -> one Room capture, one feed row, one
-  DONE transition.
+  DONE transition, plus duplicate attempt audit.
+- Android ViewModel: scan primary tag then secondary tag for the same goat -> one
+  capture, two attempts, one DONE count, visible already-scanned feed entry.
 - Android ViewModel: manual tap -> no `GOAT_SCAN` Room capture.
 - Android capture repository: duplicate `(task, field, tag)` insert is a no-op
   and enqueues sync once.
+- Android attempt repository: every accepted/duplicate/not-due/unknown reader
+  hit enqueues a scan-attempt sync row.
 - Android sync engine: `SCAN_CAPTURE` dispatches to
   `/app/tasks/{task_id}/scan-captures` with the stable idempotency key.
+- Android sync engine: `SCAN_ATTEMPT` dispatches to
+  `/app/tasks/{task_id}/scan-attempts` with the stable idempotency key.
 - Backend SOP service: `RecordScanCapture` validates and persists draft rows.
+- Backend SOP service: `RecordScanAttempt` validates and persists audit rows.
 - Backend SOP submit: draft scan captures merge into final `GOAT_SCAN` answers.
 
 Useful focused checks:

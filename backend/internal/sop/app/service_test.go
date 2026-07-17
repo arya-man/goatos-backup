@@ -357,6 +357,60 @@ func TestRecordScanCaptureValidatesAndPersistsDraft(t *testing.T) {
 	}
 }
 
+func TestRecordScanAttemptValidatesAndPersistsDuplicateAudit(t *testing.T) {
+	repo := newFakeRepo()
+	repo.task.SOPCode = "vaccination.drive"
+	repo.version.SOPCode = "vaccination.drive"
+	repo.version.FormDSL = vaccinationDSL()
+	service := NewService(repo)
+
+	result, err := service.RecordScanAttempt(context.Background(), ports.RecordScanAttemptCommand{
+		TenantID:       testTenantID,
+		ActorID:        testActorID,
+		TaskID:         testTaskID,
+		IdempotencyKey: "scan-attempt:test",
+		Body: domain.ScanAttemptRequest{
+			FieldKey:     rosterScanFieldKey,
+			Tag:          "901007000504419",
+			GoatID:       "66000000-0000-4000-8000-000000000001",
+			ObligationID: "67000000-0000-4000-8000-000000000001",
+			Outcome:      "duplicate",
+			TagRole:      "secondary",
+			Reason:       "goat_already_scanned",
+		},
+	}, "trace")
+	if err != nil {
+		t.Fatalf("RecordScanAttempt() error = %v", err)
+	}
+	if result.Attempt.Outcome != "duplicate" || result.Attempt.TagRole != "secondary" {
+		t.Fatalf("attempt = %#v", result.Attempt)
+	}
+	if repo.lastScanAttempt.Body.Reason != "goat_already_scanned" {
+		t.Fatalf("last attempt = %#v", repo.lastScanAttempt)
+	}
+}
+
+func TestRecordScanAttemptRejectsInvalidOutcome(t *testing.T) {
+	repo := newFakeRepo()
+	repo.version.FormDSL = vaccinationDSL()
+	service := NewService(repo)
+
+	_, err := service.RecordScanAttempt(context.Background(), ports.RecordScanAttemptCommand{
+		TenantID:       testTenantID,
+		ActorID:        testActorID,
+		TaskID:         testTaskID,
+		IdempotencyKey: "scan-attempt:test",
+		Body: domain.ScanAttemptRequest{
+			FieldKey: rosterScanFieldKey,
+			Tag:      "901007000504419",
+			Outcome:  "count_it_twice",
+		},
+	}, "trace")
+	if err == nil {
+		t.Fatal("RecordScanAttempt() accepted invalid outcome")
+	}
+}
+
 func TestSubmitAcceptedWritesMovementPayload(t *testing.T) {
 	repo := newFakeRepo()
 	repo.version.ProofPolicy = canonicalProofPolicy(true, "video")
@@ -938,6 +992,8 @@ type fakeRepo struct {
 	lastFailedSubmissionFanouts ports.ListAgedFailedSubmissionFanoutsParams
 	scanCaptures                []domain.ScanCaptureSummary
 	lastScanCapture             ports.RecordScanCaptureCommand
+	scanAttempts                []domain.ScanAttemptSummary
+	lastScanAttempt             ports.RecordScanAttemptCommand
 	submitReplay                bool
 	reviewCalls                 int
 	listSOPsResult              []domain.SOPDefinition
@@ -1075,6 +1131,23 @@ func (f *fakeRepo) RecordScanCapture(_ context.Context, cmd ports.RecordScanCapt
 }
 func (f *fakeRepo) ListScanCaptures(context.Context, string, string) ([]domain.ScanCaptureSummary, error) {
 	return f.scanCaptures, nil
+}
+func (f *fakeRepo) RecordScanAttempt(_ context.Context, cmd ports.RecordScanAttemptCommand) (domain.ScanAttemptSummary, error) {
+	f.lastScanAttempt = cmd
+	attempt := domain.ScanAttemptSummary{
+		AttemptID:    "68000000-0000-4000-8000-000000000001",
+		TaskID:       cmd.TaskID,
+		FieldKey:     cmd.Body.FieldKey,
+		Tag:          cmd.Body.Tag,
+		GoatID:       cmd.Body.GoatID,
+		ObligationID: cmd.Body.ObligationID,
+		Outcome:      cmd.Body.Outcome,
+		TagRole:      cmd.Body.TagRole,
+		Reason:       cmd.Body.Reason,
+		CapturedAt:   "2026-07-17T00:00:00Z",
+	}
+	f.scanAttempts = append(f.scanAttempts, attempt)
+	return attempt, nil
 }
 func (f *fakeRepo) SubmitTask(_ context.Context, cmd ports.SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error) {
 	f.lastSubmit = cmd

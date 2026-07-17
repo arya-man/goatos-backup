@@ -19,6 +19,8 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskResponseDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptResponseDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
@@ -243,6 +245,15 @@ interface AppApi {
         request: ScanCaptureRequestDto,
     ): ScanCaptureResponseDto
 
+    /** POST /app/tasks/{task_id}/scan-attempts — append-only RFID audit event.
+     *  This records every physical reader hit, including duplicate alias, not-due, and unknown
+     *  reads. It never drives Submit counters. */
+    suspend fun recordScanAttempt(
+        taskId: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): ScanAttemptResponseDto
+
     /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
      *  Idempotent via [idempotencyKey]. The outbox drains this like submitAppTask. */
     suspend fun verifyAppTask(
@@ -455,6 +466,12 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         request: ScanCaptureRequestDto,
     ): ScanCaptureResponseDto = ScanCaptureResponseDto()
+
+    override suspend fun recordScanAttempt(
+        taskId: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): ScanAttemptResponseDto = ScanAttemptResponseDto()
 
     override suspend fun verifyAppTask(
         taskId: String,

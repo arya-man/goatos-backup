@@ -25,6 +25,33 @@ data class ScannedGoatRow(
     val capturedAtMs: Long,
 )
 
+enum class RfidScanAttemptOutcome(val wireValue: String) {
+    ACCEPTED("accepted"),
+    DUPLICATE("duplicate"),
+    NOT_DUE("not_due"),
+    UNKNOWN("unknown"),
+}
+
+enum class RfidScanTagRole(val wireValue: String) {
+    PRIMARY("primary"),
+    SECONDARY("secondary"),
+    UNKNOWN("unknown"),
+}
+
+data class RfidScanAttemptRow(
+    val id: String,
+    val taskId: String,
+    val fieldKey: String,
+    val tag: String,
+    val normalizedTag: String,
+    val goatId: String?,
+    val obligationId: String?,
+    val outcome: RfidScanAttemptOutcome,
+    val tagRole: RfidScanTagRole,
+    val reason: String?,
+    val capturedAtMs: Long,
+)
+
 /** The proof subjects the vaccination SOP documents
  *  (docs/mobile/proof-capture-sync-and-e2e.md §2). [EXTRA] is any operator-added video beyond
  *  the named/required ones, up to the total cap — it carries a caption instead of a fixed label. */

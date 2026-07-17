@@ -99,12 +99,15 @@ the seed command blindly fill every table.
 | Static catalog/config | Migration or reviewed config seed | Migration may insert safe global catalog rows; environment-specific config must come from source-backed seed/config, never guessed defaults. |
 | Operational/audit/event | Runtime workers/events | Starts empty unless replaying real events. Notification attempts, dirty scopes, outbox-derived rows, reminder fires, and audit ledgers must not be faked during seed. |
 
-`sop_task_scan_captures` is an operational runtime-draft table. A clean-slate
-seed must create it empty; rows are written only by authenticated operator RFID
-reader events through the mobile outbox and app API. Do not seed synthetic scan
-captures to make a vaccination drive look complete. Seed verification for this
-table is only that the migration applied and Submit can validate/finalize
-runtime captures when they exist.
+`sop_task_scan_captures` and `sop_task_scan_attempts` are operational runtime
+tables. A clean-slate seed must create both empty; rows are written only by
+authenticated operator RFID reader events through the mobile outbox and app API.
+Do not seed synthetic scan captures or attempts to make a vaccination drive look
+complete. `sop_task_scan_captures` is the de-duplicated Submit draft source;
+`sop_task_scan_attempts` is append-only reader audit for accepted, duplicate,
+not-due, and unknown physical reads. Seed verification for these tables is only
+that the migration applied and Submit can validate/finalize runtime captures
+when they exist.
 
 The standard setup shape is:
 

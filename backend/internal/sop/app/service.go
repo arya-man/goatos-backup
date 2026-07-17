@@ -521,6 +521,63 @@ func (s *Service) RecordScanCapture(ctx context.Context, cmd ports.RecordScanCap
 	return &domain.ScanCaptureResponse{Capture: capture, TraceID: traceID}, nil
 }
 
+func (s *Service) RecordScanAttempt(ctx context.Context, cmd ports.RecordScanAttemptCommand, traceID string) (*domain.ScanAttemptResponse, error) {
+	if err := validateTenantActorID(cmd.TenantID, cmd.ActorID, cmd.TaskID, "task_id"); err != nil {
+		return nil, err
+	}
+	cmd.IdempotencyKey = strings.TrimSpace(cmd.IdempotencyKey)
+	if cmd.IdempotencyKey == "" {
+		return nil, BadRequest("invalid_idempotency_key", "idempotency key is required")
+	}
+	cmd.Body.FieldKey = strings.TrimSpace(cmd.Body.FieldKey)
+	cmd.Body.Tag = strings.TrimSpace(cmd.Body.Tag)
+	cmd.Body.NormalizedTag = normalizeScanTag(cmd.Body.NormalizedTag)
+	cmd.Body.GoatID = strings.TrimSpace(cmd.Body.GoatID)
+	cmd.Body.ObligationID = strings.TrimSpace(cmd.Body.ObligationID)
+	cmd.Body.Outcome = strings.TrimSpace(cmd.Body.Outcome)
+	cmd.Body.TagRole = strings.TrimSpace(cmd.Body.TagRole)
+	cmd.Body.Reason = strings.TrimSpace(cmd.Body.Reason)
+	if cmd.Body.FieldKey == "" {
+		return nil, BadRequest("invalid_field_key", "field_key is required")
+	}
+	if cmd.Body.Tag == "" {
+		return nil, BadRequest("invalid_tag", "tag is required")
+	}
+	if cmd.Body.GoatID != "" && !uuidutil.IsUUIDString(cmd.Body.GoatID) {
+		return nil, BadRequest("invalid_goat_id", "goat_id must be a UUID")
+	}
+	if cmd.Body.ObligationID != "" && !uuidutil.IsUUIDString(cmd.Body.ObligationID) {
+		return nil, BadRequest("invalid_obligation_id", "obligation_id must be a UUID")
+	}
+	if !scanAttemptValueAllowed(cmd.Body.Outcome, "accepted", "duplicate", "not_due", "unknown") {
+		return nil, BadRequest("invalid_outcome", "outcome must be accepted, duplicate, not_due, or unknown")
+	}
+	if cmd.Body.TagRole == "" {
+		cmd.Body.TagRole = "unknown"
+	}
+	if !scanAttemptValueAllowed(cmd.Body.TagRole, "primary", "secondary", "unknown") {
+		return nil, BadRequest("invalid_tag_role", "tag_role must be primary, secondary, or unknown")
+	}
+	task, version, _, err := s.repo.GetTask(ctx, cmd.TenantID, cmd.TaskID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	if version == nil {
+		return nil, Conflict("missing_sop_version", "task has no pinned SOP version")
+	}
+	if task.AssignedTo != nil && *task.AssignedTo != cmd.ActorID {
+		return nil, Forbidden("task_not_assigned", "task is not assigned to this actor")
+	}
+	if !scanFieldAllowed(version.FormDSL, cmd.Body.FieldKey) {
+		return nil, BadRequest("invalid_scan_field", "field_key is not a goat scan field for this task")
+	}
+	attempt, err := s.repo.RecordScanAttempt(ctx, cmd)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return &domain.ScanAttemptResponse{Attempt: attempt, TraceID: traceID}, nil
+}
+
 func (s *Service) reviewTask(ctx context.Context, cmd ports.ReviewTaskCommand, traceID string) (*domain.TaskResponse, error) {
 	if err := validateTenantActorID(cmd.TenantID, cmd.ActorID, cmd.TaskID, "task_id"); err != nil {
 		return nil, err
@@ -1038,6 +1095,15 @@ func scanFieldAllowed(formDSL map[string]any, fieldKey string) bool {
 		}
 		fieldType, _ := normalizeFieldType(stringValue(field, "type"))
 		return fieldType == "goat_scan" || fieldType == "goat_lookup" || fieldType == "animal_id_scan"
+	}
+	return false
+}
+
+func scanAttemptValueAllowed(value string, allowed ...string) bool {
+	for _, item := range allowed {
+		if value == item {
+			return true
+		}
 	}
 	return false
 }

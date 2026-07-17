@@ -923,6 +923,67 @@ LIMIT 2000`, tenantID, taskID)
 	return out, nil
 }
 
+func (r *Repository) RecordScanAttempt(ctx context.Context, cmd ports.RecordScanAttemptCommand) (domain.ScanAttemptSummary, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	normalized := normalizeScanTag(cmd.Body.NormalizedTag)
+	if normalized == "" {
+		normalized = normalizeScanTag(cmd.Body.Tag)
+	}
+	if normalized == "" {
+		return domain.ScanAttemptSummary{}, ports.ErrInvalidFilter
+	}
+	tagRole := strings.TrimSpace(cmd.Body.TagRole)
+	if tagRole == "" {
+		tagRole = "unknown"
+	}
+	var item domain.ScanAttemptSummary
+	var capturedAt time.Time
+	err := r.pool.QueryRow(ctx, `
+INSERT INTO sop_task_scan_attempts (
+  tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id,
+  outcome, tag_role, reason, captured_by, idempotency_key, captured_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid,
+  $8, $9, nullif($10, ''), $11::uuid, $12,
+  COALESCE(to_timestamp(NULLIF($13, 0)::double precision / 1000.0), now())
+)
+ON CONFLICT (tenant_id, idempotency_key) DO UPDATE
+SET updated_at = now()
+RETURNING attempt_id::text, task_id::text, field_key, tag, COALESCE(goat_id::text, ''),
+          COALESCE(obligation_id::text, ''), outcome, tag_role, COALESCE(reason, ''), captured_at`,
+		cmd.TenantID,
+		cmd.TaskID,
+		cmd.Body.FieldKey,
+		cmd.Body.Tag,
+		normalized,
+		cmd.Body.GoatID,
+		cmd.Body.ObligationID,
+		cmd.Body.Outcome,
+		tagRole,
+		cmd.Body.Reason,
+		cmd.ActorID,
+		cmd.IdempotencyKey,
+		int64Value(cmd.Body.CapturedAtMs),
+	).Scan(
+		&item.AttemptID,
+		&item.TaskID,
+		&item.FieldKey,
+		&item.Tag,
+		&item.GoatID,
+		&item.ObligationID,
+		&item.Outcome,
+		&item.TagRole,
+		&item.Reason,
+		&capturedAt,
+	)
+	if err != nil {
+		return domain.ScanAttemptSummary{}, mapWriteErr(err)
+	}
+	item.CapturedAt = capturedAt.UTC().Format(time.RFC3339)
+	return item, nil
+}
+
 func insertSubmissionFanout(ctx context.Context, tx pgx.Tx, cmd ports.SubmitTaskCommand, submissionID string) error {
 	_, err := tx.Exec(ctx, `
 INSERT INTO sop_task_submission_fanouts (

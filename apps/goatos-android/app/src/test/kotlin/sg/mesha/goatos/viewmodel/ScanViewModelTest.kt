@@ -31,6 +31,8 @@ import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
 import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
+import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
+import sg.mesha.goatos.core.data.capture.RfidScanTagRole
 import sg.mesha.goatos.core.data.forms.FormField
 import sg.mesha.goatos.core.data.forms.FormFieldType
 import sg.mesha.goatos.core.data.forms.FormSpec
@@ -69,6 +71,7 @@ class ScanViewModelTest {
     @Test
     fun `scan screen RFID hit is persisted and included in submit payload`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
         val scanVm = ScanViewModel(
             repo = FakeScanExecutionRepository(
@@ -76,6 +79,7 @@ class ScanViewModelTest {
             ),
             reader = reader,
             scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -86,6 +90,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
 
         val submitSync = CapturingSubmitSyncRepository()
@@ -120,6 +125,7 @@ class ScanViewModelTest {
     @Test
     fun `repeated RFID scan is not recorded as another capture`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
         val scanVm = ScanViewModel(
             repo = FakeScanExecutionRepository(
@@ -127,6 +133,7 @@ class ScanViewModelTest {
             ),
             reader = reader,
             scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -139,13 +146,53 @@ class ScanViewModelTest {
 
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
         assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
-        assertEquals(1, scanVm.state.value.feed.size)
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE), scanAttempts.calls.map { it.outcome })
+        assertEquals(2, scanVm.state.value.feed.size)
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+    }
+
+    @Test
+    fun `secondary tag for same goat records duplicate attempt but does not count twice`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(
+                    rows = listOf(scanRow("goat-1", "901007000504418", "obl-1", secondaryTag = "901007000504419")),
+                ),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("901007000504418")
+        reader.emit("901007000504419")
+        advanceUntilIdle()
+
+        assertEquals(listOf("901007000504418"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(1, scanCaptures.recordScanCalls)
+        assertEquals(
+            listOf(RfidScanAttemptOutcome.ACCEPTED, RfidScanAttemptOutcome.DUPLICATE),
+            scanAttempts.calls.map { it.outcome },
+        )
+        assertEquals(listOf(RfidScanTagRole.PRIMARY, RfidScanTagRole.SECONDARY), scanAttempts.calls.map { it.tagRole })
+        assertEquals("goat-1", scanAttempts.calls[1].goatId)
+        assertEquals("goat_already_scanned", scanAttempts.calls[1].reason)
+        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+        assertEquals(1, scanVm.state.value.doneCount)
+        assertTrue(scanVm.state.value.feed.first().vaccineLabel.contains("already scanned"))
     }
 
     @Test
     fun `manual ring tap does not persist a scan capture but later reader tag does`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
         val scanVm = ScanViewModel(
             repo = FakeScanExecutionRepository(
@@ -153,6 +200,7 @@ class ScanViewModelTest {
             ),
             reader = reader,
             scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -169,6 +217,7 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
     }
 
     @Test
@@ -211,6 +260,7 @@ class ScanViewModelTest {
     @Test
     fun `paginated scan roster exposes load more and scans a loaded page two tag`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
         val repo = FakeScanExecutionRepository(
             firstPage = ScanRosterResponseDto(
@@ -228,6 +278,7 @@ class ScanViewModelTest {
             repo = repo,
             reader = reader,
             scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
             analytics = NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
@@ -249,14 +300,16 @@ class ScanViewModelTest {
         val loadedPageTwoRow = vm.state.value.roster.single { it.primaryTag == "TAG-200" }
         assertEquals(ScanStatus.DONE, loadedPageTwoRow.status)
         assertEquals(listOf("TAG-200"), scanCaptures.tagsForTask("task-1"))
+        assertEquals(listOf(RfidScanAttemptOutcome.ACCEPTED), scanAttempts.calls.map { it.outcome })
         assertFalse(vm.state.value.feed.any { it.status == ScanStatus.SKIPPED && it.primaryTag == "TAG-200" })
     }
 }
 
-private fun scanRow(goatId: String, tag: String, obligationId: String): ScanRosterRowDto =
+private fun scanRow(goatId: String, tag: String, obligationId: String, secondaryTag: String? = null): ScanRosterRowDto =
     ScanRosterRowDto(
         goatId = goatId,
         primaryTag = tag,
+        secondaryTag = secondaryTag,
         vaccineLabel = "ET",
         status = "pending",
         obligationId = obligationId,

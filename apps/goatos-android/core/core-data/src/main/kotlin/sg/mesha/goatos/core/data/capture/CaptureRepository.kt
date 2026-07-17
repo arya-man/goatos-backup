@@ -15,6 +15,8 @@ import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.database.capture.ProofCaptureDao
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
+import sg.mesha.goatos.core.database.capture.RfidScanAttemptDao
+import sg.mesha.goatos.core.database.capture.RfidScanAttemptEntity
 import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
@@ -23,6 +25,7 @@ import sg.mesha.goatos.core.data.sync.syncJson
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
 import java.util.UUID
 import sg.mesha.goatos.core.database.capture.CaptureSyncStatus as EntitySyncStatus
 
@@ -135,6 +138,111 @@ private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
 
 private fun scanCaptureIdempotencyKey(taskId: String, fieldKey: String, tag: String): String =
     "scan:$taskId:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}"
+
+interface ScanAttemptRepository {
+    fun observeAttempts(taskId: String): Flow<List<RfidScanAttemptRow>>
+
+    suspend fun recordAttempt(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+        outcome: RfidScanAttemptOutcome,
+        tagRole: RfidScanTagRole,
+        reason: String?,
+    )
+
+    suspend fun attemptsForTask(taskId: String): List<RfidScanAttemptRow>
+
+    suspend fun clearForTask(taskId: String)
+}
+
+class DefaultScanAttemptRepository(
+    private val dao: RfidScanAttemptDao,
+    private val syncRepository: SyncRepository? = null,
+    private val dispatchers: DispatcherProvider = DefaultDispatchers,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val idGenerator: () -> String = { UUID.randomUUID().toString() },
+) : ScanAttemptRepository {
+    override fun observeAttempts(taskId: String): Flow<List<RfidScanAttemptRow>> =
+        dao.observeForTask(taskId).map { rows -> rows.map { it.toAttemptRow() } }.flowOn(dispatchers.default)
+
+    override suspend fun recordAttempt(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+        outcome: RfidScanAttemptOutcome,
+        tagRole: RfidScanTagRole,
+        reason: String?,
+    ) {
+        val trimmed = tag.trim()
+        val normalized = normalizeTag(trimmed)
+        if (trimmed.isEmpty() || normalized.isEmpty()) return
+        val id = idGenerator()
+        val capturedAtMs = clock()
+        val idempotencyKey = "scan-attempt:$taskId:$id"
+        val entity = RfidScanAttemptEntity(
+            id = id,
+            taskId = taskId,
+            fieldKey = fieldKey,
+            tag = trimmed,
+            normalizedTag = normalized,
+            goatId = goatId?.takeIf { it.isNotBlank() },
+            obligationId = obligationId?.takeIf { it.isNotBlank() },
+            outcome = outcome.wireValue,
+            tagRole = tagRole.wireValue,
+            reason = reason?.takeIf { it.isNotBlank() },
+            capturedAtMs = capturedAtMs,
+            syncStatus = EntitySyncStatus.PENDING.name,
+            idempotencyKey = idempotencyKey,
+        )
+        val inserted = withContext(dispatchers.io) { dao.insert(entity) }
+        if (inserted <= 0L) return
+        syncRepository?.enqueueScanAttempt(
+            taskId = taskId,
+            groupKey = taskId,
+            idempotencyKey = idempotencyKey,
+            request = ScanAttemptRequestDto(
+                fieldKey = fieldKey,
+                tag = trimmed,
+                normalizedTag = normalized,
+                goatId = goatId?.takeIf { it.isNotBlank() },
+                obligationId = obligationId?.takeIf { it.isNotBlank() },
+                outcome = outcome.wireValue,
+                tagRole = tagRole.wireValue,
+                reason = reason?.takeIf { it.isNotBlank() },
+                capturedAtMs = capturedAtMs,
+            ),
+        )
+    }
+
+    override suspend fun attemptsForTask(taskId: String): List<RfidScanAttemptRow> = withContext(dispatchers.io) {
+        dao.listForTask(taskId).map { it.toAttemptRow() }
+    }
+
+    override suspend fun clearForTask(taskId: String) = withContext(dispatchers.io) {
+        dao.clearForTask(taskId)
+    }
+}
+
+private fun RfidScanAttemptEntity.toAttemptRow() = RfidScanAttemptRow(
+    id = id,
+    taskId = taskId,
+    fieldKey = fieldKey,
+    tag = tag,
+    normalizedTag = normalizedTag,
+    goatId = goatId,
+    obligationId = obligationId,
+    outcome = RfidScanAttemptOutcome.entries.firstOrNull { it.wireValue == outcome } ?: RfidScanAttemptOutcome.UNKNOWN,
+    tagRole = RfidScanTagRole.entries.firstOrNull { it.wireValue == tagRole } ?: RfidScanTagRole.UNKNOWN,
+    reason = reason,
+    capturedAtMs = capturedAtMs,
+)
+
+private fun normalizeTag(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
 
 /**
  * Room-first SSOT for a task's `video_proof` recording-form fields

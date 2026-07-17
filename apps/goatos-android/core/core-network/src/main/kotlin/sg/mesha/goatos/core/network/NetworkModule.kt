@@ -32,6 +32,8 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskResponseDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptRequestDto
+import sg.mesha.goatos.core.network.dto.ScanAttemptResponseDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
@@ -153,6 +155,13 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: ScanCaptureRequestDto,
     ): ScanCaptureResponseDto
+
+    @POST("app/tasks/{task_id}/scan-attempts")
+    suspend fun recordScanAttempt(
+        @Path("task_id") taskId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: ScanAttemptRequestDto,
+    ): ScanAttemptResponseDto
 
     @POST("admin/tasks/{task_id}/verify")
     suspend fun verifyAppTask(
@@ -341,6 +350,12 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: ScanCaptureRequestDto,
     ): ScanCaptureResponseDto = service.recordScanCapture(taskId, idempotencyKey, request)
+
+    override suspend fun recordScanAttempt(
+        taskId: String,
+        idempotencyKey: String,
+        request: ScanAttemptRequestDto,
+    ): ScanAttemptResponseDto = service.recordScanAttempt(taskId, idempotencyKey, request)
 
     override suspend fun verifyAppTask(
         taskId: String,

@@ -129,3 +129,31 @@ val MIGRATION_5_6: Migration = object : Migration(5, 6) {
         db.execSQL("ALTER TABLE `scanned_goat_capture` ADD COLUMN `obligationId` TEXT")
     }
 }
+
+/** v6 -> v7: adds append-only RFID scan attempts. These rows audit every physical reader hit
+ *  (accepted, duplicate alias, not-due, unknown) while `scanned_goat_capture` remains the
+ *  de-duplicated completion/Submit source. Purely additive. */
+val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `rfid_scan_attempt` " +
+                "(`id` TEXT NOT NULL, `taskId` TEXT NOT NULL, `fieldKey` TEXT NOT NULL, " +
+                "`tag` TEXT NOT NULL, `normalizedTag` TEXT NOT NULL, `goatId` TEXT, " +
+                "`obligationId` TEXT, `outcome` TEXT NOT NULL, `tagRole` TEXT NOT NULL, " +
+                "`reason` TEXT, `capturedAtMs` INTEGER NOT NULL, `syncStatus` TEXT NOT NULL, " +
+                "`idempotencyKey` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_rfid_scan_attempt_idempotencyKey` " +
+                "ON `rfid_scan_attempt` (`idempotencyKey`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_rfid_scan_attempt_taskId_capturedAtMs` " +
+                "ON `rfid_scan_attempt` (`taskId`, `capturedAtMs`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_rfid_scan_attempt_taskId_goatId_capturedAtMs` " +
+                "ON `rfid_scan_attempt` (`taskId`, `goatId`, `capturedAtMs`)",
+        )
+    }
+}
