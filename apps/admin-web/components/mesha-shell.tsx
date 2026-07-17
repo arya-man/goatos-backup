@@ -353,7 +353,10 @@ export function MeshaShell({
     setRail((o) => !o);
   }
   function navHref(leaf: NavItem): string {
-    return scopeHref(leaf.href, renderedScope, {}, leaf.extra ?? {});
+    // Calendar is a date-first command surface. Entering it from the global nav should open on today's
+    // operating date, not inherit a stale top-bar as_of left behind by another screen.
+    const dateScope = leaf.href === "/calendar" ? { asOf: null } : {};
+    return scopeHref(leaf.href, renderedScope, dateScope, leaf.extra ?? {});
   }
   function navActive(leaf: NavItem): boolean {
     return active === leaf.href;
