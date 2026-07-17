@@ -55,12 +55,15 @@
   .routebar.on span{animation:routebar-slide 1.05s ease-in-out infinite}
   @keyframes routebar-slide{0%{transform:translateX(-105%)}55%{transform:translateX(78vw)}100%{transform:translateX(105vw)}}
   html.route-busy,html.route-busy body{cursor:progress}
+  .skel{display:inline-block;vertical-align:middle;border-radius:7px;background:linear-gradient(90deg,var(--line),color-mix(in srgb,var(--line) 45%,var(--brand-soft)),var(--line));background-size:220% 100%;animation:skel-shimmer 1.15s ease-in-out infinite;opacity:.82}
+  @keyframes skel-shimmer{0%{background-position:120% 0}100%{background-position:-120% 0}}
   a[data-route-pending="true"]{position:relative;isolation:isolate;cursor:progress}
   a[data-route-pending="true"]::after{content:"";position:absolute;inset:2px;border-radius:inherit;pointer-events:none;background:linear-gradient(100deg,transparent,color-mix(in srgb,var(--brand) 24%,transparent),transparent);opacity:.85;animation:route-pending-sheen .9s ease-in-out infinite;z-index:-1}
   a.nav[data-route-pending="true"],a.leaf[data-route-pending="true"],a.chip[data-route-pending="true"],a.btn[data-route-pending="true"],a.pm-item[data-route-pending="true"],a.celllink[data-route-pending="true"],a.pexr[data-route-pending="true"]{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brand) 72%,var(--line)),0 0 0 3px var(--brand-soft)}
   @keyframes route-pending-sheen{0%,100%{opacity:.38;transform:scaleX(.94)}50%{opacity:.9;transform:scaleX(1)}}
   @media(prefers-reduced-motion:reduce){
     .routebar.on span{animation:none;transform:none;width:100%}
+    .skel{animation:none}
     a[data-route-pending="true"]::after{animation:none}
   }
   .parkpick{display:flex;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px;flex:none}

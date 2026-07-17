@@ -1,9 +1,10 @@
+import { Suspense } from "react";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { parseScope } from "@/lib/scope";
-import { loadVaccinationShedSummary, VaccinationShedBoard } from "@/features/vaccination-sheds";
+import { VaccinationShedBoard, VaccinationShedBoardSkeleton } from "@/features/vaccination-sheds";
 import { VaccinationFullScheduleButton } from "./vaccination-action-dialogs";
-import { loadVaccinationFullSchedule, VaccinationFullSchedule, vaccinationScheduleYear } from "./full-vaccine-schedule";
+import { VaccinationFullSchedule, VaccinationFullScheduleSkeleton, vaccinationScheduleYear } from "./full-vaccine-schedule";
 
 // Preventive Care (PC) · Vaccination — the SHED-WISE operations floor:
 //   header (SOP · Full Schedule) → drive-mechanic band (Target → Group → Route → Execute)
@@ -14,7 +15,7 @@ import { loadVaccinationFullSchedule, VaccinationFullSchedule, vaccinationSchedu
 // rows appear on the main page. Command lenses (Control Tower / Action Center / Protocol Adherence /
 // Workflows) stay top-level; this screen does not embed or shortcut them. Park scope comes from the shell
 // top bar (?park).
-export async function VaccinationOperationsPage({
+export function VaccinationOperationsPage({
   searchParams,
   pageContract,
 }: {
@@ -26,13 +27,10 @@ export async function VaccinationOperationsPage({
   const isFullSchedule = one(sp, "view") === "schedule";
   const scheduleYear = vaccinationScheduleYear(sp);
 
-  const shedSummaryPromise = isFullSchedule ? undefined : loadVaccinationShedSummary(sp, pageContract);
-  const fullSchedulePromise = isFullSchedule ? loadVaccinationFullSchedule(sp, scope) : undefined;
   const driveSteps = optionGroup(pageContract, "drive_steps").map((step) => {
     const [title, detail] = (step.title || "").split("|");
     return { key: step.key, step: step.label, title, detail };
   });
-  const [shedSummary, fullSchedule] = await Promise.all([shedSummaryPromise, fullSchedulePromise]);
 
   return (
     <div className="screen on">
@@ -49,7 +47,9 @@ export async function VaccinationOperationsPage({
       </div>
 
       {isFullSchedule ? (
-        <VaccinationFullSchedule searchParams={sp} scope={scope} pageContract={pageContract} scheduleResult={fullSchedule} />
+        <Suspense fallback={<VaccinationFullScheduleSkeleton pageContract={pageContract} />}>
+          <VaccinationFullSchedule searchParams={sp} scope={scope} pageContract={pageContract} />
+        </Suspense>
       ) : (
         <>
       {/* Drive mechanic — Target → Group → Route → Execute (mock band). */}
@@ -69,7 +69,9 @@ export async function VaccinationOperationsPage({
 
       {/* Shed-wise vaccination table — one row per shed, animal-level due/done, planned sessions, capacity,
           and merged status. Rows deep-link to the shed detail. This is the MAIN vaccination table. */}
-      <VaccinationShedBoard searchParams={sp} pageContract={pageContract} summaryResult={shedSummary} />
+      <Suspense fallback={<VaccinationShedBoardSkeleton pageContract={pageContract} />}>
+        <VaccinationShedBoard searchParams={sp} pageContract={pageContract} />
+      </Suspense>
         </>
       )}
     </div>

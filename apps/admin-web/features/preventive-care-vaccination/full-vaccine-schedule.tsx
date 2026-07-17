@@ -143,6 +143,62 @@ export function vaccinationScheduleYear(searchParams: RouteSearchParams | undefi
   return selectedScheduleYear(searchParams);
 }
 
+export function VaccinationFullScheduleSkeleton({
+  pageContract,
+}: {
+  pageContract: AdminUiPageContract;
+}) {
+  const scheduleTable = table(pageContract, "full-vaccine-schedule");
+  const fixedColumns = scheduleTable.columns.filter((column) => column.visible);
+  return (
+    <section id="full-schedule" className="card vaccination-schedule-card" style={{ scrollMarginTop: 80 }} aria-busy="true">
+      <div className="hd vaccination-schedule-hd">
+        <CalendarDays className="ic" style={{ color: "var(--brand)" }} aria-hidden="true" />
+        <div style={{ minWidth: 0 }}>
+          <h3>{copy(pageContract, "section.full_schedule.title")}</h3>
+          <span className="muted small">{copy(pageContract, "section.full_schedule.note")}</span>
+        </div>
+        <div className="sp" style={{ flex: 1 }} />
+        {[70, 70, 120].map((w, i) => (
+          <div key={i} className="skel" style={{ width: w, height: 30, borderRadius: 999 }} />
+        ))}
+      </div>
+      <div className="bd" style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {Array.from({ length: 12 }, (_, i) => (
+            <div key={i} className="skel" style={{ width: 62, height: 28, borderRadius: 999 }} />
+          ))}
+        </div>
+        <div style={{ overflowX: "auto" }}>
+          <table className="shed-summary-table">
+            <thead>
+              <tr>
+                {fixedColumns.map((col) => (
+                  <th key={col.key}>{col.label}</th>
+                ))}
+                {Array.from({ length: 5 }, (_, i) => (
+                  <th key={i}><span className="skel" style={{ width: 96, height: 14 }} /></th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 5 }, (_, row) => (
+                <tr key={row}>
+                  {Array.from({ length: fixedColumns.length + 5 }, (_, col) => (
+                    <td key={col}>
+                      <span className="skel" style={{ width: col < fixedColumns.length ? 110 : 72, height: 16 }} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export async function VaccinationFullSchedule({
   searchParams,
   scope,
