@@ -230,16 +230,16 @@ export async function VaccinationFullSchedule({
           <span className="muted small">{copy(pageContract, "section.full_schedule.note")}</span>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <Link href={yearHref(year - 1)} className="chip" scroll={false}>
+        <Link href={yearHref(year - 1)} className="chip" scroll={false} prefetch={false}>
           {year - 1}
         </Link>
-        <Link href={yearHref(year)} className="chip on" scroll={false} aria-current="page">
+        <Link href={yearHref(year)} className="chip on" scroll={false} prefetch={false} aria-current="page">
           {year}
         </Link>
-        <Link href={yearHref(year + 1)} className="chip" scroll={false}>
+        <Link href={yearHref(year + 1)} className="chip" scroll={false} prefetch={false}>
           {copy(pageContract, "action.next_year")} {year + 1}
         </Link>
-        <Link href={scopeHref("/vaccination", scope)} className="btn sm" scroll={false}>
+        <Link href={scopeHref("/vaccination", scope)} className="btn sm" scroll={false} prefetch={false}>
           {copy(pageContract, "action.open_shed_board")}
         </Link>
       </div>
@@ -274,7 +274,7 @@ export async function VaccinationFullSchedule({
 
       <div className="chips vaccination-schedule-legend" aria-label={copy(pageContract, "schedule.legend.aria")}>
         {Array.from({ length: 12 }, (_, idx) => idx + 1).map((m) => (
-          <Link key={m} href={monthHref(m)} className={m === month ? "chip on" : "chip"} scroll={false} aria-current={m === month ? "page" : undefined}>
+          <Link key={m} href={monthHref(m)} className={m === month ? "chip on" : "chip"} scroll={false} prefetch={false} aria-current={m === month ? "page" : undefined}>
             {monthLabel(year, m)}
           </Link>
         ))}
@@ -398,7 +398,7 @@ export async function VaccinationFullSchedule({
           </div>
           {nextScheduleHref ? (
             <div className="bd" style={{ padding: "12px 16px", borderTop: "1px solid var(--line)", display: "flex", justifyContent: "flex-end" }}>
-              <Link href={nextScheduleHref} className="btn sm" scroll={false}>
+              <Link href={nextScheduleHref} className="btn sm" scroll={false} prefetch={false}>
                 {copy(pageContract, "section.full_schedule.next_rows")}
               </Link>
             </div>

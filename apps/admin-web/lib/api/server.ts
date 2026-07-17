@@ -629,7 +629,7 @@ export async function getVaccinationSchedule(
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    withApiTimeout(6000, (signal) =>
+    withApiTimeout(2500, (signal) =>
       client.request<VaccinationOperationsResponse>("/vaccination/schedule", {
         cache: "no-store",
         signal,

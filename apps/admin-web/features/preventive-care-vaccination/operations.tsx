@@ -5,7 +5,7 @@ import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-cont
 import { parseScope } from "@/lib/scope";
 import { loadVaccinationShedSummary, VaccinationShedBoard } from "@/features/vaccination-sheds";
 import { VaccinationSopButton } from "./sop-quick-view";
-import { VaccinationFullScheduleButton, VaccinationHeaderActions } from "./vaccination-action-dialogs";
+import { VaccinationFullScheduleButton } from "./vaccination-action-dialogs";
 import { loadVaccinationFullSchedule, VaccinationFullSchedule, vaccinationScheduleYear } from "./full-vaccine-schedule";
 
 // Linked vaccination SOP for the header quick-view. Derived from the REAL /admin/sops data (same source as
@@ -35,7 +35,7 @@ async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
 }
 
 // Preventive Care (PC) · Vaccination — the SHED-WISE operations floor:
-//   header (SOP · Protocol Rules) → drive-mechanic band (Target → Group → Route → Execute)
+//   header (SOP · Full Schedule) → drive-mechanic band (Target → Group → Route → Execute)
 //   → shed-wise vaccination table (one row per shed, animal-level due/done, planned sessions, capacity,
 //     merged status), which links to the shed detail at /vaccination/execution/sheds/{shed_id}.
 // The old cohort/vaccine-wise status matrix + per-cohort detail + drive shed-event board are replaced by
@@ -55,7 +55,7 @@ export async function VaccinationOperationsPage({
   const isFullSchedule = one(sp, "view") === "schedule";
   const scheduleYear = vaccinationScheduleYear(sp);
 
-  const linkedSopPromise = loadLinkedVaccinationSop();
+  const linkedSopPromise = isFullSchedule ? Promise.resolve<LinkedSop>({ view: null }) : loadLinkedVaccinationSop();
   const shedSummaryPromise = isFullSchedule ? undefined : loadVaccinationShedSummary(sp, pageContract);
   const fullSchedulePromise = isFullSchedule ? loadVaccinationFullSchedule(sp, scope) : undefined;
   const driveSteps = optionGroup(pageContract, "drive_steps").map((step) => {
@@ -75,9 +75,8 @@ export async function VaccinationOperationsPage({
           <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        <VaccinationSopButton view={linkedSop.view} error={linkedSop.error} authRequired={linkedSop.authRequired} pageContract={pageContract} />
+        {!isFullSchedule ? <VaccinationSopButton view={linkedSop.view} error={linkedSop.error} authRequired={linkedSop.authRequired} pageContract={pageContract} /> : null}
         <VaccinationFullScheduleButton scope={scope} pageContract={pageContract} active={isFullSchedule} year={scheduleYear} />
-        <VaccinationHeaderActions scope={scope} pageContract={pageContract} />
       </div>
 
       {isFullSchedule ? (
