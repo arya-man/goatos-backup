@@ -437,7 +437,7 @@ private fun ProofItemRow(
 private fun syncStatusLabel(status: String): String = when (status) {
     "SYNCED" -> "Synced"
     "IN_FLIGHT" -> "Uploading…"
-    "FAILED" -> "Failed · will retry"
+    "FAILED" -> "Failed"
     else -> "Queued"
 }
 

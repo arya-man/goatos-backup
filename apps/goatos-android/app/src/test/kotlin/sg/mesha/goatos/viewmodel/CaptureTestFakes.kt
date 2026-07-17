@@ -132,6 +132,23 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         }
     }
 
+    fun markInFlight(id: String) {
+        val index = rows.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.IN_FLIGHT)
+            flow.value = rows.toList()
+        }
+    }
+
+    override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> {
+        val index = rows.indexOfFirst { it.id == id }
+        if (index >= 0 && rows[index].syncStatus == CaptureSyncStatus.FAILED) {
+            rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.PENDING, lastError = null)
+            flow.value = rows.toList()
+        }
+        return AppResult.Ok(Unit)
+    }
+
     override suspend fun clearForTask(taskId: String) {
         rows.clear()
         flow.value = emptyList()

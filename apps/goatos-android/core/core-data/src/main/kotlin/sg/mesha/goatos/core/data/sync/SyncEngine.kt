@@ -222,20 +222,19 @@ class SyncEngine(
         return syncJson.encodeToString(response)
     }
 
-    // Turns a backend validation failure into an honest operator-facing line, stored as
-    // OutboxEntity.lastError for the UI to render verbatim (see SubmitViewModel). Any backend
-    // required/proof rejection means the server-authoritative form/proof policy still found a
-    // gap, even if the local submit button allowed the attempt.
+    // Turns backend validation failures into operator-facing lines, stored as
+    // OutboxEntity.lastError for the UI to render verbatim (see SubmitViewModel). The backend
+    // owns field-level validation copy, so preserve its messages instead of replacing them with
+    // a generic client sentence.
     private fun rejectionReason(report: sg.mesha.goatos.core.network.dto.ValidationReportDto): String {
-        val codes = report.errors.map { it.code }
-        val onlyFormGaps = codes.isNotEmpty() && codes.all {
-            it == "required" || it == "proof_required" || it == "proof_subject_required"
-        }
-        return if (onlyFormGaps) {
-            "This drive is missing required form answers or completed proof. Review the recording form and wait for proof upload to finish."
-        } else {
-            report.errors.firstOrNull()?.message ?: "Server rejected the submission."
-        }
+        return report.errors
+            .mapNotNull { issue ->
+                val message = issue.message.trim().ifBlank { issue.code.trim() }
+                if (message.isBlank()) null else message
+            }
+            .distinct()
+            .joinToString("\n")
+            .ifBlank { "Server rejected the submission." }
     }
 
     private suspend fun dispatchReschedule(item: OutboxEntity): String {

@@ -601,13 +601,8 @@ class SubmitViewModel @Inject constructor(
     private fun buildFormRunnerState(form: FormSpec, task: TaskSummaryDto): FormRunnerState? {
         if (form.isEmpty) return null
         val fields = form.fields.map { field -> field.toFieldUi() }
-        val requiredUnansweredProofKeys = form.fields
-            .filter { it.type == FormFieldType.VIDEO_PROOF && it.required && !it.isAnswered() }
-            .map { it.key }
-            .toSet()
-        val unreadyProof = currentProofs.firstOrNull {
-            it.fieldKey in requiredUnansweredProofKeys && !it.isCompletedProofRef()
-        }
+        val requiredUnansweredProofKeys = form.requiredUnansweredVideoProofKeys()
+        val unreadyProof = currentProofs.firstOrNull { it.blocksSubmission(requiredUnansweredProofKeys) }
         val unmet = form.fields.firstOrNull { field -> !field.isAnswered() }
         return FormRunnerState(
             title = "Recording form",
@@ -635,9 +630,23 @@ class SubmitViewModel @Inject constructor(
     private fun ProofCaptureRow.isCompletedProofRef(): Boolean =
         syncStatus == CaptureSyncStatus.SYNCED && !serverProofId.isNullOrBlank()
 
+    private fun FormSpec.requiredUnansweredVideoProofKeys(): Set<String> =
+        fields
+            .filter { it.type == FormFieldType.VIDEO_PROOF && it.required && !it.isAnswered() }
+            .map { it.key }
+            .toSet()
+
+    private fun ProofCaptureRow.blocksSubmission(requiredUnansweredProofKeys: Set<String>): Boolean {
+        if (isCompletedProofRef()) return false
+        return when (syncStatus) {
+            CaptureSyncStatus.FAILED -> fieldKey in requiredUnansweredProofKeys
+            CaptureSyncStatus.PENDING, CaptureSyncStatus.IN_FLIGHT, CaptureSyncStatus.SYNCED -> true
+        }
+    }
+
     private fun blockedReasonForProofUpload(proof: ProofCaptureRow): String =
         if (proof.syncStatus == CaptureSyncStatus.FAILED) {
-            proof.lastError?.takeIf { it.isNotBlank() } ?: "Proof upload failed. Retry sync before submitting."
+            proof.lastError?.takeIf { it.isNotBlank() } ?: "Proof upload failed. Record this video again before submitting."
         } else {
             "Wait for proof upload to finish before submitting."
         }
@@ -700,7 +709,7 @@ class SubmitViewModel @Inject constructor(
         FormFieldType.VIDEO_PROOF -> {
             val items = currentProofs.filter { it.fieldKey == key }
             val isExtraSlot = repeat
-            val totalCaptured = currentProofs.size
+            val activeCaptured = currentProofs.count { it.syncStatus != CaptureSyncStatus.FAILED }
             FormFieldUi(
                 key = key,
                 label = label,
@@ -709,7 +718,11 @@ class SubmitViewModel @Inject constructor(
                 helpText = helpText,
                 proofCaptured = items.isNotEmpty(),
                 proofItems = items.map { it.toProofItemUi(label, isExtraSlot) },
-                canCaptureMore = if (isExtraSlot) totalCaptured < MAX_PROOFS_PER_TASK else items.isEmpty(),
+                canCaptureMore = if (isExtraSlot) {
+                    activeCaptured < MAX_PROOFS_PER_TASK
+                } else {
+                    items.none { it.syncStatus != CaptureSyncStatus.FAILED }
+                },
             )
         }
         FormFieldType.UNKNOWN -> FormFieldUi(key = key, label = label, kind = FieldKindUi.UNKNOWN, required = required)
