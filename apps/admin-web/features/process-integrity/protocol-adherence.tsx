@@ -46,6 +46,59 @@ function adherenceLedgerLabels(pageContract: AdminUiPageContract): string[] {
   return labels;
 }
 
+function formatAdherenceWindowDate(value: Date): string {
+  const indiaLocale = ["en", "IN"].join("-");
+  const indiaTimeZone = ["asia", "kolkata"].map((part) => `${part[0]?.toUpperCase()}${part.slice(1)}`).join("/");
+  return new Intl.DateTimeFormat(indiaLocale, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: indiaTimeZone,
+  }).format(value);
+}
+
+function adherenceWindowLabel(pageContract: AdminUiPageContract, asOf?: string): string {
+  const start = asOf ? new Date(asOf) : new Date();
+  const end = new Date(start);
+  end.setDate(end.getDate() + 30);
+  return `${formatAdherenceWindowDate(start)} ${copy(pageContract, "adherence.help.window_joiner")} ${formatAdherenceWindowDate(end)}`;
+}
+
+function AdherenceInfo({
+  pageContract,
+  summary,
+  asOf,
+}: {
+  pageContract: AdminUiPageContract;
+  summary: { expected_count: number; completed_count: number; adherence_percent: number } | null;
+  asOf?: string;
+}) {
+  const expected = summary?.expected_count ?? 0;
+  const completed = summary?.completed_count ?? 0;
+  const percent = summary ? Math.round(summary.adherence_percent) : null;
+  return (
+    <details className="metric-help">
+      <summary aria-label={copy(pageContract, "adherence.help.aria")}>{copy(pageContract, "label.info_icon")}</summary>
+      <div className="metric-help-panel" role="note">
+        <b>{copy(pageContract, "adherence.help.title")}</b>
+        <span>
+          {copy(pageContract, "adherence.help.window_prefix")} {adherenceWindowLabel(pageContract, asOf)}.
+        </span>
+        <span>{copy(pageContract, "adherence.help.formula")}</span>
+        {summary ? (
+          <span>
+            {copy(pageContract, "adherence.help.current_prefix")} {completed.toLocaleString("en-IN")}{" "}
+            {copy(pageContract, "adherence.help.completed_label")} / {expected.toLocaleString("en-IN")}{" "}
+            {copy(pageContract, "adherence.help.expected_label")} = {percent}%.
+          </span>
+        ) : (
+          <span>{copy(pageContract, "adherence.help.loading")}</span>
+        )}
+      </div>
+    </details>
+  );
+}
+
 function copyOr(pageContract: AdminUiPageContract, key: string, fallback: string): string {
   return optionalCopy(pageContract, key) ?? fallback;
 }
@@ -212,7 +265,10 @@ export async function ProtocolAdherencePage({
     <div className="screen on">
 	      <div className="phead">
 	        <div>
-	          <h1>{pageContract.title}</h1>
+	          <div className="title-with-help">
+	            <h1>{pageContract.title}</h1>
+	            <AdherenceInfo pageContract={pageContract} summary={summary} asOf={asOf} />
+	          </div>
 	          <div className="sub">{adherenceSubtitle(pageContract)}</div>
 	        </div>
 	      </div>
