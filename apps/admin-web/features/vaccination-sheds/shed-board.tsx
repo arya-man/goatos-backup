@@ -231,7 +231,7 @@ export async function VaccinationShedBoard({
                   const href = detailHref(row);
                   const cell = (content: React.ReactNode, extra?: string) => (
                     <td className={extra}>
-                      <Link href={href} className="celllink" scroll={false}>
+                      <Link href={href} className="celllink" scroll={false} prefetch={false}>
                         {content}
                       </Link>
                     </td>

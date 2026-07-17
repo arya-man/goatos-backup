@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { enumerateWeekDays, historyWindow, monthWindow, weekWindow } from "./calendar-window.ts";
+import { calendarMonthAnchor, enumerateWeekDays, historyWindow, monthWindow, shiftedMonthStartKey, weekWindow } from "./calendar-window.ts";
 
 test("weekWindow returns the Monday-Sunday week across month boundaries", () => {
   assert.deepEqual(weekWindow("2026-07-03"), {
@@ -22,6 +22,26 @@ test("monthWindow remains date-only and leap-year safe", () => {
     dateFrom: "2028-02-01",
     dateTo: "2028-02-29",
   });
+});
+
+test("calendarMonthAnchor does not shift first-of-month anchors across timezones", () => {
+  const oldTZ = process.env.TZ;
+  try {
+    process.env.TZ = "UTC";
+    assert.deepEqual(calendarMonthAnchor("2026-10-01", "2026-07-17"), { year: 2026, month: 9 });
+    process.env.TZ = "Asia/Kolkata";
+    assert.deepEqual(calendarMonthAnchor("2026-10-01", "2026-07-17"), { year: 2026, month: 9 });
+  } finally {
+    if (oldTZ !== undefined) process.env.TZ = oldTZ;
+    else delete process.env.TZ;
+  }
+});
+
+test("shiftedMonthStartKey keeps picker navigation on calendar months", () => {
+  assert.equal(shiftedMonthStartKey(2026, 9, -1), "2026-09-01");
+  assert.equal(shiftedMonthStartKey(2026, 9, 1), "2026-11-01");
+  assert.equal(shiftedMonthStartKey(2026, 0, -1), "2025-12-01");
+  assert.equal(shiftedMonthStartKey(2026, 11, 1), "2027-01-01");
 });
 
 test("historyWindow keeps a bounded forty five day trail ending on the anchor", () => {

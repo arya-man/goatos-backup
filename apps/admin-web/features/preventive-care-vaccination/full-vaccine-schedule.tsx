@@ -190,7 +190,13 @@ export async function VaccinationFullSchedule({
 
   function rowLink(row: VaccinationOperationsCohort, content: ReactNode, className?: string) {
     return (
-      <Link href={detailHref(row, vaccinationScheduleCohortAsOf(row, year))} className={className ? `celllink ${className}` : "celllink"} scroll={false} title={copy(pageContract, "schedule.row.open_title")}>
+      <Link
+        href={detailHref(row, vaccinationScheduleCohortAsOf(row, year))}
+        className={className ? `celllink ${className}` : "celllink"}
+        scroll={false}
+        prefetch={false}
+        title={copy(pageContract, "schedule.row.open_title")}
+      >
         {content}
       </Link>
     );

@@ -3,6 +3,26 @@ export interface CalendarDateWindow {
   dateTo: string;
 }
 
+export interface CalendarMonthAnchor {
+  year: number;
+  month: number;
+}
+
+export function calendarMonthAnchor(anchorKey: string, fallbackKey: string): CalendarMonthAnchor {
+  const source = /^\d{4}-\d{2}-\d{2}$/.test(anchorKey) ? anchorKey : fallbackKey;
+  const year = Number(source.slice(0, 4));
+  const monthNumber = Number(source.slice(5, 7));
+  if (!Number.isInteger(year) || !Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) {
+    return { year: Number(fallbackKey.slice(0, 4)), month: Number(fallbackKey.slice(5, 7)) - 1 };
+  }
+  return { year, month: monthNumber - 1 };
+}
+
+export function shiftedMonthStartKey(year: number, month: number, offset: number): string {
+  const shifted = new Date(Date.UTC(year, month + offset, 1));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}-01`;
+}
+
 /** First/last calendar day of the month containing a YYYY-MM-DD anchor. */
 export function monthWindow(anchorKey: string): CalendarDateWindow {
   const year = Number(anchorKey.slice(0, 4));

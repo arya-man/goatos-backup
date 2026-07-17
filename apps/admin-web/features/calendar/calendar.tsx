@@ -26,7 +26,7 @@ import { getCalendarVaccinationEvents, getCalendarVaccinationEventDetail, getCal
 import { CalendarEventDrawer } from "./calendar-event-drawer";
 import { CalendarMonthPicker } from "./calendar-month-picker";
 import { markerTonesForDate } from "./calendar-marker-tones";
-import { enumerateWeekDays, historyWindow, monthWindow, weekWindow } from "./calendar-window";
+import { calendarMonthAnchor, enumerateWeekDays, historyWindow, monthWindow, shiftedMonthStartKey, weekWindow } from "./calendar-window";
 import {
   calendarEventDateKey,
   calendarEventWeekday,
@@ -760,9 +760,7 @@ function CalendarDatePicker({
   monthHref: (date: string) => string;
   dateHref: (date: string, historyOnly?: boolean) => string;
 }) {
-  const anchor = new Date(`${anchorKey}T00:00:00+05:30`);
-  const year = Number.isNaN(anchor.getTime()) ? Number(today.slice(0, 4)) : anchor.getFullYear();
-  const month = Number.isNaN(anchor.getTime()) ? Number(today.slice(5, 7)) - 1 : anchor.getMonth();
+  const { year, month } = calendarMonthAnchor(anchorKey, today);
   const weekdays = optionGroup(pageContract, "calendar_weekdays");
 
   const byDate = new Map<string, CalendarEvent[]>();
@@ -783,14 +781,10 @@ function CalendarDatePicker({
   for (let d = 1; d <= daysInMonth; d++) {
     cells.push({ day: d, key: `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}` });
   }
-  const previous = new Date(year, month - 1, 1);
-  const next = new Date(year, month + 1, 1);
-  const previousYear = new Date(year - 1, month, 1);
-  const nextYear = new Date(year + 1, month, 1);
-  const previousMonth = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, "0")}-01`;
-  const nextMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-01`;
-  const previousYearMonth = `${previousYear.getFullYear()}-${String(previousYear.getMonth() + 1).padStart(2, "0")}-01`;
-  const nextYearMonth = `${nextYear.getFullYear()}-${String(nextYear.getMonth() + 1).padStart(2, "0")}-01`;
+  const previousMonth = shiftedMonthStartKey(year, month, -1);
+  const nextMonth = shiftedMonthStartKey(year, month, 1);
+  const previousYearMonth = shiftedMonthStartKey(year, month, -12);
+  const nextYearMonth = shiftedMonthStartKey(year, month, 12);
   const previousLabel = copy(pageContract, "calendar.picker.previous_month");
   const nextLabel = copy(pageContract, "calendar.picker.next_month");
   const previousYearLabel = copy(pageContract, "calendar.picker.previous_year");
