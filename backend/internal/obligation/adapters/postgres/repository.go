@@ -1618,7 +1618,7 @@ WITH candidates AS (
       OR (
         g.goat_id IS NOT NULL
         AND g.lifecycle_status = 'alive'
-        AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+        AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
         AND COALESCE(loa.usable_for_vaccination, true)
         AND NOT COALESCE(loa.is_quarantine, false)
         AND NOT COALESCE(loa.is_icu, false)
@@ -1898,7 +1898,7 @@ WHERE o.tenant_id = $1
     OR (
       g.goat_id IS NOT NULL
       AND g.lifecycle_status = 'alive'
-      AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
       AND COALESCE(loa.usable_for_vaccination, true)
       AND NOT COALESCE(loa.is_quarantine, false)
       AND NOT COALESCE(loa.is_icu, false)
@@ -2028,7 +2028,7 @@ func (r *Repository) DeferBlockedVaccinationSweepCandidates(ctx context.Context,
 WITH candidates AS (
   SELECT oi.obligation_id,
          CASE
-           WHEN COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+           WHEN COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
              THEN COALESCE(g.health_status, '')
            WHEN COALESCE(loa.is_quarantine, false) THEN 'quarantine_location'
            WHEN COALESCE(loa.is_icu, false) THEN 'icu_location'
@@ -2050,7 +2050,7 @@ WITH candidates AS (
     AND oi.due_at <= $3
     AND g.lifecycle_status = 'alive'
     AND (
-      COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
       OR COALESCE(loa.is_quarantine, false)
       OR COALESCE(loa.is_icu, false)
       OR NOT COALESCE(loa.usable_for_vaccination, true)

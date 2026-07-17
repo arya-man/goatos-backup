@@ -176,7 +176,7 @@ combines **species + breed + age + sex + lifecycle_status + health_status +
 reproductive/lactation state + procurement/warm-up state + shed/cohort
 animal_stage**. Exceptions the engine must honor: ICU / quarantine (defer,
 don't fire), pregnant / lactating (different rule or skip), and sick /
-under_treatment (defer). Phase 0 does **not** expose per-animal individual
+under_treatment / recovering (defer). Phase 0 does **not** expose per-animal individual
 override generation; Preventive Care approved catch-up uses the manual campaign
 path so it still creates canonical obligations/batches. Encode the predicate in
 `protocol_rules.eligibility_json`; tracked exceptions become `deferred`
@@ -369,7 +369,7 @@ Each evidence-derived, CEO/COO-published vaccine matrix row must carry:
 | Repeat/lifetime | none, every N days, yearly, booster sequence, lifetime/age cutoff, course-lapse/restart policy or explicit unsupported/review-needed |
 | Animal cohort | species, breed/breed group, shed tag/stage, source/display age range, normalized age days, sex, lifecycle state, and current health/reproductive/procurement facts |
 | Reproductive state | allowed/blocked/review-needed for pregnant, lactating, mother, buck, flushing, breeding, warm-up |
-| Health/defer state | allowed/deferred/blocked for sick, under treatment, ICU, quarantine, recovery, adverse-event review |
+| Health/defer state | allowed/deferred/blocked for sick, under treatment, recovering, ICU, quarantine, adverse-event review |
 | History handling | trusted accepted history suppresses or advances the row; untrusted/unknown history produces catch-up/review, with older-animal anti-flood behavior that creates one safe next catch-up/review action before any further historical dose rows |
 | Version audit | version number, created_by/created_at, published_by/published_at, effective dates, retired_by/retired_at where applicable |
 | Vaccination policy | procurement warm-up days, kid normal-schedule cutoff weeks, adult prior-vaccination flag, live/killed/live spacing days, same-day allowance metadata, pregnancy skip/catch-up windows |

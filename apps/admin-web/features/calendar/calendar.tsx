@@ -375,7 +375,7 @@ export async function VaccinationCalendarPage({
           <Link href={weekHref} replace scroll={false} className={currentViewKey === "week" ? "on" : ""}>
             {weekTabLabel}
           </Link>
-          <CalendarMonthPicker label={monthTabLabel} open={currentViewKey === "month"} closeHref={historyMode ? historyHref : weekHref}>
+          <CalendarMonthPicker label={monthTabLabel} open={currentViewKey === "month"} openHref={pickerMonthHref(anchorKey)} closeHref={historyMode ? historyHref : weekHref}>
             <CalendarDatePicker
               events={pickerEvents}
               dateMarkers={markers?.ok ? markers.data.date_markers : []}
@@ -840,7 +840,7 @@ function CalendarDatePicker({
           const hasDrive = (marker?.drive_count ?? 0) > 0 || dayEvents.some((event) => event.event_type === "vaccination_drive" || (event.drive_summary?.total_count ?? 0) > 0);
           const hasHistory = (marker?.completed_count ?? 0) > 0;
           const hasOpenWork = (marker?.open_count ?? 0) > 0;
-          const tones = markerTonesForDate(marker, dayEvents).slice(0, 1);
+          const tones = markerTonesForDate(marker, dayEvents).slice(0, 3);
           const eventCount = marker?.event_count ?? dayEvents.length;
           return (
             <Link

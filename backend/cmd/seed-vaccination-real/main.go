@@ -3030,7 +3030,7 @@ func vaccinationSeedEligibility() map[string]any {
 		"health":                      []string{"any"},
 		"reproductive":                []string{"any"},
 		"exclude_reproductive_states": []string{"pregnant_late"},
-		"defer_states":                []string{"sick", "under_treatment", "icu", "quarantine"},
+		"defer_states":                []string{"sick", "under_treatment", "recovering", "icu", "quarantine"},
 	}
 }
 

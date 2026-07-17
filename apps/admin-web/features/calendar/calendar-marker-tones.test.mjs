@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert";
 import { markerTonesForDate } from "./calendar-marker-tones.ts";
 
-test("markerTonesForDate: prioritizes deferred over normal drive marker", () => {
+test("markerTonesForDate: shows drive and deferred markers together", () => {
   assert.deepStrictEqual(
     markerTonesForDate(
       {
@@ -17,7 +17,7 @@ test("markerTonesForDate: prioritizes deferred over normal drive marker", () => 
       },
       [],
     ),
-    ["deferred"],
+    ["drive", "deferred"],
   );
 });
 
@@ -36,7 +36,7 @@ test("markerTonesForDate: distinguishes due drive from history-only date", () =>
       },
       [],
     ),
-    ["due"],
+    ["drive", "due"],
   );
   assert.deepStrictEqual(
     markerTonesForDate(
@@ -128,6 +128,6 @@ test("markerTonesForDate: uses event drive summary when marker aggregate is spar
         },
       },
     ]),
-    ["deferred"],
+    ["drive", "due", "deferred"],
   );
 });

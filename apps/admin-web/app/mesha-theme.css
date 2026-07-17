@@ -532,22 +532,31 @@
   .schedule-dot.state-scheduled,.schedule-cell.state-scheduled,.schedule-date-cell.state-scheduled{background:var(--infox);color:var(--info)}
   .schedule-dot.state-up_to_date,.schedule-cell.state-up_to_date,.schedule-date-cell.state-up_to_date{background:var(--okx);color:var(--brand-d)}
   .schedule-dot.state-no_record,.schedule-cell.state-no_record,.schedule-date-cell.state-no_record{background:var(--bg);color:var(--faint)}
-  .main table.full-vaccine-schedule-table{table-layout:fixed}
+  .main table.full-vaccine-schedule-table{table-layout:fixed;min-width:1340px}
   .main table.full-vaccine-schedule-table th,.main table.full-vaccine-schedule-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal}
   .main table.full-vaccine-schedule-table th{padding:9px 12px}
   .main table.full-vaccine-schedule-table td{padding:0;border-bottom-color:var(--line2)}
   .main table.full-vaccine-schedule-table th:nth-child(1),.main table.full-vaccine-schedule-table td:nth-child(1){width:150px;min-width:150px}
-  .main table.full-vaccine-schedule-table th:nth-child(2),.main table.full-vaccine-schedule-table td:nth-child(2){width:170px;min-width:170px}
-  .main table.full-vaccine-schedule-table th:nth-child(3),.main table.full-vaccine-schedule-table td:nth-child(3){width:150px;min-width:150px}
-  .main table.full-vaccine-schedule-table th:nth-child(4),.main table.full-vaccine-schedule-table td:nth-child(4){width:82px;min-width:82px}
-  .main table.full-vaccine-schedule-table th:nth-child(5),.main table.full-vaccine-schedule-table td:nth-child(5){width:132px;min-width:132px;text-align:center}
-  .main table.full-vaccine-schedule-table th:nth-child(n+6),.main table.full-vaccine-schedule-table td:nth-child(n+6){width:138px;min-width:138px;text-align:center}
-  .main table.full-vaccine-schedule-table .celllink{min-height:48px;display:flex;align-items:center;margin:0;padding:9px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .main table.full-vaccine-schedule-table .celllink.num{justify-content:flex-start;color:var(--muted);font-weight:700}
+  .main table.full-vaccine-schedule-table th:nth-child(2),.main table.full-vaccine-schedule-table td:nth-child(2){width:128px;min-width:128px}
+  .main table.full-vaccine-schedule-table th:nth-child(3),.main table.full-vaccine-schedule-table td:nth-child(3){width:420px;min-width:420px;white-space:normal}
+  .main table.full-vaccine-schedule-table th:nth-child(4),.main table.full-vaccine-schedule-table td:nth-child(4){width:92px;min-width:92px}
+  .main table.full-vaccine-schedule-table th:nth-child(5),.main table.full-vaccine-schedule-table td:nth-child(5){width:410px;min-width:410px;white-space:normal}
+  .main table.full-vaccine-schedule-table th:nth-child(6),.main table.full-vaccine-schedule-table td:nth-child(6){width:140px;min-width:140px;text-align:center}
+  .main table.full-vaccine-schedule-table .celllink{min-height:58px;display:flex;align-items:center;margin:0;padding:10px 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .main table.full-vaccine-schedule-table .celllink.num{justify-content:flex-start;color:var(--ink);font-weight:850;font-size:18px}
   .main table.full-vaccine-schedule-table .schedule-click-row:hover{background:color-mix(in srgb,var(--brand) 7%,var(--bg))}
   .main table.full-vaccine-schedule-table .schedule-date-cell,.main table.full-vaccine-schedule-table .schedule-status-cell,.main table.full-vaccine-schedule-table .schedule-cell{box-shadow:inset 1px 0 0 var(--line2);font-weight:750}
   .main table.full-vaccine-schedule-table .schedule-date-link,.main table.full-vaccine-schedule-table .schedule-status-link{justify-content:center;color:inherit}
+  .schedule-date-stack{display:grid;gap:2px;text-align:center;line-height:1.1}
+  .schedule-date-main{font-size:15px;font-weight:850}
+  .schedule-date-sub{font-size:10.5px;text-transform:uppercase;color:color-mix(in srgb,currentColor 70%,var(--muted));letter-spacing:.4px}
   .main table.full-vaccine-schedule-table .schedule-status-link .tag{margin:0}
+  .main table.full-vaccine-schedule-table .schedule-wrap-link{align-items:flex-start;white-space:normal;overflow:visible;text-overflow:clip;min-height:58px}
+  .schedule-chip-list{display:flex;align-items:center;align-content:center;gap:6px;flex-wrap:wrap;min-width:0}
+  .schedule-mini-chip{display:inline-flex;align-items:center;max-width:180px;border:1px solid var(--line2);background:color-mix(in srgb,var(--panel) 82%,var(--bg));border-radius:999px;padding:4px 8px;font-size:12px;line-height:1.1;color:var(--muted);font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .schedule-count-chip{color:var(--brand-d);border-color:color-mix(in srgb,var(--brand) 36%,var(--line));background:var(--brand-soft)}
+  .vaccine-chip{color:var(--ink);border-color:color-mix(in srgb,var(--info) 32%,var(--line));background:var(--infox)}
+  .schedule-animals-link{justify-content:center}
   .main table.full-vaccine-schedule-table .schedule-cell-link{display:flex;min-height:48px;align-items:center;justify-content:center;gap:7px;flex-wrap:wrap;color:inherit;text-decoration:none;padding:8px 10px}
   .main table.full-vaccine-schedule-table .schedule-cell-link > span{font-size:12.5px;line-height:1}
   .main table.full-vaccine-schedule-table .schedule-cell-link .tag{font-size:10.5px;padding:2px 7px}
@@ -556,10 +565,20 @@
   .main table.vaccination-status-matrix-table th:not(:first-child),.main table.vaccination-status-matrix-table td:not(:first-child){min-width:132px}
   .main table.vaccination-cohort-detail-table{min-width:980px}
   .main table.vaccination-cohort-detail-table th:nth-child(6),.main table.vaccination-cohort-detail-table td:nth-child(6){min-width:132px}
-  .main table.shed-animal-roster-table{min-width:1280px}
+  .main table.shed-animal-roster-table{min-width:1600px;table-layout:auto}
+  /* Linked animal roster cells must scroll horizontally as a table, never break short values
+     into characters ("female" -> "fe/ma/le", "381d" -> "3/8/1/d"). */
+  .main table.shed-animal-roster-table th,.main table.shed-animal-roster-table td,.main table.shed-animal-roster-table td .celllink{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+  .main table.shed-animal-roster-table td .celllink{width:max-content;max-width:none}
+  .main table.shed-animal-roster-table th:nth-child(1),.main table.shed-animal-roster-table td:nth-child(1){min-width:112px}
+  .main table.shed-animal-roster-table th:nth-child(2),.main table.shed-animal-roster-table td:nth-child(2),.main table.shed-animal-roster-table th:nth-child(3),.main table.shed-animal-roster-table td:nth-child(3){min-width:170px}
+  .main table.shed-animal-roster-table th:nth-child(4),.main table.shed-animal-roster-table td:nth-child(4){min-width:160px}
+  .main table.shed-animal-roster-table th:nth-child(5),.main table.shed-animal-roster-table td:nth-child(5),.main table.shed-animal-roster-table th:nth-child(6),.main table.shed-animal-roster-table td:nth-child(6){min-width:84px}
+  .main table.shed-animal-roster-table th:nth-child(7),.main table.shed-animal-roster-table td:nth-child(7){min-width:118px}
+  .main table.shed-animal-roster-table th:nth-child(8),.main table.shed-animal-roster-table td:nth-child(8){min-width:96px}
   .main table.shed-animal-roster-table th:nth-child(9),.main table.shed-animal-roster-table td:nth-child(9),
-  .main table.shed-animal-roster-table th:nth-child(10),.main table.shed-animal-roster-table td:nth-child(10){min-width:150px}
-  .main table.shed-animal-roster-table th:nth-child(11),.main table.shed-animal-roster-table td:nth-child(11){min-width:138px}
+  .main table.shed-animal-roster-table th:nth-child(10),.main table.shed-animal-roster-table td:nth-child(10){min-width:160px}
+  .main table.shed-animal-roster-table th:nth-child(11),.main table.shed-animal-roster-table td:nth-child(11){min-width:150px}
   .main table.source-loads-table{min-width:1480px}
   .main table.source-loads-table th:nth-child(3),.main table.source-loads-table td:nth-child(3){min-width:120px}
   .main table.source-loads-table th:nth-child(5),.main table.source-loads-table td:nth-child(5){min-width:170px}
@@ -644,11 +663,11 @@
 	  .calpicker-day.out{opacity:.28;cursor:default}
 	  .calpicker-day.today{border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)}
 	  .calpicker-day.selected{color:var(--ink);border-color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand),0 0 0 2px var(--brand-soft)}
-	  .calpicker-day.has-events{color:var(--ink);border-color:var(--info);background:color-mix(in srgb,var(--info) 13%,var(--bg))}
-	  .calpicker-day.has-drive{border-color:var(--brand);background:color-mix(in srgb,var(--brand) 23%,var(--bg));box-shadow:inset 0 0 0 1px var(--brand)}
-	  .calpicker-day.has-history:not(.has-open-work){border-color:var(--purple);background:var(--purplex);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--purple) 70%,transparent)}
-	  .calpicker-day.has-history.has-open-work{border-color:var(--purple);background:linear-gradient(135deg,var(--purplex) 0 49%,color-mix(in srgb,var(--info) 16%,var(--bg)) 51% 100%)}
-	  .calpicker-day.has-drive.selected{box-shadow:inset 0 0 0 1px var(--brand),0 0 0 2px var(--brand-soft)}
+	  .calpicker-day.has-events{color:var(--ink);border-color:color-mix(in srgb,var(--info) 48%,var(--line));background:var(--bg)}
+	  .calpicker-day.has-drive{border-color:color-mix(in srgb,var(--brand) 72%,var(--line));background:var(--bg);box-shadow:none}
+	  .calpicker-day.has-history:not(.has-open-work){border-color:color-mix(in srgb,var(--purple) 68%,var(--line));background:var(--bg);box-shadow:none}
+	  .calpicker-day.has-history.has-open-work{border-color:color-mix(in srgb,var(--purple) 68%,var(--line));background:var(--bg);box-shadow:none}
+	  .calpicker-day.selected,.calpicker-day.has-drive.selected{color:var(--ink);border-color:var(--brand);background:color-mix(in srgb,var(--brand) 13%,var(--bg));box-shadow:inset 0 0 0 1px var(--brand),0 0 0 2px var(--brand-soft)}
 	  .calpicker-day b{position:absolute;right:5px;top:5px;min-width:18px;height:16px;padding:0 4px;border-radius:999px;display:grid;place-items:center;background:var(--info);color:#061016;font-size:9px;line-height:1}
 	  .calpicker-day.has-drive b{background:var(--brand);color:#08130B}
 	  .calpicker-day.has-history:not(.has-open-work) b{background:var(--purple);color:#08130B}

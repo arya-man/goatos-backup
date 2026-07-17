@@ -13,7 +13,7 @@ import (
 func vaccinationVersionWithDeferStates(t *testing.T, deferJSON string) domain.Version {
 	t.Helper()
 	dsl := validVaccinationMatrixRuleDSL()
-	const fullSet = `"defer_states":["sick","under_treatment","icu","quarantine"]`
+	const fullSet = `"defer_states":["sick","under_treatment","recovering","icu","quarantine"]`
 	if !strings.Contains(dsl, fullSet) {
 		t.Fatalf("base matrix fixture no longer carries the expected mandatory defer_states token %q", fullSet)
 	}
@@ -28,7 +28,7 @@ func vaccinationVersionWithDeferStates(t *testing.T, deferJSON string) domain.Ve
 
 // C35-010: publishing a vaccination matrix whose eligibility.defer_states is
 // present but omits a mandatory clinical safety state (sick, under_treatment,
-// quarantine, icu) must be rejected — a partial list would let a sick animal's
+// recovering, quarantine, icu) must be rejected — a partial list would let a sick animal's
 // open work be cancelled instead of deferred. An empty/absent list is allowed
 // (it maps to the safe full default).
 func TestValidateVaccinationMatrixRejectsPartialClinicalDeferStates(t *testing.T) {
@@ -36,8 +36,8 @@ func TestValidateVaccinationMatrixRejectsPartialClinicalDeferStates(t *testing.T
 		name      string
 		deferJSON string
 	}{
-		{name: "icu+quarantine drops sick and under_treatment", deferJSON: `["icu","quarantine"]`},
-		{name: "drops only under_treatment", deferJSON: `["sick","quarantine","icu"]`},
+		{name: "icu+quarantine drops sick, under_treatment, and recovering", deferJSON: `["icu","quarantine"]`},
+		{name: "drops only under_treatment", deferJSON: `["sick","recovering","quarantine","icu"]`},
 		{name: "single state", deferJSON: `["sick"]`},
 		{name: "single icu string", deferJSON: `["icu"]`},
 	}
@@ -55,9 +55,9 @@ func TestValidateVaccinationMatrixRejectsPartialClinicalDeferStates(t *testing.T
 		name      string
 		deferJSON string
 	}{
-		{name: "full mandatory set", deferJSON: `["sick","under_treatment","icu","quarantine"]`},
-		{name: "case-insensitive full set", deferJSON: `["Sick","UNDER_TREATMENT","ICU","Quarantine"]`},
-		{name: "superset with extra authored state", deferJSON: `["sick","under_treatment","icu","quarantine","post_breeding_hold"]`},
+		{name: "full mandatory set", deferJSON: `["sick","under_treatment","recovering","icu","quarantine"]`},
+		{name: "case-insensitive full set", deferJSON: `["Sick","UNDER_TREATMENT","Recovering","ICU","Quarantine"]`},
+		{name: "superset with extra authored state", deferJSON: `["sick","under_treatment","recovering","icu","quarantine","post_breeding_hold"]`},
 		{name: "empty list maps to safe default", deferJSON: `[]`},
 	}
 	for _, tc := range accepted {

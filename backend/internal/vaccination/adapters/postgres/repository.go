@@ -1983,7 +1983,7 @@ SELECT
   COALESCE(g.breed, '')::text,
   COALESCE(g.health_status, '')::text,
   (
-    COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     AND COALESCE(loa.usable_for_vaccination, true)
     AND NOT COALESCE(loa.is_quarantine, false)
     AND NOT COALESCE(loa.is_icu, false)
@@ -2013,7 +2013,7 @@ GROUP BY g.tenant_id, g.park_id, g.shed_id,
          COALESCE(g.breed, ''),
          COALESCE(g.health_status, ''),
          (
-           COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+           COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
            AND COALESCE(loa.usable_for_vaccination, true)
            AND NOT COALESCE(loa.is_quarantine, false)
            AND NOT COALESCE(loa.is_icu, false)
@@ -2087,7 +2087,7 @@ WITH earliest_by_goat AS (
     AND oi.due_at <= $2::timestamptz
     AND pd.category = 'vaccination'
     AND g.lifecycle_status = 'alive'
-    AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     AND COALESCE(loa.usable_for_vaccination, true)
     AND NOT COALESCE(loa.is_quarantine, false)
     AND NOT COALESCE(loa.is_icu, false)
@@ -2157,7 +2157,7 @@ WHERE oi.tenant_id = $1::uuid
   AND oi.due_at <= $2::timestamptz
   AND pd.category = 'vaccination'
   AND g.lifecycle_status = 'alive'
-  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
   AND COALESCE(loa.usable_for_vaccination, true)
   AND NOT COALESCE(loa.is_quarantine, false)
   AND NOT COALESCE(loa.is_icu, false)

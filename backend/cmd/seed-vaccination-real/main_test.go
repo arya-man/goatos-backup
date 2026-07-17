@@ -595,7 +595,7 @@ func TestVaccinationMatrixKeepsLegacyUnknownHealthSchedulableWithSafetyDeferrals
 	if got := eligibility["breed"]; !reflect.DeepEqual(got, []string{"all"}) {
 		t.Fatalf("breed eligibility = %#v, want [all]", got)
 	}
-	wantDeferrals := []string{"sick", "under_treatment", "icu", "quarantine"}
+	wantDeferrals := []string{"sick", "under_treatment", "recovering", "icu", "quarantine"}
 	if got := eligibility["defer_states"]; !reflect.DeepEqual(got, wantDeferrals) {
 		t.Fatalf("defer_states = %#v, want %#v", got, wantDeferrals)
 	}

@@ -293,39 +293,76 @@ function AnimalRosterCard({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((a) => (
-                  <tr key={a.goatId}>
-                    <td>
-                      <Link href={passportHref(a.goatId)} replace scroll={false} className="gid">
-                        {a.displayId}
-                      </Link>
-                    </td>
-                    <td className="muted">{a.tag1 ?? copy(pageContract, "label.placeholder")}</td>
-                    <td className="muted">{a.tag2 ?? copy(pageContract, "label.placeholder")}</td>
-                    <td className="muted">{a.breed ?? copy(pageContract, "label.placeholder")}</td>
-                    <td className="muted">{a.sex}</td>
-                    <td className="muted">{a.age ?? copy(pageContract, "label.placeholder")}</td>
-                    <td>
-                      {a.lifecycleStatus ? (
-                        <Tag tone={passportStatusTone(a.lifecycleStatus, "lifecycle")}>{humanStatus(a.lifecycleStatus)}</Tag>
-                      ) : (
-                        <span className="muted">{copy(pageContract, "label.placeholder")}</span>
-                      )}
-                    </td>
-                    <td>
-                      {a.healthStatus ? (
-                        <Tag tone={passportStatusTone(a.healthStatus, "health")}>{humanStatus(a.healthStatus)}</Tag>
-                      ) : (
-                        <span className="muted">{copy(pageContract, "label.placeholder")}</span>
-                      )}
-                    </td>
-                    <td className="muted">{a.lastDose ? fmtDate(a.lastDose) : copy(pageContract, "label.placeholder")}</td>
-                    <td className="muted">{a.nextDue ? fmtDate(a.nextDue) : copy(pageContract, "label.placeholder")}</td>
-                    <td>
-                      <Tag tone={animalVaccinationWorkTone(a.status)}>{animalVaccinationWorkLabel(pageContract, a.status)}</Tag>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((a) => {
+                  const href = passportHref(a.goatId);
+                  return (
+                    <tr key={a.goatId} className="schedule-click-row">
+                      <td>
+                        <Link href={href} replace scroll={false} prefetch={false} className="gid">
+                          {a.displayId}
+                        </Link>
+                      </td>
+                      <td className="muted">
+                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                          {a.tag1 ?? copy(pageContract, "label.placeholder")}
+                        </Link>
+                      </td>
+                      <td className="muted">
+                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                          {a.tag2 ?? copy(pageContract, "label.placeholder")}
+                        </Link>
+                      </td>
+                      <td className="muted">
+                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                          {a.breed ?? copy(pageContract, "label.placeholder")}
+                        </Link>
+                      </td>
+                      <td className="muted">
+                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                          {a.sex}
+                        </Link>
+                      </td>
+                      <td className="muted">
+                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                          {a.age ?? copy(pageContract, "label.placeholder")}
+                        </Link>
+                      </td>
+                      <td>
+                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                          {a.lifecycleStatus ? (
+                            <Tag tone={passportStatusTone(a.lifecycleStatus, "lifecycle")}>{humanStatus(a.lifecycleStatus)}</Tag>
+                          ) : (
+                            <span className="muted">{copy(pageContract, "label.placeholder")}</span>
+                          )}
+                        </Link>
+                      </td>
+                      <td>
+                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                          {a.healthStatus ? (
+                            <Tag tone={passportStatusTone(a.healthStatus, "health")}>{humanStatus(a.healthStatus)}</Tag>
+                          ) : (
+                            <span className="muted">{copy(pageContract, "label.placeholder")}</span>
+                          )}
+                        </Link>
+                      </td>
+                      <td className="muted">
+                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                          {a.lastDose ? fmtDate(a.lastDose) : copy(pageContract, "label.placeholder")}
+                        </Link>
+                      </td>
+                      <td className="muted">
+                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                          {a.nextDue ? fmtDate(a.nextDue) : copy(pageContract, "label.placeholder")}
+                        </Link>
+                      </td>
+                      <td>
+                        <Link href={href} replace scroll={false} prefetch={false} className="celllink">
+                          <Tag tone={animalVaccinationWorkTone(a.status)}>{animalVaccinationWorkLabel(pageContract, a.status)}</Tag>
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

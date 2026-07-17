@@ -1934,7 +1934,7 @@ func rawSelectorValues(raw json.RawMessage) ([]string, error) {
 // empty defer_states maps to the engine's safe full default and is allowed
 // (see domain.MandatoryClinicalDeferStates and vaccination.deferStateSet). A
 // present, non-empty, partial list is an unsafe authored payload — it would let
-// a sick/under-treatment animal's open work be cancelled instead of deferred —
+// a sick/under-treatment/recovering animal's open work be cancelled instead of deferred —
 // and must fail publish rather than be silently rewritten (C35-010).
 func rejectPartialClinicalDeferStates(obj map[string]json.RawMessage, field string) error {
 	raw, ok := obj["defer_states"]
@@ -1953,7 +1953,7 @@ func rejectPartialClinicalDeferStates(obj map[string]json.RawMessage, field stri
 		return nil
 	}
 	if missing := domain.MissingMandatoryClinicalDeferStates(values); len(missing) > 0 {
-		return fmt.Errorf("%w: %s omits mandatory clinical safety states %v; sick/under_treatment/quarantine/icu are safety blocks that must be deferred, not cancelled (leave defer_states empty to use the safe default)", ErrNotPublishable, field, missing)
+		return fmt.Errorf("%w: %s omits mandatory clinical safety states %v; sick/under_treatment/recovering/quarantine/icu are safety blocks that must be deferred, not cancelled (leave defer_states empty to use the safe default)", ErrNotPublishable, field, missing)
 	}
 	return nil
 }

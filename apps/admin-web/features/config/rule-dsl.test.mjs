@@ -39,7 +39,7 @@ test("buildVaccinationMatrixPreview omits wrapper course_type", () => {
       health: "any",
       reproductive: "any",
       excludeReproductiveStates: ["pregnant_late"],
-      deferStates: ["sick", "under_treatment", "icu", "quarantine"],
+      deferStates: ["sick", "under_treatment", "recovering", "icu", "quarantine"],
     },
     vaccineLotPolicy: "required",
     missedDosePolicy: "immediate",

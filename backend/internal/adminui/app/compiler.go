@@ -838,7 +838,7 @@ func deferableStates(options []ReferenceOption) []ReferenceOption {
 	out := make([]ReferenceOption, 0, len(options))
 	for _, option := range options {
 		switch strings.ToLower(strings.TrimSpace(option.Key)) {
-		case "", "healthy", "normal", "ok", "recovering":
+		case "", "healthy", "normal", "ok":
 			continue
 		default:
 			out = append(out, option)
@@ -851,6 +851,7 @@ func defaultedDeferableStates(options []ReferenceOption) []ReferenceOption {
 	defaults := []ReferenceOption{
 		{Key: "sick", Label: "sick"},
 		{Key: "under_treatment", Label: "under treatment"},
+		{Key: "recovering", Label: "recovering"},
 		{Key: "quarantine", Label: "quarantine"},
 		{Key: "icu", Label: "ICU"},
 	}

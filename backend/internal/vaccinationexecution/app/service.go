@@ -497,7 +497,7 @@ func blockerReason(p domain.ExecutionProjection, workState domain.WorkState) *st
 	case p.IsQuarantine:
 		reason = "Shed is quarantine; PC defer/approval required"
 	case p.HealthDeferredCount > 0:
-		reason = "Some goats are sick, under treatment, quarantined, or in ICU"
+		reason = "Some goats are sick, under treatment, recovering, quarantined, or in ICU"
 	case p.MissedCount > 0:
 		reason = "Missed dose escalation required"
 	case workState == domain.WorkStateBlocked && p.OperatorName == nil && p.CompletedCount < p.ObligationCount:

@@ -742,7 +742,7 @@ grouped AS (
       WHERE located.eff_status NOT IN ('waived', 'deferred')
         AND (
           located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
-          OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+          OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
         )
     )::int AS health_deferred_count
   FROM located
@@ -878,7 +878,7 @@ derived AS (
       WHEN NOT stateful.usable_for_vaccination THEN 'Shed is not marked usable for vaccination'
       WHEN stateful.is_icu THEN 'Shed is ICU; PC defer/approval required'
       WHEN stateful.is_quarantine THEN 'Shed is quarantine; PC defer/approval required'
-      WHEN stateful.health_deferred_count > 0 THEN 'Some goats are sick, under treatment, quarantined, or in ICU'
+      WHEN stateful.health_deferred_count > 0 THEN 'Some goats are sick, under treatment, recovering, quarantined, or in ICU'
       WHEN stateful.missed_count > 0 THEN 'Missed dose escalation required'
       WHEN stateful.conducted_by IS NULL AND stateful.assigned_to IS NULL AND stateful.completed_count < stateful.expected_count THEN 'Operator assignment required before execution'
       ELSE NULL

@@ -383,6 +383,15 @@ anatomy), never `helpgrid`/a flat stack. The row-param drawer needs `scope_mode`
 present in the URL or the shell scope-normalize drops the param (failure mode 2's
 cousin) — in-app clicks already carry scope, so this only bites direct URLs.
 
+Known failure mode 4b (linked table cells shredded into characters): `.celllink`
+defaults to `overflow-wrap:anywhere` for card/free-text safety, but dense admin
+tables own horizontal scrolling. Any table that makes cells clickable with
+`.celllink` must add a table-specific nowrap override for `th`, `td`, and
+`td .celllink` (`white-space:nowrap; overflow-wrap:normal; word-break:normal`)
+plus per-column min-widths. Do not let short business values such as `female`,
+`Adult`, `381d`, RFIDs, or dates wrap vertically. The regression guard for this
+exact anti-pattern lives in `features/vaccination-sheds/shed-roster-table-wrap.test.mjs`.
+
 Known failure mode 5 (overflow + wrong chain widget): (a) the drawer footer
 (`.df`) action row was plain `flex` (no wrap) — a long primary label ("Assign
 operator / owner chain") wrapped 3-lines tall and the last action (Escalate) was

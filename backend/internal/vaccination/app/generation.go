@@ -224,7 +224,7 @@ func applyCrossVaccineGapFloorFromPending(due time.Time, next vaccineProfile, pe
 }
 
 // GenerationService implements SM-1: expand a published protocol version's rules into per-goat
-// obligations over the in-care cohort, idempotently, deferring (visibly) ICU/quarantine/sick goats.
+// obligations over the in-care cohort, idempotently, deferring (visibly) recovering/ICU/quarantine/sick goats.
 type GenerationService struct {
 	proto           ProtocolReader
 	goats           GoatLister
@@ -1814,7 +1814,7 @@ func deferredReason(g domain.EligibleGoat, allowed []string) string {
 	for _, value := range []string{g.HealthStatus, g.LifecycleStatus} {
 		normalized := strings.ToLower(strings.TrimSpace(value))
 		switch normalized {
-		case "sick", "under_treatment", "quarantine", "icu":
+		case "sick", "under_treatment", "recovering", "quarantine", "icu":
 			if allowedStates[normalized] {
 				return normalized
 			}
@@ -1831,11 +1831,11 @@ func deferredReason(g domain.EligibleGoat, allowed []string) string {
 
 // deferStateSet resolves the effective clinical-defer set for a rule. Authored
 // defer_states may only ADD states; the mandatory clinical safety blocks (sick,
-// under_treatment, quarantine, icu) are always deferred regardless of what the
+// under_treatment, recovering, quarantine, icu) are always deferred regardless of what the
 // authored list contains. This keeps the runtime medically safe even for a
 // protocol version that was published before the publish-time guard existed:
-// a sick/under-treatment animal under a partial or empty defer list is held for
-// recovery, never cancelled/excluded. See protodomain.EffectiveClinicalDeferStates
+// a sick/under-treatment/recovering animal under a partial or empty defer list
+// is held until healthy, never cancelled/excluded. See protodomain.EffectiveClinicalDeferStates
 // and docs/preventive-care-vaccination/vaccination-rules.md (C35-010).
 func deferStateSet(allowed []string) map[string]bool {
 	effective := protodomain.EffectiveClinicalDeferStates(allowed)
@@ -1873,8 +1873,9 @@ func goatMatchesEligibility(g domain.EligibleGoat, e genEligibility, preg genPre
 		return false
 	}
 	// Clinical defer is a SAFETY HOLD, not an exclusion. A goat in a clinical
-	// state — represented via health_status OR lifecycle_status (sick/
-	// under_treatment/quarantine/icu) or via an ICU/quarantine location — is
+	// state — represented via health_status (sick/under_treatment/recovering/
+	// quarantine/icu), lifecycle_status (sick/under_treatment/quarantine/icu),
+	// or via an ICU/quarantine location — is
 	// INCLUDED as deferred, bypassing the normal lifecycle=alive and
 	// health=healthy selectors so its open work is held for recovery rather than
 	// cancelled/excluded. Without this, a canonical `lifecycle=alive` rule rejects

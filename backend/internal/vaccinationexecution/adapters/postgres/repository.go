@@ -949,7 +949,7 @@ grouped AS (
     COALESCE(MAX(stage.stage_code), MAX(stage.name), MAX(located.goat_stage), 'Unknown') AS animal_stage,
     COUNT(*) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
-         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     )::bigint AS health_deferred_count,
     (ARRAY_AGG(located.obligation_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.obligation_id DESC))[1]::text AS obligation_id,
     (ARRAY_AGG(located.sop_task_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST))[1]::text AS sop_task_id,
@@ -2149,7 +2149,7 @@ SELECT
   vnext.next_due,
   CASE
     WHEN g.lifecycle_status <> 'alive' THEN g.lifecycle_status
-    WHEN COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu') THEN g.health_status
+    WHEN COALESCE(g.health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu') THEN g.health_status
     WHEN vnext.actionable_now THEN 'due'
     WHEN vnext.next_due IS NOT NULL THEN 'scheduled'
     WHEN vhist.last_dose IS NOT NULL THEN 'up_to_date'

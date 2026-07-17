@@ -85,7 +85,7 @@ func TestPublishRouteRejectsPartialClinicalDeferOverPostgres(t *testing.T) {
 
 	// Full mandatory set -> the clinical defer gate passes (any later gate may
 	// still apply, but the clinical rejection must NOT be the reason).
-	fullID := createDraft(t, "vaccination.fulldefer.http", `["sick","under_treatment","icu","quarantine"]`)
+	fullID := createDraft(t, "vaccination.fulldefer.http", `["sick","under_treatment","recovering","icu","quarantine"]`)
 	rec = publish(fullID)
 	if strings.Contains(rec.Body.String(), "defer_states omits mandatory clinical safety states") {
 		t.Fatalf("full defer set was wrongly rejected by the clinical gate: code=%d body=%s", rec.Code, rec.Body.String())

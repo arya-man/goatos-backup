@@ -398,7 +398,7 @@ WHERE oi.tenant_id = $1
     OR (
       g.goat_id IS NOT NULL
       AND g.lifecycle_status = 'alive'
-      AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+      AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
       AND COALESCE(loa.usable_for_vaccination, true)
       AND NOT COALESCE(loa.is_quarantine, false)
       AND NOT COALESCE(loa.is_icu, false)

@@ -258,7 +258,7 @@ held once, or if compatibility/stock/proof/worker gates fail, it becomes a
 micro-drive or explicit exception now.
 
 Recovery after a predefined defer state uses the same bounded operations clock.
-If a sick, under-treatment, ICU, quarantine, late-pregnancy, or post-breeding
+If a sick, under-treatment, recovering, ICU, quarantine, late-pregnancy, or post-breeding
 animal becomes eligible again after missing its drive, GoatOS must find the
 nearest compatible same-park drive within 7 calendar days of the recovery/ready
 date. If no compatible drive exists inside that buffer, it schedules a

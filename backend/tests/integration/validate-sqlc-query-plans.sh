@@ -522,7 +522,7 @@ ANALYZE obligation_instances;
       OR (
         g.goat_id IS NOT NULL
         AND g.lifecycle_status = 'alive'
-        AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+        AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
         AND COALESCE(loa.usable_for_vaccination, true)
         AND NOT COALESCE(loa.is_quarantine, false)
         AND NOT COALESCE(loa.is_icu, false)
@@ -680,7 +680,7 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND g.lifecycle_status = 'alive'
-  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
   AND COALESCE(loa.usable_for_vaccination, true)
   AND NOT COALESCE(loa.is_quarantine, false)
   AND NOT COALESCE(loa.is_icu, false)
@@ -732,7 +732,7 @@ LEFT JOIN animal_stage_lookup asl
  AND asl.status = 'active'
 WHERE g.tenant_id = '00000000-0000-4000-8000-000000000001'::uuid
   AND g.lifecycle_status = 'alive'
-  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+  AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
   AND COALESCE(loa.usable_for_vaccination, true)
   AND NOT COALESCE(loa.is_quarantine, false)
   AND NOT COALESCE(loa.is_icu, false)
@@ -779,7 +779,7 @@ WITH earliest_by_goat AS (
     AND oi.due_at <= TIMESTAMPTZ '2026-06-22 12:00:00+00'
     AND pd.category = 'vaccination'
     AND g.lifecycle_status = 'alive'
-    AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'quarantine', 'icu')
+    AND COALESCE(g.health_status, '') NOT IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     AND COALESCE(loa.usable_for_vaccination, true)
     AND NOT COALESCE(loa.is_quarantine, false)
     AND NOT COALESCE(loa.is_icu, false)
@@ -953,7 +953,7 @@ grouped AS (
     MAX(sp.capacity) AS shed_capacity,
     COUNT(*) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
-         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     )::bigint AS health_deferred_count
   FROM located
   JOIN locations shed
@@ -1159,7 +1159,7 @@ grouped AS (
     COALESCE(MAX(stage.stage_code), MAX(stage.name), MAX(located.goat_stage), 'Unknown') AS animal_stage,
     COUNT(*) FILTER (
       WHERE located.goat_lifecycle_status IN ('sick', 'under_treatment', 'quarantine', 'icu')
-         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'quarantine', 'icu')
+         OR COALESCE(located.goat_health_status, '') IN ('sick', 'under_treatment', 'recovering', 'quarantine', 'icu')
     )::int AS health_deferred_count
   FROM located
   JOIN locations shed

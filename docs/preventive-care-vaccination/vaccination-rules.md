@@ -346,7 +346,7 @@ The Config modal must author these values per matrix row:
 
 The shared V1 policy must author:
 
-- clinical defer states: sick, under treatment, quarantine, ICU;
+- clinical defer states: sick, under treatment, recovering, quarantine, ICU;
 - reproductive exclusions, including pregnancy skip policy (months 4–5) and the
   post-breeding one-month vaccination hold;
 - breeding-ready prioritization (complete ~2 months before proposed breeding);
@@ -376,7 +376,7 @@ The V1 kernel must enforce:
 - cycle-relative missed-dose handling (immediate when the animal trails the next
   cycle or the next same-cycle drive is >2 weeks out; wait when it is ≤2 weeks);
 - one-week post-arrival warm-up offset from farm-entry date;
-- quarantine/ICU/sick/under-treatment visible defers;
+- quarantine/ICU/sick/under-treatment/recovering visible defers;
 - pregnancy exclusion where the animal state says pregnant/lactating; month-4
   and month-5 precision must use pregnancy month fields (clock from breeding
   date) when present in the animal data model;

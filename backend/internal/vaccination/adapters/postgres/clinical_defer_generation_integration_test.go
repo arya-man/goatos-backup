@@ -43,8 +43,8 @@ func TestGenerationDefersClinicalStatesUnderPartialAuthoring(t *testing.T) {
 	// CANONICAL selectors: lifecycle=alive + health=healthy (as a published matrix
 	// rule authors them), plus a PARTIAL authored defer_states (icu + quarantine).
 	// This exercises the C35-010 counter-review path: a clinical animal carried on
-	// lifecycle_status=sick|under_treatment|quarantine|icu must be deferred, not
-	// excluded by the lifecycle=alive selector before the defer logic runs.
+	// lifecycle_status=sick|under_treatment|quarantine|icu, or health_status=recovering,
+	// must be deferred, not excluded by the lifecycle=alive selector before the defer logic runs.
 	ruleDSL := []byte(`{"eligibility":{"animal_stage":"K1","lifecycle":["alive"],"health":["healthy"],"defer_states":["icu","quarantine"]},` +
 		`"source":{"source_system":"pc","source_ref":"PC §6","review_status":"approved","approved_by":"Reviewer"}}`)
 	versionID, err := proto.CreateVersion(ctx, protodomain.NewVersion{
@@ -66,19 +66,21 @@ func TestGenerationDefersClinicalStatesUnderPartialAuthoring(t *testing.T) {
 	}
 
 	// One healthy (alive) plus one of each clinical state. The candidate query
-	// surfaces all of them (lifecycle_status IN alive/sick/under_treatment/
-	// quarantine/icu); the generator decides scheduled vs deferred.
+	// surfaces lifecycle holds (lifecycle_status IN alive/sick/under_treatment/
+	// quarantine/icu); recovering is carried as health_status on an alive goat.
 	const (
 		aliveID   = "30000000-0000-4000-8000-0000000000c1"
 		sickID    = "30000000-0000-4000-8000-0000000000c2"
 		underID   = "30000000-0000-4000-8000-0000000000c3"
 		quarantID = "30000000-0000-4000-8000-0000000000c4"
 		deadID    = "30000000-0000-4000-8000-0000000000c5"
+		recoverID = "30000000-0000-4000-8000-0000000000c6"
 	)
 	seedGenGoat(t, ctx, pool, aliveID, "alive")
 	seedGenGoat(t, ctx, pool, sickID, "sick")
 	seedGenGoat(t, ctx, pool, underID, "under_treatment")
 	seedGenGoat(t, ctx, pool, quarantID, "quarantine")
+	seedGenGoat(t, ctx, pool, recoverID, "alive")
 	// A terminal exit state must never generate an obligation, even though the
 	// row exists — it is neither eligible nor deferrable.
 	seedGenGoat(t, ctx, pool, deadID, "dead")
@@ -87,8 +89,13 @@ func TestGenerationDefersClinicalStatesUnderPartialAuthoring(t *testing.T) {
 	// lifecycle_status — proving the lifecycle representation defers correctly.
 	if _, err := pool.Exec(ctx,
 		`UPDATE goats SET health_status='healthy' WHERE tenant_id=$1 AND goat_id = ANY($2::uuid[])`,
-		impTenant, []string{aliveID, sickID, underID, quarantID, deadID}); err != nil {
+		impTenant, []string{aliveID, sickID, underID, quarantID, deadID, recoverID}); err != nil {
 		t.Fatalf("set health_status: %v", err)
+	}
+	if _, err := pool.Exec(ctx,
+		`UPDATE goats SET health_status='recovering' WHERE tenant_id=$1 AND goat_id=$2::uuid`,
+		impTenant, recoverID); err != nil {
+		t.Fatalf("set recovering health_status: %v", err)
 	}
 
 	gen := vaccapp.NewGenerationService(proto, vacc, obl)
@@ -98,19 +105,19 @@ func TestGenerationDefersClinicalStatesUnderPartialAuthoring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate: %v", err)
 	}
-	if res.Generated != 4 {
-		t.Fatalf("generated: want 4 obligations, got %d", res.Generated)
+	if res.Generated != 5 {
+		t.Fatalf("generated: want 5 obligations, got %d", res.Generated)
 	}
 	// The union of the mandatory clinical set means sick + under_treatment +
-	// quarantine are all deferred (icu was authored; the other three are
+	// recovering + quarantine are all deferred (icu was authored; the other four are
 	// enforced). Before the fix this was 1 (quarantine only).
-	if res.Deferred != 3 {
-		t.Fatalf("deferred: want 3 (sick, under_treatment, quarantine), got %d — a sick/under_treatment animal is NOT being held for recovery", res.Deferred)
+	if res.Deferred != 4 {
+		t.Fatalf("deferred: want 4 (sick, under_treatment, recovering, quarantine), got %d — a clinical-hold animal is NOT being held until healthy", res.Deferred)
 	}
 
 	// Per-animal persisted status: the sick and under-treatment animals must be
 	// held in 'deferred', not left 'scheduled'.
-	for _, id := range []string{sickID, underID, quarantID} {
+	for _, id := range []string{sickID, underID, recoverID, quarantID} {
 		if got := countRowsVacc(t, ctx, pool,
 			`SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='deferred'`,
 			impTenant, id); got != 1 {

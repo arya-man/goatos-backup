@@ -201,11 +201,11 @@ func TestBootstrapCompilesDBBackedFamilies(t *testing.T) {
 	}
 	deferStates := optionGroupByID(t, config.OptionGroups, "defer_states")
 	deferKeys := optionKeys(deferStates)
-	if !deferKeys["sick"] || !deferKeys["quarantine"] {
+	if !deferKeys["sick"] || !deferKeys["recovering"] || !deferKeys["quarantine"] {
 		t.Fatalf("defer states must include hold-worthy health statuses, got %#v", deferStates.Options)
 	}
 	for _, opt := range deferStates.Options {
-		if opt.Key == "healthy" || opt.Key == "recovering" {
+		if opt.Key == "healthy" {
 			t.Fatalf("defer states must not include healthy status: %#v", deferStates.Options)
 		}
 	}
@@ -244,7 +244,7 @@ func TestBootstrapEmptyDBBackedFamiliesDoNotFallBackToStaticValues(t *testing.T)
 	}
 	deferStates := optionGroupByID(t, config.OptionGroups, "defer_states")
 	deferKeys := optionKeys(deferStates)
-	if len(deferKeys) != 4 || !deferKeys["sick"] || !deferKeys["under_treatment"] || !deferKeys["quarantine"] || !deferKeys["icu"] {
+	if len(deferKeys) != 5 || !deferKeys["sick"] || !deferKeys["under_treatment"] || !deferKeys["recovering"] || !deferKeys["quarantine"] || !deferKeys["icu"] {
 		t.Fatalf("empty DB defer_states must expose kernel hold states only, got %#v", deferStates.Options)
 	}
 	sopLabels := optionGroupByID(t, config.OptionGroups, "schedule_sop_labels")
