@@ -12,7 +12,7 @@ import (
 
 func (s *SweeperService) consolidateParkDrives(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
-	return s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, dueBefore, dueBefore, planner, NewSweepSession(), time.Time{}, nil)
+	return s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, time.Time{}, dueBefore, planner, NewSweepSession(), time.Time{}, nil)
 }
 
 func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Context, tenantID, versionID string, cfg SweepConfig, asOf, dueBefore time.Time, planner domain.DrivePlannerSettings, session *SweepSession, createdAtHWM time.Time, candidateIDs []string) (domain.SweepResult, error) {

@@ -42,6 +42,40 @@ func groupUnbatchedDue(rows []domain.UnbatchedDue, speciesGroupingPolicy string)
 	return order, groups
 }
 
+func dueGroupOperationalAsOf(asOf, dueBefore time.Time, g *dueGroup) time.Time {
+	if !asOf.IsZero() || g == nil || len(g.rows) == 0 {
+		return asOf
+	}
+	// Legacy callers provide only a horizon. Use it as the operating day only when it is still
+	// inside the medical window; no-window rows otherwise plan on their due date instead of
+	// becoming feasible forever under a broad horizon.
+	earliest := g.rows[0].DueAt
+	for _, row := range g.rows {
+		if row.BatchingHoldCount > 0 || row.FirstBatchingHoldUntil != nil {
+			return dueBefore
+		}
+		if !dueBefore.IsZero() && driveCandidateFeasibleOnDate(dueBefore, driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		}) && businessDate(dueBefore).After(businessDate(row.DueAt)) {
+			return dueBefore
+		}
+		if earliest.IsZero() || (!row.DueAt.IsZero() && row.DueAt.Before(earliest)) {
+			earliest = row.DueAt
+		}
+	}
+	if earliest.IsZero() {
+		return dueBefore
+	}
+	return earliest
+}
+
 func orderDueGroupsByVaccinePriority(order []string, groups map[string]*dueGroup, cfg SweepConfig) []string {
 	out := append([]string(nil), order...)
 	sort.SliceStable(out, func(i, j int) bool {

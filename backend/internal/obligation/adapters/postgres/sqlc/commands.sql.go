@@ -17,7 +17,7 @@ SET batch_id = $1, updated_at = now()
 WHERE tenant_id = $2
   AND obligation_id = ANY($3::uuid[])
   AND batch_id IS NULL
-  AND status IN ('scheduled', 'due', 'in_progress')
+  AND status IN ('scheduled', 'due', 'in_progress', 'missed')
 `
 
 type AttachObligationsToBatchParams struct {

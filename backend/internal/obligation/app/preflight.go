@@ -119,7 +119,7 @@ func (s *SweeperService) PreflightVisitShotCapTies(ctx context.Context, tenantID
 // PreflightVisitShotCapTies and also returns the exact candidate membership that passed it. The
 // production orchestration must pass this snapshot to every real per-version sweep in the cycle.
 func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshot(ctx context.Context, tenantID string, plans []SweepVersionPriority, dueBefore time.Time, createdAtHWM time.Time) (*SweepCandidateSnapshot, error) {
-	return s.PreflightVisitShotCapTiesWithSnapshotAsOf(ctx, tenantID, plans, dueBefore, dueBefore, createdAtHWM)
+	return s.PreflightVisitShotCapTiesWithSnapshotAsOf(ctx, tenantID, plans, time.Time{}, dueBefore, createdAtHWM)
 }
 
 // PreflightVisitShotCapTiesWithSnapshotAsOf is PreflightVisitShotCapTiesWithSnapshot with split
@@ -189,7 +189,7 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshotAsOf(ctx context.C
 					parkCandidateIDs = append(parkCandidateIDs, g.ids...)
 					continue
 				}
-				claimedAny, err := s.preflightGroup(ctx, tenantID, plan.Config, planner, asOf, preflight, g, claimed)
+				claimedAny, err := s.preflightGroup(ctx, tenantID, plan.Config, planner, asOf, dueBefore, preflight, g, claimed)
 				if err != nil {
 					return nil, err
 				}
@@ -228,10 +228,11 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshotAsOf(ctx context.C
 // dueGroup, write-free. See PreflightVisitShotCapTies for why this must mirror batchDueGroup
 // exactly. Every obligation it claims is recorded in claimed so the park-consolidation replay does
 // not double-count it.
-func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cfg SweepConfig, planner domain.DrivePlannerSettings, asOf time.Time, session *SweepSession, g *dueGroup, claimed map[string]struct{}) (bool, error) {
+func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cfg SweepConfig, planner domain.DrivePlannerSettings, asOf, dueBefore time.Time, session *SweepSession, g *dueGroup, claimed map[string]struct{}) (bool, error) {
+	operationalAsOf := dueGroupOperationalAsOf(asOf, dueBefore, g)
 	plannedDate := batchPlannedDate(g.rows[0].DueAt)
 	if planner.Enabled {
-		if picked := pickBestDriveDateWithHold(asOf, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
+		if picked := pickBestDriveDateWithHold(operationalAsOf, driveCandidatesFromUnbatched(g.rows), planner); picked != nil {
 			plannedDate = picked
 		} else {
 			return false, nil
@@ -431,7 +432,7 @@ func (s *SweeperService) preflightRemainingShedObligations(ctx context.Context, 
 	order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)
 	order = orderDueGroupsByVaccinePriority(order, groups, cfg)
 	for _, k := range order {
-		if _, err := s.preflightGroup(ctx, tenantID, cfg, planner, asOf, session, groups[k], claimed); err != nil {
+		if _, err := s.preflightGroup(ctx, tenantID, cfg, planner, asOf, dueBefore, session, groups[k], claimed); err != nil {
 			return err
 		}
 	}

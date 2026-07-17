@@ -61,7 +61,7 @@ SET batch_id = @batch_id, updated_at = now()
 WHERE tenant_id = @tenant_id
   AND obligation_id = ANY(@obligation_ids::uuid[])
   AND batch_id IS NULL
-  AND status IN ('scheduled', 'due', 'in_progress');
+  AND status IN ('scheduled', 'due', 'in_progress', 'missed');
 
 -- name: MarkObligationCompleted :execrows
 -- SM-5: mark an obligation completed on accepted verification. Late real-world work may complete

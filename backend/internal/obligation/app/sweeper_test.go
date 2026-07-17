@@ -119,12 +119,12 @@ func TestSweeperGroupsByRuleAndReservesAgainstPlannedDate(t *testing.T) {
 	reserver := &fakeSweepStockReserver{}
 	svc := NewSweeperService(repo, nil, reserver)
 
-	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+	result, err := svc.SweepVersionAsOf(context.Background(), "tenant-1", "version-1", SweepConfig{
 		VaccineItemID: "vaccine-1",
 		DosesPerGoat:  1,
-	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
 	if err != nil {
-		t.Fatalf("SweepVersion: %v", err)
+		t.Fatalf("SweepVersionAsOf: %v", err)
 	}
 	if result.Batches != 2 || result.Obligations != 2 {
 		t.Fatalf("result = %#v, want two separately planned batches", result)
@@ -163,12 +163,12 @@ func TestSweeperDoesNotReserveNoWindowObligationsWeeksLate(t *testing.T) {
 	reserver := &fakeSweepStockReserver{}
 	svc := NewSweeperService(repo, nil, reserver)
 
-	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+	result, err := svc.SweepVersionAsOf(context.Background(), "tenant-1", "version-1", SweepConfig{
 		VaccineItemID: "vaccine-1",
 		DosesPerGoat:  1,
-	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
 	if err != nil {
-		t.Fatalf("SweepVersion: %v", err)
+		t.Fatalf("SweepVersionAsOf: %v", err)
 	}
 	if result.Batches != 0 || result.Obligations != 0 {
 		t.Fatalf("result = %#v, want no late no-window work", result)
@@ -178,6 +178,44 @@ func TestSweeperDoesNotReserveNoWindowObligationsWeeksLate(t *testing.T) {
 	}
 	if reserver.calls != 0 {
 		t.Fatalf("reservation calls = %d, want 0", reserver.calls)
+	}
+}
+
+func TestSweeperFutureHorizonDoesNotActAsOperationalDate(t *testing.T) {
+	dueA := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
+	dueB := time.Date(2026, time.August, 15, 9, 30, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-1", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueA},
+			{ObligationID: "obl-2", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueB},
+		},
+		createBatchIDs: []string{"batch-a", "batch-b"},
+		attachAll:      true,
+	}
+	reserver := &fakeSweepStockReserver{}
+	svc := NewSweeperService(repo, nil, reserver)
+
+	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineItemID: "vaccine-1",
+		DosesPerGoat:  1,
+	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if result.Batches != 2 || result.Obligations != 2 {
+		t.Fatalf("result = %#v, want due rows batched under future horizon", result)
+	}
+	if len(repo.createdBatches) != 2 {
+		t.Fatalf("created batches = %d, want 2", len(repo.createdBatches))
+	}
+	if got := dateKey(repo.createdBatches[0].PlannedDate); got != "2026-08-14" {
+		t.Fatalf("batch A planned date = %s, want 2026-08-14", got)
+	}
+	if got := dateKey(repo.createdBatches[1].PlannedDate); got != "2026-08-15" {
+		t.Fatalf("batch B planned date = %s, want 2026-08-15", got)
+	}
+	if reserver.calls != 2 {
+		t.Fatalf("reservation calls = %d, want 2", reserver.calls)
 	}
 }
 
