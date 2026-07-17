@@ -347,8 +347,8 @@ class SubmitViewModel @Inject constructor(
         val task = currentTask ?: return
         if (outboxItemId != null || captureAllowed == false) return
         if (captureInFlightKey != null) return // one capture at a time
-        val totalCaptured = currentProofs.size
-        if (totalCaptured >= MAX_PROOFS_PER_TASK) return
+        val activeCaptured = currentProofs.count { it.syncStatus != CaptureSyncStatus.FAILED }
+        if (activeCaptured >= MAX_PROOFS_PER_TASK) return
         captureInFlightKey = key
         viewModelScope.launch {
             try {

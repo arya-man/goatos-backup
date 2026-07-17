@@ -151,7 +151,8 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         capturedByPrincipalId: String?,
     ): AppResult<ProofCaptureRow> {
         captureCalls += CaptureCall(fieldKey, subject, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
-        if (rows.size >= maxProofs) return AppResult.Err("Maximum $maxProofs proof videos reached for this drive.")
+        val activeRows = rows.count { it.syncStatus != CaptureSyncStatus.FAILED }
+        if (activeRows >= maxProofs) return AppResult.Err("Maximum $maxProofs proof videos reached for this drive.")
         val row = ProofCaptureRow(
             id = "proof-${nextId++}",
             fieldKey = fieldKey,
