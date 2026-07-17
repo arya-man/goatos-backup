@@ -59,6 +59,19 @@ func TestDrivePlannerFromRuleDSLUsesMatrixPriority(t *testing.T) {
 	}
 }
 
+func TestExtractRuleVaccineIdentityUsesPublishedPriority(t *testing.T) {
+	got := ExtractRuleVaccineIdentity([]byte(`{"vaccine":{"code":"HS","priority":6,"compatibility_group":"HS","inventory_item_id":"item-hs"}}`))
+	if got.VaccineCode != "HS" {
+		t.Fatalf("vaccine code = %q, want HS", got.VaccineCode)
+	}
+	if got.VaccinePriority != 6 {
+		t.Fatalf("vaccine priority = %d, want published metadata priority 6", got.VaccinePriority)
+	}
+	if got.CompatibilityGrp != "HS" || got.VaccineItemID != "item-hs" {
+		t.Fatalf("identity = %#v, want compatibility/item metadata preserved", got)
+	}
+}
+
 func TestDrivePlannerFromRuleDSLReadsHoldGroupingAndShotCap(t *testing.T) {
 	_, planner := DrivePlannerFromRuleDSL([]byte(`{"drive_policy":{"max_batching_hold_days":5,"max_batching_hold_count":1,"species_grouping_policy":"species_specific","max_shots_per_animal_per_drive":3}}`))
 	if planner.MaxBatchingHoldDays != 5 || planner.MaxBatchingHoldCount != 1 || planner.SpeciesGroupingPolicy != "species_specific" || planner.MaxShotsPerAnimalPerDrive != 3 {

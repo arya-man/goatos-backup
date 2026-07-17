@@ -203,6 +203,7 @@ type vaccineMeta struct {
 	CompatibilityGroup string `json:"compatibility_group"`
 	PathogenClass      string `json:"pathogen_class"`
 	CourseType         string `json:"course_type"`
+	Priority           int32  `json:"priority"`
 }
 
 type scheduleRow struct {
@@ -290,6 +291,7 @@ var (
 		"compatibility_group": true,
 		"pathogen_class":      true,
 		"course_type":         true,
+		"priority":            true,
 	}
 	ruleDSLCompatibilityPolicyKeys = map[string]bool{
 		"live_to_killed_gap_days":            true,

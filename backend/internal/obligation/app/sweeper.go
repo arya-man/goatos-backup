@@ -1138,14 +1138,19 @@ func ExtractRuleVaccineIdentity(eligibilityJSON []byte) RuleVaccineIdentity {
 		Code             string `json:"code"`
 		CompatibilityGrp string `json:"compatibility_group"`
 		InventoryItemID  string `json:"inventory_item_id"`
+		Priority         int32  `json:"priority"`
 	}
 	if err := json.Unmarshal(payload.Vaccine, &vaccine); err != nil {
 		return RuleVaccineIdentity{}
 	}
 	vaccineCode := strings.TrimSpace(vaccine.Code)
+	priority := vaccine.Priority
+	if priority <= 0 {
+		priority = VaccineMatrixPriority(vaccineCode)
+	}
 	return RuleVaccineIdentity{
 		VaccineCode:      vaccineCode,
-		VaccinePriority:  VaccineMatrixPriority(vaccineCode),
+		VaccinePriority:  priority,
 		CompatibilityGrp: strings.TrimSpace(vaccine.CompatibilityGrp),
 		VaccineItemID:    strings.TrimSpace(vaccine.InventoryItemID),
 	}

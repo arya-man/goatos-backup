@@ -92,6 +92,20 @@ var vaccines = map[string]vaccineDef{
 // vaccineOrder gives a stable insert order for the 7 protocols.
 var vaccineOrder = []string{"ET+TT", "PPR", "Blue tongue", "FMD", "HS", "Goat Pox", "Sheep Pox"}
 
+// vaccineDrivePriority is the source-backed ordering written into the published
+// matrix rule metadata. The obligation planner still has a coarse fallback for
+// legacy rules, but the real seed must disambiguate FMD vs HS so shot-cap
+// arbitration can overflow deterministically instead of failing on equal priority.
+var vaccineDrivePriority = map[string]int{
+	"ET+TT":       1,
+	"PPR":         2,
+	"Goat Pox":    3,
+	"Sheep Pox":   3,
+	"Blue tongue": 4,
+	"FMD":         5,
+	"HS":          6,
+}
+
 type goatRecord struct {
 	RFID           string
 	OldID          string
@@ -2633,6 +2647,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 		CompatibilityGroup string `json:"compatibility_group"`
 		PathogenClass      string `json:"pathogen_class"`
 		CourseType         string `json:"course_type"`
+		Priority           int    `json:"priority"`
 	}
 
 	type matrixRow struct {
@@ -2760,6 +2775,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 				CompatibilityGroup: strings.ToUpper(def.Code),
 				PathogenClass:      def.Pathogen,
 				CourseType:         courseType,
+				Priority:           vaccineDrivePriority[vaccName],
 			},
 			Species:     spec.Species,
 			Eligibility: vaccinationSeedEligibilityForSpecies(spec.Species),

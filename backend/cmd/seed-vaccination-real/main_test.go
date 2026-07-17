@@ -54,6 +54,42 @@ func TestVaccinationMatrixRowsUseSpeciesScopedEligibility(t *testing.T) {
 	}
 }
 
+func TestVaccinationMatrixRowsCarryDrivePriority(t *testing.T) {
+	dsl, err := vaccinationMatrixRuleDSL()
+	if err != nil {
+		t.Fatalf("build vaccination matrix rule DSL: %v", err)
+	}
+
+	var payload struct {
+		MatrixRows []struct {
+			Vaccine struct {
+				Code     string `json:"code"`
+				Priority int    `json:"priority"`
+			} `json:"vaccine"`
+		} `json:"matrix_rows"`
+	}
+	if err := json.Unmarshal([]byte(dsl), &payload); err != nil {
+		t.Fatalf("unmarshal vaccination matrix DSL: %v", err)
+	}
+
+	priorityByCode := make(map[string]int, len(payload.MatrixRows))
+	for _, row := range payload.MatrixRows {
+		if row.Vaccine.Priority <= 0 {
+			t.Fatalf("%s priority = %d, want positive source-backed priority", row.Vaccine.Code, row.Vaccine.Priority)
+		}
+		priorityByCode[row.Vaccine.Code] = row.Vaccine.Priority
+	}
+	if got, want := priorityByCode["FMD"], 5; got != want {
+		t.Fatalf("FMD priority = %d, want %d", got, want)
+	}
+	if got, want := priorityByCode["HS"], 6; got != want {
+		t.Fatalf("HS priority = %d, want %d", got, want)
+	}
+	if priorityByCode["FMD"] == priorityByCode["HS"] {
+		t.Fatal("FMD and HS must not tie in seeded drive priority")
+	}
+}
+
 func TestHistoryIdempotencyIncludesAdministeredSourceDate(t *testing.T) {
 	cell := vaccCell{AnimalKey: "goat-1", Vaccine: "ET+TT", DoseCode: "first"}
 	def := vaccines["ET+TT"]
