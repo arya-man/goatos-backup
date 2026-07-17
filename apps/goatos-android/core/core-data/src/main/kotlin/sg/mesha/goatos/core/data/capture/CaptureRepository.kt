@@ -285,6 +285,10 @@ interface ProofCaptureRepository {
 
     suspend fun remove(taskId: String, id: String): AppResult<Unit>
 
+    /** Re-arms a terminal FAILED proof upload row using the same proof idempotency key and
+     *  payload. No-op for rows that are already queued/in-flight/synced. */
+    suspend fun retryUpload(taskId: String, id: String): AppResult<Unit>
+
     suspend fun clearForTask(taskId: String)
 }
 
@@ -313,7 +317,7 @@ class DefaultProofCaptureRepository(
         capturedEndMs: Long,
         capturedByPrincipalId: String?,
     ): AppResult<ProofCaptureRow> = withContext(dispatchers.io) {
-        val existing = dao.countForTask(taskId)
+        val existing = dao.activeCountForTask(taskId)
         if (existing >= ProofCaptureDao.MAX_PROOFS_PER_TASK) {
             return@withContext AppResult.Err(
                 "Maximum ${ProofCaptureDao.MAX_PROOFS_PER_TASK} proof videos reached for this drive.",
@@ -351,6 +355,26 @@ class DefaultProofCaptureRepository(
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> = withContext(dispatchers.io) {
         dao.delete(id, taskId)
         AppResult.Ok(Unit)
+    }
+
+    override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> = withContext(dispatchers.io) {
+        val entity = dao.findById(id) ?: return@withContext AppResult.Err("Proof video not found.")
+        if (entity.taskId != taskId) return@withContext AppResult.Err("Proof video does not belong to this task.")
+        if (entity.syncStatus != EntitySyncStatus.FAILED.name) return@withContext AppResult.Ok(Unit)
+        val outboxItemId = entity.outboxItemId
+        if (outboxItemId.isNullOrBlank()) {
+            dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
+            enqueueRegistration(entity, scopeType = "task", scopeId = taskId)
+            return@withContext AppResult.Ok(Unit)
+        }
+        when (val retry = syncRepository.retry(outboxItemId)) {
+            is AppResult.Ok -> {
+                dao.updateStatus(entity.id, EntitySyncStatus.PENDING.name, null, null)
+                followOutboxItem(entity.id, outboxItemId)
+                AppResult.Ok(Unit)
+            }
+            is AppResult.Err -> retry
+        }
     }
 
     override suspend fun clearForTask(taskId: String) = withContext(dispatchers.io) {

@@ -200,14 +200,20 @@ interface ProofCaptureDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(entity: ProofCaptureEntity)
 
-    @Query("SELECT * FROM proof_capture WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
+    @Query(
+        "SELECT * FROM proof_capture WHERE taskId = :taskId " +
+            "ORDER BY CASE WHEN syncStatus = 'FAILED' THEN 1 ELSE 0 END, capturedAtMs ASC LIMIT :limit",
+    )
     fun observeForTask(taskId: String, limit: Int = MAX_PROOFS_PER_TASK): Flow<List<ProofCaptureEntity>>
 
-    @Query("SELECT * FROM proof_capture WHERE taskId = :taskId ORDER BY capturedAtMs ASC LIMIT :limit")
+    @Query(
+        "SELECT * FROM proof_capture WHERE taskId = :taskId " +
+            "ORDER BY CASE WHEN syncStatus = 'FAILED' THEN 1 ELSE 0 END, capturedAtMs ASC LIMIT :limit",
+    )
     suspend fun listForTask(taskId: String, limit: Int = MAX_PROOFS_PER_TASK): List<ProofCaptureEntity>
 
-    @Query("SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId")
-    suspend fun countForTask(taskId: String): Int
+    @Query("SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND syncStatus != 'FAILED'")
+    suspend fun activeCountForTask(taskId: String): Int
 
     @Query("SELECT * FROM proof_capture WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): ProofCaptureEntity?

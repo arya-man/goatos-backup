@@ -208,6 +208,8 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
 
     override suspend fun remove(taskId: String, id: String): AppResult<Unit> = error("unused")
 
+    override suspend fun retryUpload(taskId: String, id: String): AppResult<Unit> = error("unused")
+
     override suspend fun clearForTask(taskId: String) = Unit
 }
 
