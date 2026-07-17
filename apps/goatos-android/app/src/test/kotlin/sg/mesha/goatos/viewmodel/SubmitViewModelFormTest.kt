@@ -169,7 +169,7 @@ class SubmitViewModelFormTest {
     }
 
     @Test
-    fun `a required video_proof field blocks submit until captured, then travels in proofRefs`() = runTest(dispatcher) {
+    fun `a required video_proof field blocks submit until uploaded, then server proof ref travels`() = runTest(dispatcher) {
         val task = TaskSummaryDto(taskId = "task-2", sopVersionId = "sop-2", scopeId = "shed-2", title = "Sumathi 1", rowVersion = 1)
         val form = FormSpec(
             schemaVersion = "goatos.sop-form.v1",
@@ -180,8 +180,15 @@ class SubmitViewModelFormTest {
         )
         val repository = FakeFormTasksRepository(task, form)
         val sync = CapturingSyncRepository()
+        val proofCaptureRepository = FakeProofCaptureRepository()
         val proofCaptureSource = FakeProofCaptureSource()
-        val viewModel = viewModel(repository, sync, "task-2", proofCaptureSource = proofCaptureSource)
+        val viewModel = viewModel(
+            repository,
+            sync,
+            "task-2",
+            proofCaptureRepository = proofCaptureRepository,
+            proofCaptureSource = proofCaptureSource,
+        )
         backgroundScope.launch { viewModel.state.collect {} }
 
         advanceUntilIdle()
@@ -201,7 +208,20 @@ class SubmitViewModelFormTest {
         viewModel.onEvent(SubmitEvent.CaptureVideoRequested("administration_video"))
         advanceUntilIdle()
 
-        assertTrue("submit must unblock once the required video is captured (Room-first)", viewModel.state.value.canSubmit)
+        assertFalse("local capture alone is not enough; the proof must finish signed upload + completion", viewModel.state.value.canSubmit)
+        assertEquals(
+            "Wait for proof upload to finish before submitting.",
+            viewModel.state.value.formRunner?.blockedReason,
+        )
+        viewModel.onEvent(SubmitEvent.Submit)
+        advanceUntilIdle()
+        assertNull("submit must not enqueue a payload with a local Room proof id", sync.lastRequest)
+
+        val localProofId = viewModel.state.value.formRunner?.fields?.single()?.proofItems?.single()?.id
+        proofCaptureRepository.markSynced(localProofId!!, "server-proof-administration")
+        advanceUntilIdle()
+
+        assertTrue("submit must unblock once the captured proof has a completed backend proof id", viewModel.state.value.canSubmit)
         assertNull(viewModel.state.value.formRunner?.blockedReason)
 
         viewModel.onEvent(SubmitEvent.Submit)
@@ -209,6 +229,7 @@ class SubmitViewModelFormTest {
 
         val request = sync.lastRequest
         assertEquals(1, request?.proofRefs?.size)
+        assertEquals("server-proof-administration", request?.proofRefs?.first()?.proofId)
         assertEquals("administration", request?.proofRefs?.first()?.subjectType)
         assertTrue("nothing enqueues twice for a cancelled + successful capture", proofCaptureSource.captureCount == 2)
     }

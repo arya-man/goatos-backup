@@ -176,10 +176,10 @@ class SyncEngineTest {
         assertEquals(OutboxStatus.FAILED.name, row.status)
         assertTrue(row.conflict)
         assertEquals(1, row.attemptCount) // no retry budget spent looping — terminal immediately
-        // "required" is a form-gap code -> the engine substitutes the honest, friendly
-        // "form capture lands later" message rather than surfacing the raw field error.
+        // "required" is a form/proof-gap code -> the engine substitutes an honest, friendly
+        // recording-form/proof-upload message rather than surfacing the raw field error.
         assertEquals(
-            "This drive needs the recording form before it can be submitted — form capture lands in a later build.",
+            "This drive is missing required form answers or completed proof. Review the recording form and wait for proof upload to finish.",
             row.lastError,
         )
 

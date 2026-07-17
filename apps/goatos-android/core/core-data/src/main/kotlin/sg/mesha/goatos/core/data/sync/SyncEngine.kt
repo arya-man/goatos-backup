@@ -237,19 +237,16 @@ class SyncEngine(
     }
 
     // Turns a backend validation failure into an honest operator-facing line, stored as
-    // OutboxEntity.lastError for the UI to render verbatim (see SubmitViewModel). When the
-    // ONLY errors are missing required answers/proof, the real blocker is that this build has
-    // no recording-form capture yet (form DSL runner + camera→proof upload land later) — say
-    // that plainly instead of leaking a raw field-error code. Any other rejection is shown
-    // verbatim. (Ported from the previous synchronous SubmitViewModel.rejectionReason, moved
-    // here because the full ValidationReportDto is only available at the point of failure.)
+    // OutboxEntity.lastError for the UI to render verbatim (see SubmitViewModel). Any backend
+    // required/proof rejection means the server-authoritative form/proof policy still found a
+    // gap, even if the local submit button allowed the attempt.
     private fun rejectionReason(report: sg.mesha.goatos.core.network.dto.ValidationReportDto): String {
         val codes = report.errors.map { it.code }
         val onlyFormGaps = codes.isNotEmpty() && codes.all {
             it == "required" || it == "proof_required" || it == "proof_subject_required"
         }
         return if (onlyFormGaps) {
-            "This drive needs the recording form before it can be submitted — form capture lands in a later build."
+            "This drive is missing required form answers or completed proof. Review the recording form and wait for proof upload to finish."
         } else {
             report.errors.firstOrNull()?.message ?: "Server rejected the submission."
         }

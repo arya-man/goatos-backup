@@ -29,6 +29,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.TaskDetail
 import sg.mesha.goatos.core.data.TasksRepository
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.MAX_PROOFS_PER_TASK
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
@@ -600,13 +601,14 @@ class SubmitViewModel @Inject constructor(
     private fun buildFormRunnerState(form: FormSpec, task: TaskSummaryDto): FormRunnerState? {
         if (form.isEmpty) return null
         val fields = form.fields.map { field -> field.toFieldUi() }
+        val unreadyProof = currentProofs.firstOrNull { !it.isCompletedProofRef() }
         val unmet = form.fields.firstOrNull { field -> !field.isAnswered() }
         return FormRunnerState(
             title = "Recording form",
             subtitle = task.title,
             fields = fields,
             submitLabel = "Submit",
-            blockedReason = unmet?.let { blockedReasonFor(it) },
+            blockedReason = unreadyProof?.let { blockedReasonForProofUpload(it) } ?: unmet?.let { blockedReasonFor(it) },
         )
     }
 
@@ -619,10 +621,20 @@ class SubmitViewModel @Inject constructor(
             FormFieldType.VACCINE_BATCH_PICKER, FormFieldType.LOCATION_PICKER ->
                 !(answer as? JsonPrimitive)?.content.isNullOrBlank()
             FormFieldType.GOAT_SCAN -> currentScans.any { it.matchesGoatScanField(key, currentForm.rosterScanTargetFieldKey()) }
-            FormFieldType.VIDEO_PROOF -> currentProofs.any { it.fieldKey == key }
+            FormFieldType.VIDEO_PROOF -> currentProofs.any { it.fieldKey == key && it.isCompletedProofRef() }
             FormFieldType.UNKNOWN -> false
         }
     }
+
+    private fun ProofCaptureRow.isCompletedProofRef(): Boolean =
+        syncStatus == CaptureSyncStatus.SYNCED && !serverProofId.isNullOrBlank()
+
+    private fun blockedReasonForProofUpload(proof: ProofCaptureRow): String =
+        if (proof.syncStatus == CaptureSyncStatus.FAILED) {
+            proof.lastError?.takeIf { it.isNotBlank() } ?: "Proof upload failed. Retry sync before submitting."
+        } else {
+            "Wait for proof upload to finish before submitting."
+        }
 
     private fun blockedReasonFor(field: FormField): String = when (field.type) {
         FormFieldType.GOAT_SCAN -> "Scan the required goats (\"${field.label}\") before submitting."
@@ -750,13 +762,13 @@ class SubmitViewModel @Inject constructor(
             }
         }.toMap()
 
-        /** Every captured proof (across every `video_proof` field) as the wire proof-ref list.
-         *  [ProofReferenceDto.proofId] prefers the backend-registered id once the metadata
-         *  registration has synced; a row still PENDING/IN_FLIGHT sends its stable local id so
-         *  the backend at least sees a consistent reference for retries. */
-        fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs.map { row ->
+        /** Every completed backend proof (across every `video_proof` field) as the wire proof-ref
+         *  list. Submit gating requires [serverProofId] to be present; never send a local Room id
+         *  as a proof ref, because the backend review path requires completed server proof rows. */
+        fun proofRefsForSubmission(proofs: List<ProofCaptureRow>): List<ProofReferenceDto> = proofs.mapNotNull { row ->
+            val serverProofId = row.serverProofId?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             ProofReferenceDto(
-                proofId = row.serverProofId ?: row.id,
+                proofId = serverProofId,
                 proofType = "video",
                 subjectType = row.proofSubject.wireValue,
                 subjectId = null,
