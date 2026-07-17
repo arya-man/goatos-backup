@@ -389,6 +389,30 @@ func headerIndex(hdr []interface{}) map[string]int {
 // on the pair.
 type shedKey struct{ farm, shed string }
 
+type seedGoatUpsertRow struct {
+	goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
+	entryDate                                                                                                                                     string
+	health                                                                                                                                        *string
+	reproductiveStatus                                                                                                                            *string
+}
+
+func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []seedGoatUpsertRow, custodianPartyID string) error {
+	return batch(ctx, tx, rows, 500, func(b *pgx.Batch, gi seedGoatUpsertRow) {
+		b.Queue(`
+				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
+					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17,now())
+				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, breed_id=EXCLUDED.breed_id, sex=EXCLUDED.sex,
+					lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
+					origin_type=EXCLUDED.origin_type, dob=EXCLUDED.dob,
+					shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
+					management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date,
+					custodian_party_id=EXCLUDED.custodian_party_id, reproductive_status=EXCLUDED.reproductive_status, updated_at=now()`,
+			gi.goatID, tenantID, gi.species, gi.breed, nullString(gi.breedID), gi.sex, gi.lifecycle, gi.health, nullString(gi.originType),
+			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID, gi.reproductiveStatus)
+	})
+}
+
 func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool) (st stats, retErr error) {
 	now := time.Now().In(loc)
 
@@ -608,13 +632,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	goatStageByAnimalKey := map[string]string{}
 	goatShedByAnimalKey := map[string]string{}
 	goatParkByAnimalKey := map[string]string{}
-	type goatIns struct {
-		goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
-		entryDate                                                                                                                                     string
-		health                                                                                                                                        *string
-		reproductiveStatus                                                                                                                            *string
-	}
-	var goatRows []goatIns
+	var goatRows []seedGoatUpsertRow
 	for _, g := range goats {
 		shedID, ok := shedByKey[shedKey{g.Farm, g.Shed}]
 		if !ok {
@@ -654,7 +672,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 
 		species := deriveSeedSpecies(g.Species, g.Breed)
 		breed := normalizeBreed(g.Breed)
-		goatRows = append(goatRows, goatIns{
+		goatRows = append(goatRows, seedGoatUpsertRow{
 			goatID:            goatID,
 			animalKey:         animalKey,
 			animalIdentifier1: animalIdentifier1,
@@ -679,19 +697,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			entryDate:          entryDateValue,
 		})
 	}
-	if err := batch(ctx, tx, goatRows, 500, func(b *pgx.Batch, gi goatIns) {
-		b.Queue(`
-				INSERT INTO goats (goat_id, tenant_id, species, breed, breed_id, sex, lifecycle_status,
-					health_status, origin_type, dob, entry_date, current_location_id, shed_id, park_id, management_stage, age_band, custodian_party_id, reproductive_status, updated_at)
-				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14,$15,$16,$17,now())
-				ON CONFLICT (goat_id) DO UPDATE SET species=EXCLUDED.species, breed=EXCLUDED.breed, breed_id=EXCLUDED.breed_id, sex=EXCLUDED.sex,
-					lifecycle_status=EXCLUDED.lifecycle_status, health_status=EXCLUDED.health_status,
-					shed_id=EXCLUDED.shed_id, park_id=EXCLUDED.park_id, current_location_id=EXCLUDED.current_location_id,
-					management_stage=EXCLUDED.management_stage, age_band=EXCLUDED.age_band, entry_date=EXCLUDED.entry_date,
-					reproductive_status=EXCLUDED.reproductive_status, updated_at=now()`,
-			gi.goatID, tenantID, gi.species, gi.breed, nullString(gi.breedID), gi.sex, gi.lifecycle, gi.health, nullString(gi.originType),
-			nullableDate(gi.dob), nullableDate(gi.entryDate), gi.shedID, gi.parkID, gi.stage, nullString(gi.age), custodianPartyID, gi.reproductiveStatus)
-	}); err != nil {
+	if err := upsertSeedGoats(ctx, tx, tenantID, goatRows, custodianPartyID); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
 	}
 	st.Animals = len(goatRows)
