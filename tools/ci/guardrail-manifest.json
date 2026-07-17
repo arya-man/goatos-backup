@@ -218,6 +218,16 @@
       "ciStep": "admin-web-request-reads-guard"
     },
     {
+      "id": "admin-web-prefetch",
+      "script": "tools/agent-hooks/check-admin-web-prefetch.mjs",
+      "makeTarget": "admin-web-prefetch-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-prefetch.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test",
+      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-prefetch-guard"
+    },
+    {
       "id": "android-bounded-memory",
       "script": "tools/agent-hooks/check-android-bounded-memory.mjs",
       "makeTarget": "android-bounded-memory-guard",

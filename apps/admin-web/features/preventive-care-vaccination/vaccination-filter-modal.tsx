@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { createPortal } from "react-dom";
 import { Search, X } from "lucide-react";
 import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";

@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { type AdminUiPageContract, copy, optionLabel } from "@/lib/admin-ui-contract";
 import { boundedInt, hrefPreviousPagedCursor, hrefWithPagedCursor, one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope, scopeHref } from "@/lib/scope";

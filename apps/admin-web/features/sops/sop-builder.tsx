@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronLeft, Eye, NotebookPen, Play, Plus, Video, X } from "lucide-react";
 import {

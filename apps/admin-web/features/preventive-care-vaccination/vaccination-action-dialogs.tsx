@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { CalendarDays } from "lucide-react";
 import { scopeHref, type Scope } from "@/lib/scope";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { Workflow } from "lucide-react";
 import { ConfigConsole, type ConfigRuleRow } from "./config-console";
 import { type AnimalStageOption, type SopVersionOption } from "./rule-dsl";

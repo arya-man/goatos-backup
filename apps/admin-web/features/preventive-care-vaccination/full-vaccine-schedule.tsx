@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import type { ReactNode } from "react";
 import { CalendarDays, Layers, MapPinned, Warehouse } from "lucide-react";
 import {

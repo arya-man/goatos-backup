@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AlertTriangle, Calculator, ChevronLeft, ChevronRight, Database, Pencil, Plus, Search, X } from "lucide-react";

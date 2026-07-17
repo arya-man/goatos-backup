@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { boundedInt, one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";

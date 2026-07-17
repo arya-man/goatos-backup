@@ -2,7 +2,7 @@
 // and the weekly operating-rhythm strip (`.rhythm`/`.rday`). Both read real backend-compiled contract
 // data (`CalendarPresentation.rhythm`), already served by `/admin-web/bootstrap` — see
 // backend/internal/adminui/app/service.go — rather than inventing local copy.
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import {
   type CalendarPresentation,
   type CalendarRhythmDay,

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Info } from "lucide-react";
 import { actionFeedbackCopy, copy, optionGroup, optionLabel, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, hrefWithoutAction, hrefWithPagedCursor, hrefPreviousPagedCursor, boundedInt, type RouteSearchParams } from "@/lib/search-params";

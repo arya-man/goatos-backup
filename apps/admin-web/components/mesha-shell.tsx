@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ElementType } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";

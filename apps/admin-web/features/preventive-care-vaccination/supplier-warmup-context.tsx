@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { ArrowRight, Truck, X } from "lucide-react";
 import { Tag, type Tone } from "@/components/ui-primitives";
 import { firstAuthRequiredError } from "@/lib/api/server";

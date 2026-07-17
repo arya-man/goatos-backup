@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 
 // Mock-styled cursor pager shared by the procurement row surfaces (Source Entry Board, Action Center,

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, KeyRound, Loader2 } from "lucide-react";
 import { confirmPasswordResetCode, verifyPasswordReset } from "@/lib/auth/firebase-client";

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { Syringe } from "lucide-react";
 import type { VaccinationOperationsResponse } from "@/lib/api/server";
 import { Tag, type Tone } from "@/components/ui-primitives";

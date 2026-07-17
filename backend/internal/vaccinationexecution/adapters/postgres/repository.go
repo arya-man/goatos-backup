@@ -336,8 +336,6 @@ func (r *Repository) VaccinationSchedule(ctx context.Context, q domain.ScheduleQ
 // RebuildVaccinationScheduleWindow recomputes one tenant/park/month schedule scope and swaps only
 // that scope's rows. It is intended for seed/backfill/dirty-scope workers, not the request path.
 func (r *Repository) RebuildVaccinationScheduleWindow(ctx context.Context, q domain.ScheduleQuery, generatedBy string) (domain.ScheduleProjectionState, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
 	monthStart, monthEnd := scheduleMonthWindow(q.MonthStart)
 	scopeType, scopeID := scheduleScope(q.ParkID)
 	asOf := time.Now().In(biztime.DefaultLocation())
@@ -429,8 +427,6 @@ func (r *Repository) RebuildVaccinationScheduleWindow(ctx context.Context, q dom
 }
 
 func (r *Repository) RebuildDirtyVaccinationScheduleWindows(ctx context.Context, tenantID string, limit int, generatedBy string) (domain.ScheduleRebuildSummary, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}

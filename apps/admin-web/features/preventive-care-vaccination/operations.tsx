@@ -1,38 +1,9 @@
-import { isAuthRequiredError, listSops } from "@/lib/api/server";
-import { isVaccinationSop, toSopView, type SopCardView } from "@/features/sops";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { copy, optionGroup, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { parseScope } from "@/lib/scope";
 import { loadVaccinationShedSummary, VaccinationShedBoard } from "@/features/vaccination-sheds";
-import { VaccinationSopButton } from "./sop-quick-view";
 import { VaccinationFullScheduleButton } from "./vaccination-action-dialogs";
 import { loadVaccinationFullSchedule, VaccinationFullSchedule, vaccinationScheduleYear } from "./full-vaccine-schedule";
-
-// Linked vaccination SOP for the header quick-view. Derived from the REAL /admin/sops data (same source as
-// /sops), filtered to the vaccination slice and reduced to the primary (active preferred) SOP + its latest
-// version. Errors/auth are surfaced in the modal rather than swallowed into a fake "no SOP" state.
-type LinkedSop = { view: SopCardView | null; error?: { code?: string; message: string } | null; authRequired?: boolean };
-
-async function loadLinkedVaccinationSop(): Promise<LinkedSop> {
-  let listed = await listSops({ status: "active", codePrefix: "vaccination.", limit: 1 });
-  if (!listed.ok) {
-    if (isAuthRequiredError(listed.error)) return { view: null, authRequired: true };
-    return { view: null, error: { code: listed.error.code, message: listed.error.message } };
-  }
-  // An installation may have only a draft/retired vaccination SOP while policy is being authored.
-  // Keep that visible as the explicit fallback, still bounded to one server-filtered row.
-  if (listed.data.items.length === 0) {
-    listed = await listSops({ codePrefix: "vaccination.", limit: 1 });
-    if (!listed.ok) {
-      if (isAuthRequiredError(listed.error)) return { view: null, authRequired: true };
-      return { view: null, error: { code: listed.error.code, message: listed.error.message } };
-    }
-  }
-  const defs = listed.data.items.filter((d) => isVaccinationSop(d.code, d.name));
-  if (defs.length === 0) return { view: null }; // no vaccination SOP authored yet (distinct from a load failure)
-  const primary = defs[0];
-  return { view: toSopView(primary, listed.data.latest_versions?.[primary.sop_id] ?? null) };
-}
 
 // Preventive Care (PC) · Vaccination — the SHED-WISE operations floor:
 //   header (SOP · Full Schedule) → drive-mechanic band (Target → Group → Route → Execute)
@@ -55,14 +26,13 @@ export async function VaccinationOperationsPage({
   const isFullSchedule = one(sp, "view") === "schedule";
   const scheduleYear = vaccinationScheduleYear(sp);
 
-  const linkedSopPromise = isFullSchedule ? Promise.resolve<LinkedSop>({ view: null }) : loadLinkedVaccinationSop();
   const shedSummaryPromise = isFullSchedule ? undefined : loadVaccinationShedSummary(sp, pageContract);
   const fullSchedulePromise = isFullSchedule ? loadVaccinationFullSchedule(sp, scope) : undefined;
   const driveSteps = optionGroup(pageContract, "drive_steps").map((step) => {
     const [title, detail] = (step.title || "").split("|");
     return { key: step.key, step: step.label, title, detail };
   });
-  const [linkedSop, shedSummary, fullSchedule] = await Promise.all([linkedSopPromise, shedSummaryPromise, fullSchedulePromise]);
+  const [shedSummary, fullSchedule] = await Promise.all([shedSummaryPromise, fullSchedulePromise]);
 
   return (
     <div className="screen on">
@@ -75,7 +45,6 @@ export async function VaccinationOperationsPage({
           <div className="sub">{pageContract.subtitle}</div>
         </div>
         <div className="sp" style={{ flex: 1 }} />
-        {!isFullSchedule ? <VaccinationSopButton view={linkedSop.view} error={linkedSop.error} authRequired={linkedSop.authRequired} pageContract={pageContract} /> : null}
         <VaccinationFullScheduleButton scope={scope} pageContract={pageContract} active={isFullSchedule} year={scheduleYear} />
       </div>
 

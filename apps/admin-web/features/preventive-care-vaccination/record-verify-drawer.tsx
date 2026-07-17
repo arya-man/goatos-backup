@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { Syringe, X } from "lucide-react";
 import type {
   VaccinationOperationsCell,

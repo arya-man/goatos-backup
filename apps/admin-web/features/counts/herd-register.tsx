@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { redirect } from "next/navigation";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 

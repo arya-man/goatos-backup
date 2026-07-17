@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { Ban, ChevronRight, Layers, MapPin, ShieldCheck, Syringe, UserRound, Warehouse, X } from "lucide-react";
 import { getVaccinationExecution, type ApiResult } from "@/lib/api/server";
 import type {

@@ -152,6 +152,7 @@ async function validateVaccinationCursorContract() {
   for (const { path, schema, responseCursor } of [
     { path: "/vaccination/execution", schema: "VaccinationExecutionResponse", responseCursor: "nextCursor" },
     { path: "/vaccination/operations", schema: "VaccinationOperationsResponse", responseCursor: "next_cursor" },
+    { path: "/vaccination/schedule", schema: "VaccinationOperationsResponse", responseCursor: "next_cursor" },
   ]) {
     const endpoint = spec.paths?.[path]?.get;
     if (!endpoint) {

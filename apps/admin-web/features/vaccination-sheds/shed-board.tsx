@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { Layers, MapPin, Warehouse } from "lucide-react";
 import { getVaccinationShedSummary, type ApiResult, type VaccinationShedSummaryResponse } from "@/lib/api/server";
 import type {

@@ -39,6 +39,9 @@ resumable, and measurable.
 - capped read-time rollups that fetch a larger raw slice, aggregate it in
   app/service/frontend state, then hide pagination/truncation and present the
   collapsed result as business truth
+- admin-web route prefetch for operational links whose target performs
+  authenticated SSR/API reads; navigation must be user-triggered, not fired by
+  link visibility or hover in the background
 - business-calendar hardcodes that derive operational month/year/window state
   from the server/browser default timezone instead of the Goat OS business
   timezone
@@ -361,3 +364,24 @@ no page bound (e.g. `getOperationsAuditSummary`); only the actual drain loop is.
 `make admin-web-request-reads-guard-audit` runs the whole-tree audit; the legacy
 `OutboxDao.observeAll` and any other pre-existing whole-set reader surface there
 and should migrate to a projection/keyset read.
+
+## Admin-web route prefetch request reads
+
+Next.js `Link` prefetch is also a request-path scale anti-pattern for Goat OS
+admin-web. It can start a server navigation before the operator clicks a link:
+when a link becomes visible or is hovered, Next.js may load the target route in
+the background. That is useful for mostly-static pages. It is harmful for
+authenticated operational screens such as Full Schedule because the target route
+can execute SSR helpers and backend API reads while the user is still looking at
+the current screen.
+
+For example, a Vaccination page that renders Full Schedule/month/year links must
+not silently fire expensive schedule reads for those targets in the background.
+Those reads should happen only after the operator chooses the schedule view.
+
+Admin-web code must import `Link` from
+`@/components/no-prefetch-link`, never directly from `next/link`, and must not
+set `prefetch={true}`. `make admin-web-prefetch-guard`
+(`tools/agent-hooks/check-admin-web-prefetch.mjs`) enforces that globally for
+`apps/admin-web/**`, with `apps/admin-web/components/no-prefetch-link.tsx` as
+the only allowed direct `next/link` import.

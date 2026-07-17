@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { Bell, X } from "lucide-react";
 import { Tag } from "@/components/ui-primitives";
 import { dateTime, fmtDateTime } from "@/lib/format";

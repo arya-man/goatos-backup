@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/no-prefetch-link";
 import { ArrowRight, Syringe } from "lucide-react";
 import type { ActionCenterObligation, WorkState } from "@/lib/api/server";
 import { copy, optionGroup, optionalOption, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";

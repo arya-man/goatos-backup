@@ -148,6 +148,7 @@ run_admin_web() {
   step "admin-web unit tests"    npm --prefix apps/admin-web run test
   step "telemetry-guard"         make telemetry-guard
   step "admin-web request reads" make admin-web-request-reads-guard
+  step "admin-web prefetch"      make admin-web-prefetch-guard
   step "admin-web mock-fidelity" npm --prefix apps/admin-web run check:mock-fidelity
   step "admin-web request-plan"  npm --prefix apps/admin-web run check:action-center-request-plan
   step "admin-web production build + token leak" env GOATOS_BEARER_TOKEN=sentinel-mesha-admin-token npm --prefix apps/admin-web run build

@@ -4635,6 +4635,8 @@ export interface operations {
                 /** @description Calendar month in the business timezone. Defaults to the current month. */
                 month?: number;
                 limit?: number;
+                /** @description Opaque pagination cursor returned as next_cursor by the previous schedule response. */
+                cursor?: string;
             };
             header?: never;
             path?: never;
