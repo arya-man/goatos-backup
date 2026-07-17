@@ -36,7 +36,7 @@ type Storage interface {
 }
 
 type SignedURLVerifier interface {
-	Verify(method, path, expires, signature string, now time.Time) bool
+	Verify(method, path, tenantID, expires, signature string, now time.Time) bool
 }
 
 type ReadSeekCloser interface {

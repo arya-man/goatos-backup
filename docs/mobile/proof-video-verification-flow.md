@@ -17,8 +17,11 @@ The backend proof-media foundation exists:
   signed upload target.
 - `PUT <upload_url>` uploads the media bytes directly to storage. In local dev,
   the returned target can be the local fallback route
-  `PUT /app/proofs/{proof_id}/upload`.
+  `PUT /app/proofs/{proof_id}/upload?tenant_id=...&expires=...&sig=...`.
 - `POST /app/proofs/{proof_id}/complete` finalizes the proof with metadata.
+- Local proof downloads resolve to a signed backend route
+  `GET /app/proofs/{proof_id}/download/signed?tenant_id=...&expires=...&sig=...`
+  so admin-web/video playback can stream from Ravi's laptop without GCS/CDN.
 - GCS storage can issue signed PUT/GET URLs when the backend is configured with
   `GOATOS_MEDIA_STORAGE=gcs`.
 
