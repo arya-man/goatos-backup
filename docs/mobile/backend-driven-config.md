@@ -92,6 +92,15 @@ GET /app/config?since=<revision>   → 200 {delta since revision} (optional opti
 - **Firebase Remote Config** is a *fallback / global kill-switch* only (e.g.
   force-refresh, hard app-min-version, emergency disable). Bootstrap is primary so
   config stays tenant/role-scoped and server-authoritative.
+- **Hard app-min-version must have an update path.** A force-update decision is
+  valid only when the minimum supported version is positive, the installed build
+  is below it, and `update_url` is a valid `http(s)` install URL. Blank,
+  malformed, or missing `update_url` must fail open; otherwise Remote Config can
+  hard-brick field operators with no actionable CTA.
+- **Cold-start gate state is blocking.** The app must render a neutral checking
+  state until the first force-update check resolves. It may fail open after an
+  error or allowed decision, but it must not render auth/bootstrap/business UI as
+  allowed before the first check has run.
 
 ## When the app fetches config
 

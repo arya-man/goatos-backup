@@ -80,9 +80,13 @@ operational sweep day for hold/backdating/planned-date math, while `dueBefore`
 is only the obligation eligibility cutoff. Batched Calendar, Vaccination
 Execution, and Process Integrity rows must render, sort, and classify by
 `obligation_batches.planned_date`, falling back to obligation `due_at` only for
-unbatched rows. Run `make vaccination-drive-clubbing-guard` after changing
-generation, sweeper, drive planner, Calendar/process projections, or vaccination
-seed data.
+unbatched rows. Calendar must include both shed-scoped and park-scoped
+`obligation_batches`: a park consolidation batch is a real vaccination drive,
+not an invisible internal grouping. Derive park/shed labels and shed count from
+the attached goats/obligations so a multi-shed park batch renders as one park
+drive with correct output. Run `make vaccination-drive-clubbing-guard` after
+changing generation, sweeper, drive planner, Calendar/process projections, or
+vaccination seed data.
 
 For Calendar work, read
 `context/execution/calendar-vaccination-slice-parallel-handoff.md` and
