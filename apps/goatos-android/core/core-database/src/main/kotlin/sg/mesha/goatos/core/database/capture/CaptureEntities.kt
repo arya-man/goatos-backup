@@ -39,6 +39,8 @@ data class ScannedGoatEntity(
      *  a task's form can in principle declare more than one scan field. */
     val fieldKey: String,
     val tag: String,
+    val goatId: String?,
+    val obligationId: String?,
     val capturedAtMs: Long,
     val syncStatus: String = CaptureSyncStatus.PENDING.name,
 )

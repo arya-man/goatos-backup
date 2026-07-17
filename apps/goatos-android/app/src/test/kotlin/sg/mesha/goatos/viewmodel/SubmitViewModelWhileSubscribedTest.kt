@@ -159,7 +159,13 @@ private class CountingScanCaptureRepository : ScanCaptureRepository {
             }
         }
 
-    override suspend fun recordScan(taskId: String, fieldKey: String, tag: String) = Unit
+    override suspend fun recordScan(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+    ) = Unit
 
     override suspend fun tagsForTask(taskId: String): List<String> = emptyList()
 

@@ -31,10 +31,22 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
 
     override fun observeAllForTask(taskId: String): Flow<List<ScannedGoatRow>> = flow
 
-    override suspend fun recordScan(taskId: String, fieldKey: String, tag: String) {
+    override suspend fun recordScan(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+    ) {
         recordScanCalls++
         if (rows.none { it.fieldKey == fieldKey && it.tag == tag }) {
-            rows += ScannedGoatRow(fieldKey = fieldKey, tag = tag, capturedAtMs = rows.size.toLong())
+            rows += ScannedGoatRow(
+                fieldKey = fieldKey,
+                tag = tag,
+                goatId = goatId,
+                obligationId = obligationId,
+                capturedAtMs = rows.size.toLong(),
+            )
             flow.value = rows.toList()
         }
     }

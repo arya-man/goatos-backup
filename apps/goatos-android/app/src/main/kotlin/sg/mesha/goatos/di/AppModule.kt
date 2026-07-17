@@ -290,7 +290,10 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideScanCaptureRepository(dao: ScannedGoatDao): ScanCaptureRepository = DefaultScanCaptureRepository(dao)
+    fun provideScanCaptureRepository(
+        dao: ScannedGoatDao,
+        syncRepository: SyncRepository,
+    ): ScanCaptureRepository = DefaultScanCaptureRepository(dao, syncRepository)
 
     @Provides
     @Singleton

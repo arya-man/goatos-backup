@@ -270,6 +270,29 @@ type SubmitTaskRequest struct {
 	ProofRefs      []ProofReference `json:"proof_refs"`
 }
 
+type ScanCaptureRequest struct {
+	FieldKey     string `json:"field_key"`
+	Tag          string `json:"tag"`
+	GoatID       string `json:"goat_id,omitempty"`
+	ObligationID string `json:"obligation_id,omitempty"`
+	CapturedAtMs *int64 `json:"captured_at_ms,omitempty"`
+}
+
+type ScanCaptureSummary struct {
+	CaptureID    string `json:"capture_id"`
+	TaskID       string `json:"task_id"`
+	FieldKey     string `json:"field_key"`
+	Tag          string `json:"tag"`
+	GoatID       string `json:"goat_id,omitempty"`
+	ObligationID string `json:"obligation_id,omitempty"`
+	CapturedAt   string `json:"captured_at"`
+}
+
+type ScanCaptureResponse struct {
+	Capture ScanCaptureSummary `json:"capture"`
+	TraceID string             `json:"trace_id"`
+}
+
 type SubmissionResponse struct {
 	Submission SubmissionSummary `json:"submission"`
 	Task       TaskSummary       `json:"task"`

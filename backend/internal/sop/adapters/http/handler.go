@@ -51,6 +51,7 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/tasks", h.ListAppTasks)
 	mux.HandleFunc("GET /app/tasks/{task_id}", h.GetTask)
 	mux.HandleFunc("GET /app/sop-versions/{sop_version_id}", h.GetAppVersion)
+	mux.HandleFunc("POST /app/tasks/{task_id}/scan-captures", h.RecordScanCapture)
 	mux.HandleFunc("POST /app/tasks/{task_id}/submissions", h.SubmitTask)
 }
 
@@ -302,6 +303,21 @@ func (h *Handler) SubmitTask(w nethttp.ResponseWriter, r *nethttp.Request) {
 		ActorID:  actorID(r),
 		TaskID:   r.PathValue("task_id"),
 		Body:     body,
+	}, traceID(r))
+	h.respond(w, r, result, err)
+}
+
+func (h *Handler) RecordScanCapture(w nethttp.ResponseWriter, r *nethttp.Request) {
+	var body domain.ScanCaptureRequest
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := h.service.RecordScanCapture(r.Context(), ports.RecordScanCaptureCommand{
+		TenantID:       tenantID(r),
+		ActorID:        actorID(r),
+		TaskID:         r.PathValue("task_id"),
+		IdempotencyKey: strings.TrimSpace(r.Header.Get("Idempotency-Key")),
+		Body:           body,
 	}, traceID(r))
 	h.respond(w, r, result, err)
 }

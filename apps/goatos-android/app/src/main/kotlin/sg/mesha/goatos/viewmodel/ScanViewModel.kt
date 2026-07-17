@@ -88,6 +88,7 @@ class ScanViewModel @Inject constructor(
     // by a hardware tag read or manual ring tap, plus the live feed rows. These are overlaid onto
     // the observed roster in the combine so an in-progress scan is not lost when Room re-emits.
     private val _localDone = MutableStateFlow<Set<String>>(emptySet())
+    private val _manualDone = MutableStateFlow<Set<String>>(emptySet())
     private val _feed = MutableStateFlow<List<ScanFeedEntry>>(emptyList())
 
     // Combines observed resource with transient flags + draft overlay; lifecycle-aware.
@@ -232,6 +233,7 @@ class ScanViewModel @Inject constructor(
     private fun onManualTap() {
         val row = state.value.roster.firstOrNull { it.status == ScanStatus.PENDING } ?: return
         markRowDone(row)
+        _manualDone.update { it + row.obligationId }
     }
 
     /** Hardware tag read (keyboard-wedge): match the tag against the current roster and fold it
@@ -250,11 +252,13 @@ class ScanViewModel @Inject constructor(
         when (row.status) {
             ScanStatus.PENDING -> {
                 markRowDone(row)
-                recordRosterScan(tag = tag, fallbackTag = row.primaryTag)
+                _manualDone.update { it - row.obligationId }
+                recordRosterScan(row = row, tag = tag)
             }
             ScanStatus.DONE -> {
-                if (row.obligationId in _localDone.value) {
-                    recordRosterScan(tag = tag, fallbackTag = row.primaryTag)
+                if (row.obligationId in _manualDone.value) {
+                    _manualDone.update { it - row.obligationId }
+                    recordRosterScan(row = row, tag = tag)
                 }
             }
             ScanStatus.SKIPPED -> _feed.update {
@@ -277,13 +281,17 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    private fun recordRosterScan(tag: String, fallbackTag: String) {
+    private fun recordRosterScan(row: RosterRow, tag: String) {
         val selectedTaskId = taskId ?: return
+        val capturedTag = tag.ifBlank { row.primaryTag }
+        if (normalize(capturedTag).isEmpty()) return
         viewModelScope.launch {
             scanCaptureRepository.recordScan(
                 taskId = selectedTaskId,
                 fieldKey = ROSTER_SCAN_FIELD_KEY,
-                tag = tag.ifBlank { fallbackTag },
+                tag = capturedTag,
+                goatId = row.goatId,
+                obligationId = row.obligationId,
             )
         }
     }

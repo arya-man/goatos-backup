@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.syncJson
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import java.util.UUID
 import sg.mesha.goatos.core.database.capture.CaptureSyncStatus as EntitySyncStatus
 
@@ -43,7 +44,13 @@ interface ScanCaptureRepository {
 
     /** Persists one completed tag read to Room first; a repeat tag for the same field is a
      *  silent no-op (dedup). */
-    suspend fun recordScan(taskId: String, fieldKey: String, tag: String)
+    suspend fun recordScan(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String? = null,
+        obligationId: String? = null,
+    )
 
     /** All scanned tags across every `goat_scan` field of [taskId] — used to build the
      *  shed-submit answer payload. */
@@ -54,6 +61,7 @@ interface ScanCaptureRepository {
 
 class DefaultScanCaptureRepository(
     private val dao: ScannedGoatDao,
+    private val syncRepository: SyncRepository? = null,
     private val dispatchers: DispatcherProvider = DefaultDispatchers,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
@@ -68,21 +76,44 @@ class DefaultScanCaptureRepository(
     override fun observeAllForTask(taskId: String): Flow<List<ScannedGoatRow>> =
         dao.observeForTask(taskId).map { rows -> rows.map { it.toRow() } }.flowOn(dispatchers.default)
 
-    override suspend fun recordScan(taskId: String, fieldKey: String, tag: String) {
+    override suspend fun recordScan(
+        taskId: String,
+        fieldKey: String,
+        tag: String,
+        goatId: String?,
+        obligationId: String?,
+    ) {
         val trimmed = tag.trim()
         if (trimmed.isEmpty()) return
-        withContext(dispatchers.io) {
+        val capturedAtMs = clock()
+        val inserted = withContext(dispatchers.io) {
             dao.insert(
                 ScannedGoatEntity(
                     id = idGenerator(),
                     taskId = taskId,
                     fieldKey = fieldKey,
                     tag = trimmed,
-                    capturedAtMs = clock(),
+                    goatId = goatId?.takeIf { it.isNotBlank() },
+                    obligationId = obligationId?.takeIf { it.isNotBlank() },
+                    capturedAtMs = capturedAtMs,
                     syncStatus = EntitySyncStatus.PENDING.name,
                 ),
             )
         }
+        if (inserted <= 0L) return
+        val syncKey = scanCaptureIdempotencyKey(taskId, fieldKey, trimmed)
+        syncRepository?.enqueueScanCapture(
+            taskId = taskId,
+            groupKey = taskId,
+            idempotencyKey = syncKey,
+            request = ScanCaptureRequestDto(
+                fieldKey = fieldKey,
+                tag = trimmed,
+                goatId = goatId?.takeIf { it.isNotBlank() },
+                obligationId = obligationId?.takeIf { it.isNotBlank() },
+                capturedAtMs = capturedAtMs,
+            ),
+        )
     }
 
     override suspend fun tagsForTask(taskId: String): List<String> = withContext(dispatchers.io) {
@@ -94,7 +125,16 @@ class DefaultScanCaptureRepository(
     }
 }
 
-private fun ScannedGoatEntity.toRow() = ScannedGoatRow(fieldKey = fieldKey, tag = tag, capturedAtMs = capturedAtMs)
+private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
+    fieldKey = fieldKey,
+    tag = tag,
+    goatId = goatId,
+    obligationId = obligationId,
+    capturedAtMs = capturedAtMs,
+)
+
+private fun scanCaptureIdempotencyKey(taskId: String, fieldKey: String, tag: String): String =
+    "scan:$taskId:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}"
 
 /**
  * Room-first SSOT for a task's `video_proof` recording-form fields

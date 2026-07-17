@@ -203,6 +203,7 @@ class SyncEngine(
      *  without a second network call. */
     private suspend fun dispatch(item: OutboxEntity): String = when (OutboxOpType.valueOf(item.opType)) {
         OutboxOpType.SHED_SUBMIT -> dispatchShedSubmit(item)
+        OutboxOpType.SCAN_CAPTURE -> dispatchScanCapture(item)
         OutboxOpType.RESCHEDULE -> dispatchReschedule(item)
         OutboxOpType.PROOF_UPLOAD -> dispatchProofUpload(item)
         OutboxOpType.VERIFY_TASK -> dispatchVerifyTask(item)
@@ -219,6 +220,12 @@ class SyncEngine(
         if (!report.valid) {
             throw NonRetryableSyncException(rejectionReason(report))
         }
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchScanCapture(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<ScanCapturePayload>(item.payloadJson)
+        val response = api.recordScanCapture(payload.taskId, item.idempotencyKey, payload.request)
         return syncJson.encodeToString(response)
     }
 

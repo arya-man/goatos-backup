@@ -118,6 +118,32 @@ class ScanViewModelTest {
     }
 
     @Test
+    fun `repeated RFID scan is not recorded as another capture`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(rows = listOf(scanRow("goat-1", "TAG-100", "obl-1"))),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        reader.emit("TAG-100")
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
+        assertEquals("duplicate hardware reads should not re-record the same roster tag", 1, scanCaptures.recordScanCalls)
+        assertEquals(1, scanVm.state.value.feed.size)
+        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+    }
+
+    @Test
     fun `manual ring tap does not persist a scan capture but later reader tag does`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val reader = FakeRfidReaderPort()

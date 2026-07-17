@@ -118,3 +118,14 @@ val MIGRATION_4_5: Migration = object : Migration(4, 5) {
         )
     }
 }
+
+/** v5 -> v6: enriches RFID scan captures with backend identifiers from the scan roster.
+ *  Existing rows keep their RFID tag and are still valid; new rows carry goat/obligation ids
+ *  so final Submit can materialize completion items by goat id rather than treating an RFID
+ *  string as a UUID. */
+val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `scanned_goat_capture` ADD COLUMN `goatId` TEXT")
+        db.execSQL("ALTER TABLE `scanned_goat_capture` ADD COLUMN `obligationId` TEXT")
+    }
+}

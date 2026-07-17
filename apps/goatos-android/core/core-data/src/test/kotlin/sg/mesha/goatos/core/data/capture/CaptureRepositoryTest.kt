@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.network.dto.ProofReferenceDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 
 /**
@@ -65,15 +66,20 @@ class CaptureRepositoryTest {
     fun `repeat scan of the same tag is deduped at the DB layer`() = runTest {
         val db = newDb()
         try {
-            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), dispatchers = unconfinedDispatchers)
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
 
-            repo.recordScan("task-1", "goat_scan", "TAG-001")
+            repo.recordScan("task-1", "goat_scan", "TAG-001", goatId = "goat-1", obligationId = "obl-1")
             repo.recordScan("task-1", "goat_scan", "TAG-001") // repeat — must be a no-op
             repo.recordScan("task-1", "goat_scan", "TAG-002")
 
             val tags = repo.tagsForTask("task-1")
             assertEquals(listOf("TAG-001", "TAG-002"), tags)
             assertEquals(2, repo.observeScannedCount("task-1", "goat_scan").first())
+            assertEquals(2, sync.scanCalls.size)
+            assertEquals("scan:task-1:goat_scan:tag001", sync.scanCalls[0].idempotencyKey)
+            assertEquals("goat-1", sync.scanCalls[0].request.goatId)
+            assertEquals("obl-1", sync.scanCalls[0].request.obligationId)
         } finally {
             db.close()
         }
@@ -234,8 +240,10 @@ class CaptureRepositoryTest {
  *  [emit], mirroring how [sg.mesha.goatos.core.data.sync.SyncEngine] would really transition it. */
 private class FakeSyncRepository : SyncRepository {
     data class EnqueueCall(val idempotencyKey: String, val outboxItemId: String, val request: ProofUploadRequestDto)
+    data class ScanCall(val idempotencyKey: String, val request: ScanCaptureRequestDto)
 
     val enqueueCalls = mutableListOf<EnqueueCall>()
+    val scanCalls = mutableListOf<ScanCall>()
     private val status = MutableStateFlow(SyncStatus.empty(online = true))
     private var nextId = 0
 
@@ -254,6 +262,16 @@ private class FakeSyncRepository : SyncRepository {
     }
 
     override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: SubmitTaskRequestDto): AppResult<String> = error("unused")
+
+    override suspend fun enqueueScanCapture(
+        taskId: String,
+        groupKey: String,
+        idempotencyKey: String,
+        request: ScanCaptureRequestDto,
+    ): AppResult<String> {
+        scanCalls += ScanCall(idempotencyKey, request)
+        return AppResult.Ok("scan-outbox-${scanCalls.size}")
+    }
 
     override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: RescheduleObligationRequestDto): AppResult<String> = error("unused")
 

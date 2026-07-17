@@ -42,7 +42,9 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
  * Room-first SSOT behind Submit's `goat_scan`/`video_proof` recording-form controls. v5 (see
  * [MIGRATION_4_5]) adds the verification-queue cache — the standalone Verifier section's
  * category-filtered media queue (context/architecture/verifier-app-and-flow.md) offline-first
- * from day one, same as every other screen-facing read model.
+ * from day one, same as every other screen-facing read model. v6 (see [MIGRATION_5_6]) adds
+ * backend goat/obligation ids to RFID scan captures so Submit can materialize completions by
+ * goat id while still rendering/scanning RFID tags.
  */
 @Database(
     entities = [
@@ -62,7 +64,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         ProofCaptureEntity::class,
         VerificationQueueCacheEntity::class,
     ],
-    version = 5,
+    version = 6,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema

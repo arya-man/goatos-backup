@@ -15,6 +15,9 @@ import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationResponseDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmissionSummaryDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
@@ -328,6 +331,68 @@ class SyncEngineTest {
 
         assertEquals(idempotencyKey, seenKey)
         assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-r1")!!.status)
+    }
+
+    @Test
+    fun `dispatches a SCAN_CAPTURE item via the scan-captures endpoint with its idempotency key`() = runBlocking {
+        val store = FakeOutboxStore()
+        val idempotencyKey = "scan:task-1:__scan_roster__:901007000504392"
+        store.insert(
+            OutboxEntity(
+                id = "row-scan-1",
+                opType = OutboxOpType.SCAN_CAPTURE.name,
+                groupKey = "task-1",
+                idempotencyKey = idempotencyKey,
+                payloadJson = syncJson.encodeToString(
+                    ScanCapturePayload(
+                        taskId = "task-1",
+                        request = ScanCaptureRequestDto(
+                            fieldKey = "__scan_roster__",
+                            tag = "901007000504392",
+                            goatId = "goat-1",
+                            obligationId = "obl-1",
+                            capturedAtMs = 123L,
+                        ),
+                    ),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        var seenKey: String? = null
+        var seenTag: String? = null
+        val api = ScriptedAppApi().apply {
+            recordScanCaptureFn = { taskId, key, request ->
+                assertEquals("task-1", taskId)
+                seenKey = key
+                seenTag = request.tag
+                ScanCaptureResponseDto(
+                    capture = ScanCaptureDto(
+                        captureId = "capture-1",
+                        taskId = taskId,
+                        fieldKey = request.fieldKey,
+                        tag = request.tag,
+                        goatId = request.goatId,
+                        obligationId = request.obligationId,
+                    ),
+                )
+            }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        val row = store.findById("row-scan-1")!!
+        assertEquals(idempotencyKey, seenKey)
+        assertEquals("901007000504392", seenTag)
+        assertEquals(OutboxStatus.SUCCEEDED.name, row.status)
     }
 
     @Test

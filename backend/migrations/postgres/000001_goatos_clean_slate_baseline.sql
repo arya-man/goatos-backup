@@ -4407,6 +4407,31 @@ CREATE TABLE public.sop_submissions (
 
 
 --
+-- Name: sop_task_scan_captures; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sop_task_scan_captures (
+    capture_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    task_id uuid NOT NULL,
+    field_key text NOT NULL,
+    tag text NOT NULL,
+    normalized_tag text NOT NULL,
+    goat_id uuid,
+    obligation_id uuid,
+    captured_by uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    captured_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sop_task_scan_captures_field_key_check CHECK ((btrim(field_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_captures_idempotency_check CHECK ((btrim(idempotency_key) <> ''::text)),
+    CONSTRAINT sop_task_scan_captures_normalized_tag_check CHECK ((btrim(normalized_tag) <> ''::text)),
+    CONSTRAINT sop_task_scan_captures_tag_check CHECK ((btrim(tag) <> ''::text))
+);
+
+
+--
 -- Name: sop_task_review_fanouts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -7827,6 +7852,14 @@ ALTER TABLE ONLY public.sop_submissions
 
 
 --
+-- Name: sop_task_scan_captures sop_task_scan_captures_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_captures
+    ADD CONSTRAINT sop_task_scan_captures_pkey PRIMARY KEY (capture_id);
+
+
+--
 -- Name: sop_task_review_fanouts sop_task_review_fanouts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9936,6 +9969,27 @@ CREATE INDEX sop_submissions_task_history_idx ON public.sop_submissions USING bt
 --
 
 CREATE UNIQUE INDEX sop_submissions_tenant_idempotency_unique_idx ON public.sop_submissions USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: sop_task_scan_captures_idempotency_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_task_scan_captures_idempotency_unique_idx ON public.sop_task_scan_captures USING btree (tenant_id, idempotency_key);
+
+
+--
+-- Name: sop_task_scan_captures_task_field_tag_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sop_task_scan_captures_task_field_tag_unique_idx ON public.sop_task_scan_captures USING btree (tenant_id, task_id, field_key, normalized_tag);
+
+
+--
+-- Name: sop_task_scan_captures_task_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX sop_task_scan_captures_task_idx ON public.sop_task_scan_captures USING btree (tenant_id, task_id, captured_at, capture_id);
 
 
 --
@@ -13090,6 +13144,30 @@ ALTER TABLE ONLY public.sop_submissions
 
 ALTER TABLE ONLY public.sop_submissions
     ADD CONSTRAINT sop_submissions_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: sop_task_scan_captures sop_task_scan_captures_goat_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_captures
+    ADD CONSTRAINT sop_task_scan_captures_goat_id_fkey FOREIGN KEY (goat_id) REFERENCES public.goats(goat_id);
+
+
+--
+-- Name: sop_task_scan_captures sop_task_scan_captures_task_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_captures
+    ADD CONSTRAINT sop_task_scan_captures_task_id_fkey FOREIGN KEY (task_id) REFERENCES public.sop_tasks(task_id);
+
+
+--
+-- Name: sop_task_scan_captures sop_task_scan_captures_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sop_task_scan_captures
+    ADD CONSTRAINT sop_task_scan_captures_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
 
 
 --

@@ -20,6 +20,8 @@ enum class CaptureSyncStatus { PENDING, IN_FLIGHT, SYNCED, FAILED }
 data class ScannedGoatRow(
     val fieldKey: String,
     val tag: String,
+    val goatId: String?,
+    val obligationId: String?,
     val capturedAtMs: Long,
 )
 

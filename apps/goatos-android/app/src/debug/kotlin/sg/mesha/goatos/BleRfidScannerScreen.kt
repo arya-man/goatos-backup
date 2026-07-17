@@ -321,7 +321,9 @@ fun BleRfidScannerScreen(
 
 private enum class RfidDebugMode { CONNECT, SCAN }
 
-private data class DebugTagRead(val tag: String, val accepted: Boolean)
+private data class DebugTagRead(val tag: String, val accepted: Boolean) {
+    val normalizedTag: String = normalizeRfidTag(tag)
+}
 
 @Composable
 private fun RfidDrivenVaccinationScanScreen(
@@ -329,6 +331,7 @@ private fun RfidDrivenVaccinationScanScreen(
     onReconnect: () -> Unit,
 ) {
     var reads by remember { mutableStateOf<List<DebugTagRead>>(emptyList()) }
+    var duplicateTag by remember { mutableStateOf<String?>(null) }
     var selectedFilter by remember { mutableStateOf<ScanStatus?>(null) }
     var rosterExpanded by remember { mutableStateOf(false) }
     val status by reader.status.collectAsStateWithLifecycle()
@@ -341,8 +344,14 @@ private fun RfidDrivenVaccinationScanScreen(
     LaunchedEffect(reader) {
         reader.reads.collect { read ->
             val tag = read.tag.trim()
-            if (tag.isNotBlank()) {
-                reads = listOf(DebugTagRead(tag = tag, accepted = tag in sampleGreenRfids)) + reads
+            val normalizedTag = normalizeRfidTag(tag)
+            if (normalizedTag.isNotBlank()) {
+                if (reads.any { it.normalizedTag == normalizedTag }) {
+                    duplicateTag = tag
+                } else {
+                    duplicateTag = null
+                    reads = listOf(DebugTagRead(tag = tag, accepted = normalizedTag in sampleGreenRfids)) + reads
+                }
             }
         }
     }
@@ -353,6 +362,7 @@ private fun RfidDrivenVaccinationScanScreen(
             selectedFilter = selectedFilter,
             rosterExpanded = rosterExpanded,
             readerConnection = status.toScanReaderConnection(readerName),
+            duplicateTag = duplicateTag,
         ),
         onEvent = { event ->
             when (event) {
@@ -382,10 +392,11 @@ private fun vaccinationScanStateForReads(
     selectedFilter: ScanStatus?,
     rosterExpanded: Boolean,
     readerConnection: ScanReaderConnection,
+    duplicateTag: String?,
 ): ScanUiState {
-    val acceptedTags = reads.filter { it.accepted }.map { it.tag }.toSet()
+    val acceptedTags = reads.filter { it.accepted }.map { it.normalizedTag }.toSet()
     val rejectedReads = reads.filterNot { it.accepted }
-    val rejectedTags = rejectedReads.map { it.tag }.toSet()
+    val rejectedTags = rejectedReads.map { it.normalizedTag }.toSet()
     val done = acceptedTags.size
     val total = sampleRosterRfids.size
     val skipped = rejectedTags.size
@@ -404,14 +415,14 @@ private fun vaccinationScanStateForReads(
             secondaryTag = null,
             vaccineLabel = "FMD + HS · due",
             status = when {
-                tag in rejectedTags -> ScanStatus.SKIPPED
-                tag in acceptedTags -> ScanStatus.DONE
+                normalizeRfidTag(tag) in rejectedTags -> ScanStatus.SKIPPED
+                normalizeRfidTag(tag) in acceptedTags -> ScanStatus.DONE
                 else -> ScanStatus.PENDING
             },
-            unsynced = tag in acceptedTags || tag in rejectedTags,
+            unsynced = normalizeRfidTag(tag) in acceptedTags || normalizeRfidTag(tag) in rejectedTags,
         )
     }
-    val rejectedRows = rejectedReads.distinctBy { it.tag }.filterNot { it.tag in sampleRosterRfids }.map { read ->
+    val rejectedRows = rejectedReads.distinctBy { it.normalizedTag }.filterNot { it.normalizedTag in sampleRosterRfids }.map { read ->
         RosterRow(
             primaryTag = read.tag,
             secondaryTag = null,
@@ -426,7 +437,8 @@ private fun vaccinationScanStateForReads(
         ringDone = done,
         ringTotal = total,
         ringUnitLabel = "vaccinated",
-        tapHint = "Scan RFID tag — known tags turn green, unknown tags turn red",
+        tapHint = duplicateTag?.let { "Already scanned $it - not added again" }
+            ?: "Scan RFID tag - known tags turn green, unknown tags turn red",
         vaccineGroups = listOf(VaccineGroup("fmd-hs", "FMD + HS", done = done, due = total, active = true)),
         doneCount = done,
         pendingCount = pending,
@@ -474,6 +486,7 @@ private val sampleAcceptedRfids = setOf(
 private val sampleSkippedRfids = setOf("901007000504407")
 private val sampleRosterRfids = sampleAcceptedRfids.toList()
 private val sampleGreenRfids = sampleAcceptedRfids - sampleSkippedRfids
+private fun normalizeRfidTag(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
 
 @Composable
 fun StandaloneHidRfidScreen(reader: RfidReaderPort) {

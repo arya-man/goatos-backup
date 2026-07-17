@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
+import sg.mesha.goatos.core.network.dto.ScanCaptureRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 
@@ -22,6 +23,14 @@ internal val syncJson = Json {
 data class ShedSubmitPayload(
     @SerialName("task_id") val taskId: String,
     @SerialName("request") val request: SubmitTaskRequestDto,
+)
+
+/** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.SCAN_CAPTURE].
+ *  Draft RFID scan capture that is synced before final Submit. */
+@Serializable
+data class ScanCapturePayload(
+    @SerialName("task_id") val taskId: String,
+    @SerialName("request") val request: ScanCaptureRequestDto,
 )
 
 /** Outbox payload for [sg.mesha.goatos.core.database.outbox.OutboxOpType.RESCHEDULE]. */

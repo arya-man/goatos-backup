@@ -775,6 +775,7 @@ func (r *Repository) ListAgedFailedSubmissionFanouts(ctx context.Context, params
 		params.Now = time.Now().UTC()
 	}
 	rows, err := r.pool.Query(ctx, `
+-- projection-review: membership=failed sop_task_submission_fanouts for vaccination tasks older than the requested cutoff; group_key=submission_fanout_id (one row per failed fanout); join_cardinality=sop_tasks/sop_definitions/sop_submissions are keyed 1:1, sop_submission_items is 1:N but counted at item grain, vaccination_completions is 0:N and counted DISTINCT by sop_submission_item_id so completion retries cannot fan out counts; pagination=oldest failed fanouts ordered by updated_at/submission_fanout_id with repository cap <=100 after grouping, independent of any UI page; scope=tenant plus vaccination sop code/task type and failed fanout status, with eligible item status limited to accepted/needs_review
 SELECT f.task_id::text,
        f.submission_id::text,
        sd.code,
@@ -847,6 +848,73 @@ LIMIT $4`, params.TenantID, params.UpdatedBefore, params.Now, params.Limit)
 		if item.MissingCompletionCount < 0 {
 			item.MissingCompletionCount = 0
 		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *Repository) RecordScanCapture(ctx context.Context, cmd ports.RecordScanCaptureCommand) (domain.ScanCaptureSummary, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	normalized := normalizeScanTag(cmd.Body.Tag)
+	if normalized == "" {
+		return domain.ScanCaptureSummary{}, ports.ErrInvalidFilter
+	}
+	var item domain.ScanCaptureSummary
+	var capturedAt time.Time
+	err := r.pool.QueryRow(ctx, `
+INSERT INTO sop_task_scan_captures (
+  tenant_id, task_id, field_key, tag, normalized_tag, goat_id, obligation_id, captured_by, idempotency_key, captured_at
+) VALUES (
+  $1::uuid, $2::uuid, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8::uuid, $9,
+  COALESCE(to_timestamp(NULLIF($10, 0)::double precision / 1000.0), now())
+)
+ON CONFLICT (tenant_id, task_id, field_key, normalized_tag) DO UPDATE
+SET updated_at = now()
+RETURNING capture_id::text, task_id::text, field_key, tag, COALESCE(goat_id::text, ''), COALESCE(obligation_id::text, ''), captured_at`,
+		cmd.TenantID,
+		cmd.TaskID,
+		cmd.Body.FieldKey,
+		cmd.Body.Tag,
+		normalized,
+		cmd.Body.GoatID,
+		cmd.Body.ObligationID,
+		cmd.ActorID,
+		cmd.IdempotencyKey,
+		int64Value(cmd.Body.CapturedAtMs),
+	).Scan(&item.CaptureID, &item.TaskID, &item.FieldKey, &item.Tag, &item.GoatID, &item.ObligationID, &capturedAt)
+	if err != nil {
+		return domain.ScanCaptureSummary{}, mapWriteErr(err)
+	}
+	item.CapturedAt = capturedAt.UTC().Format(time.RFC3339)
+	return item, nil
+}
+
+func (r *Repository) ListScanCaptures(ctx context.Context, tenantID, taskID string) ([]domain.ScanCaptureSummary, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT capture_id::text, task_id::text, field_key, tag, COALESCE(goat_id::text, ''), COALESCE(obligation_id::text, ''), captured_at
+FROM sop_task_scan_captures
+WHERE tenant_id = $1::uuid
+  AND task_id = $2::uuid
+ORDER BY captured_at ASC, capture_id ASC
+LIMIT 2000`, tenantID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.ScanCaptureSummary{}
+	for rows.Next() {
+		var item domain.ScanCaptureSummary
+		var capturedAt time.Time
+		if err := rows.Scan(&item.CaptureID, &item.TaskID, &item.FieldKey, &item.Tag, &item.GoatID, &item.ObligationID, &capturedAt); err != nil {
+			return nil, err
+		}
+		item.CapturedAt = capturedAt.UTC().Format(time.RFC3339)
 		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -1517,6 +1585,23 @@ func itemKeys(answers map[string]any) []ports.SubmissionItemInput {
 		}
 	}
 	return out
+}
+
+func int64Value(v *int64) int64 {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
+func normalizeScanTag(tag string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(tag) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func decodeMap(raw []byte) map[string]any {
