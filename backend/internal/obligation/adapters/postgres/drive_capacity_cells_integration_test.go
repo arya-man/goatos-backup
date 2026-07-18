@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
@@ -670,7 +671,7 @@ func TestCancelMemberRemovesExactCellsFromBatch(t *testing.T) {
 	}
 
 	// Cancel the 2-cell member (vaccination goat/version cancel path).
-	n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, gTwo, versionID, "ineligible_after_shift", time.Now().UTC())
+	n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, gTwo, versionID, "ineligible_after_shift", time.Now().In(biztime.DefaultLocation()))
 	if err != nil || n != 1 {
 		t.Fatalf("cancel 2-cell member: n=%d err=%v", n, err)
 	}
@@ -683,5 +684,373 @@ func TestCancelMemberRemovesExactCellsFromBatch(t *testing.T) {
 	}
 	if after != 1 {
 		t.Fatalf("park/date cells after cancel = %d, want 1 (no phantom cells)", after)
+	}
+}
+
+// seedSecondVaccinationVersion creates a second published-shape vaccination definition/version/rule
+// so tests can cancel ONE of a goat's co-due vaccines without touching the other.
+func seedSecondVaccinationVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (versionID, ruleID string) {
+	t.Helper()
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	protoID, err := proto.CreateDefinition(ctx, protodomain.NewDefinition{
+		TenantID: tenantID, Code: "vaccination.second", Name: "Second Vaccine", Category: "vaccination", Status: "draft",
+	})
+	if err != nil {
+		t.Fatalf("second definition: %v", err)
+	}
+	versionID, err = proto.CreateVersion(ctx, protodomain.NewVersion{
+		TenantID: tenantID, ProtocolID: protoID, ScopeType: "tenant", Version: 1, Status: "draft",
+		EffectiveFrom: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		RuleDsl:       []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("second version: %v", err)
+	}
+	ruleID, err = proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "primary", Sequence: 1,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("second rule: %v", err)
+	}
+	return versionID, ruleID
+}
+
+func insertObligationForRule(t *testing.T, ctx context.Context, repo *Repository, versionID, ruleID, goatID, key string, due time.Time) string {
+	t.Helper()
+	id, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: due, Status: "scheduled", IdempotencyKey: key, Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert obligation %s: applied=%v err=%v", key, applied, err)
+	}
+	return id
+}
+
+// TestRemovalOneToManyCancelOneOfTwoCoDueVaccines: one goat, TWO co-due vaccines (2-cell + 1-cell)
+// in ONE batch. Canceling only the second vaccine must remove exactly ITS 1 cell from the ledger
+// recompute -- the surviving vaccine's 2 cells stay; nothing is averaged across the goat's rows.
+func TestRemovalOneToManyCancelOneOfTwoCoDueVaccines(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	v1 := mustVersionOf(t, ctx, pool)
+	r1 := mustRuleOf(t, ctx, pool)
+	v2, r2 := seedSecondVaccinationVersion(t, ctx, pool)
+
+	due := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	goatID := "36000000-0000-4000-8000-000000000001"
+	seedCapacityGoatInPark(t, ctx, pool, goatID, cbePark)
+	oblV1 := insertObligationForRule(t, ctx, repo, v1, r1, goatID, "o2m-rm-v1", due)
+	oblV2 := insertObligationForRule(t, ctx, repo, v2, r2, goatID, "o2m-rm-v2", due)
+
+	batchID, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: v1,
+		ScopeType: "park", ScopeID: cbePark, Session: "o2m-rm",
+		PlannedDate: &planned, Status: "planned",
+		EstimatedTargets: 2, PlannedQuantity: "3", QuantityUnit: "dose",
+	}, []string{oblV1, oblV2}, map[string]int32{oblV1: 2, oblV2: 1})
+	if err != nil || len(attached) != 2 {
+		t.Fatalf("create co-due batch: attached=%d err=%v", len(attached), err)
+	}
+	if got := batchPlannedQuantity(t, ctx, pool, batchID); got != 3 {
+		t.Fatalf("planned_quantity = %v, want 3", got)
+	}
+
+	n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, goatID, v2, "ineligible_after_shift", time.Date(2026, 8, 11, 8, 0, 0, 0, time.UTC))
+	if err != nil || n != 1 {
+		t.Fatalf("cancel second vaccine: n=%d err=%v", n, err)
+	}
+	if got := batchPlannedQuantity(t, ctx, pool, batchID); got != 2 {
+		t.Fatalf("planned_quantity after canceling 1-cell vaccine = %v, want 2 (only THAT obligation's cells leave)", got)
+	}
+	count, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("park/date cells = %d, want 2 (surviving 2-cell vaccine only)", count)
+	}
+}
+
+// TestRemovalStatusMatrixCancelDeferRescopeCompletedUntouched drives every removal class against
+// one 3-member ledgered batch -- cancel, defer-detach, and shed-move rescope each remove exactly
+// their member's cells -- while a separate COMPLETED batch's quantity is never rewritten.
+func TestRemovalStatusMatrixCancelDeferRescopeCompletedUntouched(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	due := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	otherPark := "00000000-0000-4000-8000-000000003002"
+	g1 := "37000000-0000-4000-8000-000000000001"
+	g2 := "37000000-0000-4000-8000-000000000002"
+	g3 := "37000000-0000-4000-8000-000000000003"
+	gDone := "37000000-0000-4000-8000-000000000004"
+	for _, g := range []string{g1, g2, g3, gDone} {
+		seedCapacityGoatInPark(t, ctx, pool, g, cbePark)
+	}
+	o1 := insertObligationForRule(t, ctx, repo, versionID, ruleID, g1, "sm-cancel", due)
+	o2 := insertObligationForRule(t, ctx, repo, versionID, ruleID, g2, "sm-defer", due)
+	o3 := insertObligationForRule(t, ctx, repo, versionID, ruleID, g3, "sm-rescope", due)
+	oDone := insertObligationForRule(t, ctx, repo, versionID, ruleID, gDone, "sm-done", due)
+
+	batchID, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID,
+		ScopeType: "park", ScopeID: cbePark, Session: "sm-live",
+		PlannedDate: &planned, Status: "planned",
+		EstimatedTargets: 3, PlannedQuantity: "3", QuantityUnit: "dose",
+	}, []string{o1, o2, o3}, map[string]int32{o1: 1, o2: 1, o3: 1})
+	if err != nil || len(attached) != 3 {
+		t.Fatalf("create live batch: attached=%d err=%v", len(attached), err)
+	}
+	doneBatch, attachedDone, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID,
+		ScopeType: "park", ScopeID: cbePark, Session: "sm-done",
+		PlannedDate: &planned, Status: "planned",
+		EstimatedTargets: 1, PlannedQuantity: "2", QuantityUnit: "dose",
+	}, []string{oDone}, map[string]int32{oDone: 2})
+	if err != nil || len(attachedDone) != 1 {
+		t.Fatalf("create done batch: attached=%d err=%v", len(attachedDone), err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE obligation_batches SET status='completed' WHERE tenant_id=$1 AND batch_id=$2`, tenantID, doneBatch); err != nil {
+		t.Fatalf("complete batch: %v", err)
+	}
+
+	// Cancel member 1 -> 2 cells left.
+	if n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, g1, versionID, "ineligible_after_shift", time.Date(2026, 8, 11, 8, 0, 0, 0, time.UTC)); err != nil || n != 1 {
+		t.Fatalf("cancel member: n=%d err=%v", n, err)
+	}
+	if got := batchPlannedQuantity(t, ctx, pool, batchID); got != 2 {
+		t.Fatalf("after cancel planned_quantity = %v, want 2", got)
+	}
+	// Defer-detach member 2 -> 1 cell left.
+	if _, changed, err := repo.DeferOpenObligationForGeneration(ctx, tenantID, "sm-defer", "sick", time.Date(2026, 8, 11, 9, 0, 0, 0, time.UTC)); err != nil || !changed {
+		t.Fatalf("defer member: changed=%v err=%v", changed, err)
+	}
+	if got := batchPlannedQuantity(t, ctx, pool, batchID); got != 1 {
+		t.Fatalf("after defer-detach planned_quantity = %v, want 1", got)
+	}
+	// Shed-move rescope member 3 -> 0 cells left.
+	if _, applied, err := repo.ReScopeOpenForGoatShift(ctx, tenantID, g3, "park", otherPark, time.Date(2026, 8, 11, 10, 0, 0, 0, time.UTC), "60000000-0000-4000-8000-000000000401"); err != nil || !applied {
+		t.Fatalf("rescope member: applied=%v err=%v", applied, err)
+	}
+	if got := batchPlannedQuantity(t, ctx, pool, batchID); got != 0 {
+		t.Fatalf("after rescope planned_quantity = %v, want 0", got)
+	}
+	// Completed batch's quantity was never rewritten by any removal.
+	if got := batchPlannedQuantity(t, ctx, pool, doneBatch); got != 2 {
+		t.Fatalf("completed batch planned_quantity = %v, want untouched 2", got)
+	}
+	// Counter: live batch contributes 0, completed batch still consumes its 2 cells.
+	count, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("park/date cells = %d, want 2 (completed batch only)", count)
+	}
+	_ = o3
+}
+
+// TestRemovalDateShiftHeldBatchAttributesPlannedDate: work due D held to a D+7 batch. The removal
+// must attribute to the batch's PLANNED park/date ledger (D+7), never to the due date D.
+func TestRemovalDateShiftHeldBatchAttributesPlannedDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	dueD := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	plannedD7 := dueD.AddDate(0, 0, 7)
+	goatID := "38000000-0000-4000-8000-000000000001"
+	seedCapacityGoatInPark(t, ctx, pool, goatID, cbePark)
+	obl := insertObligationForRule(t, ctx, repo, versionID, ruleID, goatID, "ds-rm", dueD)
+	batchID, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID,
+		ScopeType: "park", ScopeID: cbePark, Session: "ds-rm",
+		PlannedDate: &plannedD7, Status: "planned",
+		EstimatedTargets: 1, PlannedQuantity: "2", QuantityUnit: "dose",
+	}, []string{obl}, map[string]int32{obl: 2})
+	if err != nil || len(attached) != 1 {
+		t.Fatalf("create held batch: attached=%d err=%v", len(attached), err)
+	}
+	onPlannedBefore, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, plannedD7)
+	if err != nil || onPlannedBefore != 2 {
+		t.Fatalf("cells on D+7 before = %d err=%v, want 2", onPlannedBefore, err)
+	}
+
+	if n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, goatID, versionID, "ineligible_after_shift", time.Date(2026, 8, 12, 8, 0, 0, 0, time.UTC)); err != nil || n != 1 {
+		t.Fatalf("cancel held member: n=%d err=%v", n, err)
+	}
+	if got := batchPlannedQuantity(t, ctx, pool, batchID); got != 0 {
+		t.Fatalf("held batch planned_quantity after removal = %v, want 0", got)
+	}
+	onPlanned, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, plannedD7)
+	if err != nil || onPlanned != 0 {
+		t.Fatalf("cells on PLANNED D+7 after removal = %d err=%v, want 0", onPlanned, err)
+	}
+	onDue, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, dueD)
+	if err != nil || onDue != 0 {
+		t.Fatalf("cells on DUE day D = %d err=%v, want 0 before AND after (removal never attributes to due date)", onDue, err)
+	}
+}
+
+// TestRemovalParkScopeShedBatchUpdatesParentParkCount: removal from a SHED-scoped batch must
+// reduce the PARENT park's cell count (the shed->parent rollup branch), not strand phantom cells.
+func TestRemovalParkScopeShedBatchUpdatesParentParkCount(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	otherPark := "00000000-0000-4000-8000-000000003002"
+	shedInCBE := "00000000-0000-4000-8000-000000004003"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id)
+			 VALUES ($1, $2, 'shed', 'CBE-S2', 'CBE Shed 2', 'active', $3)`,
+		shedInCBE, tenantID, cbePark); err != nil {
+		t.Fatalf("seed shed: %v", err)
+	}
+	due := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	// Goat homed in the OTHER park so the ONLY path attributing this batch to CBE is shed->parent.
+	goatID := "39000000-0000-4000-8000-000000000001"
+	seedCapacityGoatInPark(t, ctx, pool, goatID, otherPark)
+	obl := insertObligationForRule(t, ctx, repo, versionID, ruleID, goatID, "ps-rm", due)
+	batchID, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID,
+		ScopeType: "shed", ScopeID: shedInCBE, Session: "ps-rm",
+		PlannedDate: &planned, Status: "planned",
+		EstimatedTargets: 1, PlannedQuantity: "2", QuantityUnit: "dose",
+	}, []string{obl}, map[string]int32{obl: 2})
+	if err != nil || len(attached) != 1 {
+		t.Fatalf("create shed batch: attached=%d err=%v", len(attached), err)
+	}
+	before, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
+	if err != nil || before != 2 {
+		t.Fatalf("CBE cells before = %d err=%v, want 2 via shed->parent rollup", before, err)
+	}
+
+	// Defer-detach the member (site 1 removal path).
+	if _, changed, err := repo.DeferOpenObligationForGeneration(ctx, tenantID, "ps-rm", "sick", time.Date(2026, 8, 11, 8, 0, 0, 0, time.UTC)); err != nil || !changed {
+		t.Fatalf("defer member: changed=%v err=%v", changed, err)
+	}
+	if got := batchPlannedQuantity(t, ctx, pool, batchID); got != 0 {
+		t.Fatalf("shed batch planned_quantity after detach = %v, want 0", got)
+	}
+	after, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
+	if err != nil || after != 0 {
+		t.Fatalf("CBE cells after detach = %d err=%v, want 0 (parent park count updated)", after, err)
+	}
+}
+
+// TestRemovalMultiPageComboTotalsUnchangedByPageSize: after a member removal, the combo keyset
+// projection reports the SAME per-batch cell totals walked one row per page as in a single page.
+func TestRemovalMultiPageComboTotalsUnchangedByPageSize(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	due := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	sessions := []string{"combo:etv+ppr", "combo:fmd+hs", "combo:ppr+pox"}
+	batchIDs := make([]string, 0, len(sessions))
+	memberKeys := make([]string, 0, len(sessions))
+	for i, session := range sessions {
+		g1 := fmt.Sprintf("3a000000-0000-4000-8000-0000000000%d1", i+1)
+		g2 := fmt.Sprintf("3a000000-0000-4000-8000-0000000000%d2", i+1)
+		seedCapacityGoatInPark(t, ctx, pool, g1, cbePark)
+		seedCapacityGoatInPark(t, ctx, pool, g2, cbePark)
+		k1 := fmt.Sprintf("mp-rm-%d-1", i)
+		k2 := fmt.Sprintf("mp-rm-%d-2", i)
+		o1 := insertObligationForRule(t, ctx, repo, versionID, ruleID, g1, k1, due)
+		o2 := insertObligationForRule(t, ctx, repo, versionID, ruleID, g2, k2, due)
+		batchID, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+			TenantID: tenantID, ProtocolVersionID: versionID,
+			ScopeType: "park", ScopeID: cbePark, Session: session,
+			PlannedDate: &planned, Status: "planned",
+			EstimatedTargets: 2, PlannedQuantity: "2", QuantityUnit: "dose",
+		}, []string{o1, o2}, map[string]int32{o1: 1, o2: 1})
+		if err != nil || len(attached) != 2 {
+			t.Fatalf("create %s: attached=%d err=%v", session, len(attached), err)
+		}
+		batchIDs = append(batchIDs, batchID)
+		memberKeys = append(memberKeys, k1)
+	}
+
+	// Remove one member from the MIDDLE batch (defer-detach) -> its ledger total drops 2 -> 1.
+	if _, changed, err := repo.DeferOpenObligationForGeneration(ctx, tenantID, memberKeys[1], "sick", time.Date(2026, 8, 11, 8, 0, 0, 0, time.UTC)); err != nil || !changed {
+		t.Fatalf("defer middle member: changed=%v err=%v", changed, err)
+	}
+	if got := batchPlannedQuantity(t, ctx, pool, batchIDs[1]); got != 1 {
+		t.Fatalf("middle batch planned_quantity after removal = %v, want 1", got)
+	}
+
+	dueBefore := planned.AddDate(0, 0, 1)
+	single, err := repo.ListPlannedComboBatchesKeyset(ctx, tenantID, dueBefore, nil, 100)
+	if err != nil {
+		t.Fatalf("single page: %v", err)
+	}
+	singleCells := map[string]int32{}
+	for _, row := range single {
+		singleCells[row.BatchID] = row.CellCount
+	}
+	if got := singleCells[batchIDs[1]]; got != 1 {
+		t.Fatalf("middle batch cell_count = %d, want 1 after removal", got)
+	}
+
+	walked := map[string]int32{}
+	var cursor *domain.ComboBatchCursor
+	for pages := 0; ; pages++ {
+		if pages > 20 {
+			t.Fatal("keyset walk did not terminate")
+		}
+		page, err := repo.ListPlannedComboBatchesKeyset(ctx, tenantID, dueBefore, cursor, 1)
+		if err != nil {
+			t.Fatalf("page %d: %v", pages, err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, row := range page {
+			walked[row.BatchID] = row.CellCount
+		}
+		last := page[len(page)-1]
+		cursor = &domain.ComboBatchCursor{ScopeType: last.ScopeType, ScopeID: last.ScopeID, Session: last.Session, BatchID: last.BatchID}
+	}
+	if len(walked) != len(singleCells) {
+		t.Fatalf("page-size-1 walk saw %d batches, single page %d -- totals depend on page size", len(walked), len(singleCells))
+	}
+	for batchID, want := range singleCells {
+		if got := walked[batchID]; got != want {
+			t.Fatalf("batch %s cell_count %d via walk, %d via single page", batchID, got, want)
+		}
 	}
 }

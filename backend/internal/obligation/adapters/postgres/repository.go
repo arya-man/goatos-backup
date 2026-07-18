@@ -312,6 +312,7 @@ SET estimated_targets = GREATEST(0, estimated_targets - 1),
     -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
     -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
     -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
     planned_quantity = CASE
       WHEN ob.context ? 'cell_ledger' THEN COALESCE((
         SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
@@ -700,6 +701,7 @@ SET estimated_targets = GREATEST(0, estimated_targets - 1),
     -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
     -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
     -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
     planned_quantity = CASE
       WHEN ob.context ? 'cell_ledger' THEN COALESCE((
         SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
@@ -1275,6 +1277,7 @@ SET estimated_targets = GREATEST(0, ob.estimated_targets - bu.count),
     -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
     -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
     -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
     planned_quantity = CASE
       WHEN ob.context ? 'cell_ledger' THEN COALESCE((
         SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
@@ -2797,6 +2800,7 @@ WHERE tenant_id = $2
 		return "", nil, fmt.Errorf("obligation: marshal cell ledger: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=obligation_instances rows ACTUALLY attached to this batch (oi.batch_id = $2, from the RETURNING set of the attach UPDATE in this same tx) -- never the pre-attach selected set; group_key=batch_id (one row updated); join_cardinality=the 1:N obligation rows are pre-aggregated to a single count in the live subquery (semijoin grain, no fan-out), and planned_quantity uses the exact per-obligation attached-cell sum computed in Go over attachedIDs only; pagination=n/a (single-batch transactional write); scope=the batch's own scope_type/scope_id, unchanged by this update
 UPDATE obligation_batches ob
 SET estimated_targets = live.attached::int,
     planned_quantity = CASE
@@ -3288,6 +3292,7 @@ SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
     -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
     -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
     -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
     planned_quantity = CASE
       WHEN ob.context ? 'cell_ledger' THEN COALESCE((
         SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
@@ -3486,6 +3491,7 @@ SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
     -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
     -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
     -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
     planned_quantity = CASE
       WHEN ob.context ? 'cell_ledger' THEN COALESCE((
         SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
@@ -4160,6 +4166,7 @@ SET estimated_targets = GREATEST(0, ob.estimated_targets - a.missed_count),
     -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
     -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
     -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
     planned_quantity = CASE
       WHEN ob.context ? 'cell_ledger' THEN COALESCE((
         SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
@@ -4374,6 +4381,7 @@ SET estimated_targets = GREATEST(0, ob.estimated_targets - a.missed_count),
     -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
     -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
     -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
     planned_quantity = CASE
       WHEN ob.context ? 'cell_ledger' THEN COALESCE((
         SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
