@@ -1,7 +1,8 @@
 -- name: InsertObligationInstance :one
 -- Deterministic idempotency_key makes generation a no-op on replay (returns no row on conflict).
 -- The logical duplicate guard also prevents pre-canonical-key rows (for example old next_cycle keys)
--- from being duplicated by a later replay with a corrected idempotency key.
+-- from being duplicated by a later replay with a corrected idempotency key. Bare ON CONFLICT is
+-- intentional: concurrent generators can both pass NOT EXISTS, so either unique guard must converge.
 INSERT INTO obligation_instances (
   tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id,
   scope_type, scope_id, due_at, window_start, window_end, status,
@@ -22,7 +23,7 @@ WHERE NOT EXISTS (
     AND existing.due_at = @due_at
     AND existing.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
 )
-ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+ON CONFLICT DO NOTHING
 RETURNING obligation_id::text AS obligation_id;
 
 -- name: CreateObligationBatch :one

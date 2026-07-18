@@ -1624,7 +1624,7 @@ WHERE vc.tenant_id = $1
 }
 
 // ListSubmissionCompletions returns the materialized completion rows for one SOP submission.
-// Grain is completion, ordered by (goat_id, completion_id); callers group by goat. The query is
+// Grain is completion, ordered by (goat_id, completion_id); callers partition rows by goat. The query is
 // tenant + submission scoped, uses the unique sop_submission_item linkage, and is hard bounded by
 // the SOP fan-out ceiling so it cannot become a herd-scale read.
 func (r *Repository) ListSubmissionCompletions(ctx context.Context, tenantID, submissionID string) ([]domain.SubmissionCompletion, error) {
