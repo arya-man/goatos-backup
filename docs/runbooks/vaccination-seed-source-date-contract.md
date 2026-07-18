@@ -49,6 +49,18 @@ Goat/vaccination source rows without the active `vaccination.matrix`, capacity
 defaults, ownership duties, recomputed surviving summaries, and canonical-read
 APIs that serve the vaccination screens are not a usable Goat OS environment.
 
+Animal placement is seed truth too. In this build phase, source extracts can be
+incomplete, so seed/import must deterministically complete missing goat placement
+into an explicit seed-intake park/shed instead of leaving a live animal without a
+shed. Do not invent vaccination history to make schedules look clean, but do
+fill missing placement facts needed for the system to operate. Every live goat
+must end seed/closeout with `park_id`, `shed_id`, and `current_location_id`
+pointing at the real active shed. Every open goat vaccination obligation must be
+`scope_type='shed'` and `scope_id = goats.shed_id`; park and tenant scopes are
+drive grouping/policy scopes, not goat-obligation fallbacks. `seed-closeout`
+runs `tools/dev/check-goat-shed-integrity.sh` to prove this after seed,
+generation, and sweeper.
+
 ## Binding Rule
 
 Vaccination dates present in the source sheet are base schedule anchors, not

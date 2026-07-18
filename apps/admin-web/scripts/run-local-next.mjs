@@ -29,6 +29,7 @@ if (mode !== "dev" && mode !== "start") {
   process.exit(2);
 }
 
+assertNotTempCheckout();
 await assertPortFree(host, port);
 const childEnv = await prepareLocalEnvironment();
 
@@ -188,6 +189,28 @@ function detectDockerDatabaseUrl() {
 
 function isLocalAppPostgresContainer(name) {
   return name === "goatos-local-current";
+}
+
+function assertNotTempCheckout() {
+  if (process.env.GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK === "1") return;
+
+  let topLevel = repoRoot;
+  try {
+    topLevel = execFileSync("git", ["-C", repoRoot, "rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    // Non-git local bundles still get the path check below.
+  }
+
+  if (topLevel.startsWith("/tmp/") || topLevel.startsWith("/private/tmp/") || topLevel.startsWith("/var/folders/")) {
+    console.error(`Refusing to start Mesha admin-web from a temporary worktree:\n  ${topLevel}`);
+    console.error("");
+    console.error("Start admin-web from the canonical checkout, or set");
+    console.error("GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK=1 for an explicit throwaway experiment.");
+    process.exit(2);
+  }
 }
 
 function runSeedCloseoutIfPresent(env) {

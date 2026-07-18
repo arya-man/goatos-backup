@@ -181,19 +181,22 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshotAsOf(ctx context.C
 				snapshot.byVersion[plan.VersionID] = append(snapshot.byVersion[plan.VersionID], row.ObligationID)
 				uniqueRows = append(uniqueRows, row)
 			}
-			order, groups := groupUnbatchedDue(uniqueRows, planner.SpeciesGroupingPolicy)
-			order = orderDueGroupsByVaccinePriority(order, groups, plan.Config)
-			for _, k := range order {
-				g := groups[k]
-				if deferShedGroupToPark(plan.Config, g.scopeType, len(g.ids)) {
-					parkCandidateIDs = append(parkCandidateIDs, g.ids...)
-					continue
+			if plan.Config.ParkConsolidation.Enabled {
+				for _, row := range uniqueRows {
+					parkCandidateIDs = append(parkCandidateIDs, row.ObligationID)
 				}
-				claimedAny, err := s.preflightGroup(ctx, tenantID, plan.Config, planner, asOf, dueBefore, preflight, g, claimed)
-				if err != nil {
-					return nil, err
-				}
-				if !claimedAny {
+			} else {
+				order, groups := groupUnbatchedDue(uniqueRows, planner.SpeciesGroupingPolicy)
+				order = orderDueGroupsByVaccinePriority(order, groups, plan.Config)
+				for _, k := range order {
+					g := groups[k]
+					claimedAny, err := s.preflightGroup(ctx, tenantID, plan.Config, planner, asOf, dueBefore, preflight, g, claimed)
+					if err != nil {
+						return nil, err
+					}
+					if claimedAny {
+						continue
+					}
 					parkCandidateIDs = append(parkCandidateIDs, g.ids...)
 				}
 			}
@@ -282,10 +285,6 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 	if minMergeTargets < 1 {
 		minMergeTargets = domain.DefaultParkConsolidationSettings().MinParkMergeTargets
 	}
-	minMergeSheds := settings.MinParkMergeSheds
-	if minMergeSheds < 1 {
-		minMergeSheds = domain.DefaultParkConsolidationSettings().MinParkMergeSheds
-	}
 
 	groups := make(map[string][]domain.ParkConsolidationCandidate)
 	addRows := func(rows []domain.ParkConsolidationCandidate) {
@@ -340,13 +339,17 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 			continue
 		}
 		remaining := append([]domain.ParkConsolidationCandidate(nil), rows...)
-		for len(remaining) >= int(minMergeTargets) && uniqueShedCount(remaining) >= int(minMergeSheds) {
-			next, selected, stop, err := s.preflightParkMergeStep(ctx, tenantID, cfg, planner, now, dueBefore, session, remaining, minMergeTargets, minMergeSheds)
+		fullDates := make(map[string]struct{})
+		for uniqueParkTargetCount(remaining) >= int(minMergeTargets) {
+			next, selected, plannedDate, animalCapReached, stop, err := s.preflightParkMergeStep(ctx, tenantID, cfg, planner, now, dueBefore, session, remaining, minMergeTargets, fullDates)
 			if err != nil {
 				return err
 			}
 			recordClaimed(parkClaimed, selected)
 			remaining = next
+			if animalCapReached && plannedDate != nil {
+				fullDates[plannedDate.Format("2006-01-02")] = struct{}{}
+			}
 			if stop {
 				break
 			}
@@ -360,38 +363,61 @@ func (s *SweeperService) preflightParkConsolidation(ctx context.Context, tenantI
 // selectParkIDsWithinVisitShotCapForSession claim/tie logic, same overflow retry -- but it never
 // calls CreateBatchWithObligations. It returns the rows still un-merged and whether the caller's
 // merge loop should stop.
-func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, dueBefore time.Time, session *SweepSession, remaining []domain.ParkConsolidationCandidate, minMergeTargets, minMergeSheds int32) (newRemaining []domain.ParkConsolidationCandidate, selectedIDs []string, stop bool, err error) {
-	plannedDate, selected := pickBestParkDriveDate(now, remaining)
+func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, dueBefore time.Time, session *SweepSession, remaining []domain.ParkConsolidationCandidate, minMergeTargets int32, excludedDates map[string]struct{}) (newRemaining []domain.ParkConsolidationCandidate, selectedIDs []string, plannedDate *time.Time, animalCapReached bool, stop bool, err error) {
+	plannedDate, selected := pickBestParkDriveDateExcluding(now, remaining, minMergeTargets, excludedDates)
+	if plannedDate == nil {
+		return remaining, nil, nil, false, true, nil
+	}
 	targetIDs := distinctParkTargetIDs(remaining)
 	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
-		return remaining, nil, true, err
+		return remaining, nil, plannedDate, false, true, err
 	}
 	// R2-05(b): mirror parkMergeStep's real per-rule identity resolution (not the version-level
 	// wrapper) so this write-free replay cannot disagree with the real merge decision it exists to
 	// preview.
 	orderedRemaining := orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
-	selected, _, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
+	var shotClaims []shotCapReservation
+	selected, shotClaims, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 	if err != nil {
-		return remaining, nil, true, err
+		return remaining, nil, plannedDate, false, true, err
 	}
 	if len(selected) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
 		if overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining); overflowDate != nil {
 			plannedDate = overflowDate
 			selected = obligationsFeasibleOnDate(*plannedDate, remaining)
 			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
-				return remaining, nil, true, err
+				return remaining, nil, plannedDate, false, true, err
 			}
 			orderedRemaining = orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
-			selected, _, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
+			selected, shotClaims, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 			if err != nil {
-				return remaining, nil, true, err
+				return remaining, nil, plannedDate, false, true, err
 			}
 		}
 	}
-	if plannedDate == nil || int32(len(selected)) < minMergeTargets || uniqueShedCount(filterRows(remaining, selected)) < int(minMergeSheds) {
-		return remaining, nil, true, nil
+	selectedRows := filterRows(remaining, selected)
+	if plannedDate == nil || int32(uniqueParkTargetCount(selectedRows)) < minMergeTargets {
+		return remaining, nil, plannedDate, false, true, nil
 	}
-	return removeRows(remaining, selected), selected, false, nil
+	if planner.MaxGoatsPerDrive > 0 {
+		capped := limitParkSelectionByDistinctTargets(orderedRemaining, selected, *plannedDate, planner.MaxGoatsPerDrive)
+		cappedRows := filterRows(remaining, capped)
+		if len(capped) < len(selected) && uniqueParkTargetCount(cappedRows) > 0 {
+			animalCapReached = true
+			cappedClaims := splitShotCapReservations(shotClaims, selected, [][]string{capped})
+			session.releaseClaims(claimsOutsideSelection(shotClaims, capped))
+			if len(cappedClaims) > 0 {
+				shotClaims = cappedClaims[0]
+			}
+			selected = capped
+			selectedRows = cappedRows
+		}
+	}
+	if int32(uniqueParkTargetCount(selectedRows)) < minMergeTargets {
+		session.releaseClaims(shotClaims)
+		return remaining, nil, plannedDate, false, true, nil
+	}
+	return removeRows(remaining, selected), selected, plannedDate, animalCapReached, false, nil
 }
 
 // preflightRemainingShedObligations mirrors batchRemainingShedObligationsWithVisitCounts, write-free,

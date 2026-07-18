@@ -17,6 +17,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.core.analytics.NoopAnalytics
+import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
@@ -69,7 +71,7 @@ class RecordViewModelTest {
                 ),
             )
         }
-        val vm = RecordViewModel(repo, SavedStateHandle(mapOf("shedId" to "shed-1")))
+        val vm = recordViewModel(repo, SavedStateHandle(mapOf("shedId" to "shed-1")))
         backgroundScope.launchCollect(vm)
         advanceUntilIdle()
 
@@ -95,7 +97,7 @@ class RecordViewModelTest {
                 ),
             )
         }
-        val vm = RecordViewModel(repo, SavedStateHandle(mapOf("shedId" to "shed-2")))
+        val vm = recordViewModel(repo, SavedStateHandle(mapOf("shedId" to "shed-2")))
         backgroundScope.launchCollect(vm)
         advanceUntilIdle()
 
@@ -118,7 +120,7 @@ class RecordViewModelTest {
                 ),
             )
         }
-        val vm = RecordViewModel(repo, SavedStateHandle(mapOf("shedId" to "shed-3")))
+        val vm = recordViewModel(repo, SavedStateHandle(mapOf("shedId" to "shed-3")))
         backgroundScope.launchCollect(vm)
         advanceUntilIdle()
 
@@ -141,7 +143,7 @@ class RecordViewModelTest {
                 ),
             )
         }
-        val vm = RecordViewModel(repo, SavedStateHandle(mapOf("shedId" to "shed-4")))
+        val vm = recordViewModel(repo, SavedStateHandle(mapOf("shedId" to "shed-4")))
         backgroundScope.launchCollect(vm)
         advanceUntilIdle()
 
@@ -154,10 +156,20 @@ class RecordViewModelTest {
         val event: RecordEvent = RecordEvent.Close
         assertTrue(event is RecordEvent.Close)
 
-        val vm = RecordViewModel(FakeExecutionRepository(), SavedStateHandle())
+        val vm = recordViewModel(FakeExecutionRepository(), SavedStateHandle())
         vm.onEvent(RecordEvent.Close) // must not throw / enqueue anything
     }
 }
+
+private fun recordViewModel(
+    repo: ExecutionRepository,
+    savedStateHandle: SavedStateHandle,
+): RecordViewModel = RecordViewModel(
+    repo = repo,
+    analytics = NoopAnalytics(),
+    crashReporter = NoopCrashReporter(),
+    savedStateHandle = savedStateHandle,
+)
 
 private fun kotlinx.coroutines.CoroutineScope.launchCollect(vm: RecordViewModel) {
     launch { vm.state.collect {} }

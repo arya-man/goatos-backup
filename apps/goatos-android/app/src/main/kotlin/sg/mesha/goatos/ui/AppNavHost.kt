@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.compose.collectAsLazyPagingItems
 import android.net.Uri
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -71,6 +72,13 @@ import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
 object Routes {
     const val CALENDAR = "/calendar"
     const val VACCINATION = "/vaccination"
+    /**
+     * Hosted Calendar child destination. It deliberately differs from the
+     * top-level Vaccination module route so a Calendar drill never activates
+     * top-level bottom navigation chrome for roles that also have Vaccination
+     * in their root navigation.
+     */
+    const val CALENDAR_DRIVE = "/calendar/drive"
     const val SCAN = "/scan"
     const val SUBMIT = "/submit"
     const val LEADERSHIP = "/leadership"
@@ -179,14 +187,16 @@ object Routes {
 /**
  * Maps a backend calendar deep-link ([CalendarItem.target]/[CalendarHistoryRow.target])
  * to an app route. Live shed-scoped work opens the execute loop, explicit `record/...` targets
- * open the read-only record, and anything else falls back to the vaccination landing.
+ * open the read-only record, and anything else falls back to the hosted Calendar
+ * drive child. A drill must never reuse a top-level route because that would
+ * reactivate root navigation chrome inside the back stack.
  *
  * `internal` (not `private`): [sg.mesha.goatos.push.resolvePushRoute] reuses this SAME
  * backend-href -> route mapping for an FCM push carrying an explicit `target`/`href`, so a
  * notification tap opens exactly where a Calendar tap on the same backend item would.
  */
 internal fun calendarTargetRoute(target: String?): String {
-    if (target.isNullOrBlank()) return Routes.VACCINATION
+    if (target.isNullOrBlank()) return Routes.CALENDAR_DRIVE
     if (target.contains("scan/")) {
         val id = target.substringAfter("scan/").substringBefore('/').substringBefore('?')
         val uri = Uri.parse(target)
@@ -207,7 +217,7 @@ internal fun calendarTargetRoute(target: String?): String {
         return Routes.recordRoute(id.ifBlank { null })
     }
     val shedId = shedIdFromTarget(target)
-    return if (shedId != null) Routes.scanRoute(shedId) else Routes.VACCINATION
+    return if (shedId != null) Routes.scanRoute(shedId) else Routes.CALENDAR_DRIVE
 }
 
 /** Extracts a shed id from a backend href, supporting `.../sheds/{id}` and `?shed_id={id}`. */
@@ -257,6 +267,7 @@ fun AppNavHost(
         composable(Routes.CALENDAR) {
             val vm: CalendarViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
+            val monthItems = vm.monthItems.collectAsLazyPagingItems()
             // Coverage banner (docs/hr/roster-rbac-design.md S4.6/S4.8) is resolved by a
             // separate small VM and merged into CalendarUiState at this call site. The VM
             // self-loads via GET /app/roster/my-coverage (no scope/identity params needed —
@@ -266,13 +277,14 @@ fun AppNavHost(
             val coverageState by coverageVm.state.collectAsStateWithLifecycle()
             CalendarScreen(
                 state = state.copy(coverageBanner = coverageState),
+                monthItems = monthItems,
                 onEvent = { event ->
                     when (event) {
                         is CalendarEvent.TapItem -> {
-                            // Honour the backend-attached drill target instead of always /vaccination.
-                            val target = state.weekItems.firstOrNull { it.id == event.itemId }?.target
-                                ?: state.historyRows.firstOrNull { it.id == event.itemId }?.target
-                            navController.navigate(calendarTargetRoute(target)) { launchSingleTop = true }
+                            // The paged row carries its backend target directly; navigation is O(1)
+                            // and never searches/copies a growing list in ViewModel memory.
+                            vm.onEvent(event)
+                            navController.navigate(calendarTargetRoute(event.target)) { launchSingleTop = true }
                         }
                         // A MONTH-grid day tap opens the day's own L1 screen (real drill),
                         // never an inline sheet under the grid.
@@ -281,6 +293,9 @@ fun AppNavHost(
                         // A WEEK-strip day tap is in-screen selection (re-scopes the week agenda
                         // list to that day) and must NOT navigate. Handled by CalendarViewModel.
                         is CalendarEvent.TapDay -> vm.onEvent(event)
+                        CalendarEvent.Refresh -> {
+                            if (state.selectedSegmentId == "month") monthItems.refresh() else vm.onEvent(event)
+                        }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -320,38 +335,45 @@ fun AppNavHost(
         // Vaccination execution surfaces as the shed-first flow (screens.md). Tapping a
         // shed opens the execute loop (Scan → Submit) — the operator's core task — with
         // the tapped shed threaded through. Refresh stays in the VM.
-        composable(Routes.VACCINATION) {
-            val vm: ShedsViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            ShedsScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is ShedsEvent.OpenShedRecord -> {
-                            // Done sheds open the read-only record; anything still due opens
-                            // the execute loop (Scan → Submit). Mirrors the mock's shed card
-                            // ("View completed record ›" vs "Start / scan").
-                            val selected = state.rows.firstOrNull { it.id == event.shedId }
-                            val route = when {
-                                selected == null -> Routes.VACCINATION
-                                selected.status == ShedStatus.DONE -> Routes.recordRoute(selected.shedId)
-                                selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId)
-                                else -> Routes.scanRoute(
-                                    shedId = selected.shedId,
-                                    driveId = selected.driveId,
-                                    batchId = selected.batchId,
-                                    taskId = selected.taskId,
-                                    sopVersionId = selected.sopVersionId,
-                                    taskRowVersion = selected.taskRowVersion,
-                                )
+        // The same shed-first feature has two distinct navigation identities:
+        // - /vaccination is a top-level module destination when bootstrap exposes it.
+        // - /calendar/drive is a hosted child pushed from Calendar.
+        // Keeping those routes separate is what guarantees L1+ never inherits the
+        // bottom bar merely because Vaccination is also a root tab for this actor.
+        listOf(Routes.VACCINATION, Routes.CALENDAR_DRIVE).forEach { destination ->
+            composable(destination) {
+                val vm: ShedsViewModel = hiltViewModel()
+                val state by vm.state.collectAsStateWithLifecycle()
+                ShedsScreen(
+                    state = state,
+                    onEvent = { event ->
+                        when (event) {
+                            is ShedsEvent.OpenShedRecord -> {
+                                // Done sheds open the read-only record; anything still due opens
+                                // the execute loop (Scan → Submit). Mirrors the mock's shed card
+                                // ("View completed record ›" vs "Start / scan").
+                                val selected = state.rows.firstOrNull { it.id == event.shedId }
+                                val route = when {
+                                    selected == null -> destination
+                                    selected.status == ShedStatus.DONE -> Routes.recordRoute(selected.shedId)
+                                    selected.taskId.isNullOrBlank() -> Routes.recordRoute(selected.shedId)
+                                    else -> Routes.scanRoute(
+                                        shedId = selected.shedId,
+                                        driveId = selected.driveId,
+                                        batchId = selected.batchId,
+                                        taskId = selected.taskId,
+                                        sopVersionId = selected.sopVersionId,
+                                        taskRowVersion = selected.taskRowVersion,
+                                    )
+                                }
+                                navController.navigate(route) { launchSingleTop = true }
                             }
-                            navController.navigate(route) { launchSingleTop = true }
+                            ShedsEvent.Back -> navController.popBackStack()
+                            else -> vm.onEvent(event)
                         }
-                        ShedsEvent.Back -> navController.popBackStack()
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
+                    },
+                )
+            }
         }
 
         // Scan — Submit drills to the shed-record submit; Back pops; group/tile/tap stay local.

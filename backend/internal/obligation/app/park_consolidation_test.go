@@ -14,25 +14,28 @@ func TestPickBestParkDriveDateMaximizesFeasibleGoats(t *testing.T) {
 	rows := []domain.ParkConsolidationCandidate{
 		{
 			ObligationID: "obl-1",
+			TargetID:     "goat-1",
 			ShedID:       "shed-a",
 			DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 			WindowEnd:    ptrTime(time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)),
 		},
 		{
 			ObligationID: "obl-2",
+			TargetID:     "goat-2",
 			ShedID:       "shed-b",
 			DueAt:        time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC),
 			WindowEnd:    ptrTime(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)),
 		},
 		{
 			ObligationID: "obl-3",
+			TargetID:     "goat-3",
 			ShedID:       "shed-c",
 			DueAt:        time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC),
 			WindowEnd:    ptrTime(time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC)),
 		},
 	}
 
-	planned, ids := pickBestParkDriveDate(now, rows)
+	planned, ids := pickBestParkDriveDate(now, rows, 2)
 	if planned == nil {
 		t.Fatal("planned date is nil")
 	}
@@ -49,29 +52,32 @@ func TestPickBestParkDriveDateRespectsLatestWindow(t *testing.T) {
 	rows := []domain.ParkConsolidationCandidate{
 		{
 			ObligationID: "obl-late",
+			TargetID:     "goat-late",
 			ShedID:       "shed-a",
 			DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 			WindowEnd:    ptrTime(time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)),
 		},
 		{
 			ObligationID: "obl-ok",
+			TargetID:     "goat-ok",
 			ShedID:       "shed-b",
 			DueAt:        time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC),
 			WindowEnd:    ptrTime(time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)),
 		},
 	}
 
-	_, ids := pickBestParkDriveDate(now, rows)
+	_, ids := pickBestParkDriveDate(now, rows, 1)
 	if len(ids) != 1 || ids[0] != "obl-ok" {
 		t.Fatalf("selected ids = %#v, want only obl-ok", ids)
 	}
 }
 
-func TestConsolidateParkDrivesRequiresMultipleSheds(t *testing.T) {
+func TestConsolidateParkDrivesCanMergeSameShedAnimalsAtParkLevel(t *testing.T) {
 	repo := &fakeSweepRepo{
 		parkRows: []domain.ParkConsolidationCandidate{
 			{
 				ObligationID: "obl-1",
+				TargetID:     "goat-1",
 				RuleID:       "rule-a",
 				ShedID:       "shed-1",
 				ParkID:       "park-1",
@@ -80,6 +86,7 @@ func TestConsolidateParkDrivesRequiresMultipleSheds(t *testing.T) {
 			},
 			{
 				ObligationID: "obl-2",
+				TargetID:     "goat-2",
 				RuleID:       "rule-a",
 				ShedID:       "shed-1",
 				ParkID:       "park-1",
@@ -97,8 +104,125 @@ func TestConsolidateParkDrivesRequiresMultipleSheds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("consolidateParkDrives: %v", err)
 	}
-	if res.ParkBatches != 0 || repo.createBatchCalls != 0 {
-		t.Fatalf("park batches = %d create calls = %d, want no single-shed consolidation", res.ParkBatches, repo.createBatchCalls)
+	if res.ParkBatches != 1 || res.ParkObligations != 2 || repo.createBatchCalls != 1 {
+		t.Fatalf("park batches = %d obligations = %d create calls = %d, want same-shed animals merged at park level", res.ParkBatches, res.ParkObligations, repo.createBatchCalls)
+	}
+}
+
+func TestConsolidateParkDrivesHonorsAnimalCapOnNextSafeDay(t *testing.T) {
+	now := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC)
+	rows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-1", TargetID: "goat-1", RuleID: "rule-a", ShedID: "shed-1", ParkID: "park-1", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "obl-2", TargetID: "goat-2", RuleID: "rule-a", ShedID: "shed-1", ParkID: "park-1", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "obl-3", TargetID: "goat-3", RuleID: "rule-a", ShedID: "shed-2", ParkID: "park-1", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "obl-4", TargetID: "goat-4", RuleID: "rule-a", ShedID: "shed-2", ParkID: "park-1", DueAt: now, WindowEnd: &winEnd},
+	}
+	repo := &fakeSweepRepo{parkRows: rows, attachAll: true}
+	svc := NewSweeperService(repo, nil, nil)
+
+	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:          true,
+			MaxGoatsPerDrive: 2,
+		},
+		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
+	}, now)
+	if err != nil {
+		t.Fatalf("consolidateParkDrives: %v", err)
+	}
+	if res.ParkBatches != 2 || res.ParkObligations != 4 {
+		t.Fatalf("result = %#v, want two capped park batches covering four animals", res)
+	}
+	if len(repo.createdBatches) != 2 {
+		t.Fatalf("created batches = %d, want 2", len(repo.createdBatches))
+	}
+	if got := dateKey(repo.createdBatches[0].PlannedDate); got != "2026-08-10" {
+		t.Fatalf("first planned date = %s, want 2026-08-10", got)
+	}
+	if got := dateKey(repo.createdBatches[1].PlannedDate); got != "2026-08-11" {
+		t.Fatalf("second planned date = %s, want next safe day 2026-08-11", got)
+	}
+	for i, batch := range repo.createdBatches {
+		if batch.EstimatedTargets != 2 {
+			t.Fatalf("batch %d estimated targets = %d, want 2 distinct animals", i, batch.EstimatedTargets)
+		}
+	}
+}
+
+func TestConsolidateParkDrivesAllowsOverCapOnLastSafeDay(t *testing.T) {
+	now := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	rows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-1", TargetID: "goat-1", RuleID: "rule-a", ShedID: "shed-1", ParkID: "park-1", DueAt: now, WindowEnd: &now},
+		{ObligationID: "obl-2", TargetID: "goat-2", RuleID: "rule-a", ShedID: "shed-1", ParkID: "park-1", DueAt: now, WindowEnd: &now},
+		{ObligationID: "obl-3", TargetID: "goat-3", RuleID: "rule-a", ShedID: "shed-2", ParkID: "park-1", DueAt: now, WindowEnd: &now},
+	}
+	repo := &fakeSweepRepo{parkRows: rows, attachAll: true}
+	svc := NewSweeperService(repo, nil, nil)
+
+	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:          true,
+			MaxGoatsPerDrive: 2,
+		},
+		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
+	}, now)
+	if err != nil {
+		t.Fatalf("consolidateParkDrives: %v", err)
+	}
+	if res.ParkBatches != 1 || res.ParkObligations != 3 {
+		t.Fatalf("result = %#v, want one over-cap park batch because all animals are on last safe day", res)
+	}
+	if len(repo.createdBatches) != 1 {
+		t.Fatalf("created batches = %d, want 1", len(repo.createdBatches))
+	}
+	if repo.createdBatches[0].EstimatedTargets != 3 {
+		t.Fatalf("estimated targets = %d, want 3 animals despite cap 2", repo.createdBatches[0].EstimatedTargets)
+	}
+}
+
+func TestPickBestParkDriveDateRanksDistinctAnimalsBeforeObligationRows(t *testing.T) {
+	now := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	rows := []domain.ParkConsolidationCandidate{
+		{
+			ObligationID: "goat-1-fmd",
+			TargetID:     "goat-1",
+			ShedID:       "shed-a",
+			DueAt:        time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC),
+			WindowEnd:    ptrTime(time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)),
+		},
+		{
+			ObligationID: "goat-1-hs",
+			TargetID:     "goat-1",
+			ShedID:       "shed-a",
+			DueAt:        time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC),
+			WindowEnd:    ptrTime(time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)),
+		},
+		{
+			ObligationID: "goat-2-fmd",
+			TargetID:     "goat-2",
+			ShedID:       "shed-a",
+			DueAt:        time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC),
+			WindowEnd:    ptrTime(time.Date(2026, 8, 8, 0, 0, 0, 0, time.UTC)),
+		},
+		{
+			ObligationID: "goat-3-fmd",
+			TargetID:     "goat-3",
+			ShedID:       "shed-a",
+			DueAt:        time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC),
+			WindowEnd:    ptrTime(time.Date(2026, 8, 9, 0, 0, 0, 0, time.UTC)),
+		},
+	}
+
+	planned, ids := pickBestParkDriveDate(now, rows, 2)
+	if planned == nil {
+		t.Fatal("planned date is nil")
+	}
+	if got := businessDate(*planned).Format("2006-01-02"); got != "2026-08-02" {
+		t.Fatalf("planned date = %s, want 2026-08-02 with two distinct animals", got)
+	}
+	if strings.Join(ids, ",") != "goat-2-fmd,goat-3-fmd" {
+		t.Fatalf("selected ids = %#v, want two distinct animal obligations", ids)
 	}
 }
 
@@ -107,6 +231,7 @@ func TestConsolidateParkDrivesCreatesParkBatchAcrossSheds(t *testing.T) {
 		parkRows: []domain.ParkConsolidationCandidate{
 			{
 				ObligationID: "obl-1",
+				TargetID:     "goat-1",
 				RuleID:       "rule-a",
 				ShedID:       "shed-1",
 				ParkID:       "park-1",
@@ -115,6 +240,7 @@ func TestConsolidateParkDrivesCreatesParkBatchAcrossSheds(t *testing.T) {
 			},
 			{
 				ObligationID: "obl-2",
+				TargetID:     "goat-2",
 				RuleID:       "rule-a",
 				ShedID:       "shed-2",
 				ParkID:       "park-1",
@@ -151,6 +277,7 @@ func TestConsolidateParkDrivesPagesParkCandidatesWithCursor(t *testing.T) {
 	rows := []domain.ParkConsolidationCandidate{
 		{
 			ObligationID: "obl-1",
+			TargetID:     "goat-1",
 			RuleID:       "rule-a",
 			ShedID:       "shed-1",
 			ParkID:       "park-1",
@@ -159,6 +286,7 @@ func TestConsolidateParkDrivesPagesParkCandidatesWithCursor(t *testing.T) {
 		},
 		{
 			ObligationID: "obl-2",
+			TargetID:     "goat-2",
 			RuleID:       "rule-a",
 			ShedID:       "shed-2",
 			ParkID:       "park-1",
@@ -167,6 +295,7 @@ func TestConsolidateParkDrivesPagesParkCandidatesWithCursor(t *testing.T) {
 		},
 		{
 			ObligationID: "obl-3",
+			TargetID:     "goat-3",
 			RuleID:       "rule-a",
 			ShedID:       "shed-3",
 			ParkID:       "park-1",
@@ -175,6 +304,7 @@ func TestConsolidateParkDrivesPagesParkCandidatesWithCursor(t *testing.T) {
 		},
 		{
 			ObligationID: "obl-4",
+			TargetID:     "goat-4",
 			RuleID:       "rule-a",
 			ShedID:       "shed-4",
 			ParkID:       "park-1",
@@ -204,6 +334,7 @@ func TestConsolidateParkDrivesFailsWhenCandidateCursorDoesNotAdvance(t *testing.
 	rows := []domain.ParkConsolidationCandidate{
 		{
 			ObligationID: "obl-1",
+			TargetID:     "goat-1",
 			RuleID:       "rule-a",
 			ShedID:       "shed-1",
 			ParkID:       "park-1",
@@ -212,6 +343,7 @@ func TestConsolidateParkDrivesFailsWhenCandidateCursorDoesNotAdvance(t *testing.
 		},
 		{
 			ObligationID: "obl-2",
+			TargetID:     "goat-2",
 			RuleID:       "rule-a",
 			ShedID:       "shed-2",
 			ParkID:       "park-1",
@@ -236,6 +368,7 @@ func TestConsolidateParkDrivesMergesDifferentVaccinesAcrossSheds(t *testing.T) {
 		parkRows: []domain.ParkConsolidationCandidate{
 			{
 				ObligationID: "obl-et",
+				TargetID:     "goat-et",
 				RuleID:       "rule-et",
 				ShedID:       "shed-1",
 				ParkID:       "park-1",
@@ -244,6 +377,7 @@ func TestConsolidateParkDrivesMergesDifferentVaccinesAcrossSheds(t *testing.T) {
 			},
 			{
 				ObligationID: "obl-tt",
+				TargetID:     "goat-tt",
 				RuleID:       "rule-tt",
 				ShedID:       "shed-2",
 				ParkID:       "park-1",
@@ -277,40 +411,62 @@ func TestPickBestParkDriveDateIteratesRemainder(t *testing.T) {
 	rows := []domain.ParkConsolidationCandidate{
 		{
 			ObligationID: "obl-1",
+			TargetID:     "goat-1",
 			ShedID:       "shed-a",
 			DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 			WindowEnd:    ptrTime(time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)),
 		},
 		{
 			ObligationID: "obl-2",
+			TargetID:     "goat-2",
 			ShedID:       "shed-b",
 			DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 			WindowEnd:    ptrTime(time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC)),
 		},
 		{
 			ObligationID: "obl-3",
+			TargetID:     "goat-3",
 			ShedID:       "shed-c",
 			DueAt:        time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
 			WindowEnd:    ptrTime(time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)),
 		},
 		{
 			ObligationID: "obl-4",
+			TargetID:     "goat-4",
 			ShedID:       "shed-d",
 			DueAt:        time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
 			WindowEnd:    ptrTime(time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)),
 		},
 	}
-	firstDate, firstIDs := pickBestParkDriveDate(now, rows)
+	firstDate, firstIDs := pickBestParkDriveDate(now, rows, 2)
 	if len(firstIDs) != 2 {
 		t.Fatalf("first pass ids = %#v, want 2", firstIDs)
 	}
 	remaining := removeRows(rows, firstIDs)
-	secondDate, secondIDs := pickBestParkDriveDate(now, remaining)
+	secondDate, secondIDs := pickBestParkDriveDate(now, remaining, 2)
 	if secondDate == nil || len(secondIDs) != 2 {
 		t.Fatalf("second pass date=%v ids=%#v, want 2 goats on another date", secondDate, secondIDs)
 	}
 	if firstDate.Equal(*secondDate) {
 		t.Fatalf("expected two different drive dates, both %s", firstDate.Format("2006-01-02"))
+	}
+}
+
+func TestParkDriveWindowUsesSelectedIntersection(t *testing.T) {
+	startA := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	endA := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	startB := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	endB := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
+
+	windowStart, windowEnd := parkDriveWindow([]domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-a", DueAt: startA, WindowStart: &startA, WindowEnd: &endA},
+		{ObligationID: "obl-b", DueAt: startB, WindowStart: &startB, WindowEnd: &endB},
+	}, []string{"obl-a", "obl-b"})
+	if got := dateKey(windowStart); got != "2026-08-12" {
+		t.Fatalf("window start = %s, want latest selected start 2026-08-12", got)
+	}
+	if got := dateKey(windowEnd); got != "2026-08-18" {
+		t.Fatalf("window end = %s, want binding selected safe-until 2026-08-18", got)
 	}
 }
 

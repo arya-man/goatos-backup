@@ -19,6 +19,7 @@
     <string name="calendar_week_empty">No drives scheduled</string>
     <string name="calendar_history_empty">No accepted completion history</string>
     <string name="calendar_day_sheet_empty">No drives scheduled this day</string>
+    <string name="calendar_month_empty">No vaccination drives match these filters</string>
 
     <!-- Month grid hint -->
     <string name="calendar_month_hint">Tap a day for due work or completion history · dots = open work, muted dots = completed history</string>
@@ -43,6 +44,22 @@
     <string name="calendar_drive_animals">Animals</string>
     <string name="calendar_drive_doses">Doses</string>
     <string name="calendar_loading_more">Loading…</string>
+    <string name="calendar_month_schedule">Monthly vaccination schedule</string>
+    <string name="calendar_page_size">20 per page</string>
+    <string name="calendar_filters">Filters</string>
+    <string name="calendar_retry">Retry</string>
+    <string name="calendar_month_loading">Loading schedule…</string>
+    <string name="calendar_month_load_error">Could not update the schedule</string>
+    <string name="calendar_filter_title">Filter schedule</string>
+    <string name="calendar_filter_all">All</string>
+    <string name="calendar_filter_year">Year</string>
+    <string name="calendar_filter_month">Month</string>
+    <string name="calendar_filter_park">Park</string>
+    <string name="calendar_filter_shed">Shed</string>
+    <string name="calendar_filter_vaccine">Vaccine</string>
+    <string name="calendar_filter_status">Status</string>
+    <string name="calendar_filter_clear">Clear</string>
+    <string name="calendar_filter_apply">Apply filters</string>
 
     <!-- v4 park-level drive progress card (EventCard / DriveProgressCard) -->
     <string name="calendar_drive_title">Vaccination drive · %1$s</string>

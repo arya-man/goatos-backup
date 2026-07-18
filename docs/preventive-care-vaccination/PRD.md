@@ -240,7 +240,7 @@ the farm run a practical drive, which animals go into it, and how to allocate
 route/resources around the V1-approved vaccine groups.
 
 Basic Calendar aggregation is V1. Once the sweeper attaches animal due
-rows to a shed-drive batch, Calendar must show the drive as the active item and
+rows to a park-drive batch, Calendar must show the drive as the active item and
 must not duplicate every batched per-animal `dose_due` row as a separate active
 Calendar event. Animal-level due status remains visible in Passport, Protocol
 Adherence, Vaccination detail, and audit surfaces. Any Calendar drive target
@@ -280,18 +280,21 @@ The planner works like this:
    rule, quarantine/ICU rule, proof/SOP requirement, trained worker, stock,
    cold-chain, and the V1-authored vaccine compatibility policy.
 4. Build operational drive groups from the V1-safe vaccine groups for each
-   park/time window, with shed/tag retained as the execution breakdown. Unsafe
+   park/time window, with shed/tag retained as the execution breakdown. Shed
+   count is not the batching goal; distinct safe animals are. Unsafe
    same-day combinations or required 2-week/4-week gaps are already represented
    by the V1 matrix and source policy; the optimizer separates them while
    planning routes and resources.
 5. Search candidate dates only inside the approved medical window
    (`earliest_safe_date`, `ideal_date`, `last_safe_date`). A date outside the
    safe window is rejected, not merely given a bad score.
-6. Score the remaining safe plans by operational value: animals covered, urgency,
-   disease priority, stock expiry, route/resource efficiency, and fairness to
-   small sheds/tags. A one-animal shed/tag group can be held if waiting is
-   medically safe, but it becomes a micro-drive if waiting would break the
-   window.
+6. Score the remaining safe plans by operational value: distinct animals
+   covered first, then urgency, disease priority, stock expiry,
+   route/resource efficiency, and fairness to small sheds/tags. Obligation row
+   count, vaccine count, and shed count must not beat distinct animal output. A
+   1-2 animal group can be held if waiting is medically safe, but it becomes a
+   micro-drive only if waiting would break the window or no compatible same-park
+   work exists between that group's due/ready date and safe-until date.
    Example: if CBE has 5 K1-compatible animals due in one shed today and 15
    compatible animals in another shed whose safe medical window overlaps the next
    week, the planner may hold the smaller shed and create one 20-animal park drive
@@ -302,12 +305,18 @@ The planner works like this:
 7. Enforce the one-time hold rule. A due item can use the configured batching
    hold once, defaulting to at most 7 calendar days. If it has already been held
    once for this obligation/dose cycle, the next decision is execute, micro-drive,
-   defer for a real blocker, or mark process-broken when the medical window was
-   missed. It is never moved again just because another larger group appears.
+   defer while a real temporary blocker is active; when that blocker clears,
+   recovery/clearance becomes the new ready anchor and the planner schedules
+   inside that anchor's +7-day buffer. It is never moved again just because
+   another larger group appears.
 8. Enforce the per-animal shot cap before finalizing a same-day plan. The default
    cap is 2 shots per animal per drive/doctor visit. If 3+ vaccines are due, the
    planner chooses the highest-priority compatible pair that is medically safe
    today and schedules the remainder on the next safe date using live/killed,
+   priority, and safe-window rules. The normal per-drive animal cap is
+   operational and soft on a last-safe-day overflow: move overflow to the next
+   feasible day when safe; keep the animal in the current/last-safe drive even
+   over that normal cap when moving would cross its safe-until date.
    booster, and matrix gap rules.
 9. Create the drive with its animal list, vaccine list, lot/stock reservation,
    SOP/proof requirements, worker, verifier, and route. A route may contain

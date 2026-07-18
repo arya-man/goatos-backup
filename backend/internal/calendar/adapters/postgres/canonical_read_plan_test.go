@@ -86,13 +86,19 @@ func TestCalendarCanonicalReadPlanAtScale(t *testing.T) {
 	defer func() { _ = tx.Rollback(ctx) }()
 	// Do NOT force enable_seqscan=off: the point is to prove the planner CHOOSES indexes with real
 	// statistics, not to force a plan regardless of cost. The planner's honest choice is the proof.
+	// Production API pools disable PostgreSQL JIT for latency-sensitive OLTP. Keep this scale gate
+	// runtime-equivalent: at 500k rows JIT compilation alone can take multiple seconds even when the
+	// indexed query execution is comfortably sub-second.
+	if _, err := tx.Exec(ctx, "SET LOCAL jit = off"); err != nil {
+		t.Fatalf("disable JIT for production-equivalent scale query: %v", err)
+	}
 
 	// Production-shaped query parameters:
 	// - Bounded 1-week window (most production calls are ~week view)
 	// - Specific park scope (not tenantWide)
 	// - LIMIT 21 (~page size)
 	// - No keyset cursor (first page)
-	productionWindow := dateFrom.Add(24 * time.Hour)   // Start from second day of seeded range
+	productionWindow := dateFrom.Add(24 * time.Hour)                // Start from second day of seeded range
 	productionWindowEnd := productionWindow.Add(7 * 24 * time.Hour) // 1-week window
 
 	// ============= QUERY PHASE (production-shaped) =============
@@ -103,7 +109,7 @@ func TestCalendarCanonicalReadPlanAtScale(t *testing.T) {
 	queryStart := time.Now()
 	rows, err := tx.Query(ctx, "EXPLAIN (ANALYZE, BUFFERS) "+calendarCanonicalListSQL,
 		testTenantID, productionWindow, productionWindowEnd, "", "", testParkA, "",
-		nil, "", 21, false, []string{testParkA}, []string{})
+		nil, "", 21, false, []string{testParkA}, []string{}, "")
 	if err != nil {
 		t.Fatalf("canonical list did not plan/execute at 500k-obligation scale: %v", err)
 	}
@@ -473,9 +479,9 @@ func TestReminderCadenceDrainAtScale(t *testing.T) {
 	// iteration), which converges for recipient-backed fires and does not spin on unclaimable ones. ----
 	const (
 		cadenceInterval = 15 * time.Minute // kernel-worker "operational" cadence (cmd/kernel-worker/main.go)
-		perSweepSLO     = 5 * time.Second   // a single sweep tick must stay well under the interval
-		maxIterations   = 50                // generous cap; a converging drain needs only a handful
-		sweepLimit      = 2000              // reminderCadenceMaxLimit: bounds the candidate scan per tick
+		perSweepSLO     = 5 * time.Second  // a single sweep tick must stay well under the interval
+		maxIterations   = 50               // generous cap; a converging drain needs only a handful
+		sweepLimit      = 2000             // reminderCadenceMaxLimit: bounds the candidate scan per tick
 	)
 	scaleRecipient := ports.NotificationRecipient{
 		MemberID:  "8a000000-0000-4000-8000-00000000cafe",

@@ -302,18 +302,97 @@ func TestCalendarPostgresAppliesParkShedScope(t *testing.T) {
 	eventB := parkDriveEventID(testParkB, dueAt)
 
 	list, err := repo.ListEvents(ctx, domain.Query{
-		TenantID: testTenantID,
-		OwnerKey: domain.OwnerAll,
-		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
-		DateTo:   time.Now().UTC().Add(24 * time.Hour),
-		Limit:    20,
-		Scope:    domain.ScopeFilter{ParkIDs: []string{testParkA}},
+		TenantID:             testTenantID,
+		OwnerKey:             domain.OwnerAll,
+		DateFrom:             time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:               time.Now().UTC().Add(24 * time.Hour),
+		Limit:                20,
+		Scope:                domain.ScopeFilter{ParkIDs: []string{testParkA}},
+		IncludeFilterOptions: true,
 	})
 	if err != nil {
 		t.Fatalf("ListEvents park scope: %v", err)
 	}
 	if len(list.Items) != 1 || list.Items[0].EventID != eventA {
 		t.Fatalf("park scoped list = %#v, want only %s", list.Items, eventA)
+	}
+	if list.FilterOptions == nil {
+		t.Fatal("park scoped filter options are nil")
+	}
+	if len(list.FilterOptions.Parks) != 1 || list.FilterOptions.Parks[0].Value != testParkA {
+		t.Fatalf("park scoped options = %#v, want only %s", list.FilterOptions.Parks, testParkA)
+	}
+	if len(list.FilterOptions.Sheds) != 1 ||
+		list.FilterOptions.Sheds[0].Value != testShedA ||
+		list.FilterOptions.Sheds[0].ParentValue == nil ||
+		*list.FilterOptions.Sheds[0].ParentValue != testParkA {
+		t.Fatalf("shed scoped options = %#v, want only %s under %s", list.FilterOptions.Sheds, testShedA, testParkA)
+	}
+	vaccine := "Projection Test Vaccine"
+	vaccineList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		Vaccine:  &vaccine,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{ParkIDs: []string{testParkA}},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents vaccine filter: %v", err)
+	}
+	if len(vaccineList.Items) != 1 || vaccineList.Items[0].EventID != eventA {
+		t.Fatalf("vaccine scoped list = %#v, want only %s", vaccineList.Items, eventA)
+	}
+	unknownVaccine := "Not a published vaccine"
+	emptyList, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		Vaccine:  &unknownVaccine,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{ParkIDs: []string{testParkA}},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents unknown vaccine filter: %v", err)
+	}
+	if len(emptyList.Items) != 0 {
+		t.Fatalf("unknown vaccine list = %#v, want empty", emptyList.Items)
+	}
+
+	firstPage, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Limit:    1,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents first page: %v", err)
+	}
+	if len(firstPage.Items) != 1 || firstPage.NextCursor == nil {
+		t.Fatalf("first page items=%d next=%v, want one row and continuation", len(firstPage.Items), firstPage.NextCursor)
+	}
+	cursor, err := domain.DecodeCalendarCursor(*firstPage.NextCursor)
+	if err != nil {
+		t.Fatalf("decode first page cursor: %v", err)
+	}
+	secondPage, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: time.Now().UTC().Add(-24 * time.Hour),
+		DateTo:   time.Now().UTC().Add(24 * time.Hour),
+		Cursor:   &cursor,
+		Limit:    1,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents second page: %v", err)
+	}
+	if len(secondPage.Items) != 1 || secondPage.Items[0].EventID == firstPage.Items[0].EventID {
+		t.Fatalf("second page = %#v, want a distinct continuation row", secondPage.Items)
 	}
 	if _, err := repo.GetEventDetail(ctx, domain.EventQuery{
 		TenantID: testTenantID,
@@ -348,6 +427,59 @@ func TestCalendarPostgresAppliesParkShedScope(t *testing.T) {
 		TenantID: testTenantID, EventID: shedEventID, Scope: domain.ScopeFilter{ShedIDs: []string{testShedA}},
 	}); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("cross-shed detail err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestCalendarHistoryVaccineOneToManyStatusBucketsStayCardinalitySafe(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	const (
+		protocolID   = "86000000-0000-4000-8000-00000000f101"
+		versionID    = "86000000-0000-4000-8000-00000000f102"
+		ruleID       = "86000000-0000-4000-8000-00000000f103"
+		obligationID = "86000000-0000-4000-8000-00000000f104"
+		goatID       = "86000000-0000-4000-8000-00000000f105"
+		completionID = "86000000-0000-4000-8000-00000000f106"
+	)
+	dueAt := time.Now().UTC()
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	attachObligationToGoatScope(t, ctx, pool, obligationID, goatID, "shed", testShedA)
+	seedVaccinationCompletion(t, ctx, pool, obligationID, goatID, completionID)
+	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "fmd", "FMD")
+	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "ppr", "PPR")
+
+	vaccine := "FMD"
+	status := "completed"
+	response, err := repo.ListEvents(ctx, domain.Query{
+		TenantID:           testTenantID,
+		OwnerKey:           domain.OwnerAll,
+		Status:             &status,
+		Vaccine:            &vaccine,
+		DateFrom:           dueAt.Add(-24 * time.Hour),
+		DateTo:             dueAt.Add(24 * time.Hour),
+		Limit:              20,
+		Scope:              domain.ScopeFilter{TenantWide: true},
+		MarkersOnly:        true,
+		IncludeDateMarkers: true,
+	})
+	if err != nil {
+		t.Fatalf("ListEvents completed FMD markers: %v", err)
+	}
+	var eventCount, completedCount int
+	for _, marker := range response.DateMarkers {
+		eventCount += marker.EventCount
+		completedCount += marker.CompletedCount
+	}
+	if eventCount != 1 || completedCount != 1 {
+		t.Fatalf(
+			"two rule dimensions fanned one completion into markers: events=%d completed=%d markers=%#v",
+			eventCount,
+			completedCount,
+			response.DateMarkers,
+		)
 	}
 }
 

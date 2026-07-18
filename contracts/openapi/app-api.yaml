@@ -1404,7 +1404,7 @@ paths:
       tags:
         - Vaccination
       operationId: getVaccinationSchedule
-      summary: Projection-backed vaccination Full Schedule for one materialized month.
+      summary: Canonical vaccination Full Schedule for one business-calendar month.
       parameters:
         - name: park_id
           in: query
@@ -2071,6 +2071,21 @@ paths:
           in: query
           required: false
           description: Include the whole-filtered-week reminder/escalation rail summary (week view). Separate from include_date_markers so the week list gets the rail without paying for month date-markers.
+          schema:
+            type: boolean
+            default: false
+        - name: vaccine
+          in: query
+          required: false
+          description: Exact backend-provided vaccine label from filter_options.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+        - name: include_filter_options
+          in: query
+          required: false
+          description: Include caller-scoped park, shed, vaccine, status, month, and year choices on the first page.
           schema:
             type: boolean
             default: false
@@ -6110,6 +6125,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/CalendarDateMarker"
+        filter_options:
+          $ref: "#/components/schemas/CalendarFilterOptions"
         next_cursor:
           type:
             - string
@@ -6124,6 +6141,56 @@ components:
           $ref: "#/components/schemas/CalendarReminderRail"
           description: "Backend-computed, whole-filtered-week reminder/escalation rail. Populated only when include_reminder_rail is set (the week view request shape); null otherwise so a plain paged list fetch does not pay for it."
           nullable: true
+    CalendarFilterOption:
+      type: object
+      additionalProperties: false
+      required:
+        - value
+        - label
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+        parent_value:
+          type:
+            - string
+            - "null"
+    CalendarFilterOptions:
+      type: object
+      additionalProperties: false
+      required:
+        - parks
+        - sheds
+        - vaccines
+        - statuses
+        - months
+        - years
+      properties:
+        parks:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarFilterOption"
+        sheds:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarFilterOption"
+        vaccines:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarFilterOption"
+        statuses:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarKeyLabel"
+        months:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarKeyLabel"
+        years:
+          type: array
+          items:
+            $ref: "#/components/schemas/CalendarKeyLabel"
     CalendarReminderRail:
       type: object
       additionalProperties: false

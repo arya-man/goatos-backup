@@ -13,16 +13,29 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +53,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.itemKey
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
@@ -60,11 +76,13 @@ import sg.mesha.goatos.feature.calendar.R
 @Composable
 fun CalendarScreen(
     state: CalendarUiState,
+    monthItems: LazyPagingItems<CalendarItem>? = null,
     onEvent: (CalendarEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val selected = state.segments.firstOrNull { it.id == state.selectedSegmentId }
         ?: state.segments.firstOrNull()
+    var showMonthFilters by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier = modifier
@@ -92,11 +110,31 @@ fun CalendarScreen(
 
         when (selected?.kind) {
             CalendarSegmentKind.Week -> weekContent(state, onEvent)
-            CalendarSegmentKind.Month -> monthContent(state, onEvent)
+            CalendarSegmentKind.Month -> monthContent(
+                state = state,
+                monthItems = monthItems,
+                onEvent = onEvent,
+                onOpenFilters = { showMonthFilters = true },
+            )
             CalendarSegmentKind.History -> historyContent(state, onEvent)
             null -> Unit
         }
         item { Spacer(Modifier.size(24.dp)) }
+    }
+
+    if (showMonthFilters && selected?.kind == CalendarSegmentKind.Month) {
+        MonthFilterSheet(
+            state = state,
+            onDismiss = { showMonthFilters = false },
+            onApply = {
+                onEvent(CalendarEvent.ApplyMonthFilters(it))
+                showMonthFilters = false
+            },
+            onClear = {
+                onEvent(CalendarEvent.ClearMonthFilters)
+                showMonthFilters = false
+            },
+        )
     }
 }
 
@@ -268,7 +306,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.weekContent(
         }
     } else {
         items(state.weekItems, key = { it.id }) { item ->
-            EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id)) })
+            EventCard(item = item, onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target)) })
         }
         if (state.weekHasMore) {
             item {
@@ -339,7 +377,7 @@ private fun WeekDayCell(
 }
 
 @Composable
-private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
+private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleContext: Boolean = false) {
     val drillable = item.ctaLabel != null && item.target != null
     val drive = item.driveSummary
     Column(
@@ -353,6 +391,28 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
             .then(if (drillable) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(start = 16.dp, top = 15.dp, end = 16.dp, bottom = 15.dp),
     ) {
+        if (showScheduleContext && (item.dateLabel.isNotEmpty() || item.parkLabel.isNotEmpty())) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = item.dateLabel,
+                    color = MeshaColors.Brand2,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.W800,
+                )
+                Spacer(Modifier.weight(1f))
+                if (item.parkLabel.isNotEmpty()) {
+                    Text(
+                        text = item.parkLabel,
+                        color = MeshaColors.Muted,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.W700,
+                    )
+                }
+            }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             StatusPill(item.statusLabel, item.statusTone)
             Spacer(Modifier.weight(1f))
@@ -463,6 +523,17 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit) {
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+                if (showScheduleContext && item.shedLabels.isNotEmpty()) {
+                    Text(
+                        text = item.shedLabels.joinToString(" · "),
+                        color = MeshaColors.Muted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.W600,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 6.dp),
                     )
                 }
             }
@@ -761,6 +832,299 @@ private fun MonthCell(
     }
 }
 
+private fun androidx.compose.foundation.lazy.LazyListScope.monthContent(
+    state: CalendarUiState,
+    monthItems: LazyPagingItems<CalendarItem>?,
+    onEvent: (CalendarEvent) -> Unit,
+    onOpenFilters: () -> Unit,
+) {
+    item {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.calendar_month_schedule),
+                    color = MeshaColors.Ink,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.W800,
+                )
+                Text(
+                    text = "${state.monthLabel} · ${stringResource(R.string.calendar_page_size)}",
+                    color = MeshaColors.Muted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.W600,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+            }
+            TextButton(onClick = onOpenFilters) {
+                val count = state.monthFilters.secondaryFilterCount
+                Text(
+                    text = if (count > 0) {
+                        "${stringResource(R.string.calendar_filters)} ($count)"
+                    } else {
+                        stringResource(R.string.calendar_filters)
+                    },
+                    fontWeight = FontWeight.W800,
+                )
+            }
+        }
+    }
+
+    if (monthItems == null) {
+        item {
+            EmptyState(
+                title = state.monthEmptyLabel.ifEmpty { stringResource(R.string.calendar_month_empty) },
+                icon = MeshaIcons.Calendar,
+            )
+        }
+        return
+    }
+
+    when {
+        monthItems.itemCount == 0 && monthItems.loadState.refresh is LoadState.Loading -> item {
+            MonthPagingMessage(
+                label = stringResource(R.string.calendar_month_loading),
+                loading = true,
+            )
+        }
+
+        monthItems.itemCount == 0 && monthItems.loadState.refresh is LoadState.Error -> item {
+            MonthPagingMessage(
+                label = stringResource(R.string.calendar_month_load_error),
+                actionLabel = stringResource(R.string.calendar_retry),
+                onAction = monthItems::retry,
+            )
+        }
+
+        monthItems.itemCount == 0 -> item {
+            EmptyState(
+                title = state.monthEmptyLabel.ifEmpty { stringResource(R.string.calendar_month_empty) },
+                icon = MeshaIcons.Calendar,
+            )
+        }
+
+        else -> items(
+            count = monthItems.itemCount,
+            key = monthItems.itemKey { item -> item.id },
+            contentType = { "calendar-schedule-card" },
+        ) { index ->
+            monthItems[index]?.let { item ->
+                EventCard(
+                    item = item,
+                    showScheduleContext = true,
+                    onClick = { onEvent(CalendarEvent.TapItem(item.id, item.target)) },
+                )
+            }
+        }
+    }
+
+    when (monthItems.loadState.append) {
+        is LoadState.Loading -> item {
+            MonthPagingMessage(label = stringResource(R.string.calendar_loading_more), loading = true)
+        }
+        is LoadState.Error -> item {
+            MonthPagingMessage(
+                label = stringResource(R.string.calendar_month_load_error),
+                actionLabel = stringResource(R.string.calendar_retry),
+                onAction = monthItems::retry,
+            )
+        }
+        else -> Unit
+    }
+}
+
+@Composable
+private fun MonthPagingMessage(
+    label: String,
+    loading: Boolean = false,
+    actionLabel: String? = null,
+    onAction: () -> Unit = {},
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (loading) {
+            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.size(8.dp))
+        }
+        Text(
+            text = label,
+            color = MeshaColors.Muted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.W700,
+        )
+        if (actionLabel != null) {
+            Spacer(Modifier.size(8.dp))
+            TextButton(onClick = onAction) { Text(actionLabel) }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun MonthFilterSheet(
+    state: CalendarUiState,
+    onDismiss: () -> Unit,
+    onApply: (CalendarMonthFilters) -> Unit,
+    onClear: () -> Unit,
+) {
+    var draft by remember(state.monthFilters) { mutableStateOf(state.monthFilters) }
+    val options = state.monthFilterOptions
+    val yearOptions = options.years.ifEmpty {
+        listOf(CalendarFilterOption(draft.year.toString(), draft.year.toString()))
+    }
+    val monthOptions = options.months.ifEmpty {
+        listOf(
+            CalendarFilterOption(
+                draft.month.toString().padStart(2, '0'),
+                state.monthLabel.substringBefore(' '),
+            ),
+        )
+    }
+    val shedOptions = options.sheds.filter { option ->
+        draft.parkId == null || option.parentValue == draft.parkId
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MeshaColors.Surf,
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 640.dp)
+                .padding(horizontal = Gutter),
+        ) {
+            item {
+                Text(
+                    text = stringResource(R.string.calendar_filter_title),
+                    color = MeshaColors.Ink,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.W800,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
+            item {
+                FilterChoiceSection(
+                    label = stringResource(R.string.calendar_filter_year),
+                    options = yearOptions,
+                    selectedValue = draft.year.toString(),
+                    includeAll = false,
+                    onSelect = { value -> value?.toIntOrNull()?.let { draft = draft.copy(year = it) } },
+                )
+            }
+            item {
+                FilterChoiceSection(
+                    label = stringResource(R.string.calendar_filter_month),
+                    options = monthOptions,
+                    selectedValue = draft.month.toString().padStart(2, '0'),
+                    includeAll = false,
+                    onSelect = { value -> value?.toIntOrNull()?.let { draft = draft.copy(month = it) } },
+                )
+            }
+            item {
+                FilterChoiceSection(
+                    label = stringResource(R.string.calendar_filter_park),
+                    options = options.parks,
+                    selectedValue = draft.parkId,
+                    onSelect = { parkId ->
+                        val currentShedStillValid = parkId == null || options.sheds.any {
+                            it.value == draft.shedId && it.parentValue == parkId
+                        }
+                        draft = draft.copy(
+                            parkId = parkId,
+                            shedId = draft.shedId.takeIf { currentShedStillValid },
+                        )
+                    },
+                )
+            }
+            item {
+                FilterChoiceSection(
+                    label = stringResource(R.string.calendar_filter_shed),
+                    options = shedOptions,
+                    selectedValue = draft.shedId,
+                    onSelect = { draft = draft.copy(shedId = it) },
+                )
+            }
+            item {
+                FilterChoiceSection(
+                    label = stringResource(R.string.calendar_filter_vaccine),
+                    options = options.vaccines,
+                    selectedValue = draft.vaccine,
+                    onSelect = { draft = draft.copy(vaccine = it) },
+                )
+            }
+            item {
+                FilterChoiceSection(
+                    label = stringResource(R.string.calendar_filter_status),
+                    options = options.statuses,
+                    selectedValue = draft.status,
+                    onSelect = { draft = draft.copy(status = it) },
+                )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onClear) {
+                        Text(stringResource(R.string.calendar_filter_clear))
+                    }
+                    Button(
+                        onClick = { onApply(draft) },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(stringResource(R.string.calendar_filter_apply))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterChoiceSection(
+    label: String,
+    options: List<CalendarFilterOption>,
+    selectedValue: String?,
+    includeAll: Boolean = true,
+    onSelect: (String?) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+        Text(
+            text = label.uppercase(),
+            color = MeshaColors.Faint,
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.W800,
+            letterSpacing = 0.5.sp,
+            modifier = Modifier.padding(bottom = 6.dp),
+        )
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (includeAll) {
+                item(key = "all") {
+                    FilterChip(
+                        selected = selectedValue == null,
+                        onClick = { onSelect(null) },
+                        label = { Text(stringResource(R.string.calendar_filter_all)) },
+                    )
+                }
+            }
+            items(options, key = { it.value }) { option ->
+                FilterChip(
+                    selected = selectedValue == option.value,
+                    onClick = { onSelect(option.value) },
+                    label = { Text(option.label, maxLines = 1) },
+                )
+            }
+        }
+    }
+}
+
 /* --------------------------------------------------------------------------- */
 /* Day detail — L1 screen                                                      */
 /* --------------------------------------------------------------------------- */
@@ -866,7 +1230,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.historyContent(
         }
     } else {
         items(state.historyRows, key = { it.id }) { row ->
-            HistoryRow(row = row, onClick = { onEvent(CalendarEvent.TapItem(row.id)) })
+            HistoryRow(row = row, onClick = { onEvent(CalendarEvent.TapItem(row.id, row.target)) })
         }
         if (state.historyHasMore) {
             item {

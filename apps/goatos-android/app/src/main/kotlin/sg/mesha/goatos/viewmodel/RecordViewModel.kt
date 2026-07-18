@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
@@ -40,6 +43,8 @@ import javax.inject.Inject
 @HiltViewModel
 class RecordViewModel @Inject constructor(
     private val repo: ExecutionRepository,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -78,6 +83,12 @@ class RecordViewModel @Inject constructor(
     )
 
     init {
+        shedId?.let {
+            analytics.track(
+                AnalyticsEvents.VACCINATION_RECORD_OPENED,
+                mapOf(AnalyticsEvents.Params.SHED_ID to it),
+            )
+        }
         refresh()
     }
 
@@ -90,6 +101,9 @@ class RecordViewModel @Inject constructor(
             val result = repo.refreshShed(shedId)
             _isRefreshing.value = false
             _isOffline.value = result.isFailure
+            result.exceptionOrNull()?.let {
+                crashReporter.recordException(it, "vaccination record refresh failed")
+            }
         } else {
             _isRefreshing.value = false
         }

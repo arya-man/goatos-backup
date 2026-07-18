@@ -352,6 +352,7 @@ SELECT oi.obligation_id::text AS obligation_id,
        oi.rule_id::text AS rule_id,
        oi.scope_type,
        COALESCE(oi.scope_id::text, '')::text AS scope_id,
+       COALESCE(g.park_id::text, '')::text AS park_id,
        COALESCE(oi.target_id::text, '')::text AS target_id,
        CASE
          WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text
@@ -420,6 +421,7 @@ type ListUnbatchedDueForVersionRow struct {
 	RuleID                   string
 	ScopeType                string
 	ScopeID                  string
+	ParkID                   string
 	TargetID                 string
 	TargetSpecies            string
 	TargetAnimalStage        string
@@ -453,6 +455,7 @@ func (q *Queries) ListUnbatchedDueForVersion(ctx context.Context, arg ListUnbatc
 			&i.RuleID,
 			&i.ScopeType,
 			&i.ScopeID,
+			&i.ParkID,
 			&i.TargetID,
 			&i.TargetSpecies,
 			&i.TargetAnimalStage,

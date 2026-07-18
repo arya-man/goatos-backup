@@ -1,5 +1,7 @@
 package sg.mesha.goatos.feature.sheds
 
+// telemetry:exempt pure stateless renderer; CalendarViewModel owns drive-open analytics and ShedsViewModel owns non-fatal refresh reporting.
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -303,7 +305,9 @@ private fun ShedsHeader(state: ShedsUiState, onRefresh: () -> Unit, onBack: () -
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "${state.moduleLabel} · ${state.scopeLabel}",
+                text = listOf(state.moduleLabel, state.scopeLabel)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · "),
                 color = BrandD,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,

@@ -346,8 +346,27 @@ Do:
   alone: founder grants, HRMS roster, attendance/leave, timetable-backed
   positions, strict shed manager/backup mapping, position duties, published
   `vaccination.matrix` config, trusted vaccination history, generated future
-  obligations, and deterministic read-model closeout. Missing HRMS/config is a
-  failed seed, even when goat rows exist.
+  obligations, generated drive batches, and deterministic closeout. Missing
+  HRMS/config is a failed seed, even when goat rows exist. A reseed/import/local
+  proof is also failed if it stops after generation and leaves visible-window
+  `scheduled`/`due` vaccination obligations unbatched; `tools/dev/seed-closeout.sh`
+  must run the obligation sweeper and fail on that condition.
+- Every accepted live goat in seed/import/dev data must resolve to a real active
+  shed. During the current build phase, missing source placement is completed
+  deterministically into an explicit seed-intake park/shed; do not skip the
+  animal, leave `shed_id` blank, or fall back to a park/tenant vaccination
+  obligation. Goat vaccination obligations are **shed-scoped only**; park is
+  the drive execution/grouping scope. Required guards:
+  `make goat-shed-scope-guard`; post-seed DB proof:
+  `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
+- Vaccination drive batching is park-level, animal-first, and safe-window-bound.
+  Shed count is never a merge constraint; it is display/proof detail. A 1-2
+  animal drive is valid only after proving no compatible same-park animal group
+  can join between that group's due/ready date and binding safe-until date.
+  Normal per-drive animal caps are soft on the last safe day, but the per-animal
+  shot cap remains hard. Reseed/local proof must run
+  `make vaccination-drive-clubbing-db-proof` after sweeper closeout; without it,
+  Calendar/Full Schedule screenshots are not batching evidence.
 - Vaccination source dates are base history anchors, not open due work. A seed
   or reseed must preserve trusted past dates as accepted history, suppress any
   seed-created open work on or before the backend business date, and let the
@@ -370,6 +389,12 @@ Do:
   behind that build's migrations. Apply migrations first, seed only canonical
   source truth second, run deterministic closeout/projectors third, then start
   API/admin/workers or mark the environment green.
+- Do not serve the normal local API/admin-web from temporary worktrees under
+  `/tmp`, `/private/tmp`, or `/var/folders`. Local stack wrappers must fail by
+  default there so the browser cannot silently exercise a disposable checkout
+  while the canonical repo is stale or dirty. Use
+  `GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK=1` only for explicit throwaway
+  experiments, never for handoff.
 - Normal local laptop runtime must resolve exactly one Goat OS app database for
   API, admin-web, and mobile. Use the single detected `goatos-local-current`
   Docker DB or the `127.0.0.1:5433/goatos` fallback; if multiple Goat OS app
@@ -616,9 +641,9 @@ Do:
   - **Every drill level paginates** — L1 day list, L2 sheds, L3 vaccine-capture
     (done/pending/skipped animals) are each a keyset page of **~20** with infinite
     scroll (prefetch next at item ~17-18). Never request > ~20 rows in one page.
-  - **A vaccination drive is a mix of SHEDS, never grouped by vaccine** — a shed may
-    bundle same/different vaccines, but the drive is shed-scoped. Coverage-by-vaccine is
-    a metric, not the drive grouping.
+  - **A vaccination drive is a park visit with a mix of SHEDS, never grouped by
+    vaccine** — one drive can contain one or many sheds. Coverage-by-vaccine is a
+    metric, not the drive grouping.
   - Parse/transform each field ONCE (never re-parse inside `.find`/`.filter` → O(n^2)),
     off the Main thread (`Dispatchers.Default`, ideally in the repo via `flowOn`).
   - **Room is the single source of truth, so pagination binds BOTH layers** — the network
@@ -628,6 +653,14 @@ Do:
     Otherwise the over-fetch just moves from network to DB.
   If a case is genuinely bounded (e.g. a fixed 7-cell week loop) annotate the line
   `// mobile-guard:ignore: <reason>`; do not disable the guard.
+  Android navigation has a separate structural invariant: backend-composed root
+  destinations are L0 and alone own the bottom bar/drawer. Every L1/L2/L3/L4
+  drill is a distinct hosted `NavHost` destination with Up/Back and no root
+  chrome; exact route membership is mandatory, prefix matching and reusing an
+  L0 route as a drill target are forbidden, and structural details must not be
+  disguised as modal sheets. Machine-blocked by
+  `make android-navigation-stack-guard`; canonical decision:
+  `docs/decisions/android-navigation-stack.md`.
   The retention twin is memory, not fetch size: an in-heap cache/accumulator that
   grows with no cap/TTL/eviction, or a DAO reading a whole table into memory
   (`observeAll` `SELECT *`), OOMs the phone at scale (fixed in `7058fff2` +

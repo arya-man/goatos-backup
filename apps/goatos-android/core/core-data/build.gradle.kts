@@ -69,6 +69,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     api(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.room.paging)
+    api(libs.androidx.paging.runtime)
     ksp(libs.androidx.room.compiler)
     // Proto DataStore lands next. The outbox/sync engine (SyncEngine, SyncRepository,
     // OutboxStore — sg.mesha.goatos.core.data.sync) stays framework-free here; the app module
@@ -82,4 +84,5 @@ dependencies {
     // MigrationTestHelper — runs each migration against the committed golden schema JSON
     // and validates the resulting schema matches the @Entity definitions (GoatDatabaseMigrationTest).
     testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.androidx.paging.testing)
 }

@@ -376,6 +376,34 @@ overview parses events to draw its dots instead of consuming day-markers; or a
 list transform re-parses every event inside .find/.any (O(n^2)).
 ```
 
+### Step 4b: Android navigation-stack guard
+
+Command:
+
+```text
+make android-navigation-stack-guard
+```
+
+Purpose:
+
+```text
+Keep global bottom-bar/drawer chrome on exact L0 bootstrap roots only. Reject
+prefix-based chrome inheritance, a Calendar drill fallback that reuses a
+top-level route, or removal of the compiled regression coverage for roots,
+hosted children, prefix collisions, and blank/generic targets.
+```
+
+The guard scans the authoritative app shell, `AppNavHost`, and
+`TopLevelChromeTest` on every run and includes adversarial self-tests. The hosted
+Android job runs it through `make ci-local JOB=android`, then compiles and runs
+the complete JVM unit suite. See
+`docs/decisions/android-navigation-stack.md`.
+
+If this fails, create a distinct hosted child route, use exact route membership
+for L0 chrome, and keep structural L1/L2/L3/L4 screens in the `NavHost` with
+Up/Back. Do not fix it by making a detail look like a modal sheet or by leaving
+the bottom bar visible above the child.
+
 ### Step 4b-3: Room migration-safety guard
 
 Command:
@@ -760,8 +788,9 @@ make ci-local JOB=android
 Purpose:
 
 ```text
-Run the exact same android job used locally: :app compile
-(compileStgReleaseKotlin) + :app unit tests (testStgReleaseUnitTest).
+Run the exact same android job used locally: mobile/offline/memory/Room/
+navigation-stack static guards, :app compile (compileStgReleaseKotlin), and
+:app unit tests (testStgReleaseUnitTest).
 ```
 
 If this fails, inspect the Gradle output for a Kotlin compile break or a failing

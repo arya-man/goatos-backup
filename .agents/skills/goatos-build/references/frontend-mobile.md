@@ -200,6 +200,19 @@ Canonical contract: `docs/mobile/transitions-and-motion.md` (M3 pattern → Goat
 surface map, motion tokens, and the current-code audit). Read it before adding or
 changing any Compose navigation transition, `AnimatedContent`, or bottom sheet.
 
+Navigation hierarchy is separately locked by
+`docs/decisions/android-navigation-stack.md`:
+
+- backend-composed root destinations are L0 and alone own bottom-bar/drawer
+  chrome;
+- drills are distinct L1/L2/L3/L4 hosted `NavHost` destinations with Up/Back;
+- route membership is exact, never prefix-based, and a drill must never reuse an
+  L0 route;
+- structural details are full-screen destinations; bottom sheets are temporary
+  filters/pickers/actions only;
+- `make android-navigation-stack-guard` plus the Android JVM unit suite enforce
+  the route/chrome regression.
+
 Hard rules (screen motion is spatial, never decorative):
 
 - **Drill = shared axis X.** Calendar → day → sheds → Scan → Submit, Overdue →

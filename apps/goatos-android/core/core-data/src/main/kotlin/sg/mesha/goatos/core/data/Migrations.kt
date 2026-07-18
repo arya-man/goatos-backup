@@ -157,3 +157,25 @@ val MIGRATION_6_7: Migration = object : Migration(6, 7) {
         )
     }
 }
+
+/** v7 -> v8: normalized Room rows plus one opaque backend keyset cursor per
+ * monthly Calendar filter scope. Purely additive and independently bounded. */
+val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `calendar_schedule_items` " +
+                "(`queryKey` TEXT NOT NULL, `eventId` TEXT NOT NULL, `dueAt` TEXT NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `eventId`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_calendar_schedule_items_queryKey_dueAt_eventId` " +
+                "ON `calendar_schedule_items` (`queryKey`, `dueAt`, `eventId`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `calendar_schedule_remote_keys` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`))",
+        )
+    }
+}

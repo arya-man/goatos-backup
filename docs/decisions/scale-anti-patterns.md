@@ -209,22 +209,46 @@ Forbidden:
 
 - using exact `due_at` / exact `window_start` / exact `window_end` as mandatory
   drive boundaries before the planner scores compatible work;
-- creating 1-2 animal micro-drives while compatible animals in the same shed or
-  park are due nearby and can be delayed within the authored medical window plus
+- creating 1-2 animal micro-drives while compatible same-park animals are due or
+  ready nearby and can be delayed within their own authored medical window plus
   the one-time batching hold;
+- treating shed count as a park-batching constraint. Sheds are execution/proof
+  breakdown, not the optimizer target. A one-shed park drive is valid when it
+  maximizes animal output safely, and a cross-shed drive is required when that
+  yields more safe animals;
+- ranking by obligation/vaccine rows before distinct animals;
 - hiding bad drive fragmentation in Calendar by merging rows in the frontend;
-- repeatedly rolling a held animal forward to chase larger future drives.
+- repeatedly rolling a held animal forward to chase larger future drives;
+- leaving any live seed/import goat without `park_id`, `shed_id`, and
+  `current_location_id = shed_id`;
+- creating park-scoped or tenant-scoped goat vaccination obligations. Park is
+  the drive/visit grouping scope after obligations exist, not a fallback animal
+  obligation scope;
+- treating screenshots after generation but before sweeper closeout as
+  vaccination proof. Generation creates due obligations; the sweeper creates
+  clubbed drive batches.
 
-Required behavior: maximize compatible animals per shed/park visit inside the
-selected animals' safe windows. Default policy allows one batching hold of up to
-seven days (`max_batching_hold_days=7`, `max_batching_hold_count=1`). Micro-drives
-are valid only when no compatible work can be clubbed before the earliest
-selected animal's last safe date. Backfills and proof sweeps must not reuse the
+Required behavior: maximize compatible distinct animals per same-park visit
+inside the selected animals' safe windows. Default policy allows one batching
+hold of up to seven days (`max_batching_hold_days=7`,
+`max_batching_hold_count=1`). Micro-drives are valid only when no compatible
+same-park work can be clubbed between the group due/ready date and binding
+safe-until date. Normal per-drive animal caps are soft on the last safe day;
+per-animal shot caps are hard. Backfills and proof sweeps must not reuse the
 eligibility horizon as "today": keep `asOf` for planner date math and
 `dueBefore` for loading candidates. Batched read models must use batch
 `planned_date` as the drive date; using the earliest member animal `due_at` for
 execution/control-tower rows is the same micro-drive leak in projection form. CI guard:
-`make vaccination-drive-clubbing-guard`.
+`make vaccination-drive-clubbing-guard`. Post-reseed DB proof:
+`make vaccination-drive-clubbing-db-proof`.
+
+Seed/import proof is part of the same contract. During this build phase, missing
+source placement is completed deterministically into an explicit seed-intake
+shed; do not skip goats and do not invent vaccination dates/history to make
+output look clean. `tools/dev/seed-closeout.sh` must run the goat-shed integrity
+proof after seed, generation, and sweeper. Static guard:
+`make goat-shed-scope-guard`. Post-seed DB proof:
+`make goat-shed-integrity-db-proof`.
 
 ## Projection rebuild anti-patterns
 

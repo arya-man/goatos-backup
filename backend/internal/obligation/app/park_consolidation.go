@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
@@ -24,10 +25,6 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 	minMergeTargets := settings.MinParkMergeTargets
 	if minMergeTargets < 1 {
 		minMergeTargets = domain.DefaultParkConsolidationSettings().MinParkMergeTargets
-	}
-	minMergeSheds := settings.MinParkMergeSheds
-	if minMergeSheds < 1 {
-		minMergeSheds = domain.DefaultParkConsolidationSettings().MinParkMergeSheds
 	}
 
 	groups := make(map[string][]domain.ParkConsolidationCandidate)
@@ -80,8 +77,9 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 		}
 		parkID := rows[0].ParkID
 		remaining := append([]domain.ParkConsolidationCandidate(nil), rows...)
-		for len(remaining) >= int(minMergeTargets) && uniqueShedCount(remaining) >= int(minMergeSheds) {
-			next, attached, stop, err := s.parkMergeStep(ctx, tenantID, versionID, cfg, planner, now, asOf, session, parkID, remaining, minMergeTargets, minMergeSheds)
+		fullDates := make(map[string]struct{})
+		for uniqueParkTargetCount(remaining) >= int(minMergeTargets) {
+			next, attached, plannedDate, animalCapReached, stop, err := s.parkMergeStep(ctx, tenantID, versionID, cfg, planner, now, asOf, session, parkID, remaining, minMergeTargets, fullDates)
 			if err != nil {
 				return res, err
 			}
@@ -89,6 +87,9 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 			if attached > 0 {
 				res.ParkBatches++
 				res.ParkObligations += int(attached)
+				if animalCapReached && plannedDate != nil {
+					fullDates[plannedDate.Format("2006-01-02")] = struct{}{}
+				}
 			}
 			if stop {
 				break
@@ -107,12 +108,15 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 // stop is true when the caller's merge loop should not attempt another iteration for this park
 // (nothing left to merge, or a hard cap/error condition), whether or not this call itself attached
 // anything.
-func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, asOf time.Time, session *SweepSession, parkID string, remaining []domain.ParkConsolidationCandidate, minMergeTargets, minMergeSheds int32) (newRemaining []domain.ParkConsolidationCandidate, attached int64, stop bool, err error) {
-	plannedDate, selected := pickBestParkDriveDate(now, remaining)
+func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, now, asOf time.Time, session *SweepSession, parkID string, remaining []domain.ParkConsolidationCandidate, minMergeTargets int32, excludedDates map[string]struct{}) (newRemaining []domain.ParkConsolidationCandidate, attached int64, plannedDate *time.Time, animalCapReached bool, stop bool, err error) {
+	plannedDate, selected := pickBestParkDriveDateExcluding(now, remaining, minMergeTargets, excludedDates)
+	if plannedDate == nil {
+		return remaining, 0, nil, false, true, nil
+	}
 	targetIDs := distinctParkTargetIDs(remaining)
 	release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
 	if err != nil {
-		return remaining, 0, true, err
+		return remaining, 0, plannedDate, false, true, err
 	}
 	// R2-05(b): resolve each candidate's OWN rule to its real vaccine identity instead of the single
 	// version-level wrapper (cfg.VaccineCode/planner.VaccinePriority) -- a park merge routinely mixes
@@ -121,24 +125,24 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 	selected, shotClaims, err := selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 	if err != nil {
 		_ = release(ctx)
-		return remaining, 0, true, err
+		return remaining, 0, plannedDate, false, true, err
 	}
 	if len(selected) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
 		if overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining); overflowDate != nil {
 			if relErr := release(ctx); relErr != nil {
-				return remaining, 0, true, relErr
+				return remaining, 0, plannedDate, false, true, relErr
 			}
 			plannedDate = overflowDate
 			selected = obligationsFeasibleOnDate(*plannedDate, remaining)
 			release, err = s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
 			if err != nil {
-				return remaining, 0, true, err
+				return remaining, 0, plannedDate, false, true, err
 			}
 			orderedRemaining = orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
 			selected, shotClaims, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
 			if err != nil {
 				_ = release(ctx)
-				return remaining, 0, true, err
+				return remaining, 0, plannedDate, false, true, err
 			}
 		}
 	}
@@ -148,11 +152,34 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		}
 	}()
 
-	if plannedDate == nil || int32(len(selected)) < minMergeTargets || uniqueShedCount(filterRows(remaining, selected)) < int(minMergeSheds) {
-		return remaining, 0, true, nil
-	}
 	selectedRows := filterRows(remaining, selected)
+	if plannedDate == nil || int32(uniqueParkTargetCount(selectedRows)) < minMergeTargets {
+		return remaining, 0, plannedDate, false, true, nil
+	}
+	if planner.MaxGoatsPerDrive > 0 {
+		capped := limitParkSelectionByDistinctTargets(orderedRemaining, selected, *plannedDate, planner.MaxGoatsPerDrive)
+		cappedRows := filterRows(remaining, capped)
+		if len(capped) < len(selected) && uniqueParkTargetCount(cappedRows) > 0 {
+			animalCapReached = true
+			cappedClaims := splitShotCapReservations(shotClaims, selected, [][]string{capped})
+			session.releaseClaims(claimsOutsideSelection(shotClaims, capped))
+			if len(cappedClaims) > 0 {
+				shotClaims = cappedClaims[0]
+			}
+			selected = capped
+			selectedRows = cappedRows
+		}
+	}
+	if int32(uniqueParkTargetCount(selectedRows)) < minMergeTargets {
+		session.releaseClaims(shotClaims)
+		return remaining, 0, plannedDate, false, true, nil
+	}
 	windowStart, windowEnd := parkDriveWindow(selectedRows, selected)
+	var batchingHoldUntil *time.Time
+	if parkDriveDateUsesBatchingHold(*plannedDate, selectedRows) {
+		holdUntil := *plannedDate
+		batchingHoldUntil = &holdUntil
+	}
 	_, n, createErr := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
 		TenantID:          tenantID,
 		ProtocolVersionID: versionID,
@@ -163,22 +190,23 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		WindowStart:       windowStart,
 		WindowEnd:         windowEnd,
 		Status:            "planned",
-		EstimatedTargets:  int32(len(selected)),
+		EstimatedTargets:  int32(uniqueParkTargetCount(selectedRows)),
 		PlannedQuantity:   parkDrivePlannedQuantity(cfg, selectedRows),
 		QuantityUnit:      "dose",
+		BatchingHoldUntil: batchingHoldUntil,
 	}, selected)
 	if createErr != nil {
 		session.releaseClaims(shotClaims)
-		return remaining, 0, true, createErr
+		return remaining, 0, plannedDate, animalCapReached, true, createErr
 	}
 	if n == 0 {
 		session.releaseClaims(shotClaims)
-		return remaining, 0, true, nil
+		return remaining, 0, plannedDate, animalCapReached, true, nil
 	}
-	if holdErr := s.recordParkBatchingHoldIfNeeded(ctx, tenantID, selected, selectedRows, plannedDate, asOf); holdErr != nil {
-		return remaining, 0, true, holdErr
+	if int(n) < len(selected) {
+		session.releaseClaims(shotClaims)
 	}
-	return removeRows(remaining, selected), n, false, nil
+	return removeRows(remaining, selected), n, plannedDate, animalCapReached, false, nil
 }
 
 func parkConsolidationCursorKey(cursor *domain.ParkConsolidationCursor) string {
@@ -187,10 +215,10 @@ func parkConsolidationCursorKey(cursor *domain.ParkConsolidationCursor) string {
 	}
 	return fmt.Sprintf("%s|%s|%s|%s|%s|%s",
 		cursor.ParkID,
-		cursor.RuleID,
 		cursor.TargetSpecies,
 		cursor.TargetAnimalStage,
 		cursor.DueAt.UTC().Format(time.RFC3339Nano),
+		cursor.RuleID,
 		cursor.ObligationID,
 	)
 }
@@ -198,10 +226,10 @@ func parkConsolidationCursorKey(cursor *domain.ParkConsolidationCursor) string {
 func parkConsolidationCursor(row domain.ParkConsolidationCandidate) *domain.ParkConsolidationCursor {
 	return &domain.ParkConsolidationCursor{
 		ParkID:            row.ParkID,
-		RuleID:            row.RuleID,
 		TargetSpecies:     row.TargetSpecies,
 		TargetAnimalStage: row.TargetAnimalStage,
 		DueAt:             row.DueAt,
+		RuleID:            row.RuleID,
 		ObligationID:      row.ObligationID,
 	}
 }
@@ -260,6 +288,23 @@ func filterRows(rows []domain.ParkConsolidationCandidate, selected []string) []d
 	return out
 }
 
+func claimsOutsideSelection(claims []shotCapReservation, selected []string) []shotCapReservation {
+	if len(claims) == 0 {
+		return nil
+	}
+	selectedSet := make(map[string]struct{}, len(selected))
+	for _, id := range selected {
+		selectedSet[id] = struct{}{}
+	}
+	out := make([]shotCapReservation, 0, len(claims))
+	for _, claim := range claims {
+		if _, ok := selectedSet[claim.obligationID]; !ok {
+			out = append(out, claim)
+		}
+	}
+	return out
+}
+
 func removeRows(rows []domain.ParkConsolidationCandidate, selected []string) []domain.ParkConsolidationCandidate {
 	if len(selected) == 0 {
 		return rows
@@ -277,36 +322,51 @@ func removeRows(rows []domain.ParkConsolidationCandidate, selected []string) []d
 	return out
 }
 
-func uniqueShedCount(rows []domain.ParkConsolidationCandidate) int {
+func uniqueParkTargetCount(rows []domain.ParkConsolidationCandidate) int {
 	seen := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
-		if row.ShedID == "" {
+		if row.TargetID == "" {
 			continue
 		}
-		seen[row.ShedID] = struct{}{}
+		seen[row.TargetID] = struct{}{}
 	}
 	return len(seen)
 }
 
-func pickBestParkDriveDate(now time.Time, rows []domain.ParkConsolidationCandidate) (*time.Time, []string) {
+func pickBestParkDriveDate(now time.Time, rows []domain.ParkConsolidationCandidate, minMergeTargets int32) (*time.Time, []string) {
+	return pickBestParkDriveDateExcluding(now, rows, minMergeTargets, nil)
+}
+
+func pickBestParkDriveDateExcluding(now time.Time, rows []domain.ParkConsolidationCandidate, minMergeTargets int32, excludedDates map[string]struct{}) (*time.Time, []string) {
 	candidates := parkDriveCandidateDates(now, rows)
 	nowDay := biztime.BusinessDayStart(now)
-	bestCount := 0
+	bestTargets := 0
+	bestObligations := 0
 	var bestDate *time.Time
 	var bestIDs []string
 	for _, candidate := range candidates {
 		if candidate.Before(nowDay) {
 			continue
 		}
+		if _, excluded := excludedDates[candidate.Format("2006-01-02")]; excluded {
+			continue
+		}
 		ids := obligationsFeasibleOnDate(candidate, rows)
-		if len(ids) > bestCount {
-			bestCount = len(ids)
+		selectedRows := filterRows(rows, ids)
+		targets := uniqueParkTargetCount(selectedRows)
+		if int32(targets) < minMergeTargets {
+			continue
+		}
+		obligations := len(ids)
+		if targets > bestTargets || (targets == bestTargets && obligations > bestObligations) {
+			bestTargets = targets
+			bestObligations = obligations
 			day := candidate
 			bestDate = &day
 			bestIDs = ids
 			continue
 		}
-		if len(ids) == bestCount && len(ids) > 0 && bestDate != nil && candidate.Before(*bestDate) {
+		if targets == bestTargets && obligations == bestObligations && obligations > 0 && bestDate != nil && candidate.Before(*bestDate) {
 			day := candidate
 			bestDate = &day
 			bestIDs = ids
@@ -333,6 +393,12 @@ func parkDriveCandidateDates(now time.Time, rows []domain.ParkConsolidationCandi
 		if row.WindowEnd != nil {
 			add(*row.WindowEnd)
 		}
+		start := obligationEarliestDate(row)
+		if row.WindowEnd != nil && !row.WindowEnd.IsZero() {
+			for day, end, offset := start, obligationLatestDate(row), 0; !day.After(end) && offset < 14; day, offset = day.AddDate(0, 0, 1), offset+1 {
+				add(day)
+			}
+		}
 	}
 	out := make([]time.Time, 0, len(seen))
 	for _, day := range seen {
@@ -351,6 +417,69 @@ func obligationsFeasibleOnDate(day time.Time, rows []domain.ParkConsolidationCan
 		ids = append(ids, row.ObligationID)
 	}
 	return ids
+}
+
+func limitParkSelectionByDistinctTargets(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate time.Time, maxTargets int32) []string {
+	if maxTargets <= 0 || len(selected) == 0 {
+		return selected
+	}
+	selectedSet := make(map[string]struct{}, len(selected))
+	for _, id := range selected {
+		selectedSet[id] = struct{}{}
+	}
+	rowsByTarget := make(map[string][]domain.ParkConsolidationCandidate)
+	for _, row := range rows {
+		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		targetID := parkTargetCapKey(row)
+		rowsByTarget[targetID] = append(rowsByTarget[targetID], row)
+	}
+	targets := make(map[string]struct{})
+	out := make([]string, 0, len(selected))
+	for _, row := range rows {
+		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		targetID := parkTargetCapKey(row)
+		if _, ok := targets[targetID]; !ok {
+			if int32(len(targets)) >= maxTargets && parkTargetCanMoveAfter(plannedDate, rowsByTarget[targetID]) {
+				continue
+			}
+			targets[targetID] = struct{}{}
+		}
+		out = append(out, row.ObligationID)
+	}
+	return out
+}
+
+func parkTargetCapKey(row domain.ParkConsolidationCandidate) string {
+	targetID := strings.TrimSpace(row.TargetID)
+	if targetID == "" {
+		return row.ObligationID
+	}
+	return targetID
+}
+
+func parkTargetCanMoveAfter(plannedDate time.Time, rows []domain.ParkConsolidationCandidate) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	next := businessDate(plannedDate).AddDate(0, 0, 1)
+	for offset := 0; offset < 14; offset++ {
+		ok := true
+		for _, row := range rows {
+			if !parkObligationFeasibleOnDate(next, row) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true
+		}
+		next = next.AddDate(0, 0, 1)
+	}
+	return false
 }
 
 func parkObligationFeasibleOnDate(day time.Time, row domain.ParkConsolidationCandidate) bool {
@@ -392,11 +521,11 @@ func parkDriveWindow(rows []domain.ParkConsolidationCandidate, selected []string
 		}
 		start := obligationEarliestDate(row)
 		end := obligationLatestDate(row)
-		if windowStart == nil || start.Before(*windowStart) {
+		if windowStart == nil || start.After(*windowStart) {
 			s := start
 			windowStart = &s
 		}
-		if row.WindowEnd != nil && !row.WindowEnd.IsZero() && (windowEnd == nil || end.After(*windowEnd)) {
+		if row.WindowEnd != nil && !row.WindowEnd.IsZero() && (windowEnd == nil || end.Before(*windowEnd)) {
 			e := end
 			windowEnd = &e
 		}

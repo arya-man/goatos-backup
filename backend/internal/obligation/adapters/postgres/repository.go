@@ -1541,6 +1541,7 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 			RuleID:                   row.RuleID,
 			ScopeType:                row.ScopeType,
 			ScopeID:                  row.ScopeID,
+			ParkID:                   row.ParkID,
 			TargetID:                 row.TargetID,
 			TargetSpecies:            row.TargetSpecies,
 			TargetAnimalStage:        row.TargetAnimalStage,
@@ -1585,6 +1586,7 @@ WITH candidates AS (
          oi.rule_id AS rule_id_key,
          oi.scope_type AS scope_type,
          oi.scope_id AS scope_id_key,
+         COALESCE(g.park_id::text, '')::text AS park_id,
          oi.target_id AS target_id_key,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
@@ -1629,6 +1631,7 @@ SELECT obligation_id_key::text AS obligation_id,
        rule_id_key::text AS rule_id,
        scope_type,
        scope_id_key::text AS scope_id,
+       park_id,
        target_id_key::text AS target_id,
        target_species, target_animal_stage,
        target_reproductive_status, due_at, window_start, window_end, batching_hold_count, first_batching_hold_until
@@ -1720,7 +1723,7 @@ func (r *Repository) listUnbatchedDueForVersionKeysetSnapshot(ctx context.Contex
 		var u domain.UnbatchedDue
 		var windowStart, windowEnd, firstHold *time.Time
 		if err := rows.Scan(
-			&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.TargetID,
+			&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.ParkID, &u.TargetID,
 			&u.TargetSpecies, &u.TargetAnimalStage, &u.TargetReproductiveStatus,
 			&u.DueAt, &windowStart, &windowEnd, &u.BatchingHoldCount, &firstHold,
 		); err != nil {
@@ -1822,17 +1825,17 @@ func (r *Repository) listUnbatchedShedDueForParkConsolidationSnapshot(ctx contex
 		}
 	}
 	cursorParkID := ""
-	cursorRuleID := ""
 	cursorSpecies := ""
 	cursorStage := ""
 	cursorDue := pgtype.Timestamptz{}
+	cursorRuleID := ""
 	cursorObligationID := ""
 	if after != nil && after.ParkID != "" && after.ObligationID != "" && !after.DueAt.IsZero() {
 		cursorParkID = after.ParkID
-		cursorRuleID = after.RuleID
 		cursorSpecies = after.TargetSpecies
 		cursorStage = after.TargetAnimalStage
 		cursorDue = pgconv.Timestamptz(after.DueAt)
+		cursorRuleID = after.RuleID
 		cursorObligationID = after.ObligationID
 	}
 	rows, err := r.pool.Query(ctx, `
@@ -1922,11 +1925,11 @@ SELECT
 FROM candidates
 WHERE (
     $6::text = ''
-    OR (park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id)
-      > ($6::text, $7::text, $8::text, $9::text, $10::timestamptz, $11::text)
+    OR (park_id, target_species, target_animal_stage, due_at, rule_id, obligation_id)
+      > ($6::text, $7::text, $8::text, $9::timestamptz, $10::text, $11::text)
   )
-ORDER BY park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id
-LIMIT $12`, tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), snapshotIDs, cursorParkID, cursorRuleID, cursorSpecies, cursorStage, cursorDue, cursorObligationID, limit)
+ORDER BY park_id, target_species, target_animal_stage, due_at, rule_id, obligation_id
+LIMIT $12`, tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), snapshotIDs, cursorParkID, cursorSpecies, cursorStage, cursorDue, cursorRuleID, cursorObligationID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list park consolidation candidates: %w", err)
 	}
@@ -2732,6 +2735,19 @@ FROM (
 WHERE ob.tenant_id = $1
   AND ob.batch_id = $2`, tenant, batch); err != nil {
 		return "", 0, fmt.Errorf("obligation: update batch target count: %w", err)
+	}
+	if in.BatchingHoldUntil != nil {
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_instances oi
+SET batching_hold_count = COALESCE(oi.batching_hold_count, 0) + 1,
+    first_batching_hold_until = COALESCE(oi.first_batching_hold_until, $3),
+    updated_at = now(),
+    row_version = row_version + 1
+FROM unnest($2::uuid[]) AS selected(obligation_id)
+WHERE oi.tenant_id = $1
+  AND oi.obligation_id = selected.obligation_id`, tenant, ids, pgconv.Timestamptz(*in.BatchingHoldUntil)); err != nil {
+			return "", 0, fmt.Errorf("obligation: record batching hold in batch attach tx: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", 0, fmt.Errorf("obligation: commit batch attach: %w", err)

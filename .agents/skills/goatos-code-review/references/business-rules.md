@@ -86,14 +86,30 @@ Rule shapes a reviewer checks (illustrative values — verify against source):
   boundary. REJECT exact-due-date batching that creates micro-drives while
   compatible animals due nearby can be safely clubbed inside the selected
   animals' medical windows and the one-time hold budget. The planner's job is to
-  maximize safe output per shed/park visit; a 1-2 animal micro-drive is valid
-  only when no compatible unbatched work is reachable before the earliest
-  selected animal's last safe date. Review wide-window sweeps for an explicit
+  maximize safe distinct animals per same-park visit. Shed count is never a
+  batching constraint; one-shed and cross-shed drives are both valid if they
+  maximize animal output safely. Rank dates by distinct animals first,
+  obligation/vaccine rows only as a tie-breaker. A 1-2 animal micro-drive is
+  valid only when no compatible same-park work is reachable between that group's
+  due/ready date and binding safe-until date. Normal per-drive animal caps are
+  soft on the last safe day; if overflow can safely move, move it, but if moving
+  would cross the animal's safe-until, keep it even over the normal cap. The
+  per-animal shot cap is still hard. Review wide-window sweeps for an explicit
   `asOf` vs `dueBefore` split: `asOf` is the planner's "today", and `dueBefore`
   is only the load cutoff. Batched read models must use
   `obligation_batches.planned_date` as the displayed/sort/status date, not the
   earliest member animal `due_at`. Required guard:
-  `make vaccination-drive-clubbing-guard`.
+  `make vaccination-drive-clubbing-guard`; post-reseed proof:
+  `make vaccination-drive-clubbing-db-proof`.
+- **Seed/import placement is not optional:** every accepted live goat must have
+  `park_id`, `shed_id`, and `current_location_id = shed_id` by the end of
+  seed/import/closeout. During this build phase, missing source placement is
+  completed deterministically into the seed-intake shed; do not skip the goat,
+  and do not fabricate vaccination dates/history. Goat vaccination obligations
+  are shed-scoped only (`scope_type='shed'`, `scope_id=goats.shed_id`). Park is
+  the drive grouping scope, not a fallback animal scope. Required guard:
+  `make goat-shed-scope-guard`; post-seed DB proof:
+  `make goat-shed-integrity-db-proof`.
 - **Seed source dates are history anchors, not due work:** when reviewing seed,
   import, or replay code, verify trusted past source dates are preserved as
   accepted history, open work on or before the backend business date is

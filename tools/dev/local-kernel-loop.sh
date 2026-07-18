@@ -4,6 +4,8 @@ set -eu
 mode="${1:-}"
 interval="${GOATOS_LOCAL_KERNEL_INTERVAL_SECONDS:-15}"
 maintenance_interval="${GOATOS_LOCAL_MAINTENANCE_INTERVAL_SECONDS:-3600}"
+tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
+sweeper_actor_id="${GOATOS_SWEEPER_ACTOR_ID:-${GOATOS_LOCAL_USER_ID:-90000000-0000-4000-8000-000000000101}}"
 
 run_worker() {
   name="$1"
@@ -28,8 +30,7 @@ case "$mode" in
   workers)
     while true; do
       run_worker vaccination-generator /app/bin/generate-vaccination-obligations -timeout=45s
-      run_worker obligation-sweeper /app/bin/obligation-sweeper -timeout=45s -project-calendar=false -project-vaccination-read-models=true
-      run_worker vaccination-projection-worker /app/bin/vaccination-projection-worker -timeout=45s -limit=200 -enqueue-due-transitions=true -due-transitions-limit=200
+      run_worker obligation-sweeper /app/bin/obligation-sweeper -tenant-id "$tenant_id" -actor-id "$sweeper_actor_id" -timeout=45s
       run_worker notification-dispatcher /app/bin/notification-dispatcher -timeout=30s -limit=100 -dry-run
       sleep "$interval"
     done

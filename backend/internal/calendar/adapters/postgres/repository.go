@@ -69,6 +69,10 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	if q.ShedID != nil {
 		shedID = *q.ShedID
 	}
+	vaccine := ""
+	if q.Vaccine != nil {
+		vaccine = *q.Vaccine
+	}
 	var cursorDue any
 	cursorEventID := ""
 	if q.Cursor != nil {
@@ -81,7 +85,7 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	if !q.MarkersOnly {
 		var err error
 		items, err = r.listEventsCanonical(ctx, q.TenantID, q.DateFrom, requestedToExclusive,
-			ownerKey, status, parkID, shedID, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs)
+			ownerKey, status, parkID, shedID, vaccine, cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs)
 		if err != nil {
 			return domain.CalendarEventListResponse{}, err
 		}
@@ -90,7 +94,7 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	if q.IncludeDateMarkers {
 		markerRows, err := r.pool.Query(ctx, calendarDateMarkersSQL,
 			q.TenantID, q.DateFrom, requestedToExclusive, ownerKey, status, parkID, shedID,
-			tenantWide, parkIDs, shedIDs)
+			tenantWide, parkIDs, shedIDs, vaccine)
 		if err != nil {
 			return domain.CalendarEventListResponse{}, fmt.Errorf("calendar: list date markers: %w", err)
 		}
@@ -122,11 +126,19 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	// query's count(*) OVER() window, independent of the reminderRailLimit-sized Items preview.
 	var reminderRail *domain.CalendarReminderRail
 	if q.IncludeReminderRail {
-		rail, err := r.reminderRail(ctx, q.TenantID, q.DateFrom, requestedToExclusive, ownerKey, status, parkID, shedID, tenantWide, parkIDs, shedIDs)
+		rail, err := r.reminderRail(ctx, q.TenantID, q.DateFrom, requestedToExclusive, ownerKey, status, parkID, shedID, vaccine, tenantWide, parkIDs, shedIDs)
 		if err != nil {
 			return domain.CalendarEventListResponse{}, err
 		}
 		reminderRail = &rail
+	}
+	var filterOptions *domain.CalendarFilterOptions
+	if q.IncludeFilterOptions {
+		options, err := r.listFilterOptions(ctx, q)
+		if err != nil {
+			return domain.CalendarEventListResponse{}, err
+		}
+		filterOptions = &options
 	}
 	var next *string
 	if !q.MarkersOnly && len(items) > limit {
@@ -140,7 +152,44 @@ func (r *Repository) ListEvents(ctx context.Context, q domain.Query) (domain.Cal
 	}
 	// HistoryProjection is always nil now: completed/history rows are served by the same canonical
 	// predicate as everything else, so there is no separate history-projection freshness to report.
-	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, NextCursor: next, Projection: projection, HistoryProjection: nil, ReminderRail: reminderRail}, nil
+	return domain.CalendarEventListResponse{Source: domain.SourceAPI, Items: items, DateMarkers: dateMarkers, FilterOptions: filterOptions, NextCursor: next, Projection: projection, HistoryProjection: nil, ReminderRail: reminderRail}, nil
+}
+
+// listFilterOptions returns the location hierarchy and vaccines available to
+// the current principal. One set-based query resolves all three collections;
+// no per-park or per-shed lookups are performed.
+func (r *Repository) listFilterOptions(ctx context.Context, q domain.Query) (domain.CalendarFilterOptions, error) {
+	tenantWide, parkIDs, shedIDs := scopeArgs(q.Scope)
+	rows, err := r.pool.Query(ctx, calendarFilterOptionsSQL,
+		q.TenantID, tenantWide, parkIDs, shedIDs)
+	if err != nil {
+		return domain.CalendarFilterOptions{}, fmt.Errorf("calendar: list filter options: %w", err)
+	}
+	defer rows.Close()
+	options := domain.CalendarFilterOptions{
+		Parks:    []domain.CalendarFilterOption{},
+		Sheds:    []domain.CalendarFilterOption{},
+		Vaccines: []domain.CalendarFilterOption{},
+	}
+	for rows.Next() {
+		var kind string
+		var option domain.CalendarFilterOption
+		if err := rows.Scan(&kind, &option.Value, &option.Label, &option.ParentValue); err != nil {
+			return domain.CalendarFilterOptions{}, fmt.Errorf("calendar: scan filter option: %w", err)
+		}
+		switch kind {
+		case "park":
+			options.Parks = append(options.Parks, option)
+		case "shed":
+			options.Sheds = append(options.Sheds, option)
+		case "vaccine":
+			options.Vaccines = append(options.Vaccines, option)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return domain.CalendarFilterOptions{}, fmt.Errorf("calendar: iterate filter options: %w", err)
+	}
+	return options, nil
 }
 
 // reminderRailLimit bounds the reminder rail preview (task calls for "~20 items"). The whole-result
@@ -152,9 +201,9 @@ const reminderRailLimit = 20
 // requested week window, scoped identically to the main list/date-marker queries. EmptyMessage is left
 // blank here -- the app-layer service fills it from the same CalendarPresentation.Week.ReminderEmptyMessage
 // copy the week view already renders, so there is exactly one backend-owned literal, not a duplicate.
-func (r *Repository) reminderRail(ctx context.Context, tenantID string, dateFrom, dateToExclusive time.Time, ownerKey, status, parkID, shedID string, tenantWide bool, parkIDs, shedIDs []string) (domain.CalendarReminderRail, error) {
+func (r *Repository) reminderRail(ctx context.Context, tenantID string, dateFrom, dateToExclusive time.Time, ownerKey, status, parkID, shedID, vaccine string, tenantWide bool, parkIDs, shedIDs []string) (domain.CalendarReminderRail, error) {
 	rows, err := r.pool.Query(ctx, calendarReminderRailSQL,
-		tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID, tenantWide, parkIDs, shedIDs, reminderRailLimit)
+		tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID, tenantWide, parkIDs, shedIDs, reminderRailLimit, vaccine)
 	if err != nil {
 		return domain.CalendarReminderRail{}, fmt.Errorf("calendar: list reminder rail: %w", err)
 	}
@@ -1813,6 +1862,7 @@ func calendarOutboxEnvelope(tenantID, eventID, eventType, schemaRef, aggregateTy
 // (ACCEPTED doses only) -- the same canonical source the projector itself replayed from, now read
 // straight on the request path since there is no longer a separate history projection to gate on.
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
+// projection-review: membership=non-system canonical live vaccination events plus accepted vaccination completions inside the requested business-date window after owner/status/vaccine/authorization scope predicates; group_key=Asia/Kolkata marker_date with one final row per date; join_cardinality=live source_events are already canonical one-row events and each history completion joins one obligation/version/definition while vaccine dimensions are tested by correlated EXISTS so one-to-many rule dimensions cannot fan out counts; pagination=the bounded month marker set is aggregated in full before the separately paged event list and contains no LIMIT; scope=tenant plus explicit park/shed filters and the same tenant-wide or authorized park/shed grant arrays on both live and history branches
 const calendarDateMarkersSQL = "WITH " + calendarCanonicalEventsCTE + `,
 marker_rows AS (
   SELECT
@@ -1835,6 +1885,14 @@ marker_rows AS (
     AND ($5::text <> '' OR status NOT IN ('completed', 'canceled'))
     AND ($6::text = '' OR park_id::text = nullif($6::text, ''))
     AND ($7::text = '' OR shed_id::text = nullif($7::text, ''))
+    AND (
+      $11::text = ''
+      OR vaccine_name = $11::text
+      OR (
+        jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array'
+        AND (detail->'summary'->'vaccine_labels') ? $11::text
+      )
+    )
     AND ($8::bool OR park_id = ANY($9::uuid[]) OR shed_id = ANY($10::uuid[]))
   GROUP BY (due_at AT TIME ZONE 'Asia/Kolkata')::date
 
@@ -1870,6 +1928,25 @@ marker_rows AS (
     AND ($5::text = '' OR $5::text = 'completed')
     AND ($6::text = '' OR COALESCE(g.park_id, ob.scope_id, oi.scope_id)::text = nullif($6::text, ''))
     AND ($7::text = '' OR COALESCE(g.shed_id, ob.scope_id, oi.scope_id)::text = nullif($7::text, ''))
+    AND (
+      $11::text = ''
+      OR EXISTS (
+        SELECT 1
+        FROM protocol_rule_dimensions prd
+        WHERE prd.tenant_id = oi.tenant_id
+          AND prd.rule_id = oi.rule_id
+          AND COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name) = $11::text
+      )
+      OR (
+        NOT EXISTS (
+          SELECT 1
+          FROM protocol_rule_dimensions prd
+          WHERE prd.tenant_id = oi.tenant_id
+            AND prd.rule_id = oi.rule_id
+        )
+        AND pd.name = $11::text
+      )
+    )
     AND (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
     AND (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date < ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
     AND ($8::bool OR COALESCE(g.park_id, ob.scope_id, oi.scope_id) = ANY($9::uuid[]) OR COALESCE(g.shed_id, ob.scope_id, oi.scope_id) = ANY($10::uuid[]))
@@ -1886,6 +1963,75 @@ SELECT marker_date,
 FROM marker_rows
 GROUP BY marker_date
 ORDER BY marker_date`
+
+// calendarFilterOptionsSQL resolves every filter dimension with one bounded,
+// set-based read. Location visibility is enforced with the same tenant/park/shed
+// grant arrays used by Calendar events. Vaccines are tenant-scoped published
+// protocol metadata, so option discovery does not reconstruct the large
+// canonical event CTE or issue one lookup per location.
+const calendarFilterOptionsSQL = `
+WITH scoped_parks AS (
+  SELECT p.location_id, COALESCE(NULLIF(p.location_code, ''), p.name) AS label
+  FROM locations p
+  WHERE p.tenant_id = $1::uuid
+    AND p.location_type = 'park'
+    AND p.status = 'active'
+    AND (
+      $2::bool
+      OR p.location_id = ANY($3::uuid[])
+      OR EXISTS (
+        SELECT 1
+        FROM locations granted_shed
+        WHERE granted_shed.tenant_id = p.tenant_id
+          AND granted_shed.parent_location_id = p.location_id
+          AND granted_shed.location_id = ANY($4::uuid[])
+      )
+    )
+),
+scoped_sheds AS (
+  SELECT s.location_id, s.name AS label, s.parent_location_id
+  FROM locations s
+  WHERE s.tenant_id = $1::uuid
+    AND s.location_type = 'shed'
+    AND s.status = 'active'
+    AND (
+      $2::bool
+      OR s.parent_location_id = ANY($3::uuid[])
+      OR s.location_id = ANY($4::uuid[])
+    )
+),
+published_vaccines AS (
+  SELECT DISTINCT COALESCE(
+    NULLIF(prd.vaccine_json->>'name', ''),
+    NULLIF(pr.eligibility_json->'vaccine'->>'display_name', ''),
+    NULLIF(pr.eligibility_json->'vaccine'->>'name', ''),
+    NULLIF(pr.eligibility_json->'vaccine'->>'code', ''),
+    NULLIF(pd.name, '')
+  ) AS label
+  FROM protocol_rules pr
+  JOIN protocol_versions pv
+    ON pv.tenant_id = pr.tenant_id
+   AND pv.protocol_version_id = pr.protocol_version_id
+   AND pv.status = 'published'
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  LEFT JOIN protocol_rule_dimensions prd
+    ON prd.tenant_id = pr.tenant_id
+   AND prd.rule_id = pr.rule_id
+  WHERE pr.tenant_id = $1::uuid
+)
+SELECT 'park'::text, location_id::text, label, NULL::text
+FROM scoped_parks
+UNION ALL
+SELECT 'shed'::text, location_id::text, label, parent_location_id::text
+FROM scoped_sheds
+UNION ALL
+SELECT 'vaccine'::text, label, label, NULL::text
+FROM published_vaccines
+WHERE label IS NOT NULL
+ORDER BY 1, 3, 2`
 
 // projection-review: membership=calendar_event_projections rows in the requested [$6,$7) window matching the same owner/status/park/shed/scope filters as the list/date-marker queries (system=false, slice_key='vaccination', event_type <> 'vaccination_dose_due'), LEFT JOINed to at most one row each from calendar_snoozes (active_snooze), notification_requests (latest_reminder/latest_escalation, one row per calendar_event_id via DISTINCT ON), and obligation_escalations (obligation_escalation_active, one row per obligation_id via DISTINCT ON) -- every join side is itself grouped to at most one row per join key before the join, so none of these LEFT JOINs can fan out a candidate row; group_key=event_id (one row per already-materialized projection row plus its at-most-one derived state row, no grouping/aggregation beyond the window count(*) OVER() total); join_cardinality=candidates 1:{0,1} against each derived CTE (all four are pre-deduplicated to their join key), so no dimension fan-out to dedupe; pagination=whole-result total (count(*) OVER() over the FULL filtered week window, independent of the ~20-row LIMIT below) AND bounded-execution (one indexed query per ListEvents(IncludeReminderRail) call: the notification_requests/calendar_snoozes/obligation_escalations CTEs are each restricted via JOIN candidates to the same bounded date-window event set, using notification_requests_event_idx/calendar_snoozes_event_idx/(tenant_id, obligation_id) rather than a tenant-wide scan, LIMIT $11 keeps the returned preview small, never recomputed by filtering whatever page of Items the frontend currently holds); scope=park_id/shed_id read directly from calendar_event_projections' precomputed columns (already resolved at refresh time), same tenant-wide/park/shed scope predicate as calendarListSQL/calendarDateMarkersSQL
 //
@@ -1919,6 +2065,14 @@ candidates AS (
     AND ($5::text = '' OR status = $5::text)
     AND ($6::text = '' OR park_id::text = nullif($6::text, ''))
     AND ($7::text = '' OR shed_id::text = nullif($7::text, ''))
+    AND (
+      $12::text = ''
+      OR vaccine_name = $12::text
+      OR (
+        jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array'
+        AND (detail->'summary'->'vaccine_labels') ? $12::text
+      )
+    )
     AND ($8::bool OR park_id = ANY($9::uuid[]) OR shed_id = ANY($10::uuid[]))
 ),
 active_snooze AS (

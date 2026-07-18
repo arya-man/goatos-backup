@@ -1350,11 +1350,12 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			}
 			historicalCatchUpMaterialized = true
 		}
-		// Scope to the goat's shed so the SM-4 sweeper batches one vaccination drive per shed (the
-		// operational "one shed = one drive" rule), falling back to park then tenant when the goat
-		// has no shed/park location. The obligation-shift handler already re-scopes to shed, so
-		// generation must stamp shed scope to stay consistent across the goat's lifecycle.
-		scopeType, scopeID := generationScope(tenantID, g)
+		// Scope goat vaccination obligations to the animal's real shed. A park drive is an execution
+		// batch made by the sweeper; it is not a valid fallback scope for animal due work.
+		scopeType, scopeID, err := generationScope(tenantID, g)
+		if err != nil {
+			return err
+		}
 		keyDue := obligationKeyDue(rule, baseDue, due)
 		key := obligationKey(tenantID, versionID, rule.RuleID, "goat", g.GoatID, keyDue.UTC().Format(time.RFC3339), strconv.Itoa(int(rule.Sequence)))
 		if anchorCatchUpKey != "" {
@@ -1498,7 +1499,10 @@ func (s *GenerationService) genMissingDueDateObligation(ctx context.Context, ten
 	if reason == "" {
 		reason = "missing_due_date"
 	}
-	scopeType, scopeID := generationScope(tenantID, g)
+	scopeType, scopeID, err := generationScope(tenantID, g)
+	if err != nil {
+		return err
+	}
 	key := missingDueDateKey(tenantID, versionID, rule, g, reason)
 	obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
 		TenantID:          tenantID,
@@ -1686,15 +1690,11 @@ func inCare(lifecycle string) bool {
 	}
 }
 
-func generationScope(tenantID string, g domain.EligibleGoat) (string, string) {
-	scopeType, scopeID := "tenant", tenantID
-	if g.ParkID != "" {
-		scopeType, scopeID = "park", g.ParkID
+func generationScope(_ string, g domain.EligibleGoat) (string, string, error) {
+	if strings.TrimSpace(g.ParkID) == "" || strings.TrimSpace(g.ShedID) == "" {
+		return "", "", fmt.Errorf("vaccination: active goat %s missing required park/shed placement; seed/import must assign every in-care animal to a real shed before vaccination generation", g.GoatID)
 	}
-	if g.ShedID != "" {
-		scopeType, scopeID = "shed", g.ShedID
-	}
-	return scopeType, scopeID
+	return "shed", g.ShedID, nil
 }
 
 func missingDueDateReason(rule protodomain.Rule, g domain.EligibleGoat) string {

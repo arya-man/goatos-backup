@@ -167,7 +167,7 @@ lens when its trigger matches:
 | `db-migration-safety` | a Postgres migration, hot-path query, read-model, or any mutating write path | `references/backend.md`, `references/aggregates-and-projections.md`; `docs/decisions/scale-anti-patterns.md`, `room-migration-safety.md`, `stale-binary-migration-drift-guard.md` |
 | `kernel-scale-lens` | a trigger/obligation/reminder/sweeper/projection/notification/Calendar/AC/PA/process-integrity path | `context/architecture/operational-kernel.md`; `references/kernel-and-scale.md`; `docs/decisions/operational-kernel-5k-50k-scale-envelope.md`, `high-scale-dashboard-projections.md` |
 | `frontend-anti-patterns` | an `apps/admin-web/**` page, SSR read, nav, label, or dashboard | `references/frontend.md`, `references/mobile.md`; `docs/decisions/calendar-ownership.md`, `high-scale-dashboard-projections.md`, `mobile-data-fetch-anti-patterns.md` |
-| `mobile-anti-patterns` | `apps/goatos-android/**` list fetch, Room, offline, memory, lifecycle | `references/mobile.md`; `docs/decisions/mobile-data-fetch-anti-patterns.md`, `android-offline-first.md`, `room-migration-safety.md` |
+| `mobile-anti-patterns` | `apps/goatos-android/**` screen/route, list fetch, Room, offline, memory, lifecycle | `references/mobile.md`; `docs/decisions/mobile-data-fetch-anti-patterns.md`, `android-offline-first.md`, `room-migration-safety.md`, `android-navigation-stack.md` |
 | `nav-composition` | nav rendering, role/module gating, sidebar/bottom-bar composition | `references/frontend.md`; `docs/decisions/role-module-nav-composition.md` |
 
 Machine gates each lens names (`make scale-guard`, `validate-hot-index-migrations`,

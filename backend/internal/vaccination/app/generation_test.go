@@ -1312,6 +1312,30 @@ func TestGenerateScopesObligationToShed(t *testing.T) {
 	}
 }
 
+func TestGenerationScopeRequiresRealShedPlacement(t *testing.T) {
+	for _, goat := range []domain.EligibleGoat{
+		{GoatID: "park-only", ParkID: "park-1"},
+		{GoatID: "shed-only", ShedID: "shed-1"},
+		{GoatID: "no-placement"},
+	} {
+		if _, _, err := generationScope("tenant-1", goat); err == nil {
+			t.Fatalf("generationScope(%+v) err=nil, want missing-placement failure", goat)
+		}
+	}
+
+	scopeType, scopeID, err := generationScope("tenant-1", domain.EligibleGoat{
+		GoatID: "placed",
+		ParkID: "park-1",
+		ShedID: "shed-1",
+	})
+	if err != nil {
+		t.Fatalf("generationScope placed goat: %v", err)
+	}
+	if scopeType != "shed" || scopeID != "shed-1" {
+		t.Fatalf("scope=%s/%s, want shed/shed-1", scopeType, scopeID)
+	}
+}
+
 // B3 (never-received vaccine + no DOB): a missing DOB must never fabricate a
 // deferred missing_due_date gap. It routes to the adult catch-up/primary path at
 // the next compatible drive instead — materialized as a normal SCHEDULED
@@ -2120,8 +2144,8 @@ func TestGenerateEffectiveForAllGoatsCachesEffectiveVersionsPerPark(t *testing.T
 	if result.Generated != 4 || len(obl.inserted) != 4 {
 		t.Fatalf("result=%#v inserted=%#v, want four effective goat obligations", result, obl.inserted)
 	}
-	if len(proto.effectiveParkID) != 2 || proto.effectiveParkID[0] != "park-a" || proto.effectiveParkID[1] != "" {
-		t.Fatalf("effective park IDs=%#v, want one lookup per park/fallback scope", proto.effectiveParkID)
+	if len(proto.effectiveParkID) != 2 || proto.effectiveParkID[0] != "park-a" || proto.effectiveParkID[1] != "park-1" {
+		t.Fatalf("effective park IDs=%#v, want one lookup per real park scope", proto.effectiveParkID)
 	}
 	if proto.getVersionCalls != 0 || proto.listRulesCalls != 0 {
 		t.Fatalf("scalar rulebook calls get=%d rules=%d, want batched cohort path", proto.getVersionCalls, proto.listRulesCalls)
@@ -2293,16 +2317,34 @@ type generationGoatFake struct {
 func (g *generationGoatFake) ListEligibleGoatsForGeneration(_ context.Context, f domain.ImpactFilter, _ string, _ int32) ([]domain.EligibleGoat, error) {
 	g.filters = append(g.filters, f)
 	if len(g.list) > 0 {
-		return g.list, nil
+		return defaultPlacedGoats(g.list), nil
 	}
-	return []domain.EligibleGoat{{GoatID: "goat-1", LifecycleStatus: "alive"}}, nil
+	return []domain.EligibleGoat{defaultPlacedGoat(domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive"})}, nil
 }
 
 func (g *generationGoatFake) GetGoatForGeneration(context.Context, string, string) (domain.EligibleGoat, bool, error) {
 	if g.goat.GoatID != "" {
-		return g.goat, true, nil
+		return defaultPlacedGoat(g.goat), true, nil
 	}
-	return domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive"}, true, nil
+	return defaultPlacedGoat(domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive"}), true, nil
+}
+
+func defaultPlacedGoats(in []domain.EligibleGoat) []domain.EligibleGoat {
+	out := make([]domain.EligibleGoat, len(in))
+	for i, goat := range in {
+		out[i] = defaultPlacedGoat(goat)
+	}
+	return out
+}
+
+func defaultPlacedGoat(goat domain.EligibleGoat) domain.EligibleGoat {
+	if goat.ParkID == "" {
+		goat.ParkID = "park-1"
+	}
+	if goat.ShedID == "" {
+		goat.ShedID = "shed-1"
+	}
+	return goat
 }
 
 func (g *generationGoatFake) HasTrustedCompletionEvidence(_ context.Context, _, _, _, _, _ string, dueAt, _ time.Time) (bool, error) {
@@ -2709,7 +2751,7 @@ func TestSameFamilyDifferentDoseGeneratesAlongsideOwnRecurrence(t *testing.T) {
 	dob := asOf.AddDate(0, 0, -42) // ~6 weeks: birth_age (w6) is due now
 	gpoxAt := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
-	goat := domain.EligibleGoat{GoatID: "imported-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}
+	goat := defaultPlacedGoat(domain.EligibleGoat{GoatID: "imported-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"})
 	rules := []protodomain.Rule{
 		{RuleID: "rule-gpox-w6", DoseCode: "gpox_kid_w6", Sequence: 1, TriggerType: "birth_age", OffsetDays: 42, DueWindowDays: 7},
 		{RuleID: "rule-gpox-revac", DoseCode: "gpox_revac", Sequence: 2, TriggerType: "after_previous_completion", Repeat: "every_n_days", MinGapDays: 270},
@@ -2780,7 +2822,7 @@ func TestRuntimeZeroHistoryGoatStillReceivesCatchUp(t *testing.T) {
 	asOf := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC)
 	dob := asOf.AddDate(0, 0, -120) // ~17 weeks: kid dose window has already elapsed → catch-up
 	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
-	goat := domain.EligibleGoat{GoatID: "fresh-kid", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}
+	goat := defaultPlacedGoat(domain.EligibleGoat{GoatID: "fresh-kid", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"})
 	rules := []protodomain.Rule{
 		{RuleID: "rule-gpox-w6", DoseCode: "gpox_kid_w6", Sequence: 1, TriggerType: "birth_age", OffsetDays: 42, DueWindowDays: 7, CatchUp: "immediate"},
 	}
@@ -2805,7 +2847,7 @@ func TestRuntimeEnrolledGoatStillGetsBlankFamilyCatchUp(t *testing.T) {
 	dob := asOf.AddDate(0, 0, -120) // kid dose window elapsed → catch-up
 	pprAt := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
-	goat := domain.EligibleGoat{GoatID: "enrolled-kid", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"}
+	goat := defaultPlacedGoat(domain.EligibleGoat{GoatID: "enrolled-kid", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1"})
 	rules := []protodomain.Rule{
 		{RuleID: "rule-gpox-w6", DoseCode: "gpox_kid_w6", Sequence: 1, TriggerType: "birth_age", OffsetDays: 42, DueWindowDays: 7, CatchUp: "immediate"},
 	}
@@ -2836,7 +2878,7 @@ func TestPartialHistoryGoatBlankFamilyGetsFutureAdultCatchUp(t *testing.T) {
 	pprAt := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, &generationObligationFake{seen: map[string]bool{}})
 	// No DOB, no entry date, no kid-management stage: routes adult (schedulePathForGoat B3).
-	goat := domain.EligibleGoat{GoatID: "partial-history-goat", LifecycleStatus: "alive", Species: "goat"}
+	goat := defaultPlacedGoat(domain.EligibleGoat{GoatID: "partial-history-goat", LifecycleStatus: "alive", Species: "goat"})
 	rules := []protodomain.Rule{
 		{RuleID: "rule-fmd-adult", DoseCode: "fmd_adult_primary", Sequence: 1, TriggerType: "post_arrival", OffsetDays: 0, DueWindowDays: 7, CatchUp: "immediate"},
 	}
@@ -3369,7 +3411,7 @@ func TestGenerateRecoveryReplayTerminalObligationDoesNotInventSpacingDate(t *tes
 		RuleID: "goatpox", DoseCode: "goatpox_primary", Sequence: 1, TriggerType: "birth_age", OffsetDays: 30, DueWindowDays: 7,
 		EligibilityJSON: []byte(`{"vaccine":{"code":"GOAT_POX","type":"live","pathogen_class":"viral"}}`),
 	}
-	goat := domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", DOB: &dob, Species: "goat"}
+	goat := defaultPlacedGoat(domain.EligibleGoat{GoatID: "goat-1", LifecycleStatus: "alive", DOB: &dob, Species: "goat"})
 	obl := &generationObligationFake{}
 	svc := NewGenerationService(&generationProtoFake{}, &generationGoatFake{}, obl)
 	policies := genVersionPolicies{Compatibility: genCompatibilityPolicy{LiveToLiveGapDays: 28}}

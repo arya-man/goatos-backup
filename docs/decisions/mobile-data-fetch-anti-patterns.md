@@ -22,8 +22,8 @@ the shared rule the CI guard enforces.
    ~20** with **infinite scroll** — prefetch the next page when the user scrolls to item ~17-18.
    **Never request more than ~20 rows in a single page**, at any level.
 
-3. **A vaccination drive is a mix of SHEDS, never grouped by vaccine.** A shed may bundle the same
-   or different vaccines (micro-drives, combinations), but the drive is shed-scoped. "Coverage by
+3. **A vaccination drive is a park visit with a mix of SHEDS, never grouped by vaccine.** One drive
+   may contain one shed or many sheds, and may bundle the same or different vaccines. "Coverage by
    vaccine" is a *metric*, not the drive grouping. Do not model or fetch drives grouped by vaccine.
 
 4. **Parse/aggregate once, off the main thread.** If a list must be transformed, parse each field

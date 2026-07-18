@@ -98,6 +98,7 @@ run_backend() {
   step "scale-guard"              make scale-guard
   step "scale-guard self-test"    bash -c 'cd tools/scale-guard && go test ./...'
   step "clinical-defer-guard"     make clinical-defer-guard
+  step "goat-shed-scope-guard"    make goat-shed-scope-guard
   step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard
@@ -159,6 +160,7 @@ run_admin_web() {
 run_android_guards() {
   step "offline-first-guard"          make offline-first-guard
   step "mobile-guard"                 make mobile-guard
+  step "android-navigation-stack-guard" make android-navigation-stack-guard
   step "telemetry-guard"              make telemetry-guard
   step "android-bounded-memory-guard" make android-bounded-memory-guard
   step "room-migration-guard"         make room-migration-guard

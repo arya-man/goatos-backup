@@ -12,6 +12,10 @@ import sg.mesha.goatos.core.data.cache.AdherenceCacheDao
 import sg.mesha.goatos.core.data.cache.AdherenceCacheEntity
 import sg.mesha.goatos.core.data.cache.CalendarCacheDao
 import sg.mesha.goatos.core.data.cache.CalendarCacheEntity
+import sg.mesha.goatos.core.data.cache.CalendarScheduleDao
+import sg.mesha.goatos.core.data.cache.CalendarScheduleEntity
+import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyDao
+import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheDao
@@ -49,6 +53,8 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
  * goat id while still rendering/scanning RFID tags. v7 (see [MIGRATION_6_7]) adds an append-only
  * RFID attempt audit table so duplicate/alias/unknown physical reads sync without affecting
  * counters or Submit.
+ * v8 (see [MIGRATION_7_8]) adds normalized Calendar monthly schedule rows and
+ * backend keyset cursors for Paging 3; page data stays in Room instead of ViewModel memory.
  */
 @Database(
     entities = [
@@ -68,8 +74,10 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         RfidScanAttemptEntity::class,
         ProofCaptureEntity::class,
         VerificationQueueCacheEntity::class,
+        CalendarScheduleEntity::class,
+        CalendarScheduleRemoteKeyEntity::class,
     ],
-    version = 7,
+    version = 8,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -79,6 +87,8 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
 abstract class GoatDatabase : RoomDatabase() {
     abstract fun bootstrapCacheDao(): BootstrapCacheDao
     abstract fun calendarCacheDao(): CalendarCacheDao
+    abstract fun calendarScheduleDao(): CalendarScheduleDao
+    abstract fun calendarScheduleRemoteKeyDao(): CalendarScheduleRemoteKeyDao
     abstract fun controlTowerCacheDao(): ControlTowerCacheDao
     abstract fun executionRowsCacheDao(): ExecutionRowsCacheDao
     abstract fun executionShedCacheDao(): ExecutionShedCacheDao

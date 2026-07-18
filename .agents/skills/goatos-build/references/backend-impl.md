@@ -70,11 +70,15 @@ queues, alert paths, or frontend-owned process truth.
 
 Vaccination drive planning rule: per-animal due dates are not execution-drive
 boundaries. Generation creates one obligation per animal/rule/dose, but SM-4
-must club compatible due obligations into the highest-output valid shed/park
-drive inside the authored safe window and one-time batching hold. Do not group
+must club compatible due obligations into the highest-output valid park drive
+inside the authored safe window and one-time batching hold. Park drive scoring
+is distinct-animal-first; obligation/vaccine rows are only tie-breakers, and
+shed count is never a batching constraint. Do not group
 vaccination batches by exact `due_at` or exact window before the planner scores
-compatible work. Exact-date micro-drives are allowed only when no compatible work
-can be safely clubbed before the earliest selected animal's last safe date.
+compatible work. Exact-date micro-drives are allowed only when no compatible
+same-park animal group can be safely clubbed between the selected group's
+due/ready date and binding safe-until date. Normal per-drive animal caps are
+soft on the last safe day, but the per-animal shot cap remains hard.
 The final selector that attaches obligations to a batch must re-check every
 obligation against the picked `planned_date`; never treat a group-level winning
 date as proof that every row in the group is still inside its own safe window.
@@ -95,7 +99,27 @@ not an invisible internal grouping. Derive park/shed labels and shed count from
 the attached goats/obligations so a multi-shed park batch renders as one park
 drive with correct output. Run `make vaccination-drive-clubbing-guard` after
 changing generation, sweeper, drive planner, Calendar/process projections, or
-vaccination seed data.
+vaccination seed data. After reseed/sweeper, also run
+`make vaccination-drive-clubbing-db-proof` so a small drive proves it had no
+reachable same-park clubbing target.
+
+Vaccination seed/import/local proof is incomplete until generation and the
+obligation sweeper have both run through the visible schedule horizon. A clean
+source seed that leaves zero generated obligations is fine; a source seed that
+generates future obligations but has not created drive batches is a broken
+environment, not evidence of micro-drives. `tools/dev/seed-closeout.sh` owns
+this closeout and must fail when in-window `scheduled`/`due` vaccination
+obligations are still unbatched or when the drive-clubbing DB proof finds a
+tiny drive that could have been clubbed. Local worker loops must invoke current
+`obligation-sweeper` flags (`-tenant-id`, `-actor-id`) and must not revive
+removed vaccination projection workers or `-project-*` flags.
+
+Vaccination seed/import must also prove placement before and after generation:
+every accepted live goat has a real active shed, and every open goat vaccination
+obligation is scoped to that shed. Missing source placement is completed
+deterministically into the seed-intake shed during this build phase. Park is the
+drive grouping scope, not an animal-obligation fallback. Static guard:
+`make goat-shed-scope-guard`; DB proof: `make goat-shed-integrity-db-proof`.
 
 For Calendar work, read
 `context/execution/calendar-vaccination-slice-parallel-handoff.md` and

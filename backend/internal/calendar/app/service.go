@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -49,6 +50,13 @@ func (s *Service) ListEvents(ctx context.Context, q domain.Query) (domain.Calend
 	if q.ShedID != nil && !uuidutil.IsUUIDString(*q.ShedID) {
 		return domain.CalendarEventListResponse{}, BadRequest("invalid_shed_id", "shed_id must be a UUID")
 	}
+	if q.Vaccine != nil {
+		vaccine := strings.TrimSpace(*q.Vaccine)
+		if vaccine == "" || len(vaccine) > 120 {
+			return domain.CalendarEventListResponse{}, BadRequest("invalid_vaccine", "vaccine must be between 1 and 120 characters")
+		}
+		q.Vaccine = &vaccine
+	}
 	q.OwnerKey = normalizeOwnerKey(q.OwnerKey)
 	if !allowedOwnerKey(q.OwnerKey) {
 		return domain.CalendarEventListResponse{}, BadRequest("invalid_owner_key", "owner_key must be all, pc, inventory, or admin_data_ops")
@@ -91,7 +99,55 @@ func (s *Service) ListEvents(ctx context.Context, q domain.Query) (domain.Calend
 	if resp.ReminderRail != nil {
 		resp.ReminderRail.EmptyMessage = resp.Presentation.Week.ReminderEmptyMessage
 	}
+	if q.IncludeFilterOptions {
+		if resp.FilterOptions == nil {
+			resp.FilterOptions = &domain.CalendarFilterOptions{
+				Parks:    []domain.CalendarFilterOption{},
+				Sheds:    []domain.CalendarFilterOption{},
+				Vaccines: []domain.CalendarFilterOption{},
+			}
+		}
+		resp.FilterOptions.Statuses = calendarStatusOptions()
+		resp.FilterOptions.Months = calendarMonthOptions()
+		resp.FilterOptions.Years = calendarYearOptions(s.now())
+	}
 	return resp, nil
+}
+
+func calendarStatusOptions() []domain.CalendarKeyLabel {
+	return []domain.CalendarKeyLabel{
+		{Key: domain.StatusScheduled, Label: "Scheduled"},
+		{Key: domain.StatusDue, Label: "Due"},
+		{Key: domain.StatusOverdue, Label: "Overdue"},
+		{Key: domain.StatusMissed, Label: "Missed"},
+		{Key: domain.StatusInProgress, Label: "In progress"},
+		{Key: domain.StatusProofPending, Label: "Proof pending"},
+		{Key: domain.StatusVerificationPending, Label: "Verification pending"},
+		{Key: domain.StatusRejected, Label: "Rejected"},
+		{Key: domain.StatusReworkDue, Label: "Rework due"},
+		{Key: domain.StatusDeferred, Label: "Deferred"},
+		{Key: domain.StatusBlocked, Label: "Blocked"},
+		{Key: domain.StatusCompleted, Label: "Completed"},
+		{Key: domain.StatusCanceled, Label: "Canceled"},
+	}
+}
+
+func calendarMonthOptions() []domain.CalendarKeyLabel {
+	labels := []string{"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"}
+	options := make([]domain.CalendarKeyLabel, 0, len(labels))
+	for month, label := range labels {
+		options = append(options, domain.CalendarKeyLabel{Key: fmt.Sprintf("%02d", month+1), Label: label})
+	}
+	return options
+}
+
+func calendarYearOptions(now time.Time) []domain.CalendarKeyLabel {
+	year := now.In(mustCalendarLocation()).Year()
+	return []domain.CalendarKeyLabel{
+		{Key: fmt.Sprintf("%d", year-1), Label: fmt.Sprintf("%d", year-1)},
+		{Key: fmt.Sprintf("%d", year), Label: fmt.Sprintf("%d", year)},
+		{Key: fmt.Sprintf("%d", year+1), Label: fmt.Sprintf("%d", year+1)},
+	}
 }
 
 func (s *Service) GetEventDetail(ctx context.Context, q domain.EventQuery) (domain.CalendarEventDetail, error) {
