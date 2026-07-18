@@ -191,6 +191,61 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 	return item, nil
 }
 
+// CloseItem applies the leadership action after independent verifier approval. The owning module
+// consumes verification.item.closed to apply its business transition; the verifier timestamp is
+// never substituted for the operator's administered_at.
+func (s *Service) CloseItem(ctx context.Context, in domain.CloseAction) (domain.Item, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.ItemID = strings.TrimSpace(in.ItemID)
+	in.ActorID = strings.TrimSpace(in.ActorID)
+	if !uuidutil.IsUUIDString(in.TenantID) || !uuidutil.IsUUIDString(in.ItemID) {
+		return domain.Item{}, BadRequest("invalid_item", "tenant_id and item_id must be UUIDs")
+	}
+	if !uuidutil.IsUUIDString(in.ActorID) {
+		return domain.Item{}, BadRequest("invalid_actor", "actor id must be a UUID")
+	}
+	if in.RowVersion < 1 {
+		return domain.Item{}, BadRequest("invalid_row_version", "row_version is required")
+	}
+	item, err := s.repo.CloseItem(ctx, in)
+	if err != nil {
+		return domain.Item{}, mapRepoErr(err)
+	}
+	return item, nil
+}
+
+// CloseSubmission applies one leadership action to the whole operator submission/drive. Storage
+// locks the complete item set and fails atomically unless every goat proof is approved.
+func (s *Service) CloseSubmission(ctx context.Context, in domain.CloseSubmissionAction) ([]domain.Item, error) {
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	in.SubmissionID = strings.TrimSpace(in.SubmissionID)
+	in.ActorID = strings.TrimSpace(in.ActorID)
+	if !uuidutil.IsUUIDString(in.TenantID) || !uuidutil.IsUUIDString(in.SubmissionID) {
+		return nil, BadRequest("invalid_submission", "tenant_id and submission_id must be UUIDs")
+	}
+	if !uuidutil.IsUUIDString(in.ActorID) {
+		return nil, BadRequest("invalid_actor", "actor id must be a UUID")
+	}
+	items, err := s.repo.CloseSubmission(ctx, in)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return items, nil
+}
+
+func (s *Service) GetSubmissionItems(ctx context.Context, tenantID, submissionID string) ([]domain.Item, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	submissionID = strings.TrimSpace(submissionID)
+	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(submissionID) {
+		return nil, BadRequest("invalid_submission", "tenant_id and submission_id must be UUIDs")
+	}
+	items, err := s.repo.GetSubmissionItems(ctx, tenantID, submissionID)
+	if err != nil {
+		return nil, mapRepoErr(err)
+	}
+	return items, nil
+}
+
 // GetItem fetches one item by id (used by handlers/tests; not directly contract-exposed today).
 func (s *Service) GetItem(ctx context.Context, tenantID, itemID string) (domain.Item, error) {
 	tenantID = strings.TrimSpace(tenantID)

@@ -9,12 +9,12 @@ import (
 )
 
 // TestKernelStoryZ_MissedCatchUpBatch generates all work through goat.created, fast-forwards one
-// row through the missed sweeper, then proves SM-4 includes it in a healthy catch-up drive.
+// row through the missed sweeper, then proves immutable missed history is not attached to a drive.
 func TestKernelStoryZ_MissedCatchUpBatch(t *testing.T) {
 	fx := NewFixture(t)
 	story := NewStory(t, "story-z", "Missed obligation catch-up batching",
 		"Three healthy goats receive generated work. The oldest window crosses missed while two remain "+
-			"scheduled. The real sweeper batches all three into the same catch-up drive.")
+			"scheduled. The real sweeper batches only open work; the missed row remains immutable history and requires an explicit rework obligation.")
 	defer story.Finish()
 	story.Certify("backend kernel")
 
@@ -41,7 +41,7 @@ func TestKernelStoryZ_MissedCatchUpBatch(t *testing.T) {
 		VALUES ($1, $2, 'VAC-E2E-Z', 'E2E Story Z vaccine', 'vaccine', 'dose')`, itemID, fxTenant)
 	fx.exec("vaccine stock", `INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
 		VALUES ($1, $2, $3, $4, 20, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`,
-		"ec000000-0000-4000-8000-000000000021", fxTenant, itemID, shedID)
+		"ec000000-0000-4000-8000-000000000021", fxTenant, itemID, fxPark)
 
 	story.Step("Generate three obligations from identity events",
 		"The missed candidate is generated earlier; the two healthy shed-mates are generated later while all windows are valid.")
@@ -55,12 +55,12 @@ func TestKernelStoryZ_MissedCatchUpBatch(t *testing.T) {
 	marked, err := sweeper.MarkMissed(fx.Ctx, fxTenant, now)
 	story.Assert("exactly one obligation became missed", err == nil && marked == 1, "marked=%d err=%v", marked, err)
 
-	story.Step("Sweep all three into date-correct catch-up drives",
-		"SM-4 treats a clinically clear missed row as batchable, while preserving separate drive dates for the older missed row and the newer scheduled rows.")
+	story.Step("Sweep only open work and preserve missed history",
+		"SM-4 excludes the closed missed row and clubs the two compatible scheduled rows into one park drive.")
 	sweepRes, err := sweeper.SweepVersion(fx.Ctx, fxTenant, versionID, oblapp.SweepConfig{VaccineItemID: itemID, DosesPerGoat: 1}, now.AddDate(0, 0, 1))
 	story.Assert("sweep ran without error", err == nil, "err=%v", err)
-	story.Assert("two due-date drives formed", sweepRes.Batches == 2, "batches=%d", sweepRes.Batches)
-	story.Assert("all three obligations batched", sweepRes.Obligations == 3, "obligations=%d", sweepRes.Obligations)
+	story.Assert("one park drive formed for open work", sweepRes.Batches == 1, "batches=%d", sweepRes.Batches)
+	story.Assert("only the two scheduled obligations were batched", sweepRes.Obligations == 2, "obligations=%d", sweepRes.Obligations)
 	missedBatch := fx.scanText(`SELECT COALESCE(batch_id::text, '') FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, missedID)
-	story.Assert("missed goat is on the catch-up batch", missedBatch != "", "batch_id=%q", missedBatch)
+	story.Assert("missed history remains unbatched", missedBatch == "", "batch_id=%q", missedBatch)
 }

@@ -55,6 +55,8 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
  * counters or Submit.
  * v8 (see [MIGRATION_7_8]) adds normalized Calendar monthly schedule rows and
  * backend keyset cursors for Paging 3; page data stays in Room instead of ViewModel memory.
+ * v9 (see [MIGRATION_8_9]) binds every vaccination clip to its goat and indexes the
+ * per-goat upload/status view used on the shed scan screen.
  */
 @Database(
     entities = [
@@ -77,7 +79,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         CalendarScheduleEntity::class,
         CalendarScheduleRemoteKeyEntity::class,
     ],
-    version = 8,
+    version = 9,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema

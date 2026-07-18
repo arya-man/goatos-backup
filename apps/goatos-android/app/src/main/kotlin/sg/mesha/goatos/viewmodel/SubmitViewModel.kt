@@ -88,7 +88,7 @@ import javax.inject.Inject
  * Room already has, never transient in-memory capture state. [SubmitEvent.FormToggle]/
  * [SubmitEvent.FormText]/[SubmitEvent.FormPick] still persist simple draft answers via
  * [SavedStateHandle] the same way. Role gate: capture/submit render only for a principal with
- * an operator profile (ground operator / park manager) — an approver-only (leadership)
+ * the explicit ground-operator role — verifier and leadership profiles remain read-only —
  * principal sees an honest role-blocked state instead (§5).
  */
 @HiltViewModel
@@ -133,7 +133,7 @@ class SubmitViewModel @Inject constructor(
     private var captureInFlightKey: String? = null
 
     // Role gate (§5): null = not yet resolved; true = has an operator profile (ground
-    // operator/park manager, capture allowed); false = approver-only (leadership).
+    // ground operator, capture allowed); false = viewer/verifier/leadership.
     private var captureAllowed: Boolean? = null
 
     // The signed-in operator id, stamped onto every captured proof row as freshness/anti-fraud
@@ -193,7 +193,7 @@ class SubmitViewModel @Inject constructor(
             return@launch
         }
         val profile = runCatching { bootstrapRepository.operatorProfile() }.getOrNull()
-        captureAllowed = profile != null
+        captureAllowed = profile?.primaryRoleHint == OPERATOR_ROLE
         currentPrincipalId = profile?.operatorId?.ifBlank { null }
         // Cache-first: renders whatever Room already has (possibly nothing, on a cold install
         // or a task never opened before) immediately, then re-renders after every successful
@@ -563,6 +563,25 @@ class SubmitViewModel @Inject constructor(
 
     private fun draftState(task: TaskSummaryDto, form: FormSpec): SubmitUiState {
         val formRunner = buildFormRunnerState(form, task)
+        val goatIds = currentScans
+            .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
+            .distinct()
+        fun proofsFor(goatId: String): List<ProofCaptureRow> =
+            currentProofs.filter { it.proofSubject == ProofSubject.GOAT && it.subjectId == goatId }
+        val syncedProofs = goatIds.count { goatId -> proofsFor(goatId).any { it.isCompletedProofRef() } }
+        val failedProofs = goatIds.count { goatId ->
+            val proofs = proofsFor(goatId)
+            proofs.none { it.isCompletedProofRef() } && proofs.any { it.syncStatus == CaptureSyncStatus.FAILED }
+        }
+        val uploadingProofs = goatIds.count { goatId ->
+            val proofs = proofsFor(goatId)
+            proofs.none { it.isCompletedProofRef() } &&
+                proofs.none { it.syncStatus == CaptureSyncStatus.FAILED } &&
+                proofs.any {
+                    it.syncStatus == CaptureSyncStatus.PENDING ||
+                        it.syncStatus == CaptureSyncStatus.IN_FLIGHT
+                }
+        }
         // No fabricated vaccine groups — the due-group breakdown needs a read model this
         // build doesn't have yet, so groups stay empty until it is wired.
         return submitPlaceholder().copy(
@@ -575,6 +594,10 @@ class SubmitViewModel @Inject constructor(
             syncLabel = "",
             canSubmit = formRunner?.blockedReason == null,
             syncProgress = 0f,
+            goatProofTotal = goatIds.size,
+            goatProofSynced = syncedProofs,
+            goatProofUploading = uploadingProofs,
+            goatProofFailed = failedProofs,
             attemptCount = 0,
             maxAttempts = 0,
         )
@@ -591,11 +614,8 @@ class SubmitViewModel @Inject constructor(
         stopScanning()
     }
 
-    /** Named-subject convention documented in the SOP (docs/mobile/proof-capture-sync-and-e2e.md
-     *  §2 table): `shed_video`/`vial_lot_video`/`administration_video` map to their fixed
-     *  subject; any other field key (an operator-added extra) is [ProofSubject.EXTRA]. Only the
-     *  MAPPING is a client convention — whether each is required/what it proves stays server-
-     *  driven via `FormField.required`/`helpText`. */
+    /** Generic non-vaccination forms may still map named media subjects. Vaccination goat
+     *  clips are captured from the scan row with [ProofSubject.GOAT] and never use this mapper. */
     private fun subjectForFieldKey(key: String): ProofSubject = when (key) {
         "shed_video" -> ProofSubject.SHED
         "vial_lot_video" -> ProofSubject.VIAL_LOT
@@ -610,13 +630,25 @@ class SubmitViewModel @Inject constructor(
         val fields = form.fields.map { field -> field.toFieldUi() }
         val requiredUnansweredProofKeys = form.requiredUnansweredVideoProofKeys()
         val unreadyProof = currentProofs.firstOrNull { it.blocksSubmission(requiredUnansweredProofKeys) }
+        val missingGoatProof = currentScans
+            .mapNotNull { it.goatId?.takeIf(String::isNotBlank) }
+            .distinct()
+            .firstOrNull { goatId ->
+                currentProofs.none {
+                    it.proofSubject == ProofSubject.GOAT &&
+                        it.subjectId == goatId &&
+                        it.isCompletedProofRef()
+                }
+            }
         val unmet = form.fields.firstOrNull { field -> !field.isAnswered() }
         return FormRunnerState(
             title = "Recording form",
             subtitle = task.title,
             fields = fields,
             submitLabel = "Submit",
-            blockedReason = unreadyProof?.let { blockedReasonForProofUpload(it) } ?: unmet?.let { blockedReasonFor(it) },
+            blockedReason = unreadyProof?.let { blockedReasonForProofUpload(it) }
+                ?: missingGoatProof?.let { "Add and sync a camera clip for every scanned goat before submitting." }
+                ?: unmet?.let { blockedReasonFor(it) },
         )
     }
 
@@ -645,6 +677,7 @@ class SubmitViewModel @Inject constructor(
 
     private fun ProofCaptureRow.blocksSubmission(requiredUnansweredProofKeys: Set<String>): Boolean {
         if (isCompletedProofRef()) return false
+        if (proofSubject == ProofSubject.GOAT) return true
         return when (syncStatus) {
             CaptureSyncStatus.FAILED -> fieldKey in requiredUnansweredProofKeys
             CaptureSyncStatus.PENDING, CaptureSyncStatus.IN_FLIGHT, CaptureSyncStatus.SYNCED -> true
@@ -800,7 +833,7 @@ class SubmitViewModel @Inject constructor(
                 proofId = serverProofId,
                 proofType = "video",
                 subjectType = row.proofSubject.wireValue,
-                subjectId = null,
+                subjectId = row.subjectId,
                 uploadState = "completed",
                 metadata = buildMap {
                     put("field_key", JsonPrimitive(row.fieldKey))
@@ -810,6 +843,8 @@ class SubmitViewModel @Inject constructor(
         }
     }
 }
+
+private const val OPERATOR_ROLE = "operator"
 
 private fun FormSpec.rosterScanTargetFieldKey(): String? =
     fields.singleOrNull { it.type == FormFieldType.GOAT_SCAN }?.key

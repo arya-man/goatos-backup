@@ -194,6 +194,7 @@ private class CountingProofCaptureRepository : ProofCaptureRepository {
         taskId: String,
         fieldKey: String,
         subject: ProofSubject,
+        subjectId: String?,
         localUri: String,
         mimeType: String,
         caption: String?,

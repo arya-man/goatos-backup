@@ -48,6 +48,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
+import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
 import sg.mesha.goatos.feature.leadership.R
 
@@ -115,6 +116,7 @@ sealed interface LeadershipEvent {
     data class ShedTapped(val shedId: String) : LeadershipEvent
     data class AssignShed(val shedId: String) : LeadershipEvent
     data class DecisionTapped(val id: String) : LeadershipEvent
+    data class CloseVerificationDrive(val submissionId: String) : LeadershipEvent
     data class ParkTapped(val code: String) : LeadershipEvent
 
     // Overdue
@@ -146,6 +148,7 @@ data class LeadershipUiState(
     val backlog: List<BacklogRow>,
     val needsDecisionTitle: String,
     val needsDecision: List<DecisionRow>,
+    val verificationClosures: List<VerificationClosureRow> = emptyList(),
     // Coverage-by-park is present only when the principal's grant set includes it
     // (backend decides via the payload — not a client role gate). null → hidden.
     val coverageByParkTitle: String? = null,
@@ -227,6 +230,13 @@ data class DecisionRow(
     val tone: Tone,
 )
 
+data class VerificationClosureRow(
+    val submissionId: String,
+    val title: String,
+    val subtitle: String,
+    val isQueueing: Boolean = false,
+)
+
 data class ParkCoverageRow(
     val code: String,
     val name: String,
@@ -269,9 +279,17 @@ fun LeadershipScreen(
         )
         val hasOverviewData = state.kpis.isNotEmpty() || state.todaySheds.isNotEmpty() ||
             state.backlog.isNotEmpty() || state.needsDecision.isNotEmpty() ||
+            state.verificationClosures.isNotEmpty() ||
             (state.coverageByParkTitle != null && state.coverageByPark.isNotEmpty())
 
-        if (!hasOverviewData) {
+        if (!hasOverviewData && state.isRefreshing && state.lastSyncedAt == null) {
+            LoadingSkeletonList(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                rows = 4,
+            )
+        } else if (!hasOverviewData) {
             EmptyState(
                 title = stringResource(R.string.overview_empty_title),
                 icon = MeshaIcons.Check,
@@ -299,6 +317,12 @@ fun LeadershipScreen(
                 items(state.backlog, key = { it.vaccine }) { row -> BacklogRowView(row) }
 
                 item { SectionLabel(stringResource(R.string.overview_needs_decision_title)) }
+                if (state.verificationClosures.isNotEmpty()) {
+                    item { SectionLabel(stringResource(R.string.overview_verified_closure_title)) }
+                    items(state.verificationClosures, key = { it.submissionId }) { row ->
+                        VerificationClosureRowView(row, onEvent)
+                    }
+                }
                 items(state.needsDecision, key = { it.id }) { row ->
                     DecisionRowView(row, onEvent)
                 }
@@ -312,6 +336,35 @@ fun LeadershipScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun VerificationClosureRowView(
+    row: VerificationClosureRow,
+    onEvent: (LeadershipEvent) -> Unit,
+) {
+    Card(
+        onClick = {
+            if (!row.isQueueing) {
+                onEvent(LeadershipEvent.CloseVerificationDrive(row.submissionId))
+            }
+        },
+        borderColor = LeadTokens.ok.copy(alpha = 0.3f),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            GlyphBadge(MeshaIcons.Check, Tone.OK.colors())
+            Column(Modifier.weight(1f)) {
+                Text(row.title, color = LeadTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(row.subtitle, color = LeadTokens.muted, fontSize = 12.sp)
+            }
+            StatusPill(
+                stringResource(
+                    if (row.isQueueing) R.string.overview_close_queueing else R.string.overview_close_action,
+                ),
+                Tone.OK,
+            )
         }
     }
 }

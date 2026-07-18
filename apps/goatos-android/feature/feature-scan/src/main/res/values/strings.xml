@@ -8,4 +8,12 @@
     <string name="scan_search_empty">No matching animals</string>
     <string name="scan_load_more">Load more</string>
     <string name="scan_loading_more">Loading…</string>
+    <string name="scan_add_clip">Add camera clip</string>
+    <string name="scan_proof_needed">Camera proof needed</string>
+    <string name="scan_proof_uploading">Uploading proof…</string>
+    <plurals name="scan_proof_synced">
+        <item quantity="one">%1$d clip synced</item>
+        <item quantity="other">%1$d clips synced</item>
+    </plurals>
+    <string name="scan_proof_retry">Upload failed · tap to retry</string>
 </resources>

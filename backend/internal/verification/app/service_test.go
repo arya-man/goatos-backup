@@ -35,19 +35,20 @@ func (r *fakeRepo) CreateItem(_ context.Context, in domain.CreateItem) (domain.C
 	id := fmt.Sprintf("00000000-0000-4000-9000-%012d", r.seq)
 	r.byIdemKey[idemKey] = id
 	item := domain.Item{
-		ItemID:     id,
-		TenantID:   in.TenantID,
-		Vertical:   in.Vertical,
-		Module:     in.Module,
-		Category:   in.Category,
-		Source:     in.Source,
-		MediaRefs:  in.MediaRefs,
-		Status:     domain.StatusPending,
-		OperatorID: in.OperatorID,
-		ShedID:     in.ShedID,
-		ParkID:     in.ParkID,
-		CapturedAt: in.CapturedAt,
-		RowVersion: 1,
+		ItemID:       id,
+		TenantID:     in.TenantID,
+		Vertical:     in.Vertical,
+		Module:       in.Module,
+		Category:     in.Category,
+		SubjectLabel: in.SubjectLabel,
+		Source:       in.Source,
+		MediaRefs:    in.MediaRefs,
+		Status:       domain.StatusPending,
+		OperatorID:   in.OperatorID,
+		ShedID:       in.ShedID,
+		ParkID:       in.ParkID,
+		CapturedAt:   in.CapturedAt,
+		RowVersion:   1,
 	}
 	r.items[id] = item
 	return domain.CreateItemResult{Item: item, Created: true}, nil
@@ -59,6 +60,19 @@ func (r *fakeRepo) GetItem(_ context.Context, _ string, itemID string) (domain.I
 		return domain.Item{}, ports.ErrNotFound
 	}
 	return item, nil
+}
+
+func (r *fakeRepo) GetSubmissionItems(_ context.Context, tenantID, submissionID string) ([]domain.Item, error) {
+	items := make([]domain.Item, 0)
+	for _, item := range r.items {
+		if item.TenantID == tenantID && item.Source.SubmissionID != nil && *item.Source.SubmissionID == submissionID {
+			items = append(items, item)
+		}
+	}
+	if len(items) == 0 {
+		return nil, ports.ErrNotFound
+	}
+	return items, nil
 }
 
 func (r *fakeRepo) ListQueue(_ context.Context, params ports.ListQueueParams) ([]domain.Item, error) {
@@ -102,6 +116,47 @@ func (r *fakeRepo) RecordVerdict(_ context.Context, in domain.Verdict) (domain.I
 	item.RowVersion++
 	r.items[in.ItemID] = item
 	return item, nil
+}
+
+func (r *fakeRepo) CloseItem(_ context.Context, in domain.CloseAction) (domain.Item, error) {
+	item, ok := r.items[in.ItemID]
+	if !ok {
+		return domain.Item{}, ports.ErrNotFound
+	}
+	if item.RowVersion != in.RowVersion || item.Status != domain.StatusApproved || item.ClosedAt != nil {
+		return domain.Item{}, ports.ErrConflict
+	}
+	now := time.Now().UTC()
+	actor := in.ActorID
+	item.ClosedAt = &now
+	item.ClosedBy = &actor
+	item.RowVersion++
+	r.items[in.ItemID] = item
+	return item, nil
+}
+
+func (r *fakeRepo) CloseSubmission(_ context.Context, in domain.CloseSubmissionAction) ([]domain.Item, error) {
+	items, err := r.GetSubmissionItems(context.Background(), in.TenantID, in.SubmissionID)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if item.Status != domain.StatusApproved {
+			return nil, ports.ErrConflict
+		}
+	}
+	now := time.Now().UTC()
+	for i, item := range items {
+		if item.ClosedAt == nil {
+			actor := in.ActorID
+			item.ClosedAt = &now
+			item.ClosedBy = &actor
+			item.RowVersion++
+			r.items[item.ItemID] = item
+			items[i] = item
+		}
+	}
+	return items, nil
 }
 
 var _ ports.Repository = (*fakeRepo)(nil)
@@ -304,5 +359,53 @@ func TestListQueueRejectsInvalidStatus(t *testing.T) {
 	var appErr *Error
 	if !errors.As(err, &appErr) || appErr.Code != "invalid_status" {
 		t.Fatalf("err = %v, want invalid_status", err)
+	}
+}
+
+func TestCloseSubmissionRequiresEveryGoatApprovedAndClosesDriveTogether(t *testing.T) {
+	svc, _ := newTestService()
+	submissionID := "00000000-0000-4000-8000-000000000021"
+	create := func(key string) domain.CreateItemResult {
+		result, err := svc.CreateItem(context.Background(), domain.CreateItem{
+			TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+			Source: domain.SourceRef{
+				Module:       "vaccination",
+				SubmissionID: &submissionID,
+				RefType:      "vaccination_goat",
+				RefID:        testTenant,
+			},
+			MediaRefs: []string{"proof-" + key}, IdempotencyKey: key,
+		})
+		if err != nil {
+			t.Fatalf("CreateItem: %v", err)
+		}
+		return result
+	}
+	first := create("first")
+	second := create("second")
+	_, _ = svc.RecordVerdict(context.Background(), domain.Verdict{
+		TenantID: testTenant, ItemID: first.Item.ItemID, Decision: domain.DecisionApproved,
+		VerifierID: testTenant, RowVersion: 1,
+	})
+	_, err := svc.CloseSubmission(context.Background(), domain.CloseSubmissionAction{
+		TenantID: testTenant, SubmissionID: submissionID, ActorID: testTenant,
+	})
+	var appErr *Error
+	if !errors.As(err, &appErr) || appErr.HTTPStatus != 409 {
+		t.Fatalf("partial approval close err=%v, want 409", err)
+	}
+
+	_, _ = svc.RecordVerdict(context.Background(), domain.Verdict{
+		TenantID: testTenant, ItemID: second.Item.ItemID, Decision: domain.DecisionApproved,
+		VerifierID: testTenant, RowVersion: 1,
+	})
+	items, err := svc.CloseSubmission(context.Background(), domain.CloseSubmissionAction{
+		TenantID: testTenant, SubmissionID: submissionID, ActorID: testTenant,
+	})
+	if err != nil {
+		t.Fatalf("CloseSubmission: %v", err)
+	}
+	if len(items) != 2 || items[0].ClosedAt == nil || items[1].ClosedAt == nil {
+		t.Fatalf("closed items=%+v", items)
 	}
 }

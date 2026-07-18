@@ -21,6 +21,7 @@ import sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto
 import sg.mesha.goatos.core.network.dto.ReviewTaskRequestDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -141,6 +142,17 @@ interface SyncRepository {
         reason: String?,
         rowVersion: Int,
     ): AppResult<String>
+
+    /** Queues leadership closure after verifier approval; stable per item row version. */
+    suspend fun enqueueVerificationClose(
+        itemId: String,
+        rowVersion: Int,
+    ): AppResult<String> = AppResult.Err("Leadership closure is not available.")
+
+    /** Queues one atomic leadership closure for a fully verifier-approved drive submission. */
+    suspend fun enqueueVerificationSubmissionClose(
+        submissionId: String,
+    ): AppResult<String> = AppResult.Err("Leadership closure is not available.")
 
     /** Re-arms a FAILED (dead-letter or conflict) row for another attempt — the SAME
      *  idempotency key and payload, a fresh attempt budget. Backs the sync-status sheet's
@@ -327,6 +339,38 @@ class DefaultSyncRepository(
                     itemId = itemId,
                     request = VerificationVerdictRequestDto(decision = decision, reason = reason, rowVersion = rowVersion),
                 ),
+            ),
+        )
+    }
+
+    override suspend fun enqueueVerificationClose(
+        itemId: String,
+        rowVersion: Int,
+    ): AppResult<String> {
+        val idempotencyKey = "$itemId-close-$rowVersion"
+        return enqueue(
+            opType = OutboxOpType.VERIFICATION_CLOSE,
+            groupKey = itemId,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(
+                VerificationClosePayload(
+                    itemId = itemId,
+                    request = VerificationCloseRequestDto(rowVersion = rowVersion),
+                ),
+            ),
+        )
+    }
+
+    override suspend fun enqueueVerificationSubmissionClose(
+        submissionId: String,
+    ): AppResult<String> {
+        val idempotencyKey = "$submissionId-drive-close"
+        return enqueue(
+            opType = OutboxOpType.VERIFICATION_CLOSE_SUBMISSION,
+            groupKey = submissionId,
+            idempotencyKey = idempotencyKey,
+            payloadJson = syncJson.encodeToString(
+                VerificationCloseSubmissionPayload(submissionId = submissionId),
             ),
         )
     }

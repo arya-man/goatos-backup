@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	vaccapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 )
 
@@ -31,8 +31,11 @@ func TestKernelStoryF_EscalationAlert(t *testing.T) {
 	fx.PublishSimpleProtocol("vaccination.e2e.story_f", 21, 14, nil)
 
 	const goatID = "e1000000-0000-4000-8000-0000000000f1"
+	const shedID = "e1000000-0000-4000-8000-0000000000f2"
+	const stageID = "e1000000-0000-4000-8000-0000000000f3"
 	dob := time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)
-	fx.SeedGoat(GoatSpec{GoatID: goatID, DOB: &dob})
+	fx.SeedShed(shedID, "E2E-F", stageID)
+	fx.SeedGoat(GoatSpec{GoatID: goatID, ShedID: shedID, DOB: &dob})
 
 	story.Step("Create source fixtures and publish the protocol",
 		"One goat, one vaccination protocol (21-day offset, 14-day window). "+

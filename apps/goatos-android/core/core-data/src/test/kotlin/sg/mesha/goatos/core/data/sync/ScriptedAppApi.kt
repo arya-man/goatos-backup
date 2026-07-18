@@ -15,6 +15,7 @@ import sg.mesha.goatos.core.network.dto.SubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 
 /**
  * Test double for [AppApi]: delegates to [FakeAppApi] by default (via Kotlin interface
@@ -29,10 +30,13 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
     var rescheduleObligationFn: (suspend (String, String, RescheduleObligationRequestDto) -> RescheduleObligationResponseDto)? = null
     var registerProofFn: (suspend (String, ProofUploadRequestDto) -> ProofUploadResponseDto)? = null
     var submitVerificationVerdictFn: (suspend (String, String, VerificationVerdictRequestDto) -> VerificationVerdictResponseDto)? = null
+    var closeVerificationSubmissionFn: (suspend (String, String) -> VerificationCloseSubmissionResponseDto)? = null
 
     /** (itemId, header Idempotency-Key) for every [submitVerificationVerdict] call — same
      *  same-key-on-retry assertion shape as [submitCalls]. */
     val verdictCalls: MutableList<Pair<String, String>> =
+        java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+    val closeSubmissionCalls: MutableList<Pair<String, String>> =
         java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
 
     /** Scripts the binary-PUT + complete step ([AppApi.uploadProofBlob]) — the hook a test
@@ -97,6 +101,15 @@ class ScriptedAppApi(private val delegate: AppApi = FakeAppApi()) : AppApi by de
         verdictCalls += itemId to idempotencyKey
         return submitVerificationVerdictFn?.invoke(itemId, idempotencyKey, request)
             ?: delegate.submitVerificationVerdict(itemId, idempotencyKey, request)
+    }
+
+    override suspend fun closeVerificationSubmission(
+        submissionId: String,
+        idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto {
+        closeSubmissionCalls += submissionId to idempotencyKey
+        return closeVerificationSubmissionFn?.invoke(submissionId, idempotencyKey)
+            ?: delegate.closeVerificationSubmission(submissionId, idempotencyKey)
     }
 
     override suspend fun uploadProofBlob(

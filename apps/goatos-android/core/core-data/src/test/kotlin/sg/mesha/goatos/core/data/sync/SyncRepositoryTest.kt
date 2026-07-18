@@ -11,6 +11,7 @@ import sg.mesha.goatos.core.common.DispatcherProvider
 import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationDecision
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 import java.io.IOException
 
 /**
@@ -105,6 +106,22 @@ class SyncRepositoryTest {
         assertEquals(1, status.items.size)
         assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
         assertEquals(1, api.verdictCalls.size)
+    }
+
+    @Test
+    fun `drive close is durable and grouped by submission`() = runBlocking {
+        val api = ScriptedAppApi().apply {
+            closeVerificationSubmissionFn = { _, _ -> VerificationCloseSubmissionResponseDto() }
+        }
+        val repo = repository(api = api)
+
+        val result = repo.enqueueVerificationSubmissionClose("submission-1")
+
+        assertTrue(result is AppResult.Ok)
+        val status = repo.observeStatus().value
+        assertEquals(1, status.items.size)
+        assertEquals(SyncItemStatus.SUCCEEDED, status.items.first().status)
+        assertEquals(listOf("submission-1" to "submission-1-drive-close"), api.closeSubmissionCalls)
     }
 
     @Test

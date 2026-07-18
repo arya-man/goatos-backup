@@ -54,7 +54,7 @@ func TestKernelStoryM_BatchIdempotency(t *testing.T) {
 		 VALUES ($1, $2, 'VAC-E2E-M', 'E2E Story M vaccine', 'vaccine', 'dose')`, itemID, fxTenant)
 	fx.exec("vaccine stock",
 		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
-		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`, lotID, fxTenant, itemID, shedID)
+		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', CURRENT_DATE + INTERVAL '180 days')`, lotID, fxTenant, itemID, fxPark)
 
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
 	if _, err := gen.GenerateForVersion(fx.Ctx, fxTenant, versionID, now); err != nil {
@@ -71,9 +71,10 @@ func TestKernelStoryM_BatchIdempotency(t *testing.T) {
 	oblID := fx.scanText(`SELECT obligation_id::text FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2`, fxTenant, goatID)
 	taskID := fx.scanText(`SELECT sop_task_id::text FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2::uuid`, fxTenant, batchID)
 	story.Assert("sweeper created the executable SOP task", taskID != "", "task_id=%q", taskID)
+	reservedLot := reservedLotForBatch(t, fx, batchID)
 
 	const key = "e2e-story-m-submit"
-	body, err := sopHarness.submissionRequest(taskID, shedID, operatorID, lotID, []string{goatID}, now, key, "subcutaneous")
+	body, err := sopHarness.submissionRequest(taskID, shedID, operatorID, reservedLot, []string{goatID}, now, key, "subcutaneous")
 	if err != nil {
 		t.Fatalf("create canonical proof/submission body: %v", err)
 	}

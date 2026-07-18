@@ -118,6 +118,15 @@ interface ExecutionRepository {
         limit: Int? = null,
     ): Result<Unit>
 
+    /** Fetches every bounded scan-roster page for this shed/task and keeps the merged roster in
+     *  Room. The BLE screen needs a complete local tag index before accepting hardware reads;
+     *  otherwise a valid goat on page 2 can be misclassified as an unknown tag. */
+    suspend fun refreshCompleteScanRoster(
+        shedId: String,
+        taskId: String? = null,
+        limit: Int? = null,
+    ): Result<Unit>
+
     /** Appends exactly the current server continuation page to the Room-backed scope. */
     suspend fun appendScanRoster(
         shedId: String,
@@ -270,6 +279,35 @@ class DefaultExecutionRepository(
         scanRosterDao.enforceCacheBounds()
     }
 
+    override suspend fun refreshCompleteScanRoster(
+        shedId: String,
+        taskId: String?,
+        limit: Int?,
+    ): Result<Unit> = runCatching {
+        scanAppendMutex.withLock {
+            val key = scanRosterScopeKey(shedId, taskId, limit)
+            var merged = scanRoster(shedId, taskId, cursor = null, limit = limit)
+            scanRosterDao.upsert(ScanRosterCacheEntity(cacheKey = key, dtoJson = json.encodeToString(merged), updatedAt = clock()))
+            var cursor = merged.nextCursor
+            var pageCount = 1
+            while (cursor != null) {
+                val previousCursor = cursor
+                val page = scanRoster(shedId, taskId, cursor = previousCursor, limit = limit)
+                if (page.nextCursor == previousCursor) {
+                    throw ScanRosterCursorException("scan roster backend returned a non-advancing cursor")
+                }
+                merged = mergeScanRosterPage(merged, page)
+                scanRosterDao.upsert(ScanRosterCacheEntity(cacheKey = key, dtoJson = json.encodeToString(merged), updatedAt = clock()))
+                cursor = merged.nextCursor
+                pageCount += 1
+                if (pageCount > MAX_SCAN_ROSTER_PAGES_PER_SHED) {
+                    throw ScanRosterCursorException("scan roster exceeded the safe per-shed page limit")
+                }
+            }
+            scanRosterDao.enforceCacheBounds()
+        }
+    }
+
     override suspend fun appendScanRoster(
         shedId: String,
         taskId: String?,
@@ -343,6 +381,8 @@ class DefaultExecutionRepository(
 
 class ScanRosterCursorException(message: String) : IllegalStateException(message)
 class ExecutionRowsCursorException(message: String) : IllegalStateException(message)
+
+private const val MAX_SCAN_ROSTER_PAGES_PER_SHED = 50
 
 internal fun mergeExecutionRowsPage(
     current: VaccinationExecutionResponseDto,

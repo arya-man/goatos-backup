@@ -191,7 +191,10 @@ var protectedRoutes = []Route{
 	// ONLY (Verifier role + CEO/CxO override) — separation of duty from capture (task.execute) and
 	// act (task.verify).
 	{OperationID: "listVerificationQueue", Method: "GET", Pattern: "/verification/queue", Permissions: []string{VerificationReview}},
+	{OperationID: "listVerificationActionQueue", Method: "GET", Pattern: "/verification/action-queue", Permissions: []string{VerificationAct}},
 	{OperationID: "recordVerificationVerdict", Method: "POST", Pattern: "/verification/items/{item_id}/verdict", Permissions: []string{VerificationReview}},
+	{OperationID: "closeVerificationItem", Method: "POST", Pattern: "/verification/items/{item_id}/close", Permissions: []string{VerificationAct}},
+	{OperationID: "closeVerificationSubmission", Method: "POST", Pattern: "/verification/submissions/{submission_id}/close", Permissions: []string{VerificationAct}},
 
 	// HR roster: staff positions (concept #2), leave/absence (#3), temporary
 	// task coverage (#4), and the vaccination-ownership resolution read.

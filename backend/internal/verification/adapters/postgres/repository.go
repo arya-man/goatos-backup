@@ -25,10 +25,11 @@ const defaultQueryTimeout = 3 * time.Second
 // Max seam"). The notification producer session consumes these to fan out pushes; this module only
 // publishes.
 const (
-	EventItemPending      = "verification.item.pending"
-	EventVerdictApproved  = "verification.verdict.approved"
-	EventVerdictRework    = "verification.verdict.rework"
-	verificationTopic     = "verification"
+	EventItemPending     = "verification.item.pending"
+	EventVerdictApproved = "verification.verdict.approved"
+	EventVerdictRework   = "verification.verdict.rework"
+	EventItemClosed      = "verification.item.closed"
+	verificationTopic    = "verification"
 	// verificationSchemaVer must be semver to satisfy the domain-event-envelope schema
 	// (schema_version pattern ^[0-9]+\.[0-9]+\.[0-9]+$) enforced by the outbox relay's
 	// EnvelopeValidator before publish. A non-semver value (was "1") fails validation, so the
@@ -54,14 +55,14 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 var _ ports.Repository = (*Repository)(nil)
 
 const itemColumns = `item_id::text, tenant_id::text, vertical, module, category, source_module,
-  source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, media_refs,
+  source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, media_refs,
   status, verdict_reason, operator_id::text, shed_id::text, park_id::text, captured_at, verified_by::text,
-  verified_at, row_version, created_at, updated_at`
+  verified_at, closed_by::text, closed_at, row_version, created_at, updated_at`
 
 const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical, vi.module, vi.category, vi.source_module,
-  vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.media_refs,
+  vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.media_refs,
   vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.park_id::text, vi.captured_at, vi.verified_by::text,
-  vi.verified_at, vi.row_version, vi.created_at, vi.updated_at,
+  vi.verified_at, vi.closed_by::text, vi.closed_at, vi.row_version, vi.created_at, vi.updated_at,
   wm.display_name::text, shed_loc.name::text, park_loc.name::text`
 
 func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (domain.CreateItemResult, error) {
@@ -81,17 +82,17 @@ func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (doma
 	err = tx.QueryRow(ctx, `
 INSERT INTO verification_items (
   tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id,
-  source_ref_type, source_ref_id, media_refs, status, operator_id, shed_id, park_id, captured_at,
-  idempotency_key
+  source_ref_type, source_ref_id, subject_label, media_refs, status, operator_id, shed_id, park_id,
+  captured_at, idempotency_key
 ) VALUES (
-  $1::uuid, $2, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8, $9::uuid, $10::jsonb,
-  'pending', nullif($11, '')::uuid, nullif($12, '')::uuid, nullif($13, '')::uuid, $14, $15
+  $1::uuid, $2, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8, $9::uuid, nullif($10, ''),
+  $11::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($14, '')::uuid, $15, $16
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING item_id::text`,
 		in.TenantID, in.Vertical, in.Module, in.Category, in.Source.Module,
 		derefStr(in.Source.TaskID), derefStr(in.Source.SubmissionID), in.Source.RefType, in.Source.RefID,
-		string(mediaJSON), derefStr(in.OperatorID), derefStr(in.ShedID), derefStr(in.ParkID),
+		derefStr(in.SubjectLabel), string(mediaJSON), derefStr(in.OperatorID), derefStr(in.ShedID), derefStr(in.ParkID),
 		in.CapturedAt.UTC(), in.IdempotencyKey,
 	).Scan(&itemID)
 	created := true
@@ -133,6 +134,36 @@ func (r *Repository) GetItem(ctx context.Context, tenantID, itemID string) (doma
 	return item, nil
 }
 
+func (r *Repository) GetSubmissionItems(ctx context.Context, tenantID, submissionID string) ([]domain.Item, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT `+itemColumns+`
+FROM verification_items
+WHERE tenant_id = $1::uuid
+  AND source_submission_id = $2::uuid
+ORDER BY captured_at, item_id`, tenantID, submissionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.Item, 0, 20)
+	for rows.Next() {
+		item, scanErr := scanItemRow(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, ports.ErrNotFound
+	}
+	return items, nil
+}
+
 func (r *Repository) ListQueue(ctx context.Context, params ports.ListQueueParams) ([]domain.Item, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -153,11 +184,27 @@ WHERE vi.tenant_id = $1::uuid
   AND ($3 = '' OR vi.category = $3)
   AND ($4 = '' OR vi.vertical = $4)
   AND ($5 = '' OR vi.module = $5)
-  AND ($6::timestamptz IS NULL OR (vi.captured_at, vi.item_id) > ($6::timestamptz, $7::uuid))
+  AND (NOT $6::boolean OR vi.park_id = ANY($7::uuid[]))
+  AND ($8::timestamptz IS NULL OR (vi.captured_at, vi.item_id) > ($8::timestamptz, $9::uuid))
+  AND (
+    NOT $10::boolean
+    OR (
+      vi.source_submission_id IS NOT NULL
+      AND vi.closed_at IS NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM verification_items sibling
+        WHERE sibling.tenant_id = vi.tenant_id
+          AND sibling.source_submission_id = vi.source_submission_id
+          AND (sibling.status <> 'approved' OR sibling.closed_at IS NOT NULL)
+      )
+    )
+  )
 ORDER BY vi.captured_at ASC, vi.item_id ASC
-LIMIT $8`,
+LIMIT $11`,
 		params.TenantID, params.Status, params.Category, params.Vertical, params.Module,
-		cursorCapturedAt, cursorItemID, params.Limit,
+		params.ScopeRestricted, params.ParkIDs, cursorCapturedAt, cursorItemID,
+		params.ReadyForClosure, params.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -172,6 +219,163 @@ LIMIT $8`,
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (r *Repository) CloseItem(ctx context.Context, in domain.CloseAction) (domain.Item, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Item{}, err
+	}
+	defer rollback(ctx, tx)
+	tag, err := tx.Exec(ctx, `
+UPDATE verification_items
+SET closed_by = $1::uuid, closed_at = now(), row_version = row_version + 1
+WHERE tenant_id = $2::uuid
+  AND item_id = $3::uuid
+  AND row_version = $4
+  AND status = 'approved'
+  AND closed_at IS NULL`,
+		in.ActorID, in.TenantID, in.ItemID, in.RowVersion)
+	if err != nil {
+		return domain.Item{}, mapWriteErr(err)
+	}
+	if tag.RowsAffected() == 0 {
+		var exists bool
+		if scanErr := tx.QueryRow(ctx, `
+SELECT true
+FROM verification_items
+WHERE tenant_id = $1::uuid
+  AND item_id = $2::uuid`, in.TenantID, in.ItemID).Scan(&exists); scanErr != nil {
+			if errors.Is(scanErr, pgx.ErrNoRows) {
+				return domain.Item{}, ports.ErrNotFound
+			}
+			return domain.Item{}, scanErr
+		}
+		return domain.Item{}, ports.ErrConflict
+	}
+	item, err := scanItemRow(tx.QueryRow(ctx,
+		"SELECT "+itemColumns+" FROM verification_items WHERE tenant_id = $1::uuid AND item_id = $2::uuid",
+		in.TenantID, in.ItemID))
+	if err != nil {
+		return domain.Item{}, mapWriteErr(err)
+	}
+	idempotencyKey := fmt.Sprintf("%s:%s:%d", EventItemClosed, in.ItemID, item.RowVersion)
+	if err := insertOutboxEvent(ctx, tx, in.TenantID, EventItemClosed, in.ItemID, idempotencyKey, verificationVerdictPayload(item)); err != nil {
+		return domain.Item{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Item{}, err
+	}
+	return item, nil
+}
+
+func (r *Repository) CloseSubmission(ctx context.Context, in domain.CloseSubmissionAction) ([]domain.Item, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer rollback(ctx, tx)
+
+	rows, err := tx.Query(ctx, `
+SELECT `+itemColumns+`
+FROM verification_items
+WHERE tenant_id = $1::uuid
+  AND source_submission_id = $2::uuid
+ORDER BY captured_at, item_id
+FOR UPDATE`, in.TenantID, in.SubmissionID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]domain.Item, 0, 20)
+	for rows.Next() {
+		item, scanErr := scanItemRow(rows)
+		if scanErr != nil {
+			rows.Close()
+			return nil, scanErr
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if len(items) == 0 {
+		return nil, ports.ErrNotFound
+	}
+
+	allClosed := true
+	for _, item := range items {
+		if item.Status != domain.StatusApproved {
+			return nil, ports.ErrConflict
+		}
+		if item.ClosedAt == nil {
+			allClosed = false
+		}
+	}
+	// A replay after a lost response is a read-only success. A partially closed drive can only be
+	// legacy/item-level state and is failed closed rather than silently mixing authority actions.
+	if allClosed {
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+		return items, nil
+	}
+	for _, item := range items {
+		if item.ClosedAt != nil {
+			return nil, ports.ErrConflict
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `
+UPDATE verification_items
+SET closed_by = $1::uuid, closed_at = now(), row_version = row_version + 1
+WHERE tenant_id = $2::uuid
+  AND source_submission_id = $3::uuid
+  AND status = 'approved'
+  AND closed_at IS NULL`, in.ActorID, in.TenantID, in.SubmissionID); err != nil {
+		return nil, mapWriteErr(err)
+	}
+	closedRows, err := tx.Query(ctx, `
+SELECT `+itemColumns+`
+FROM verification_items
+WHERE tenant_id = $1::uuid
+  AND source_submission_id = $2::uuid
+ORDER BY captured_at, item_id`, in.TenantID, in.SubmissionID)
+	if err != nil {
+		return nil, err
+	}
+	closedItems := make([]domain.Item, 0, len(items))
+	for closedRows.Next() {
+		item, scanErr := scanItemRow(closedRows)
+		if scanErr != nil {
+			closedRows.Close()
+			return nil, scanErr
+		}
+		closedItems = append(closedItems, item)
+	}
+	if err := closedRows.Err(); err != nil {
+		closedRows.Close()
+		return nil, err
+	}
+	closedRows.Close()
+	if len(closedItems) != len(items) {
+		return nil, ports.ErrConflict
+	}
+	for _, item := range closedItems {
+		idempotencyKey := fmt.Sprintf("%s:%s:%d", EventItemClosed, item.ItemID, item.RowVersion)
+		if err := insertOutboxEvent(ctx, tx, in.TenantID, EventItemClosed, item.ItemID, idempotencyKey, verificationVerdictPayload(item)); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return closedItems, nil
 }
 
 func (r *Repository) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.Item, error) {
@@ -288,6 +492,12 @@ func verificationVerdictPayload(item domain.Item) map[string]any {
 	if item.VerifiedBy != nil {
 		payload["verified_by"] = *item.VerifiedBy
 	}
+	if item.ClosedBy != nil {
+		payload["closed_by"] = *item.ClosedBy
+	}
+	if item.ClosedAt != nil {
+		payload["closed_at"] = item.ClosedAt.UTC().Format(time.RFC3339Nano)
+	}
 	return payload
 }
 
@@ -347,7 +557,8 @@ INSERT INTO outbox_messages (
   $6, $7::jsonb, $8::jsonb, $9, $9, 'pending', now()
 )
 ON CONFLICT (tenant_id, idempotency_key) WHERE event_type IN (
-  'verification.item.pending', 'verification.verdict.approved', 'verification.verdict.rework'
+  'verification.item.pending', 'verification.verdict.approved', 'verification.verdict.rework',
+  'verification.item.closed'
 ) DO NOTHING`,
 		tenantID, eventID, eventType, verificationSchemaVer, aggregateID,
 		verificationTopic, envelope, headers, idempotencyKey); err != nil {
@@ -366,28 +577,33 @@ func scanItemRow(row rowScanner) (domain.Item, error) {
 
 func scanItem(row rowScanner) (domain.Item, error) {
 	var (
-		item                                                  domain.Item
-		sourceTaskID, sourceSubmissionID                      *string
-		operatorID, shedID, parkID, verifiedBy, verdictReason *string
-		mediaJSON                                             []byte
-		verifiedAt                                            *time.Time
+		item                                                            domain.Item
+		sourceTaskID, sourceSubmissionID                                *string
+		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
+		subjectLabel                                                    *string
+		mediaJSON                                                       []byte
+		verifiedAt, closedAt                                            *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
-		&mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
-		&item.CapturedAt, &verifiedBy, &verifiedAt, &item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
+		&subjectLabel, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
+		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
+		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
 	); err != nil {
 		return domain.Item{}, err
 	}
 	item.Source.TaskID = sourceTaskID
 	item.Source.SubmissionID = sourceSubmissionID
 	item.VerdictReason = verdictReason
+	item.SubjectLabel = subjectLabel
 	item.OperatorID = operatorID
 	item.ShedID = shedID
 	item.ParkID = parkID
 	item.VerifiedBy = verifiedBy
 	item.VerifiedAt = verifiedAt
+	item.ClosedBy = closedBy
+	item.ClosedAt = closedAt
 	item.CapturedAt = item.CapturedAt.UTC()
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
@@ -401,18 +617,20 @@ func scanItem(row rowScanner) (domain.Item, error) {
 
 func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	var (
-		item                                                  domain.Item
-		sourceTaskID, sourceSubmissionID                      *string
-		operatorID, shedID, parkID, verifiedBy, verdictReason *string
-		operatorName, shedLabel, parkLabel                    *string
-		mediaJSON                                             []byte
-		verifiedAt                                            *time.Time
+		item                                                            domain.Item
+		sourceTaskID, sourceSubmissionID                                *string
+		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
+		subjectLabel                                                    *string
+		operatorName, shedLabel, parkLabel                              *string
+		mediaJSON                                                       []byte
+		verifiedAt, closedAt                                            *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
-		&mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
-		&item.CapturedAt, &verifiedBy, &verifiedAt, &item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
+		&subjectLabel, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
+		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
+		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
 		&operatorName, &shedLabel, &parkLabel,
 	); err != nil {
 		return domain.Item{}, err
@@ -420,6 +638,7 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	item.Source.TaskID = sourceTaskID
 	item.Source.SubmissionID = sourceSubmissionID
 	item.VerdictReason = verdictReason
+	item.SubjectLabel = subjectLabel
 	item.OperatorID = operatorID
 	item.OperatorName = operatorName
 	item.ShedID = shedID
@@ -428,6 +647,8 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	item.ParkLabel = parkLabel
 	item.VerifiedBy = verifiedBy
 	item.VerifiedAt = verifiedAt
+	item.ClosedBy = closedBy
+	item.ClosedAt = closedAt
 	item.CapturedAt = item.CapturedAt.UTC()
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()

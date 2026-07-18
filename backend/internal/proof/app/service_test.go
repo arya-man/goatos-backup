@@ -18,6 +18,7 @@ const (
 	proofTestID2    = "10000000-0000-4000-8000-000000000002"
 	proofTestTask   = "20000000-0000-4000-8000-000000000001"
 	proofTestShed   = "30000000-0000-4000-8000-000000000001"
+	proofTestActor  = "40000000-0000-4000-8000-000000000001"
 )
 
 func TestCompleteUploadUsesStorageFinalization(t *testing.T) {
@@ -138,10 +139,14 @@ func TestCreateAndCompleteStripReservedMetadata(t *testing.T) {
 		ScopeID:     proofTestTask,
 		SubjectType: "shed",
 		SubjectID:   stringPtr(proofTestShed),
+		UploadedBy:  stringPtr(proofTestActor),
 		Metadata: map[string]any{
-			"task_id":    proofTestTask,
-			"scope_type": "shed",
-			"note":       "operator clip",
+			"task_id":           proofTestTask,
+			"scope_type":        "shed",
+			"note":              "operator clip",
+			"capture_source":    "in_app_camera",
+			"captured_start_ms": float64(1000),
+			"captured_end_ms":   float64(2000),
 		},
 	})
 	if err != nil {
@@ -170,6 +175,29 @@ func TestCreateAndCompleteStripReservedMetadata(t *testing.T) {
 	}
 	if repo.completed.Metadata["review_note"] != "clear" {
 		t.Fatalf("non-reserved completion metadata lost: %#v", repo.completed.Metadata)
+	}
+}
+
+func TestCreateUploadRejectsVideoWithoutCameraAttestation(t *testing.T) {
+	repo := &fakeProofRepo{proof: baseProof()}
+	service := NewService(repo, &fakeProofStorage{})
+
+	_, err := service.CreateUpload(context.Background(), domain.CreateUpload{
+		TenantID:    proofTestTenant,
+		ProofType:   "video",
+		MimeType:    "video/mp4",
+		ScopeType:   "task",
+		ScopeID:     proofTestTask,
+		SubjectType: "goat",
+		SubjectID:   stringPtr(proofTestShed),
+		UploadedBy:  stringPtr(proofTestActor),
+		Metadata:    map[string]any{},
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("CreateUpload() error = %v, want ErrInvalid", err)
+	}
+	if repo.created.ProofType != "" {
+		t.Fatalf("invalid upload reached repository: %#v", repo.created)
 	}
 }
 

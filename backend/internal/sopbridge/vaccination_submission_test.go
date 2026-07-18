@@ -4,17 +4,20 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
+	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
 type captureVaccinationRecorder struct {
-	calls int
-	task  string
-	sub   string
-	by    string
-	count int
+	calls       int
+	task        string
+	sub         string
+	by          string
+	count       int
+	completions []vaccinationdomain.SubmissionCompletion
 }
 
 func (r *captureVaccinationRecorder) RecordCompletionsFromSubmission(_ context.Context, _ string, taskID, submissionID, recordedBy string) (int, error) {
@@ -23,6 +26,10 @@ func (r *captureVaccinationRecorder) RecordCompletionsFromSubmission(_ context.C
 	r.sub = submissionID
 	r.by = recordedBy
 	return r.count, nil
+}
+
+func (r *captureVaccinationRecorder) SubmissionCompletions(_ context.Context, _ string, _ string) ([]vaccinationdomain.SubmissionCompletion, error) {
+	return append([]vaccinationdomain.SubmissionCompletion(nil), r.completions...), nil
 }
 
 func TestVaccinationSubmissionBridgeOnlyRecordsVaccinationTasks(t *testing.T) {
@@ -68,17 +75,26 @@ func (p *captureVerificationProducer) CreateItem(_ context.Context, in verificat
 	return verificationdomain.CreateItemResult{Item: verificationdomain.Item{ItemID: "item-1", TenantID: in.TenantID}, Created: true}, nil
 }
 
-func TestVaccinationSubmissionBridgeEmitsVerificationItemWithMedia(t *testing.T) {
-	rec := &captureVaccinationRecorder{count: 1}
+func TestVaccinationSubmissionBridgeEmitsOneVerificationItemPerGoatWithAllClips(t *testing.T) {
+	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
+	rec := &captureVaccinationRecorder{
+		count: 2,
+		completions: []vaccinationdomain.SubmissionCompletion{
+			{CompletionID: "completion-1", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ParkID: "park-1", AdministeredAt: administeredAt},
+			// Two vaccines administered during the same handling still produce ONE goat proof item.
+			{CompletionID: "completion-2", SubmissionID: "sub-1", GoatID: "goat-1", ShedID: "shed-1", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
+		},
+	}
 	producer := &captureVerificationProducer{}
 	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	goatID := "goat-1"
 	submission := sopdomain.SubmissionSummary{
 		SubmissionID: "sub-1",
 		SubmittedBy:  "operator-1",
 		SubmittedAt:  "2026-07-13T08:00:00Z",
 		ProofRefs: []sopdomain.ProofReference{
-			{ProofID: "proof-1"},
-			{ProofID: "proof-2"},
+			{ProofID: "proof-1", SubjectType: "goat", SubjectID: &goatID},
+			{ProofID: "proof-2", SubjectType: "goat", SubjectID: &goatID},
 		},
 	}
 	task := sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive", ScopeType: "shed", ScopeID: "shed-1"}
@@ -97,35 +113,63 @@ func TestVaccinationSubmissionBridgeEmitsVerificationItemWithMedia(t *testing.T)
 	if producer.last.ShedID == nil || *producer.last.ShedID != "shed-1" {
 		t.Fatalf("shed id = %v, want shed-1", producer.last.ShedID)
 	}
-	if producer.last.IdempotencyKey != "vaccination:submission:sub-1" {
+	if producer.last.ParkID == nil || *producer.last.ParkID != "park-1" {
+		t.Fatalf("park id = %v, want park-1", producer.last.ParkID)
+	}
+	if producer.last.Source.RefType != "vaccination_goat" || producer.last.Source.RefID != goatID {
+		t.Fatalf("source = %+v, want vaccination_goat/%s", producer.last.Source, goatID)
+	}
+	if !producer.last.CapturedAt.Equal(administeredAt) {
+		t.Fatalf("captured at = %s, want operator administered_at %s", producer.last.CapturedAt, administeredAt)
+	}
+	if producer.last.IdempotencyKey != "vaccination:submission:sub-1:goat:goat-1" {
 		t.Fatalf("idempotency key = %q", producer.last.IdempotencyKey)
 	}
 }
 
-func TestVaccinationSubmissionBridgeSkipsVerificationItemWithoutMedia(t *testing.T) {
-	rec := &captureVaccinationRecorder{count: 1}
+func TestVaccinationSubmissionBridgeFailsWhenScannedGoatHasNoCameraProof(t *testing.T) {
+	rec := &captureVaccinationRecorder{
+		count: 1,
+		completions: []vaccinationdomain.SubmissionCompletion{{
+			CompletionID:   "completion-1",
+			SubmissionID:   "sub-1",
+			GoatID:         "goat-1",
+			AdministeredAt: time.Date(2026, 7, 13, 8, 0, 0, 0, time.UTC),
+		}},
+	}
 	producer := &captureVerificationProducer{}
 	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
 	submission := sopdomain.SubmissionSummary{SubmissionID: "sub-1", SubmittedBy: "operator-1"}
-	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission); err != nil {
-		t.Fatalf("vaccination submit: %v", err)
+	err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission)
+	if !errors.Is(err, ErrMissingGoatProof) {
+		t.Fatalf("err = %v, want ErrMissingGoatProof", err)
 	}
 	if producer.calls != 0 {
-		t.Fatalf("verification producer calls = %d, want 0 (no media captured)", producer.calls)
+		t.Fatalf("verification producer calls = %d, want 0", producer.calls)
 	}
 }
 
-func TestVaccinationSubmissionBridgeNeverFailsSubmissionOnVerificationError(t *testing.T) {
-	rec := &captureVaccinationRecorder{count: 1}
+func TestVaccinationSubmissionBridgeFailsClosedOnVerificationError(t *testing.T) {
+	administeredAt := time.Date(2026, 7, 13, 8, 0, 0, 0, time.UTC)
+	rec := &captureVaccinationRecorder{
+		count: 1,
+		completions: []vaccinationdomain.SubmissionCompletion{{
+			CompletionID:   "completion-1",
+			SubmissionID:   "sub-1",
+			GoatID:         "goat-1",
+			AdministeredAt: administeredAt,
+		}},
+	}
 	producer := &captureVerificationProducer{err: errors.New("boom")}
 	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	goatID := "goat-1"
 	submission := sopdomain.SubmissionSummary{
 		SubmissionID: "sub-1",
 		SubmittedBy:  "operator-1",
-		ProofRefs:    []sopdomain.ProofReference{{ProofID: "proof-1"}},
+		ProofRefs:    []sopdomain.ProofReference{{ProofID: "proof-1", SubjectType: "goat", SubjectID: &goatID}},
 	}
-	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission); err != nil {
-		t.Fatalf("verification producer failure must not fail the vaccination submission fanout: %v", err)
+	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission); err == nil {
+		t.Fatal("verification producer failure must fail the submission fanout")
 	}
 	if producer.calls != 1 {
 		t.Fatalf("verification producer calls = %d, want 1", producer.calls)

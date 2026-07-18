@@ -295,7 +295,8 @@ func routeRoles(route permissions.Route, grants []permissions.ActiveGrant, tenan
 
 func routeAllowsScopedGrants(route permissions.Route) bool {
 	return strings.HasPrefix(route.Pattern, "/calendar/") ||
-		strings.HasPrefix(route.Pattern, "/app/vaccination/")
+		strings.HasPrefix(route.Pattern, "/app/vaccination/") ||
+		strings.HasPrefix(route.Pattern, "/verification/")
 }
 
 // DevHeadersEnvironmentAllowed is the exact allowlist for the local/dev header

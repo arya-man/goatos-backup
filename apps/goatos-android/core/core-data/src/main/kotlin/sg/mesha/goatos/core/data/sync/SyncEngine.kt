@@ -210,6 +210,8 @@ class SyncEngine(
         OutboxOpType.VERIFY_TASK -> dispatchVerifyTask(item)
         OutboxOpType.REWORK_TASK -> dispatchReworkTask(item)
         OutboxOpType.VERIFICATION_VERDICT -> dispatchVerificationVerdict(item)
+        OutboxOpType.VERIFICATION_CLOSE -> dispatchVerificationClose(item)
+        OutboxOpType.VERIFICATION_CLOSE_SUBMISSION -> dispatchVerificationSubmissionClose(item)
     }
 
     private suspend fun dispatchShedSubmit(item: OutboxEntity): String {
@@ -325,6 +327,18 @@ class SyncEngine(
     private suspend fun dispatchVerificationVerdict(item: OutboxEntity): String {
         val payload = syncJson.decodeFromString<VerificationVerdictPayload>(item.payloadJson)
         val response = api.submitVerificationVerdict(payload.itemId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchVerificationClose(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<VerificationClosePayload>(item.payloadJson)
+        val response = api.closeVerificationItem(payload.itemId, item.idempotencyKey, payload.request)
+        return syncJson.encodeToString(response)
+    }
+
+    private suspend fun dispatchVerificationSubmissionClose(item: OutboxEntity): String {
+        val payload = syncJson.decodeFromString<VerificationCloseSubmissionPayload>(item.payloadJson)
+        val response = api.closeVerificationSubmission(payload.submissionId, item.idempotencyKey)
         return syncJson.encodeToString(response)
     }
 

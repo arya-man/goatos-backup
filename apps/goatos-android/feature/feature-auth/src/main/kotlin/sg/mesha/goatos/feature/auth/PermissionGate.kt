@@ -48,11 +48,8 @@ import sg.mesha.goatos.core.permissions.shouldShowRationale
 /**
  * Login-time, OS-version-aware device-permission gate
  * (docs/mobile/rfid-keyboard-reader.md permission matrix +
- * docs/mobile/trd-operator-mobile.md §7). Field operators grant Camera / Bluetooth
- * "nearby devices" / Notifications up front on the login screen — not mid-task on the
- * scan or submit screens. Every permission here is OPTIONAL (TRD §14: the phone is a
- * dumb renderer, never a gatekeeper): denying one degrades a capability with an honest
- * reason (design-system.md InfoBox pattern) — it never blocks sign-in.
+ * docs/mobile/trd-operator-mobile.md §7). This is an optional readiness card only;
+ * mandatory operator capture checks live on the scan/submit route after role resolution.
  *
  * This is DEVICE permission UX only. Server-authoritative RBAC (TRD §7/§14) is
  * completely unaffected — no permission state here changes what the backend allows.
@@ -61,7 +58,9 @@ import sg.mesha.goatos.core.permissions.shouldShowRationale
  * operator's login screen stays uncluttered (no dead/static UI — repo standing rule).
  */
 @Composable
-fun PermissionGateCard(modifier: Modifier = Modifier) {
+fun PermissionGateCard(
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     val activity = context as? Activity
     val required = remember { AppPermission.requiredForSdkInt() }

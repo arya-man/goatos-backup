@@ -21,6 +21,9 @@
     <string name="overview_assign_team_label">Assign team</string>
     <string name="overview_backlog_title">Backlog by vaccine · pending doses</string>
     <string name="overview_needs_decision_title">Needs a decision</string>
+    <string name="overview_verified_closure_title">Verified · ready to close</string>
+    <string name="overview_close_action">Close drive</string>
+    <string name="overview_close_queueing">Queueing…</string>
     <string name="overview_coverage_by_park_title">Coverage by park</string>
     <string name="overview_empty_title">No overview work right now</string>
     <string name="overdue_empty_title">No overdue animals</string>

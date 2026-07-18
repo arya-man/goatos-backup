@@ -53,17 +53,14 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 enum class SyncState { DRAFT, QUEUED, SYNCING, ACKED, CONFLICT, DEAD_LETTER }
 
 /**
- * One due vaccine group inside the shed record. All values are backend-owned:
- * the app renders [given]/[due], the [dose] string, and a proof pill only when
- * the backend marks [proofRequired].
+ * One due vaccine group inside the shed record. Proof is deliberately not attached to a vaccine
+ * row: one camera clip can cover every vaccine administered to a goat in the same handling.
  */
 data class VaccineGroup(
     val name: String,
     val given: Int,
     val due: Int,
     val dose: String,
-    val proofRequired: Boolean,
-    val proofLabel: String = "Video proof required",
 )
 
 /** Hoisted state for [SubmitScreen]. Every visible string is a field.
@@ -84,6 +81,11 @@ data class SubmitUiState(
     val canSubmit: Boolean,
     /** 0f..1f, rendered as a bar while [syncState] is [SyncState.SYNCING]. */
     val syncProgress: Float = 0f,
+    /** Room-first per-goat camera-proof progress for this shed. Finalize never uploads these. */
+    val goatProofTotal: Int = 0,
+    val goatProofSynced: Int = 0,
+    val goatProofUploading: Int = 0,
+    val goatProofFailed: Int = 0,
     /** Current retry attempt count (used in format strings for localization). */
     val attemptCount: Int = 0,
     /** Maximum retry attempts allowed (used in format strings for localization). */
@@ -100,9 +102,9 @@ data class SubmitUiState(
     val isQueueFailed: Boolean = false,
     /** True when a retry request failed (DEAD_LETTER state). */
     val isRetryFailed: Boolean = false,
-    /** MOB-002 role gate: true when the signed-in principal has no operator profile (e.g. a
-     *  leadership/approver-only role) — capture + submit are ground-operator/park-manager
-     *  only (docs/mobile/proof-capture-sync-and-e2e.md §5). */
+    /** MOB-002 role gate: true when the signed-in principal is not a ground operator (for
+     *  example, a verifier or leadership-only principal). Only operators capture and submit
+     *  (docs/mobile/proof-capture-sync-and-e2e.md §5). */
     val isCaptureRoleBlocked: Boolean = false,
     /** MOB-002: the SOP `form_dsl` recording form for this task, rendered inline below the
      *  shed-record summary. Null when the task's form has no fields to capture — the shed
@@ -222,6 +224,11 @@ fun SubmitScreen(
         ) {
             item {
                 RecordSummary(state)
+            }
+            if (state.goatProofTotal > 0) {
+                item {
+                    GoatProofSummary(state)
+                }
             }
             state.formRunner?.let { runner ->
                 item {
@@ -369,30 +376,79 @@ private fun VaccineGroupCard(group: VaccineGroup) {
             fraction = if (group.due > 0) group.given.toFloat() / group.due else 0f,
             color = T.brand,
         )
-        if (group.proofRequired) {
-            Spacer(Modifier.height(10.dp))
-            ProofPill(group.proofLabel)
-        }
     }
 }
 
 @Composable
-private fun ProofPill(label: String) {
-    Row(
-        modifier = Modifier
-            .background(T.warnX, RoundedCornerShape(999.dp))
-            .border(1.dp, T.warn, RoundedCornerShape(999.dp))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = MeshaIcons.Video,
-            contentDescription = null,
-            tint = T.warn,
-            modifier = Modifier.size(13.dp),
-        ) // video proof
-        Spacer(Modifier.width(6.dp))
-        Text(label, color = T.warn, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+private fun GoatProofSummary(state: SubmitUiState) {
+    val complete = state.goatProofSynced >= state.goatProofTotal && state.goatProofFailed == 0
+    val statusColor = when {
+        state.goatProofFailed > 0 -> T.danger
+        complete -> T.brandD
+        else -> T.warn
+    }
+    GoatCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .background(if (complete) T.okX else T.warnX, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = MeshaIcons.Video,
+                    contentDescription = null,
+                    tint = statusColor,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.submit_goat_proof_title),
+                    color = T.ink,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = stringResource(
+                        R.string.submit_goat_proof_synced,
+                        state.goatProofSynced,
+                        state.goatProofTotal,
+                    ),
+                    color = statusColor,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+        if (state.goatProofUploading > 0 || state.goatProofFailed > 0) {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (state.goatProofUploading > 0) {
+                    Text(
+                        stringResource(R.string.submit_goat_proof_uploading, state.goatProofUploading),
+                        color = T.warn,
+                        fontSize = 11.sp,
+                    )
+                }
+                if (state.goatProofFailed > 0) {
+                    Text(
+                        stringResource(R.string.submit_goat_proof_failed, state.goatProofFailed),
+                        color = T.danger,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+        }
+        if (complete) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.submit_goat_proof_finalize_hint),
+                color = T.muted,
+                fontSize = 11.sp,
+            )
+        }
     }
 }
 
@@ -480,7 +536,7 @@ private fun ProgressBar(fraction: Float, color: Color) {
 }
 
 // ---------------------------------------------------------------------------
-// Preview — fake backend-shaped state: a proof-required group + a SYNCING banner.
+// Preview — fake backend-shaped state with goat-level proof sync + a SYNCING banner.
 // ---------------------------------------------------------------------------
 
 private val previewState = SubmitUiState(
@@ -496,21 +552,18 @@ private val previewState = SubmitUiState(
             given = 50,
             due = 50,
             dose = "2 ml S/C",
-            proofRequired = true,
         ),
         VaccineGroup(
             name = "HS",
             given = 48,
             due = 50,
             dose = "2 ml S/C",
-            proofRequired = false,
         ),
         VaccineGroup(
             name = "PPR · Booster",
             given = 50,
             due = 50,
             dose = "1 ml S/C",
-            proofRequired = false,
         ),
     ),
     syncState = SyncState.SYNCING,
@@ -518,6 +571,9 @@ private val previewState = SubmitUiState(
     submitLabel = "Submit shed record",
     canSubmit = true,
     syncProgress = 0.66f,
+    goatProofTotal = 50,
+    goatProofSynced = 48,
+    goatProofUploading = 2,
     attemptCount = 0,
     maxAttempts = 0,
     lastError = null,

@@ -36,6 +36,8 @@ import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 
 // Wire DTOs for the nav slice of GET /app/bootstrap. The response (BootstrapResponse)
 // carries many more fields; with ignoreUnknownKeys the client only binds the ones it
@@ -363,6 +365,13 @@ interface AppApi {
         limit: Int? = null,
     ): VerificationQueueResponseDto
 
+    /** GET /verification/action-queue — verifier-approved items within the leadership grant scope. */
+    suspend fun listVerificationActionQueue(
+        category: String? = null,
+        cursor: String? = null,
+        limit: Int? = null,
+    ): VerificationQueueResponseDto
+
     /** POST /verification/items/{item_id}/verdict — the verifier's approve/reject + reason
      *  action (`verification.review` permission). Drained through the offline-sync outbox
      *  with a stable [idempotencyKey] exactly like [verifyAppTask]/[reworkAppTask], so a
@@ -372,6 +381,19 @@ interface AppApi {
         idempotencyKey: String,
         request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto
+
+    suspend fun closeVerificationItem(
+        itemId: String,
+        idempotencyKey: String,
+        request: VerificationCloseRequestDto,
+    ): VerificationVerdictResponseDto
+
+    /** POST /verification/submissions/{submission_id}/close — one atomic leadership action for
+     *  the complete verifier-approved vaccination drive submission. */
+    suspend fun closeVerificationSubmission(
+        submissionId: String,
+        idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto
 }
 
 /**
@@ -558,11 +580,28 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int?,
     ): VerificationQueueResponseDto = VerificationQueueResponseDto()
 
+    override suspend fun listVerificationActionQueue(
+        category: String?,
+        cursor: String?,
+        limit: Int?,
+    ): VerificationQueueResponseDto = VerificationQueueResponseDto()
+
     override suspend fun submitVerificationVerdict(
         itemId: String,
         idempotencyKey: String,
         request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto = VerificationVerdictResponseDto()
+
+    override suspend fun closeVerificationItem(
+        itemId: String,
+        idempotencyKey: String,
+        request: VerificationCloseRequestDto,
+    ): VerificationVerdictResponseDto = VerificationVerdictResponseDto()
+
+    override suspend fun closeVerificationSubmission(
+        submissionId: String,
+        idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto = VerificationCloseSubmissionResponseDto()
 }
 
 /**

@@ -39,3 +39,28 @@ type Gateway interface {
 	Name() string
 	Send(ctx context.Context, request domain.Request) error
 }
+
+// DeliveryResult is the provider acknowledgement for a successful send. ProviderMessageID is
+// optional because local/webhook adapters do not always return one, while FCM does.
+type DeliveryResult struct {
+	ProviderMessageID string
+}
+
+// ResultGateway is implemented by gateways that surface provider acknowledgements. The dispatcher
+// keeps the smaller Gateway contract for replaceable adapters and progressively uses this richer
+// contract when available.
+type ResultGateway interface {
+	Gateway
+	SendWithResult(ctx context.Context, request domain.Request) (DeliveryResult, error)
+}
+
+// ResultRepository persists a provider acknowledgement atomically with the sent transition and
+// immutable delivery-attempt ledger row.
+type ResultRepository interface {
+	Repository
+	MarkSentWithResult(
+		ctx context.Context,
+		tenantID, notificationRequestID, leaseToken, deliveredBy, providerMessageID string,
+		now time.Time,
+	) error
+}

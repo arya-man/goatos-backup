@@ -52,6 +52,7 @@ data class VerificationQueueItem(
     @SerialName("vertical") val vertical: String = "",
     @SerialName("module") val module: String = "",
     @SerialName("category") val category: String = "",
+    @SerialName("subject_label") val subjectLabel: String? = null,
     @SerialName("status") val status: String = "",
     @SerialName("captured_at") val capturedAt: String = "",
     @SerialName("row_version") val rowVersion: Int = 1,
@@ -66,6 +67,8 @@ data class VerificationQueueItem(
     @SerialName("park_label") val parkLabel: String? = null,
     @SerialName("verified_by") val verifiedBy: String? = null,
     @SerialName("verified_at") val verifiedAt: String? = null,
+    @SerialName("closed_by") val closedBy: String? = null,
+    @SerialName("closed_at") val closedAt: String? = null,
 )
 
 /** GET /verification/queue — keyset-paginated, category-filtered (~20/page, TRD §14). */
@@ -89,6 +92,17 @@ data class VerificationVerdictRequestDto(
 @Serializable
 data class VerificationVerdictResponseDto(
     @SerialName("item") val item: VerificationQueueItem = VerificationQueueItem(),
+    @SerialName("trace_id") val traceId: String = "",
+)
+
+@Serializable
+data class VerificationCloseRequestDto(
+    @SerialName("row_version") val rowVersion: Int,
+)
+
+@Serializable
+data class VerificationCloseSubmissionResponseDto(
+    @SerialName("items") val items: List<VerificationQueueItem> = emptyList(),
     @SerialName("trace_id") val traceId: String = "",
 )
 

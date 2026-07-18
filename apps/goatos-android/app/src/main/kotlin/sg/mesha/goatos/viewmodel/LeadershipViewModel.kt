@@ -13,14 +13,19 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ControlTowerRepository
 import sg.mesha.goatos.core.data.VaccinationInsightsRepository
+import sg.mesha.goatos.core.data.VerificationRepository
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationCoverageResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationGapsResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.feature.leadership.DataGapPill
 import sg.mesha.goatos.feature.leadership.DecisionRow
 import sg.mesha.goatos.feature.leadership.KpiTile
 import sg.mesha.goatos.feature.leadership.LeadershipEvent
 import sg.mesha.goatos.feature.leadership.LeadershipUiState
+import sg.mesha.goatos.feature.leadership.VerificationClosureRow
 import sg.mesha.goatos.feature.leadership.Tone
 import sg.mesha.goatos.ui.GapRow
 import sg.mesha.goatos.ui.GivenRow
@@ -51,6 +56,8 @@ import javax.inject.Inject
 class LeadershipViewModel @Inject constructor(
     private val controlTower: ControlTowerRepository,
     private val insights: VaccinationInsightsRepository,
+    private val verification: VerificationRepository,
+    private val syncRepository: SyncRepository,
 ) : ViewModel() {
 
     private var gapsNextCursor: String? = null
@@ -77,6 +84,10 @@ class LeadershipViewModel @Inject constructor(
             Resource(data = null)
         )
 
+    private val observedClosureResource: StateFlow<Resource<VerificationQueueResponseDto>> =
+        verification.observeActionQueue(category = VACCINATION_CATEGORY, limit = CLOSURE_LIMIT)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null))
+
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
@@ -89,17 +100,38 @@ class LeadershipViewModel @Inject constructor(
     private val _dosesIsLoading = MutableStateFlow(false)
     private val _dosesErrorMessage = MutableStateFlow<String?>(null)
     private val _dosesIsOffline = MutableStateFlow(false)
+    private val _closingSubmissions = MutableStateFlow<Set<String>>(emptySet())
 
     // Main state: combines observed summary with transient flags; lifecycle-aware
     val state: StateFlow<LeadershipUiState> = combine(
         observedSummaryResource,
+        observedClosureResource,
         _isRefreshing,
-        _isOffline
-    ) { resource, isRefreshing, isOffline ->
+        _isOffline,
+        _closingSubmissions,
+    ) { resource, closureResource, isRefreshing, isOffline, closingSubmissions ->
         val dto = resource.data
         val base = dto?.toLeadershipUiState()
             ?: if (resource.hasData) leadershipPlaceholder("No overview data") else leadershipPlaceholder("Loading overview…")
         base.copy(
+            verificationClosures = closureResource.data?.items.orEmpty()
+                .filter { !it.source.submissionId.isNullOrBlank() }
+                .groupBy { requireNotNull(it.source.submissionId) }
+                .map { (submissionId, items) ->
+                    val sheds = items.mapNotNull { it.shedLabel }.distinct()
+                    val park = items.firstNotNullOfOrNull { it.parkLabel }
+                    val operator = items.firstNotNullOfOrNull { it.operatorName }
+                    VerificationClosureRow(
+                        submissionId = submissionId,
+                        title = listOfNotNull(park, "Vaccination drive").joinToString(" · "),
+                        subtitle = buildList {
+                            add("${items.size} ${if (items.size == 1) "goat" else "goats"} verified")
+                            if (sheds.isNotEmpty()) add(sheds.joinToString(", "))
+                            if (!operator.isNullOrBlank()) add(operator)
+                        }.joinToString(" · "),
+                        isQueueing = submissionId in closingSubmissions,
+                    )
+                },
             isRefreshing = isRefreshing,
             lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
             isOffline = isOffline,
@@ -177,15 +209,29 @@ class LeadershipViewModel @Inject constructor(
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
         val summaryResult = controlTower.refreshSummary()
+        val closureResult = verification.refreshActionQueue(
+            category = VACCINATION_CATEGORY,
+            limit = CLOSURE_LIMIT,
+        )
         _isRefreshing.value = false
-        _isOffline.value = summaryResult.isFailure
+        _isOffline.value = summaryResult.isFailure || closureResult.isFailure
     }
 
     fun onEvent(event: LeadershipEvent) {
         when (event) {
             LeadershipEvent.Refresh -> refresh()
+            is LeadershipEvent.CloseVerificationDrive -> closeVerificationDrive(event.submissionId)
             // Everything else is either navigation (routed by the host) or not yet backed.
             else -> Unit
+        }
+    }
+
+    private fun closeVerificationDrive(submissionId: String) = viewModelScope.launch {
+        if (submissionId.isBlank() || submissionId in _closingSubmissions.value) return@launch
+        _closingSubmissions.update { it + submissionId }
+        when (syncRepository.enqueueVerificationSubmissionClose(submissionId)) {
+            is AppResult.Ok -> syncRepository.triggerDrain()
+            is AppResult.Err -> _closingSubmissions.update { it - submissionId }
         }
     }
 
@@ -318,6 +364,8 @@ data class OverlayLoadState<T>(
  *  (loadGaps/loadDosesGiven) so the cache-first stream and the refresh share one cache key. */
 private const val GAPS_LIMIT = 20
 private const val COVERAGE_LIMIT = 50 // mobile-guard:ignore: bounded vaccine protocol catalog, not an animal list
+private const val CLOSURE_LIMIT = 20
+private const val VACCINATION_CATEGORY = "vaccination_proof"
 
 // Data gaps are strictly per-animal: one card per goat (display id + physical tags + reason).
 // No rows → empty list → the sheet shows its empty state. There is no by-reason aggregate card.

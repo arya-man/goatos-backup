@@ -15,6 +15,9 @@
       "items": { "enum": ["photo", "video"] }
     },
     "minimum_count": { "type": "integer", "minimum": 0 },
+    "minimum_count_per_subject": { "type": "integer", "minimum": 0 },
+    "maximum_count_per_subject": { "type": "integer", "minimum": 0 },
+    "capture_source": { "enum": ["in_app_camera"] },
     "verify_before_apply": { "type": "boolean" },
     "retention_policy": {
       "type": "string",

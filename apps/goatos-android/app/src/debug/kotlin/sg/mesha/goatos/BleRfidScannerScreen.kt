@@ -400,6 +400,8 @@ private fun RfidDrivenVaccinationScanScreen(
                 ScanEvent.LoadMore -> Unit
                 ScanEvent.ReconnectReader -> onReconnect()
                 is ScanEvent.SelectGroup -> Unit
+                is ScanEvent.CaptureProof -> Unit
+                is ScanEvent.RetryProof -> Unit
             }
         },
     )

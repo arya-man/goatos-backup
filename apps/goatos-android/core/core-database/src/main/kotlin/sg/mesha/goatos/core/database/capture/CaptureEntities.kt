@@ -155,6 +155,7 @@ interface RfidScanAttemptDao {
     indices = [
         Index(value = ["idempotencyKey"], unique = true),
         Index(value = ["taskId", "fieldKey"]),
+        Index(value = ["taskId", "subjectId", "capturedAtMs"]),
     ],
 )
 data class ProofCaptureEntity(
@@ -167,6 +168,8 @@ data class ProofCaptureEntity(
     /** `shed` / `vial_lot` / `administration` / `extra` — mirrors the SOP's documented proof
      *  subjects (docs/mobile/proof-capture-sync-and-e2e.md §2 table). */
     val proofSubject: String,
+    /** Goat id for row-level vaccination evidence. Several clips may cover the same handling. */
+    val subjectId: String? = null,
     val localUri: String,
     val mimeType: String,
     /** Operator-entered description for an extra (beyond the named/required) video — the SOP's
@@ -212,8 +215,21 @@ interface ProofCaptureDao {
     )
     suspend fun listForTask(taskId: String, limit: Int = MAX_PROOFS_PER_TASK): List<ProofCaptureEntity>
 
-    @Query("SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND syncStatus != 'FAILED'")
-    suspend fun activeCountForTask(taskId: String): Int
+    @Query(
+        "SELECT * FROM proof_capture WHERE serverProofId IS NULL AND syncStatus IN ('PENDING', 'IN_FLIGHT') " +
+            "AND capturedAtMs < :capturedBeforeMs " +
+            "ORDER BY capturedAtMs ASC LIMIT :limit",
+    )
+    suspend fun listRecoverableUploads(
+        capturedBeforeMs: Long,
+        limit: Int = MAX_PROOFS_PER_TASK,
+    ): List<ProofCaptureEntity>
+
+    @Query(
+        "SELECT COUNT(*) FROM proof_capture WHERE taskId = :taskId AND subjectId = :subjectId " +
+            "AND syncStatus != 'FAILED'",
+    )
+    suspend fun activeCountForSubject(taskId: String, subjectId: String): Int
 
     @Query("SELECT * FROM proof_capture WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): ProofCaptureEntity?
@@ -240,8 +256,8 @@ interface ProofCaptureDao {
     suspend fun clearAll()
 
     companion object {
-        /** Business cap (docs/mobile/proof-capture-sync-and-e2e.md §2, maintainer-confirmed):
-         *  3 mandatory named videos (shed / vial_lot / administration) + up to 2 optional extras. */
-        const val MAX_PROOFS_PER_TASK = 5
+        /** Safety ceiling for a bounded task read; the write cap is five clips per goat. */
+        const val MAX_PROOFS_PER_TASK = 10_000
+        const val MAX_PROOFS_PER_GOAT = 5
     }
 }

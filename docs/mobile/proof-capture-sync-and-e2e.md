@@ -33,26 +33,21 @@ vendor SDK, no visible or invisible `EditText` (see `rfid-keyboard-reader.md`).
 
 ## 2. Video proof capture
 
-The vaccination SOP requires proof video(s). Per the current maintainer rule:
+The vaccination SOP requires proof on each scanned goat row:
 
-- **All three named videos are mandatory: `shed_video`, `vial_lot_video`, and
-  `administration_video` (proof subjects `shed` / `vial_lot` / `administration`).**
-  The operator may add up to **2 further optional videos** beyond the three
-  named ones, each with a free-text caption — so **minimum 3, maximum 5** total.
-  Submit stays blocked until all 3 mandatory videos are captured; the 2 extras
-  are optional.
-- Each field carries a plain `description` (form DSL supports `description`) so the
-  operator sees what each video is for. Admin edits these in the SOP form-builder;
-  they are served in `form_dsl`, never hardcoded on the client. The 3-mandatory +
-  2-optional-with-caption SHAPE is a client business rule (the cap + which slots
-  get a caption); WHICH fields are actually required, and their labels/
-  descriptions, stay server-driven via `form_dsl` `required`/`help_text` — the
-  client never hardcodes a field as required independent of what the server says.
+- Every scanned goat needs at least one completed camera clip before shed/drive
+  finalization. Proof is linked with `subject_type=goat` and that goat's UUID.
+- One clear handling clip can cover all vaccines administered to that goat in
+  the same handling. The UI never asks for one video per vaccine.
+- An operator can attach up to five clips to one goat row, allowing a second
+  angle or corrected clip without task-level shed/vial/administration slots.
+- The backend-owned `proof_policy` declares goat scope, clip limits, camera
+  source, and verify-before-apply. Android renders status on the goat row and
+  finalization validates the already-synced references.
 
 ## 2a. Camera-only capture (anti-fraud) — HARD BUSINESS RULE
 
-Every proof video (all 3 mandatory + up to 2 optional) **must be captured by
-LIVE, in-app camera recording only.**
+Every goat proof clip **must be captured by LIVE, in-app camera recording only.**
 
 - **Banned:** any file picker, gallery import, `ACTION_GET_CONTENT`,
   `ACTION_PICK`, or a generic gallery-capable chooser (including the platform
@@ -83,20 +78,13 @@ LIVE, in-app camera recording only.**
   in this design — camera-only changes WHERE the bytes come from, not the
   Room-first/outbox pipeline that follows.
 
-Field meanings (authored in the SOP, shown to the operator):
-
-| Subject | Field | Proves |
-| --- | --- | --- |
-| `shed` | shed_video (mandatory) | which shed / drive / group being vaccinated |
-| `vial_lot` | vial_lot_video (mandatory) | the vaccine vial + lot/batch number (traceability) |
-| `administration` | administration_video (mandatory) | the actual injection — dose given, not just logged |
-| `extra` | operator-added, up to 2 (optional, captioned) | anything else the operator judges worth proving (e.g. a second shed/batch) |
-
-Capture is abstracted behind a `ProofCaptureSource` port — in production, LIVE
+The proof subject is always `goat`; the goat row already carries the shed,
+drive, vaccine/lot, and administration context. Capture is abstracted behind a
+`ProofCaptureSource` port — in production, LIVE
 in-app CameraX recording ONLY (§2a, camera-only anti-fraud rule); a
 fake/injected file in tests — for the same testability reasons as `ScanSource`.
 Each captured video is written to Room first (§3) as a proof row with its
-`proof_subject`, then queued for upload.
+goat `subject_id`, then queued for upload.
 
 ## 3. Room-first, single source of truth, background sync
 
@@ -107,9 +95,12 @@ videos. Nothing is "submitted" straight to the network.
   call, each with an explicit sync status (`PENDING`, `IN_FLIGHT`, `SYNCED`,
   `FAILED`). The UI renders that status per row — identical mental model to the
   Android Photos / Google Drive "uploading / synced" indicators.
-- Sync runs both directions: the write outbox posts the submission + uploads the
-  proof blobs; server responses (accept / rework / verification outcome) are
-  written back into Room, which re-emits to the UI.
+- Every scan and clip creates its own draft outbox record immediately. Shed and
+  drive submit buttons only validate/finalize already-synced records; they are
+  not bulk-upload triggers.
+- Sync runs both directions: the write outbox posts draft scans, registers and
+  uploads proof blobs, then finalizes the submission; server responses (accept /
+  rework / verification outcome) are written back into Room and re-emitted.
 - **Background sync survives app close.** Uploads run under a foreground service
   with an ongoing notification showing progress (again, mirroring Photos/Drive
   background upload). Closing the app does not lose or pause an in-flight drive.
@@ -130,25 +121,19 @@ older Android), storage, and notifications. These are **mandatory**:
 
 ## 5. Role gating
 
-- **Mobile = capture + upload ONLY.** The Goat OS Android app has no approve/
-  reject screen and no verification queue — that surface does not exist on
-  mobile, full stop.
-- **Capture + submit (mobile):** ground operator / park manager (the
-  TaskExecute/ground tier) only. They scan goats, capture videos, and submit
+- **Capture + submit:** ground operator only. They scan goats, capture videos, and submit
   the drive. Role is derived from `/app/bootstrap` (an operator profile
   present = capture allowed); the capture surface — and the mandatory
   permission gate in front of it — never render for a principal with no
   operator profile.
-- **Leadership on mobile:** a leadership principal (Director / CxO / CEO / a
-  dedicated video-verification role) simply keeps their existing read-only
-  mobile nav (Overview / Calendar / Alerts) — no capture surface, no
-  approve/reject affordance, nothing verification-related on the phone at all.
-- **Approve / reject (proof_verification → accepted | rework):** lives
-  entirely on the **admin-web frontend** — the Head/Director/CEO/Video-
-  Verification-Team review captured proof videos and approve or request
-  rework there, matching the SOP workflow `operator_submission →
-  proof_verification → accepted | rework`. This is out of mobile scope
-  entirely; do not build any part of it on mobile.
+- **Verify:** the dedicated verifier section is generic across modules.
+  Vaccination is active; Counts and Feed Direction are visible as under
+  construction. Verifiers approve/reject goat proof items and provide a reason
+  for rework. They cannot scan or capture.
+- **Operational close:** scoped Park Heads/Directors and tenant-wide CEO/CxO
+  leadership see fully approved drive submissions. One close action atomically
+  closes the drive and emits one accepted medical transition per goat. The
+  medical date remains the operator's `administered_at`.
 
 ## 6. E2E testing (emulator, no BT/camera hardware)
 
@@ -170,8 +155,9 @@ in the emulator with **no physical reader and no real camera**:
   resumable).
 - **What still needs a physical device (final QA only):** real Bluetooth pairing
   with the actual reader, and real camera capture quality. Everything else —
-  scan→Room, up-to-5 video capture, mandatory-permission gate, background upload,
-  role gating, submit→approve/reject — is covered by emulator E2E.
+  scan→Room, one-to-five clips per goat, mandatory-permission gate, background
+  upload, role gating, and submit→verify→leadership close is covered by
+  emulator and isolated-backend E2E.
 
 ## 7. Anti-pattern guardrails this must respect
 

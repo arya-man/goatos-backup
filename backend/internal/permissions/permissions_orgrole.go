@@ -195,8 +195,9 @@ func ScopeIDsForPermission(grants []ActiveGrant, permission, scopeType string) [
 // -- who can DO what (target model)").
 //
 // This intentionally corrects the business-wrong capture affordance that doc
-// calls out: Head and Director do NOT get TaskExecute/VaccinationVerify --
-// capture is ground-only (Manager + Assistant Manager), verify is Verifier
+// calls out: only the explicit Operator role gets TaskExecute. Organization
+// managers, heads, and directors supervise/act but never hold the scanner,
+// verify is Verifier
 // (+ CEO/CxO override) only, act-on-verdict is Head/Director/CEO. The
 // existing flat legacy roles (RoleParkHead, RolePCDirector in
 // permissions.go's rolePermissions) are UNCHANGED by this file and keep
@@ -209,20 +210,20 @@ func ScopeIDsForPermission(grants []ActiveGrant, permission, scopeType string) [
 // TestTierPermissionsCoverOnlyKnownPermissions in
 // permissions_orgrole_test.go.
 var tierPermissions = map[Tier]map[string]struct{}{
-	// Assistant Manager (AM) / Operator tier -- ground execution: do the
-	// task, capture proof (RFID scan + record videos), submit.
+	// Assistant Manager supervises ground execution. The separate Operator role
+	// owns RFID/camera capture and submit.
 	TierAssistantManager: {
 		GoatRead: {}, AppBootstrap: {},
-		TaskRead: {}, TaskExecute: {},
+		TaskRead:       {},
 		ObligationRead: {}, VaccinationRead: {},
 		CalendarRead:    {},
 		ProcurementRead: {}, ProcurementWrite: {},
 	},
 	// Manager tier -- run the vertical's daily ops at a park, supervise AMs,
-	// can also capture, manage the local roster.
+	// manages the local roster without capturing.
 	TierManager: {
 		GoatRead: {}, AppBootstrap: {},
-		TaskRead: {}, TaskAssign: {}, TaskExecute: {},
+		TaskRead: {}, TaskAssign: {},
 		ObligationRead: {}, VaccinationRead: {},
 		CalendarRead: {}, CalendarAction: {},
 		OperatorsRead: {}, OperatorsManageRoster: {},
@@ -241,6 +242,7 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
+		VerificationAct: {},
 	},
 	// Director tier -- owns the vertical: plan/logistics/oversee execution,
 	// set SOPs/protocols, act, penalise. No capture, no verify.
@@ -255,6 +257,7 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
+		VerificationAct: {},
 	},
 }
 

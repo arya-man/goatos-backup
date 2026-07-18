@@ -59,7 +59,7 @@ func TestKernelStoryAJ_LeadershipReviewRoutes(t *testing.T) {
 		 VALUES ($1, $2, 'VAC-E2E-AJ', 'E2E Story AJ vaccine', 'vaccine', 'dose')`, itemID, fxTenant)
 	fx.exec("vaccine stock",
 		`INSERT INTO inventory_stock (stock_id, tenant_id, item_id, location_id, quantity_in_stock, quantity_reserved, quantity_unit, expiry_date)
-		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', CURRENT_DATE + INTERVAL '10 years')`, lotID, fxTenant, itemID, shedID)
+		 VALUES ($1, $2, $3, $4, 10, 0, 'dose', CURRENT_DATE + INTERVAL '10 years')`, lotID, fxTenant, itemID, fxPark)
 
 	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	gen := vaccapp.NewGenerationService(fx.Proto, fx.Vacc, fx.Obl)
@@ -82,12 +82,13 @@ func TestKernelStoryAJ_LeadershipReviewRoutes(t *testing.T) {
 	taskID := fx.scanText(`SELECT ob.sop_task_id::text FROM obligation_instances oi JOIN obligation_batches ob ON ob.tenant_id=oi.tenant_id AND ob.batch_id=oi.batch_id WHERE oi.tenant_id=$1 AND oi.obligation_id=$2::uuid`, fxTenant, obligationID)
 	batchID := fx.scanText(`SELECT batch_id::text FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2::uuid`, fxTenant, obligationID)
 	story.Assert("drive has obligation, batch, and task ids", obligationID != "" && batchID != "" && taskID != "", "obligation=%s batch=%s task=%s", obligationID, batchID, taskID)
+	reservedLot := reservedLotForBatch(t, fx, batchID)
 
 	story.Step("Operator submits proof-backed vaccination through SOP",
 		"The operator supplies the exact goat, lot, cold-chain, route-site, administered-at, and proof refs. "+
 			"Submission fanout creates a recorded completion but does not complete the obligation yet.")
 	administeredAt := due.Add(9 * time.Hour)
-	first, err := h.submit(taskID, shedID, operatorID, lotID, []string{goatID}, administeredAt, "story-aj-submit-1", "subcutaneous")
+	first, err := h.submit(taskID, shedID, operatorID, reservedLot, []string{goatID}, administeredAt, "story-aj-submit-1", "subcutaneous")
 	firstState := ""
 	firstRowVersion := 0
 	if first != nil {
@@ -160,7 +161,7 @@ func TestKernelStoryAJ_LeadershipReviewRoutes(t *testing.T) {
 
 	story.Step("Operator re-submits and CEO/CXO verifies through the admin-web route",
 		"The second submission is a fresh proof-backed attempt. CEO/CXO closes it through the current admin-web review route; SM-5 accepts the completion and completes the obligation.")
-	second, err := h.submit(taskID, shedID, operatorID, lotID, []string{goatID}, administeredAt.Add(30*time.Minute), "story-aj-submit-2", "subcutaneous")
+	second, err := h.submit(taskID, shedID, operatorID, reservedLot, []string{goatID}, administeredAt.Add(30*time.Minute), "story-aj-submit-2", "subcutaneous")
 	secondState := ""
 	secondRowVersion := 0
 	if second != nil {

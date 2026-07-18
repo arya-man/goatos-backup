@@ -2999,8 +2999,8 @@ paths:
         Reject REQUIRES a non-empty reason (422 otherwise -- a syntactically valid request that fails
         the business rule). Optimistic concurrency via row_version. Approving does NOT complete or act
         on the underlying producer record (e.g. a vaccination obligation) -- the verifier's verdict is
-        advisory input; the authority (Head/Director/CEO) acts separately via the existing
-        /admin/tasks/{task_id}/verify|rework surface.
+        advisory input; an authorized Park Head/Director/CEO/CxO closes the complete drive
+        submission only after every goat proof in it has been approved.
       parameters:
         - name: item_id
           in: path
@@ -3033,6 +3033,120 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /verification/action-queue:
+    get:
+      tags:
+        - Verification
+      operationId: listVerificationActionQueue
+      summary: List verifier-approved items awaiting scoped leadership closure.
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 120
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 512
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Scoped leadership action queue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationQueueResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /verification/items/{item_id}/close:
+    post:
+      tags:
+        - Verification
+      operationId: closeVerificationItem
+      summary: Operationally close an independently approved item.
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerificationCloseRequest"
+      responses:
+        "200":
+          description: Item closed; the producer applies its business transition asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationVerdictResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /verification/submissions/{submission_id}/close:
+    post:
+      tags:
+        - Verification
+      operationId: closeVerificationSubmission
+      summary: Operationally close one fully verifier-approved drive submission.
+      description: >-
+        Atomically closes every goat proof item in the operator submission. The request fails
+        closed unless every item has an approved verifier verdict. Replays after a successful
+        close return the already-closed item set.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: submission_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Drive submission closed; producer transitions are emitted per goat.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationCloseSubmissionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "409":
+          $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
 components:
@@ -9655,6 +9769,9 @@ components:
           type: string
         category:
           type: string
+        subject_label:
+          type: string
+          description: Backend-owned goat/subject display label; never a raw UUID fallback.
         status:
           $ref: "#/components/schemas/VerificationItemStatus"
         verdict_reason:
@@ -9684,6 +9801,12 @@ components:
           type: string
           format: uuid
         verified_at:
+          type: string
+          format: date-time
+        closed_by:
+          type: string
+          format: uuid
+        closed_at:
           type: string
           format: date-time
         row_version:
@@ -9739,5 +9862,27 @@ components:
       properties:
         item:
           $ref: "#/components/schemas/VerificationQueueItem"
+        trace_id:
+          type: string
+    VerificationCloseRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - row_version
+      properties:
+        row_version:
+          type: integer
+          minimum: 1
+    VerificationCloseSubmissionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - trace_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationQueueItem"
         trace_id:
           type: string

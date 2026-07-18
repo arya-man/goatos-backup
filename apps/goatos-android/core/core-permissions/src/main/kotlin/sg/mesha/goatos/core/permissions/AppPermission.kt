@@ -5,10 +5,9 @@ import android.os.Build
 
 /**
  * The fixed catalog of runtime permissions Goat OS Android requests, each OS-version
- * gated by [minSdkInt]. Every entry is [optional] by design — TRD §14 "the phone is a
- * dumb renderer", never a gatekeeper, and screens.md's login states have no
- * permission-block state. Denying an optional permission only degrades a capability
- * (scan / proof capture / alerts); it never locks the operator out of sign-in.
+ * gated by [minSdkInt]. Login never requests these before the backend role is known.
+ * Operator capture routes use their own mandatory gate; denying one here only degrades
+ * its matching capability and never locks a verifier or leader out of the app.
  *
  * Sources (build to these, not an invented matrix):
  *  - docs/mobile/rfid-keyboard-reader.md — "Android Version And Permissions" +
@@ -16,10 +15,8 @@ import android.os.Build
  *    branded pairing wizard". The keyboard-wedge reader is read via `InputManager`
  *    (no permission) plus `BluetoothAdapter.getBondedDevices()` / ACL broadcasts as a
  *    secondary signal, which is what needs runtime `BLUETOOTH_CONNECT` on API 31+.
- *    V1 never calls `startDiscovery()`/BLE scan, so `BLUETOOTH_SCAN` and
- *    `ACCESS_FINE_LOCATION` are declared in the manifest for completeness (matching the
- *    doc's reference matrix) but are deliberately NOT requested here — requesting a
- *    permission the app never uses is exactly the over-request the doc warns against.
+ *    V1 never calls `startDiscovery()`/BLE scan, so `BLUETOOTH_SCAN` and location are
+ *    deliberately not part of this login-time catalog.
  *  - docs/mobile/trd-operator-mobile.md §7 — CameraX proof capture, FCM alerts.
  */
 // Permission constants added after minSdk (BLUETOOTH_CONNECT API 31, POST_NOTIFICATIONS

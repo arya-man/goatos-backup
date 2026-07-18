@@ -1623,6 +1623,67 @@ WHERE vc.tenant_id = $1
 	return count, nil
 }
 
+// ListSubmissionCompletions returns the materialized completion rows for one SOP submission.
+// Grain is completion, ordered by (goat_id, completion_id); callers group by goat. The query is
+// tenant + submission scoped, uses the unique sop_submission_item linkage, and is hard bounded by
+// the SOP fan-out ceiling so it cannot become a herd-scale read.
+func (r *Repository) ListSubmissionCompletions(ctx context.Context, tenantID, submissionID string) ([]domain.SubmissionCompletion, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: tenant id: %w", err)
+	}
+	submission, err := pgconv.UUID(submissionID)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: submission id: %w", err)
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT vc.completion_id::text,
+       si.submission_id::text,
+       vc.goat_id::text,
+       g.display_id,
+       COALESCE(g.shed_id::text, ''),
+       COALESCE(g.park_id::text, ''),
+       vc.administered_at
+FROM vaccination_completions vc
+JOIN sop_submission_items si
+  ON si.tenant_id = vc.tenant_id
+ AND si.item_id = vc.sop_submission_item_id
+JOIN goats g
+  ON g.tenant_id = vc.tenant_id
+ AND g.goat_id = vc.goat_id
+WHERE vc.tenant_id = $1
+  AND si.submission_id = $2
+ORDER BY vc.goat_id, vc.completion_id
+LIMIT 5000`, tenant, submission)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: list submission completions: %w", err)
+	}
+	defer rows.Close()
+	out := make([]domain.SubmissionCompletion, 0)
+	for rows.Next() {
+		var item domain.SubmissionCompletion
+		if err := rows.Scan(
+			&item.CompletionID,
+			&item.SubmissionID,
+			&item.GoatID,
+			&item.GoatLabel,
+			&item.ShedID,
+			&item.ParkID,
+			&item.AdministeredAt,
+		); err != nil {
+			return nil, fmt.Errorf("vaccination: scan submission completion: %w", err)
+		}
+		item.AdministeredAt = item.AdministeredAt.UTC()
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination: list submission completion rows: %w", err)
+	}
+	return out, nil
+}
+
 func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, submission pgtype.UUID) (eligibleItems, materializedItems int, err error) {
 	err = r.pool.QueryRow(ctx, `
 	SELECT count(si.item_id)::int,

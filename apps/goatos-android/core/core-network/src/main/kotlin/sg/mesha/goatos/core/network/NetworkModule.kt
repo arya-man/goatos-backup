@@ -50,6 +50,8 @@ import sg.mesha.goatos.core.network.dto.AppConfigResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationCloseRequestDto
+import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 
 const val TENANT_CONTEXT_HEADER: String = "X-GoatOS-Tenant-ID"
 const val LOCALE_CONTEXT_HEADER: String = "X-GoatOS-Locale"
@@ -242,12 +244,32 @@ interface AppApiService {
         @Query("limit") limit: Int?,
     ): VerificationQueueResponseDto
 
+    @GET("verification/action-queue")
+    suspend fun listVerificationActionQueue(
+        @Query("category") category: String?,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int?,
+    ): VerificationQueueResponseDto
+
     @POST("verification/items/{item_id}/verdict")
     suspend fun submitVerificationVerdict(
         @Path("item_id") itemId: String,
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto
+
+    @POST("verification/items/{item_id}/close")
+    suspend fun closeVerificationItem(
+        @Path("item_id") itemId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: VerificationCloseRequestDto,
+    ): VerificationVerdictResponseDto
+
+    @POST("verification/submissions/{submission_id}/close")
+    suspend fun closeVerificationSubmission(
+        @Path("submission_id") submissionId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic.
@@ -461,11 +483,29 @@ class RetrofitAppApi(
         limit: Int?,
     ): VerificationQueueResponseDto = service.listVerificationQueue(category, cursor, limit)
 
+    override suspend fun listVerificationActionQueue(
+        category: String?,
+        cursor: String?,
+        limit: Int?,
+    ): VerificationQueueResponseDto = service.listVerificationActionQueue(category, cursor, limit)
+
     override suspend fun submitVerificationVerdict(
         itemId: String,
         idempotencyKey: String,
         request: VerificationVerdictRequestDto,
     ): VerificationVerdictResponseDto = service.submitVerificationVerdict(itemId, idempotencyKey, request)
+
+    override suspend fun closeVerificationItem(
+        itemId: String,
+        idempotencyKey: String,
+        request: VerificationCloseRequestDto,
+    ): VerificationVerdictResponseDto = service.closeVerificationItem(itemId, idempotencyKey, request)
+
+    override suspend fun closeVerificationSubmission(
+        submissionId: String,
+        idempotencyKey: String,
+    ): VerificationCloseSubmissionResponseDto =
+        service.closeVerificationSubmission(submissionId, idempotencyKey)
 }
 
 /**

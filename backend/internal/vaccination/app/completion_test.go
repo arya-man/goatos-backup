@@ -364,6 +364,9 @@ func (r *completionRepoFake) ListRecordedCompletionsByTask(context.Context, stri
 func (r *completionRepoFake) RecordCompletionsFromSubmission(context.Context, string, string, string, string) (int, error) {
 	return 0, nil
 }
+func (r *completionRepoFake) ListSubmissionCompletions(context.Context, string, string) ([]domain.SubmissionCompletion, error) {
+	return nil, nil
+}
 
 func (r *completionRepoFake) ListRecordedCompletions(context.Context, string, string, *domain.RecordedCompletionCursor, int32) (domain.RecordedCompletionPage, error) {
 	return domain.RecordedCompletionPage{}, nil

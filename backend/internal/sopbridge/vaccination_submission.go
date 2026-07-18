@@ -3,14 +3,15 @@ package sopbridge
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"time"
+	"fmt"
 
 	sopdomain "github.com/vgoats/goatos/backend/internal/sop/domain"
+	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
 var ErrNoVaccinationCompletions = errors.New("vaccination fanout materialized no completions")
+var ErrMissingGoatProof = errors.New("vaccination submission is missing a completed camera proof for a scanned goat")
 
 // VaccinationVerificationCategory is the type-registry category vaccination proof submissions
 // register under (verification-module-design.md §2.3). Registered at composition time via
@@ -19,6 +20,7 @@ const VaccinationVerificationCategory = "vaccination_proof"
 
 type VaccinationSubmissionRecorder interface {
 	RecordCompletionsFromSubmission(ctx context.Context, tenantID, taskID, submissionID, recordedBy string) (int, error)
+	SubmissionCompletions(ctx context.Context, tenantID, submissionID string) ([]vaccinationdomain.SubmissionCompletion, error)
 }
 
 // VerificationProducer is the minimal slice of the generic Verification module's app.Service a
@@ -32,24 +34,16 @@ type VerificationProducer interface {
 type VaccinationSubmissionBridge struct {
 	recorder     VaccinationSubmissionRecorder
 	verification VerificationProducer
-	log          *slog.Logger
 }
 
 func NewVaccinationSubmissionBridge(recorder VaccinationSubmissionRecorder) *VaccinationSubmissionBridge {
-	return &VaccinationSubmissionBridge{recorder: recorder, log: slog.Default()}
+	return &VaccinationSubmissionBridge{recorder: recorder}
 }
 
-// WithVerificationProducer wires the additive verification-item hook (build-handover-20260713.md §1
-// P0 1a). Optional — a bridge without it behaves exactly as before (recorder-only).
+// WithVerificationProducer wires the generic verification producer. Production composition always
+// supplies it; recorder-only instances remain useful for focused vaccination fan-out tests.
 func (b *VaccinationSubmissionBridge) WithVerificationProducer(p VerificationProducer) *VaccinationSubmissionBridge {
 	b.verification = p
-	return b
-}
-
-func (b *VaccinationSubmissionBridge) WithLogger(log *slog.Logger) *VaccinationSubmissionBridge {
-	if log != nil {
-		b.log = log
-	}
 	return b
 }
 
@@ -64,72 +58,88 @@ func (b *VaccinationSubmissionBridge) OnTaskSubmitted(ctx context.Context, tenan
 	if count == 0 {
 		return ErrNoVaccinationCompletions
 	}
-	// Additive verification hook: enqueue the daily independent double-verification item for this
-	// drive/session's proof media. Best-effort and NEVER returned as an error — the sop submission
-	// fanout above is wired fail-closed (SubmitTask itself fails if OnTaskSubmitted errors), so a
-	// verification-side hiccup must not block a real vaccination proof submission. This means
-	// delivery here is at-least-once on the HAPPY path only; a stricter durable retry (its own
-	// outbox-backed queue) is a follow-up, not built in this pass.
-	b.emitVerificationItem(ctx, tenantID, task, submission)
-	return nil
+	if b.verification == nil {
+		return nil
+	}
+	completions, err := b.recorder.SubmissionCompletions(ctx, tenantID, submission.SubmissionID)
+	if err != nil {
+		return err
+	}
+	return b.emitVerificationItems(ctx, tenantID, task, submission, completions)
 }
 
-func (b *VaccinationSubmissionBridge) emitVerificationItem(ctx context.Context, tenantID string, task sopdomain.TaskSummary, submission sopdomain.SubmissionSummary) {
-	if b == nil || b.verification == nil {
-		return
-	}
-	mediaRefs := make([]string, 0, len(submission.ProofRefs))
+func (b *VaccinationSubmissionBridge) emitVerificationItems(
+	ctx context.Context,
+	tenantID string,
+	task sopdomain.TaskSummary,
+	submission sopdomain.SubmissionSummary,
+	completions []vaccinationdomain.SubmissionCompletion,
+) error {
+	proofsByGoat := make(map[string][]string)
 	for _, ref := range submission.ProofRefs {
-		if ref.ProofID != "" {
-			mediaRefs = append(mediaRefs, ref.ProofID)
+		if ref.ProofID == "" || ref.SubjectType != "goat" || ref.SubjectID == nil || *ref.SubjectID == "" {
+			continue
+		}
+		proofsByGoat[*ref.SubjectID] = append(proofsByGoat[*ref.SubjectID], ref.ProofID)
+	}
+	byGoat := make(map[string]vaccinationdomain.SubmissionCompletion)
+	for _, completion := range completions {
+		if completion.GoatID == "" {
+			continue
+		}
+		if existing, ok := byGoat[completion.GoatID]; !ok || completion.AdministeredAt.Before(existing.AdministeredAt) {
+			byGoat[completion.GoatID] = completion
 		}
 	}
-	if len(mediaRefs) == 0 {
-		// Nothing captured to independently verify.
-		return
-	}
-	capturedAt, parseErr := time.Parse(time.RFC3339Nano, submission.SubmittedAt)
-	if parseErr != nil {
-		capturedAt = time.Now().UTC()
+	if len(byGoat) == 0 {
+		return ErrNoVaccinationCompletions
 	}
 	taskID := task.TaskID
 	submissionID := submission.SubmissionID
-	var shedID *string
-	if task.ScopeType == "shed" && task.ScopeID != "" {
-		scope := task.ScopeID
-		shedID = &scope
-	}
 	var operatorID *string
 	if submission.SubmittedBy != "" {
 		by := submission.SubmittedBy
 		operatorID = &by
 	}
-	_, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
-		TenantID: tenantID,
-		Vertical: "preventive_care",
-		Module:   "vaccination",
-		Category: VaccinationVerificationCategory,
-		Source: verificationdomain.SourceRef{
+	for goatID, completion := range byGoat {
+		mediaRefs := proofsByGoat[goatID]
+		if len(mediaRefs) == 0 {
+			return fmt.Errorf("%w: goat_id=%s", ErrMissingGoatProof, goatID)
+		}
+		shedID := stringPtr(completion.ShedID)
+		parkID := stringPtr(completion.ParkID)
+		_, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
+			TenantID:     tenantID,
+			Vertical:     "preventive_care",
 			Module:       "vaccination",
-			TaskID:       &taskID,
-			SubmissionID: &submissionID,
-			RefType:      "sop_submission",
-			RefID:        submissionID,
-		},
-		MediaRefs:      mediaRefs,
-		OperatorID:     operatorID,
-		ShedID:         shedID,
-		CapturedAt:     capturedAt,
-		IdempotencyKey: "vaccination:submission:" + submissionID,
-	})
-	if err != nil && b.log != nil {
-		b.log.Error("verification_item_emit_failed",
-			slog.String("tenant_id", tenantID),
-			slog.String("task_id", taskID),
-			slog.String("submission_id", submissionID),
-			slog.String("error", err.Error()),
-		)
+			Category:     VaccinationVerificationCategory,
+			SubjectLabel: stringPtr(completion.GoatLabel),
+			Source: verificationdomain.SourceRef{
+				Module:       "vaccination",
+				TaskID:       &taskID,
+				SubmissionID: &submissionID,
+				RefType:      "vaccination_goat",
+				RefID:        goatID,
+			},
+			MediaRefs:      mediaRefs,
+			OperatorID:     operatorID,
+			ShedID:         shedID,
+			ParkID:         parkID,
+			CapturedAt:     completion.AdministeredAt,
+			IdempotencyKey: "vaccination:submission:" + submissionID + ":goat:" + goatID,
+		})
+		if err != nil {
+			return fmt.Errorf("create goat verification item %s: %w", goatID, err)
+		}
 	}
+	return nil
+}
+
+func stringPtr(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func isVaccinationTask(task sopdomain.TaskSummary) bool {

@@ -106,10 +106,24 @@ func (s *Service) RunOnce(ctx context.Context, tenantID string) (domain.Dispatch
 func (s *Service) dispatchOne(ctx context.Context, request domain.Request, result *domain.DispatchResult) error {
 	now := s.now()
 	sendStart := time.Now()
-	err := s.sendSafely(ctx, request)
+	delivery, err := s.sendSafely(ctx, request)
 	kmetrics.RecordNotifySend(ctx, request.Channel, time.Since(sendStart).Seconds())
 	if err == nil {
-		if markErr := s.repo.MarkSent(ctx, request.TenantID, request.NotificationRequestID, request.LeaseToken, s.gateway.Name(), now); markErr != nil {
+		var markErr error
+		if resultRepo, ok := s.repo.(ports.ResultRepository); ok {
+			markErr = resultRepo.MarkSentWithResult(
+				ctx,
+				request.TenantID,
+				request.NotificationRequestID,
+				request.LeaseToken,
+				s.gateway.Name(),
+				delivery.ProviderMessageID,
+				now,
+			)
+		} else {
+			markErr = s.repo.MarkSent(ctx, request.TenantID, request.NotificationRequestID, request.LeaseToken, s.gateway.Name(), now)
+		}
+		if markErr != nil {
 			return fmt.Errorf("mark notification sent: %w", markErr)
 		}
 		result.SentCount++
@@ -134,7 +148,7 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 	return nil
 }
 
-func (s *Service) sendSafely(ctx context.Context, request domain.Request) (err error) {
+func (s *Service) sendSafely(ctx context.Context, request domain.Request) (result ports.DeliveryResult, err error) {
 	defer func() {
 		if p := recover(); p != nil {
 			s.log.ErrorContext(ctx, "notification_gateway_panic",
@@ -147,7 +161,10 @@ func (s *Service) sendSafely(ctx context.Context, request domain.Request) (err e
 			err = errors.New("notification gateway panic")
 		}
 	}()
-	return s.gateway.Send(ctx, request)
+	if resultGateway, ok := s.gateway.(ports.ResultGateway); ok {
+		return resultGateway.SendWithResult(ctx, request)
+	}
+	return ports.DeliveryResult{}, s.gateway.Send(ctx, request)
 }
 
 func (s *Service) backoff(attempt int) time.Duration {

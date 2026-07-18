@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto
 import sg.mesha.goatos.core.network.dto.ValidationIssueDto
 import sg.mesha.goatos.core.network.dto.ValidationReportDto
 import sg.mesha.goatos.core.network.dto.VerificationDecision
+import sg.mesha.goatos.core.network.dto.VerificationCloseSubmissionResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictRequestDto
 import sg.mesha.goatos.core.network.dto.VerificationVerdictResponseDto
 import java.io.IOException
@@ -505,6 +506,41 @@ class SyncEngineTest {
         assertEquals(idempotencyKey, seenKey)
         assertEquals(VerificationDecision.APPROVED, seenDecision)
         assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-v1")!!.status)
+    }
+
+    @Test
+    fun `dispatches an atomic drive closure with the stable submission idempotency key`() = runBlocking {
+        val store = FakeOutboxStore()
+        val idempotencyKey = "submission-1-drive-close"
+        store.insert(
+            OutboxEntity(
+                id = "row-close-1",
+                opType = OutboxOpType.VERIFICATION_CLOSE_SUBMISSION.name,
+                groupKey = "submission-1",
+                idempotencyKey = idempotencyKey,
+                payloadJson = syncJson.encodeToString(
+                    VerificationCloseSubmissionPayload(submissionId = "submission-1"),
+                ),
+                status = OutboxStatus.QUEUED.name,
+                attemptCount = 0,
+                maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                conflict = false,
+                createdAt = 0L,
+                updatedAt = 0L,
+                nextAttemptAt = 0L,
+                lastError = null,
+                resultJson = null,
+            ),
+        )
+        val api = ScriptedAppApi().apply {
+            closeVerificationSubmissionFn = { _, _ -> VerificationCloseSubmissionResponseDto() }
+        }
+        val engine = SyncEngine(store, api, connectivityGate = { true }, clock = { 0L })
+
+        engine.drainOnce()
+
+        assertEquals(listOf("submission-1" to idempotencyKey), api.closeSubmissionCalls)
+        assertEquals(OutboxStatus.SUCCEEDED.name, store.findById("row-close-1")!!.status)
     }
 
     @Test

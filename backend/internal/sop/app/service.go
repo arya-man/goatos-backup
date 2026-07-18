@@ -839,7 +839,7 @@ func ValidateFormDSL(formDSL, proofPolicy map[string]any) domain.ValidationRepor
 	}
 	validateRepeatForEachGoat(&report, formDSL["repeat_for_each_goat"], seen)
 	validateRules(&report, formDSL["rules"], seen)
-	validateProofPolicy(&report, proofPolicy, fields)
+	validateProofPolicy(&report, proofPolicy, formDSL, fields)
 	return report
 }
 
@@ -941,6 +941,9 @@ func Evaluate(formDSL, proofPolicy map[string]any, answers map[string]any, proof
 	}
 	for _, subject := range missingExpectedProofSubjects(proofRefs, proofPolicy) {
 		addErrorToList(&out.Errors, "proof_refs", "proof_subject_required", "completed proof is required for subject "+subject)
+		proofBlocked = true
+	}
+	if validatePerGoatProofRefs(&out.Errors, answers, proofRefs, proofPolicy) {
 		proofBlocked = true
 	}
 	if proofBlocked {
@@ -1527,7 +1530,7 @@ func supportedConditionOperator(v string) bool {
 	}
 }
 
-func validateProofPolicy(report *domain.ValidationReport, policy map[string]any, fields []any) {
+func validateProofPolicy(report *domain.ValidationReport, policy, formDSL map[string]any, fields []any) {
 	if policy == nil {
 		addError(report, "proof_policy", "required", "proof_policy is required")
 		return
@@ -1557,9 +1560,20 @@ func validateProofPolicy(report *domain.ValidationReport, policy map[string]any,
 		if ok && minimum < 1 {
 			addError(report, "proof_policy.minimum_count", "invalid", "minimum_count must be at least 1 when proof is required")
 		}
-		if !hasProofFieldForTypes(fields, types) {
+		if !hasProofFieldForTypes(fields, types) && !hasGoatRowProofCapture(formDSL, subjectScope, types) {
 			addError(report, "proof_policy", "missing_proof_field", "proof policy requires a matching photo_proof or video_proof field")
 		}
+	}
+	minimumPerSubject, hasMinimumPerSubject := proofPolicyInteger(policy, "minimum_count_per_subject")
+	if _, exists := policy["minimum_count_per_subject"]; exists && !hasMinimumPerSubject {
+		addError(report, "proof_policy.minimum_count_per_subject", "invalid", "minimum_count_per_subject must be a non-negative integer")
+	}
+	maximumPerSubject, hasMaximumPerSubject := proofPolicyInteger(policy, "maximum_count_per_subject")
+	if _, exists := policy["maximum_count_per_subject"]; exists && !hasMaximumPerSubject {
+		addError(report, "proof_policy.maximum_count_per_subject", "invalid", "maximum_count_per_subject must be a non-negative integer")
+	}
+	if hasMinimumPerSubject && hasMaximumPerSubject && maximumPerSubject < minimumPerSubject {
+		addError(report, "proof_policy.maximum_count_per_subject", "invalid", "maximum_count_per_subject must be greater than or equal to minimum_count_per_subject")
 	}
 	if retention := stringValue(policy, "retention_policy"); retention != "" && !validProofRetentionPolicy(retention) {
 		addError(report, "proof_policy.retention_policy", "unsupported", "retention_policy must be operational_90d, standard_1y, critical_7y, or legal_hold")
@@ -1629,7 +1643,11 @@ func validProofRetentionPolicy(v string) bool {
 }
 
 func proofPolicyMinimum(policy map[string]any) (int, bool) {
-	switch v := policy["minimum_count"].(type) {
+	return proofPolicyInteger(policy, "minimum_count")
+}
+
+func proofPolicyInteger(policy map[string]any, key string) (int, bool) {
+	switch v := policy[key].(type) {
 	case float64:
 		i := int(v)
 		return i, v >= 0 && float64(i) == v
@@ -1642,6 +1660,22 @@ func proofPolicyMinimum(policy map[string]any) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func hasGoatRowProofCapture(formDSL map[string]any, subjectScope string, proofTypes []string) bool {
+	if subjectScope != "goat" || formDSL == nil {
+		return false
+	}
+	config, ok := formDSL["goat_row_proof"].(map[string]any)
+	if !ok || stringValue(config, "subject_scope") != "goat" || stringValue(config, "capture_source") != "in_app_camera" {
+		return false
+	}
+	for _, proofType := range proofTypes {
+		if proofType != "video" {
+			return false
+		}
+	}
+	return len(proofTypes) > 0
 }
 
 func validateAnswerValue(errors *[]domain.ValidationIssue, field map[string]any, value any) {
@@ -1888,6 +1922,87 @@ func expectedProofSubjects(policy map[string]any) []string {
 		if s := strings.TrimSpace(fmt.Sprint(value)); s != "" && s != "<nil>" {
 			out = append(out, s)
 		}
+	}
+	return out
+}
+
+// validatePerGoatProofRefs enforces the vaccination camera contract: every goat selected in the
+// submission has its own completed, server-resolved proof reference. A clip may cover multiple
+// vaccines administered to that same goat during one handling, but it must never cover a different
+// goat or silently satisfy the whole drive.
+func validatePerGoatProofRefs(errors *[]domain.ValidationIssue, answers map[string]any, refs []domain.ProofReference, policy map[string]any) bool {
+	if stringValue(policy, "subject_scope") != "goat" {
+		return false
+	}
+	minimum, ok := proofPolicyInteger(policy, "minimum_count_per_subject")
+	if !ok || minimum < 1 {
+		return false
+	}
+	maximum, hasMaximum := proofPolicyInteger(policy, "maximum_count_per_subject")
+	goatIDs := proofSubjectIDs(answers["goat_ids"])
+	if len(goatIDs) == 0 {
+		return false
+	}
+	wanted := make(map[string]bool, len(goatIDs))
+	for _, goatID := range goatIDs {
+		wanted[goatID] = true
+	}
+	allowedTypes := proofTypeSet(policy)
+	counts := make(map[string]int, len(goatIDs))
+	blocked := false
+	for _, ref := range refs {
+		if ref.ProofID == "" || (ref.UploadState != "" && ref.UploadState != "completed") {
+			continue
+		}
+		if len(allowedTypes) > 0 && !allowedTypes[ref.ProofType] {
+			continue
+		}
+		if ref.SubjectType != "goat" || ref.SubjectID == nil || strings.TrimSpace(*ref.SubjectID) == "" {
+			continue
+		}
+		goatID := strings.TrimSpace(*ref.SubjectID)
+		if !wanted[goatID] {
+			addErrorToList(errors, "proof_refs", "proof_subject_invalid", "completed goat proof does not belong to a scanned goat")
+			blocked = true
+			continue
+		}
+		counts[goatID]++
+	}
+	for _, goatID := range goatIDs {
+		if counts[goatID] < minimum {
+			addErrorToList(errors, "proof_refs", "proof_subject_required", "completed proof is required for each scanned goat")
+			blocked = true
+		}
+		if hasMaximum && maximum >= 0 && counts[goatID] > maximum {
+			addErrorToList(errors, "proof_refs", "proof_subject_limit", "completed proof count exceeds the per-goat limit")
+			blocked = true
+		}
+	}
+	return blocked
+}
+
+func proofSubjectIDs(raw any) []string {
+	var values []string
+	switch typed := raw.(type) {
+	case []any:
+		values = make([]string, 0, len(typed))
+		for _, value := range typed {
+			values = append(values, strings.TrimSpace(fmt.Sprint(value)))
+		}
+	case []string:
+		values = append(values, typed...)
+	default:
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || value == "<nil>" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
 	}
 	return out
 }

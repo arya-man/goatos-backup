@@ -176,6 +176,100 @@ func TestRecordVerdictLifecycle_RealPostgres(t *testing.T) {
 	}
 }
 
+func TestApprovedDriveClosesAtomicallyAndReplaysIdempotently_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	submissionID := "00000000-0000-4000-8000-000000000042"
+	create := func(key, goatID string) domain.Item {
+		result, err := repo.CreateItem(ctx, domain.CreateItem{
+			TenantID: tenantID, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+			Source: domain.SourceRef{
+				Module:       "vaccination",
+				SubmissionID: &submissionID,
+				RefType:      "vaccination_goat",
+				RefID:        goatID,
+			},
+			MediaRefs: []string{"proof-" + key}, CapturedAt: time.Now().In(biztime.DefaultLocation()),
+			IdempotencyKey: "vaccination:submission:" + submissionID + ":" + key,
+		})
+		if err != nil {
+			t.Fatalf("CreateItem(%s): %v", key, err)
+		}
+		return result.Item
+	}
+	first := create("goat-1", "00000000-0000-4000-8000-000000000101")
+	second := create("goat-2", "00000000-0000-4000-8000-000000000102")
+	approve := func(item domain.Item) {
+		if _, err := repo.RecordVerdict(ctx, domain.Verdict{
+			TenantID: tenantID, ItemID: item.ItemID, Decision: domain.DecisionApproved,
+			VerifierID: tenantID, RowVersion: item.RowVersion,
+		}); err != nil {
+			t.Fatalf("approve %s: %v", item.ItemID, err)
+		}
+	}
+	approve(first)
+
+	ready, err := repo.ListQueue(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", Status: domain.StatusApproved,
+		ReadyForClosure: true, Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListQueue partial approval: %v", err)
+	}
+	if len(ready) != 0 {
+		t.Fatalf("partial drive appeared in leadership queue: %+v", ready)
+	}
+	if _, err := repo.CloseSubmission(ctx, domain.CloseSubmissionAction{
+		TenantID: tenantID, SubmissionID: submissionID, ActorID: tenantID,
+	}); !errors.Is(err, ports.ErrConflict) {
+		t.Fatalf("partial approval close err=%v, want ErrConflict", err)
+	}
+
+	approve(second)
+	ready, err = repo.ListQueue(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", Status: domain.StatusApproved,
+		ReadyForClosure: true, Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListQueue complete approval: %v", err)
+	}
+	if len(ready) != 2 {
+		t.Fatalf("ready items=%d, want 2", len(ready))
+	}
+
+	closed, err := repo.CloseSubmission(ctx, domain.CloseSubmissionAction{
+		TenantID: tenantID, SubmissionID: submissionID, ActorID: tenantID,
+	})
+	if err != nil {
+		t.Fatalf("CloseSubmission: %v", err)
+	}
+	if len(closed) != 2 || closed[0].ClosedAt == nil || closed[1].ClosedAt == nil {
+		t.Fatalf("closed=%+v", closed)
+	}
+	replayed, err := repo.CloseSubmission(ctx, domain.CloseSubmissionAction{
+		TenantID: tenantID, SubmissionID: submissionID, ActorID: tenantID,
+	})
+	if err != nil || len(replayed) != 2 {
+		t.Fatalf("replayed close=%+v err=%v", replayed, err)
+	}
+	var closedEvents int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)
+FROM outbox_messages
+WHERE tenant_id = $1::uuid
+  AND event_type = $2`, tenantID, EventItemClosed).Scan(&closedEvents); err != nil {
+		t.Fatalf("count closed events: %v", err)
+	}
+	if closedEvents != 2 {
+		t.Fatalf("closed outbox events=%d, want 2", closedEvents)
+	}
+}
+
 func TestListQueueKeysetIsBoundedAndOrdered_RealPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

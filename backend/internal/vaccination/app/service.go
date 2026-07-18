@@ -157,6 +157,11 @@ func (s *Service) RecordCompletionsFromSubmission(ctx context.Context, tenantID,
 	return s.repo.RecordCompletionsFromSubmission(ctx, tenantID, taskID, submissionID, recordedBy)
 }
 
+// SubmissionCompletions returns the per-goat completion context created by one SOP submission.
+func (s *Service) SubmissionCompletions(ctx context.Context, tenantID, submissionID string) ([]domain.SubmissionCompletion, error) {
+	return s.repo.ListSubmissionCompletions(ctx, tenantID, submissionID)
+}
+
 // LastAccepted returns a goat's most recent accepted administration (Goat Passport / SM-7 basis).
 func (s *Service) LastAccepted(ctx context.Context, tenantID, goatID string) (domain.LastAccepted, bool, error) {
 	return s.repo.GetLastAcceptedForGoat(ctx, tenantID, goatID)

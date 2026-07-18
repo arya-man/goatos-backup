@@ -17,7 +17,12 @@ import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
+import sg.mesha.goatos.core.data.capture.ProofCaptureRow
+import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
 import sg.mesha.goatos.core.data.capture.RfidScanTagRole
@@ -26,6 +31,7 @@ import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.feature.scan.RosterRow
+import sg.mesha.goatos.feature.scan.ProofUploadStatus
 import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanFeedEntry
 import sg.mesha.goatos.feature.scan.ScanFeedTone
@@ -35,6 +41,7 @@ import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
+import sg.mesha.goatos.capture.ProofCaptureSource
 import javax.inject.Inject
 
 /**
@@ -58,6 +65,9 @@ class ScanViewModel @Inject constructor(
     private val reader: RfidReaderPort,
     private val scanCaptureRepository: ScanCaptureRepository,
     private val scanAttemptRepository: ScanAttemptRepository,
+    private val proofCaptureRepository: ProofCaptureRepository,
+    private val proofCaptureSource: ProofCaptureSource,
+    private val bootstrapRepository: BootstrapRepository,
     private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -78,6 +88,14 @@ class ScanViewModel @Inject constructor(
             SharingStarted.WhileSubscribed(5_000),
             Resource(data = null)
         )
+
+    private val observedProofs: StateFlow<List<ProofCaptureRow>> =
+        (taskId?.let { proofCaptureRepository.observeProofs(it) } ?: flowOf(emptyList()))
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _operatorAllowed = MutableStateFlow<Boolean?>(null)
+    private var currentPrincipalId: String? = null
+    private var proofCaptureInFlight = false
 
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)
@@ -111,6 +129,8 @@ class ScanViewModel @Inject constructor(
         _feed,
         reader.status,
         reader.readerName,
+        observedProofs,
+        _operatorAllowed,
     ) { values: Array<Any?> ->
         val resource = values[0] as Resource<ScanRosterResponseDto>
         val isRefreshing = values[1] as Boolean
@@ -123,9 +143,11 @@ class ScanViewModel @Inject constructor(
         val feed = values[8] as List<ScanFeedEntry>
         val readerStatus = values[9] as RfidReaderStatus
         val readerName = values[10] as String?
+        val proofs = values[11] as List<ProofCaptureRow>
+        val operatorAllowed = values[12] as Boolean?
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
-        val base = dto?.let { applyResource(it, localDone) } ?: emptyScanState()
+        val base = dto?.let { applyResource(it, localDone, proofs, operatorAllowed == true) } ?: emptyScanState()
         base.copy(
             feed = feed,
             isRefreshing = isRefreshing,
@@ -147,6 +169,11 @@ class ScanViewModel @Inject constructor(
 
     init {
         loadRosterAndRefresh()
+        viewModelScope.launch {
+            val profile = runCatching { bootstrapRepository.operatorProfile() }.getOrNull()
+            currentPrincipalId = profile?.operatorId?.takeIf { it.isNotBlank() }
+            _operatorAllowed.value = profile?.primaryRoleHint == OPERATOR_ROLE
+        }
         // HOT device stream (RFID reader) — NOT converted; always collected for keyboard-wedge capture
         viewModelScope.launch {
             reader.reads.collect { onTagRead(it.tag) }
@@ -182,7 +209,7 @@ class ScanViewModel @Inject constructor(
     fun refresh() = viewModelScope.launch {
         val id = shedId ?: return@launch
         _isRefreshing.value = true
-        val result = repo.refreshScanRoster(id, taskId, limit = SCAN_PAGE_SIZE)
+        val result = repo.refreshCompleteScanRoster(id, taskId, limit = SCAN_PAGE_SIZE)
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
     }
@@ -212,6 +239,8 @@ class ScanViewModel @Inject constructor(
             ScanEvent.OpenList ->
                 _rosterExpanded.value = !_rosterExpanded.value
             ScanEvent.Tap -> onManualTap()
+            is ScanEvent.CaptureProof -> requestGoatProof(event.goatId)
+            is ScanEvent.RetryProof -> retryGoatProof(event.goatId)
             ScanEvent.LoadMore -> loadMore()
             ScanEvent.Submit,
             ScanEvent.Back,
@@ -236,15 +265,25 @@ class ScanViewModel @Inject constructor(
     /** Manual ring tap: advances the next REAL pending roster row (from the current computed
      *  state) to DONE in the draft overlay only. It is not an RFID capture. */
     private fun onManualTap() {
+        if (!canAcceptScanInput()) return
         val row = state.value.roster.firstOrNull { it.status == ScanStatus.PENDING } ?: return
         markRowDone(row)
         _manualDone.update { it + row.obligationId }
+        recordScanAttempt(
+            tag = row.primaryTag,
+            row = row,
+            outcome = RfidScanAttemptOutcome.ACCEPTED,
+            tagRole = RfidScanTagRole.PRIMARY,
+            reason = "operator_row_tap",
+        )
+        recordRosterScan(row, row.primaryTag)
     }
 
     /** Hardware tag read (keyboard-wedge): match the tag against the current roster and fold it
      *  into the draft overlay — a PENDING match is marked DONE, a SKIPPED/unknown match only
      *  pushes an informational feed row. */
     private fun onTagRead(tag: String) {
+        if (!canAcceptScanInput()) return
         val target = normalize(tag)
         if (target.isEmpty()) return
         val row = state.value.roster.firstOrNull { it.matchesTag(target) }
@@ -324,6 +363,11 @@ class ScanViewModel @Inject constructor(
         }
     }
 
+    private fun canAcceptScanInput(): Boolean {
+        val current = state.value
+        return _operatorAllowed.value == true && current.roster.isNotEmpty() && !current.hasMore
+    }
+
     /** Shared by a real tag-match ([onTagRead]) and a manual ring tap ([onManualTap]): records
      * [row]'s obligation as locally DONE (unsynced) in the draft overlay and pushes a feed row.
      * The combine re-derives the roster + counts from this set on the next emission. */
@@ -374,11 +418,17 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    private fun applyResource(dto: ScanRosterResponseDto, localDone: Set<String>): ScanUiState {
+    private fun applyResource(
+        dto: ScanRosterResponseDto,
+        localDone: Set<String>,
+        proofs: List<ProofCaptureRow>,
+        operatorAllowed: Boolean,
+    ): ScanUiState {
         val rosterRows = dto.rows.map { dtoRow ->
             // Overlay local (unsynced) DONE edits so an in-progress scan survives Room re-emission.
             val locallyDone = dtoRow.obligationId.isNotBlank() && dtoRow.obligationId in localDone
             val status = if (locallyDone) ScanStatus.DONE else statusOf(dtoRow.status)
+            val goatProofs = proofs.filter { it.proofSubject == ProofSubject.GOAT && it.subjectId == dtoRow.goatId }
             RosterRow(
                 primaryTag = dtoRow.primaryTag,
                 secondaryTag = dtoRow.secondaryTag,
@@ -387,6 +437,8 @@ class ScanViewModel @Inject constructor(
                 unsynced = locallyDone,
                 goatId = dtoRow.goatId,
                 obligationId = dtoRow.obligationId,
+                proofClipCount = goatProofs.count { it.syncStatus != CaptureSyncStatus.FAILED },
+                proofUploadStatus = proofStatus(goatProofs),
             )
         }
         val done = rosterRows.count { it.status == ScanStatus.DONE }
@@ -399,8 +451,12 @@ class ScanViewModel @Inject constructor(
             doneCount = done,
             pendingCount = pending,
             skippedCount = skipped,
-            canSubmit = pending == 0 && dto.nextCursor == null,
-            scanEnabled = true,
+            canSubmit = pending == 0 &&
+                dto.nextCursor == null &&
+                rosterRows.filter { it.status == ScanStatus.DONE }.all {
+                    it.proofUploadStatus == ProofUploadStatus.SYNCED
+                },
+            scanEnabled = operatorAllowed && rosterRows.isNotEmpty() && dto.nextCursor == null,
             hasMore = dto.nextCursor != null,
         )
     }
@@ -411,6 +467,53 @@ class ScanViewModel @Inject constructor(
             s.contains("done") || s.contains("complete") -> ScanStatus.DONE
             s.contains("skip") || s.contains("not_due") || s.contains("notdue") || s.contains("missed") -> ScanStatus.SKIPPED
             else -> ScanStatus.PENDING
+        }
+    }
+
+    private fun proofStatus(proofs: List<ProofCaptureRow>): ProofUploadStatus = when {
+        proofs.any { it.syncStatus == CaptureSyncStatus.FAILED } -> ProofUploadStatus.FAILED
+        proofs.any { it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT } ->
+            ProofUploadStatus.UPLOADING
+        proofs.any { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() } ->
+            ProofUploadStatus.SYNCED
+        else -> ProofUploadStatus.MISSING
+    }
+
+    private fun requestGoatProof(goatId: String) {
+        val selectedTaskId = taskId ?: return
+        if (_operatorAllowed.value != true || goatId.isBlank() || proofCaptureInFlight) return
+        val row = state.value.roster.firstOrNull { it.goatId == goatId && it.status == ScanStatus.DONE } ?: return
+        proofCaptureInFlight = true
+        viewModelScope.launch {
+            try {
+                val captured = proofCaptureSource.captureVideo() ?: return@launch
+                proofCaptureRepository.capture(
+                    taskId = selectedTaskId,
+                    fieldKey = GOAT_PROOF_FIELD_KEY,
+                    subject = ProofSubject.GOAT,
+                    subjectId = row.goatId,
+                    localUri = captured.localUri,
+                    mimeType = captured.mimeType,
+                    caption = null,
+                    scopeType = "task",
+                    scopeId = selectedTaskId,
+                    capturedStartMs = captured.startedAtMs,
+                    capturedEndMs = captured.endedAtMs,
+                    capturedByPrincipalId = currentPrincipalId,
+                )
+            } finally {
+                proofCaptureInFlight = false
+            }
+        }
+    }
+
+    private fun retryGoatProof(goatId: String) {
+        val selectedTaskId = taskId ?: return
+        if (_operatorAllowed.value != true || goatId.isBlank()) return
+        viewModelScope.launch {
+            observedProofs.value
+                .filter { it.subjectId == goatId && it.syncStatus == CaptureSyncStatus.FAILED }
+                .forEach { proofCaptureRepository.retryUpload(selectedTaskId, it.id) }
         }
     }
 
@@ -432,6 +535,8 @@ private fun RosterRow.tagRoleFor(normalizedTag: String): RfidScanTagRole = when 
 private const val SCAN_PAGE_SIZE = 20
 private const val MAX_SCAN_FEED_ENTRIES = 100
 private const val READER_REFRESH_MS = 1_000L
+private const val OPERATOR_ROLE = "operator"
+private const val GOAT_PROOF_FIELD_KEY = "vaccination_goat_proof"
 
 private fun emptyScanState(): ScanUiState = ScanUiState(
     shedLabel = "",

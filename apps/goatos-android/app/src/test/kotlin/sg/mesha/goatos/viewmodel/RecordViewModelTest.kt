@@ -224,6 +224,9 @@ private class FakeExecutionRepository : ExecutionRepository {
 
     override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = error("unused")
 
+    override suspend fun refreshCompleteScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> =
+        error("unused")
+
     override suspend fun appendScanRoster(shedId: String, taskId: String?, cursor: String, limit: Int?): Result<Unit> =
         error("unused")
 }

@@ -14,6 +14,8 @@ import (
 const (
 	EventVaccinationVerifyAccepted = "vaccination.verify.accepted"
 	EventVaccinationVerifyRejected = "vaccination.verify.rejected"
+	EventGenericVerificationRework = "verification.verdict.rework"
+	EventGenericVerificationClosed = "verification.item.closed"
 )
 
 // VerificationEvent is the payload for the verify events. CompletionID is required; booster work is
@@ -22,6 +24,18 @@ type VerificationEvent struct {
 	CompletionID string `json:"completion_id"`
 	VerifiedBy   string `json:"verified_by,omitempty"`
 	Reason       string `json:"reason,omitempty"`
+}
+
+type genericVerificationEvent struct {
+	Reason     string `json:"reason"`
+	VerifiedBy string `json:"verified_by"`
+	ClosedBy   string `json:"closed_by"`
+	Source     struct {
+		Module       string `json:"module"`
+		SubmissionID string `json:"submission_id"`
+		RefType      string `json:"ref_type"`
+		RefID        string `json:"ref_id"`
+	} `json:"source"`
 }
 
 // VerificationHandler applies a SOP verify outcome to a recorded completion: accept → AcceptExisting
@@ -43,10 +57,15 @@ var _ eventbus.Handler = (*VerificationHandler)(nil)
 func (h *VerificationHandler) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventVaccinationVerifyAccepted, h)
 	bus.Subscribe(EventVaccinationVerifyRejected, h)
+	bus.Subscribe(EventGenericVerificationRework, h)
+	bus.Subscribe(EventGenericVerificationClosed, h)
 }
 
 // HandleEvent routes the event by type to the matching SM-5 verification outcome.
 func (h *VerificationHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
+	if e.Type == EventGenericVerificationRework || e.Type == EventGenericVerificationClosed {
+		return h.handleGenericEvent(ctx, e)
+	}
 	var p VerificationEvent
 	if len(e.Payload) > 0 {
 		if err := json.Unmarshal(e.Payload, &p); err != nil {
@@ -73,4 +92,36 @@ func (h *VerificationHandler) HandleEvent(ctx context.Context, e eventbus.Event)
 		return err
 	}
 	return nil
+}
+
+func (h *VerificationHandler) handleGenericEvent(ctx context.Context, e eventbus.Event) error {
+	var p genericVerificationEvent
+	if len(e.Payload) > 0 {
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return err
+		}
+	}
+	if p.Source.Module != "vaccination" || p.Source.RefType != "vaccination_goat" ||
+		p.Source.SubmissionID == "" || p.Source.RefID == "" {
+		return nil
+	}
+	outcome := "rejected"
+	actor := p.VerifiedBy
+	if e.Type == EventGenericVerificationClosed {
+		outcome = "closed"
+		actor = p.ClosedBy
+	}
+	var actorID *string
+	if actor != "" {
+		actorID = &actor
+	}
+	return h.completion.ApplyGoatVerification(
+		ctx,
+		e.TenantID,
+		p.Source.SubmissionID,
+		p.Source.RefID,
+		outcome,
+		p.Reason,
+		actorID,
+	)
 }

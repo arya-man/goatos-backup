@@ -19,6 +19,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncQueueItem
@@ -137,23 +138,23 @@ class CaptureRepositoryTest {
     }
 
     @Test
-    fun `proof capture is written to Room first and the 5-video cap is enforced`() = runTest {
+    fun `goat proof is written to Room first and the 5-clip per-goat cap is enforced`() = runTest {
         val db = newDb()
         try {
             val sync = FakeSyncRepository()
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = backgroundScope,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
                 dispatchers = unconfinedDispatchers,
             )
 
-            val subjects = listOf(ProofSubject.SHED, ProofSubject.VIAL_LOT, ProofSubject.ADMINISTRATION, ProofSubject.EXTRA, ProofSubject.EXTRA)
-            subjects.forEachIndexed { index, subject ->
+            repeat(5) { index ->
                 val result = repo.capture(
                     taskId = "task-9",
-                    fieldKey = subject.wireValue,
-                    subject = subject,
+                    fieldKey = "vaccination_goat_proof",
+                    subject = ProofSubject.GOAT,
+                    subjectId = "goat-9",
                     localUri = "file://video-$index.mp4",
                     mimeType = "video/mp4",
                     caption = null,
@@ -170,8 +171,9 @@ class CaptureRepositoryTest {
             // 6th capture — over the cap — must be rejected, WITHOUT a Room write.
             val sixth = repo.capture(
                 taskId = "task-9",
-                fieldKey = "extra_video",
-                subject = ProofSubject.EXTRA,
+                fieldKey = "vaccination_goat_proof",
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-9",
                 localUri = "file://video-6.mp4",
                 mimeType = "video/mp4",
                 caption = "one too many",
@@ -199,7 +201,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = backgroundScope,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
                 dispatchers = unconfinedDispatchers,
             )
 
@@ -207,8 +209,9 @@ class CaptureRepositoryTest {
                 (
                     repo.capture(
                         taskId = "task-failed-cap",
-                        fieldKey = "extra_video_$index",
-                        subject = ProofSubject.EXTRA,
+                        fieldKey = "vaccination_goat_proof",
+                        subject = ProofSubject.GOAT,
+                        subjectId = "goat-failed",
                         localUri = "file://failed-$index.mp4",
                         mimeType = "video/mp4",
                         caption = null,
@@ -226,8 +229,9 @@ class CaptureRepositoryTest {
 
             val replacement = repo.capture(
                 taskId = "task-failed-cap",
-                fieldKey = "administration_video",
-                subject = ProofSubject.ADMINISTRATION,
+                fieldKey = "vaccination_goat_proof",
+                subject = ProofSubject.GOAT,
+                subjectId = "goat-failed",
                 localUri = "file://replacement.mp4",
                 mimeType = "video/mp4",
                 caption = null,
@@ -253,7 +257,7 @@ class CaptureRepositoryTest {
             val repo = DefaultProofCaptureRepository(
                 dao = db.proofCaptureDao(),
                 syncRepository = sync,
-                appScope = backgroundScope,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
                 dispatchers = unconfinedDispatchers,
             )
             val captured = (
@@ -374,6 +378,81 @@ class CaptureRepositoryTest {
     }
 
     @Test
+    fun `startup reconciles proof row inserted before outbox enqueue`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-orphan",
+                    taskId = "task-orphan",
+                    fieldKey = "shed_video",
+                    idempotencyKey = "proof-upload:task-orphan:proof-orphan",
+                ),
+            )
+
+            DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = backgroundScope,
+                dispatchers = unconfinedDispatchers,
+            )
+            advanceUntilIdle()
+
+            val row = db.proofCaptureDao().findById("proof-orphan")
+            assertEquals(1, sync.enqueueCalls.size)
+            assertEquals("proof-upload:task-orphan:proof-orphan", sync.enqueueCalls.single().idempotencyKey)
+            assertEquals("outbox-0", row?.outboxItemId)
+            assertEquals(CaptureSyncStatus.PENDING.name, row?.syncStatus)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `startup reattaches existing proof outbox item and follows it through synced`() = runTest {
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            sync.seed("outbox-existing", SyncItemStatus.QUEUED)
+            db.proofCaptureDao().insert(
+                proofEntity(
+                    id = "proof-existing",
+                    taskId = "task-existing",
+                    fieldKey = "administration_video",
+                    idempotencyKey = "proof-upload:task-existing:proof-existing",
+                    outboxItemId = "outbox-existing",
+                ),
+            )
+
+            val repo = DefaultProofCaptureRepository(
+                dao = db.proofCaptureDao(),
+                syncRepository = sync,
+                appScope = CoroutineScope(Dispatchers.Unconfined),
+                dispatchers = unconfinedDispatchers,
+            )
+            advanceUntilIdle()
+            repo.reconcileRecoverableUploadsNow()
+
+            assertEquals("an existing outbox id must be followed, not re-enqueued", 0, sync.enqueueCalls.size)
+
+            sync.emit("outbox-existing", SyncItemStatus.IN_FLIGHT, resultJson = null)
+            advanceUntilIdle()
+            var row = repo.observeProofs("task-existing").first().single()
+            assertEquals(CaptureSyncStatus.IN_FLIGHT, row.syncStatus)
+
+            val response = ProofUploadResponseDto(proof = ProofReferenceDto(proofId = "server-proof-existing"))
+            sync.emit("outbox-existing", SyncItemStatus.SUCCEEDED, resultJson = syncJson.encodeToString(response))
+            advanceUntilIdle()
+            row = repo.observeProofs("task-existing").first().single()
+            assertEquals(CaptureSyncStatus.SYNCED, row.syncStatus)
+            assertEquals("server-proof-existing", row.serverProofId)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
     fun `a new repository instance over the SAME Room database sees prior captures (process-death restore proxy)`() = runTest {
         val db = newDb()
         try {
@@ -421,6 +500,30 @@ class CaptureRepositoryTest {
     }
 }
 
+private fun proofEntity(
+    id: String,
+    taskId: String,
+    fieldKey: String,
+    idempotencyKey: String,
+    outboxItemId: String? = null,
+) = ProofCaptureEntity(
+    id = id,
+    taskId = taskId,
+    fieldKey = fieldKey,
+    proofSubject = ProofSubject.SHED.wireValue,
+    subjectId = null,
+    localUri = "file://$id.mp4",
+    mimeType = "video/mp4",
+    caption = null,
+    capturedAtMs = 1_000L,
+    capturedStartMs = 1_000L,
+    capturedEndMs = 4_000L,
+    capturedByPrincipalId = "operator-1",
+    syncStatus = CaptureSyncStatus.PENDING.name,
+    idempotencyKey = idempotencyKey,
+    outboxItemId = outboxItemId,
+)
+
 /** Minimal, deterministic [SyncRepository] test double: records every
  *  [enqueueProofUpload] call and lets the test manually drive its outbox item's status via
  *  [emit], mirroring how [sg.mesha.goatos.core.data.sync.SyncEngine] would really transition it. */
@@ -437,6 +540,12 @@ private class FakeSyncRepository : SyncRepository {
     private var nextId = 0
 
     override fun observeStatus(): StateFlow<SyncStatus> = status
+
+    fun seed(itemId: String, itemStatus: SyncItemStatus, resultJson: String? = null) {
+        status.value = status.value.copy(
+            items = status.value.items + syncQueueItem(itemId, itemStatus, resultJson),
+        )
+    }
 
     fun emit(itemId: String, itemStatus: SyncItemStatus, resultJson: String?) {
         status.value = status.value.copy(
@@ -484,18 +593,7 @@ private class FakeSyncRepository : SyncRepository {
         val id = "outbox-${nextId++}"
         enqueueCalls += EnqueueCall(idempotencyKey, id, request)
         status.value = status.value.copy(
-            items = status.value.items + SyncQueueItem(
-                id = id,
-                opType = "PROOF_UPLOAD",
-                groupKey = groupKey,
-                status = SyncItemStatus.QUEUED,
-                attemptCount = 0,
-                maxAttempts = 8,
-                conflict = false,
-                createdAt = 0L,
-                updatedAt = 0L,
-                lastError = null,
-            ),
+            items = status.value.items + syncQueueItem(id, SyncItemStatus.QUEUED, groupKey = groupKey),
         )
         return AppResult.Ok(id)
     }
@@ -513,3 +611,22 @@ private class FakeSyncRepository : SyncRepository {
 
     override suspend fun triggerDrain() = Unit
 }
+
+private fun syncQueueItem(
+    id: String,
+    status: SyncItemStatus,
+    resultJson: String? = null,
+    groupKey: String = "task",
+) = SyncQueueItem(
+    id = id,
+    opType = "PROOF_UPLOAD",
+    groupKey = groupKey,
+    status = status,
+    attemptCount = 0,
+    maxAttempts = 8,
+    conflict = false,
+    createdAt = 0L,
+    updatedAt = 0L,
+    lastError = null,
+    resultJson = resultJson,
+)

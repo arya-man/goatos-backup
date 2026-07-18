@@ -4,7 +4,7 @@ import sg.mesha.goatos.ui.Routes
 import sg.mesha.goatos.ui.calendarTargetRoute
 
 /** `type`/`screen` values that mean "open the read-only/verify record" for the push's shed. */
-private val RECORD_TYPES = setOf("record", "verification", "verify", "rework")
+private val RECORD_TYPES = setOf("record", "verification", "verification_closed", "verify", "rework")
 
 /**
  * Maps an FCM data payload ([PushExtras]) to an app route.
@@ -31,10 +31,15 @@ fun resolvePushRoute(payload: Map<String, String>): String {
 
     val shedId = payload[PushExtras.SHED_ID]?.takeIf { it.isNotBlank() }
     val obligationId = payload[PushExtras.OBLIGATION_ID]?.takeIf { it.isNotBlank() }
+    val itemId = payload[PushExtras.ITEM_ID]?.takeIf { it.isNotBlank() }
+    val category = payload[PushExtras.CATEGORY]?.takeIf { it.isNotBlank() }
     val screen = payload[PushExtras.SCREEN]?.lowercase()?.takeIf { it.isNotBlank() }
     val type = payload[PushExtras.TYPE]?.lowercase()?.takeIf { it.isNotBlank() }
 
     return when {
+        screen == "verification" || type == "verification_pending" ->
+            if (itemId != null) Routes.verifyDetailRoute(itemId, category) else Routes.VERIFY
+        screen == "leadership_close" || type == "verification_approved" -> Routes.LEADERSHIP
         screen in RECORD_TYPES || type in RECORD_TYPES ->
             if (shedId != null) Routes.recordRoute(shedId) else Routes.VACCINATION
         screen == "reschedule" || type == "reschedule" -> Routes.rescheduleRoute(obligationId)
