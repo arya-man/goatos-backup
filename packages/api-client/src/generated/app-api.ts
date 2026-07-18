@@ -3168,7 +3168,7 @@ export interface components {
              * @description What the planner does when due work exceeds the cap.
              * @enum {string}
              */
-            overflowPolicy: "split_within_safe_window_then_mark_needs_review";
+            overflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap";
             /** @description Published capacity config row version. */
             rowVersion: number;
         };

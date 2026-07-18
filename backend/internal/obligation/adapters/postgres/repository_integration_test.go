@@ -150,7 +150,7 @@ func TestFindNearestPlannedBatchDateUsesCompatibleComboSession(t *testing.T) {
 	}
 }
 
-func TestObligationInsertReopensCanceledSameKey(t *testing.T) {
+func TestObligationInsertPreservesCanceledSameKey(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -170,26 +170,26 @@ func TestObligationInsertReopensCanceledSameKey(t *testing.T) {
 		IdempotencyKey: "obl-1", Sequence: 1,
 	})
 	if err != nil {
-		t.Fatalf("reopen canceled insert: %v", err)
+		t.Fatalf("replay canceled insert: %v", err)
 	}
-	if !applied || id != obligationID {
-		t.Fatalf("reopen canceled id=%q applied=%v, want existing id %q with applied", id, applied, obligationID)
+	if applied || id != "" {
+		t.Fatalf("terminal replay id=%q applied=%v, want no-op", id, applied)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND idempotency_key=$2 AND status='scheduled'`, tenantID, "obl-1"); got != 1 {
-		t.Fatalf("expected exactly 1 reopened scheduled obligation, got %d", got)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2 AND idempotency_key=$3 AND status='canceled'`, tenantID, obligationID, "obl-1"); got != 1 {
+		t.Fatalf("expected terminal canceled obligation preserved, got %d", got)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled' AND idempotency_key LIKE '%:regenerated:%'`, tenantID, obligationID); got != 1 {
-		t.Fatalf("expected regenerated scheduled status event, got %d", got)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND idempotency_key LIKE '%:regenerated:%'`, tenantID, obligationID); got != 0 {
+		t.Fatalf("terminal replay must not create regenerated status events, got %d", got)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='obligation.regenerated'`, tenantID, obligationID); got != 1 {
-		t.Fatalf("expected regenerated outbox event, got %d", got)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='obligation.regenerated'`, tenantID, obligationID); got != 0 {
+		t.Fatalf("terminal replay must not create regenerated outbox events, got %d", got)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.regenerated'`, tenantID, obligationID); got != 1 {
-		t.Fatalf("expected regenerated audit event, got %d", got)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.regenerated'`, tenantID, obligationID); got != 0 {
+		t.Fatalf("terminal replay must not create regenerated audit events, got %d", got)
 	}
 }
 
-func TestObligationInsertReschedulesMissedSameKey(t *testing.T) {
+func TestObligationInsertCreatesFreshWorkAfterMissedWithFreshKey(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -210,27 +210,37 @@ func TestObligationInsertReschedulesMissedSameKey(t *testing.T) {
 		IdempotencyKey: "obl-1", Sequence: 1,
 	})
 	if err != nil {
-		t.Fatalf("reschedule missed insert: %v", err)
+		t.Fatalf("replay missed insert: %v", err)
 	}
-	if !applied || id != obligationID {
-		t.Fatalf("reschedule missed id=%q applied=%v, want existing id %q with applied", id, applied, obligationID)
+	if applied || id != "" {
+		t.Fatalf("missed replay id=%q applied=%v, want no-op", id, applied)
 	}
 	var status string
 	var due time.Time
 	if err := pool.QueryRow(ctx, `SELECT status, due_at FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`, tenantID, obligationID).Scan(&status, &due); err != nil {
-		t.Fatalf("read rescheduled obligation: %v", err)
+		t.Fatalf("read terminal obligation: %v", err)
 	}
-	if status != "scheduled" || !due.Equal(nextDue) {
-		t.Fatalf("status=%q due=%s, want scheduled at %s", status, due, nextDue)
+	if status != "missed" || !due.Equal(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("status=%q due=%s, want missed at original due", status, due)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_status_events WHERE tenant_id=$1 AND obligation_id=$2 AND event_type='scheduled' AND idempotency_key LIKE '%:regenerated:%'`, tenantID, obligationID); got != 1 {
-		t.Fatalf("expected regenerated scheduled status event, got %d", got)
+
+	freshID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: nextDue, Status: "scheduled",
+		IdempotencyKey: "obl-1-fresh-after-return", Sequence: 2,
+	})
+	if err != nil {
+		t.Fatalf("fresh post-missed insert: %v", err)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM outbox_messages WHERE tenant_id=$1 AND aggregate_id=$2 AND event_type='obligation.regenerated'`, tenantID, obligationID); got != 1 {
-		t.Fatalf("expected regenerated outbox event, got %d", got)
+	if !applied || freshID == "" || freshID == obligationID {
+		t.Fatalf("fresh insert id=%q applied=%v, want new scheduled obligation distinct from %s", freshID, applied, obligationID)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*) FROM audit_log WHERE tenant_id=$1 AND resource_id=$2 AND action='obligation.regenerated'`, tenantID, obligationID); got != 1 {
-		t.Fatalf("expected regenerated audit event, got %d", got)
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND target_id=$2 AND status='missed'`, tenantID, testGoatID); got != 1 {
+		t.Fatalf("terminal missed history rows=%d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool, `SELECT count(*) FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2 AND due_at=$3 AND status='scheduled'`, tenantID, freshID, nextDue); got != 1 {
+		t.Fatalf("fresh scheduled work rows=%d, want 1", got)
 	}
 }
 

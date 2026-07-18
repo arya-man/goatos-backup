@@ -11,6 +11,9 @@ const REQUIRED_EVENTS = [
   "goat.reproductive.changed",
   "goat.identity.changed",
   "vaccination.completed",
+  "obligation.missed",
+  "goat.obligations_canceled",
+  "obligation.rescoped",
   "vaccination.manual_campaign.requested",
   "protocol.version.published",
 ];

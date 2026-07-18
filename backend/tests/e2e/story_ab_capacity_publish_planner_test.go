@@ -21,7 +21,7 @@ func matrixRuleDSLWithCapacity(maxPerDay, bufferDays int) string {
 	// Append the versioned capacity block just inside the closing brace (mirror of the unit-test helper
 	// vaccinationRuleDSLWithCapacity). overflow_policy is the only accepted split policy today.
 	block := fmt.Sprintf(
-		`,"capacity":{"max_per_day":%d,"max_buffer_days":%d,"capacity_scope":"tenant","overflow_policy":"split_within_safe_window_then_mark_needs_review"}}`,
+		`,"capacity":{"max_per_day":%d,"max_buffer_days":%d,"capacity_scope":"tenant","overflow_policy":"split_within_safe_window_last_safe_may_exceed_cap"}}`,
 		maxPerDay, bufferDays,
 	)
 	return base[:len(base)-1] + block
@@ -60,7 +60,7 @@ func TestKernelStoryAB_CapacityPublishPlannerParity(t *testing.T) {
 	fx.exec("wrong pre-publish capacity",
 		`UPDATE vaccination_capacity_config
 		   SET max_per_day = 100, max_buffer_days = 2, capacity_scope = 'tenant',
-		       overflow_policy = 'split_within_safe_window_then_mark_needs_review',
+		       overflow_policy = 'split_within_safe_window_last_safe_may_exceed_cap',
 		       row_version = row_version + 1, updated_at = now()
 		 WHERE tenant_id = $1`, fxTenant)
 	preMaxPerDay := fx.countRows(`SELECT max_per_day FROM vaccination_capacity_config WHERE tenant_id=$1`, fxTenant)

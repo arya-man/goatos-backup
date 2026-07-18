@@ -3086,7 +3086,7 @@ func vaccinationMatrixRuleDSL() (string, error) {
 			"max_per_day":     100,
 			"max_buffer_days": 7,
 			"capacity_scope":  "tenant",
-			"overflow_policy": "split_within_safe_window_then_mark_needs_review",
+			"overflow_policy": "split_within_safe_window_last_safe_may_exceed_cap",
 		},
 		"schedule":    schedule,
 		"matrix_rows": rows,

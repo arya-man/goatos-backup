@@ -24,7 +24,7 @@ func TestKernelStoryAF_CapacityBreachKeepsOverdueHeadline(t *testing.T) {
 	fx.exec("tight capacity for collision proof",
 		`UPDATE vaccination_capacity_config
 		   SET max_per_day = 2, max_buffer_days = 1, capacity_scope = 'tenant',
-		       overflow_policy = 'split_within_safe_window_then_mark_needs_review',
+		       overflow_policy = 'split_within_safe_window_last_safe_may_exceed_cap',
 		       row_version = row_version + 1, updated_at = now()
 		 WHERE tenant_id = $1`, fxTenant)
 

@@ -123,7 +123,7 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 		out.CapacityScope = "tenant"
 	}
 	if out.OverflowPolicy == "" {
-		out.OverflowPolicy = "split_within_safe_window_then_mark_needs_review"
+		out.OverflowPolicy = "split_within_safe_window_last_safe_may_exceed_cap"
 	}
 	return out, true, nil
 }

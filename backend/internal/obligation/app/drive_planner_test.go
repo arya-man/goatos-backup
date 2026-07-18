@@ -79,6 +79,23 @@ func TestDrivePlannerFromRuleDSLReadsHoldGroupingAndShotCap(t *testing.T) {
 	}
 }
 
+func TestDrivePlannerFromRuleDSLUsesPublishedCapacity(t *testing.T) {
+	_, planner := DrivePlannerFromRuleDSL([]byte(`{"capacity":{"max_per_day":100}}`))
+	if planner.MaxGoatsPerDrive != 100 {
+		t.Fatalf("max goats = %d, want published capacity 100", planner.MaxGoatsPerDrive)
+	}
+
+	_, planner = DrivePlannerFromRuleDSL([]byte(`{"capacity":{"max_per_day":100},"drive_policy":{"max_goats_per_drive":120}}`))
+	if planner.MaxGoatsPerDrive != 100 {
+		t.Fatalf("max goats = %d, want stricter published capacity 100", planner.MaxGoatsPerDrive)
+	}
+
+	_, planner = DrivePlannerFromRuleDSL([]byte(`{"capacity":{"max_per_day":100},"drive_policy":{"max_goats_per_drive":80}}`))
+	if planner.MaxGoatsPerDrive != 80 {
+		t.Fatalf("max goats = %d, want stricter drive policy 80", planner.MaxGoatsPerDrive)
+	}
+}
+
 func TestPickBestDriveDatePrefersMaxCoverage(t *testing.T) {
 	now := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	winEnd := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)

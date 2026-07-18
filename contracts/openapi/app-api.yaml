@@ -8657,7 +8657,7 @@ components:
         overflowPolicy:
           type: string
           enum:
-            - split_within_safe_window_then_mark_needs_review
+            - split_within_safe_window_last_safe_may_exceed_cap
           description: What the planner does when due work exceeds the cap.
         rowVersion:
           type: integer

@@ -14,6 +14,9 @@
     "goat.reproductive.changed",
     "goat.identity.changed",
     "vaccination.completed",
+    "obligation.missed",
+    "goat.obligations_canceled",
+    "obligation.rescoped",
     "vaccination.manual_campaign.requested",
     "protocol.version.published"
   ],
@@ -79,6 +82,33 @@
       "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/completed_handler.go"}],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": ["backend/internal/vaccination/adapters/postgres/booster_integration_test.go", "backend/tests/e2e/story_ag_recurring_calendar_lifecycle_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "obligation.missed",
+      "producer": "obligation missed marker",
+      "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go"],
+      "consumers": [{"module": "calendar/process-integrity", "file": "backend/internal/obligation/adapters/postgres/repository.go"}],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": ["backend/internal/obligation/adapters/postgres/complete_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "goat.obligations_canceled",
+      "producer": "goat lifecycle vaccination cancellation",
+      "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go"],
+      "consumers": [{"module": "calendar/process-integrity", "file": "backend/internal/obligation/adapters/postgres/repository.go"}],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": ["backend/internal/obligation/adapters/postgres/vaccination_cancel_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "obligation.rescoped",
+      "producer": "goat location shift obligation rescope",
+      "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go"],
+      "consumers": [{"module": "calendar/process-integrity", "file": "backend/internal/obligation/adapters/postgres/repository.go"}],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": ["backend/internal/obligation/adapters/postgres/shift_integration_test.go"],
       "surfaces": ["backend", "frontend", "mobile"]
     },
     {

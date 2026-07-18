@@ -2805,7 +2805,7 @@ func configOptionGroups() []domain.OptionGroup {
 		{
 			ID: "capacity_overflow_policies",
 			Options: []domain.Option{
-				option("split_within_safe_window_then_mark_needs_review", "Split across days, then flag Needs review", "Spread work across days at the cap; flag the shed when it can't fit the safe window", ""),
+				option("split_within_safe_window_last_safe_may_exceed_cap", "Split safely; last day may exceed cap", "Spread work across safe days at the cap; if the last legal day is reached, keep the animal in that drive instead of opening a review hatch.", ""),
 			},
 		},
 		{

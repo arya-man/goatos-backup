@@ -4733,7 +4733,7 @@ CREATE TABLE public.vaccination_capacity_config (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT vaccination_capacity_config_buffer_check CHECK ((max_buffer_days >= 0)),
     CONSTRAINT vaccination_capacity_config_max_per_day_check CHECK ((max_per_day >= 1)),
-    CONSTRAINT vaccination_capacity_config_overflow_check CHECK ((overflow_policy = 'split_within_safe_window_then_mark_needs_review'::text)),
+    CONSTRAINT vaccination_capacity_config_overflow_check CHECK ((overflow_policy = 'split_within_safe_window_last_safe_may_exceed_cap'::text)),
     CONSTRAINT vaccination_capacity_config_scope_check CHECK ((capacity_scope = ANY (ARRAY['tenant'::text, 'center'::text, 'shed'::text])))
 );
 
@@ -6435,7 +6435,7 @@ INSERT INTO public.tenants VALUES
 --
 
 INSERT INTO public.vaccination_capacity_config VALUES
-	('00000000-0000-4000-8000-000000000001', 100, 'tenant', 7, 'split_within_safe_window_then_mark_needs_review', 2, '2026-07-16 07:30:26.590966+00', '2026-07-16 07:30:26.617672+00');
+	('00000000-0000-4000-8000-000000000001', 100, 'tenant', 7, 'split_within_safe_window_last_safe_may_exceed_cap', 2, '2026-07-16 07:30:26.590966+00', '2026-07-16 07:30:26.617672+00');
 
 
 --

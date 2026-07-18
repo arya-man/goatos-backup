@@ -49,6 +49,9 @@ func DrivePlannerFromRuleDSL(raw []byte) (vaccineCode string, planner domain.Dri
 		Vaccine struct {
 			Code string `json:"code"`
 		} `json:"vaccine"`
+		Capacity struct {
+			MaxPerDay int32 `json:"max_per_day"`
+		} `json:"capacity"`
 		DrivePolicy struct {
 			Enabled                   *bool  `json:"enabled"`
 			MaxGoatsPerDrive          int32  `json:"max_goats_per_drive"`
@@ -69,6 +72,9 @@ func DrivePlannerFromRuleDSL(raw []byte) (vaccineCode string, planner domain.Dri
 	}
 	if dsl.DrivePolicy.MaxGoatsPerDrive > 0 {
 		planner.MaxGoatsPerDrive = dsl.DrivePolicy.MaxGoatsPerDrive
+	}
+	if dsl.Capacity.MaxPerDay > 0 && (planner.MaxGoatsPerDrive <= 0 || dsl.Capacity.MaxPerDay < planner.MaxGoatsPerDrive) {
+		planner.MaxGoatsPerDrive = dsl.Capacity.MaxPerDay
 	}
 	if dsl.DrivePolicy.Priority > 0 {
 		planner.VaccinePriority = dsl.DrivePolicy.Priority

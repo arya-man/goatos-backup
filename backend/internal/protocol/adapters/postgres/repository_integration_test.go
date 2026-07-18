@@ -737,7 +737,7 @@ func TestSyncVaccinationCapacityConfigUpsertsAndReturnsStored(t *testing.T) {
 	defer pool.Close()
 	repo := NewRepository(pool, 5*time.Second)
 
-	want := domain.PublishedCapacity{MaxPerDay: 137, MaxBufferDays: 7, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_then_mark_needs_review"}
+	want := domain.PublishedCapacity{MaxPerDay: 137, MaxBufferDays: 7, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap"}
 	got, err := repo.SyncVaccinationCapacityConfig(ctx, testTenantID, want)
 	if err != nil {
 		t.Fatalf("sync: %v", err)
@@ -754,11 +754,11 @@ func TestSyncVaccinationCapacityConfigUpsertsAndReturnsStored(t *testing.T) {
 		Scan(&mp, &mb, &scope, &overflow); err != nil {
 		t.Fatalf("read stored capacity: %v", err)
 	}
-	if mp != 137 || mb != 7 || scope != "tenant" || overflow != "split_within_safe_window_then_mark_needs_review" {
+	if mp != 137 || mb != 7 || scope != "tenant" || overflow != "split_within_safe_window_last_safe_may_exceed_cap" {
 		t.Fatalf("stored capacity = %d/%d/%s/%s, want 137/7/tenant/split...", mp, mb, scope, overflow)
 	}
 
-	want2 := domain.PublishedCapacity{MaxPerDay: 200, MaxBufferDays: 2, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_then_mark_needs_review"}
+	want2 := domain.PublishedCapacity{MaxPerDay: 200, MaxBufferDays: 2, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap"}
 	got2, err := repo.SyncVaccinationCapacityConfig(ctx, testTenantID, want2)
 	if err != nil {
 		t.Fatalf("re-sync: %v", err)

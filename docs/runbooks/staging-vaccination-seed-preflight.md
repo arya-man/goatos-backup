@@ -341,11 +341,11 @@ and the staging seed must pass equivalent checks before demo:
   rows. That is not acceptable for the default staging demo view. Confirm the
   default UI filters to the one active real vaccination matrix, or explicitly
   hides/archive-separates retired rows before staging.
-- Local outbox is not clean: 3 failed rows (`config.changed` x2,
-  `obligation.regenerated` x1, all `invalid_event_envelope`) and 126 pending
-  rows (`config.changed` x116, `protocol.events` x5, `obligation.events` x3,
-  calendar notifications x2). Staging preflight must either drain these paths or
-  prove they are intentionally excluded.
+- Historical local outbox was not clean: 3 failed rows (`config.changed` x2 and
+  one obsolete pre-fix regenerated-obligation envelope, all
+  `invalid_event_envelope`) plus 126 pending rows. Current staging preflight must
+  either drain live paths or prove they are intentionally excluded; terminal
+  obligations are no longer rewritten into regenerated scheduled work.
 - Calendar projection count is inconsistent: local has 5,854
   `vaccination_dose_due` rows plus 9 `vaccination_drive` rows, while seeded due
   obligations are 5,860. This must be reconciled before staging demo.

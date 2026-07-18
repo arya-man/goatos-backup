@@ -942,7 +942,7 @@ func sampleRow() domain.ExecutionRow {
 }
 
 func TestGetCapacityConfig(t *testing.T) {
-	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 100, CapacityScope: "tenant", MaxBufferDays: 3, OverflowPolicy: "split_within_safe_window_then_mark_needs_review", RowVersion: 2}}
+	reader := &fakeReader{capacityCfg: domain.CapacityConfig{MaxPerDay: 100, CapacityScope: "tenant", MaxBufferDays: 3, OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap", RowVersion: 2}}
 	mux := http.NewServeMux()
 	Register(mux, NewHandler(reader, &fakeWriter{}))
 

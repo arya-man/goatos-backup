@@ -37,7 +37,7 @@ type CapacityConfig struct {
 // today (the SQL uses a single tenant-wide cap); center/shed are accepted by the schema for later use.
 var (
 	CapacityScopes    = []string{"tenant", "center", "shed"}
-	OverflowPolicies  = []string{"split_within_safe_window_then_mark_needs_review"}
+	OverflowPolicies  = []string{"split_within_safe_window_last_safe_may_exceed_cap"}
 	MaxPerDayCeiling  = 100000 // guardrail: a daily cap above this is almost certainly a typo, not a real limit.
 	MaxBufferDaysCeil = 60     // guardrail: a safe window longer than this is not a business buffer.
 )
@@ -55,7 +55,7 @@ func (c CapacityConfig) Validate() (code, message string, ok bool) {
 		return "invalid_capacity_scope", "capacity scope must be one of: tenant, center, shed", false
 	}
 	if !contains(OverflowPolicies, c.OverflowPolicy) {
-		return "invalid_overflow_policy", "overflow policy must be split_within_safe_window_then_mark_needs_review", false
+		return "invalid_overflow_policy", "overflow policy must be split_within_safe_window_last_safe_may_exceed_cap", false
 	}
 	return "", "", true
 }
@@ -76,7 +76,7 @@ func DefaultCapacityConfig() CapacityConfig {
 		MaxPerDay:      100,
 		CapacityScope:  "tenant",
 		MaxBufferDays:  7,
-		OverflowPolicy: "split_within_safe_window_then_mark_needs_review",
+		OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap",
 	}
 }
 

@@ -25,7 +25,7 @@ func vaccinationRuleDSLWithCapacity(maxPerDay, bufferDays int, scope, overflow s
 // rule_dsl.capacity into the operational read model with the authored values.
 func TestPublishVersionSyncsVersionedCapacity(t *testing.T) {
 	version := validPublishVersion("draft")
-	version.RuleDsl = []byte(vaccinationRuleDSLWithCapacity(137, 7, "tenant", "split_within_safe_window_then_mark_needs_review"))
+	version.RuleDsl = []byte(vaccinationRuleDSLWithCapacity(137, 7, "tenant", "split_within_safe_window_last_safe_may_exceed_cap"))
 	repo := &fakeProtocolRepo{version: version}
 	service := NewService(repo)
 	if err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil, "publish-key"); err != nil {
@@ -35,7 +35,7 @@ func TestPublishVersionSyncsVersionedCapacity(t *testing.T) {
 		t.Fatalf("publish must sync versioned capacity into the operational read model")
 	}
 	got := *repo.capacitySyncWant
-	want := domain.PublishedCapacity{MaxPerDay: 137, MaxBufferDays: 7, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_then_mark_needs_review"}
+	want := domain.PublishedCapacity{MaxPerDay: 137, MaxBufferDays: 7, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap"}
 	if got != want {
 		t.Fatalf("synced capacity = %+v, want %+v", got, want)
 	}
@@ -45,8 +45,8 @@ func TestPublishVersionSyncsVersionedCapacity(t *testing.T) {
 // when the stored operational capacity does not match the versioned rule_dsl.capacity.
 func TestPublishVersionCapacityParityMismatchFails(t *testing.T) {
 	version := validPublishVersion("draft")
-	version.RuleDsl = []byte(vaccinationRuleDSLWithCapacity(137, 7, "tenant", "split_within_safe_window_then_mark_needs_review"))
-	drift := domain.PublishedCapacity{MaxPerDay: 100, MaxBufferDays: 3, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_then_mark_needs_review"}
+	version.RuleDsl = []byte(vaccinationRuleDSLWithCapacity(137, 7, "tenant", "split_within_safe_window_last_safe_may_exceed_cap"))
+	drift := domain.PublishedCapacity{MaxPerDay: 100, MaxBufferDays: 3, CapacityScope: "tenant", OverflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap"}
 	repo := &fakeProtocolRepo{version: version, capacitySyncReturn: &drift}
 	service := NewService(repo)
 	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil, "publish-key")
