@@ -573,9 +573,8 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 // cross-pass shot count for every target in the group before selecting (VAX-REV-01), and -- when
 // the repo supports it -- holds a per-visit advisory lock across the select+create sequence so a
 // concurrent sweeper worker cannot commit a conflicting claim for the same (target, date) visit in
-// between. If every row rejects on the first candidate date purely because it is already at cap
-// (not a priority tie), the group retries once against the next feasible overflow date, re-seeding
-// and re-locking for that new date.
+// between. If every row rejects on a candidate date because the animal is already at cap, the group
+// walks every later feasible date in the safe window, re-seeding and re-locking for each date.
 func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, asOf, dueBefore time.Time, session *SweepSession, g *dueGroup) (batched bool, obligations int64, err error) {
 	operationalAsOf := dueGroupOperationalAsOf(asOf, dueBefore, g)
 	plannedDate := batchPlannedDate(g.rows[0].DueAt)
@@ -587,33 +586,35 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		}
 	}
 	targetIDs := distinctUnbatchedTargetIDs(g.rows)
-	release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
-	if err != nil {
-		return false, 0, err
-	}
 	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
 	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
-	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
-	if err != nil {
-		_ = release(ctx)
-		return false, 0, err
-	}
-	if len(selectedIDs) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
-		if overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows); overflowDate != nil {
+	var release func(context.Context) error
+	var selectedIDs []string
+	var shotClaims []shotCapReservation
+	for {
+		release, err = s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+		if err != nil {
+			return false, 0, err
+		}
+		selectedIDs, shotClaims, err = selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+		if err != nil {
+			_ = release(ctx)
+			return false, 0, err
+		}
+		if len(selectedIDs) > 0 || plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 {
+			break
+		}
+		overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows)
+		if overflowDate == nil {
 			if err := release(ctx); err != nil {
 				return false, 0, err
 			}
-			plannedDate = overflowDate
-			release, err = s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
-			if err != nil {
-				return false, 0, err
-			}
-			selectedIDs, shotClaims, err = selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
-			if err != nil {
-				_ = release(ctx)
-				return false, 0, err
-			}
+			return false, 0, nil
 		}
+		if err := release(ctx); err != nil {
+			return false, 0, err
+		}
+		plannedDate = overflowDate
 	}
 	defer func() {
 		if relErr := release(ctx); relErr != nil && err == nil {

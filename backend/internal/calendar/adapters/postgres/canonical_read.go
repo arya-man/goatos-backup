@@ -918,8 +918,9 @@ park_drive_events AS (
       WHEN grouped.has_review THEN 'verification_pending'
       WHEN grouped.has_overdue THEN 'overdue'
       WHEN grouped.has_in_progress THEN 'in_progress'
-      WHEN grouped.has_deferred THEN 'deferred'
       WHEN grouped.all_completed THEN 'completed'
+      WHEN COALESCE(grouped.scheduled_count, 0) > 0 THEN 'scheduled'
+      WHEN grouped.has_deferred THEN 'deferred'
       ELSE 'scheduled'
     END AS status,
     CASE

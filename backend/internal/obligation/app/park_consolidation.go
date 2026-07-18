@@ -100,8 +100,8 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 }
 
 // parkMergeStep performs one park-consolidation merge attempt: picks the best shared drive date
-// for remaining, shot-cap-selects the animals that fit (with an overflow-date retry identical to
-// the shed-batching path), and creates one park batch from the result. It seeds session with the
+// for remaining, shot-cap-selects the animals that fit (walking later feasible overflow dates
+// exactly like the shed-batching path), and creates one park batch from the result. It seeds session with the
 // persisted, cross-pass shot count for every candidate target before selecting (VAX-REV-01), and --
 // when the repo supports it -- holds a per-visit advisory lock across the select+create sequence
 // so a concurrent sweeper worker cannot commit a conflicting claim for the same visit in between.
@@ -114,37 +114,38 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		return remaining, 0, nil, false, true, nil
 	}
 	targetIDs := distinctParkTargetIDs(remaining)
-	release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
-	if err != nil {
-		return remaining, 0, plannedDate, false, true, err
-	}
 	// R2-05(b): resolve each candidate's OWN rule to its real vaccine identity instead of the single
 	// version-level wrapper (cfg.VaccineCode/planner.VaccinePriority) -- a park merge routinely mixes
 	// several distinct matrix vaccines in one candidate set.
 	orderedRemaining := orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
-	selected, shotClaims, err := selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
-	if err != nil {
-		_ = release(ctx)
-		return remaining, 0, plannedDate, false, true, err
-	}
-	if len(selected) == 0 && plannedDate != nil && planner.MaxShotsPerAnimalPerDrive > 0 {
-		if overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining); overflowDate != nil {
+	var release func(context.Context) error
+	var shotClaims []shotCapReservation
+	for {
+		release, err = s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+		if err != nil {
+			return remaining, 0, plannedDate, false, true, err
+		}
+		selected, shotClaims, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
+		if err != nil {
+			_ = release(ctx)
+			return remaining, 0, plannedDate, false, true, err
+		}
+		if len(selected) > 0 || plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 {
+			break
+		}
+		overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining)
+		if overflowDate == nil {
 			if relErr := release(ctx); relErr != nil {
 				return remaining, 0, plannedDate, false, true, relErr
 			}
-			plannedDate = overflowDate
-			selected = obligationsFeasibleOnDate(*plannedDate, remaining)
-			release, err = s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
-			if err != nil {
-				return remaining, 0, plannedDate, false, true, err
-			}
-			orderedRemaining = orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
-			selected, shotClaims, err = selectParkIDsWithinVisitShotCapForSession(orderedRemaining, selected, plannedDate, planner.MaxShotsPerAnimalPerDrive, cfg.getRuleVaccineIdentity, session)
-			if err != nil {
-				_ = release(ctx)
-				return remaining, 0, plannedDate, false, true, err
-			}
+			return remaining, 0, plannedDate, false, true, nil
 		}
+		if relErr := release(ctx); relErr != nil {
+			return remaining, 0, plannedDate, false, true, relErr
+		}
+		plannedDate = overflowDate
+		selected = obligationsFeasibleOnDate(*plannedDate, remaining)
+		orderedRemaining = orderParkCandidatesByVaccinePriority(remaining, cfg.getRuleVaccineIdentity)
 	}
 	defer func() {
 		if relErr := release(ctx); relErr != nil && err == nil {

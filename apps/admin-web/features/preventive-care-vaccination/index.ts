@@ -5,6 +5,7 @@ export {
   cappedTotalPages,
   maxBackendPageForPageSize,
   paginateRows,
+  paginationFromParams,
   VaccinationTablePager,
   type VaccinationPageSize,
 } from "./table-pager";

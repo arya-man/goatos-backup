@@ -362,7 +362,8 @@ func selectIDsWithinVisitShotCap(rows []domain.UnbatchedDue, plannedDate *time.T
 func nextFeasibleUnbatchedDriveDateAfter(plannedDate time.Time, rows []domain.UnbatchedDue) *time.Time {
 	next := businessDate(plannedDate).AddDate(0, 0, 1)
 	candidates := driveCandidatesFromUnbatched(rows)
-	for offset := 0; offset < 14; offset++ {
+	latest := latestUnbatchedDriveDate(candidates)
+	for !latest.IsZero() && !next.After(latest) {
 		if len(obligationsFeasibleOnDriveDate(next, candidates)) > 0 {
 			day := next
 			return &day
@@ -370,6 +371,17 @@ func nextFeasibleUnbatchedDriveDateAfter(plannedDate time.Time, rows []domain.Un
 		next = next.AddDate(0, 0, 1)
 	}
 	return nil
+}
+
+func latestUnbatchedDriveDate(candidates []driveCandidate) time.Time {
+	var latest time.Time
+	for _, row := range candidates {
+		rowLatest := driveLatestDate(row)
+		if latest.IsZero() || rowLatest.After(latest) {
+			latest = rowLatest
+		}
+	}
+	return latest
 }
 
 func selectParkIDsWithinVisitShotCap(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, visitCounts map[string]int32) []string {
@@ -401,7 +413,8 @@ func selectParkIDsWithinVisitShotCap(rows []domain.ParkConsolidationCandidate, s
 
 func nextFeasibleParkDriveDateAfter(plannedDate time.Time, rows []domain.ParkConsolidationCandidate) *time.Time {
 	next := businessDate(plannedDate).AddDate(0, 0, 1)
-	for offset := 0; offset < 14; offset++ {
+	latest := latestParkDriveDate(rows)
+	for !latest.IsZero() && !next.After(latest) {
 		if len(obligationsFeasibleOnDate(next, rows)) > 0 {
 			day := next
 			return &day
@@ -409,6 +422,17 @@ func nextFeasibleParkDriveDateAfter(plannedDate time.Time, rows []domain.ParkCon
 		next = next.AddDate(0, 0, 1)
 	}
 	return nil
+}
+
+func latestParkDriveDate(rows []domain.ParkConsolidationCandidate) time.Time {
+	var latest time.Time
+	for _, row := range rows {
+		rowLatest := obligationLatestDate(row)
+		if latest.IsZero() || rowLatest.After(latest) {
+			latest = rowLatest
+		}
+	}
+	return latest
 }
 
 func visitShotCountKey(plannedDate time.Time, targetID string) string {

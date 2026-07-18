@@ -18,7 +18,7 @@ import {
   paginationFromParams,
   VaccinationTablePager,
   type VaccinationPageSize,
-} from "@/features/preventive-care-vaccination/table-pager";
+} from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
 
 // Counts -> Counts Breakdown. The census view: how many live animals exist at each

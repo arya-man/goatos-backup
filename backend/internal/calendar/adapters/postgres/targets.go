@@ -33,15 +33,22 @@ const calendarDriveTargetsSQL = `
 WITH matched_batches AS (
   SELECT ob.batch_id
   FROM obligation_batches ob
-  LEFT JOIN locations shed_loc
-    ON shed_loc.tenant_id = ob.tenant_id AND shed_loc.location_id = ob.scope_id
+  LEFT JOIN locations scope_loc
+    ON scope_loc.tenant_id = ob.tenant_id AND scope_loc.location_id = ob.scope_id
   WHERE ob.tenant_id = $1::uuid
     AND $12::bool
     AND ob.status NOT IN ('superseded', 'canceled')
     AND to_char((COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end) AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') = $3::text
     AND (
-      ($4::uuid IS NOT NULL AND shed_loc.parent_location_id = $4::uuid)
-      OR ($6::uuid IS NOT NULL AND shed_loc.parent_location_id IS NULL)
+      ($4::uuid IS NOT NULL AND (
+        (ob.scope_type = 'park' AND ob.scope_id = $4::uuid)
+        OR (ob.scope_type = 'shed' AND scope_loc.parent_location_id = $4::uuid)
+      ))
+      OR ($6::uuid IS NOT NULL AND (
+        ob.scope_type = 'tenant'
+        OR (ob.scope_type = 'park' AND scope_loc.location_type = 'park' AND scope_loc.parent_location_id IS NULL)
+        OR (ob.scope_type = 'shed' AND scope_loc.parent_location_id IS NULL)
+      ))
     )
 ),
 matched_obligations AS (
