@@ -16,6 +16,12 @@ if [ "${1:-}" = "--self-test" ]; then
   grep -q "ob.scope_type <> 'park'" "$0"
   grep -q "sp.location_id = g.shed_id" "$0"
   grep -q "GOATOS_DRIVE_SPECIES_GROUPING_POLICY" "$0"
+  # Capacity gate must exist: config read, active-status counting, cell summation,
+  # and per-goat boundary-evidence join.
+  grep -q "max_per_day" "$0"
+  grep -q "'in_progress'" "$0"
+  grep -q "sum(cells)" "$0"
+  grep -q "first_batching_hold_until" "$0"
   echo "vaccination-drive-clubbing-proof: self-test passed"
   exit 0
 fi
@@ -53,6 +59,142 @@ if [ -n "${non_park_batches//[[:space:]]/}" ]; then
   echo "vaccination-drive-clubbing-proof: FAILED" >&2
   echo "Vaccination drive batches must be park-scoped. Non-park planned batches:" >&2
   echo "$non_park_batches" >&2
+  exit 1
+fi
+
+# Capacity gate: fail closed when the tenant has no published capacity config.
+capacity_max="$(
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
+  -v tenant_id="$tenant_id" <<'SQL'
+SELECT max_per_day FROM vaccination_capacity_config WHERE tenant_id = :'tenant_id'::uuid;
+SQL
+)"
+if [ -z "${capacity_max//[[:space:]]/}" ]; then
+  echo "vaccination-drive-clubbing-proof: FAILED" >&2
+  echo "No vaccination_capacity_config row for tenant ${tenant_id}. Capacity proof cannot run; publish capacity config first." >&2
+  exit 1
+fi
+
+# Reject non-integral planned quantities before using them as dose-cell counts.
+non_integral="$(
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
+  -v tenant_id="$tenant_id" \
+  -v from_date="$from_date" \
+  -v to_date="$to_date" <<'SQL'
+SELECT ob.batch_id::text || ' | planned_quantity=' || ob.planned_quantity::text
+FROM obligation_batches ob
+JOIN protocol_versions pv ON pv.protocol_version_id = ob.protocol_version_id
+JOIN protocol_definitions pd ON pd.protocol_id = pv.protocol_id
+WHERE ob.tenant_id = :'tenant_id'::uuid
+  AND pd.category = 'vaccination'
+  AND ob.planned_quantity IS NOT NULL
+  AND ob.planned_quantity <> floor(ob.planned_quantity)
+  AND ob.planned_date >= (:'from_date'::date AT TIME ZONE 'Asia/Kolkata')
+  AND ob.planned_date < ((:'to_date'::date + interval '1 day') AT TIME ZONE 'Asia/Kolkata')
+ORDER BY ob.batch_id;
+SQL
+)"
+if [ -n "${non_integral//[[:space:]]/}" ]; then
+  echo "vaccination-drive-clubbing-proof: FAILED" >&2
+  echo "Non-integral planned_quantity on vaccination batches (cells must be whole administrations):" >&2
+  echo "$non_integral" >&2
+  exit 1
+fi
+
+# Capacity + overflow-evidence check: sum dose cells per park/date across all vaccines/batches/rules
+# (planned + in_progress + completed; canceled/superseded excluded). A park/date may exceed
+# max_per_day ONLY when every non-canceled obligation on it is pinned by its own boundary:
+# medical safe-window end (window_end, fallback due_at) or the due+7 batching hold
+# (first_batching_hold_until, fallback due_at + 7 days) is <= planned_date. Any movable goat
+# on an over-cap park/date is a failure and is listed.
+capacity_violations="$(
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
+  -v tenant_id="$tenant_id" \
+  -v from_date="$from_date" \
+  -v to_date="$to_date" \
+  -v capacity_max="$capacity_max" <<'SQL'
+WITH drive_batches AS (
+  SELECT
+    ob.batch_id,
+    ob.planned_date,
+    (ob.planned_date AT TIME ZONE 'Asia/Kolkata')::date AS drive_date,
+    COALESCE(
+      CASE WHEN ob.scope_type = 'park' THEN ob.scope_id END,
+      gs.parent_location_id,
+      g.park_id
+    ) AS park_id
+  FROM obligation_batches ob
+  JOIN protocol_versions pv ON pv.protocol_version_id = ob.protocol_version_id
+  JOIN protocol_definitions pd ON pd.protocol_id = pv.protocol_id
+  LEFT JOIN locations gs ON gs.location_id = ob.scope_id AND ob.scope_type = 'shed'
+  LEFT JOIN LATERAL (
+    SELECT g0.park_id
+    FROM obligation_instances oi0
+    JOIN goats g0 ON g0.goat_id = oi0.target_id
+    WHERE oi0.batch_id = ob.batch_id AND g0.park_id IS NOT NULL
+    LIMIT 1
+  ) g ON TRUE
+  WHERE ob.tenant_id = :'tenant_id'::uuid
+    AND pd.category = 'vaccination'
+    AND ob.status IN ('planned', 'in_progress', 'completed')
+    AND ob.planned_date >= (:'from_date'::date AT TIME ZONE 'Asia/Kolkata')
+    AND ob.planned_date < ((:'to_date'::date + interval '1 day') AT TIME ZONE 'Asia/Kolkata')
+),
+batch_cells AS (
+  SELECT
+    db.park_id,
+    db.drive_date,
+    db.batch_id,
+    GREATEST(
+      COALESCE(ob.planned_quantity, 1)::int,
+      count(oi.obligation_id) FILTER (WHERE oi.status NOT IN ('canceled', 'superseded'))::int
+    ) AS cells
+  FROM drive_batches db
+  JOIN obligation_batches ob ON ob.batch_id = db.batch_id
+  LEFT JOIN obligation_instances oi ON oi.batch_id = db.batch_id
+  GROUP BY db.park_id, db.drive_date, db.batch_id, ob.planned_quantity
+),
+park_date_cells AS (
+  SELECT park_id, drive_date, sum(cells)::int AS total_cells
+  FROM batch_cells
+  GROUP BY park_id, drive_date
+),
+over_cap AS (
+  SELECT * FROM park_date_cells WHERE total_cells > :'capacity_max'::int
+),
+movable AS (
+  -- Goats on an over-cap park/date whose OWN boundaries would allow moving later:
+  -- both the medical safe-window end and the due+7 hold boundary are strictly after
+  -- planned_date, so this cell has no last-safe/hold evidence.
+  SELECT
+    oc.park_id,
+    oc.drive_date,
+    oc.total_cells,
+    oi.target_id,
+    (COALESCE(oi.window_end, oi.due_at) AT TIME ZONE 'Asia/Kolkata')::date AS safe_until,
+    (COALESCE(oi.first_batching_hold_until, oi.due_at + interval '7 days') AT TIME ZONE 'Asia/Kolkata')::date AS hold_until
+  FROM over_cap oc
+  JOIN drive_batches db ON db.park_id = oc.park_id AND db.drive_date = oc.drive_date
+  JOIN obligation_instances oi ON oi.batch_id = db.batch_id
+  WHERE oi.status NOT IN ('canceled', 'superseded')
+    AND (COALESCE(oi.window_end, oi.due_at) AT TIME ZONE 'Asia/Kolkata')::date > oc.drive_date
+    AND (COALESCE(oi.first_batching_hold_until, oi.due_at + interval '7 days') AT TIME ZONE 'Asia/Kolkata')::date > oc.drive_date
+)
+SELECT
+  m.drive_date || ' | park=' || COALESCE(p.name, m.park_id::text, 'unknown') ||
+  ' | cells=' || m.total_cells || ' | capacity=' || :'capacity_max' ||
+  ' | movable_goat=' || m.target_id::text ||
+  ' | safe_until=' || m.safe_until || ' | hold_until=' || m.hold_until
+FROM movable m
+LEFT JOIN locations p ON p.location_id = m.park_id
+ORDER BY m.drive_date, m.park_id, m.target_id;
+SQL
+)"
+
+if [ -n "${capacity_violations//[[:space:]]/}" ]; then
+  echo "vaccination-drive-clubbing-proof: FAILED" >&2
+  echo "Over-cap park/date drives contain movable goats (no last-safe/hold-boundary evidence):" >&2
+  echo "$capacity_violations" >&2
   exit 1
 fi
 

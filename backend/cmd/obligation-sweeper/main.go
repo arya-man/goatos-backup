@@ -192,8 +192,8 @@ func run(args []string) error {
 				fmt.Printf("swept version=%s batches=%d obligations=%d park_batches=%d park_obligations=%d\n",
 					plan.VersionID, result.Batches, result.Obligations, result.ParkBatches, result.ParkObligations)
 			}
-			alignWindowDays, maxShotsPerAnimalPerDrive := obligationapp.ComboAlignmentSettingsForPlans(plans)
-			aligned, err := sweeper.AlignComboDrivesAsOf(ctx, cfg.TenantID, alignWindowDays, cfg.AsOf, cfg.DueBefore, maxShotsPerAnimalPerDrive, session)
+			alignWindowDays, maxShotsPerAnimalPerDrive, maxDriveCells := obligationapp.ComboAlignmentSettingsForPlans(plans)
+			aligned, err := sweeper.AlignComboDrivesAsOf(ctx, cfg.TenantID, alignWindowDays, cfg.AsOf, cfg.DueBefore, maxShotsPerAnimalPerDrive, maxDriveCells, session)
 			if err != nil {
 				return fmt.Errorf("align combo drives: %w", err)
 			}

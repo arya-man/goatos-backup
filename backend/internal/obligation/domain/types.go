@@ -36,6 +36,7 @@ type RecoveryReschedule struct {
 type ObligationRef struct {
 	ObligationID string
 	Status       string
+	Reason       string
 	DueAt        time.Time
 	RowVersion   int32
 }
@@ -151,17 +152,20 @@ type ParkConsolidationCursor struct {
 // TargetIDs is the distinct set of animal target IDs already attached to this batch, used to
 // keep AlignComboDrives from pushing any one animal past MaxShotsPerAnimalPerDrive when it
 // co-locates approved combo batches (FMD+HS, etc.) onto one shared drive date. SafeStart/SafeEnd
-// are the intersection of the attached obligations' medical windows; alignment must not move the
-// whole batch outside that envelope.
+// are the intersection of the attached obligations' medical windows; HoldUntil is the intersection
+// of their one-time batching hold caps. Alignment must satisfy both envelopes.
 type ComboDriveBatch struct {
 	BatchID           string
 	ProtocolVersionID string
 	ScopeType         string
 	ScopeID           string
+	ParkID            string
 	Session           string
 	PlannedDate       *time.Time
 	SafeStart         *time.Time
 	SafeEnd           *time.Time
+	HoldUntil         *time.Time
+	CellCount         int32
 	TargetIDs         []string
 }
 

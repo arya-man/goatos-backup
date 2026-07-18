@@ -101,9 +101,9 @@ func TestReminderCadenceP1Finding3TargetTypeResolves(t *testing.T) {
 	inputs := make([]ports.ReminderCadenceFireInput, 0, len(fires))
 	for _, f := range fires {
 		inputs = append(inputs, ports.ReminderCadenceFireInput{
-			Fire:  f,
-			Title: "Finding-3 reminder",
-			Body:  "target-type resolution",
+			Fire:    f,
+			Title:   "Finding-3 reminder",
+			Body:    "target-type resolution",
 			Context: map[string]string{"test": "finding3"},
 			Recipients: []ports.NotificationRecipient{{
 				MemberID:  "86000000-0000-4000-8000-0000000f3500",

@@ -336,13 +336,13 @@ func renderReminderBody(fire calendarports.ReminderCadenceFire) string {
 // renderReminderContext returns context metadata for deep-linking and observability.
 func renderReminderContext(fire calendarports.ReminderCadenceFire) map[string]string {
 	return map[string]string{
-		"type":           "vaccination_reminder",
-		"obligation_id":  fire.RepresentativeObligationID,
-		"park_id":        fire.ParkID,
-		"fire_type":      fire.NotificationType,
-		"fire_slot":      fire.Slot,
+		"type":             "vaccination_reminder",
+		"obligation_id":    fire.RepresentativeObligationID,
+		"park_id":          fire.ParkID,
+		"fire_type":        fire.NotificationType,
+		"fire_slot":        fire.Slot,
 		"obligation_count": fmt.Sprintf("%d", fire.ObligationCount),
-		"screen":         "calendar",
-		"href":           "/calendar",
+		"screen":           "calendar",
+		"href":             "/calendar",
 	}
 }

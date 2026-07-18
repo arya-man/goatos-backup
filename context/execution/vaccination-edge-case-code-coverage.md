@@ -40,7 +40,7 @@ proof.
 | `post_arrival` | SM-1 generation computes due date from entry date; goat without entry date is skipped as no due date. |
 | `calendar` | SM-1 generation computes due from schedule calendar/offset basis. |
 | `after_previous_completion` | Booster/follow-up only after accepted verification. It is not fired by initial SM-1 generation. |
-| `manual_campaign` | Fires only through `POST /vaccination/manual-campaigns` or the `vaccination.manual_campaign.requested` event handler. |
+| `manual_campaign` | Runs through the idempotent `POST /vaccination/manual-campaigns` command path. It is not a domain event until a real transactional outbox producer exists. |
 
 ## CEO Message Accuracy
 

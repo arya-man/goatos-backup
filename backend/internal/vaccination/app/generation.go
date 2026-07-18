@@ -1378,7 +1378,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		if deferred {
 			status = "deferred"
 		}
-		obID, applied, err := s.obl.InsertObligation(ctx, obldomain.NewObligation{
+		newObligation := obldomain.NewObligation{
 			TenantID:          tenantID,
 			ProtocolVersionID: versionID,
 			RuleID:            rule.RuleID,
@@ -1391,7 +1391,8 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			Status:            status,
 			IdempotencyKey:    key,
 			Sequence:          rule.Sequence,
-		})
+		}
+		obID, applied, err := s.obl.InsertObligation(ctx, newObligation)
 		if err != nil {
 			return err
 		}
@@ -1441,6 +1442,33 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			// terminal obligation made reopening a no-op.
 			if actionableObligationForSpacing(finalRef) {
 				pending = append(pending, pendingVaccine{code: ruleVaccine.Code, class: ruleVaccine.Class, due: finalRef.DueAt})
+			} else if !deferred && strings.EqualFold(strings.TrimSpace(finalRef.Status), "canceled") {
+				// Create a successor only for returning-goat scenarios (requalification/return/park-shift).
+				// Terminal cancellations (vaccine_history_outranks_anchor, vaccine_history_now_available,
+				// missing_due_date_resolved) must NOT create successors or act as spacing anchors.
+				// The Reason field comes from the persisted cancellation event (status_events payload);
+				// if empty, treat as returning-goat and create successor (backward compat until wired).
+				shouldCreateSuccessor := finalRef.Reason == "" || // Not yet wired from SQL
+					strings.EqualFold(finalRef.Reason, "return") ||
+					strings.EqualFold(finalRef.Reason, "requalification") ||
+					strings.EqualFold(finalRef.Reason, "park_shift")
+				if !shouldCreateSuccessor {
+					// Terminal cancellation - don't create successor or add to spacing
+					continue
+				}
+				successorRef, successorChanged, successorApplied, err := s.insertSuccessorForCanceledGenerationReplay(ctx, tenantID, key, newObligation, asOf, deferred)
+				if err != nil {
+					return err
+				}
+				if successorApplied {
+					res.Generated++
+				}
+				if successorChanged {
+					res.Reopened++
+				}
+				if actionableObligationForSpacing(successorRef) {
+					pending = append(pending, pendingVaccine{code: ruleVaccine.Code, class: ruleVaccine.Class, due: successorRef.DueAt})
+				}
 			}
 			continue // replay no-op
 		}
@@ -1478,6 +1506,38 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 		}
 	}
 	return nil
+}
+
+func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx context.Context, tenantID, baseKey string, base obldomain.NewObligation, asOf time.Time, deferred bool) (obldomain.ObligationRef, bool, bool, error) {
+	// LIFE-001 fix: successor status must reflect the newly calculated clinical status.
+	// A requalified sick/ICU goat must get a fresh DEFERRED successor, not forced to scheduled.
+	successorStatus := "scheduled"
+	if deferred {
+		successorStatus = "deferred"
+	}
+	base.Status = successorStatus
+	for attempt := 1; attempt <= 32; attempt++ {
+		successor := base
+		successor.IdempotencyKey = fmt.Sprintf("%s:successor:%02d", baseKey, attempt)
+		obID, applied, err := s.obl.InsertObligation(ctx, successor)
+		if err != nil {
+			return obldomain.ObligationRef{}, false, false, err
+		}
+		if applied {
+			return obldomain.ObligationRef{ObligationID: obID, Status: successor.Status, DueAt: successor.DueAt, Reason: ""}, false, true, nil
+		}
+		ref, changed, err := s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, asOf, nil)
+		if err != nil {
+			return obldomain.ObligationRef{}, false, false, err
+		}
+		if actionableObligationForSpacing(ref) {
+			return ref, changed, false, nil
+		}
+		if !strings.EqualFold(strings.TrimSpace(ref.Status), "canceled") && strings.TrimSpace(ref.Status) != "" {
+			return ref, changed, false, nil
+		}
+	}
+	return obldomain.ObligationRef{}, false, false, fmt.Errorf("vaccination generation: canceled obligation key %s exhausted successor attempts", baseKey)
 }
 
 func limitsHistoricalCatchUp(rule protodomain.Rule, baseDue, materializedDue, asOf time.Time, opts generationOptions) bool {

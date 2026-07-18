@@ -22,6 +22,8 @@ import (
 type SweepSession struct {
 	visitShotCounts map[string]int32
 	visitClaims     map[string]shotCapClaim
+	driveCellCounts map[string]int32
+	driveLoaded     map[string]struct{}
 	// loaded marks every visitShotCountKey whose starting count has already been resolved once
 	// in this session -- either seeded from the persisted, cross-pass/cross-worker committed
 	// shot count (see seedResolved/SweeperService.seedAndLockVisitShots, VAX-REV-01) or, for a
@@ -46,11 +48,19 @@ type shotCapReservation struct {
 	priority     int32
 }
 
+type driveCapacityReservation struct {
+	obligationID string
+	key          string
+	cells        int32
+}
+
 // NewSweepSession starts a fresh cross-version sweep session with empty shot-cap state.
 func NewSweepSession() *SweepSession {
 	return &SweepSession{
 		visitShotCounts: make(map[string]int32),
 		visitClaims:     make(map[string]shotCapClaim),
+		driveCellCounts: make(map[string]int32),
+		driveLoaded:     make(map[string]struct{}),
 		loaded:          make(map[string]struct{}),
 	}
 }
@@ -176,6 +186,48 @@ func (s *SweepSession) releaseClaims(claims []shotCapReservation) {
 	}
 }
 
+func (s *SweepSession) claimDriveCapacity(parkID string, plannedDate time.Time, obligationID string, cells int32) driveCapacityReservation {
+	if cells <= 0 {
+		cells = 1
+	}
+	key := driveCapacityKey(parkID, plannedDate)
+	s.driveCellCounts[key] += cells
+	return driveCapacityReservation{obligationID: obligationID, key: key, cells: cells}
+}
+
+func (s *SweepSession) resetDriveCapacity(parkID string, plannedDate time.Time, persisted int32) {
+	key := driveCapacityKey(parkID, plannedDate)
+	// Only seed the baseline once per session. Subsequent calls within the same session accumulate
+	// claims without resetting, so preflight claims are never lost (VAXCAP-007).
+	if _, loaded := s.driveLoaded[key]; loaded {
+		return
+	}
+	s.driveLoaded[key] = struct{}{}
+	s.driveCellCounts[key] = persisted
+}
+
+func (s *SweepSession) driveCapacityUsed(parkID string, plannedDate time.Time) int32 {
+	return s.driveCellCounts[driveCapacityKey(parkID, plannedDate)]
+}
+
+func (s *SweepSession) releaseDriveCapacityClaims(claims []driveCapacityReservation) {
+	for i := len(claims) - 1; i >= 0; i-- {
+		claim := claims[i]
+		if claim.cells <= 0 {
+			claim.cells = 1
+		}
+		if s.driveCellCounts[claim.key] > claim.cells {
+			s.driveCellCounts[claim.key] -= claim.cells
+			continue
+		}
+		delete(s.driveCellCounts, claim.key)
+	}
+}
+
+func driveCapacityKey(parkID string, plannedDate time.Time) string {
+	return strings.TrimSpace(parkID) + "|" + businessDate(plannedDate).Format("2006-01-02")
+}
+
 // rejectOrTie returns the explicit blocker when a same-priority, different-vaccine obligation
 // competes for a visit key that is already at cap, or nil when the rejection is an ordinary,
 // resolvable priority-ordered overflow (including a vaccine overflowing its own earlier claim,
@@ -218,7 +270,7 @@ func (s *SweepSession) claimComboBatchTargets(targetIDs []string, date time.Time
 // swept in this run) instead of a private per-call map, and it surfaces
 // ShotCapPriorityTieError when the cap would force a same-priority, different-vaccine drop
 // instead of silently picking an arrival-order winner.
-func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDate *time.Time, maxShots int32, vaccineCode string, priority int32, session *SweepSession) ([]string, []shotCapReservation, error) {
+func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDate *time.Time, planner domain.DrivePlannerSettings, vaccineCode string, priority int32, session *SweepSession) ([]string, []shotCapReservation, error) {
 	if plannedDate == nil {
 		ids := make([]string, 0, len(rows))
 		for _, row := range rows {
@@ -229,7 +281,7 @@ func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDa
 	selected := make([]string, 0, len(rows))
 	claims := make([]shotCapReservation, 0, len(rows))
 	for _, row := range rows {
-		if !driveCandidateFeasibleOnDate(*plannedDate, driveCandidate{
+		if !driveCandidateFeasibleOnPlannerDate(*plannedDate, driveCandidate{
 			ObligationID:             row.ObligationID,
 			TargetID:                 row.TargetID,
 			TargetReproductiveStatus: row.TargetReproductiveStatus,
@@ -238,10 +290,10 @@ func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDa
 			WindowEnd:                row.WindowEnd,
 			BatchingHoldCount:        row.BatchingHoldCount,
 			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
-		}) {
+		}, planner) {
 			continue
 		}
-		if maxShots <= 0 {
+		if planner.MaxShotsPerAnimalPerDrive <= 0 {
 			selected = append(selected, row.ObligationID)
 			continue
 		}
@@ -250,7 +302,7 @@ func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDa
 			continue
 		}
 		key := visitShotCountKey(*plannedDate, row.TargetID)
-		if session.visitShotCounts[key] >= maxShots {
+		if session.visitShotCounts[key] >= planner.MaxShotsPerAnimalPerDrive {
 			if err := session.rejectOrTie(key, vaccineCode, priority, row.TargetID, *plannedDate); err != nil {
 				session.releaseClaims(claims)
 				return nil, nil, err
@@ -278,7 +330,7 @@ type ruleVaccineIdentityResolver = func(ruleID string) RuleVaccineIdentity
 // several rules/vaccines at once, so the caller supplies identityFor to resolve each row's OWN
 // vaccine identity (R2-05(b) fix) instead of a single vaccineCode/priority pair applied to every
 // row.
-func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, maxShots int32, identityFor ruleVaccineIdentityResolver, session *SweepSession) ([]string, []shotCapReservation, error) {
+func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, identityFor ruleVaccineIdentityResolver, session *SweepSession) ([]string, []shotCapReservation, error) {
 	if plannedDate == nil || len(selected) == 0 {
 		return selected, nil, nil
 	}
@@ -292,7 +344,7 @@ func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCa
 		if _, ok := selectedSet[row.ObligationID]; !ok {
 			continue
 		}
-		if !driveCandidateFeasibleOnDate(*plannedDate, driveCandidate{
+		if !driveCandidateFeasibleOnPlannerDate(*plannedDate, driveCandidate{
 			ObligationID:             row.ObligationID,
 			TargetID:                 row.TargetID,
 			TargetReproductiveStatus: row.TargetReproductiveStatus,
@@ -301,10 +353,10 @@ func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCa
 			WindowEnd:                row.WindowEnd,
 			BatchingHoldCount:        row.BatchingHoldCount,
 			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
-		}) {
+		}, planner) {
 			continue
 		}
-		if maxShots <= 0 {
+		if planner.MaxShotsPerAnimalPerDrive <= 0 {
 			out = append(out, row.ObligationID)
 			continue
 		}
@@ -314,7 +366,7 @@ func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCa
 		}
 		identity := identityFor(row.RuleID)
 		key := visitShotCountKey(*plannedDate, row.TargetID)
-		if session.visitShotCounts[key] >= maxShots {
+		if session.visitShotCounts[key] >= planner.MaxShotsPerAnimalPerDrive {
 			if err := session.rejectOrTie(key, identity.VaccineCode, identity.VaccinePriority, row.TargetID, *plannedDate); err != nil {
 				session.releaseClaims(claims)
 				return nil, nil, err

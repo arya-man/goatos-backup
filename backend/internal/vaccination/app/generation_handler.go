@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
-	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 // EventGoatCreated is the event type that triggers per-goat SM-1 generation.
@@ -48,10 +47,6 @@ const EventGoatReproductiveChanged = "goat.reproductive.changed"
 // ready to recompute the moment that identity-side command ships. See the runbook's B7 dependency
 // note; do not wire a synthetic producer here.
 const EventGoatIdentityChanged = "goat.identity.changed"
-
-// EventManualCampaignRequested intentionally fires manual_campaign schedule rows for one published
-// vaccination version. It is not part of normal publish/backfill generation.
-const EventManualCampaignRequested = "vaccination.manual_campaign.requested"
 
 // EventProtocolVersionPublished is the durable protocol publish event. Vaccination consumes this
 // event to generate existing-cohort obligations after a source-backed version is published.
@@ -115,11 +110,6 @@ func (h *GoatRecheckHandler) HandleEvent(ctx context.Context, e eventbus.Event) 
 	return err
 }
 
-type manualCampaignPayload struct {
-	ProtocolVersionID string `json:"protocol_version_id"`
-	CampaignID        string `json:"campaign_id"`
-}
-
 type protocolPublishedPayload struct {
 	ProtocolVersionID string `json:"protocol_version_id"`
 	Category          string `json:"category"`
@@ -173,52 +163,4 @@ func (h *ProtocolPublishedHandler) HandleEvent(ctx context.Context, e eventbus.E
 	}
 	_, _, err := h.gen.GenerateForVersionWithRun(ctx, e.TenantID, versionID, asOf, "publish", versionID)
 	return err
-}
-
-// ManualCampaignHandler materializes manual_campaign rules only when a campaign request event is
-// delivered. Payload must name the published protocol_version_id and campaign_id.
-type ManualCampaignHandler struct {
-	gen *GenerationService
-}
-
-func NewManualCampaignHandler(gen *GenerationService) *ManualCampaignHandler {
-	return &ManualCampaignHandler{gen: gen}
-}
-
-var _ eventbus.Handler = (*ManualCampaignHandler)(nil)
-
-func (h *ManualCampaignHandler) Register(bus eventbus.Bus) {
-	bus.Subscribe(EventManualCampaignRequested, h)
-}
-
-func (h *ManualCampaignHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
-	var p manualCampaignPayload
-	if len(e.Payload) > 0 {
-		if err := json.Unmarshal(e.Payload, &p); err != nil {
-			return err
-		}
-	}
-	if p.ProtocolVersionID == "" || p.CampaignID == "" {
-		return nil
-	}
-	asOf := e.OccurredAt
-	if asOf.IsZero() {
-		asOf = time.Now()
-	}
-	if manualCampaignEventAsOfInFuture(e, time.Now()) {
-		return eventbus.PermanentError(domain.ErrFutureManualCampaign)
-	}
-	_, _, err := h.gen.GenerateManualCampaignForVersionWithRun(ctx, e.TenantID, p.ProtocolVersionID, p.CampaignID, asOf)
-	return err
-}
-
-func manualCampaignEventAsOfInFuture(e eventbus.Event, now time.Time) bool {
-	if e.OccurredAt.IsZero() {
-		return false
-	}
-	baseline := e.RecordedAt
-	if baseline.IsZero() {
-		baseline = now
-	}
-	return e.OccurredAt.After(baseline)
 }

@@ -3979,3 +3979,233 @@ INSERT INTO notification_requests (
 	t.Logf("FINDING 4 PASS: processed %d orphans in %d pages (page size %d, per-run cap %d)",
 		scaleN, 3, 1000, 10)
 }
+
+// LIFE-002: a held drive moved from due day D to planned day D+7 must surface its FULL roster on
+// D+7, and every returned target row must carry scheduled_at = the batch planned_date (D+7), not
+// the member obligation's stale due_at (D). Event date, roster membership, and the returned target
+// timestamp must all agree on D+7.
+func TestCalendarHeldDriveTargetsReturnPlannedDateNotStaleDueAt(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	const (
+		protocolID  = "86000000-0000-4000-8000-00000000d901"
+		versionID   = "86000000-0000-4000-8000-00000000d902"
+		ruleID      = "86000000-0000-4000-8000-00000000d903"
+		batchID     = "86000000-0000-4000-8000-00000000d904"
+		obligationA = "86000000-0000-4000-8000-00000000d905"
+		obligationB = "86000000-0000-4000-8000-00000000d906"
+	)
+	loc := biztime.DefaultLocation()
+	dueAt := stableSameLocalDayDueAt(time.Now().In(loc)) // D
+	heldAt := dueAt.Add(7 * 24 * time.Hour)              // D+7 (one-time due+7 batching hold)
+	dueDay := dueAt.In(loc).Format("2006-01-02")
+	heldDay := heldAt.In(loc).Format("2006-01-02")
+	if dueDay == heldDay {
+		t.Fatalf("test setup: due day %s must differ from held day %s", dueDay, heldDay)
+	}
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationA, dueAt)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, obligationB, dueAt)
+	attachObligationToGoatScope(t, ctx, pool, obligationA, obligationA, "shed", testShedA)
+	attachObligationToGoatScope(t, ctx, pool, obligationB, obligationB, "shed", testShedA)
+	// Batch is planned for D+7 while the member obligations keep due_at = D.
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedA, heldAt, obligationA, obligationB)
+
+	// Event date: the drive appears on D+7 with the stable park-drive identity for D+7, not D.
+	wantID := parkDriveEventID(testParkA, heldAt)
+	list, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: heldAt.Add(-2 * time.Hour), DateTo: heldAt.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents held window: %v", err)
+	}
+	var found bool
+	for _, item := range list.Items {
+		if item.EventID == wantID {
+			found = true
+			if got := item.DueAt.In(loc).Format("2006-01-02"); got != heldDay {
+				t.Fatalf("held drive event due day=%s, want %s", got, heldDay)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("held drive %s missing from D+7 window list=%#v", wantID, list.Items)
+	}
+
+	// Roster membership + returned target timestamp: both animals present, every row's
+	// scheduled_at is the batch planned_date business day (D+7), never the stale due day D.
+	targets, err := repo.ListDriveTargets(ctx, domain.DriveTargetQuery{
+		TenantID: testTenantID, EventID: wantID, Scope: domain.ScopeFilter{TenantWide: true}, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("ListDriveTargets(%s): %v", wantID, err)
+	}
+	if len(targets.Items) != 2 {
+		t.Fatalf("held drive targets=%#v, want both member animals", targets.Items)
+	}
+	seen := map[string]bool{}
+	for _, item := range targets.Items {
+		seen[item.AnimalID] = true
+		gotDay := item.ScheduledAt.In(loc).Format("2006-01-02")
+		if gotDay != heldDay {
+			t.Fatalf("target %s scheduled_at day=%s, want held day %s (stale due day %s must not leak)",
+				item.AnimalID, gotDay, heldDay, dueDay)
+		}
+	}
+	if !seen[obligationA] || !seen[obligationB] {
+		t.Fatalf("held drive roster=%#v, want animals %s and %s", targets.Items, obligationA, obligationB)
+	}
+}
+
+// LIFE-005: park-drive summary_primary copy must come from the scheduled status bucket, never from
+// the total roster target_count. Completed-only, completed+deferred, and canceled+deferred drives
+// must not claim their whole roster as "scheduled doses".
+func TestCalendarParkDriveSummaryPrimaryUsesStatusBucketsNotRosterTotal(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	type driveSummaryBlock struct {
+		TargetCount    int    `json:"target_count"`
+		ScheduledCount int    `json:"scheduled_count"`
+		DeferredCount  int    `json:"deferred_count"`
+		SummaryPrimary string `json:"summary_primary"`
+	}
+	readSummary := func(t *testing.T, eventID string) driveSummaryBlock {
+		t.Helper()
+		detail, err := repo.GetEventDetail(ctx, domain.EventQuery{
+			TenantID: testTenantID, EventID: eventID, Scope: domain.ScopeFilter{TenantWide: true},
+		})
+		if err != nil {
+			t.Fatalf("GetEventDetail(%s): %v", eventID, err)
+		}
+		var block driveSummaryBlock
+		if err := json.Unmarshal(detail.Summary, &block); err != nil {
+			t.Fatalf("unmarshal summary for %s: %v (raw=%s)", eventID, err, string(detail.Summary))
+		}
+		return block
+	}
+	scheduledCopy := func(n int) string {
+		if n == 1 {
+			return "1 scheduled dose"
+		}
+		return fmt.Sprintf("%d scheduled doses", n)
+	}
+
+	const (
+		protocolID = "86000000-0000-4000-8000-00000000da01"
+		versionID  = "86000000-0000-4000-8000-00000000da02"
+		ruleID     = "86000000-0000-4000-8000-00000000da03"
+	)
+	dueAt := stableSameLocalDayDueAt(time.Now().In(biztime.DefaultLocation()))
+
+	// Scenario 1 (completed-only): one completed batch of two obligations. target_count stays the
+	// roster size (2); summary_primary must say 0 scheduled doses, not 2.
+	const (
+		completedPark  = "86000000-0000-4000-8000-00000000da11"
+		completedShed  = "86000000-0000-4000-8000-00000000da12"
+		completedBatch = "86000000-0000-4000-8000-00000000da13"
+		completedOblA  = "86000000-0000-4000-8000-00000000da14"
+		completedOblB  = "86000000-0000-4000-8000-00000000da15"
+	)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, completedOblA, dueAt)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, completedOblB, dueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, completedBatch, versionID, completedPark, completedShed, dueAt, completedOblA, completedOblB)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches SET status='completed', updated_at=now()
+WHERE tenant_id=$1::uuid AND batch_id=$2::uuid`, testTenantID, completedBatch); err != nil {
+		t.Fatalf("mark batch completed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances SET status='completed', completed_at=now(), updated_at=now()
+WHERE tenant_id=$1::uuid AND obligation_id IN ($2::uuid, $3::uuid)`, testTenantID, completedOblA, completedOblB); err != nil {
+		t.Fatalf("mark obligations completed: %v", err)
+	}
+	completedOnly := readSummary(t, parkDriveEventID(completedPark, dueAt))
+	if completedOnly.TargetCount != 2 || completedOnly.ScheduledCount != 0 {
+		t.Fatalf("completed-only summary=%#v, want target_count=2 scheduled_count=0", completedOnly)
+	}
+	if completedOnly.SummaryPrimary != scheduledCopy(0) {
+		t.Fatalf("completed-only summary_primary=%q, want %q (roster total %d must not drive the copy)",
+			completedOnly.SummaryPrimary, scheduledCopy(0), completedOnly.TargetCount)
+	}
+
+	// Scenario 2 (completed+deferred): a completed batch plus an unbatched deferred obligation on
+	// the same park/day. Neither bucket is scheduled; the copy must stay at 0.
+	const (
+		mixedPark     = "86000000-0000-4000-8000-00000000da21"
+		mixedShed     = "86000000-0000-4000-8000-00000000da22"
+		mixedBatch    = "86000000-0000-4000-8000-00000000da23"
+		mixedOblDone  = "86000000-0000-4000-8000-00000000da24"
+		mixedOblDefer = "86000000-0000-4000-8000-00000000da25"
+	)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, mixedOblDone, dueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, mixedBatch, versionID, mixedPark, mixedShed, dueAt, mixedOblDone)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches SET status='completed', updated_at=now()
+WHERE tenant_id=$1::uuid AND batch_id=$2::uuid`, testTenantID, mixedBatch); err != nil {
+		t.Fatalf("mark mixed batch completed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances SET status='completed', completed_at=now(), updated_at=now()
+WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`, testTenantID, mixedOblDone); err != nil {
+		t.Fatalf("mark mixed obligation completed: %v", err)
+	}
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, mixedOblDefer, dueAt)
+	attachObligationToGoatScope(t, ctx, pool, mixedOblDefer, mixedOblDefer, "shed", mixedShed)
+	seedCalendarLocations(t, ctx, pool, mixedPark, mixedShed)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances SET status='deferred', updated_at=now()
+WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`, testTenantID, mixedOblDefer); err != nil {
+		t.Fatalf("defer mixed obligation: %v", err)
+	}
+	mixed := readSummary(t, parkDriveEventID(mixedPark, dueAt))
+	if mixed.ScheduledCount != 0 {
+		t.Fatalf("completed+deferred summary=%#v, want scheduled_count=0", mixed)
+	}
+	if mixed.SummaryPrimary != scheduledCopy(0) {
+		t.Fatalf("completed+deferred summary_primary=%q, want %q", mixed.SummaryPrimary, scheduledCopy(0))
+	}
+	if mixed.SummaryPrimary == scheduledCopy(mixed.TargetCount) && mixed.TargetCount != 0 {
+		t.Fatalf("completed+deferred summary_primary=%q still mirrors roster total %d", mixed.SummaryPrimary, mixed.TargetCount)
+	}
+
+	// Scenario 3 (canceled+deferred): a canceled (superseded) batch plus an unbatched deferred
+	// obligation. The canceled batch contributes nothing schedulable; the copy must stay at 0.
+	const (
+		canPark     = "86000000-0000-4000-8000-00000000da31"
+		canShed     = "86000000-0000-4000-8000-00000000da32"
+		canBatch    = "86000000-0000-4000-8000-00000000da33"
+		canOblGone  = "86000000-0000-4000-8000-00000000da34"
+		canOblDefer = "86000000-0000-4000-8000-00000000da35"
+	)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, canOblGone, dueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, canBatch, versionID, canPark, canShed, dueAt, canOblGone)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches SET status='superseded', updated_at=now()
+WHERE tenant_id=$1::uuid AND batch_id=$2::uuid`, testTenantID, canBatch); err != nil {
+		t.Fatalf("cancel batch: %v", err)
+	}
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, canOblDefer, dueAt)
+	attachObligationToGoatScope(t, ctx, pool, canOblDefer, canOblDefer, "shed", canShed)
+	seedCalendarLocations(t, ctx, pool, canPark, canShed)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances SET status='deferred', updated_at=now()
+WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`, testTenantID, canOblDefer); err != nil {
+		t.Fatalf("defer obligation next to canceled batch: %v", err)
+	}
+	canceled := readSummary(t, parkDriveEventID(canPark, dueAt))
+	if canceled.ScheduledCount != 0 {
+		t.Fatalf("canceled+deferred summary=%#v, want scheduled_count=0", canceled)
+	}
+	if canceled.SummaryPrimary != scheduledCopy(0) {
+		t.Fatalf("canceled+deferred summary_primary=%q, want %q", canceled.SummaryPrimary, scheduledCopy(0))
+	}
+}

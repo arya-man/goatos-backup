@@ -13,6 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
+	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 	countspg "github.com/vgoats/goatos/backend/internal/counts/adapters/postgres"
 	countsapp "github.com/vgoats/goatos/backend/internal/counts/app"
 	inventorypg "github.com/vgoats/goatos/backend/internal/inventory/adapters/postgres"
@@ -34,8 +36,6 @@ import (
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
-	calendarpg "github.com/vgoats/goatos/backend/internal/calendar/adapters/postgres"
-	calendarapp "github.com/vgoats/goatos/backend/internal/calendar/app"
 )
 
 type cliConfig struct {
@@ -153,7 +153,6 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationapp.NewGoatCreatedHandler(generation).Register(bus)
 		vaccinationapp.NewGoatRecheckHandler(generation).Register(bus)
 		vaccinationapp.NewProtocolPublishedHandler(generation).Register(bus)
-		vaccinationapp.NewManualCampaignHandler(generation).Register(bus)
 		vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)

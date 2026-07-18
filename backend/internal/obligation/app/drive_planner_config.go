@@ -131,10 +131,11 @@ func resolvedDrivePlannerSettings(cfg domain.DrivePlannerSettings, vaccineCode s
 
 // ComboAlignmentSettingsForPlans returns the strictest combo-drive alignment policy
 // across the protocol versions participating in one sweep pass.
-func ComboAlignmentSettingsForPlans(plans []SweepVersionPriority) (alignWindowDays int32, maxShotsPerAnimalPerDrive int32) {
+func ComboAlignmentSettingsForPlans(plans []SweepVersionPriority) (alignWindowDays int32, maxShotsPerAnimalPerDrive int32, maxDriveCells int32) {
 	defaults := domain.DefaultDrivePlannerSettings()
 	alignWindowDays = defaults.ComboAlignWindowDays
 	maxShotsPerAnimalPerDrive = defaults.MaxShotsPerAnimalPerDrive
+	maxDriveCells = defaults.MaxGoatsPerDrive
 	for _, plan := range plans {
 		planner := resolvedDrivePlannerSettings(plan.Config.DrivePlanner, plan.Config.VaccineCode)
 		if planner.ComboAlignWindowDays > 0 && planner.ComboAlignWindowDays < alignWindowDays {
@@ -143,6 +144,9 @@ func ComboAlignmentSettingsForPlans(plans []SweepVersionPriority) (alignWindowDa
 		if planner.MaxShotsPerAnimalPerDrive > 0 && planner.MaxShotsPerAnimalPerDrive < maxShotsPerAnimalPerDrive {
 			maxShotsPerAnimalPerDrive = planner.MaxShotsPerAnimalPerDrive
 		}
+		if planner.MaxGoatsPerDrive > 0 && (maxDriveCells <= 0 || planner.MaxGoatsPerDrive < maxDriveCells) {
+			maxDriveCells = planner.MaxGoatsPerDrive
+		}
 	}
-	return alignWindowDays, maxShotsPerAnimalPerDrive
+	return alignWindowDays, maxShotsPerAnimalPerDrive, maxDriveCells
 }

@@ -403,6 +403,7 @@ func (r *Repository) QueueReminderCadenceBatch(ctx context.Context, in ports.Que
 //   - "batch" → "batch" (scheduled vaccination drive)
 //   - "catchup" → "catchup" (catch-up drive)
 //   - "park_drive" → "park_drive" (aggregated park/day drive, single or multi-source)
+//
 // If the type is unknown, default to "obligation" for backward compatibility, but log the anomaly.
 func deriveNotificationTargetType(sourceTargetType string) string {
 	switch sourceTargetType {

@@ -6397,7 +6397,7 @@ components:
         - animal_identifier_1
         - animal_identifier_2
         - status
-        - due_at
+        - scheduled_at
       properties:
         obligation_id:
           type: string
@@ -6441,7 +6441,7 @@ components:
             - "null"
         status:
           type: string
-        due_at:
+        scheduled_at:
           type: string
           format: date-time
     CalendarDriveTargetListResponse:

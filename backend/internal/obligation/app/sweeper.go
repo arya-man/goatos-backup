@@ -67,6 +67,10 @@ type batchingHoldRecorder interface {
 	RecordBatchingHoldForObligations(ctx context.Context, tenantID string, obligationIDs []string, holdUntil time.Time, occurredAt time.Time) (int64, error)
 }
 
+type batchCreatorReturningAttachedIDs interface {
+	CreateBatchWithObligationsReturningAttachedIDs(ctx context.Context, in domain.NewBatch, obligationIDs []string) (batchID string, attachedIDs []string, err error)
+}
+
 type clinicalSweepDeferrer interface {
 	DeferBlockedVaccinationSweepCandidates(ctx context.Context, tenantID, versionID string, dueBefore, occurredAt time.Time, limit int32) (int, error)
 }
@@ -184,6 +188,20 @@ func (s *SweeperService) CaptureSweepHighWaterMark(ctx context.Context) (time.Ti
 		return capturer.CaptureSweepHighWaterMark(ctx)
 	}
 	return time.Time{}, nil
+}
+
+func (s *SweeperService) createBatchWithAttachedIDs(ctx context.Context, in domain.NewBatch, obligationIDs []string) (string, []string, error) {
+	if creator, ok := s.repo.(batchCreatorReturningAttachedIDs); ok {
+		return creator.CreateBatchWithObligationsReturningAttachedIDs(ctx, in, obligationIDs)
+	}
+	batchID, attached, err := s.repo.CreateBatchWithObligations(ctx, in, obligationIDs)
+	if err != nil || attached <= 0 {
+		return batchID, nil, err
+	}
+	if int(attached) >= len(obligationIDs) {
+		return batchID, append([]string(nil), obligationIDs...), nil
+	}
+	return batchID, nil, fmt.Errorf("obligation: repository attached %d/%d rows but did not return exact attached IDs; refusing to guess sweep claims", attached, len(obligationIDs))
 }
 
 // hwmUnbatchedDueLister is implemented by the production Postgres repo (RV-05): the real-sweep-path
@@ -568,13 +586,12 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	return res, nil
 }
 
-// batchDueGroup plans a drive date and shot-cap-selects one dueGroup's obligations, then creates
-// the resulting batch(es) (split by MaxGoatsPerDrive). It seeds session with the persisted,
-// cross-pass shot count for every target in the group before selecting (VAX-REV-01), and -- when
-// the repo supports it -- holds a per-visit advisory lock across the select+create sequence so a
-// concurrent sweeper worker cannot commit a conflicting claim for the same (target, date) visit in
-// between. If every row rejects on a candidate date because the animal is already at cap, the group
-// walks every later feasible date in the safe window, re-seeding and re-locking for each date.
+// batchDueGroup plans a drive date and selects one dueGroup's obligations under the shared visit
+// shot cap and park/date dose-cell cap, then creates the resulting park drive batch. It seeds
+// session with persisted cross-pass claims before selecting (VAX-REV-01), and -- when the repo
+// supports it -- holds advisory locks across the select+create sequence so a concurrent sweeper
+// worker cannot commit a conflicting claim in between. If every row rejects on a candidate date, the
+// group walks later feasible dates in the safe window, re-seeding and re-locking for each date.
 func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID string, cfg SweepConfig, planner domain.DrivePlannerSettings, asOf, dueBefore time.Time, session *SweepSession, g *dueGroup) (batched bool, obligations int64, err error) {
 	operationalAsOf := dueGroupOperationalAsOf(asOf, dueBefore, g)
 	plannedDate := batchPlannedDate(g.rows[0].DueAt)
@@ -588,7 +605,8 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 	targetIDs := distinctUnbatchedTargetIDs(g.rows)
 	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
 	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
-	plannedDate, selectedIDs, shotClaims, release, err := s.selectBestUnbatchedDriveDateWithVisitCap(ctx, tenantID, g.rows, targetIDs, plannedDate, planner, ruleVaccineID, session)
+	cellsPerObligation := normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)
+	plannedDate, selectedIDs, shotClaims, release, err := s.selectBestUnbatchedDriveDateWithVisitCap(ctx, tenantID, g.rows, targetIDs, plannedDate, planner, ruleVaccineID, cellsPerObligation, session)
 	if err != nil {
 		return false, 0, err
 	}
@@ -598,13 +616,28 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		}
 		return false, 0, nil
 	}
+	cappedIDs := limitUnbatchedSelectionByDriveCells(g.rows, selectedIDs, plannedDate, planner, session, cellsPerObligation)
+	if len(cappedIDs) < len(selectedIDs) {
+		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
+		shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
+		selectedIDs = cappedIDs
+		if len(selectedIDs) == 0 {
+			if err := release(ctx); err != nil {
+				return false, 0, err
+			}
+			return false, 0, nil
+		}
+	}
 	defer func() {
 		if relErr := release(ctx); relErr != nil && err == nil {
 			err = relErr
 		}
 	}()
 
-	idChunks := splitObligationIDs(selectedIDs, planner.MaxGoatsPerDrive)
+	// MaxGoatsPerDrive carries the published park/date dose-cell cap in the vaccination planner.
+	// Selection above has already limited by cells and allowed only last-safe-day overflow; splitting
+	// again by row count would turn one valid park drive into fake micro-drives.
+	idChunks := [][]string{selectedIDs}
 	claimChunks := splitShotCapReservations(shotClaims, selectedIDs, idChunks)
 	for _, chunk := range idChunks {
 		claimChunk := claimChunks[0]
@@ -619,7 +652,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			return batched, obligations, scopeErr
 		}
 		windowStart, windowEnd := unbatchedDriveWindow(selectedRows)
-		_, n, createErr := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		_, attachedIDs, createErr := s.createBatchWithAttachedIDs(ctx, domain.NewBatch{
 			TenantID:          tenantID,
 			ProtocolVersionID: versionID,
 			ScopeType:         batchScopeType,
@@ -638,24 +671,31 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			session.releaseClaims(claimChunk)
 			return batched, obligations, createErr
 		}
-		if n == 0 {
+		if len(attachedIDs) == 0 {
 			session.releaseClaims(claimChunk)
 			continue
 		}
-		session.releaseClaims(unattachedClaims(claimChunk, chunk, n))
+		for _, row := range selectedUnbatchedRows(g.rows, attachedIDs) {
+			session.claimDriveCapacity(row.ParkID, *plannedDate, row.ObligationID, cellsPerObligation)
+		}
+		session.releaseClaims(claimsOutsideSelection(claimChunk, attachedIDs))
 		batched = true
-		obligations += n
+		obligations += int64(len(attachedIDs))
 	}
 	return batched, obligations, nil
 }
 
-func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Context, tenantID string, rows []domain.UnbatchedDue, targetIDs []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, ruleVaccineID RuleVaccineIdentity, session *SweepSession) (*time.Time, []string, []shotCapReservation, func(context.Context) error, error) {
-	if plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 {
+func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Context, tenantID string, rows []domain.UnbatchedDue, targetIDs []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, ruleVaccineID RuleVaccineIdentity, cellsPerObligation int32, session *SweepSession) (*time.Time, []string, []shotCapReservation, func(context.Context) error, error) {
+	if cellsPerObligation <= 0 {
+		cellsPerObligation = 1
+	}
+	parkID := firstUnbatchedParkID(rows)
+	if plannedDate == nil || (planner.MaxShotsPerAnimalPerDrive <= 0 && planner.MaxGoatsPerDrive <= 0) {
 		release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
 		if err != nil {
 			return plannedDate, nil, nil, noopRelease, err
 		}
-		selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+		selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, plannedDate, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 		if err != nil {
 			_ = release(ctx)
 			return plannedDate, nil, nil, noopRelease, err
@@ -673,31 +713,40 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 	var bestIDs []string
 	bestAnimals := -1
 	for probe := businessDate(*plannedDate); !probe.After(latest); {
-		if len(obligationsFeasibleOnDriveDate(probe, candidates)) > 0 {
+		if len(obligationsFeasibleOnDriveDateForPlanner(probe, candidates, planner)) > 0 {
 			day := probe
-			release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session)
+			visitRelease, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session)
 			if err != nil {
 				return plannedDate, nil, nil, noopRelease, err
 			}
-			selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, &day, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+			driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, &day, planner.MaxGoatsPerDrive, session)
+			if err != nil {
+				_ = visitRelease(ctx)
+				return plannedDate, nil, nil, noopRelease, err
+			}
+			release := combineReleases(driveRelease, visitRelease)
+			selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, &day, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 			if err != nil {
 				session.releaseClaims(shotClaims)
 				_ = release(ctx)
 				return plannedDate, nil, nil, noopRelease, err
 			}
-			animals := uniqueUnbatchedTargetCount(selectedUnbatchedRows(rows, selectedIDs))
+			cappedIDs := limitUnbatchedSelectionByDriveCells(rows, selectedIDs, &day, planner, session, cellsPerObligation)
+			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
+			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
+			animals := uniqueUnbatchedTargetCount(selectedUnbatchedRows(rows, cappedIDs))
 			session.releaseClaims(shotClaims)
 			if err := release(ctx); err != nil {
 				return plannedDate, nil, nil, noopRelease, err
 			}
-			if animals > bestAnimals || (animals == bestAnimals && len(selectedIDs) > len(bestIDs)) {
+			if animals > bestAnimals || (animals == bestAnimals && len(cappedIDs) > len(bestIDs)) {
 				chosen := day
 				bestDate = &chosen
-				bestIDs = append(bestIDs[:0], selectedIDs...)
+				bestIDs = append(bestIDs[:0], cappedIDs...)
 				bestAnimals = animals
 			}
 		}
-		next := nextFeasibleUnbatchedDriveDateAfter(probe, rows)
+		next := nextFeasibleUnbatchedDriveDateAfter(probe, rows, planner)
 		if next == nil {
 			break
 		}
@@ -707,14 +756,26 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 		return plannedDate, nil, nil, noopRelease, nil
 	}
 
-	release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, bestDate, planner.MaxShotsPerAnimalPerDrive, session)
+	visitRelease, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, bestDate, planner.MaxShotsPerAnimalPerDrive, session)
 	if err != nil {
 		return bestDate, nil, nil, noopRelease, err
 	}
-	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, bestDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+	driveRelease, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, parkID, bestDate, planner.MaxGoatsPerDrive, session)
+	if err != nil {
+		_ = visitRelease(ctx)
+		return bestDate, nil, nil, noopRelease, err
+	}
+	release := combineReleases(driveRelease, visitRelease)
+	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, bestDate, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 	if err != nil {
 		_ = release(ctx)
 		return bestDate, nil, nil, noopRelease, err
+	}
+	cappedIDs := limitUnbatchedSelectionByDriveCells(rows, selectedIDs, bestDate, planner, session, cellsPerObligation)
+	if len(cappedIDs) < len(selectedIDs) {
+		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
+		shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
+		selectedIDs = cappedIDs
 	}
 	return bestDate, selectedIDs, shotClaims, release, nil
 }
@@ -806,6 +867,94 @@ func uniqueUnbatchedTargetCount(rows []domain.UnbatchedDue) int {
 	return len(seen)
 }
 
+// limitUnbatchedSelectionByDriveCells enforces the park/date dose-cell cap with two-pass
+// admission (VAXCAP-006): pass 1 reserves cells for IMMOVABLE rows (no later feasible date inside
+// the goat's own safe window / due+7 hold), which are admitted even beyond cap; pass 2 fills the
+// remaining capacity with movable rows. Overflow beyond cap is legitimate only when the immovable
+// cells alone exceed it -- a movable row can never displace a last-safe row into overflow.
+func limitUnbatchedSelectionByDriveCells(rows []domain.UnbatchedDue, selected []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, session *SweepSession, cellsPerObligation int32) []string {
+	if planner.MaxGoatsPerDrive <= 0 || plannedDate == nil || len(selected) == 0 {
+		return selected
+	}
+	if cellsPerObligation <= 0 {
+		cellsPerObligation = 1
+	}
+	selectedSet := make(map[string]struct{}, len(selected))
+	for _, id := range selected {
+		selectedSet[id] = struct{}{}
+	}
+	parkID := firstUnbatchedParkID(rows)
+	used := session.driveCapacityUsed(parkID, *plannedDate)
+	canMove := func(row domain.UnbatchedDue) bool {
+		return driveCandidateCanMoveAfter(*plannedDate, driveCandidate{
+			ObligationID:             row.ObligationID,
+			TargetID:                 row.TargetID,
+			TargetReproductiveStatus: row.TargetReproductiveStatus,
+			DueAt:                    row.DueAt,
+			WindowStart:              row.WindowStart,
+			WindowEnd:                row.WindowEnd,
+			BatchingHoldCount:        row.BatchingHoldCount,
+			FirstBatchingHoldUntil:   row.FirstBatchingHoldUntil,
+		}, planner)
+	}
+	admitted := make(map[string]struct{}, len(selected))
+	// Pass 1: immovable rows reserve capacity first (admitted unconditionally -- last-safe overflow).
+	for _, row := range rows {
+		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		if canMove(row) {
+			continue
+		}
+		admitted[row.ObligationID] = struct{}{}
+		used += cellsPerObligation
+	}
+	// Pass 2: movable rows fill only the remaining capacity, never pushing past the cap.
+	for _, row := range rows {
+		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		if _, ok := admitted[row.ObligationID]; ok {
+			continue
+		}
+		if used+cellsPerObligation > planner.MaxGoatsPerDrive {
+			continue
+		}
+		admitted[row.ObligationID] = struct{}{}
+		used += cellsPerObligation
+	}
+	out := make([]string, 0, len(admitted))
+	for _, row := range rows {
+		if _, ok := admitted[row.ObligationID]; ok {
+			out = append(out, row.ObligationID)
+		}
+	}
+	return out
+}
+
+func firstUnbatchedParkID(rows []domain.UnbatchedDue) string {
+	for _, row := range rows {
+		if strings.TrimSpace(row.ParkID) != "" {
+			return row.ParkID
+		}
+	}
+	return ""
+}
+
+func differenceIDs(all []string, keep []string) []string {
+	keepSet := make(map[string]struct{}, len(keep))
+	for _, id := range keep {
+		keepSet[id] = struct{}{}
+	}
+	out := make([]string, 0, len(all))
+	for _, id := range all {
+		if _, ok := keepSet[id]; !ok {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 func unbatchedDriveWindow(rows []domain.UnbatchedDue) (*time.Time, *time.Time) {
 	var windowStart *time.Time
 	var windowEnd *time.Time
@@ -834,19 +983,6 @@ func unbatchedEarliestDate(row domain.UnbatchedDue) time.Time {
 		return biztime.BusinessDayStart(row.DueAt)
 	}
 	return time.Time{}
-}
-
-func unattachedClaims(claims []shotCapReservation, chunk []string, attached int64) []shotCapReservation {
-	if attached <= 0 {
-		return claims
-	}
-	if int(attached) >= len(chunk) {
-		return nil
-	}
-	// CreateBatchWithObligations returns only an attached count, not the attached IDs.
-	// On a partial race, release this in-memory chunk and let the next per-visit
-	// lock/refresh seed the committed attached shots from Postgres.
-	return claims
 }
 
 func batchingHoldUntilForUnbatched(rows []domain.UnbatchedDue, plannedDate *time.Time) *time.Time {

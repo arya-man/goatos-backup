@@ -10,11 +10,11 @@ const REQUIRED_EVENTS = [
   "goat.health.changed",
   "goat.reproductive.changed",
   "goat.identity.changed",
+  "goat.exited",
   "vaccination.completed",
   "obligation.missed",
   "goat.obligations_canceled",
   "obligation.rescoped",
-  "vaccination.manual_campaign.requested",
   "protocol.version.published",
 ];
 
@@ -54,7 +54,112 @@ function requireArray(value, name, errors) {
   return value;
 }
 
-function validateRegistry(root, registry, files = walk(root), read = (rel) => readText(root, rel), fileExists = (rel) => exists(root, rel)) {
+function hasProducerEvidence(text, eventType) {
+  if (!text.includes(eventType)) {
+    return false;
+  }
+  return /\b(outbox|InsertOutbox|PublishEvent|event_type|EventType|platformoutbox|Insert.*Event|identity_events)\b/i.test(text);
+}
+
+function hasConsumerEvidence(text, eventType) {
+  if (!text.includes(eventType)) {
+    return false;
+  }
+  return /\bSubscribe\s*\(/.test(text);
+}
+
+// hasNoOpHandleEvent detects a HandleEvent whose body — across multiple lines, allowing comments
+// and blank lines — is nothing but `return nil`. Such a handler subscribes but has no measurable
+// consumer effect, which the registry must not accept as a consumer.
+function hasNoOpHandleEvent(text) {
+  return /HandleEvent\s*\([^)]*\)\s*error\s*\{(?:\s|\/\/[^\n]*)*return\s+nil\s*(?:\s|\/\/[^\n]*)*\}/m.test(text);
+}
+
+// collectEventConstants maps Go event-constant identifiers to their string values across the
+// given files, e.g. `const EventGoatCreated = "goat.created"` -> EventGoatCreated: goat.created.
+function collectEventConstants(files, read) {
+  const constants = new Map();
+  const constRegex = /(?:const\s+|^\s*)([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([a-z0-9_.]+\.[a-z0-9_.]+)"/gm;
+  for (const rel of files) {
+    if (!rel.endsWith(".go") || rel.endsWith("_test.go")) continue;
+    const text = read(rel);
+    if (!text.includes("\"")) continue;
+    for (const match of text.matchAll(constRegex)) {
+      constants.set(match[1], match[2]);
+    }
+  }
+  return constants;
+}
+
+// PREEXISTING_UNREGISTERED_SUBSCRIPTIONS is tracked registry debt: runtime events that were
+// already subscribed before the runtime<->registry parity gate landed, with real producers
+// (sopbridge verify fanout, verification repository outbox, obligation shift, counts projector)
+// but no registry entry yet. SHRINK-ONLY: never add to this list — register the event in
+// context/architecture/domain-event-registry.json with producer/consumer/e2e proof instead.
+// A stale entry (no longer subscribed anywhere) also fails, so the list can only ratchet down.
+const PREEXISTING_UNREGISTERED_SUBSCRIPTIONS = new Set([
+  "counts.base_count_anchor.recorded",
+  "counts.shifting_event.recorded",
+  "vaccination.verify.rejected",
+  "vaccination.verify.accepted",
+  "verification.item.pending",
+  "verification.verdict.rework",
+  "verification.verdict.approved",
+  "goat.shifted",
+]);
+
+// validateRuntimeSubscriptionParity scans production Go code for bus.Subscribe(...) calls and
+// requires every subscribed event to (a) exist in the registry and (b) have at least one
+// registered consumer. This is the check that catches both an orphan runtime subscription to an
+// unregistered event and a runtime subscription that the registry claims has no consumer.
+function validateRuntimeSubscriptionParity(registry, files, read, { skipBaselineRatchet = false } = {}) {
+  const errors = [];
+  const seenBaselined = new Set();
+  const registryEvents = new Map();
+  for (const event of registry.events || []) {
+    if (event.eventType) registryEvents.set(event.eventType, event);
+  }
+  const constants = collectEventConstants(files, read);
+  const subscribeRegex = /\bSubscribe\s*\(\s*(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))\s*,/g;
+  for (const rel of files) {
+    if (!rel.startsWith("backend/internal/") && !rel.startsWith("backend/cmd/")) continue;
+    if (!rel.endsWith(".go") || rel.endsWith("_test.go") || rel.includes("/testdata/")) continue;
+    if (rel.includes("/platform/eventbus/")) continue; // bus implementation, not a subscriber
+    const text = read(rel);
+    if (!text.includes("Subscribe")) continue;
+    for (const match of text.matchAll(subscribeRegex)) {
+      let eventType = match[1];
+      if (!eventType && match[2]) {
+        const ident = match[2].includes(".") ? match[2].split(".").pop() : match[2];
+        eventType = constants.get(ident);
+        if (!eventType) continue; // non-event-typed identifier (dynamic subscription) — cannot resolve statically
+      }
+      if (!eventType) continue;
+      const registered = registryEvents.get(eventType);
+      if (!registered) {
+        if (PREEXISTING_UNREGISTERED_SUBSCRIPTIONS.has(eventType)) {
+          seenBaselined.add(eventType);
+          continue;
+        }
+        errors.push(`runtime subscription to unregistered event ${eventType} in ${rel}`);
+        continue;
+      }
+      if (!Array.isArray(registered.consumers) || registered.consumers.length === 0) {
+        errors.push(`runtime subscription to ${eventType} in ${rel}, but registry declares no consumers for it`);
+      }
+    }
+  }
+  for (const eventType of PREEXISTING_UNREGISTERED_SUBSCRIPTIONS) {
+    if (registryEvents.has(eventType)) {
+      errors.push(`baselined event ${eventType} is now registered: remove it from PREEXISTING_UNREGISTERED_SUBSCRIPTIONS`);
+    } else if (!seenBaselined.has(eventType) && !skipBaselineRatchet) {
+      errors.push(`baselined event ${eventType} is no longer subscribed anywhere: remove it from PREEXISTING_UNREGISTERED_SUBSCRIPTIONS`);
+    }
+  }
+  return errors;
+}
+
+function validateRegistry(root, registry, files = walk(root), read = (rel) => readText(root, rel), fileExists = (rel) => exists(root, rel), opts = {}) {
   const errors = [];
 
   if (!registry || typeof registry !== "object") {
@@ -96,12 +201,15 @@ function validateRegistry(root, registry, files = walk(root), read = (rel) => re
     }
     for (const [field, label] of [
       ["producerFiles", "producer file"],
-      ["consumers", "consumer"],
       ["e2eProof", "E2E proof"],
     ]) {
       if (!Array.isArray(event[field]) || event[field].length === 0) {
         errors.push(`${event.eventType} missing ${label} registration`);
       }
+    }
+    // consumers is optional: an event can be produced for audit without having a deployed consumer.
+    if (!Array.isArray(event.consumers)) {
+      errors.push(`${event.eventType} consumers must be an array (may be empty)`);
     }
     for (const rel of event.producerFiles || []) {
       if (!fileExists(rel)) {
@@ -116,13 +224,32 @@ function validateRegistry(root, registry, files = walk(root), read = (rel) => re
     if (!event.owningDoc || !fileExists(event.owningDoc)) {
       errors.push(`${event.eventType} owningDoc not found`);
     }
-    const registeredFiles = [
-      ...(event.producerFiles || []),
-      ...(event.consumers || []).map((consumer) => consumer.file).filter(Boolean),
-    ];
-    const combined = registeredFiles.filter((rel) => fileExists(rel)).map((rel) => read(rel)).join("\n");
-    if (!combined.includes(event.eventType)) {
-      errors.push(`${event.eventType} is not present in registered producer/consumer files`);
+    const producerFiles = event.producerFiles || [];
+    const consumerFiles = (event.consumers || []).map((consumer) => consumer.file).filter(Boolean);
+    const producerSet = new Set(producerFiles);
+    for (const rel of consumerFiles) {
+      if (producerSet.has(rel)) {
+        errors.push(`${event.eventType} consumer cannot be the same file as a producer: ${rel}`);
+      }
+      if (!fileExists(rel)) {
+        errors.push(`${event.eventType} consumer file not found: ${rel}`);
+      }
+    }
+    const producerText = producerFiles.filter((rel) => fileExists(rel)).map((rel) => read(rel)).join("\n");
+    const consumerText = consumerFiles.filter((rel) => fileExists(rel)).map((rel) => read(rel)).join("\n");
+    if (!hasProducerEvidence(producerText, event.eventType)) {
+      errors.push(`${event.eventType} registered producer files do not prove durable event publication`);
+    }
+    // Consumers array may be empty for audit-only events with no deployed consumer.
+    if (event.consumers && event.consumers.length > 0) {
+      if (!hasConsumerEvidence(consumerText, event.eventType)) {
+        errors.push(`${event.eventType} registered consumer files do not prove runtime subscription`);
+      }
+      // A registered consumer must have a measurable effect: a HandleEvent whose entire body
+      // (across any number of lines/comments) is just `return nil` is a fake consumer claim.
+      if (hasNoOpHandleEvent(consumerText)) {
+        errors.push(`${event.eventType} consumer appears to be no-op (HandleEvent body is only 'return nil'); use empty consumers array for audit-only events`);
+      }
     }
   }
 
@@ -181,6 +308,8 @@ function validateRegistry(root, registry, files = walk(root), read = (rel) => re
     }
   }
 
+  errors.push(...validateRuntimeSubscriptionParity(registry, files, read, opts));
+
   return errors;
 }
 
@@ -211,29 +340,106 @@ function selfTest() {
     ["backend/internal/identity/adapters/postgres/admin_goat_create.go", "INSERT INTO goats"],
   ]);
   for (const eventType of REQUIRED_EVENTS) {
-    virtualFiles.set(`producer-${eventType}.go`, eventType);
-    virtualFiles.set(`consumer-${eventType}.go`, eventType);
+    virtualFiles.set(`producer-${eventType}.go`, `${eventType}\nplatformoutbox.InsertOutboxMessage(ctx, tx, event_type)`);
+    virtualFiles.set(`consumer-${eventType}.go`, `${eventType}\nfunc (h *H) Register(bus eventbus.Bus) { bus.Subscribe("${eventType}", h) }`);
     virtualFiles.set(`proof-${eventType}_test.go`, "proof");
   }
   const fileList = Array.from(virtualFiles.keys());
   const read = (rel) => virtualFiles.get(rel) || "";
   const fileExists = (rel) => virtualFiles.has(rel);
-  const errors = validateRegistry(root, goodRegistry, fileList, read, fileExists);
+  const errors = validateRegistry(root, goodRegistry, fileList, read, fileExists, { skipBaselineRatchet: true });
   if (errors.length) {
     throw new Error(`good registry failed self-test:\n${errors.join("\n")}`);
   }
 
   const badMissingMobile = structuredClone(goodRegistry);
   badMissingMobile.events[0].surfaces = ["backend", "frontend"];
-  if (!validateRegistry(root, badMissingMobile, fileList, read, fileExists).some((err) => err.includes("mobile"))) {
+  if (!validateRegistry(root, badMissingMobile, fileList, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("mobile"))) {
     throw new Error("missing mobile surface was not detected");
   }
 
   const badWriterFiles = [...fileList, "backend/internal/newfeature/repository.go"];
   virtualFiles.set("backend/internal/newfeature/repository.go", "UPDATE goats SET health_status='sick'");
-  if (!validateRegistry(root, goodRegistry, badWriterFiles, read, fileExists).some((err) => err.includes("direct goats writer"))) {
+  if (!validateRegistry(root, goodRegistry, badWriterFiles, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("direct goats writer"))) {
     throw new Error("unregistered direct goats writer was not detected");
   }
+
+  const badSelfConsumer = structuredClone(goodRegistry);
+  badSelfConsumer.events[0].consumers = [{ module: "x", file: badSelfConsumer.events[0].producerFiles[0] }];
+  if (!validateRegistry(root, badSelfConsumer, fileList, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("same file as a producer"))) {
+    throw new Error("producer-as-consumer registration was not detected");
+  }
+
+  const badMissingConsumerToken = structuredClone(goodRegistry);
+  virtualFiles.set(badMissingConsumerToken.events[0].consumers[0].file, "func Register(bus eventbus.Bus) { bus.Subscribe(\"other.event\", h) }");
+  if (!validateRegistry(root, badMissingConsumerToken, fileList, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("runtime subscription"))) {
+    throw new Error("consumer missing event token was not detected");
+  }
+
+  const badStringOnlyProducer = structuredClone(goodRegistry);
+  virtualFiles.set(badStringOnlyProducer.events[0].producerFiles[0], badStringOnlyProducer.events[0].eventType);
+  if (!validateRegistry(root, badStringOnlyProducer, fileList, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("durable event publication"))) {
+    throw new Error("string-only producer was not detected");
+  }
+
+  // No-op consumer: multi-line HandleEvent whose body is only comments + `return nil` — proves
+  // the property (no measurable effect), not a single-line regex shape.
+  const badNoOpConsumer = structuredClone(goodRegistry);
+  const noOpFile = badNoOpConsumer.events[0].consumers[0].file;
+  const savedNoOpFile = virtualFiles.get(noOpFile);
+  virtualFiles.set(noOpFile, [
+    `${badNoOpConsumer.events[0].eventType}`,
+    `func (h *H) Register(bus eventbus.Bus) { bus.Subscribe("${badNoOpConsumer.events[0].eventType}", h) }`,
+    `func (h *H) HandleEvent(ctx context.Context, e eventbus.Event) error {`,
+    `	// intentionally does nothing: canonical reads serve this surface`,
+    ``,
+    `	return nil`,
+    `}`,
+  ].join("\n"));
+  if (!validateRegistry(root, badNoOpConsumer, fileList, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("no-op"))) {
+    throw new Error("multi-line no-op consumer was not detected");
+  }
+  virtualFiles.set(noOpFile, savedNoOpFile);
+
+  const goodAuditOnlyEventFiles = fileList.filter((rel) => rel !== goodRegistry.events[0].consumers[0].file);
+  const goodAuditOnlyEvent = structuredClone(goodRegistry);
+  goodAuditOnlyEvent.events[0].consumers = [];
+  if (validateRegistry(root, goodAuditOnlyEvent, goodAuditOnlyEventFiles, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("missing consumer") || err.includes("no consumers"))) {
+    throw new Error("audit-only event with empty consumers and no runtime subscriber was incorrectly rejected");
+  }
+
+  // Parity: runtime subscription to an event that is NOT in the registry must fail (LIFE-004 shape).
+  const orphanSubFiles = [...fileList, "backend/internal/orphan/handler.go"];
+  virtualFiles.set("backend/internal/orphan/handler.go", [
+    `const EventOrphanRequested = "vaccination.manual_campaign.requested"`,
+    `func (h *H) Register(bus eventbus.Bus) { bus.Subscribe(EventOrphanRequested, h) }`,
+  ].join("\n"));
+  if (!validateRegistry(root, goodRegistry, orphanSubFiles, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("unregistered event vaccination.manual_campaign.requested"))) {
+    throw new Error("runtime subscription to unregistered event was not detected");
+  }
+  virtualFiles.delete("backend/internal/orphan/handler.go");
+
+  // Parity: runtime subscription to a registry event whose consumers list is empty must fail
+  // (LIFE-003 shape: registry says no consumer, runtime still subscribes a handler).
+  const emptyConsumerSub = structuredClone(goodRegistry);
+  emptyConsumerSub.events[0].consumers = [];
+  const emptySubFiles = [...goodAuditOnlyEventFiles, "backend/internal/fake/consumer.go"];
+  virtualFiles.set("backend/internal/fake/consumer.go", [
+    `const EventFake = "${emptyConsumerSub.events[0].eventType}"`,
+    `func (h *H) Register(bus eventbus.Bus) { bus.Subscribe(EventFake, h) }`,
+  ].join("\n"));
+  if (!validateRegistry(root, emptyConsumerSub, emptySubFiles, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("registry declares no consumers"))) {
+    throw new Error("runtime subscription to consumer-less registry event was not detected");
+  }
+  virtualFiles.delete("backend/internal/fake/consumer.go");
+
+  // Parity: string-literal subscription is caught too.
+  const literalSubFiles = [...fileList, "backend/internal/orphan2/handler.go"];
+  virtualFiles.set("backend/internal/orphan2/handler.go", `func (h *H) Register(bus eventbus.Bus) { bus.Subscribe("totally.unregistered_event", h) }`);
+  if (!validateRegistry(root, goodRegistry, literalSubFiles, read, fileExists, { skipBaselineRatchet: true }).some((err) => err.includes("unregistered event totally.unregistered_event"))) {
+    throw new Error("string-literal subscription to unregistered event was not detected");
+  }
+  virtualFiles.delete("backend/internal/orphan2/handler.go");
 }
 
 function main() {

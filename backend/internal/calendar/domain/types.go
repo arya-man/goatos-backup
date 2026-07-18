@@ -338,7 +338,7 @@ type CalendarDriveTarget struct {
 	ExitReason        *string   `json:"exit_reason,omitempty"`
 	DeferReason       *string   `json:"defer_reason,omitempty"`
 	Status            string    `json:"status"`
-	DueAt             time.Time `json:"due_at"`
+	ScheduledAt       time.Time `json:"scheduled_at"`
 }
 
 type CalendarDriveTargetListResponse struct {

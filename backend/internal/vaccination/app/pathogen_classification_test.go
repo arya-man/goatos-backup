@@ -77,8 +77,8 @@ func TestProtocolAndRuleLevelMetadataAgree(t *testing.T) {
 // pathogen data ("viral") yields immunoLiveViral. The two must differ, proving
 // why the seeded metadata has to be correct.
 func TestLeakedTypeValueInPathogenSelectsWrongClass(t *testing.T) {
-	buggy := classifyVaccine("live", "live")     // pathogen carries a type value
-	correct := classifyVaccine("live", "viral")  // reviewed value
+	buggy := classifyVaccine("live", "live")    // pathogen carries a type value
+	correct := classifyVaccine("live", "viral") // reviewed value
 	if correct != immunoLiveViral {
 		t.Fatalf("expected correct PPR-like classification immunoLiveViral, got %d", correct)
 	}

@@ -162,7 +162,7 @@ func TestSweeperDefersStockAndTaskPastComboAlignIncludingRetryBatch(t *testing.T
 	}
 
 	defaultPlanner := domain.DefaultDrivePlannerSettings()
-	if _, err := sweeper.AlignComboDrives(ctx, tenantID, defaultPlanner.ComboAlignWindowDays, dueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, session); err != nil {
+	if _, err := sweeper.AlignComboDrives(ctx, tenantID, defaultPlanner.ComboAlignWindowDays, dueBefore, defaultPlanner.MaxShotsPerAnimalPerDrive, defaultPlanner.MaxGoatsPerDrive, session); err != nil {
 		t.Fatalf("align combo drives: %v", err)
 	}
 	for _, p := range plans {

@@ -274,8 +274,8 @@ func TestSweeperGroupsByRuleAndReservesAgainstPlannedDate(t *testing.T) {
 	windowEnd := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
-			{ObligationID: "obl-1", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueA, WindowEnd: &windowEnd},
-			{ObligationID: "obl-2", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: dueB, WindowEnd: &windowEnd},
+			{ObligationID: "obl-1", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: dueA, WindowEnd: &windowEnd},
+			{ObligationID: "obl-2", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: dueB, WindowEnd: &windowEnd},
 		},
 		createBatchIDs: []string{"batch-a", "batch-b"},
 		attachAll:      true,
@@ -286,7 +286,7 @@ func TestSweeperGroupsByRuleAndReservesAgainstPlannedDate(t *testing.T) {
 	result, err := svc.SweepVersionAsOf(context.Background(), "tenant-1", "version-1", SweepConfig{
 		VaccineItemID: "vaccine-1",
 		DosesPerGoat:  1,
-	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	}, time.Date(2026, time.August, 20, 0, 0, 0, 0, time.UTC), time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("SweepVersionAsOf: %v", err)
 	}
@@ -299,16 +299,16 @@ func TestSweeperGroupsByRuleAndReservesAgainstPlannedDate(t *testing.T) {
 	if repo.createdBatches[0].Session != "rule:rule-a" || repo.createdBatches[1].Session != "rule:rule-b" {
 		t.Fatalf("sessions = %q/%q, want rule sessions", repo.createdBatches[0].Session, repo.createdBatches[1].Session)
 	}
-	if got := dateKey(repo.createdBatches[0].PlannedDate); got != "2026-08-31" {
-		t.Fatalf("batch A planned date = %s, want 2026-08-31", got)
+	if got := dateKey(repo.createdBatches[0].PlannedDate); got != "2026-08-20" {
+		t.Fatalf("batch A planned date = %s, want 2026-08-20", got)
 	}
-	if got := dateKey(repo.createdBatches[1].PlannedDate); got != "2026-08-31" {
-		t.Fatalf("batch B planned date = %s, want 2026-08-31", got)
+	if got := dateKey(repo.createdBatches[1].PlannedDate); got != "2026-08-20" {
+		t.Fatalf("batch B planned date = %s, want 2026-08-20", got)
 	}
 	if reserver.calls != 2 {
 		t.Fatalf("reservation calls = %d, want 2", reserver.calls)
 	}
-	if got := validOnKeys(reserver.validOns); got != "2026-08-31,2026-08-31" {
+	if got := validOnKeys(reserver.validOns); got != "2026-08-20,2026-08-20" {
 		t.Fatalf("reservation validOn dates = %s, want planned dates", got)
 	}
 }
@@ -365,7 +365,7 @@ func TestSweeperFutureHorizonDoesNotActAsOperationalDate(t *testing.T) {
 	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
 		VaccineItemID: "vaccine-1",
 		DosesPerGoat:  1,
-	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	}, time.Date(2026, time.August, 20, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("SweepVersion: %v", err)
 	}
@@ -391,8 +391,8 @@ func TestSweeperUsesRuleSpecificExecutionConfig(t *testing.T) {
 	windowEnd := time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
-			{ObligationID: "obl-a", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", DueAt: due, WindowEnd: &windowEnd},
-			{ObligationID: "obl-b", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", DueAt: due, WindowEnd: &windowEnd},
+			{ObligationID: "obl-a", RuleID: "rule-a", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: due, WindowEnd: &windowEnd},
+			{ObligationID: "obl-b", RuleID: "rule-b", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: due, WindowEnd: &windowEnd},
 		},
 		createBatchIDs: []string{"batch-a", "batch-b"},
 		attachAll:      true,
@@ -401,14 +401,14 @@ func TestSweeperUsesRuleSpecificExecutionConfig(t *testing.T) {
 	reserver := &fakeSweepStockReserver{}
 	svc := NewSweeperService(repo, tasks, reserver)
 
-	_, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+	_, err := svc.SweepVersionAsOf(context.Background(), "tenant-1", "version-1", SweepConfig{
 		SOPVersionID:  "sop-default",
 		VaccineItemID: "vaccine-default",
 		DosesPerGoat:  1,
 		RuleConfigs: map[string]SweepRuleConfig{
 			"rule-b": {SOPVersionID: "sop-rule-b", VaccineItemID: "vaccine-rule-b", DosesPerGoat: 3},
 		},
-	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
+	}, time.Date(2026, time.August, 20, 0, 0, 0, 0, time.UTC), time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("SweepVersion: %v", err)
 	}
@@ -1642,6 +1642,11 @@ func (f *fakeSweepRepo) CreateBatch(context.Context, domain.NewBatch) (string, e
 }
 
 func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.NewBatch, ids []string) (string, int64, error) {
+	batchID, attachedIDs, err := f.CreateBatchWithObligationsReturningAttachedIDs(context.Background(), in, ids)
+	return batchID, int64(len(attachedIDs)), err
+}
+
+func (f *fakeSweepRepo) CreateBatchWithObligationsReturningAttachedIDs(_ context.Context, in domain.NewBatch, ids []string) (string, []string, error) {
 	f.createBatchCalls++
 	f.createdBatches = append(f.createdBatches, in)
 	f.createdBatchObligationIDs = append(f.createdBatchObligationIDs, append([]string(nil), ids...))
@@ -1656,12 +1661,14 @@ func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.
 	if f.attachAll {
 		attached = int64(len(ids))
 	}
+	attachedIDs := []string(nil)
 	if attached > 0 {
 		attachedCount := int(attached)
 		if attachedCount > len(ids) {
 			attachedCount = len(ids)
 		}
-		f.removeAttachedObligations(ids[:attachedCount])
+		attachedIDs = append([]string(nil), ids[:attachedCount]...)
+		f.removeAttachedObligations(attachedIDs)
 		f.createdFinalization = append(f.createdFinalization, domain.PlannedBatchFinalization{
 			BatchID:             batchID,
 			RuleID:              ruleIDFromSession(in.Session),
@@ -1672,7 +1679,7 @@ func (f *fakeSweepRepo) CreateBatchWithObligations(_ context.Context, in domain.
 			AttachedObligations: attached,
 		})
 	}
-	return batchID, attached, nil
+	return batchID, attachedIDs, nil
 }
 
 func (f *fakeSweepRepo) removeAttachedObligations(ids []string) {
@@ -2001,4 +2008,41 @@ func qtyKeys(values []int64) string {
 		out += strconv.FormatInt(v, 10)
 	}
 	return out
+}
+
+// TestLimitUnbatchedSelectionReservesCapacityForLastSafeRows is the VAXCAP-006 sweeper guard: at
+// cap 1, a movable row listed FIRST must not consume the only cell a last-safe row needs.
+func TestLimitUnbatchedSelectionReservesCapacityForLastSafeRows(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	lastSafe := planned
+	movableEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-movable", TargetID: "goat-1", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+		{ObligationID: "obl-last-safe", TargetID: "goat-2", ParkID: "park-1", DueAt: planned, WindowEnd: &lastSafe},
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 1
+
+	out := limitUnbatchedSelectionByDriveCells(rows, []string{"obl-movable", "obl-last-safe"}, &planned, planner, NewSweepSession(), 1)
+	if len(out) != 1 || out[0] != "obl-last-safe" {
+		t.Fatalf("admitted = %#v, want only obl-last-safe (movable row must yield its cell)", out)
+	}
+}
+
+// TestLimitUnbatchedSelectionAllLastSafeExceedsCap: when every selected row is on its last safe
+// day, all are admitted even beyond the cap (legitimate last-safe overflow, VAXCAP-006).
+func TestLimitUnbatchedSelectionAllLastSafeExceedsCap(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "obl-1", TargetID: "goat-1", ParkID: "park-1", DueAt: planned, WindowEnd: &planned},
+		{ObligationID: "obl-2", TargetID: "goat-2", ParkID: "park-1", DueAt: planned, WindowEnd: &planned},
+		{ObligationID: "obl-3", TargetID: "goat-3", ParkID: "park-1", DueAt: planned, WindowEnd: &planned},
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 1
+
+	out := limitUnbatchedSelectionByDriveCells(rows, []string{"obl-1", "obl-2", "obl-3"}, &planned, planner, NewSweepSession(), 1)
+	if len(out) != 3 {
+		t.Fatalf("admitted = %#v, want all three last-safe rows despite cap 1 (legitimate overflow)", out)
+	}
 }

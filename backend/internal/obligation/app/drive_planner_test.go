@@ -241,6 +241,7 @@ func TestComboAlignmentSettingsForPlansUsesStrictestPolicy(t *testing.T) {
 					Enabled:                   true,
 					ComboAlignWindowDays:      10,
 					MaxShotsPerAnimalPerDrive: 2,
+					MaxGoatsPerDrive:          100,
 				},
 			},
 		},
@@ -252,16 +253,20 @@ func TestComboAlignmentSettingsForPlansUsesStrictestPolicy(t *testing.T) {
 					Enabled:                   true,
 					ComboAlignWindowDays:      3,
 					MaxShotsPerAnimalPerDrive: 1,
+					MaxGoatsPerDrive:          50,
 				},
 			},
 		},
 	}
 
-	alignWindowDays, maxShotsPerAnimalPerDrive := ComboAlignmentSettingsForPlans(plans)
+	alignWindowDays, maxShotsPerAnimalPerDrive, maxDriveCells := ComboAlignmentSettingsForPlans(plans)
 	if alignWindowDays != 3 {
 		t.Fatalf("align window = %d, want strictest 3", alignWindowDays)
 	}
 	if maxShotsPerAnimalPerDrive != 1 {
 		t.Fatalf("max shots = %d, want strictest 1", maxShotsPerAnimalPerDrive)
+	}
+	if maxDriveCells != 50 {
+		t.Fatalf("max drive cells = %d, want strictest 50", maxDriveCells)
 	}
 }

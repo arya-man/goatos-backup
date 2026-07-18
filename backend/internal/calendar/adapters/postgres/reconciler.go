@@ -29,7 +29,7 @@ ORDER BY source_table, record_id`
 
 // ReconcileEventReferencesPage is the bounded pagination version: fetches up to limit orphans
 // using stable keyset pagination (WHERE (source_table, record_id) > cursor). The cursor is the
-// last (source_table, record_id) pair from the previous page; passing ('', '') starts from the
+// last (source_table, record_id) pair from the previous page; passing (”, ”) starts from the
 // beginning. This enables processing large orphan sets without LIMIT/OFFSET rescanning.
 // FINDING 4 + CAL-MAIN-03 fix: keyset pagination instead of LIMIT/OFFSET.
 func (r *Repository) ReconcileEventReferencesPage(ctx context.Context, tenantID string, cursorSourceTable, cursorRecordID string, limit int) ([]ports.OrphanedCalendarEventReference, error) {
@@ -57,7 +57,7 @@ func (r *Repository) ReconcileEventReferencesPage(ctx context.Context, tenantID 
 // ReconcileEventReferences is the legacy unbounded version, now a thin wrapper for backward
 // compatibility. New code should use ReconcileEventReferencesPage for bounded processing.
 // Kept for internal/kernelstages CalendarReconcilerStage compat during migration.
-// Uses keyset pagination (cursor='', '') to fetch from the start with a large limit.
+// Uses keyset pagination (cursor=”, ”) to fetch from the start with a large limit.
 func (r *Repository) ReconcileEventReferences(ctx context.Context, tenantID string) ([]ports.OrphanedCalendarEventReference, error) {
 	// Fetch a very large limit to get all rows from the start (for now), to unblock the stage.
 	// The stage itself should switch to ReconcileEventReferencesPage and track the keyset cursor.

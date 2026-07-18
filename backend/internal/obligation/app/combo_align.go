@@ -50,13 +50,13 @@ func comboRowKey(row domain.ComboDriveBatch) comboGroupKey {
 // pages they span, so a group is assembled INCREMENTALLY across page boundaries below (flushed --
 // i.e. aligned -- only once its key changes or the query is exhausted) instead of being aligned as
 // page-local fragments that are each too small to see the rest of their own group.
-func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, alignWindowDays int32, dueBefore time.Time, maxShotsPerAnimalPerDrive int32, session *SweepSession) (int, error) {
-	return s.AlignComboDrivesAsOf(ctx, tenantID, alignWindowDays, dueBefore, dueBefore, maxShotsPerAnimalPerDrive, session)
+func (s *SweeperService) AlignComboDrives(ctx context.Context, tenantID string, alignWindowDays int32, dueBefore time.Time, maxShotsPerAnimalPerDrive int32, maxDriveCells int32, session *SweepSession) (int, error) {
+	return s.AlignComboDrivesAsOf(ctx, tenantID, alignWindowDays, dueBefore, dueBefore, maxShotsPerAnimalPerDrive, maxDriveCells, session)
 }
 
 // AlignComboDrivesAsOf aligns eligible combo batches loaded through dueBefore, while using asOf as
 // the operational business-day floor for planned-date alignment.
-func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID string, alignWindowDays int32, asOf, dueBefore time.Time, maxShotsPerAnimalPerDrive int32, session *SweepSession) (int, error) {
+func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID string, alignWindowDays int32, asOf, dueBefore time.Time, maxShotsPerAnimalPerDrive int32, maxDriveCells int32, session *SweepSession) (int, error) {
 	aligner, ok := s.repo.(ComboDriveAligner)
 	if !ok || alignWindowDays <= 0 {
 		return 0, nil
@@ -131,9 +131,25 @@ func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID stri
 				}
 				release = rel
 			}
+			if maxDriveCells > 0 && strings.TrimSpace(batch.ParkID) != "" {
+				rel, err := s.lockAndRefreshDriveCapacity(ctx, tenantID, batch.ParkID, target, maxDriveCells, session)
+				if err != nil {
+					_ = release(ctx)
+					return err
+				}
+				release = combineReleases(rel, release)
+			}
 			if maxShotsPerAnimalPerDrive > 0 && comboBatchExceedsShotCapAtDate(batch, *target, maxShotsPerAnimalPerDrive, session) {
 				// Aligning would push a member animal past the shot cap on the target date;
 				// leave this batch on its own already-safe planned date (overflow).
+				if err := release(ctx); err != nil {
+					return err
+				}
+				continue
+			}
+			if maxDriveCells > 0 && comboBatchExceedsDriveCapacityAtDate(batch, *target, maxDriveCells, session) {
+				// Combo alignment is optional consolidation. If moving this already-safe batch would
+				// overfill the whole park/date drive, leave it on its existing planned date.
 				if err := release(ctx); err != nil {
 					return err
 				}
@@ -144,6 +160,9 @@ func (s *SweeperService) AlignComboDrivesAsOf(ctx context.Context, tenantID stri
 				return err
 			}
 			session.claimComboBatchTargets(batch.TargetIDs, *target)
+			if maxDriveCells > 0 && strings.TrimSpace(batch.ParkID) != "" {
+				session.claimDriveCapacity(batch.ParkID, *target, batch.BatchID, comboBatchCellCount(batch))
+			}
 			aligned++
 			if err := release(ctx); err != nil {
 				return err
@@ -208,6 +227,9 @@ func comboBatchFeasibleAtDate(batch domain.ComboDriveBatch, target time.Time) bo
 	if batch.SafeEnd != nil && targetDay.After(businessDate(*batch.SafeEnd)) {
 		return false
 	}
+	if batch.HoldUntil != nil && targetDay.After(businessDate(*batch.HoldUntil)) {
+		return false
+	}
 	return true
 }
 
@@ -225,6 +247,23 @@ func comboBatchExceedsShotCapAtDate(batch domain.ComboDriveBatch, target time.Ti
 		}
 	}
 	return false
+}
+
+func comboBatchExceedsDriveCapacityAtDate(batch domain.ComboDriveBatch, target time.Time, maxCells int32, session *SweepSession) bool {
+	if maxCells <= 0 || strings.TrimSpace(batch.ParkID) == "" {
+		return false
+	}
+	return session.driveCapacityUsed(batch.ParkID, target)+comboBatchCellCount(batch) > maxCells
+}
+
+func comboBatchCellCount(batch domain.ComboDriveBatch) int32 {
+	if batch.CellCount > 0 {
+		return batch.CellCount
+	}
+	if len(batch.TargetIDs) > 0 {
+		return int32(len(batch.TargetIDs))
+	}
+	return 1
 }
 
 // clusterComboByWindow partitions batches into maximal clusters whose planned dates all fall within

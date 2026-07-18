@@ -454,7 +454,7 @@ export function CalendarEventDrawer({
                             </Tag>
                           </td>
                           <td className="muted small">
-                            {fmtDateTime(row.due_at)}
+                            {fmtDateTime(row.scheduled_at)}
                           </td>
                         </tr>
                       ))}

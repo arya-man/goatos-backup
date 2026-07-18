@@ -2296,7 +2296,7 @@ export interface components {
             defer_reason?: string | null;
             status: string;
             /** Format: date-time */
-            due_at: string;
+            scheduled_at: string;
         };
         CalendarDriveTargetListResponse: {
             /** @constant */

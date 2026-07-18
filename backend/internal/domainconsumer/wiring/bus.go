@@ -43,7 +43,6 @@ func BuildDomainBus(pool *pgxpool.Pool, queryTimeout time.Duration, logger *slog
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewGoatRecheckHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
-	vaccinationapp.NewManualCampaignHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)

@@ -264,8 +264,8 @@ func (s *ObligationSweeperStage) Run(ctx context.Context) error {
 		// stock reservation and SOP-task creation for all swept versions in one pass, against each
 		// batch's FINAL (aligned) planned_date.
 		if len(plans) > 0 {
-			alignWindowDays, maxShotsPerAnimalPerDrive := obligationapp.ComboAlignmentSettingsForPlans(plans)
-			if _, err := s.sweeper.AlignComboDrivesAsOf(ctx, cfg.TenantID, alignWindowDays, now, dueBefore, maxShotsPerAnimalPerDrive, session); err != nil {
+			alignWindowDays, maxShotsPerAnimalPerDrive, maxDriveCells := obligationapp.ComboAlignmentSettingsForPlans(plans)
+			if _, err := s.sweeper.AlignComboDrivesAsOf(ctx, cfg.TenantID, alignWindowDays, now, dueBefore, maxShotsPerAnimalPerDrive, maxDriveCells, session); err != nil {
 				return fmt.Errorf("align combo drives: %w", err)
 			}
 			for _, plan := range plans {

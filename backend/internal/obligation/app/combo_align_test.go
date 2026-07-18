@@ -41,6 +41,7 @@ type fakeComboAlignRepo struct {
 	*fakeSweepRepo
 	comboBatches []domain.ComboDriveBatch
 	updates      []comboPlannedDateUpdate
+	driveCells   map[string]int32
 }
 
 type comboPlannedDateUpdate struct {
@@ -67,6 +68,13 @@ func (f *fakeComboAlignRepo) UpdateBatchPlannedDate(_ context.Context, _, batchI
 	return nil
 }
 
+func (f *fakeComboAlignRepo) CountDriveCellsForParkDate(_ context.Context, _, parkID string, date time.Time) (int32, error) {
+	if f.driveCells == nil {
+		return 0, nil
+	}
+	return f.driveCells[driveCapacityKey(parkID, date)], nil
+}
+
 // TestAlignComboDrivesSkipsBatchThatWouldExceedShotCap covers BUG2 requirement 6:
 // AlignComboDrives must not push an animal past MaxShotsPerAnimalPerDrive when it co-locates
 // approved combo batches onto one shared date. goat-1's cap is already exhausted on the target
@@ -91,7 +99,7 @@ func TestAlignComboDrivesSkipsBatchThatWouldExceedShotCap(t *testing.T) {
 	session := NewSweepSession()
 	session.visitShotCounts[visitShotCountKey(target, "goat-1")] = 2 // already at cap on the target date
 
-	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 10, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), 2, session)
+	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 10, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), 2, 0, session)
 	if err != nil {
 		t.Fatalf("AlignComboDrives: %v", err)
 	}
@@ -103,6 +111,33 @@ func TestAlignComboDrivesSkipsBatchThatWouldExceedShotCap(t *testing.T) {
 	}
 	if !businessDate(repo.updates[0].PlannedDate).Equal(target) {
 		t.Fatalf("batch-c planned date = %s, want %s", repo.updates[0].PlannedDate, target)
+	}
+}
+
+func TestAlignComboDrivesSkipsBatchThatWouldExceedParkDateCellCap(t *testing.T) {
+	d1 := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
+	repo := &fakeComboAlignRepo{
+		fakeSweepRepo: &fakeSweepRepo{},
+		driveCells: map[string]int32{
+			driveCapacityKey("park-1", d2): 50,
+		},
+		comboBatches: []domain.ComboDriveBatch{
+			{BatchID: "batch-fmd", ScopeType: "park", ScopeID: "park-1", ParkID: "park-1", Session: "combo:FMD+HS", PlannedDate: &d1, TargetIDs: []string{"goat-1"}, CellCount: 50},
+			{BatchID: "batch-hs", ScopeType: "park", ScopeID: "park-1", ParkID: "park-1", Session: "combo:FMD+HS", PlannedDate: &d2, TargetIDs: []string{"goat-2"}, CellCount: 50},
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 7, d1, 0, 50, NewSweepSession())
+	if err != nil {
+		t.Fatalf("AlignComboDrives: %v", err)
+	}
+	if aligned != 0 {
+		t.Fatalf("aligned = %d, want 0 because target park/date is already at cap", aligned)
+	}
+	if len(repo.updates) != 0 {
+		t.Fatalf("updates = %#v, want none over whole-park drive cell cap", repo.updates)
 	}
 }
 
@@ -124,7 +159,7 @@ func TestAlignComboDrivesClustersAroundOutlier(t *testing.T) {
 	}
 	svc := NewSweeperService(repo, nil, nil)
 
-	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 7, outlier, 0, NewSweepSession())
+	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 7, outlier, 0, 0, NewSweepSession())
 	if err != nil {
 		t.Fatalf("AlignComboDrives: %v", err)
 	}
@@ -167,7 +202,7 @@ func TestAlignComboDrivesSkipsBatchOutsideSafeWindow(t *testing.T) {
 	}
 	svc := NewSweeperService(repo, nil, nil)
 
-	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 7, d1, 2, NewSweepSession())
+	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 7, d1, 2, 0, NewSweepSession())
 	if err != nil {
 		t.Fatalf("AlignComboDrives: %v", err)
 	}
@@ -193,7 +228,7 @@ func TestAlignComboDrivesAlignsWithinShotCap(t *testing.T) {
 	}
 	svc := NewSweeperService(repo, nil, nil)
 
-	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 7, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), 2, NewSweepSession())
+	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 7, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), 2, 0, NewSweepSession())
 	if err != nil {
 		t.Fatalf("AlignComboDrives: %v", err)
 	}
@@ -217,7 +252,7 @@ func TestAlignComboDrivesHonorsStrictComboWindow(t *testing.T) {
 	}
 	svc := NewSweeperService(repo, nil, nil)
 
-	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 3, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), 2, NewSweepSession())
+	aligned, err := svc.AlignComboDrives(context.Background(), "tenant-1", 3, time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), 2, 0, NewSweepSession())
 	if err != nil {
 		t.Fatalf("AlignComboDrives: %v", err)
 	}

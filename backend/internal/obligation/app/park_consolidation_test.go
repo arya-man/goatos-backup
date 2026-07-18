@@ -521,6 +521,106 @@ func TestParkDriveWindowUsesSelectedIntersection(t *testing.T) {
 	}
 }
 
+// fakeParkDriveCapacityRepo overlays a persisted park/date dose-cell ledger onto fakeSweepRepo so
+// capacity-aware date scoring (VAXCAP-005) can be exercised without Postgres.
+type fakeParkDriveCapacityRepo struct {
+	*fakeSweepRepo
+	cells map[string]int32 // driveCapacityKey(parkID, date) -> persisted cells
+}
+
+func (f *fakeParkDriveCapacityRepo) CountDriveCellsForParkDate(_ context.Context, _ string, parkID string, date time.Time) (int32, error) {
+	return f.cells[driveCapacityKey(parkID, date)], nil
+}
+
+// TestConsolidateParkDrivesPicksLaterDateWithMoreFreeCapacity is the VAXCAP-005 guard scenario:
+// D1 has two free cells, D2 has ten; ten safe animals must produce ONE D2 drive, never a 2+8 split.
+func TestConsolidateParkDrivesPicksLaterDateWithMoreFreeCapacity(t *testing.T) {
+	d1 := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	rows := make([]domain.ParkConsolidationCandidate, 0, 10)
+	for i := 0; i < 10; i++ {
+		rows = append(rows, domain.ParkConsolidationCandidate{
+			ObligationID: "obl-" + string(rune('a'+i)),
+			TargetID:     "goat-" + string(rune('a'+i)),
+			RuleID:       "rule-a",
+			ShedID:       "shed-1",
+			ParkID:       "park-1",
+			DueAt:        d1,
+			WindowEnd:    &winEnd,
+		})
+	}
+	base := &fakeSweepRepo{parkRows: rows, attachAll: true}
+	repo := &fakeParkDriveCapacityRepo{
+		fakeSweepRepo: base,
+		cells: map[string]int32{
+			driveCapacityKey("park-1", d1): 8, // cap 10 => only 2 free on D1
+			// D2 has no persisted cells => 10 free
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:          true,
+			MaxGoatsPerDrive: 10,
+		},
+		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
+	}, d1)
+	if err != nil {
+		t.Fatalf("consolidateParkDrives: %v", err)
+	}
+	if res.ParkBatches != 1 || res.ParkObligations != 10 {
+		t.Fatalf("result = %#v, want ONE full drive on the free-capacity date, never a 2+8 split", res)
+	}
+	if len(base.createdBatches) != 1 {
+		t.Fatalf("created batches = %d, want 1", len(base.createdBatches))
+	}
+	if got := dateKey(base.createdBatches[0].PlannedDate); got != "2026-08-11" {
+		t.Fatalf("planned date = %s, want 2026-08-11 (the date whose free capacity fits all ten animals)", got)
+	}
+	if base.createdBatches[0].EstimatedTargets != 10 {
+		t.Fatalf("estimated targets = %d, want all 10 animals in one drive", base.createdBatches[0].EstimatedTargets)
+	}
+}
+
+// TestLimitParkSelectionReservesCapacityForLastSafeRows is the VAXCAP-006 park guard: at cap 1,
+// a movable row listed FIRST must not consume the only cell a last-safe row needs. The last-safe
+// row is admitted, the movable row is parked for a later date, and the cap is never exceeded.
+func TestLimitParkSelectionReservesCapacityForLastSafeRows(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	lastSafe := planned
+	movableEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	rows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-movable", TargetID: "goat-1", RuleID: "rule-a", ParkID: "park-1", DueAt: planned, WindowEnd: &movableEnd},
+		{ObligationID: "obl-last-safe", TargetID: "goat-2", RuleID: "rule-a", ParkID: "park-1", DueAt: planned, WindowEnd: &lastSafe},
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 1
+
+	out := limitParkSelectionByDriveCells(rows, []string{"obl-movable", "obl-last-safe"}, planned, planner, NewSweepSession(), SweepConfig{})
+	if len(out) != 1 || out[0] != "obl-last-safe" {
+		t.Fatalf("admitted = %#v, want only obl-last-safe (movable row must yield its cell)", out)
+	}
+}
+
+// TestLimitParkSelectionAllLastSafeExceedsCap is the VAXCAP-006 legitimate-overflow guard: when
+// every selected row is on its last safe day, all are admitted even beyond the cap.
+func TestLimitParkSelectionAllLastSafeExceedsCap(t *testing.T) {
+	planned := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	rows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-1", TargetID: "goat-1", RuleID: "rule-a", ParkID: "park-1", DueAt: planned, WindowEnd: &planned},
+		{ObligationID: "obl-2", TargetID: "goat-2", RuleID: "rule-a", ParkID: "park-1", DueAt: planned, WindowEnd: &planned},
+		{ObligationID: "obl-3", TargetID: "goat-3", RuleID: "rule-a", ParkID: "park-1", DueAt: planned, WindowEnd: &planned},
+	}
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxGoatsPerDrive = 1
+
+	out := limitParkSelectionByDriveCells(rows, []string{"obl-1", "obl-2", "obl-3"}, planned, planner, NewSweepSession(), SweepConfig{})
+	if len(out) != 3 {
+		t.Fatalf("admitted = %#v, want all three last-safe rows despite cap 1 (legitimate overflow)", out)
+	}
+}
+
 func ptrTime(v time.Time) *time.Time {
 	return &v
 }

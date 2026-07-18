@@ -394,9 +394,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccinationapp.NewGoatCreatedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewGoatRecheckHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
-	vaccinationapp.NewManualCampaignHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
+	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	// Notification PUSH LAYER ONLY (docs/decisions/vaccination-notification-rules.md §4c): a read-only
 	// consumer of vaccination.verify.rejected/accepted events published by sopbridge.
 	// It resolves each completion_id to its obligation context via calendarService, then routes

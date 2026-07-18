@@ -17,17 +17,17 @@ import (
 )
 
 type fakeImpact struct {
-	got         domain.ImpactRequest
-	preview     domain.ImpactPreview
-	queue       domain.RecordedCompletionPage
-	gotLimit    int32
-	gotCursor   *domain.RecordedCompletionCursor
-	gotQueuePark string
-	reviewItems  []domain.StageReviewItem
+	got           domain.ImpactRequest
+	preview       domain.ImpactPreview
+	queue         domain.RecordedCompletionPage
+	gotLimit      int32
+	gotCursor     *domain.RecordedCompletionCursor
+	gotQueuePark  string
+	reviewItems   []domain.StageReviewItem
 	resolveResult bool
-	resolveErr   error
-	resolvedID   string
-	resolvedBy   string
+	resolveErr    error
+	resolvedID    string
+	resolvedBy    string
 }
 
 func (f *fakeImpact) ImpactPreview(_ context.Context, req domain.ImpactRequest) (domain.ImpactPreview, error) {

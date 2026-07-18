@@ -19,6 +19,11 @@ import (
 // platform/worker's kernel-stage lock).
 const visitShotLockNamespace = "goatos:obligation:visit-shot:"
 
+// driveCapacityLockNamespace serializes the whole park/date vaccination drive capacity ledger.
+// The unit is vaccine administrations/dose cells for one tenant+park+planned_date, across all
+// sheds, vaccines, and planner paths.
+const driveCapacityLockNamespace = "goatos:obligation:drive-capacity:"
+
 // canonicalUUID parses id and re-renders it in Postgres's canonical lowercase-hex form (RV-03).
 // hashtext() -- used by every advisory-lock key in this file -- hashes the RAW BYTES of its input
 // text argument, so two textually different representations of the SAME Postgres uuid value (e.g.
@@ -55,6 +60,18 @@ func visitShotLockKeyArg(tenantID, targetID, dateKey string) (string, error) {
 		return "", fmt.Errorf("obligation: visit-shot lock target id: %w", err)
 	}
 	return visitShotLockNamespace + tenantCanon + ":" + targetCanon + ":" + dateKey, nil
+}
+
+func driveCapacityLockKeyArg(tenantID, parkID, dateKey string) (string, error) {
+	tenantCanon, err := canonicalUUID(tenantID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: drive-capacity lock tenant id: %w", err)
+	}
+	parkCanon, err := canonicalUUID(parkID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: drive-capacity lock park id: %w", err)
+	}
+	return driveCapacityLockNamespace + tenantCanon + ":" + parkCanon + ":" + dateKey, nil
 }
 
 // pgxQuerier is satisfied by both *pgxpool.Pool and *pgxpool.Conn, letting countVisitShots run
@@ -184,6 +201,97 @@ func (r *Repository) LockVisitShots(ctx context.Context, tenantID string, target
 		return nil, nil, err
 	}
 	return counts, release, nil
+}
+
+func countDriveCellsForParkDate(ctx context.Context, q pgxQuerier, tenantID, parkID string, date time.Time) (int32, error) {
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	park, err := pgconv.UUID(parkID)
+	if err != nil {
+		return 0, fmt.Errorf("obligation: drive capacity park id: %w", err)
+	}
+	day := biztime.BusinessDayStart(date)
+	rows, err := q.Query(ctx, `
+WITH batch_cells AS (
+  SELECT ob.batch_id,
+         GREATEST(
+           COALESCE(ob.planned_quantity, 0)::int,
+           count(*)::int
+         ) AS cells
+  FROM obligation_instances oi
+  JOIN obligation_batches ob
+    ON ob.tenant_id = oi.tenant_id
+   AND ob.batch_id = oi.batch_id
+  LEFT JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+  LEFT JOIN locations scope_loc
+    ON scope_loc.tenant_id = ob.tenant_id
+   AND scope_loc.location_id = ob.scope_id
+  WHERE oi.tenant_id = $1
+    AND ob.planned_date = $3::date
+    AND ob.status NOT IN ('canceled', 'superseded')
+    AND oi.status NOT IN ('canceled')
+    AND (
+      (ob.scope_type = 'park' AND ob.scope_id = $2)
+      OR (ob.scope_type = 'shed' AND scope_loc.parent_location_id = $2)
+      OR g.park_id = $2
+    )
+  GROUP BY ob.batch_id, ob.planned_quantity
+)
+SELECT COALESCE(sum(cells), 0)::int FROM batch_cells`, tenant, park, pgconv.Date(&day))
+	if err != nil {
+		return 0, fmt.Errorf("obligation: count drive cells: %w", err)
+	}
+	defer rows.Close()
+	var count int32
+	if rows.Next() {
+		if err := rows.Scan(&count); err != nil {
+			return 0, fmt.Errorf("obligation: scan drive cell count: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("obligation: drive cell count rows: %w", err)
+	}
+	return count, nil
+}
+
+// CountDriveCellsForParkDate returns the persisted planned vaccination cell count for one
+// park/date drive, across all shed/park batch rows. This is the read-only proof path; writers use
+// LockDriveCapacity so they cannot race between the count and attach/update.
+func (r *Repository) CountDriveCellsForParkDate(ctx context.Context, tenantID, parkID string, date time.Time) (int32, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	return countDriveCellsForParkDate(ctx, r.pool, tenantID, parkID, date)
+}
+
+// LockDriveCapacity serializes capacity planning for one tenant/park/date. The caller must hold
+// the returned release until its batch attach/update is committed or abandoned.
+func (r *Repository) LockDriveCapacity(ctx context.Context, tenantID, parkID string, date time.Time) (int32, func(context.Context) error, error) {
+	dateKey := biztime.BusinessDayStart(date).Format("2006-01-02")
+	lockArg, err := driveCapacityLockKeyArg(tenantID, parkID, dateKey)
+	if err != nil {
+		return 0, nil, err
+	}
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return 0, nil, fmt.Errorf("obligation: acquire drive-capacity lock connection: %w", err)
+	}
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(hashtext($1))", lockArg); err != nil {
+		_ = releaseVisitShotConn(context.Background(), conn)
+		return 0, nil, fmt.Errorf("obligation: lock drive capacity: %w", err)
+	}
+	release := func(releaseCtx context.Context) error {
+		return releaseVisitShotConn(releaseCtx, conn)
+	}
+	count, err := countDriveCellsForParkDate(ctx, conn, tenantID, parkID, date)
+	if err != nil {
+		_ = release(context.Background())
+		return 0, nil, err
+	}
+	return count, release, nil
 }
 
 // tenantSweepLockNamespace prefixes the single per-tenant whole-sweep advisory-lock key so it

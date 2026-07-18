@@ -35,10 +35,40 @@ type visitShotLocker interface {
 	LockVisitShots(ctx context.Context, tenantID string, targetIDs []string, date time.Time) (counts map[string]int32, release func(context.Context) error, err error)
 }
 
+// driveCapacityCounter is the persisted park/date drive-capacity read path. The unit is vaccine
+// administrations/cells for the whole park drive on that date, across all sheds, vaccines, and
+// batches already attached to planned work. It is deliberately NOT animal count and NOT shed count.
+type driveCapacityCounter interface {
+	CountDriveCellsForParkDate(ctx context.Context, tenantID, parkID string, date time.Time) (int32, error)
+}
+
+// driveCapacityLocker is the write-path sibling: lock the whole (tenant, park, date) drive before
+// reading its current cell count, then hold that lock through attach/update so every planner path
+// sees one shared capacity ledger.
+type driveCapacityLocker interface {
+	driveCapacityCounter
+	LockDriveCapacity(ctx context.Context, tenantID, parkID string, date time.Time) (count int32, release func(context.Context) error, err error)
+}
+
 // noopRelease is returned by seedAndLockVisitShots whenever there is nothing to lock (cap
 // disabled, no planned date, no unresolved targets, or the repo does not support visitShotLocker):
 // callers can unconditionally defer/call the returned release without a nil check.
 func noopRelease(context.Context) error { return nil }
+
+func combineReleases(releases ...func(context.Context) error) func(context.Context) error {
+	return func(ctx context.Context) error {
+		var first error
+		for _, release := range releases {
+			if release == nil {
+				continue
+			}
+			if err := release(ctx); err != nil && first == nil {
+				first = err
+			}
+		}
+		return first
+	}
+}
 
 // seedAndLockVisitShots is the write-path half of the VAX-REV-01 fix: it seeds session with the
 // persisted, already-committed shot count for every (date, target) visit key in targetIDs that
@@ -115,6 +145,31 @@ func (s *SweeperService) lockAndRefreshVisitShots(ctx context.Context, tenantID 
 	}
 	session.resetResolved(*date, targets, counts)
 	return release, nil
+}
+
+func (s *SweeperService) lockAndRefreshDriveCapacity(ctx context.Context, tenantID, parkID string, date *time.Time, maxCells int32, session *SweepSession) (func(context.Context) error, error) {
+	if maxCells <= 0 || date == nil || strings.TrimSpace(parkID) == "" {
+		return noopRelease, nil
+	}
+	locker, ok := s.repo.(driveCapacityLocker)
+	if ok {
+		count, release, err := locker.LockDriveCapacity(ctx, tenantID, parkID, *date)
+		if err != nil {
+			return noopRelease, err
+		}
+		session.resetDriveCapacity(parkID, *date, count)
+		return release, nil
+	}
+	if counter, ok := s.repo.(driveCapacityCounter); ok {
+		count, err := counter.CountDriveCellsForParkDate(ctx, tenantID, parkID, *date)
+		if err != nil {
+			return noopRelease, err
+		}
+		session.resetDriveCapacity(parkID, *date, count)
+		return noopRelease, nil
+	}
+	session.resetDriveCapacity(parkID, *date, session.driveCapacityUsed(parkID, *date))
+	return noopRelease, nil
 }
 
 // distinctNonBlankTargets returns the distinct, trimmed, non-blank target IDs in targetIDs,

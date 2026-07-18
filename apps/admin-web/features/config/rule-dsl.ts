@@ -265,7 +265,7 @@ export function newCapacityPolicy(): CapacityPolicy {
     maxPerDay: 100,
     maxBufferDays: 7,
     capacityScope: "tenant",
-    overflowPolicy: "split_within_safe_window_then_mark_needs_review",
+    overflowPolicy: "split_within_safe_window_last_safe_may_exceed_cap",
   };
 }
 
@@ -283,7 +283,7 @@ function capacityDsl(input: RuleInput): Record<string, unknown> {
     capacity_scope: input.capacityPolicy.capacityScope || "tenant",
     overflow_policy:
       input.capacityPolicy.overflowPolicy ||
-      "split_within_safe_window_then_mark_needs_review",
+      "split_within_safe_window_last_safe_may_exceed_cap",
   };
 }
 

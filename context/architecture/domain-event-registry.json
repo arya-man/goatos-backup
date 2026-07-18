@@ -13,11 +13,11 @@
     "goat.health.changed",
     "goat.reproductive.changed",
     "goat.identity.changed",
+    "goat.exited",
     "vaccination.completed",
     "obligation.missed",
     "goat.obligations_canceled",
     "obligation.rescoped",
-    "vaccination.manual_campaign.requested",
     "protocol.version.published"
   ],
   "events": [
@@ -76,6 +76,15 @@
       "surfaces": ["backend", "frontend", "mobile"]
     },
     {
+      "eventType": "goat.exited",
+      "producer": "identity goat exit",
+      "producerFiles": ["backend/internal/identity/adapters/postgres/goat_lifecycle.go"],
+      "consumers": [{"module": "obligation", "file": "backend/internal/obligation/app/cancel.go"}],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": ["backend/internal/identity/adapters/postgres/identifier_write_integration_test.go", "backend/internal/obligation/adapters/postgres/cancel_integration_test.go"],
+      "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
       "eventType": "vaccination.completed",
       "producer": "vaccination completion accept",
       "producerFiles": ["backend/internal/vaccination/adapters/postgres/repository.go", "backend/internal/obligation/adapters/postgres/repository.go"],
@@ -88,7 +97,7 @@
       "eventType": "obligation.missed",
       "producer": "obligation missed marker",
       "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go"],
-      "consumers": [{"module": "calendar/process-integrity", "file": "backend/internal/obligation/adapters/postgres/repository.go"}],
+      "consumers": [{"module": "calendar", "file": "backend/internal/calendar/app/missed_handler.go"}],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": ["backend/internal/obligation/adapters/postgres/complete_integration_test.go"],
       "surfaces": ["backend", "frontend", "mobile"]
@@ -97,7 +106,7 @@
       "eventType": "goat.obligations_canceled",
       "producer": "goat lifecycle vaccination cancellation",
       "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go"],
-      "consumers": [{"module": "calendar/process-integrity", "file": "backend/internal/obligation/adapters/postgres/repository.go"}],
+      "consumers": [],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": ["backend/internal/obligation/adapters/postgres/vaccination_cancel_integration_test.go"],
       "surfaces": ["backend", "frontend", "mobile"]
@@ -106,18 +115,9 @@
       "eventType": "obligation.rescoped",
       "producer": "goat location shift obligation rescope",
       "producerFiles": ["backend/internal/obligation/adapters/postgres/repository.go"],
-      "consumers": [{"module": "calendar/process-integrity", "file": "backend/internal/obligation/adapters/postgres/repository.go"}],
+      "consumers": [],
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": ["backend/internal/obligation/adapters/postgres/shift_integration_test.go"],
-      "surfaces": ["backend", "frontend", "mobile"]
-    },
-    {
-      "eventType": "vaccination.manual_campaign.requested",
-      "producer": "vaccination manual campaign request",
-      "producerFiles": ["backend/internal/vaccination/adapters/http/handler.go"],
-      "consumers": [{"module": "vaccination", "file": "backend/internal/vaccination/app/generation_handler.go"}],
-      "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": ["backend/internal/vaccination/adapters/http/handler_test.go", "backend/internal/vaccination/adapters/postgres/generation_integration_test.go"],
       "surfaces": ["backend", "frontend", "mobile"]
     },
     {

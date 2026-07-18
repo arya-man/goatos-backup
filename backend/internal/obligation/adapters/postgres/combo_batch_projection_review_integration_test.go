@@ -349,7 +349,7 @@ func TestListPlannedComboBatchesMultiPageKeysetCoversAll(t *testing.T) {
 	// three pages instead of aligning (or silently skipping) page-sized fragments.
 	sweep := oblapp.NewSweeperService(repo, nil, nil)
 	sweep.SetPageSize(2)
-	if _, err := sweep.AlignComboDrives(ctx, tenantID, 30, dueBefore, 0, oblapp.NewSweepSession()); err != nil {
+	if _, err := sweep.AlignComboDrives(ctx, tenantID, 30, dueBefore, 0, 0, oblapp.NewSweepSession()); err != nil {
 		t.Fatalf("AlignComboDrives: %v", err)
 	}
 

@@ -282,6 +282,18 @@ func obligationsFeasibleOnDriveDate(day time.Time, rows []driveCandidate) []stri
 	return ids
 }
 
+func obligationsFeasibleOnDriveDateForPlanner(day time.Time, rows []driveCandidate, planner domain.DrivePlannerSettings) []string {
+	day = businessDate(day)
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if !driveCandidateFeasibleOnPlannerDate(day, row, planner) {
+			continue
+		}
+		ids = append(ids, row.ObligationID)
+	}
+	return ids
+}
+
 func driveCandidateFeasibleOnDate(day time.Time, row driveCandidate) bool {
 	if row.DueAt.IsZero() &&
 		(row.WindowStart == nil || row.WindowStart.IsZero()) &&
@@ -292,6 +304,39 @@ func driveCandidateFeasibleOnDate(day time.Time, row driveCandidate) bool {
 	earliest := driveEarliestDate(row)
 	latest := driveLatestDate(row)
 	return !day.Before(earliest) && !day.After(latest)
+}
+
+func driveCandidateFeasibleOnPlannerDate(day time.Time, row driveCandidate, planner domain.DrivePlannerSettings) bool {
+	if !driveCandidateFeasibleOnDate(day, row) {
+		return false
+	}
+	day = businessDate(day)
+	if row.DueAt.IsZero() {
+		return true
+	}
+	due := businessDate(row.DueAt)
+	if !day.After(due) {
+		return true
+	}
+	if planner.MaxBatchingHoldCount > 0 && row.BatchingHoldCount >= planner.MaxBatchingHoldCount {
+		return false
+	}
+	if planner.MaxBatchingHoldDays > 0 && day.After(due.AddDate(0, 0, int(planner.MaxBatchingHoldDays))) {
+		return false
+	}
+	return true
+}
+
+func driveCandidateCanMoveAfter(plannedDate time.Time, row driveCandidate, planner domain.DrivePlannerSettings) bool {
+	next := businessDate(plannedDate).AddDate(0, 0, 1)
+	latest := driveLatestDate(row)
+	for !latest.IsZero() && !next.After(latest) {
+		if driveCandidateFeasibleOnPlannerDate(next, row, planner) {
+			return true
+		}
+		next = next.AddDate(0, 0, 1)
+	}
+	return false
 }
 
 func driveEarliestDate(row driveCandidate) time.Time {
@@ -359,12 +404,12 @@ func selectIDsWithinVisitShotCap(rows []domain.UnbatchedDue, plannedDate *time.T
 	return selected
 }
 
-func nextFeasibleUnbatchedDriveDateAfter(plannedDate time.Time, rows []domain.UnbatchedDue) *time.Time {
+func nextFeasibleUnbatchedDriveDateAfter(plannedDate time.Time, rows []domain.UnbatchedDue, planner domain.DrivePlannerSettings) *time.Time {
 	next := businessDate(plannedDate).AddDate(0, 0, 1)
 	candidates := driveCandidatesFromUnbatched(rows)
 	latest := latestUnbatchedDriveDate(candidates)
 	for !latest.IsZero() && !next.After(latest) {
-		if len(obligationsFeasibleOnDriveDate(next, candidates)) > 0 {
+		if len(obligationsFeasibleOnDriveDateForPlanner(next, candidates, planner)) > 0 {
 			day := next
 			return &day
 		}
@@ -411,11 +456,11 @@ func selectParkIDsWithinVisitShotCap(rows []domain.ParkConsolidationCandidate, s
 	return out
 }
 
-func nextFeasibleParkDriveDateAfter(plannedDate time.Time, rows []domain.ParkConsolidationCandidate) *time.Time {
+func nextFeasibleParkDriveDateAfter(plannedDate time.Time, rows []domain.ParkConsolidationCandidate, planner domain.DrivePlannerSettings) *time.Time {
 	next := businessDate(plannedDate).AddDate(0, 0, 1)
 	latest := latestParkDriveDate(rows)
 	for !latest.IsZero() && !next.After(latest) {
-		if len(obligationsFeasibleOnDate(next, rows)) > 0 {
+		if len(obligationsFeasibleOnDateForPlanner(next, rows, planner)) > 0 {
 			day := next
 			return &day
 		}

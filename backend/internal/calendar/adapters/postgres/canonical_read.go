@@ -980,7 +980,7 @@ park_drive_events AS (
       'summary', jsonb_build_object(
         'owner', 'PC',
         'target_count', grouped.target_count,
-        'summary_primary', grouped.target_count::text || CASE WHEN grouped.target_count = 1 THEN ' scheduled dose' ELSE ' scheduled doses' END,
+        'summary_primary', COALESCE(grouped.scheduled_count, 0)::text || CASE WHEN COALESCE(grouped.scheduled_count, 0) = 1 THEN ' scheduled dose' ELSE ' scheduled doses' END,
         'summary_secondary', cardinality(shed_meta.labels)::text ||
           CASE WHEN cardinality(shed_meta.labels) = 1 THEN ' shed · ' ELSE ' sheds · ' END ||
           cardinality(vaccine_meta.labels)::text ||

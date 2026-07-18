@@ -119,7 +119,44 @@ func (r *Repository) InsertObligation(ctx context.Context, in domain.NewObligati
 	return id, true, nil
 }
 
-// GetByIdempotencyKey looks up an obligation by its deterministic key.
+// rowQuerier is satisfied by *pgxpool.Pool, *pgxpool.Conn, and pgx.Tx, so
+// latestCanceledObligationReason can run inside or outside an open transaction.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// latestCanceledObligationReason returns the reason persisted on the MOST RECENT 'canceled' status
+// event for one obligation (empty when no canceled event or no reason was recorded). Generation's
+// returning-goat successor logic keys off this reason, so a canceled ObligationRef must carry the
+// literal stored cancel reason -- never a guess. Single indexed lookup via
+// obligation_status_events_obligation_idx (obligation_id, occurred_at DESC); callers invoke it only
+// for rows whose status is 'canceled', and only on per-key generation paths (no loops).
+func latestCanceledObligationReason(ctx context.Context, q rowQuerier, tenant pgtype.UUID, obligationID string) (string, error) {
+	obl, err := pgconv.UUID(obligationID)
+	if err != nil {
+		return "", fmt.Errorf("obligation: canceled-reason obligation id: %w", err)
+	}
+	var reason string
+	err = q.QueryRow(ctx, `
+SELECT COALESCE(payload->>'reason', '')
+FROM obligation_status_events
+WHERE tenant_id = $1
+  AND obligation_id = $2
+  AND event_type = 'canceled'
+ORDER BY occurred_at DESC
+LIMIT 1`, tenant, obl).Scan(&reason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("obligation: latest canceled reason: %w", err)
+	}
+	return reason, nil
+}
+
+// GetByIdempotencyKey looks up an obligation by its deterministic key. For a canceled row it also
+// carries the latest persisted cancel reason, which generation uses to distinguish a
+// returning-goat cancellation (mint successor) from terminal canceled history (never mint).
 func (r *Repository) GetByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string) (domain.ObligationRef, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -134,12 +171,20 @@ func (r *Repository) GetByIdempotencyKey(ctx context.Context, tenantID, idempote
 	if err != nil {
 		return domain.ObligationRef{}, fmt.Errorf("obligation: get by idempotency key: %w", err)
 	}
-	return domain.ObligationRef{
+	ref := domain.ObligationRef{
 		ObligationID: row.ObligationID,
 		Status:       row.Status,
 		DueAt:        row.DueAt.Time,
 		RowVersion:   row.RowVersion,
-	}, nil
+	}
+	if ref.Status == "canceled" {
+		reason, err := latestCanceledObligationReason(ctx, r.pool, tenant, ref.ObligationID)
+		if err != nil {
+			return domain.ObligationRef{}, err
+		}
+		ref.Reason = reason
+	}
+	return ref, nil
 }
 
 // DeferOpenObligationByIdempotencyKey moves an existing scheduled/due obligation into the
@@ -197,10 +242,19 @@ FOR UPDATE OF oi`, tenant, idempotencyKey).Scan(&obligationID, &obligationStatus
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: lock defer target: %w", err)
 	}
 	if obligationStatus != "scheduled" && obligationStatus != "due" {
+		// A canceled replay target must surface its stored cancel reason: generation's successor
+		// logic distinguishes returning-goat cancels from terminal history by this exact string.
+		var cancelReason string
+		if obligationStatus == "canceled" {
+			cancelReason, err = latestCanceledObligationReason(ctx, tx, tenant, obligationID)
+			if err != nil {
+				return domain.ObligationRef{}, false, err
+			}
+		}
 		if cerr := tx.Commit(ctx); cerr != nil {
 			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit defer replay: %w", cerr)
 		}
-		return domain.ObligationRef{ObligationID: obligationID, Status: obligationStatus, DueAt: dueAt.Time, RowVersion: rowVersion}, false, nil
+		return domain.ObligationRef{ObligationID: obligationID, Status: obligationStatus, Reason: cancelReason, DueAt: dueAt.Time, RowVersion: rowVersion}, false, nil
 	}
 
 	detachPlannedBatch := oldBatchID != "" && oldBatchStatus == "planned"
@@ -401,6 +455,16 @@ func (r *Repository) reopenDeferredObligationByIdempotencyKey(ctx context.Contex
 		return domain.ObligationRef{}, false, fmt.Errorf("obligation: reopen deferred obligation: %w", err)
 	}
 	if !changed {
+		// A reopen replay that lands on a canceled row must carry the stored cancel reason so
+		// generation can decide whether that cancellation warrants a successor (returning goat)
+		// or is terminal history.
+		if finalRef.Status == "canceled" {
+			reason, rerr := latestCanceledObligationReason(ctx, tx, tenant, finalRef.ObligationID)
+			if rerr != nil {
+				return domain.ObligationRef{}, false, rerr
+			}
+			finalRef.Reason = reason
+		}
 		if cerr := tx.Commit(ctx); cerr != nil {
 			return domain.ObligationRef{}, false, fmt.Errorf("obligation: commit reopen noop: %w", cerr)
 		}
@@ -2098,17 +2162,34 @@ SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
        COALESCE(b.scope_id::text, '')::text AS scope_id,
+       COALESCE(oi.park_id, '')::text AS park_id,
        COALESCE(b.session, '')::text AS session,
        b.planned_date,
        oi.safe_start,
        oi.safe_end,
+       oi.hold_until,
+       GREATEST(COALESCE(b.planned_quantity, 0)::int, COALESCE(oi.obligation_count, 0))::int AS cell_count,
        COALESCE(oi.target_ids, ARRAY[]::text[]) AS target_ids
 FROM obligation_batches b
 LEFT JOIN LATERAL (
     SELECT array_agg(DISTINCT o.target_id::text) AS target_ids,
            max(COALESCE(o.window_start, o.due_at)::date) AS safe_start,
-           min(COALESCE(o.window_end, o.due_at)::date) AS safe_end
+           min(COALESCE(o.window_end, o.due_at)::date) AS safe_end,
+           min(COALESCE(o.first_batching_hold_until, o.due_at + interval '7 days')::date) AS hold_until,
+           count(*)::int AS obligation_count,
+           COALESCE(
+             max(CASE WHEN b.scope_type = 'park' THEN b.scope_id::text END),
+             max(scope_loc.parent_location_id::text),
+             max(g.park_id::text),
+             ''
+           ) AS park_id
     FROM obligation_instances o
+    LEFT JOIN goats g
+      ON g.tenant_id = o.tenant_id
+     AND g.goat_id = o.target_id
+    LEFT JOIN locations scope_loc
+      ON scope_loc.tenant_id = b.tenant_id
+     AND scope_loc.location_id = b.scope_id
     WHERE o.tenant_id = b.tenant_id
       AND o.batch_id = b.batch_id
 ) oi ON true
@@ -2127,8 +2208,8 @@ LIMIT $3`, tenant, pgconv.Date(&dueDay), limit)
 	out := make([]domain.ComboDriveBatch, 0)
 	for rows.Next() {
 		var row domain.ComboDriveBatch
-		var planned, safeStart, safeEnd pgtype.Date
-		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &safeStart, &safeEnd, &row.TargetIDs); err != nil {
+		var planned, safeStart, safeEnd, holdUntil pgtype.Date
+		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.ParkID, &row.Session, &planned, &safeStart, &safeEnd, &holdUntil, &row.CellCount, &row.TargetIDs); err != nil {
 			return nil, fmt.Errorf("obligation: scan planned combo batch: %w", err)
 		}
 		if planned.Valid {
@@ -2139,6 +2220,9 @@ LIMIT $3`, tenant, pgconv.Date(&dueDay), limit)
 		}
 		if safeEnd.Valid {
 			row.SafeEnd = pgconv.DateValue(safeEnd)
+		}
+		if holdUntil.Valid {
+			row.HoldUntil = pgconv.DateValue(holdUntil)
 		}
 		out = append(out, row)
 	}
@@ -2211,17 +2295,34 @@ SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
        COALESCE(b.scope_id::text, '')::text AS scope_id,
+       COALESCE(oi.park_id, '')::text AS park_id,
        COALESCE(b.session, '')::text AS session,
        b.planned_date,
        oi.safe_start,
        oi.safe_end,
+       oi.hold_until,
+       GREATEST(COALESCE(b.planned_quantity, 0)::int, COALESCE(oi.obligation_count, 0))::int AS cell_count,
        COALESCE(oi.target_ids, ARRAY[]::text[]) AS target_ids
 FROM obligation_batches b
 LEFT JOIN LATERAL (
     SELECT array_agg(DISTINCT o.target_id::text) AS target_ids,
            max(COALESCE(o.window_start, o.due_at)::date) AS safe_start,
-           min(COALESCE(o.window_end, o.due_at)::date) AS safe_end
+           min(COALESCE(o.window_end, o.due_at)::date) AS safe_end,
+           min(COALESCE(o.first_batching_hold_until, o.due_at + interval '7 days')::date) AS hold_until,
+           count(*)::int AS obligation_count,
+           COALESCE(
+             max(CASE WHEN b.scope_type = 'park' THEN b.scope_id::text END),
+             max(scope_loc.parent_location_id::text),
+             max(g.park_id::text),
+             ''
+           ) AS park_id
     FROM obligation_instances o
+    LEFT JOIN goats g
+      ON g.tenant_id = o.tenant_id
+     AND g.goat_id = o.target_id
+    LEFT JOIN locations scope_loc
+      ON scope_loc.tenant_id = b.tenant_id
+     AND scope_loc.location_id = b.scope_id
     WHERE o.tenant_id = b.tenant_id
       AND o.batch_id = b.batch_id
 ) oi ON true
@@ -2240,8 +2341,8 @@ LIMIT $` + strconv.Itoa(argIdx)
 	out := make([]domain.ComboDriveBatch, 0)
 	for rows.Next() {
 		var row domain.ComboDriveBatch
-		var planned, safeStart, safeEnd pgtype.Date
-		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.Session, &planned, &safeStart, &safeEnd, &row.TargetIDs); err != nil {
+		var planned, safeStart, safeEnd, holdUntil pgtype.Date
+		if err := rows.Scan(&row.BatchID, &row.ProtocolVersionID, &row.ScopeType, &row.ScopeID, &row.ParkID, &row.Session, &planned, &safeStart, &safeEnd, &holdUntil, &row.CellCount, &row.TargetIDs); err != nil {
 			return nil, fmt.Errorf("obligation: scan planned combo batch: %w", err)
 		}
 		if planned.Valid {
@@ -2252,6 +2353,9 @@ LIMIT $` + strconv.Itoa(argIdx)
 		}
 		if safeEnd.Valid {
 			row.SafeEnd = pgconv.DateValue(safeEnd)
+		}
+		if holdUntil.Valid {
+			row.HoldUntil = pgconv.DateValue(holdUntil)
 		}
 		out = append(out, row)
 	}
@@ -2455,35 +2559,43 @@ func (r *Repository) CreateBatch(ctx context.Context, in domain.NewBatch) (strin
 }
 
 func (r *Repository) CreateBatchWithObligations(ctx context.Context, in domain.NewBatch, obligationIDs []string) (string, int64, error) {
+	batchID, attachedIDs, err := r.CreateBatchWithObligationsReturningAttachedIDs(ctx, in, obligationIDs)
+	if err != nil {
+		return "", 0, err
+	}
+	return batchID, int64(len(attachedIDs)), nil
+}
+
+func (r *Repository) CreateBatchWithObligationsReturningAttachedIDs(ctx context.Context, in domain.NewBatch, obligationIDs []string) (string, []string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	if len(obligationIDs) == 0 {
-		return "", 0, nil
+		return "", nil, nil
 	}
 	tenant, err := pgconv.UUID(in.TenantID)
 	if err != nil {
-		return "", 0, fmt.Errorf("obligation: tenant id: %w", err)
+		return "", nil, fmt.Errorf("obligation: tenant id: %w", err)
 	}
 	version, err := pgconv.UUID(in.ProtocolVersionID)
 	if err != nil {
-		return "", 0, fmt.Errorf("obligation: version id: %w", err)
+		return "", nil, fmt.Errorf("obligation: version id: %w", err)
 	}
 	scope, err := pgconv.UUID(in.ScopeID)
 	if err != nil {
-		return "", 0, fmt.Errorf("obligation: scope id: %w", err)
+		return "", nil, fmt.Errorf("obligation: scope id: %w", err)
 	}
 	plannedQty, err := pgconv.Numeric(in.PlannedQuantity)
 	if err != nil {
-		return "", 0, fmt.Errorf("obligation: planned_quantity: %w", err)
+		return "", nil, fmt.Errorf("obligation: planned_quantity: %w", err)
 	}
 	ids, err := obligationUUIDs(obligationIDs)
 	if err != nil {
-		return "", 0, err
+		return "", nil, err
 	}
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return "", 0, fmt.Errorf("obligation: begin batch attach tx: %w", err)
+		return "", nil, fmt.Errorf("obligation: begin batch attach tx: %w", err)
 	}
 	committed := false
 	defer func() {
@@ -2499,7 +2611,7 @@ func (r *Repository) CreateBatchWithObligations(ctx context.Context, in domain.N
 	// to two different advisory-lock ids and let two concurrent attaches for the same scope race.
 	lockKey := fmt.Sprintf("%s:obligation-batch:%s:%s:%s", pgconv.UUIDString(tenant), pgconv.UUIDString(version), in.ScopeType, pgconv.UUIDString(scope))
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, lockKey); err != nil {
-		return "", 0, fmt.Errorf("obligation: batch scope lock: %w", err)
+		return "", nil, fmt.Errorf("obligation: batch scope lock: %w", err)
 	}
 	var batchID string
 	err = tx.QueryRow(ctx, `
@@ -2550,14 +2662,14 @@ FOR UPDATE`,
 			ConductedBy:           pgconv.NullableUUID(in.ConductedBy),
 		})
 		if err != nil {
-			return "", 0, fmt.Errorf("obligation: create batch: %w", err)
+			return "", nil, fmt.Errorf("obligation: create batch: %w", err)
 		}
 	} else if err != nil {
-		return "", 0, fmt.Errorf("obligation: find planned batch: %w", err)
+		return "", nil, fmt.Errorf("obligation: find planned batch: %w", err)
 	}
 	batch, err := pgconv.UUID(batchID)
 	if err != nil {
-		return "", 0, fmt.Errorf("obligation: batch id: %w", err)
+		return "", nil, fmt.Errorf("obligation: batch id: %w", err)
 	}
 	attachedIDs := make([]string, 0, len(ids))
 	rows, err := tx.Query(ctx, `
@@ -2567,26 +2679,25 @@ WHERE tenant_id = $2
   AND obligation_id = ANY($3::uuid[])
   AND batch_id IS NULL
   AND status IN ('scheduled', 'due', 'in_progress', 'missed')
-RETURNING obligation_id::text`, batch, tenant, ids)
+		RETURNING obligation_id::text`, batch, tenant, ids)
 	if err != nil {
-		return "", 0, fmt.Errorf("obligation: attach to batch: %w", err)
+		return "", nil, fmt.Errorf("obligation: attach to batch: %w", err)
 	}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return "", 0, fmt.Errorf("obligation: scan attached obligation: %w", err)
+			return "", nil, fmt.Errorf("obligation: scan attached obligation: %w", err)
 		}
 		attachedIDs = append(attachedIDs, id)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return "", 0, fmt.Errorf("obligation: scan attached obligations: %w", err)
+		return "", nil, fmt.Errorf("obligation: scan attached obligations: %w", err)
 	}
 	rows.Close()
-	attached := int64(len(attachedIDs))
-	if attached == 0 {
-		return "", 0, nil
+	if len(attachedIDs) == 0 {
+		return "", nil, nil
 	}
 	if _, err := tx.Exec(ctx, `
 UPDATE obligation_batches ob
@@ -2598,14 +2709,14 @@ FROM (
   WHERE oi.tenant_id = $1
     AND oi.batch_id = $2
 ) live
-WHERE ob.tenant_id = $1
-  AND ob.batch_id = $2`, tenant, batch); err != nil {
-		return "", 0, fmt.Errorf("obligation: update batch target count: %w", err)
+	WHERE ob.tenant_id = $1
+	  AND ob.batch_id = $2`, tenant, batch); err != nil {
+		return "", nil, fmt.Errorf("obligation: update batch target count: %w", err)
 	}
 	if in.BatchingHoldUntil != nil {
 		attachedUUIDs, err := obligationUUIDs(attachedIDs)
 		if err != nil {
-			return "", 0, err
+			return "", nil, err
 		}
 		if _, err := tx.Exec(ctx, `
 UPDATE obligation_instances oi
@@ -2615,16 +2726,16 @@ SET batching_hold_count = COALESCE(oi.batching_hold_count, 0) + 1,
     row_version = row_version + 1
 FROM unnest($2::uuid[]) AS selected(obligation_id)
 WHERE oi.tenant_id = $1
-  AND oi.batch_id = $4
-  AND oi.obligation_id = selected.obligation_id`, tenant, attachedUUIDs, pgconv.Timestamptz(*in.BatchingHoldUntil), batch); err != nil {
-			return "", 0, fmt.Errorf("obligation: record batching hold in batch attach tx: %w", err)
+	  AND oi.batch_id = $4
+	  AND oi.obligation_id = selected.obligation_id`, tenant, attachedUUIDs, pgconv.Timestamptz(*in.BatchingHoldUntil), batch); err != nil {
+			return "", nil, fmt.Errorf("obligation: record batching hold in batch attach tx: %w", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return "", 0, fmt.Errorf("obligation: commit batch attach: %w", err)
+		return "", nil, fmt.Errorf("obligation: commit batch attach: %w", err)
 	}
 	committed = true
-	return batchID, attached, nil
+	return batchID, attachedIDs, nil
 }
 
 func (r *Repository) SetBatchSOPTask(ctx context.Context, tenantID, batchID, taskID string) error {

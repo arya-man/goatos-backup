@@ -65,7 +65,7 @@ SELECT
   g.exit_reason,
   defer_event.defer_status,
   oi.status,
-  oi.due_at
+  COALESCE(target_batch.planned_date, oi.due_at) AS scheduled_at
 FROM obligation_instances oi
 JOIN protocol_versions pv
   ON pv.tenant_id = oi.tenant_id
@@ -201,9 +201,9 @@ animal_targets AS (
     exit_reason,
     defer_status,
     status,
-    due_at
+    scheduled_at
   FROM matched_obligations
-  ORDER BY animal_id, due_at ASC, obligation_id ASC
+  ORDER BY animal_id, scheduled_at ASC, obligation_id ASC
 )
 SELECT
   obligation_id::text,
@@ -218,7 +218,7 @@ SELECT
   exit_reason,
   defer_status,
   status,
-  due_at
+  scheduled_at
 FROM animal_targets
 WHERE ($8::uuid IS NULL OR obligation_id > $8::uuid)
   AND (
@@ -318,7 +318,7 @@ func (r *Repository) ListDriveTargets(ctx context.Context, q domain.DriveTargetQ
 		var healthStatus pgtype.Text
 		var exitReason pgtype.Text
 		var deferReason pgtype.Text
-		if err := rows.Scan(&item.ObligationID, &item.AnimalID, &item.DisplayID, &animalIdentifier1, &animalIdentifier2, &shedName, &stage, &lifecycleStatus, &healthStatus, &exitReason, &deferReason, &item.Status, &item.DueAt); err != nil {
+		if err := rows.Scan(&item.ObligationID, &item.AnimalID, &item.DisplayID, &animalIdentifier1, &animalIdentifier2, &shedName, &stage, &lifecycleStatus, &healthStatus, &exitReason, &deferReason, &item.Status, &item.ScheduledAt); err != nil {
 			return domain.CalendarDriveTargetListResponse{}, fmt.Errorf("calendar: scan drive target: %w", err)
 		}
 		item.AnimalIdentifier1 = textPtr(animalIdentifier1)

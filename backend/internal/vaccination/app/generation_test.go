@@ -99,6 +99,54 @@ func TestGenerateForVersionChecksAllRecentVaccinesForCrossGap(t *testing.T) {
 	}
 }
 
+func TestGenerateForVersionCreatesSuccessorWhenCanceledWorkBecomesEligibleAgain(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		rules: []protodomain.Rule{{
+			RuleID: "rule-fmd", DoseCode: "fmd-dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28,
+		}},
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]}}`),
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "returning-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1",
+			ParkID: "park-1", ShedID: "shed-1",
+		}},
+	}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+
+	first, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf)
+	if err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+	if first.Generated != 1 || len(obl.inserted) != 1 {
+		t.Fatalf("first result=%#v inserted=%d, want one scheduled obligation", first, len(obl.inserted))
+	}
+	baseKey := obl.inserted[0].IdempotencyKey
+	obl.inserted[0].Status = "canceled"
+
+	second, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+	if second.Generated != 1 || len(obl.inserted) != 2 {
+		t.Fatalf("second result=%#v inserted=%d, want successor obligation", second, len(obl.inserted))
+	}
+	if obl.inserted[0].Status != "canceled" {
+		t.Fatalf("base status=%s want canceled preserved", obl.inserted[0].Status)
+	}
+	successor := obl.inserted[1]
+	if successor.Status != "scheduled" {
+		t.Fatalf("successor status=%s want scheduled", successor.Status)
+	}
+	if successor.IdempotencyKey == baseKey || !strings.HasPrefix(successor.IdempotencyKey, baseKey+":successor:") {
+		t.Fatalf("successor key=%q base=%q", successor.IdempotencyKey, baseKey)
+	}
+}
+
 func TestDueAfterPreviousCompletionRequiresPositiveGap(t *testing.T) {
 	administered := time.Date(2026, 7, 1, 8, 0, 0, 0, time.UTC)
 	rule := protodomain.Rule{
@@ -434,60 +482,6 @@ func TestManualCampaignHTTPRunReplaysByIdempotencyKey(t *testing.T) {
 	}
 	if len(runs.startInputs) != 2 || runs.startInputs[0].IdempotencyKey != "manual-key-1" || runs.startInputs[1].IdempotencyKey != "manual-key-1" {
 		t.Fatalf("run recorder inputs=%#v", runs.startInputs)
-	}
-}
-
-func TestManualCampaignHandlerRejectsFutureOccurredAtBeforeStartingRun(t *testing.T) {
-	ctx := context.Background()
-	proto := &generationProtoFake{}
-	goats := &generationGoatFake{}
-	obl := &generationObligationFake{seen: map[string]bool{}}
-	runs := &generationRunRecorderFake{byKey: map[string]domain.GenerationRun{}}
-	gen := NewGenerationService(proto, goats, obl).WithGenerationRunRecorder(runs)
-	handler := NewManualCampaignHandler(gen)
-
-	err := handler.HandleEvent(ctx, eventbus.Event{
-		Type:       EventManualCampaignRequested,
-		TenantID:   "tenant-1",
-		OccurredAt: time.Now().Add(48 * time.Hour),
-		Payload:    []byte(`{"protocol_version_id":"version-1","campaign_id":"catchup"}`),
-	})
-	if !errors.Is(err, domain.ErrFutureManualCampaign) {
-		t.Fatalf("err=%v, want future manual campaign error", err)
-	}
-	if !eventbus.IsPermanentError(err) {
-		t.Fatalf("err=%v, want permanent event error", err)
-	}
-	if len(runs.startInputs) != 0 || len(obl.inserted) != 0 {
-		t.Fatalf("future event started work: startInputs=%#v inserted=%#v", runs.startInputs, obl.inserted)
-	}
-}
-
-func TestManualCampaignEventFutureRecordedAtStaysInvalidAfterOccurredAt(t *testing.T) {
-	event := eventbus.Event{
-		Type:       EventManualCampaignRequested,
-		TenantID:   "tenant-1",
-		OccurredAt: time.Date(2026, time.June, 28, 8, 0, 0, 0, time.UTC),
-		RecordedAt: time.Date(2026, time.June, 27, 8, 0, 0, 0, time.UTC),
-		Payload:    []byte(`{"protocol_version_id":"version-1","campaign_id":"catchup"}`),
-	}
-	now := time.Date(2026, time.June, 30, 8, 0, 0, 0, time.UTC)
-	if !manualCampaignEventAsOfInFuture(event, now) {
-		t.Fatalf("future-at-recording manual event became valid after occurred_at passed")
-	}
-
-	ctx := context.Background()
-	proto := &generationProtoFake{}
-	goats := &generationGoatFake{}
-	obl := &generationObligationFake{seen: map[string]bool{}}
-	runs := &generationRunRecorderFake{byKey: map[string]domain.GenerationRun{}}
-	gen := NewGenerationService(proto, goats, obl).WithGenerationRunRecorder(runs)
-	err := NewManualCampaignHandler(gen).HandleEvent(ctx, event)
-	if !errors.Is(err, domain.ErrFutureManualCampaign) || !eventbus.IsPermanentError(err) {
-		t.Fatalf("err=%v, want permanent future manual campaign error", err)
-	}
-	if len(runs.startInputs) != 0 || len(obl.inserted) != 0 {
-		t.Fatalf("future-at-recording event started work: startInputs=%#v inserted=%#v", runs.startInputs, obl.inserted)
 	}
 }
 
@@ -2403,6 +2397,7 @@ type generationObligationFake struct {
 	canceledVersions       []string
 	canceledExceptVersions [][]string
 	cancelReasons          []string
+	cancelReasonsByKey     map[string]string // Track cancellation reason for each key
 	nearbyDrive            *time.Time
 	nearestBatchLookups    []nearestBatchLookup
 	failOnceAfterInserted  int
@@ -2423,6 +2418,9 @@ func (o *generationObligationFake) InsertObligation(_ context.Context, in obldom
 	}
 	if o.keyIndex == nil {
 		o.keyIndex = map[string]int{}
+	}
+	if o.cancelReasonsByKey == nil {
+		o.cancelReasonsByKey = map[string]string{}
 	}
 	if o.seen[in.IdempotencyKey] {
 		return "obligation-1", false, nil
@@ -2445,14 +2443,17 @@ func (o *generationObligationFake) DeferOpenObligationForGeneration(_ context.Co
 	if !ok {
 		return obldomain.ObligationRef{}, false, errors.New("obligation not found")
 	}
+	if o.cancelReasonsByKey == nil {
+		o.cancelReasonsByKey = map[string]string{}
+	}
 	switch o.inserted[idx].Status {
 	case "deferred", "completed", "waived", "canceled", "superseded":
-		return obldomain.ObligationRef{ObligationID: "obligation-1", Status: o.inserted[idx].Status, DueAt: o.inserted[idx].DueAt}, false, nil
+		return obldomain.ObligationRef{ObligationID: "obligation-1", Status: o.inserted[idx].Status, DueAt: o.inserted[idx].DueAt, Reason: o.cancelReasonsByKey[idempotencyKey]}, false, nil
 	}
 	o.inserted[idx].Status = "deferred"
 	o.deferredKeys = append(o.deferredKeys, idempotencyKey)
 	o.deferReasons = append(o.deferReasons, reason)
-	return obldomain.ObligationRef{ObligationID: "obligation-1", Status: "deferred", DueAt: o.inserted[idx].DueAt}, true, nil
+	return obldomain.ObligationRef{ObligationID: "obligation-1", Status: "deferred", DueAt: o.inserted[idx].DueAt, Reason: ""}, true, nil
 }
 
 func (o *generationObligationFake) ReopenDeferredObligationForGeneration(_ context.Context, _, idempotencyKey string, _ time.Time, reschedule *obldomain.RecoveryReschedule) (obldomain.ObligationRef, bool, error) {
@@ -2460,8 +2461,11 @@ func (o *generationObligationFake) ReopenDeferredObligationForGeneration(_ conte
 	if !ok {
 		return obldomain.ObligationRef{}, false, nil
 	}
+	if o.cancelReasonsByKey == nil {
+		o.cancelReasonsByKey = map[string]string{}
+	}
 	if o.inserted[idx].Status != "deferred" {
-		return obldomain.ObligationRef{ObligationID: "obligation-1", Status: o.inserted[idx].Status, DueAt: o.inserted[idx].DueAt}, false, nil
+		return obldomain.ObligationRef{ObligationID: "obligation-1", Status: o.inserted[idx].Status, DueAt: o.inserted[idx].DueAt, Reason: o.cancelReasonsByKey[idempotencyKey]}, false, nil
 	}
 	o.inserted[idx].Status = "scheduled"
 	if reschedule != nil {
@@ -2470,7 +2474,7 @@ func (o *generationObligationFake) ReopenDeferredObligationForGeneration(_ conte
 		o.inserted[idx].WindowEnd = reschedule.WindowEnd
 	}
 	o.reopenedKeys = append(o.reopenedKeys, idempotencyKey)
-	return obldomain.ObligationRef{ObligationID: "obligation-1", Status: "scheduled", DueAt: o.inserted[idx].DueAt}, true, nil
+	return obldomain.ObligationRef{ObligationID: "obligation-1", Status: "scheduled", DueAt: o.inserted[idx].DueAt, Reason: ""}, true, nil
 }
 
 func (o *generationObligationFake) FindNearestPlannedBatchDate(_ context.Context, _, _, ruleID, vaccineCode, shedID, parkID string, _, _ time.Time) (*time.Time, error) {
@@ -2483,16 +2487,20 @@ func (o *generationObligationFake) FindNearestPlannedBatchDate(_ context.Context
 	return o.nearbyDrive, nil
 }
 
-func (o *generationObligationFake) CancelOpenObligationByIdempotencyKey(_ context.Context, _, idempotencyKey, _ string, _ time.Time) (string, bool, error) {
+func (o *generationObligationFake) CancelOpenObligationByIdempotencyKey(_ context.Context, _, idempotencyKey, reason string, _ time.Time) (string, bool, error) {
 	idx, ok := o.keyIndex[idempotencyKey]
 	if !ok {
 		return "", false, nil
+	}
+	if o.cancelReasonsByKey == nil {
+		o.cancelReasonsByKey = map[string]string{}
 	}
 	switch o.inserted[idx].Status {
 	case "completed", "canceled", "superseded", "waived":
 		return "obligation-1", false, nil
 	}
 	o.inserted[idx].Status = "canceled"
+	o.cancelReasonsByKey[idempotencyKey] = reason
 	o.canceledKeys = append(o.canceledKeys, idempotencyKey)
 	return "obligation-1", true, nil
 }
@@ -3373,6 +3381,12 @@ func TestGenerateReplayTerminalObligationDoesNotDelayCoDueVaccine(t *testing.T) 
 			}
 			// PPR reaches a terminal state (given, waived, replaced, or canceled) -- no upcoming shot.
 			obl.inserted[0].Status = terminal
+			// Mark the obligation as having a terminal cancellation reason (simulating it was given elsewhere)
+			if obl.cancelReasonsByKey == nil {
+				obl.cancelReasonsByKey = make(map[string]string)
+			}
+			baseKey := obl.inserted[0].IdempotencyKey
+			obl.cancelReasonsByKey[baseKey] = "vaccine_history_outranks_anchor"
 
 			proto.rules = []protodomain.Rule{ruleA, ruleB}
 			if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {

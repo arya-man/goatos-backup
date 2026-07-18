@@ -139,9 +139,11 @@ func TestLockAndRefreshReLocksAlreadyLoadedKey(t *testing.T) {
 		t.Fatalf("refreshed count = %d, want 2 (must pick up the concurrent worker's committed shot, not the stale in-memory 1)", session.visitShotCounts[key])
 	}
 	// The visit is now at cap: a further claim attempt for a different vaccine is a genuine overflow.
+	planner := domain.DefaultDrivePlannerSettings()
+	planner.MaxShotsPerAnimalPerDrive = 2
 	selected, _, err := selectIDsWithinVisitShotCapForSession(
 		[]domain.UnbatchedDue{{ObligationID: "obl-x", TargetID: "goat-1"}},
-		&date, 2, "vaccineB", 6, session,
+		&date, planner, "vaccineB", 6, session,
 	)
 	if err != nil {
 		t.Fatalf("select at cap: %v", err)
