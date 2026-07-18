@@ -411,11 +411,6 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 	parkCandidateIDs := candidateIDs
 	if candidateIDs != nil {
 		for {
-			// Preserve the snapshot sentinel even when no shed group defers to park:
-			// nil means legacy/unbounded, while a non-nil empty slice means the
-			// preflight snapshot has no remaining park/fallback candidates.
-			parkCandidateIDs = []string{}
-			parkCandidateSeen := map[string]struct{}{}
 			var snapshotRows []domain.UnbatchedDue
 			for _, chunk := range snapshotIDChunks(candidateIDs, s.page) {
 				rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, chunk)
@@ -428,48 +423,48 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 				break
 			}
 
-			order, groups := groupUnbatchedDue(snapshotRows, planner.SpeciesGroupingPolicy)
-			order = orderDueGroupsByVaccinePriority(order, groups, cfg)
-
 			var progressed int64
-			for _, k := range order {
-				g := groups[k]
-				if deferShedGroupToPark(cfg, g.scopeType, len(g.ids)) {
-					parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
-					continue
-				}
-				batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, dueBefore, session, g)
+			if cfg.ParkConsolidation.Enabled {
+				// Max-output rule: the park planner gets the whole preflight candidate set first.
+				// If shed batches are created before this pass, tiny rows can no longer club into
+				// a nearby larger drive because the larger drive has already left the candidate pool.
+				parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, candidateIDs)
 				if err != nil {
 					return res, err
 				}
-				if !batched {
-					parkCandidateIDs = appendSnapshotIDs(parkCandidateIDs, parkCandidateSeen, g.ids)
-					continue
-				}
-				if !touchedScopes[k] {
-					res.Batches++
-					touchedScopes[k] = true
-				}
-				res.Obligations += int(n)
-				progressed += n
-			}
-			parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
-			if err != nil {
-				return res, err
-			}
-			res.ParkBatches += parkRes.ParkBatches
-			res.ParkObligations += parkRes.ParkObligations
-			res.Batches += parkRes.ParkBatches
-			res.Obligations += parkRes.ParkObligations
-			progressed += int64(parkRes.ParkObligations)
+				res.ParkBatches += parkRes.ParkBatches
+				res.ParkObligations += parkRes.ParkObligations
+				res.Batches += parkRes.ParkBatches
+				res.Obligations += parkRes.ParkObligations
+				progressed += int64(parkRes.ParkObligations)
 
-			fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, parkCandidateIDs)
-			if err != nil {
-				return res, err
+				fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, candidateIDs)
+				if err != nil {
+					return res, err
+				}
+				res.Batches += fallbackRes.Batches
+				res.Obligations += fallbackRes.Obligations
+				progressed += int64(fallbackRes.Obligations)
+			} else {
+				order, groups := groupUnbatchedDue(snapshotRows, planner.SpeciesGroupingPolicy)
+				order = orderDueGroupsByVaccinePriority(order, groups, cfg)
+				for _, k := range order {
+					g := groups[k]
+					batched, n, err := s.batchDueGroup(ctx, tenantID, versionID, cfg, planner, asOf, dueBefore, session, g)
+					if err != nil {
+						return res, err
+					}
+					if !batched {
+						continue
+					}
+					if !touchedScopes[k] {
+						res.Batches++
+						touchedScopes[k] = true
+					}
+					res.Obligations += int(n)
+					progressed += n
+				}
 			}
-			res.Batches += fallbackRes.Batches
-			res.Obligations += fallbackRes.Obligations
-			progressed += int64(fallbackRes.Obligations)
 
 			if progressed == 0 || progressed >= int64(len(snapshotRows)) {
 				break
@@ -482,6 +477,30 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 		}
 		return res, nil
 	} else {
+		if cfg.ParkConsolidation.Enabled {
+			parkRes, err := s.consolidateParkDrivesWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, nil)
+			if err != nil {
+				return res, err
+			}
+			res.ParkBatches = parkRes.ParkBatches
+			res.ParkObligations = parkRes.ParkObligations
+			res.Batches += parkRes.ParkBatches
+			res.Obligations += parkRes.ParkObligations
+
+			fallbackRes, err := s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, asOf, dueBefore, planner, session, createdAtHWM, nil)
+			if err != nil {
+				return res, err
+			}
+			res.Batches += fallbackRes.Batches
+			res.Obligations += fallbackRes.Obligations
+
+			if finalizeNow {
+				if err := s.finalizePlannedBatches(ctx, tenantID, versionID, cfg); err != nil {
+					return res, err
+				}
+			}
+			return res, nil
+		}
 		for {
 			rows, err := s.listUnbatchedDueForVersionBounded(ctx, tenantID, versionID, dueBefore, s.page, createdAtHWM, nil)
 			if err != nil {
@@ -709,7 +728,8 @@ func normalizedDosesPerGoat(v int32) int32 {
 }
 
 // deferShedGroupToPark leaves small shed groups unbatched in layer 1 so layer 2 can merge
-// singleton leftovers across sheds in the same park.
+// tiny leftovers across sheds in the same park. The threshold is inclusive: with the default
+// MinShedDriveTargets=2, both 1- and 2-animal groups get a park-clubbing chance before fallback.
 func deferShedGroupToPark(cfg SweepConfig, scopeType string, obligationCount int) bool {
 	if !cfg.ParkConsolidation.Enabled {
 		return false
@@ -721,7 +741,7 @@ func deferShedGroupToPark(cfg SweepConfig, scopeType string, obligationCount int
 	if min <= 0 {
 		min = domain.DefaultParkConsolidationSettings().MinShedDriveTargets
 	}
-	return int32(obligationCount) < min
+	return int32(obligationCount) <= min
 }
 
 // batchRemainingShedObligations creates shed drives for every still-unbatched shed obligation,

@@ -1102,6 +1102,132 @@ func TestSweepVersionSnapshotFallbackReadsCandidatesInBoundedChunks(t *testing.T
 	}
 }
 
+func TestSweepVersionSnapshotDefersTwoAnimalShedGroupToNearbyParkDrive(t *testing.T) {
+	now := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	nextDay := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "tiny-1", RuleID: "rule-hs", ScopeType: "shed", ScopeID: "shed-y1", TargetID: "goat-1", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "tiny-2", RuleID: "rule-hs", ScopeType: "shed", ScopeID: "shed-y1", TargetID: "goat-2", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "near-1", RuleID: "rule-hs", ScopeType: "shed", ScopeID: "shed-y2", TargetID: "goat-3", DueAt: nextDay, WindowEnd: &winEnd},
+		{ObligationID: "near-2", RuleID: "rule-hs", ScopeType: "shed", ScopeID: "shed-y3", TargetID: "goat-4", DueAt: nextDay, WindowEnd: &winEnd},
+	}
+	parkRows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "tiny-1", RuleID: "rule-hs", ParkID: "park-cbe", ShedID: "shed-y1", TargetID: "goat-1", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "tiny-2", RuleID: "rule-hs", ParkID: "park-cbe", ShedID: "shed-y1", TargetID: "goat-2", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "near-1", RuleID: "rule-hs", ParkID: "park-cbe", ShedID: "shed-y2", TargetID: "goat-3", DueAt: nextDay, WindowEnd: &winEnd},
+		{ObligationID: "near-2", RuleID: "rule-hs", ParkID: "park-cbe", ShedID: "shed-y3", TargetID: "goat-4", DueAt: nextDay, WindowEnd: &winEnd},
+	}
+	baseRepo := &fakeSweepRepo{rows: rows, parkRows: parkRows, attachAll: true}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	snapshot := &SweepCandidateSnapshot{byVersion: map[string][]string{
+		"version-1": {"tiny-1", "tiny-2", "near-1", "near-2"},
+	}}
+
+	result, err := svc.SweepVersionWithSessionNoFinalizeSnapshotAsOf(
+		context.Background(),
+		"tenant-1",
+		"version-1",
+		SweepConfig{
+			DrivePlanner: domain.DrivePlannerSettings{Enabled: true},
+			ParkConsolidation: domain.ParkConsolidationSettings{
+				Enabled:             true,
+				MinShedDriveTargets: 2,
+				MinParkMergeTargets: 2,
+				MinParkMergeSheds:   2,
+			},
+		},
+		now,
+		nextDay,
+		NewSweepSession(),
+		time.Now(),
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalizeSnapshotAsOf: %v", err)
+	}
+	if result.ParkBatches != 1 || result.ParkObligations != 4 {
+		t.Fatalf("result = %#v, want one 4-animal park batch", result)
+	}
+	if len(repo.createdBatches) != 1 {
+		t.Fatalf("created batches = %d, want 1 park batch", len(repo.createdBatches))
+	}
+	batch := repo.createdBatches[0]
+	if batch.ScopeType != "park" || batch.ScopeID != "park-cbe" {
+		t.Fatalf("batch scope = %s/%s, want park/park-cbe", batch.ScopeType, batch.ScopeID)
+	}
+	if got := dateKey(batch.PlannedDate); got != "2026-08-05" {
+		t.Fatalf("planned date = %s, want 2026-08-05", got)
+	}
+	if got := repo.createdBatchObligationIDs[0]; strings.Join(got, ",") != "tiny-1,tiny-2,near-1,near-2" {
+		t.Fatalf("attached ids = %#v, want tiny obligations clubbed with nearby park work", got)
+	}
+}
+
+func TestSweepVersionSnapshotParksWholeCandidateWindowBeforeShedFallback(t *testing.T) {
+	now := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	bigDriveDay := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 8, 11, 0, 0, 0, 0, time.UTC)
+	rows := []domain.UnbatchedDue{
+		{ObligationID: "tiny-1", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-y1", TargetID: "goat-1", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "big-1", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-y2", TargetID: "goat-2", DueAt: bigDriveDay, WindowEnd: &winEnd},
+		{ObligationID: "big-2", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-y2", TargetID: "goat-3", DueAt: bigDriveDay, WindowEnd: &winEnd},
+		{ObligationID: "big-3", RuleID: "rule-fmd", ScopeType: "shed", ScopeID: "shed-y2", TargetID: "goat-4", DueAt: bigDriveDay, WindowEnd: &winEnd},
+	}
+	parkRows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "tiny-1", RuleID: "rule-fmd", ParkID: "park-cpt", ShedID: "shed-y1", TargetID: "goat-1", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "big-1", RuleID: "rule-fmd", ParkID: "park-cpt", ShedID: "shed-y2", TargetID: "goat-2", DueAt: bigDriveDay, WindowEnd: &winEnd},
+		{ObligationID: "big-2", RuleID: "rule-fmd", ParkID: "park-cpt", ShedID: "shed-y2", TargetID: "goat-3", DueAt: bigDriveDay, WindowEnd: &winEnd},
+		{ObligationID: "big-3", RuleID: "rule-fmd", ParkID: "park-cpt", ShedID: "shed-y2", TargetID: "goat-4", DueAt: bigDriveDay, WindowEnd: &winEnd},
+	}
+	baseRepo := &fakeSweepRepo{rows: rows, parkRows: parkRows, attachAll: true}
+	repo := &snapshotChunkFakeRepo{fakeSweepRepo: baseRepo}
+	svc := NewSweeperService(repo, nil, nil)
+	snapshot := &SweepCandidateSnapshot{byVersion: map[string][]string{
+		"version-1": {"tiny-1", "big-1", "big-2", "big-3"},
+	}}
+
+	result, err := svc.SweepVersionWithSessionNoFinalizeSnapshotAsOf(
+		context.Background(),
+		"tenant-1",
+		"version-1",
+		SweepConfig{
+			DrivePlanner: domain.DrivePlannerSettings{Enabled: true},
+			ParkConsolidation: domain.ParkConsolidationSettings{
+				Enabled:             true,
+				MinShedDriveTargets: 2,
+				MinParkMergeTargets: 2,
+				MinParkMergeSheds:   2,
+			},
+		},
+		now,
+		bigDriveDay,
+		NewSweepSession(),
+		time.Now(),
+		snapshot,
+	)
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionNoFinalizeSnapshotAsOf: %v", err)
+	}
+	if result.ParkBatches != 1 || result.ParkObligations != 4 {
+		t.Fatalf("result = %#v, want tiny obligation clubbed into one 4-animal park batch", result)
+	}
+	if len(repo.createdBatches) != 1 {
+		t.Fatalf("created batches = %d, want 1 park batch", len(repo.createdBatches))
+	}
+	batch := repo.createdBatches[0]
+	if batch.ScopeType != "park" || batch.ScopeID != "park-cpt" {
+		t.Fatalf("batch scope = %s/%s, want park/park-cpt", batch.ScopeType, batch.ScopeID)
+	}
+	if got := dateKey(batch.PlannedDate); got != "2026-08-05" {
+		t.Fatalf("planned date = %s, want 2026-08-05", got)
+	}
+	if got := strings.Join(repo.createdBatchObligationIDs[0], ","); got != "tiny-1,big-1,big-2,big-3" {
+		t.Fatalf("attached ids = %s, want tiny row clubbed with larger nearby drive", got)
+	}
+}
+
 func TestSweepVersionSnapshotDoesNotLeakToFullHWMScanWhenNoParkCandidatesRemain(t *testing.T) {
 	rows := []domain.UnbatchedDue{
 		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
@@ -1125,7 +1251,7 @@ func TestSweepVersionSnapshotDoesNotLeakToFullHWMScanWhenNoParkCandidatesRemain(
 		"version-1",
 		SweepConfig{ParkConsolidation: domain.ParkConsolidationSettings{
 			Enabled:             true,
-			MinShedDriveTargets: 2,
+			MinShedDriveTargets: 1,
 			MinParkMergeTargets: 2,
 			MinParkMergeSheds:   2,
 		}},
@@ -1147,7 +1273,7 @@ func TestSweepVersionSnapshotDoesNotLeakToFullHWMScanWhenNoParkCandidatesRemain(
 			}
 		}
 	}
-	wantSizes := []int{2, 0}
+	wantSizes := []int{2, 2}
 	if len(repo.snapshotListSizes) != len(wantSizes) {
 		t.Fatalf("snapshot list call sizes = %#v, want %#v", repo.snapshotListSizes, wantSizes)
 	}
@@ -1156,7 +1282,7 @@ func TestSweepVersionSnapshotDoesNotLeakToFullHWMScanWhenNoParkCandidatesRemain(
 			t.Fatalf("snapshot list call sizes = %#v, want %#v", repo.snapshotListSizes, wantSizes)
 		}
 	}
-	wantParkSizes := []int{0}
+	wantParkSizes := []int{2}
 	if len(repo.parkSnapshotListSizes) != len(wantParkSizes) {
 		t.Fatalf("park snapshot list call sizes = %#v, want %#v", repo.parkSnapshotListSizes, wantParkSizes)
 	}

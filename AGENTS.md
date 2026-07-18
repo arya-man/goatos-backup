@@ -346,8 +346,19 @@ Do:
   alone: founder grants, HRMS roster, attendance/leave, timetable-backed
   positions, strict shed manager/backup mapping, position duties, published
   `vaccination.matrix` config, trusted vaccination history, generated future
-  obligations, and deterministic read-model closeout. Missing HRMS/config is a
-  failed seed, even when goat rows exist.
+  obligations, generated drive batches, and deterministic closeout. Missing
+  HRMS/config is a failed seed, even when goat rows exist. A reseed/import/local
+  proof is also failed if it stops after generation and leaves visible-window
+  `scheduled`/`due` vaccination obligations unbatched; `tools/dev/seed-closeout.sh`
+  must run the obligation sweeper and fail on that condition.
+- Vaccination drive batching is park-level, animal-first, and safe-window-bound.
+  Shed count is never a merge constraint; it is display/proof detail. A 1-2
+  animal drive is valid only after proving no compatible same-park animal group
+  can join between that group's due/ready date and binding safe-until date.
+  Normal per-drive animal caps are soft on the last safe day, but the per-animal
+  shot cap remains hard. Reseed/local proof must run
+  `make vaccination-drive-clubbing-db-proof` after sweeper closeout; without it,
+  Calendar/Full Schedule screenshots are not batching evidence.
 - Vaccination source dates are base history anchors, not open due work. A seed
   or reseed must preserve trusted past dates as accepted history, suppress any
   seed-created open work on or before the backend business date, and let the
@@ -370,6 +381,12 @@ Do:
   behind that build's migrations. Apply migrations first, seed only canonical
   source truth second, run deterministic closeout/projectors third, then start
   API/admin/workers or mark the environment green.
+- Do not serve the normal local API/admin-web from temporary worktrees under
+  `/tmp`, `/private/tmp`, or `/var/folders`. Local stack wrappers must fail by
+  default there so the browser cannot silently exercise a disposable checkout
+  while the canonical repo is stale or dirty. Use
+  `GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK=1` only for explicit throwaway
+  experiments, never for handoff.
 - Normal local laptop runtime must resolve exactly one Goat OS app database for
   API, admin-web, and mobile. Use the single detected `goatos-local-current`
   Docker DB or the `127.0.0.1:5433/goatos` fallback; if multiple Goat OS app

@@ -1822,17 +1822,17 @@ func (r *Repository) listUnbatchedShedDueForParkConsolidationSnapshot(ctx contex
 		}
 	}
 	cursorParkID := ""
-	cursorRuleID := ""
 	cursorSpecies := ""
 	cursorStage := ""
 	cursorDue := pgtype.Timestamptz{}
+	cursorRuleID := ""
 	cursorObligationID := ""
 	if after != nil && after.ParkID != "" && after.ObligationID != "" && !after.DueAt.IsZero() {
 		cursorParkID = after.ParkID
-		cursorRuleID = after.RuleID
 		cursorSpecies = after.TargetSpecies
 		cursorStage = after.TargetAnimalStage
 		cursorDue = pgconv.Timestamptz(after.DueAt)
+		cursorRuleID = after.RuleID
 		cursorObligationID = after.ObligationID
 	}
 	rows, err := r.pool.Query(ctx, `
@@ -1922,11 +1922,11 @@ SELECT
 FROM candidates
 WHERE (
     $6::text = ''
-    OR (park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id)
-      > ($6::text, $7::text, $8::text, $9::text, $10::timestamptz, $11::text)
+    OR (park_id, target_species, target_animal_stage, due_at, rule_id, obligation_id)
+      > ($6::text, $7::text, $8::text, $9::timestamptz, $10::text, $11::text)
   )
-ORDER BY park_id, rule_id, target_species, target_animal_stage, due_at, obligation_id
-LIMIT $12`, tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), snapshotIDs, cursorParkID, cursorRuleID, cursorSpecies, cursorStage, cursorDue, cursorObligationID, limit)
+ORDER BY park_id, target_species, target_animal_stage, due_at, rule_id, obligation_id
+LIMIT $12`, tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzOrNil(createdAtHWM), snapshotIDs, cursorParkID, cursorSpecies, cursorStage, cursorDue, cursorRuleID, cursorObligationID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: list park consolidation candidates: %w", err)
 	}

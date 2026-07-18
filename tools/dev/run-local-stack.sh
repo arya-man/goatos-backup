@@ -3,6 +3,28 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
+assert_not_temp_checkout() {
+  if [ "${GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK:-0}" = "1" ]; then
+    return
+  fi
+  local top_level
+  top_level="$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null || printf '%s' "$repo_root")"
+  case "$top_level" in
+    /tmp/*|/private/tmp/*|/var/folders/*)
+      cat >&2 <<EOF
+Refusing to start Goat OS local stack from a temporary worktree:
+  $top_level
+
+Start the local stack from the canonical checkout, or set
+GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK=1 for an explicit throwaway experiment.
+EOF
+      exit 2
+      ;;
+  esac
+}
+
+assert_not_temp_checkout
+
 host="${GOATOS_LOCAL_HOST:-127.0.0.1}"
 api_port="${GOATOS_LOCAL_API_PORT:-8080}"
 api_base_url="${GOATOS_API_BASE_URL:-http://$host:$api_port}"

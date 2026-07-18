@@ -133,14 +133,15 @@ type UnbatchedDueCursor struct {
 	ObligationID string
 }
 
-// ParkConsolidationCursor is the keyset cursor for the park-consolidation candidate query. Its
-// fields must stay in the same order as the repository ORDER BY.
+// ParkConsolidationCursor is the keyset cursor for the park-consolidation candidate query. The
+// repository ORDER BY keeps the planner's real group key (park + species/stage) contiguous before
+// due/rule row identity, so one park/species window is never split as unrelated rule pages.
 type ParkConsolidationCursor struct {
 	ParkID            string
-	RuleID            string
 	TargetSpecies     string
 	TargetAnimalStage string
 	DueAt             time.Time
+	RuleID            string
 	ObligationID      string
 }
 
@@ -181,9 +182,9 @@ type ComboBatchCursor struct {
 // ParkConsolidationSettings controls the second-pass park drive planner (after shed batching).
 type ParkConsolidationSettings struct {
 	Enabled             bool
-	MinShedDriveTargets int32 // layer 1 defers shed groups smaller than this to the park pass
-	MinParkMergeTargets int32 // cross-shed park batch needs at least this many goats
-	MinParkMergeSheds   int32 // cross-shed park batch needs goats from at least this many sheds
+	MinShedDriveTargets int32 // layer 1 defers shed groups at/below this to the park pass
+	MinParkMergeTargets int32 // park batch needs at least this many distinct animals
+	MinParkMergeSheds   int32 // deprecated/no-op: park vaccination drives optimize animals, not shed count
 }
 
 // DrivePlannerSettings tunes Phase 3 smart drive date selection and batch sizing.
@@ -230,7 +231,7 @@ func DefaultParkConsolidationSettings() ParkConsolidationSettings {
 		Enabled:             true,
 		MinShedDriveTargets: 2,
 		MinParkMergeTargets: 2,
-		MinParkMergeSheds:   2,
+		MinParkMergeSheds:   1,
 	}
 }
 

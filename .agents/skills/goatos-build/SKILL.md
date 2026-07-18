@@ -213,7 +213,10 @@ one product; this skill is the navigation layer.
   `backend/cmd/seed-vaccination-real` as a standalone whole-setup command. The
   vaccination seed must fail if HRMS roster/position prerequisites are missing,
   because creating due work before owners/operators exist produces broken
-  Action Center owner/operator assignment states.
+  Action Center owner/operator assignment states. A source reseed is not green
+  until vaccination generation and the drive-batching sweeper have also run
+  through the visible schedule horizon and the closeout check proves zero
+  in-window `scheduled`/`due` vaccination obligations remain unbatched.
 - Use `context/` as architecture truth.
 - Use generated contracts instead of hand-copying DTOs.
 - Before coding a phase, read its PRD/TRD and update skill references if the
@@ -245,8 +248,9 @@ one product; this skill is the navigation layer.
   grants, HRMS roster, attendance/leave, timetable-backed positions, strict
   shed-manager/backup mapping, position duties, published
   `vaccination.matrix` config, trusted vaccination history, generated future
-  obligations, and deterministic projection closeout. A goats-only seed is not
-  a usable Goat OS seed.
+  obligations, generated drive batches, and deterministic closeout. A goats-only
+  seed, or a generation-only seed that has not run the sweeper, is not a usable
+  Goat OS seed.
 - After destructive seeds, bulk imports, fixture resets, or large canonical
   backfills, refresh Postgres planner statistics for touched canonical tables
   before running read-model projectors or latency gates. The source seed must
@@ -324,24 +328,36 @@ one product; this skill is the navigation layer.
   Do not copy or hand-roll kid/adult path logic in seeders; call the live
   vaccination schedule-path helper/config. Checklist:
   `docs/runbooks/vaccination-seed-source-date-contract.md`.
+- Local vaccination proof after a seed/reseed/import/change of goat shed, goat
+  health state, goat lifecycle, source history, protocol rules, or HRMS
+  ownership must run the same closeout chain: generation, sweeper drive
+  batching, calendar/full-schedule canonical reads, and the zero-unbatched
+  check. Do not inspect Calendar/Full Schedule between generation and sweeper
+  and call the micro-drive output meaningful; that is a partial environment.
 - For Preventive Care (PC) vaccination, never ask about, model, seed, import,
   expose, or schedule from mother-not-vaccinated / unknown-mother status. The
   source/wiki branch is ignored in GoatOS; mothers are kept vaccinated
   operationally and every kid uses the approved standard schedule.
 - For Preventive Care (PC) vaccination drive planning, individual due dates are
   per-animal obligation truth, NOT drive boundaries. The sweeper/drive planner
-  must maximize compatible animals per shed/park visit inside the authored
+  must maximize compatible distinct animals per park visit inside the authored
   medical window and one-time batching hold (`max_batching_hold_days`,
-  default 7; `max_batching_hold_count`, default 1). Exact-due-date grouping that
+  default 7; `max_batching_hold_count`, default 1). Shed count is never a
+  batching constraint; it is display/proof detail. Exact-due-date grouping that
   creates 1-2 animal micro-drives while nearby compatible animals are still
-  inside buffer is a core algorithm bug. Micro-drives are valid only when no
-  compatible work can be safely clubbed before the earliest selected animal's
-  last safe date. Wide sweeps/backfills must pass separate `asOf` and
+  inside the same animal group's due/ready-to-safe-until window is a core
+  algorithm bug. Obligation/vaccine row count is only a tie-breaker after
+  distinct animal count. Micro-drives are valid only when no compatible
+  same-park work can be safely clubbed before the selected animals' binding
+  safe date. Normal per-drive animal caps are soft on the last safe day, but the
+  per-animal shot cap remains hard. Wide sweeps/backfills must pass separate
+  `asOf` and
   `dueBefore` values: `asOf` drives hold/backdating/planned-date math, while
   `dueBefore` only selects eligible obligations. Batched execution/read-model
   rows must display/sort/status by `obligation_batches.planned_date`, falling
   back to animal `due_at` only for unbatched work. Guard:
-  `make vaccination-drive-clubbing-guard`.
+  `make vaccination-drive-clubbing-guard`. Post-reseed/local proof also requires
+  `make vaccination-drive-clubbing-db-proof` after the sweeper.
 
 ## Must Not
 
@@ -357,3 +373,9 @@ one product; this skill is the navigation layer.
   generate no new obligations. Activation requires the category/scope policy,
   CEO/COO/superadmin authority, JSON-schema validation, SOP binding where
   needed, impact preview, and non-overlapping active windows.
+- Do not start or hand off local API/admin-web from `/tmp`, `/private/tmp`, or
+  `/var/folders` worktrees unless the command explicitly sets
+  `GOATOS_ALLOW_TEMP_WORKTREE_LOCAL_STACK=1` for a throwaway experiment. The
+  visible local stack must serve a non-temporary checkout that can be reconciled
+  to the pushed branch/main, otherwise fixes can look landed while the browser is
+  exercising a disposable tree.

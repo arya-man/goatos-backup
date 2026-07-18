@@ -189,12 +189,30 @@ must use India/local operational dates:
 - The operating goal is to maximize safe doctor output at the **park visit**
   level, while preserving exact shed/tag/species/vaccine breakdowns for the
   work list, proof, and audit.
+- Park-drive batching is **animal-count first**. Rank candidate drive dates by
+  the number of distinct animals that can safely attend, not by obligation row
+  count, vaccine count, or shed count. One goat with two vaccine rows must never
+  beat a date that safely serves two goats.
+- Shed count is not a batching constraint. A valid park drive may contain one
+  shed or many sheds; shed names are display/proof detail only. Reject any
+  planner/review/test that strands animals because the candidate date had "only
+  one shed" while more same-park animals could safely club inside the window.
 - GoatOS may hold a due shed/tag group for up to **7 calendar days** to combine
   it with another compatible same-park drive group, but only if every animal
   remains inside its medical safe window.
+- The 7-day batching hold is a maximum delay from each animal/group's own due or
+  ready date. It does not permit exact `due_at + 4 weeks` scheduling for every
+  individual animal, and it does not permit a small drive when another
+  compatible same-park drive exists between the group's due/ready date and its
+  safe-until date.
 - The planner may maximize output only across animals that are individually
   feasible on the picked drive date. A larger drive is invalid if even one
   attached obligation's safe window has already ended before that planned date.
+- Operational per-drive animal caps are soft; medical safe-until is hard. When
+  overflow animals can safely move to the next feasible day, move them. When an
+  animal is on its last safe day and moving would cross its own safe-until date,
+  keep it in the current/last-safe drive even if that drive exceeds the normal
+  cap. The per-animal shot cap still remains hard.
 - Combo-session alignment is subject to the same hard rule after batching:
   moving a built batch to a shared combo date is valid only when that date is
   inside every attached obligation's safe window.
@@ -202,12 +220,28 @@ must use India/local operational dates:
   safe passes. A first pass that batches only part of a group because of shot
   caps or safe-window filtering must retry the remaining candidates within their
   own safe windows instead of leaving them as calendar micro-drives.
+- A seed/reseed/import is not operator-ready after obligation generation alone.
+  The closeout must run the drive-batching sweeper through the visible schedule
+  horizon and fail if any in-window `scheduled`/`due` vaccination obligation is
+  still missing an `obligation_batches` assignment. Calendar and Full Schedule
+  proofs taken before that sweeper pass are partial-environment artifacts, not
+  algorithm evidence.
+- The closeout must also run the vaccination drive-clubbing DB proof. It fails
+  if any 1-2 animal drive has another compatible same-park drive inside that
+  tiny drive's own due/ready-to-safe-until window. A tiny drive is acceptable
+  only when this proof has no reachable clubbing target.
 - This batching hold is **one-time per obligation/dose cycle**. Once a due item
   has been held to overlap with a later compatible group, it cannot be held
   again to chase the next group. No rolling postponement.
 - If the item was already held once, the medical window would expire, vaccine
   compatibility fails, stock/proof/worker requirements fail, or the animal enters
   a defer state, GoatOS runs a micro-drive now or escalates the explicit blocker.
+- Dead, culled, and sold animals are permanently out of vaccination scheduling.
+  Sick, ICU, quarantine, under-treatment, pregnancy month 4-5, post-breeding
+  hold, and similar temporary blocks defer; when the animal becomes eligible
+  again, the planner re-enters from that recovery/ready date, uses the accepted
+  vaccination history already on the animal, and clubs into the nearest
+  compatible same-park drive inside the allowed hold/safe window.
 - Example: if a booster is due after a 3-week minimum gap and a compatible
   park drive is safely due in week 4, the planner may move it once to week 4.
   It must not keep moving it to week 5 or week 6 to chase a larger batch.

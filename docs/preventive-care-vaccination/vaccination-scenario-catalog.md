@@ -88,10 +88,10 @@ These are **only about SM-4** — assume the goat already has an open obligation
 
 | Step | What happens | Code |
 |------|--------------|------|
-| 1 | Layer 1 sees 1 goat &lt; `MinShedDriveTargets` (default 2) | `deferShedGroupToPark` → **skip** shed batch |
-| 2 | Goat stays unbatched | `batch_id NULL` |
-| 3 | Layer 2 park pass: another shed also has 1 goat same park + species | `consolidateParkDrives` |
-| 4 | If ≥2 goats from ≥2 sheds → **park batch** | `scope_type=park`, session `park-consolidation:…` |
+| 1 | Layer 1 sees 1-2 goats at/below `MinShedDriveTargets` (default 2) | `deferShedGroupToPark` → **skip** shed batch |
+| 2 | Goat obligations stay unbatched | `batch_id NULL` |
+| 3 | Layer 2 park pass: compatible same-park work exists inside the safe window | `consolidateParkDrives` |
+| 4 | If the park candidate maximizes distinct safe animals, even from one shed → **park batch** | `scope_type=park`, session `park-consolidation:…` |
 | 5 | If no merge possible → layer 3 fallback | `batchRemainingShedObligations` → **shed micro-drive** for orphan |
 
 **Built:** Yes (integration tests in `park_consolidation_integration_test.go`).
