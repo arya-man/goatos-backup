@@ -144,6 +144,34 @@ func TestIdentifierWritePathWithDockerPostgres(t *testing.T) {
 		assertGoatLifecycleOutbox(t, pool, cmd.StoredIdempotencyKey, moved.Events[0].EventID, created.Goat.GoatID, "goat.location.changed", adminMoveTargetShed)
 	})
 
+	t.Run("admin goat move rejects cross-park destination", func(t *testing.T) {
+		// Locked business rule (maintainer decision 2026-07-19): goats never move
+		// between parks; leaving a park is a terminal transfer/sale exit, not a move.
+		create := adminGoatCreateCommand(t, "idem-create-goat-xpark-0001", "aid1-admin-xpark-0001", "admin-xpark-aid2-0001")
+		created, err := repo.CreateAdminGoat(ctx, create)
+		if err != nil {
+			t.Fatalf("CreateAdminGoat for cross-park move: %v", err)
+		}
+		cmd := moveGoatCommand(t, "idem-move-goat-xpark-0001", created.Goat.GoatID, rowVersionForGoat(t, pool, created.Goat.GoatID))
+		cmd.ToParkID = cptLocation
+		cmd.ToShedID = adminCreateWrongParkShed
+		if _, err := repo.MoveGoat(ctx, cmd); !errors.Is(err, ports.ErrCrossParkMove) {
+			t.Fatalf("cross-park move error = %v, want ports.ErrCrossParkMove", err)
+		}
+		// The goat must be untouched: still in its original park/shed at the same row_version.
+		var parkID, shedID string
+		var rowVersion int
+		if err := pool.QueryRow(ctx, `
+SELECT park_id::text, shed_id::text, row_version
+FROM goats WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+			meshaTenant, created.Goat.GoatID).Scan(&parkID, &shedID, &rowVersion); err != nil {
+			t.Fatalf("readback after rejected cross-park move: %v", err)
+		}
+		if parkID != cbeLocation || shedID != adminCreateShedLocation || rowVersion != cmd.RowVersion {
+			t.Fatalf("goat mutated by rejected cross-park move: park=%s shed=%s row_version=%d", parkID, shedID, rowVersion)
+		}
+	})
+
 	t.Run("admin goat exit writes goat.exited outbox for obligation cancellation", func(t *testing.T) {
 		create := adminGoatCreateCommand(t, "idem-create-goat-exit-0001", "aid1-admin-exit-0001", "admin-exit-aid2-0001")
 		created, err := repo.CreateAdminGoat(ctx, create)

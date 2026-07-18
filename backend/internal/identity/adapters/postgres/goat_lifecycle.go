@@ -113,6 +113,15 @@ func (r *Repository) MoveGoat(ctx context.Context, cmd ports.MoveGoatCommand) (*
 	if state.ShedID != nil && *state.ShedID == cmd.ToShedID && state.ParkID != nil && *state.ParkID == cmd.ToParkID {
 		return nil, ports.ErrWriteConflict
 	}
+	// Locked business rule (maintainer decision 2026-07-19): goats NEVER move between
+	// parks. A placed goat may only move shed-to-shed WITHIN its current park; leaving
+	// a park is a terminal exit (transferred/sold) via the exit flow, never a move.
+	// Enforced here — inside the shared MoveGoat command transaction, after the row
+	// lock — so HTTP, worker, and import callers all inherit it race-free. A goat with
+	// no prior park (initial placement) is not a move and passes.
+	if state.ParkID != nil && *state.ParkID != cmd.ToParkID {
+		return nil, ports.ErrCrossParkMove
+	}
 
 	if _, err := tx.Exec(ctx, `
 UPDATE goats

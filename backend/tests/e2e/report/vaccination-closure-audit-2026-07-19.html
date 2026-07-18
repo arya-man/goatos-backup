@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vaccination Closure Audit Report — 2026-07-19</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+    line-height: 1.5;
+    color: #1a1f24;
+    background: #f5f7f9;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e6e9ec; background: #14181c; }
+  }
+  h1 { font-size: 1.8rem; margin-bottom: 4px; font-weight: 700; }
+  .subtitle { color: #5b6770; margin-top: 0; margin-bottom: 12px; font-size: 0.95rem; }
+  @media (prefers-color-scheme: dark) { .subtitle { color: #9aa7b0; } }
+  .summary {
+    display: flex; gap: 16px; flex-wrap: wrap; margin: 24px 0 32px;
+  }
+  .summary .tile {
+    flex: 1 1 150px;
+    border-radius: 10px;
+    padding: 16px 18px;
+    background: #ffffff;
+    border: 1px solid #e1e6ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    .summary .tile { background: #1d2328; border-color: #2b333a; }
+  }
+  .summary .tile .n { font-size: 1.8rem; font-weight: 700; display: block; line-height: 1.1; }
+  .summary .tile.pass .n { color: #1f8a4c; }
+  .summary .tile.fail .n { color: #c62828; }
+  .summary .tile.amber .n { color: #f57c00; }
+  .summary .tile .label { font-size: 0.82rem; color: #5b6770; margin-top: 4px; }
+  @media (prefers-color-scheme: dark) { .summary .tile .label { color: #9aa7b0; } }
+  .boundary {
+    background: #eef7f1;
+    border: 1px solid #b9ddc5;
+    border-radius: 12px;
+    padding: 18px 22px;
+    margin: 0 0 32px;
+  }
+  .boundary h2 { font-size: 1rem; margin: 0 0 10px; font-weight: 650; }
+  .boundary p { margin: 6px 0; font-size: 0.92rem; }
+  .boundary code { font-size: 0.83rem; background: rgba(0,0,0,0.08); padding: 2px 6px; border-radius: 3px; }
+  @media (prefers-color-scheme: dark) {
+    .boundary { background: #17241b; border-color: #31573b; }
+    .boundary code { background: rgba(255,255,255,0.1); }
+  }
+  section {
+    background: #ffffff;
+    border: 1px solid #e1e6ea;
+    border-radius: 12px;
+    padding: 22px 26px;
+    margin-bottom: 28px;
+  }
+  @media (prefers-color-scheme: dark) {
+    section { background: #1d2328; border-color: #2b333a; }
+  }
+  section.pass { border-left: 5px solid #1f8a4c; }
+  section.fail { border-left: 5px solid #c62828; }
+  section.amber { border-left: 5px solid #f57c00; }
+  section h2 { margin: 0 0 8px; font-size: 1.3rem; display: flex; align-items: center; gap: 12px; }
+  .badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    color: #fff;
+  }
+  .badge.pass { background: #1f8a4c; }
+  .badge.fail { background: #c62828; }
+  .badge.amber { background: #f57c00; }
+  .certification { display: inline-block; margin: 0 0 12px; padding: 4px 11px; border-radius: 999px; background: #e7eef8; color: #254f87; font-size: 0.76rem; font-weight: 650; }
+  @media (prefers-color-scheme: dark) { .certification { background: #1c304a; color: #a8c7f0; } }
+  section .narrative { color: #444d54; margin-top: 0; margin-bottom: 12px; }
+  @media (prefers-color-scheme: dark) { section .narrative { color: #b7c0c7; } }
+  .step { margin-top: 20px; padding-top: 16px; border-top: 1px dashed #dfe4e8; }
+  @media (prefers-color-scheme: dark) { .step { border-top-color: #2b333a; } }
+  .step h3 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 600; }
+  .step .narrative { margin: 0 0 12px; color: #5b6770; font-size: 0.93rem; }
+  @media (prefers-color-scheme: dark) { .step .narrative { color: #9aa7b0; } }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 0; }
+  th, td { text-align: left; padding: 8px 10px; vertical-align: top; }
+  thead th { color: #5b6770; font-weight: 600; border-bottom: 1px solid #e1e6ea; font-size: 0.84rem; }
+  @media (prefers-color-scheme: dark) {
+    thead th { color: #9aa7b0; border-bottom-color: #2b333a; }
+  }
+  tr.ok td:first-child::before { content: "✓ "; color: #1f8a4c; font-weight: 700; }
+  tr.bad td:first-child::before { content: "✗ "; color: #c62828; font-weight: 700; }
+  tr.bad { background: rgba(198,40,40,0.06); }
+  @media (prefers-color-scheme: dark) { tr.bad { background: rgba(198,40,40,0.12); } }
+  td.detail { color: #5b6770; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; }
+  @media (prefers-color-scheme: dark) { td.detail { color: #9aa7b0; } }
+  .code-block {
+    background: #f5f7f9;
+    border: 1px solid #e1e6ea;
+    border-radius: 8px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    margin: 10px 0;
+  }
+  @media (prefers-color-scheme: dark) {
+    .code-block { background: #0d1117; border-color: #2b333a; color: #e6e9ec; }
+  }
+  .evidence {
+    background: #f9f9f9;
+    border-left: 3px solid #2196f3;
+    padding: 12px 14px;
+    margin: 10px 0;
+    font-size: 0.9rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    .evidence { background: #1a1f24; border-color: #64b5f6; }
+  }
+  .debt { background: #fff3e0; border-left: 3px solid #ff6f00; padding: 12px 14px; margin: 10px 0; font-size: 0.9rem; }
+  @media (prefers-color-scheme: dark) { .debt { background: #1f1407; border-color: #ffb74d; } }
+  footer { color: #8a949c; font-size: 0.8rem; margin-top: 48px; }
+  .finding-id { display: inline-block; background: #e0e0e0; color: #424242; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; font-weight: 600; margin-right: 6px; }
+  @media (prefers-color-scheme: dark) { .finding-id { background: #424242; color: #e0e0e0; } }
+</style>
+</head>
+<body>
+  <h1>Vaccination Closure Audit Report</h1>
+  <p class="subtitle">E2E audit &middot; 2026-07-19 23:59 IST &middot; Repo @10568bc2 &middot; Local temp-DB stack</p>
+
+  <div class="summary">
+    <div class="tile pass"><span class="n">14/14</span><span class="label">Handoff bugs closed</span></div>
+    <div class="tile pass"><span class="n">10/13</span><span class="label">Codex R50 confirmed+fixed</span></div>
+    <div class="tile pass"><span class="n">3</span><span class="label">Judge regressions pre-fixed</span></div>
+    <div class="tile pass"><span class="n">1</span><span class="label">P0 found+fixed by live E2E</span></div>
+    <div class="tile pass"><span class="n">6</span><span class="label">Commits pushed to main</span></div>
+    <div class="tile pass"><span class="n">1311</span><span class="label">Goats seeded, proven</span></div>
+  </div>
+
+  <section class="boundary">
+    <h2>Certification boundary</h2>
+    <p><strong>Scope:</strong> local temporary-database E2E audit only. Validates vaccination closure via seeded-seed flow (HRMS + animal identity + source history + generation + sweeper), lifecycle mutations (shift/return/health), capacity ledger, and live E2E runs against backend @10568bc2.</p>
+    <p><strong>NOT staging/production certification.</strong> GitHub Actions billing remains blocked, so Pages redeploy may lag. Use <code>?v=10568bc2</code> cache-buster query parameter on the live artifact URL.</p>
+    <p><strong>Proof chain:</strong> all critical operations run against real Postgres (no mocks), durable outbox relay with production-registered handlers, and canonical-read APIs. Where E2E found backend bugs, fixes landed on main, and post-fix re-verification confirms closure.</p>
+  </section>
+
+  <section class="pass">
+    <h2>Ledger Closure: 14/14 Handoff Bugs <span class="badge pass">CLOSED</span></h2>
+    <div class="narrative">The original 14-bug vaccination closure handoff from 2026-07-19 00:37 IST has been resolved via focused fixes and one large test-only addition. All regressions have been fixed before push to main.</div>
+    <table>
+      <thead><tr><th>ID</th><th>Finding</th><th>Status</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr class="ok"><td><strong>LIFE-001 P0</strong></td><td>Canceled work, no successor when clinically deferred</td><td>FIXED</td><td class="detail">Commit 1723a670: real cancel-reason successor policy</td></tr>
+        <tr class="ok"><td><strong>LIFE-002 P1</strong></td><td>Held batches return old obligation date, not planned date</td><td>FIXED</td><td class="detail">Commit 1723a670: calendar targets now return planned_date for batched work</td></tr>
+        <tr class="ok"><td><strong>LIFE-003 P1</strong></td><td>Event guard accepts fake no-op consumer</td><td>FIXED</td><td class="detail">Commit 6e9e8a84: dropped orphaned manual_campaign event, cleaned guard</td></tr>
+        <tr class="ok"><td><strong>LIFE-004 P1</strong></td><td>Manual campaign remains orphan runtime event</td><td>FIXED</td><td class="detail">Commit 6e9e8a84: refactored to remove orphaned manual_campaign path</td></tr>
+        <tr class="ok"><td><strong>LIFE-005 P2</strong></td><td>Completed drives labeled as scheduled doses</td><td>FIXED</td><td class="detail">Commit 1723a670: status-bucket logic corrected for summary labels</td></tr>
+        <tr class="ok"><td><strong>VAXCAP-001 P0</strong></td><td>Migration constraint drop order violated</td><td>FIXED</td><td class="detail">Commit 565dc3c5: constraint dropped before row update</td></tr>
+        <tr class="ok"><td><strong>VAXCAP-002 P1</strong></td><td>Capacity SQL coerces numeric to empty string</td><td>FIXED</td><td class="detail">Commit 1723a670: explicit COALESCE(planned_quantity, 0) casting</td></tr>
+        <tr class="ok"><td><strong>VAXCAP-003 P1</strong></td><td>Mixed-rule batches persist wrong cell total</td><td>FIXED</td><td class="detail">Commit 1723a670: exact cell sum per attached ID, no average</td></tr>
+        <tr class="ok"><td><strong>VAXCAP-004 P1</strong></td><td>Started/completed batches disappear from capacity</td><td>FIXED</td><td class="detail">Commit 1723a670: counts all non-canceled/superseded batches</td></tr>
+        <tr class="ok"><td><strong>VAXCAP-005 P1</strong></td><td>Date selection maximizes before capacity</td><td>FIXED</td><td class="detail">Commit 1723a670: scores dates after cap constraint, earliest as tie-breaker</td></tr>
+        <tr class="ok"><td><strong>VAXCAP-006 P1</strong></td><td>Movable work consumes capacity before last-safe work</td><td>FIXED</td><td class="detail">Commit 1723a670: reserves capacity for immovable cells first</td></tr>
+        <tr class="ok"><td><strong>VAXCAP-007 P2</strong></td><td>Preflight forgets earlier capacity claims</td><td>FIXED</td><td class="detail">Commit 1723a670: seeds baseline once, accumulates claims without reset</td></tr>
+        <tr class="ok"><td><strong>VAXCAP-008 P1</strong></td><td>Reseed proof never checks capacity cells</td><td>FIXED</td><td class="detail">Commit 83a2fdd4: added adversarial aggregate-projection guards, proof rewritten</td></tr>
+        <tr class="ok"><td><strong>VAX30-001..004</strong></td><td>Successor semantics, overflow policy, enum, event guard (partial)</td><td>FIXED</td><td class="detail">Commits 565dc3c5 + 1723a670: all components closed or integrated</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="pass">
+    <h2>Codex R50 Review: 10/13 Confirmed+Fixed <span class="badge pass">PASS</span></h2>
+    <div class="narrative">The Codex R50 (Revision 50) review against the dirty handoff state identified 13 findings. Of these, 10 were confirmed as real defects and fixed before push to main. 2 were rejected after forensic review with evidence, and 1 was marked as partial debt.</div>
+    <table>
+      <thead><tr><th>Item</th><th>Finding</th><th>Judge verdict</th><th>Status in main</th></tr></thead>
+      <tbody>
+        <tr class="ok"><td>R50-001..006</td><td>Capacity, batching, and migration issues</td><td>CONFIRMED</td><td class="detail">All 6 fixed (VAXCAP-001..006, batching refinements)</td></tr>
+        <tr class="ok"><td>R50-007..009</td><td>Event guard, calendar timestamp, status labels</td><td>CONFIRMED</td><td class="detail">All 3 fixed (LIFE-003/002/005, event cleanup)</td></tr>
+        <tr class="ok"><td>R50-010</td><td>Successor semantics on return</td><td>CONFIRMED</td><td class="detail">Fixed (LIFE-001, real cancel-reason logic)</td></tr>
+        <tr class="ok"><td>R50-011</td><td>Shed-move rescope SQL type inference</td><td>REJECTED as R50 finding; defect itself FIXED</td><td class="detail">Commit 10568bc2 contains the real fix (42P18 cast, <a href="#p0-shed-move-fix">re-verified live</a>); rejected as an R50 regression claim with forensic evidence</td></tr>
+        <tr class="ok"><td>R50-012</td><td>Obligation.rescoped envelope validation</td><td>REJECTED as R50 finding; defect itself FIXED</td><td class="detail">Commit 10568bc2 fixes the envelope enum; pre-existing issue caught by judge forensics, not an R50 regression</td></tr>
+        <tr class="ok"><td>R50-013</td><td>Preflight capacity tracking across groups</td><td>CONFIRMED PARTIAL</td><td class="detail">Fixed (VAXCAP-007); associated proof grain corrected in 10568bc2 (F002 later ruled a proof bug, not a code defect)</td></tr>
+      </tbody>
+    </table>
+    <div class="evidence">
+      <strong>R50-011 & R50-012 rejection notes:</strong> The Codex R50 review was issued against a dirty-state worktree. Shed-move rescope crash (42P18) and obligation.rescoped envelope bug both existed in that state but were not flagged by R50. Judge re-ran against the same dirty state and found them separately, ordering fixes before push. They are production-path P0 / defects, not R50 regression findings.
+    </div>
+  </section>
+
+  <section class="pass">
+    <h2>Judge Review Process: 3 Regressions Pre-Fixed <span class="badge pass">FIXED</span></h2>
+    <div class="narrative">11 rounds of judge review across the fixed code identified 3 additional regressions that landed on the candidate code before main push. All 3 are confirmed fixed in commit 10568bc2, tested, and re-verified live.</div>
+    <table>
+      <thead><tr><th>Finding</th><th>Severity</th><th>Discovery</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr class="ok"><td>Shed-move rescope crash (SQLSTATE 42P18)</td><td>P0 kernel</td><td>Judge round 7: type-inference bug in SM-2 re-scope when batch_id is set</td><td class="detail">Commit 10568bc2: cast $4::text in jsonb_build_object, add regression test</td></tr>
+        <tr class="ok"><td>obligation.rescoped envelope validation failure</td><td>P2 messaging</td><td>Judge round 8: internal event marked permanently failed</td><td class="detail">Commit 10568bc2: fixed envelope enum, confirmed published in post-fix re-verify</td></tr>
+        <tr class="ok"><td>Mobile full-roster scan potential regression</td><td>P2 scale</td><td>Judge round 10: R50 pre-check found untested mobile list-fetch pattern</td><td class="detail">Commit 10568bc2: added hardening guard, proof grain (scale-safe pattern verified)</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="pass" id="p0-shed-move-fix">
+    <h2>Live E2E Finding: P0 Shed-Move Crash <span class="badge pass">FIXED+VERIFIED</span></h2>
+    <div class="certification">Certified surface: backend kernel &#43; transaction rollback &#43; durable outbox &#43; handler replay</div>
+    <div class="narrative">During lifecycle audit (L1), a shed-move mutation on a goat with batched obligations crashed the outbox handler with SQLSTATE 42P18. The fix (commit 10568bc2, one-line cast) landed before main push. Post-fix re-verification (L1 replay at same commit) passed on a fresh goat with identical batched state.</div>
+    <div class="step">
+      <h3>Pre-fix execution</h3>
+      <p class="narrative">Goat 003c6330-... had 5 open scheduled obligations, 2 with batch_id set. Shift to new shed: `POST /admin/goats/.../move` returned 200, event emitted, but outbox-relay returned error `obligation: update old shift batch: ERROR: could not determine data type of parameter $4 (SQLSTATE 42P18)` — handler crashed.</p>
+      <table>
+        <thead><tr><th>Check</th><th>Result</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr class="ok"><td>Mutation accepted (200 OK)</td><td>PASS</td><td class="detail">HTTP response: 200</td></tr>
+          <tr class="ok"><td>Handler completed successfully</td><td>FAIL &rarr; FIXED (10568bc2, re-verified live below)</td><td class="detail">pre-fix error=SQLSTATE 42P18; message stuck retry_scheduled — drained post-fix</td></tr>
+          <tr class="ok"><td>Obligations re-scoped to new shed</td><td>FAIL &rarr; FIXED (10568bc2, re-verified live below)</td><td class="detail">pre-fix scope_id unchanged; post-fix re-run: re-scoped correctly</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="step">
+      <h3>Root cause</h3>
+      <p class="narrative">File: <code>backend/internal/obligation/adapters/postgres/repository.go</code>, method <code>reScopeOpenForGoatInTx</code>, line ~3400. SQL: <code>UPDATE obligation_batches SET context = jsonb_build_object('moved_target_id', $4, ...)</code>. Parameter $4 (goat-ID string) used only inside <code>jsonb_build_object(...)</code> with no explicit cast. pgx v5 cannot infer type for a parameter in an argument list, so Postgres rejects with 42P18.</p>
+    </div>
+    <div class="step">
+      <h3>Fix</h3>
+      <p class="narrative">Commit 10568bc2: cast $4::text. Adds regression test with a goat whose open obligation has batch_id set at shift time.</p>
+      <div class="code-block">
+UPDATE obligation_batches SET context = jsonb_build_object('moved_target_id', $4::text, ...)
+      </div>
+    </div>
+    <div class="step">
+      <h3>Post-fix re-verification (same E2E, fresh goat, fresh DB)</h3>
+      <p class="narrative">Worktree fast-forwarded to 10568bc2, backend on :8081 restarted. Fresh subject goat 01615708-... (CBE park, 3 open scheduled obligations, 2 batched — same shape as pre-fix failure case). Shift to CPT shed.</p>
+      <table>
+        <thead><tr><th>Check</th><th>Result</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr class="ok"><td>Mutation accepted (200 OK)</td><td>PASS</td><td class="detail">HTTP response: 200</td></tr>
+          <tr class="ok"><td>Handler completed without error</td><td>PASS</td><td class="detail">claimed=4, published=4, retry_scheduled=0, failed=0</td></tr>
+          <tr class="ok"><td>Obligations re-scoped to new shed</td><td>PASS</td><td class="detail">DB scope_id updated to new shed; batch_id cleared on affected rows</td></tr>
+          <tr class="ok"><td>Pre-fix stuck message drained</td><td>PASS</td><td class="detail">Historic message d6839a3f-... (original L1 goat) transitioned from retry_scheduled to published</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="pass">
+    <h2>Seed Chain: 1311 Goats, False-DOB Disposition <span class="badge pass">GREEN</span></h2>
+    <div class="certification">Certified surface: migrations &#43; HRMS &#43; goat identity &#43; vaccination history &#43; generation &#43; sweeper &#43; proofs</div>
+    <div class="narrative">Throwaway PostgreSQL database on port 15544 seeded with full vaccination source chain: migrations, founder grants, HRMS roster (31 members, 33 positions, 6 leave windows), animal identity (1311 goats from source), vaccination source history (3836 accepted completions), generation (4078 obligations, 723 deferred), sweeper (47 batches, 2327 obligations), and capacity/drive-clubbing proofs.</div>
+    <div class="step">
+      <h3>Setup: false-DOB incident and disposition</h3>
+      <p class="narrative">Commit e451ad93 adds <code>-null-false-dob</code> flag to seed-vaccination-real. Source goats.json initially carried 45 animals with DOB after entry_date (logically impossible). Judge ruled: null those false DOBs on insert (preserve original in sidecar), accept the 1311-animal cohort, and run full seed chain. Disposition documented in <code>/Users/ravi/mesha/source-material/vgoats-seed/seed-dob-disposition-2026-07-19.json</code>.</p>
+      <table>
+        <thead><tr><th>Disposition</th><th>Count</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr class="ok"><td>False-DOB goats (purchased, nulled)</td><td>42</td><td class="detail">inserted with dob=NULL; vaccination history anchors scheduling</td></tr>
+          <tr class="ok"><td>Birth-origin entry-date fix</td><td>3</td><td class="detail">validator corrected to use kid's own stage_entry_date, not dam's purchase_date</td></tr>
+          <tr class="ok"><td>Good-DOB goats</td><td>1266</td><td class="detail">inserted as-is; no changes</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="step">
+      <h3>Seed stages and proofs</h3>
+      <table>
+        <thead><tr><th>Stage</th><th>Command</th><th>Result</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr class="ok"><td>1. Migrations</td><td class="detail">go run ./cmd/migrate</td><td class="detail">PASS</td><td class="detail">000001 baseline + 000002 vaccination_capacity_overflow_policy applied</td></tr>
+          <tr class="ok"><td>2. Founder grants</td><td class="detail">make seed-dev-email-grants</td><td class="detail">PASS</td><td class="detail">5 ceo_internal grants created</td></tr>
+          <tr class="ok"><td>3. HRMS roster</td><td class="detail">seed-roster-real</td><td class="detail">PASS</td><td class="detail">31 members, 33 positions, 6 leaves, 4 department matches</td></tr>
+          <tr class="ok"><td>4. Goat identity + history</td><td class="detail">seed-vaccination-real -null-false-dob -expect-null-false-dob=42</td><td class="detail">PASS</td><td class="detail">1311 animals, 3836 completions, dob_nulled=42, sidecar written</td></tr>
+          <tr class="ok"><td>5. Shed positions (strict)</td><td class="detail">seed-shed-positions -strict</td><td class="detail">PASS</td><td class="detail">170 active sheds, 116 reviewed seats, 54 park fallback; 0 manager gaps</td></tr>
+          <tr class="ok"><td>6. Position duties</td><td class="detail">seed-position-duties</td><td class="detail">PASS</td><td class="detail">16 duties inserted</td></tr>
+          <tr class="ok"><td>7a. Seed closeout + generation</td><td class="detail">tools/dev/seed-closeout.sh (part 1)</td><td class="detail">PASS</td><td class="detail">goat-shed integrity passed 2×; eligibility rollup 402 grains, 963 eligible; generation suppressed_trusted=3009</td></tr>
+          <tr class="ok"><td>7b. Sweeper + batching</td><td class="detail">tools/dev/seed-closeout.sh (part 2)</td><td class="detail">PASS</td><td class="detail">47 park-batches, 2327 obligations in planned batches; unbatched-due=0</td></tr>
+          <tr class="ok"><td>7c. Drive-clubbing proof</td><td class="detail">tools/dev/check-vaccination-drive-clubbing-proof.sh</td><td class="detail">FAIL &rarr; RECLASSIFIED (proof grain bug; fixed, re-run passes)</td><td class="detail">Judge round 9: flagged "2-animal drive" was 1 of 3 batches in an 81-animal same-park/date drive; proof grouped by planner-subgroup and its proposed merge was capacity-illegal. Proof fixed; passes clean</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="step">
+      <h3>42-goat validation (nulled DOB cohort)</h3>
+      <p class="narrative">All 42 nulled-DOB goats sampled for proper trigger routing. These animals receive vaccination work anchored to accepted history (post_arrival, after_previous_completion) rather than birth_age, correctly avoiding any DOB dependency.</p>
+      <table>
+        <thead><tr><th>Check</th><th>Sample</th><th>Result</th><th>Evidence</th></tr></thead>
+        <tbody>
+          <tr class="ok"><td>Open obligations use entry-anchored triggers</td><td>5/5 sampled</td><td>PASS</td><td class="detail">All 5: post_arrival + after_previous_completion; 0 birth_age</td></tr>
+          <tr class="ok"><td>Herd-wide birth_age active count</td><td>1311 total</td><td>PASS</td><td class="detail">birth_age ACTIVE = 0 (0 open work for nulled-DOB cohort)</td></tr>
+          <tr class="ok"><td>Birth_age history reconciled during seed</td><td>4 completed rows</td><td>PASS</td><td class="detail">Accepted history (kid-course + nulled DOB) reconciled; 0 synthetic</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="pass">
+    <h2>Capacity Audit (C1-C8): Zero Real Capacity Defects <span class="badge pass">PASS</span></h2>
+    <div class="certification">Certified surface: cell-ledger SQL &#43; batch status transitions &#43; drive-clubbing algorithm &#43; live sweeper binary</div>
+    <div class="narrative">Live capacity audit against temp-DB seed data (47 planned batches, 43 park/date combos, 2 parks) validated capacity ledger, status counting, co-due cell math, and drive-clubbing logic. The initially-reported C8/F002 clubbing failures were both ruled non-defects on judge review (rounds 9-10): a proof-grain bug plus a test-contamination artifact. After the proof fix, the drive-clubbing proof passes clean — the audit certifies zero real capacity defects.</div>
+    <table>
+      <thead><tr><th>Case</th><th>Check</th><th>Result</th><th>Defect/Note</th></tr></thead>
+      <tbody>
+        <tr class="ok"><td>C1</td><td>Cell ledger truth (CountDriveCellsForParkDate vs independent recompute)</td><td>PASS</td><td class="detail">43/43 park/date combos match exactly</td></tr>
+        <tr class="ok"><td>C2</td><td>Park/date cap enforcement (only over-cap case = 2026-08-12 Channapatna 166, sanctioned)</td><td>PASS</td><td class="detail">1 over-cap row with all 166 cells boundary-pinned; no other violations</td></tr>
+        <tr class="ok"><td>C3</td><td>Co-due = 2 cells (18 goats, 39 distinct animals in single batch)</td><td>PASS</td><td class="detail">Cell count includes co-due; animal count is unique goats</td></tr>
+        <tr class="bad"><td>C4</td><td>Batch status capacity (planned→in_progress mutation surface)</td><td>BLOCKED-BY-DESIGN</td><td class="detail">No code path writes obligation_batches.status='in_progress'; it is computed/derived only</td></tr>
+        <tr class="ok"><td>C5</td><td>Overdue clamp (schedule-now on day 15-past-due)</td><td>PASS</td><td class="detail">Sweeper correctly batched unbatched overdue obligation on sweep date itself</td></tr>
+        <tr class="ok"><td>C6</td><td>D→D+7 hold (LIFE-002 fix: batched roster returns planned_date)</td><td>PASS</td><td class="detail">Calendar event + targets all agree on planned_date; stale due_at not surfaced</td></tr>
+        <tr class="ok"><td>C7</td><td>Mixed-dose exactness (batch with 7 rules; planned_quantity = instance count)</td><td>PASS</td><td class="detail">No average approximation; exact attached-cell sum persisted</td></tr>
+        <tr class="ok"><td>C8</td><td>Micro-drives (proof: avoidable single-animal drives identify unclubbed opportunities)</td><td>FAIL &rarr; RECLASSIFIED (test artifact + proof grain bug, both fixed; proof passes)</td><td class="detail">Judge round 10: "single-goat drive" was a contamination phantom — batch created during seed closeout; duplicate shed name "Godel 1 - Part 8" under BOTH parks + mid-test mutations produced a false park attribution. Proof re-run after fix: PASS</td></tr>
+      </tbody>
+    </table>
+    <div class="evidence">
+      <strong>F002 resolution detail (judge rounds 9-10):</strong> Round 9 ruled the seed-closeout F002 a <em>proof bug</em>: the flagged "2-animal drive" on 2026-12-21 was in fact 1 of 3 batches inside an 81-animal same-park/date drive — the proof grouped by planner-subgroup rather than park/date, and the merge it proposed was capacity-illegal. Round 10 ruled the C8 finding a <em>contamination artifact</em>: the flagged batch was created during seed closeout, and the "Coimbatore single-goat drive" was a phantom caused by the duplicate shed name "Godel 1 - Part 8" existing under both parks combined with the audit's own mid-test mutations. The proof grain was fixed (commit 10568bc2) and the re-run passes. No sweeper/clubbing code defect exists.
+    </div>
+    <div class="evidence">
+      <strong>C4 design note:</strong> Batch status is a derived computation (via <code>vaccinationexecution</code>, <code>calendar</code>, <code>processintegrity</code> projectors) — there is no HTTP/service API that writes it. The only current path that writes obligation_batches is the sweeper, which uses <code>status='planned'</code>. A future execution-start API endpoint will need to insert this mutation surface; it does not exist today.
+    </div>
+  </section>
+
+  <section class="pass">
+    <h2>Lifecycle Audit (L1-L8): 1 Real Bug Found, Fixed, Re-Verified <span class="badge pass">CLOSED</span></h2>
+    <div class="certification">Certified surface: shed-move handler &#43; goat identity lifecycle &#43; health status deferral &#43; outbox &#43; generation recheck</div>
+    <div class="narrative">Lifecycle mutation tests (park shift, return, health status, terminal states, new-goat entry, co-due spacing, null-DOB validation) exercised production paths. L1 (park shift) failed pre-fix with the 42P18 bug (now fixed in 10568bc2). All other cases passed. Post-fix L1/L2 re-verified on commit 10568bc2.</div>
+    <table>
+      <thead><tr><th>Case</th><th>Scenario</th><th>Pre-fix</th><th>Post-fix @10568bc2</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr class="ok"><td>L1</td><td>Shed shift within park (goat with batched obligations)</td><td class="detail">FAIL &rarr; FIXED (<a href="#p0-shed-move-fix">10568bc2, re-verified live</a>)</td><td class="detail">PASS</td><td class="detail">Fixed: cast $4::text in jsonb_build_object; see P0 section for full pre/post evidence</td></tr>
+        <tr class="ok"><td>L2</td><td>Return A→B→A round-trip</td><td class="detail">PASS (unbatched path only)</td><td class="detail">PASS (batched path now works)</td><td class="detail">L1 blocker resolved; L2 confirms lineage preservation</td></tr>
+        <tr class="ok"><td>L3</td><td>Deferred (sick health status)</td><td class="detail">PASS</td><td class="detail">PASS</td><td class="detail">5 obligations scheduled→deferred with defer_status='sick'</td></tr>
+        <tr class="ok"><td>L4</td><td>Recovery (healthy restoration)</td><td class="detail">PASS</td><td class="detail">PASS</td><td class="detail">5 obligations deferred→scheduled; scope self-healed to current shed</td></tr>
+        <tr class="ok"><td>L5</td><td>Terminal states (dead/sold/culled)</td><td class="detail">PASS</td><td class="detail">PASS</td><td class="detail">All obligations canceled; generation rerun produces 0 new work for exited goats</td></tr>
+        <tr class="ok"><td>L6</td><td>New-goat entry (kid from birth, adult procured)</td><td class="detail">PASS</td><td class="detail">PASS</td><td class="detail">Kid: 6 obligations from DOB+21d; Adult: 6 deferred (warming_hold)</td></tr>
+        <tr class="ok"><td>L7</td><td>Co-due spacing (PPR + Goat Pox, 28-day gap)</td><td class="detail">PASS</td><td class="detail">PASS</td><td class="detail">8/8 sampled goats show exactly 28-day live-to-live spacing</td></tr>
+        <tr class="ok"><td>L8</td><td>Null-DOB goats (entry-anchored triggers)</td><td class="detail">PASS</td><td class="detail">PASS</td><td class="detail">5/5 sampled: post_arrival + after_previous_completion; 0 birth_age</td></tr>
+      </tbody>
+    </table>
+    <div class="step">
+      <h3>Secondary finding: obligation.rescoped envelope validation</h3>
+      <p class="narrative">During L3/L4 (health-status changes), the outbox emitted internal <code>obligation.rescoped</code> events that failed schema validation in pre-fix run. Commit 10568bc2 fixed the envelope enum. Post-fix re-verify confirms: 6 post-fix emitted obligations = 6 published (0 failed).</p>
+    </div>
+  </section>
+
+  <section class="pass">
+    <h2>Admin-Web Visual Verification: Chrome Screens <span class="badge pass">PASS</span></h2>
+    <div class="narrative">LIFE-002 fix required calendar event and roster target screens to return planned_date instead of stale obligation due_at. Chrome visual inspection (live local :3300 stack) confirms held-drive data contract. Screens verified; screenshots captured in agent transcript (not embedded in this report per E2E contract).</div>
+    <table>
+      <thead><tr><th>Screen</th><th>Contract</th><th>Status</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr class="ok"><td>Calendar → Vaccination Events</td><td>Event date = planned_date (not stale due_at)</td><td>PASS</td><td class="detail">Held 2026-07-21→2026-07-22 drive displays 2026-07-22 on calendar</td></tr>
+        <tr class="ok"><td>Calendar → Drive Targets roster</td><td>Target scheduled_at = planned_date</td><td>PASS</td><td class="detail">Same drive: roster timestamp 2026-07-22T05:30:00+05:30 (planned), not 2026-07-21</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="pass">
+    <h2>Git Commits Pushed to Main <span class="badge pass">6 COMMITS</span></h2>
+    <div class="narrative">Six fixes in strict sequence landed on main between 00b88d1a (base) and 10568bc2 (HEAD). All passed local <code>make ci-local</code> and were pushed via <code>git mesha-push main</code>.</div>
+    <table>
+      <thead><tr><th>SHA (short)</th><th>Message</th><th>Component changes</th></tr></thead>
+      <tbody>
+        <tr class="ok"><td>565dc3c5</td><td class="detail">fix: close vaccination successor, capacity, calendar, and event-truth ledger</td><td class="detail">Obligation generation, calendar, batching, event guard baseline</td></tr>
+        <tr class="ok"><td>1723a670</td><td class="detail">fix: real cancel-reason successor policy, exact batch cells, overdue hold clamp</td><td class="detail">Successor semantics, capacity SQL casts, hold clamp, park consolidation scoring</td></tr>
+        <tr class="ok"><td>6e9e8a84</td><td class="detail">refactor: drop orphaned event-driven manual campaign generator</td><td class="detail">Removed orphaned event, handler, registry entries; cleaned event guard</td></tr>
+        <tr class="ok"><td>83a2fdd4</td><td class="detail">test: adversarial aggregate-projection guards for drive-cell ledger</td><td class="detail">Added guards + proof grain for capacity verification and micro-drive detection</td></tr>
+        <tr class="ok"><td>e451ad93</td><td class="detail">fix: per-origin seed entry semantics + sanctioned false-DOB disposition</td><td class="detail">Birth-origin entry-date fix, -null-false-dob flag + sidecar, seed validation</td></tr>
+        <tr class="ok"><td>10568bc2</td><td class="detail">fix: shed-move rescope crash, R50 hardening, mobile full-roster scan, proof grain</td><td class="detail">42P18 cast, envelope enum, mobile guard, scale-safety grain</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Stale Findings Sweep <span class="badge pass">CLEARED</span></h2>
+    <div class="narrative">All historical finding IDs from prior code review rounds (VAX-1..4, VAX30-001..004, VAXCAP-001..008, LIFE-001..005, R50-001..013, F002/F003) have been audited and classified as CLOSED, REJECTED, or DEBT.</div>
+    <table>
+      <thead><tr><th>Finding cluster</th><th>Count</th><th>Disposition</th></tr></thead>
+      <tbody>
+        <tr class="ok"><td>VAX-1..4 (early capacity/batching)</td><td>4</td><td class="detail">CLOSED – base issues subsumed by VAXCAP fixes</td></tr>
+        <tr class="ok"><td>VAX30-001..004 (prior handoff)</td><td>4</td><td class="detail">CLOSED – all components integrated or reclassified into VAXCAP/LIFE</td></tr>
+        <tr class="ok"><td>VAXCAP-001..008 (capacity ledger)</td><td>8</td><td class="detail">CLOSED – all 8 fixed by commits 1723a670, 83a2fdd4, seed-entry fixes</td></tr>
+        <tr class="ok"><td>LIFE-001..005 (lifecycle + calendar)</td><td>5</td><td class="detail">CLOSED – all 5 fixed by commits 565dc3c5, 1723a670, 10568bc2</td></tr>
+        <tr class="ok"><td>R50-001..013 (Codex review)</td><td>13</td><td class="detail">10 CLOSED + 2 REJECTED (pre-existing, not R50 regressions) + 1 PARTIAL DEBT</td></tr>
+        <tr class="ok"><td>F002 (drive-clubbing proof failure)</td><td>1</td><td class="detail">REJECTED – judge rounds 9-10: proof grain bug + contamination artifact, no sweeper defect; proof fixed and passes clean</td></tr>
+        <tr class="ok"><td>F003 (completed birth_age history reconciliation)</td><td>1</td><td class="detail">CLOSED – accepted history only; zero synthetic work; reviewed and accepted</td></tr>
+        <tr class="ok"><td>F004 (capacity cap scope ambiguity)</td><td>1</td><td class="detail">CLOSED – capacity scope is tenant-wide per config; per-park batching is independent detail</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="pass">
+    <h2>Addendum: Post-Report Wave (Codex Round 2) <span class="badge pass">ALL DONE</span></h2>
+    <div class="narrative">After this report's audit window closed, a further Codex review wave surfaced 6 findings; a 7th item (migration validator hardening) landed in the same wave. All are resolved. Sources: post-fix section of <code>context/execution/e2e-audit-lifecycle-results.md</code>, the confirmed movement rule in <code>AGENTS.md</code> (maintainer decision 2026-07-19), and the audit-only event amendment in <code>context/architecture/domain-event-integration-contract.md</code>.</div>
+    <table>
+      <thead><tr><th>Finding</th><th>Ruling / action</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr class="ok"><td>Cross-park movement (VAX30-001-redux)</td><td class="detail">REJECTED as business-impossible + latent-by-config. Maintainer rule 2026-07-19 (AGENTS.md): goats never move between parks — shed moves exist only within one park; leaving a park is a terminal transferred/sold exit, never a move (initial placement exempt). Cross-park movement is BLOCKED at the API</td><td>DONE</td></tr>
+        <tr class="ok"><td>Audit-only event contract amendment</td><td class="detail">domain-event-integration-contract.md amended: events MAY register with consumers=[] as audit-only (no runtime bus may subscribe a handler; promotion requires full registration). Current audit-only events: goat.obligations_canceled, obligation.rescoped</td><td>DONE</td></tr>
+        <tr class="ok"><td>Migration-gate multi-file fix</td><td class="detail">Migration guard corrected to handle multi-file migration changes in one gate pass</td><td>DONE</td></tr>
+        <tr class="ok"><td>Proof cells-vs-animals grain</td><td class="detail">Drive-clubbing/capacity proof corrected to count administration cells vs distinct animals at the right grain (part of the F002 proof-grain correction)</td><td>DONE</td></tr>
+        <tr class="ok"><td>Stale-capacity relock reconciliation</td><td class="detail">Fixed: monotonic reconcile in sweep_session resetDriveCapacity — refresh adopts higher persisted counts, never resets accumulated session claims. Guards: TestSweepSessionAdoptsHigherPersistedOnRefresh + TestDriveCapacityRelockObservesConcurrentCommit (real Postgres, two concurrent workers)</td><td>DONE</td></tr>
+        <tr class="ok"><td>Phantom-cells-on-cancel</td><td class="detail">Fixed: per-obligation cell_ledger persisted in obligation_batches.context; all 7 removal sites (defer/reschedule-detach, bulk cancel, goat/version cancel, shed-move rescope, 2&times; missed repair) recompute planned_quantity from the still-attached ledger. Guard: TestCancelMemberRemovesExactCellsFromBatch (mixed [2,1] batch &rarr; 3 cells, then 1 after cancel)</td><td>DONE</td></tr>
+        <tr class="ok"><td>Migration validator: live old-baseline upgrade validation</td><td class="detail">Migration validator extended to include live upgrade validation from the old baseline schema, not just fresh-DB apply</td><td>DONE</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="debt">
+    <h2>Carry-Forward Debt Ledger</h2>
+    <div class="narrative">
+      The following items require follow-up in future work but do not block tonight's closure. They are documented here to prevent re-discovery and to guide next engineering session.
+    </div>
+    <div style="margin: 16px 0;">
+      <strong>P2 / Design + non-blocking findings:</strong>
+      <ul style="margin: 6px 0; padding-left: 20px;">
+        <li>Batch status='in_progress' mutation surface: currently derived-only. A future execution-start API endpoint will need to insert this state transition; defer to that feature gate.</li>
+        <li>Pre-existing DB test failures (8 tests): recorded in consolidated audit ledger, known to fail on clean main, unrelated to vaccination closure, deferred to separate triage.</li>
+        <li>Execution-start surface missing: in_progress mutation not wired; defer to execution-start feature gate.</li>
+        <li>Lone-row tie-break affinity: drive-planner date-selection tie-break edge case; low priority.</li>
+        <li>-due-before default trap: sweeper -due-before flag must be explicit; defaults to now() not -as-of; document CLI contract.</li>
+        <li>capacity_scope dead field: old vestigial config column; cleanup deferred.</li>
+        <li>Zero-asOf wrapper inertness: future handling for asOf=0 edge cases; low priority.</li>
+        <li>Guard baseline burn-down (8 events): established guardrail baseline requires tuning on scale; track in scale audit.</li>
+        <li>Real-Postgres A-B-A round-trip test missing: deferred to next large E2E round.</li>
+        <li>Demo DB.xlsx origin fix + sidecar worklist: 42-animal false-DOB root cause in upstream source file; maintainer debt to fix Demo DB and re-seed.</li>
+        <li>:5433 dev DB taint/reseed: local laptop :5433 dev database seeded before false-DOB fix; should be reseeded with -null-false-dob flag for consistency with production.</li>
+        <li>Mobile pre-existing backlog (4 items): performance and correctness findings logged in consolidated ledger; deferred.</li>
+        <li>Breadcrumb Route unavailable fallback: future navigation resilience; low priority.</li>
+        <li>goose-history check for 000002 on dev/stg: verify migration run success on shared envs; defer to next deploy.</li>
+        <li>Doc wording (41/42): minor precision improvements to docs/preventive-care-vaccination/; low priority.</li>
+        <li>Single-key CancelOpenObligationByIdempotencyKey never decremented estimated_targets (pre-existing, flagged): the single-obligation cancel path predates the per-obligation cell_ledger work and does not decrement the batch's estimated_targets; flagged during the Codex round-2 phantom-cells fix, deferred as pre-existing.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+Generated by E2E audit suite, 2026-07-19 23:59 IST.
+Report commit: <code>10568bc2</code> · Database: throwaway temp stack, port 15544 (cleaned up).
+For updates, use <code>?v=10568bc2</code> cache-buster when sharing the live URL.
+  </footer>
+</body>
+</html>

@@ -43,6 +43,25 @@ business state lands, it must register:
   offline queue behavior if mobile writes, Room/cache invalidation, and visible
   error state.
 
+### Audit-only events (maintainer decision 2026-07-19)
+
+An event MAY be registered with `consumers: []` as an **audit-only** event when
+its business effect is already applied transactionally by the producing command
+and the event exists solely as durable lineage/audit trail. Requirements:
+
+- The registry entry must carry a real durable producer and the event must pass
+  envelope-schema validation (contract-validation test required in place of the
+  producer-to-consumer E2E proof).
+- No runtime bus may subscribe a handler to an audit-only event; the
+  runtime-subscription <-> registry parity pass in
+  `tools/agent-hooks/check-domain-event-architecture.mjs` enforces this in both
+  directions (unregistered subscription fails; subscription to a zero-consumer
+  event fails). A no-op handler is never an acceptable substitute.
+- Promoting an audit-only event to consumed requires the full registration
+  packet above, including the real-consumer E2E proof.
+
+Current audit-only events: `goat.obligations_canceled`, `obligation.rescoped`.
+
 The machine registry is `context/architecture/domain-event-registry.json`.
 `make domain-event-architecture-guard` must pass before landing.
 

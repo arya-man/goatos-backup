@@ -27,13 +27,86 @@ if [ "${1:-}" = "--self-test" ]; then
   grep -q "park_date_animals" "$0"
   grep -q "total_animals <= :'max_small'" "$0"
   grep -q "target_cells" "$0"
-  grep -q "s.animals <= :'capacity_max'" "$0"
+  grep -q "s.cells <= :'capacity_max'" "$0"
+  grep -q "s.safe_latest" "$0"
   grep -q "g.drive_date = s.binding_safe_until" "$0"
   # Round-10: park attribution must come from the BATCH's own scope, not goat
   # residence (duplicate shed names / mid-shift goats fabricate phantom drives).
   grep -q "ob.scope_type = 'park' THEN bs.name" "$0"
   grep -q "ob.scope_type = 'shed' THEN bsp.name" "$0"
   echo "vaccination-drive-clubbing-proof: self-test passed"
+  exit 0
+fi
+
+# Executable fixture test (C-4): proves the merge-capacity math counts CELLS.
+# Fixture: 1 animal with 2 vaccine obligations (1 animal, 2 cells) on D1; a
+# 2-cell target drive on D2; cap 3 leaves 1 free cell on D2. Cell math must NOT
+# suggest the merge (2 movers > 1 free) => proof passes. Raising cap to 4 makes
+# the merge legal => proof must fail. Animal math (1 mover) would wrongly
+# suggest the merge at cap 3 and break case 1.
+if [ "${1:-}" = "--fixture-test" ]; then
+  if [ -z "${DATABASE_URL:-}" ]; then
+    echo "vaccination-drive-clubbing-proof: fixture-test skipped (DATABASE_URL not set)"
+    exit 0
+  fi
+  if ! psql "$DATABASE_URL" -qAt -c "SELECT 1" >/dev/null 2>&1; then
+    echo "vaccination-drive-clubbing-proof: fixture-test skipped (database not reachable)"
+    exit 0
+  fi
+  fixture_schema="fixture_clubproof_$$"
+  cleanup_fixture() {
+    psql "$DATABASE_URL" -qAt -c "DROP SCHEMA IF EXISTS ${fixture_schema} CASCADE" >/dev/null 2>&1 || true
+  }
+  trap cleanup_fixture EXIT
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt >/dev/null <<SQL
+CREATE SCHEMA ${fixture_schema};
+SET search_path = ${fixture_schema};
+CREATE TABLE protocol_definitions (protocol_id uuid, category text);
+CREATE TABLE protocol_versions (protocol_version_id uuid, protocol_id uuid);
+CREATE TABLE protocol_rules (rule_id uuid, dose_code text, due_window_days int, eligibility_json jsonb);
+CREATE TABLE locations (location_id uuid, name text, parent_location_id uuid);
+CREATE TABLE goats (goat_id uuid, tenant_id uuid, species text, management_stage text, shed_id uuid, park_id uuid);
+CREATE TABLE shed_profiles (tenant_id uuid, location_id uuid, animal_stage_id uuid);
+CREATE TABLE animal_stage_lookup (tenant_id uuid, animal_stage_id uuid, stage_code text, status text);
+CREATE TABLE vaccination_capacity_config (tenant_id uuid, max_per_day int);
+CREATE TABLE obligation_batches (batch_id uuid, tenant_id uuid, protocol_version_id uuid, status text, scope_type text, scope_id uuid, planned_date timestamptz, planned_quantity numeric);
+CREATE TABLE obligation_instances (obligation_id uuid, tenant_id uuid, batch_id uuid, rule_id uuid, target_id uuid, status text, due_at timestamptz, window_end timestamptz, first_batching_hold_until timestamptz);
+INSERT INTO protocol_definitions VALUES ('a0000000-0000-4000-8000-000000000001', 'vaccination');
+INSERT INTO protocol_versions VALUES ('a0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000001');
+INSERT INTO protocol_rules VALUES
+  ('a0000000-0000-4000-8000-000000000011', 'PPR', 6, '{}'::jsonb),
+  ('a0000000-0000-4000-8000-000000000012', 'FMD', 6, '{}'::jsonb);
+INSERT INTO locations VALUES
+  ('b0000000-0000-4000-8000-000000000001', 'FixturePark', NULL),
+  ('b0000000-0000-4000-8000-000000000002', 'FixtureShed', 'b0000000-0000-4000-8000-000000000001');
+INSERT INTO goats VALUES
+  ('c0000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'goat', 'K1', 'b0000000-0000-4000-8000-000000000002', 'b0000000-0000-4000-8000-000000000001'),
+  ('c0000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 'goat', 'K1', 'b0000000-0000-4000-8000-000000000002', 'b0000000-0000-4000-8000-000000000001'),
+  ('c0000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', 'goat', 'K1', 'b0000000-0000-4000-8000-000000000002', 'b0000000-0000-4000-8000-000000000001');
+INSERT INTO vaccination_capacity_config VALUES ('00000000-0000-4000-8000-000000000001', 3);
+INSERT INTO obligation_batches VALUES
+  ('d0000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000002', 'planned', 'park', 'b0000000-0000-4000-8000-000000000001', '2026-03-02 06:00+00', NULL),
+  ('d0000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000002', 'planned', 'park', 'b0000000-0000-4000-8000-000000000001', '2026-03-05 06:00+00', NULL);
+INSERT INTO obligation_instances VALUES
+  ('e0000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'd0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000011', 'c0000000-0000-4000-8000-000000000001', 'scheduled', '2026-03-02 06:00+00', '2026-03-08 06:00+00', NULL),
+  ('e0000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 'd0000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000012', 'c0000000-0000-4000-8000-000000000001', 'scheduled', '2026-03-02 06:00+00', '2026-03-08 06:00+00', NULL),
+  ('e0000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000001', 'd0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000011', 'c0000000-0000-4000-8000-000000000002', 'scheduled', '2026-03-04 06:00+00', '2026-03-10 06:00+00', NULL),
+  ('e0000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000001', 'd0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000012', 'c0000000-0000-4000-8000-000000000003', 'scheduled', '2026-03-04 06:00+00', '2026-03-10 06:00+00', NULL);
+SQL
+  # Case 1: cap 3, target holds 2 cells => 1 free cell < 2 mover cells.
+  # Merge must NOT be suggested; proof must pass.
+  if ! PGOPTIONS="-c search_path=${fixture_schema}" bash "$0" >/dev/null 2>&1; then
+    echo "vaccination-drive-clubbing-proof: fixture-test FAILED (cap 3: merge wrongly suggested or proof errored; cell math broken)" >&2
+    exit 1
+  fi
+  # Case 2: cap 4 => 2 free cells >= 2 mover cells; merge is legal, so the
+  # unclubbed small drive must now be flagged and the proof must fail.
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt -c "UPDATE ${fixture_schema}.vaccination_capacity_config SET max_per_day = 4" >/dev/null
+  if PGOPTIONS="-c search_path=${fixture_schema}" bash "$0" >/dev/null 2>&1; then
+    echo "vaccination-drive-clubbing-proof: fixture-test FAILED (cap 4: legal merge target not flagged)" >&2
+    exit 1
+  fi
+  echo "vaccination-drive-clubbing-proof: fixture-test passed"
   exit 0
 fi
 
@@ -230,6 +303,7 @@ WITH event_rows AS (
       CASE WHEN ob.scope_type = 'shed' THEN bsp.name END,
       lp.name, gp.name, 'unknown') AS park,
     COALESCE(gs.name, 'unknown') AS shed,
+    oi.obligation_id,
     oi.target_id,
     CASE
       WHEN :'species_policy' = 'species_specific' THEN 'species:' || lower(coalesce(g.species,'goat'))
@@ -272,9 +346,13 @@ drive_groups AS (
     park,
     planner_group,
     count(DISTINCT target_id) AS animals,
+    -- Capacity math is in administration CELLS: one obligation row = one dose
+    -- cell. A 1-animal/2-vaccine group is 1 animal but 2 cells.
+    count(DISTINCT obligation_id) AS cells,
     min(due_date) AS due_from,
     max(due_date) AS due_latest,
     min(safe_until) AS binding_safe_until,
+    max(safe_until) AS safe_latest,
     string_agg(DISTINCT shed, ', ' ORDER BY shed) AS sheds,
     string_agg(DISTINCT vaccine, ', ' ORDER BY vaccine) AS vaccines
   FROM event_rows
@@ -338,7 +416,7 @@ target_cells AS (
 SELECT
   s.drive_date || ' | ' ||
   s.park || ' | ' ||
-  s.planner_group || ' | animals=' || s.animals || ' | sheds=' || s.sheds ||
+  s.planner_group || ' | animals=' || s.animals || ' | cells=' || s.cells || ' | sheds=' || s.sheds ||
   ' | due_from=' || s.due_from || ' | safe_until=' || s.binding_safe_until ||
   ' | compatible_nearby=' ||
   string_agg(
@@ -359,10 +437,15 @@ LEFT JOIN target_cells tc
 -- movers, or the target date IS the mover last safe day (overflow justified
 -- by per-goat last-safe evidence).
 WHERE (
-  COALESCE(tc.total_cells, 0) + s.animals <= :'capacity_max'::int
-  OR g.drive_date = s.binding_safe_until
+  -- Capacity math in CELLS, not animals: the moving group consumes one cell per
+  -- obligation (dose), so a 1-animal/2-vaccine group needs 2 free cells.
+  COALESCE(tc.total_cells, 0) + s.cells <= :'capacity_max'::int
+  -- Last-safe overflow is per obligation: the target may exceed cap only when
+  -- EVERY moving obligation is at its own last safe day on the target date
+  -- (min AND max of safe_until both equal the target date).
+  OR (g.drive_date = s.binding_safe_until AND g.drive_date = s.safe_latest)
 )
-GROUP BY s.drive_date, s.park, s.planner_group, s.animals, s.sheds, s.due_from, s.binding_safe_until
+GROUP BY s.drive_date, s.park, s.planner_group, s.animals, s.cells, s.sheds, s.due_from, s.binding_safe_until
 ORDER BY s.drive_date, s.park, s.planner_group;
 SQL
 )"

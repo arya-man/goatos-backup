@@ -222,14 +222,14 @@ func TestAddGoatIdentifierValidationAndCommand(t *testing.T) {
 	repo := &fakeRepo{
 		addIdentifierResult: &ports.AdminGoatMutationResult{
 			Goat:        summary(goatA, "G-000001", "clean"),
-			Identifiers: []domain.GoatIdentifier{identifier("animal_identifier_1", " A1-synthetic-001 ", "global", "active", time.Now().UTC())},
+			Identifiers: []domain.GoatIdentifier{identifier("animal_identifier_1", " A1-synthetic-001 ", "global", "active", time.Now().In(biztime.DefaultLocation()))},
 			Decision: domain.DecisionRecordSummary{
 				DecisionID:     "50000000-0000-4000-8000-000000000101",
 				DecisionType:   "attach_identifier",
 				DecisionResult: "identifier_attached",
 				DecisionState:  "approved",
 				PolicyVersion:  "phase1-identifier-v1",
-				CreatedAt:      time.Now().UTC(),
+				CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 			},
 			Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000101", EventType: "goat.identifier.added"}},
 		},
@@ -285,14 +285,14 @@ func TestRetireGoatIdentifierValidationAndCommand(t *testing.T) {
 	repo := &fakeRepo{
 		retireIdentifierResult: &ports.AdminGoatMutationResult{
 			Goat:        summary(goatA, "G-000001", "clean"),
-			Identifiers: []domain.GoatIdentifier{identifier("animal_identifier_1", "A1-1900", "global", "retired", time.Now().UTC())},
+			Identifiers: []domain.GoatIdentifier{identifier("animal_identifier_1", "A1-1900", "global", "retired", time.Now().In(biztime.DefaultLocation()))},
 			Decision: domain.DecisionRecordSummary{
 				DecisionID:     "50000000-0000-4000-8000-000000000102",
 				DecisionType:   "retire_identifier",
 				DecisionResult: "identifier_retired",
 				DecisionState:  "approved",
 				PolicyVersion:  "phase1-identifier-v1",
-				CreatedAt:      time.Now().UTC(),
+				CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 			},
 			Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
 		},
@@ -736,6 +736,29 @@ func TestMoveGoatBuildsLifecycleCommand(t *testing.T) {
 	}
 }
 
+func TestMoveGoatCrossParkRejectedAs422(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}, moveGoatErr: ports.ErrCrossParkMove}
+	svc := NewService(repo)
+	_, err := svc.MoveGoat(context.Background(), MoveGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-move-crosspark-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"park_id":"00000000-0000-4000-8000-000000003002","shed_id":"00000000-0000-4000-8000-000000004001","reason":"attempted cross-park move","evidence_refs":[{"evidence_type":"source_record","evidence_id":"move-ticket-2"}],"row_version":7}`),
+	})
+	if err == nil {
+		t.Fatal("expected cross-park move rejection")
+	}
+	var appErr *Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected *app.Error, got %T: %v", err, err)
+	}
+	if appErr.HTTPStatus != 422 || appErr.Code != "cross_park_move_forbidden" {
+		t.Fatalf("cross-park move error = %#v, want 422 cross_park_move_forbidden", appErr)
+	}
+}
+
 func TestExitGoatBuildsLifecycleCommand(t *testing.T) {
 	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
 	svc := NewService(repo)
@@ -1119,6 +1142,7 @@ type fakeRepo struct {
 	lastAddIdentifierCmd        ports.AddGoatIdentifierCommand
 	lastRetireIdentifierCmd     ports.RetireGoatIdentifierCommand
 	lastMoveGoatCmd             ports.MoveGoatCommand
+	moveGoatErr                 error
 	lastExitGoatCmd             ports.ExitGoatCommand
 	lastStageGoatCmd            ports.StageGoatCommand
 	lastHealthGoatCmd           ports.HealthGoatCommand
@@ -1185,7 +1209,7 @@ func (f *fakeRepo) AddGoatIdentifier(_ context.Context, cmd ports.AddGoatIdentif
 			ScopeKey:         cmd.ScopeKey,
 			Status:           "active",
 			IsPrimaryForGoat: cmd.IsPrimaryForGoat,
-			ValidFrom:        time.Now().UTC(),
+			ValidFrom:        time.Now().In(biztime.DefaultLocation()),
 		}},
 		Decision: domain.DecisionRecordSummary{
 			DecisionID:     "50000000-0000-4000-8000-000000000101",
@@ -1193,7 +1217,7 @@ func (f *fakeRepo) AddGoatIdentifier(_ context.Context, cmd ports.AddGoatIdentif
 			DecisionResult: "identifier_attached",
 			DecisionState:  "approved",
 			PolicyVersion:  "phase1-identifier-v1",
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000101", EventType: "goat.identifier.added"}},
 	}, nil
@@ -1207,7 +1231,7 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 	if f.retireIdentifierResult != nil {
 		return f.retireIdentifierResult, nil
 	}
-	validTo := time.Now().UTC()
+	validTo := time.Now().In(biztime.DefaultLocation())
 	return &ports.AdminGoatMutationResult{
 		Goat: summary(cmd.GoatID, "G-000001", "clean"),
 		Identifiers: []domain.GoatIdentifier{{
@@ -1226,7 +1250,7 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 			DecisionResult: "identifier_retired",
 			DecisionState:  "approved",
 			PolicyVersion:  "phase1-identifier-v1",
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000102", EventType: "goat.identifier.retired"}},
 	}, nil
@@ -1234,6 +1258,9 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 
 func (f *fakeRepo) MoveGoat(_ context.Context, cmd ports.MoveGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	f.lastMoveGoatCmd = cmd
+	if f.moveGoatErr != nil {
+		return nil, f.moveGoatErr
+	}
 	return &ports.AdminGoatMutationResult{
 		Goat:        summary(cmd.GoatID, "G-000001", "clean"),
 		Identifiers: []domain.GoatIdentifier{},
@@ -1243,7 +1270,7 @@ func (f *fakeRepo) MoveGoat(_ context.Context, cmd ports.MoveGoatCommand) (*port
 			DecisionResult: "goat_moved",
 			DecisionState:  "approved",
 			PolicyVersion:  "goat-lifecycle-v1",
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000201", EventType: "goat.location.changed"}},
 	}, nil
@@ -1262,7 +1289,7 @@ func (f *fakeRepo) ExitGoat(_ context.Context, cmd ports.ExitGoatCommand) (*port
 			DecisionResult: "goat_exited",
 			DecisionState:  "approved",
 			PolicyVersion:  "goat-lifecycle-v1",
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000202", EventType: "goat.exited"}},
 	}, nil
@@ -1281,7 +1308,7 @@ func (f *fakeRepo) StageGoat(_ context.Context, cmd ports.StageGoatCommand) (*po
 			DecisionResult: "goat_stage_changed",
 			DecisionState:  "approved",
 			PolicyVersion:  "goat-lifecycle-v1",
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000203", EventType: "goat.stage_changed"}},
 	}, nil
@@ -1300,7 +1327,7 @@ func (f *fakeRepo) HealthGoat(_ context.Context, cmd ports.HealthGoatCommand) (*
 			DecisionResult: "goat_health_changed",
 			DecisionState:  "approved",
 			PolicyVersion:  "goat-lifecycle-v1",
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000204", EventType: "goat.health.changed"}},
 	}, nil
@@ -1318,7 +1345,7 @@ func (f *fakeRepo) ReproductiveGoat(_ context.Context, cmd ports.ReproductiveGoa
 			DecisionResult: "goat_reproductive_changed",
 			DecisionState:  "approved",
 			PolicyVersion:  "goat-lifecycle-v1",
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000205", EventType: "goat.reproductive.changed"}},
 	}, nil
@@ -1337,7 +1364,7 @@ func (f *fakeRepo) IdentityGoat(_ context.Context, cmd ports.IdentityGoatCommand
 			DecisionResult: "goat_identity_changed",
 			DecisionState:  "approved",
 			PolicyVersion:  "goat-lifecycle-v1",
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 		},
 		Events: []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000206", EventType: "goat.identity.changed"}},
 	}, nil
@@ -1361,14 +1388,14 @@ func (f *fakeRepo) CreateAdminGoat(_ context.Context, cmd ports.CreateAdminGoatC
 	}
 	return &ports.AdminGoatMutationResult{
 		Goat:        summary("10000000-0000-4000-8000-000000000099", "G-000099", "clean"),
-		Identifiers: []domain.GoatIdentifier{identifier(cmd.Identifiers[0].IdentifierType, cmd.Identifiers[0].IdentifierValue, cmd.Identifiers[0].ScopeKey, "active", time.Now().UTC())},
+		Identifiers: []domain.GoatIdentifier{identifier(cmd.Identifiers[0].IdentifierType, cmd.Identifiers[0].IdentifierValue, cmd.Identifiers[0].ScopeKey, "active", time.Now().In(biztime.DefaultLocation()))},
 		Decision: domain.DecisionRecordSummary{
 			DecisionID:     "50000000-0000-4000-8000-000000000199",
 			DecisionType:   "create_goat",
 			DecisionResult: "goat_created",
 			DecisionState:  "approved",
 			PolicyVersion:  "admin-goat-create-v1",
-			CreatedAt:      time.Now().UTC(),
+			CreatedAt:      time.Now().In(biztime.DefaultLocation()),
 		},
 		Events:           []domain.EventSummary{{EventID: "60000000-0000-4000-8000-000000000199", EventType: "goat.created"}},
 		GenerationStatus: "queued",
@@ -1469,7 +1496,7 @@ func TestIdentityGoatRejectsFutureOccurredAtAndUsesServerTime(t *testing.T) {
 
 	// VACC-REV-07 (P2): a SLIGHTLY-future occurred_at (inside the retired two-minute skew allowance)
 	// must now also be rejected — there is no future skew grace window.
-	nearFuture := time.Now().UTC().Add(1 * time.Minute).Format(time.RFC3339)
+	nearFuture := time.Now().In(biztime.DefaultLocation()).Add(1 * time.Minute).Format(time.RFC3339)
 	_, err = svc.IdentityGoat(context.Background(), IdentityGoatInput{
 		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-near-future", TraceID: testTrace, GoatID: goatA,
 		RawBody: []byte(fmt.Sprintf(`{"dob":"2026-05-01","occurred_at":%q,"reason":"slightly future timestamp attempt","evidence_refs":[{"evidence_type":"source_record","evidence_id":"id-nf"}],"row_version":3}`, nearFuture)),
@@ -1480,7 +1507,7 @@ func TestIdentityGoatRejectsFutureOccurredAtAndUsesServerTime(t *testing.T) {
 
 	// A valid (past) client occurred_at: the command persists/recomputes with SERVER time and keeps
 	// the client value only as the effective date.
-	before := time.Now().UTC()
+	before := time.Now().In(biztime.DefaultLocation())
 	backdated := before.AddDate(-1, 0, 0).Format(time.RFC3339)
 	if _, err := svc.IdentityGoat(context.Background(), IdentityGoatInput{
 		TenantID: testTenant, ActorID: testActor, IdempotencyKey: "idem-identity-past", TraceID: testTrace, GoatID: goatA,
@@ -1491,7 +1518,7 @@ func TestIdentityGoatRejectsFutureOccurredAtAndUsesServerTime(t *testing.T) {
 	if repo.lastIdentityGoatCmd.OccurredAt.Before(before) {
 		t.Fatalf("command OccurredAt = %s, want server time >= %s (never the backdated client value)", repo.lastIdentityGoatCmd.OccurredAt, before)
 	}
-	if repo.lastIdentityGoatCmd.EffectiveAt == nil || repo.lastIdentityGoatCmd.EffectiveAt.Format("2006-01-02") != before.AddDate(-1, 0, 0).Format("2006-01-02") {
+	if repo.lastIdentityGoatCmd.EffectiveAt == nil || repo.lastIdentityGoatCmd.EffectiveAt.In(biztime.DefaultLocation()).Format("2006-01-02") != before.AddDate(-1, 0, 0).Format("2006-01-02") {
 		t.Fatalf("EffectiveAt = %v, want the retained client effective date", repo.lastIdentityGoatCmd.EffectiveAt)
 	}
 }

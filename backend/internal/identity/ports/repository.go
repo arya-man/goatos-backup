@@ -20,6 +20,11 @@ var (
 	ErrInvalidChronology              = errors.New("identity dob must be on or before entry_date")
 	ErrFutureAnchor                   = errors.New("identity dob/entry_date cannot be in the future")
 	ErrCriticalDeathGuardrailRequired = fmt.Errorf("%w: death exit", ErrGuardrailRequired)
+	// ErrCrossParkMove: goats never move between parks (maintainer decision 2026-07-19).
+	// Shed-to-shed movement exists only WITHIN one park; leaving a park is a terminal
+	// exit (transferred/sold), never a move. Initial placement (a goat with no prior
+	// park) is not a move and is never blocked by this rule.
+	ErrCrossParkMove = errors.New("identity cross-park goat movement does not exist")
 )
 
 type SearchGoatsParams struct {

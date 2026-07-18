@@ -21,6 +21,10 @@ func Unauthorized(code, message string) *Error {
 	return &Error{Code: code, Message: message, HTTPStatus: 401}
 }
 
+func Unprocessable(code, message string) *Error {
+	return &Error{Code: code, Message: message, HTTPStatus: 422}
+}
+
 func Conflict(code, message string) *Error {
 	return &Error{Code: code, Message: message, HTTPStatus: 409}
 }

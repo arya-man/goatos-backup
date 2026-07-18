@@ -307,6 +307,22 @@ repair AS (
 )
 UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, estimated_targets - 1),
+    -- C-3: membership removal must also remove that obligation's EXACT cells. Recompute
+    -- planned_quantity from the per-obligation cell ledger over rows STILL attached and not
+    -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
+    -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
+    -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
+    planned_quantity = CASE
+      WHEN ob.context ? 'cell_ledger' THEN COALESCE((
+        SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
+        FROM obligation_instances live_cells
+        WHERE live_cells.tenant_id = ob.tenant_id
+          AND live_cells.batch_id = ob.batch_id
+          AND live_cells.status <> 'canceled'
+      ), 0)
+      ELSE ob.planned_quantity
+    END,
     context = CASE
       WHEN reserved.qty > 0 THEN context || jsonb_build_object(
         'defer_repair', jsonb_build_object(
@@ -678,11 +694,27 @@ WHERE tenant_id = $1 AND obligation_id = $2::uuid`, tenant, newID); err != nil {
 			// release for the vacated slot is left for manual stock reconciliation, same as it would be if this
 			// detach did not happen at all.
 			if _, err := tx.Exec(ctx, `
-UPDATE obligation_batches
+UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, estimated_targets - 1),
+    -- C-3: membership removal must also remove that obligation's EXACT cells. Recompute
+    -- planned_quantity from the per-obligation cell ledger over rows STILL attached and not
+    -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
+    -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
+    -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
+    planned_quantity = CASE
+      WHEN ob.context ? 'cell_ledger' THEN COALESCE((
+        SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
+        FROM obligation_instances live_cells
+        WHERE live_cells.tenant_id = ob.tenant_id
+          AND live_cells.batch_id = ob.batch_id
+          AND live_cells.status <> 'canceled'
+      ), 0)
+      ELSE ob.planned_quantity
+    END,
     updated_at = now(),
     row_version = row_version + 1
-WHERE tenant_id = $1 AND batch_id = $2::uuid`, tenant, lockedBatchID); err != nil {
+WHERE ob.tenant_id = $1 AND ob.batch_id = $2::uuid`, tenant, lockedBatchID); err != nil {
 				return "", false, fmt.Errorf("obligation: update rescheduled planned batch: %w", err)
 			}
 		}
@@ -1240,6 +1272,22 @@ repair AS (
 )
 UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, ob.estimated_targets - bu.count),
+    -- C-3: membership removal must also remove that obligation's EXACT cells. Recompute
+    -- planned_quantity from the per-obligation cell ledger over rows STILL attached and not
+    -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
+    -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
+    -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
+    planned_quantity = CASE
+      WHEN ob.context ? 'cell_ledger' THEN COALESCE((
+        SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
+        FROM obligation_instances live_cells
+        WHERE live_cells.tenant_id = ob.tenant_id
+          AND live_cells.batch_id = ob.batch_id
+          AND live_cells.status <> 'canceled'
+      ), 0)
+      ELSE ob.planned_quantity
+    END,
     context = CASE
       WHEN res.qty > 0 THEN ob.context || jsonb_build_object(
         'cancel_repair', jsonb_build_object(
@@ -2733,22 +2781,38 @@ WHERE tenant_id = $2
 	// per-obligation cells (cellsByObligation == nil, the legacy non-cell-unit paths) leave
 	// planned_quantity untouched.
 	attachedCells := int64(0)
+	ledger := make(map[string]int32, len(attachedIDs))
 	if cellsByObligation != nil {
 		for _, id := range attachedIDs {
 			cells := cellsByObligation[id]
 			if cells <= 0 {
 				cells = 1
 			}
+			ledger[id] = cells
 			attachedCells += int64(cells)
 		}
 	}
+	// context->'cell_ledger' persists each attached obligation's EXACT cell count so every later
+	// membership-removal path (cancel/waive/supersede/detach/rescope/missed repair) can recompute
+	// planned_quantity from the rows still attached instead of leaving phantom cells behind (C-3).
+	ledgerJSON, err := json.Marshal(ledger)
+	if err != nil {
+		return "", nil, fmt.Errorf("obligation: marshal cell ledger: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
+-- projection-review: membership=obligation_instances rows ACTUALLY attached to this batch (oi.batch_id = $2, from the RETURNING set of the attach UPDATE in this same tx) -- never the pre-attach selected set; group_key=batch_id (one row updated); join_cardinality=the 1:N obligation rows are pre-aggregated to a single count in the live subquery (semijoin grain, no fan-out), and planned_quantity uses the exact per-obligation attached-cell sum computed in Go over attachedIDs only; pagination=n/a (single-batch transactional write); scope=the batch's own scope_type/scope_id, unchanged by this update
 UPDATE obligation_batches ob
 SET estimated_targets = live.attached::int,
     planned_quantity = CASE
       WHEN NOT $3::boolean THEN ob.planned_quantity
       WHEN $4::boolean THEN $5::numeric
       ELSE COALESCE(ob.planned_quantity, 0) + $5::numeric
+    END,
+    context = CASE
+      WHEN $3::boolean THEN ob.context || jsonb_build_object(
+        'cell_ledger', COALESCE(ob.context->'cell_ledger', '{}'::jsonb) || $6::jsonb
+      )
+      ELSE ob.context
     END,
     updated_at = now()
 FROM (
@@ -2758,7 +2822,7 @@ FROM (
     AND oi.batch_id = $2
 ) live
 	WHERE ob.tenant_id = $1
-	  AND ob.batch_id = $2`, tenant, batch, cellsByObligation != nil, createdNewBatch, attachedCells); err != nil {
+	  AND ob.batch_id = $2`, tenant, batch, cellsByObligation != nil, createdNewBatch, attachedCells, ledgerJSON); err != nil {
 		return "", nil, fmt.Errorf("obligation: update batch target count: %w", err)
 	}
 	if in.BatchingHoldUntil != nil {
@@ -3223,6 +3287,22 @@ repair AS (
 )
 UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
+    -- C-3: membership removal must also remove that obligation's EXACT cells. Recompute
+    -- planned_quantity from the per-obligation cell ledger over rows STILL attached and not
+    -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
+    -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
+    -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
+    planned_quantity = CASE
+      WHEN ob.context ? 'cell_ledger' THEN COALESCE((
+        SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
+        FROM obligation_instances live_cells
+        WHERE live_cells.tenant_id = ob.tenant_id
+          AND live_cells.batch_id = ob.batch_id
+          AND live_cells.status <> 'canceled'
+      ), 0)
+      ELSE ob.planned_quantity
+    END,
     context = CASE
       WHEN reserved.qty > 0 THEN context || jsonb_build_object(
         'cancel_repair', jsonb_build_object(
@@ -3406,6 +3486,22 @@ repair AS (
 )
 UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
+    -- C-3: membership removal must also remove that obligation's EXACT cells. Recompute
+    -- planned_quantity from the per-obligation cell ledger over rows STILL attached and not
+    -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
+    -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
+    -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
+    planned_quantity = CASE
+      WHEN ob.context ? 'cell_ledger' THEN COALESCE((
+        SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
+        FROM obligation_instances live_cells
+        WHERE live_cells.tenant_id = ob.tenant_id
+          AND live_cells.batch_id = ob.batch_id
+          AND live_cells.status <> 'canceled'
+      ), 0)
+      ELSE ob.planned_quantity
+    END,
     context = CASE
       WHEN reserved.qty > 0 THEN context || jsonb_build_object(
         'shift_repair', jsonb_build_object(
@@ -4065,6 +4161,22 @@ repair AS (
 )
 UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, ob.estimated_targets - a.missed_count),
+    -- C-3: membership removal must also remove that obligation's EXACT cells. Recompute
+    -- planned_quantity from the per-obligation cell ledger over rows STILL attached and not
+    -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
+    -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
+    -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
+    planned_quantity = CASE
+      WHEN ob.context ? 'cell_ledger' THEN COALESCE((
+        SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
+        FROM obligation_instances live_cells
+        WHERE live_cells.tenant_id = ob.tenant_id
+          AND live_cells.batch_id = ob.batch_id
+          AND live_cells.status <> 'canceled'
+      ), 0)
+      ELSE ob.planned_quantity
+    END,
     context = CASE
       WHEN r.qty > 0 THEN ob.context || jsonb_build_object(
         'missed_repair', jsonb_build_object(
@@ -4264,6 +4376,22 @@ repair AS (
 )
 UPDATE obligation_batches ob
 SET estimated_targets = GREATEST(0, ob.estimated_targets - a.missed_count),
+    -- C-3: membership removal must also remove that obligation's EXACT cells. Recompute
+    -- planned_quantity from the per-obligation cell ledger over rows STILL attached and not
+    -- canceled (the same membership the capacity counter uses), so stale planned_quantity can
+    -- never dominate GREATEST(planned_quantity, live count) with phantom cells. Legacy batches
+    -- without a ledger keep their stored quantity unchanged.
+    -- projection-review: membership=obligation_instances rows still attached to THIS batch (live_cells.batch_id = ob.batch_id) with status <> 'canceled' -- the exact membership countDriveCellsForParkDate uses, so planned_quantity can never diverge from the counter's live population; group_key=batch_id (one correlated recompute per updated batch row); join_cardinality=correlated scalar subquery SUMming per-obligation context->'cell_ledger' entries (missing entry defaults to 1 cell) -- keyed by the fact's own obligation_id, no selector/dimension fan-out possible; pagination=n/a (single-batch transactional recompute inside the removal tx, not a paged read); scope=the batch's own scope_type/scope_id -- park attribution is resolved downstream by the counter's explicit park/shed-parent/goat-park matrix, unchanged here
+    planned_quantity = CASE
+      WHEN ob.context ? 'cell_ledger' THEN COALESCE((
+        SELECT SUM(COALESCE(NULLIF(ob.context #>> ARRAY['cell_ledger', live_cells.obligation_id::text], '')::numeric, 1))
+        FROM obligation_instances live_cells
+        WHERE live_cells.tenant_id = ob.tenant_id
+          AND live_cells.batch_id = ob.batch_id
+          AND live_cells.status <> 'canceled'
+      ), 0)
+      ELSE ob.planned_quantity
+    END,
     context = CASE
       WHEN r.qty > 0 THEN ob.context || jsonb_build_object(
         'missed_repair', jsonb_build_object(

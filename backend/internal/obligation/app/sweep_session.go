@@ -197,9 +197,18 @@ func (s *SweepSession) claimDriveCapacity(parkID string, plannedDate time.Time, 
 
 func (s *SweepSession) resetDriveCapacity(parkID string, plannedDate time.Time, persisted int32) {
 	key := driveCapacityKey(parkID, plannedDate)
-	// Only seed the baseline once per session. Subsequent calls within the same session accumulate
-	// claims without resetting, so preflight claims are never lost (VAXCAP-007).
+	// First refresh seeds the baseline; later refreshes reconcile MONOTONICALLY: adopt the fresh
+	// persisted count when it is higher than the session's running count, never lower, and never
+	// reset in-session claims (VAXCAP-007). Date probes release the park/date advisory lock
+	// between probes, so a concurrent worker can commit cells in the gap -- the final admission's
+	// re-lock reads a fresh persisted count and MUST observe those cells (C-2). Adopting only a
+	// HIGHER value keeps unpersisted preflight claims intact (persisted <= running count when
+	// nothing external changed) and cannot double-count this session's own committed claims
+	// (those are already inside the running count).
 	if _, loaded := s.driveLoaded[key]; loaded {
+		if persisted > s.driveCellCounts[key] {
+			s.driveCellCounts[key] = persisted
+		}
 		return
 	}
 	s.driveLoaded[key] = struct{}{}

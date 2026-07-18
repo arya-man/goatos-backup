@@ -258,6 +258,10 @@ var reportTemplate = template.Must(template.New("report").Parse(`<!doctype html>
   <h1>Vaccination Kernel Story Report</h1>
   <p class="subtitle">Generated {{.GeneratedAt}} &middot; backend/tests/e2e</p>
 
+  <p class="subtitle">Related reports in this category:
+    <a href="vaccination-closure-audit-2026-07-19.html?v=10568bc2">Vaccination Closure Audit Report (2026-07-19)</a>
+    &mdash; 14-bug handoff closure, capacity/lifecycle E2E audit, false-DOB disposition, P0 shed-move fix.</p>
+
   <div class="summary">
     <div class="tile"><span class="n">{{len .Stories}}</span>stories</div>
     <div class="tile pass"><span class="n">{{.PassCount}}</span>stories passed</div>
