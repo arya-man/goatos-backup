@@ -28,6 +28,16 @@
       "ciStep": "local-ci-evidence-guard"
     },
     {
+      "id": "domain-event-architecture",
+      "script": "tools/agent-hooks/check-domain-event-architecture.mjs",
+      "makeTarget": "domain-event-architecture-guard",
+      "realCheck": "node tools/agent-hooks/check-domain-event-architecture.mjs",
+      "selfTest": "node tools/agent-hooks/check-domain-event-architecture.mjs --self-test",
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "requiredInCI": true,
+      "ciStep": "domain-event-architecture-guard"
+    },
+    {
       "id": "stg-promotion",
       "script": "tools/ci/check-stg-promotion.mjs",
       "makeTarget": "stg-promotion-guard",

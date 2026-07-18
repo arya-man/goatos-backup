@@ -2711,14 +2711,32 @@ FOR UPDATE`,
 	if err != nil {
 		return "", 0, fmt.Errorf("obligation: batch id: %w", err)
 	}
-	attached, err := qtx.AttachObligationsToBatch(ctx, obligationdb.AttachObligationsToBatchParams{
-		BatchID:       batch,
-		TenantID:      tenant,
-		ObligationIds: ids,
-	})
+	attachedIDs := make([]string, 0, len(ids))
+	rows, err := tx.Query(ctx, `
+UPDATE obligation_instances
+SET batch_id = $1, updated_at = now()
+WHERE tenant_id = $2
+  AND obligation_id = ANY($3::uuid[])
+  AND batch_id IS NULL
+  AND status IN ('scheduled', 'due', 'in_progress', 'missed')
+RETURNING obligation_id::text`, batch, tenant, ids)
 	if err != nil {
 		return "", 0, fmt.Errorf("obligation: attach to batch: %w", err)
 	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return "", 0, fmt.Errorf("obligation: scan attached obligation: %w", err)
+		}
+		attachedIDs = append(attachedIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return "", 0, fmt.Errorf("obligation: scan attached obligations: %w", err)
+	}
+	rows.Close()
+	attached := int64(len(attachedIDs))
 	if attached == 0 {
 		return "", 0, nil
 	}
@@ -2737,6 +2755,10 @@ WHERE ob.tenant_id = $1
 		return "", 0, fmt.Errorf("obligation: update batch target count: %w", err)
 	}
 	if in.BatchingHoldUntil != nil {
+		attachedUUIDs, err := obligationUUIDs(attachedIDs)
+		if err != nil {
+			return "", 0, err
+		}
 		if _, err := tx.Exec(ctx, `
 UPDATE obligation_instances oi
 SET batching_hold_count = COALESCE(oi.batching_hold_count, 0) + 1,
@@ -2746,7 +2768,7 @@ SET batching_hold_count = COALESCE(oi.batching_hold_count, 0) + 1,
 FROM unnest($2::uuid[]) AS selected(obligation_id)
 WHERE oi.tenant_id = $1
   AND oi.batch_id = $4
-  AND oi.obligation_id = selected.obligation_id`, tenant, ids, pgconv.Timestamptz(*in.BatchingHoldUntil), batch); err != nil {
+  AND oi.obligation_id = selected.obligation_id`, tenant, attachedUUIDs, pgconv.Timestamptz(*in.BatchingHoldUntil), batch); err != nil {
 			return "", 0, fmt.Errorf("obligation: record batching hold in batch attach tx: %w", err)
 		}
 	}

@@ -95,6 +95,11 @@ verification -> read-model chain from
 `context/architecture/operational-kernel.md`. The end goal is always process
 integrity: was the expected process followed, where broken, who owns next action,
 what evidence proves it, and what alert/escalation fired when a deadline crossed.
+For any backend/frontend/mobile CRUD, import, mobile offline write, domain event,
+or future module such as shifting, dead birth, or feed direction, also load
+`context/architecture/domain-event-integration-contract.md` and keep
+`context/architecture/domain-event-registry.json` plus
+`make domain-event-architecture-guard` green.
 
 Calendar is currently reopened only as the Preventive Care (PC) Vaccination due-work command lens
 at `/calendar`. It must follow the Calendar ownership ADR and vaccination slice

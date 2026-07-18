@@ -242,32 +242,71 @@ func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cf
 		}
 	}
 	targetIDs := distinctUnbatchedTargetIDs(g.rows)
-	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
-		return false, err
-	}
 	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
 	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
-	claimedAny := false
-	for {
-		selectedIDs, _, err := selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
-		if err != nil {
-			return claimedAny, err
-		}
-		recordClaimed(claimed, selectedIDs)
-		claimedAny = claimedAny || len(selectedIDs) > 0
-		if len(selectedIDs) > 0 || plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 {
-			break
-		}
-		overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows)
-		if overflowDate == nil {
-			break
-		}
-		plannedDate = overflowDate
-		if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
-			return claimedAny, err
-		}
+	_, selectedIDs, _, err := s.preflightBestUnbatchedDriveDateWithVisitCap(ctx, tenantID, g.rows, targetIDs, plannedDate, planner, ruleVaccineID, session)
+	if err != nil {
+		return false, err
 	}
-	return claimedAny, nil
+	recordClaimed(claimed, selectedIDs)
+	return len(selectedIDs) > 0, nil
+}
+
+func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context.Context, tenantID string, rows []domain.UnbatchedDue, targetIDs []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, ruleVaccineID RuleVaccineIdentity, session *SweepSession) (*time.Time, []string, []shotCapReservation, error) {
+	if plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 {
+		if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
+			return plannedDate, nil, nil, err
+		}
+		selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+		return plannedDate, selectedIDs, shotClaims, err
+	}
+
+	candidates := driveCandidatesFromUnbatched(rows)
+	latest := latestUnbatchedDriveDate(candidates)
+	if latest.IsZero() {
+		return plannedDate, nil, nil, nil
+	}
+
+	var bestDate *time.Time
+	var bestIDs []string
+	bestAnimals := -1
+	for probe := businessDate(*plannedDate); !probe.After(latest); {
+		if len(obligationsFeasibleOnDriveDate(probe, candidates)) > 0 {
+			day := probe
+			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
+				return plannedDate, nil, nil, err
+			}
+			selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, &day, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+			if err != nil {
+				return plannedDate, nil, nil, err
+			}
+			animals := uniqueUnbatchedTargetCount(selectedUnbatchedRows(rows, selectedIDs))
+			session.releaseClaims(shotClaims)
+			if animals > bestAnimals || (animals == bestAnimals && len(selectedIDs) > len(bestIDs)) {
+				chosen := day
+				bestDate = &chosen
+				bestIDs = append(bestIDs[:0], selectedIDs...)
+				bestAnimals = animals
+			}
+		}
+		next := nextFeasibleUnbatchedDriveDateAfter(probe, rows)
+		if next == nil {
+			break
+		}
+		probe = *next
+	}
+	if bestDate == nil || len(bestIDs) == 0 {
+		return plannedDate, nil, nil, nil
+	}
+
+	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, bestDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
+		return bestDate, nil, nil, err
+	}
+	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, bestDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+	if err != nil {
+		return bestDate, nil, nil, err
+	}
+	return bestDate, selectedIDs, shotClaims, nil
 }
 
 // preflightParkConsolidation replays consolidateParkDrivesWithVisitCounts' merge decision for one
@@ -382,13 +421,16 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		if err != nil {
 			return remaining, nil, plannedDate, false, true, err
 		}
-		if len(selected) > 0 || plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 {
+		selectedRows := filterRows(remaining, selected)
+		if plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 || int32(uniqueParkTargetCount(selectedRows)) >= minMergeTargets {
 			break
 		}
 		overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining)
 		if overflowDate == nil {
+			session.releaseClaims(shotClaims)
 			break
 		}
+		session.releaseClaims(shotClaims)
 		plannedDate = overflowDate
 		selected = obligationsFeasibleOnDate(*plannedDate, remaining)
 		if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {

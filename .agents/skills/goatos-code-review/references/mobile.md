@@ -59,6 +59,13 @@ On-device, **Room is the single source of truth for every READ screen** — the
 screen renders from Room; the network refresh runs in the background and upserts
 Room (stale-while-revalidate). This is a hard rule (`android-offline-first.md`).
 
+Mobile writes use the same domain-event contract as backend/admin-web. A Compose
+screen or repository may queue an offline idempotent command, but the business
+mutation, outbox event, consumer replay, DLQ path, and E2E proof must be
+registered in `context/architecture/domain-event-registry.json`. Do not build a
+mobile-only follow-up pipeline for shifting, death/cull, feed direction,
+vaccination, or future operational modules.
+
 ## 1. Room SSOT / offline-first (screen reads)
 
 Pattern required for every screen-facing read: **network → upsert Room → repo

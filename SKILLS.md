@@ -169,8 +169,10 @@ lens when its trigger matches:
 | `frontend-anti-patterns` | an `apps/admin-web/**` page, SSR read, nav, label, or dashboard | `references/frontend.md`, `references/mobile.md`; `docs/decisions/calendar-ownership.md`, `high-scale-dashboard-projections.md`, `mobile-data-fetch-anti-patterns.md` |
 | `mobile-anti-patterns` | `apps/goatos-android/**` screen/route, list fetch, Room, offline, memory, lifecycle | `references/mobile.md`; `docs/decisions/mobile-data-fetch-anti-patterns.md`, `android-offline-first.md`, `room-migration-safety.md`, `android-navigation-stack.md` |
 | `nav-composition` | nav rendering, role/module gating, sidebar/bottom-bar composition | `references/frontend.md`; `docs/decisions/role-module-nav-composition.md` |
+| `domain-event-architecture` | any backend/frontend/mobile CRUD/import/offline write, domain event, outbox producer/consumer, shifting, dead birth, feed direction, vaccination mutation, or future operational module | `context/architecture/domain-event-integration-contract.md`; `context/architecture/domain-event-registry.json`; `references/contracts-events.md`, `references/kernel-and-scale.md`, `references/frontend.md`, `references/mobile.md` |
 
 Machine gates each lens names (`make scale-guard`, `validate-hot-index-migrations`,
-`mobile-guard`, `admin-web-request-reads-guard`, `nav-composition-guard`, …) are
+`mobile-guard`, `admin-web-request-reads-guard`, `nav-composition-guard`,
+`domain-event-architecture-guard`, …) are
 registered in `tools/ci/guardrail-manifest.json` and wired into `make guardrails`
 / `tools/ci/run-local-ci.sh`.

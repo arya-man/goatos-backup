@@ -117,6 +117,7 @@ export type OutboxDLQActionResponse = AdminApiComponents["schemas"]["OutboxDLQAc
 export type OperationsKernelHealthResponse = AdminApiComponents["schemas"]["OperationsKernelHealthResponse"];
 export type RunVaccinationManualCampaignRequest = AdminApiComponents["schemas"]["RunVaccinationManualCampaignRequest"];
 export type VaccinationGenerationRunResponse = AdminApiComponents["schemas"]["VaccinationGenerationRunResponse"];
+export type VaccinationStageReviewItem = AdminApiComponents["schemas"]["VaccinationStageReviewItem"];
 export type OutboxDLQStatus = AdminApiComponents["parameters"]["OutboxDLQStatus"];
 
 // SOP Library (Admin / Data Ops) — real generated admin-api types, no hand-rolled shapes.
@@ -1542,6 +1543,15 @@ export type StaffPositionsQuery = NonNullable<AdminApiPaths["/admin/roster/posit
 export type BackupConfigQuery = NonNullable<AdminApiPaths["/admin/roster/backup-config"]["get"]["parameters"]["query"]>;
 export type CoverageQuery = NonNullable<AdminApiPaths["/admin/roster/coverage"]["get"]["parameters"]["query"]>;
 
+export type VaccinationStageReviewPage = {
+  items: VaccinationStageReviewItem[];
+  nextCursor?: string | null;
+};
+export type VaccinationStageReviewQuery = NonNullable<AdminApiPaths["/admin/vaccination/stage-review-items"]["get"]["parameters"]["query"]>;
+export type ResolveVaccinationStageReviewRequest = NonNullable<
+  AdminApiPaths["/admin/vaccination/stage-review-items/{review_item_id}/resolve"]["post"]["requestBody"]
+>["content"]["application/json"];
+
 export async function listStaffPositions(
   params: StaffPositionsQuery = {},
 ): Promise<ApiResult<PositionListResponse>> {
@@ -1592,6 +1602,37 @@ export async function listCoverage(
     client.request<CoverageListResponse>("/admin/roster/coverage", {
       cache: "no-store",
       query: compactQuery({ ...params, limit: params.limit ?? 500 }),
+    }),
+  );
+}
+
+export async function listVaccinationStageReviewItems(
+  params: VaccinationStageReviewQuery = {},
+): Promise<ApiResult<VaccinationStageReviewPage>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<VaccinationStageReviewPage>("/admin/vaccination/stage-review-items", {
+      cache: "no-store",
+      query: compactQuery({ ...params, limit: params.limit ?? 20 }),
+    }),
+  );
+}
+
+export async function resolveVaccinationStageReviewItem(
+  reviewItemId: string,
+  body: ResolveVaccinationStageReviewRequest,
+): Promise<ApiResult<{ review_item_id?: string }>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAdminApiClient(apiClientOptions(config.data));
+  const path = `/admin/vaccination/stage-review-items/${encodeURIComponent(reviewItemId)}/resolve` as keyof AdminApiPaths & string;
+  return request(() =>
+    client.request<{ review_item_id?: string }>(path, {
+      method: "POST",
+      cache: "no-store",
+      body,
     }),
   );
 }

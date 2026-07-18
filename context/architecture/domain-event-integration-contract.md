@@ -1,0 +1,106 @@
+# Domain Event Integration Contract
+
+Date: 2026-07-18
+
+Purpose: keep backend, admin-web, and mobile features on one operational
+event spine. A screen, import, sheet seed, mobile offline command, worker, or
+future module must not create its own private follow-up pipeline.
+
+## Rule
+
+Every business mutation follows this shape:
+
+```text
+command or import row
+  -> canonical Postgres transaction
+  -> audit row where product-relevant
+  -> domain event + transactional outbox in the same transaction
+  -> idempotent consumers
+  -> obligations / batches / reminders / read models
+  -> replay and DLQ repair proof
+  -> backend contract rendered by admin-web and mobile
+```
+
+This applies to backend, frontend, and mobile. Frontend and mobile do not own
+business truth. They send idempotent commands, render backend/Room state, and
+show backend-owned disabled reasons, errors, and next actions.
+
+## Feature Registration Packet
+
+Before a feature that creates, imports, updates, moves, closes, or reclassifies
+business state lands, it must register:
+
+- Producer command/route/import/worker and canonical table(s) changed.
+- Domain event type, schema version, idempotency key, aggregate, subject,
+  tenant/park/shed visibility scope, trace, actor, and evidence fields.
+- Transaction boundary proving canonical state, audit, and outbox cannot drift.
+- Consumers, including replay order, idempotency behavior, and DLQ/repair path.
+- Downstream obligations, batches, reminders, escalations, read models, and
+  UI/mobile contract fields affected.
+- E2E/integration proof that exercises the producer and at least one real
+  consumer, not only a unit-level fake.
+- Frontend/mobile behavior: generated client shape, command idempotency key,
+  offline queue behavior if mobile writes, Room/cache invalidation, and visible
+  error state.
+
+The machine registry is `context/architecture/domain-event-registry.json`.
+`make domain-event-architecture-guard` must pass before landing.
+
+## Herd Mutation Law
+
+Any mutation to a live animal's identity, shed, park, stage, health,
+reproductive state, lifecycle, exit, or import facts must go through a registered
+producer or seed path. Goat OS does not support live goats without a real park
+and shed in normal data. Seed/import may fill missing park/shed/stage properties
+from approved source context while the system is still being built; it must not
+fabricate vaccination history.
+
+Normal eligible animals are never sent to a manual-review escape hatch just
+because planning is hard. Vaccination generation must open or reopen a legal
+window when a held animal returns; the sweeper must place it inside its legal
+range or the +1 week hold window, maximizing animals up to policy and squeezing
+last-safe-day overflow when required.
+
+Manual review is reserved for system invariant failure, not routine planning:
+missing registered writer, impossible DB window, runtime config/proof mismatch,
+or an unconfigured same-priority cap conflict. Such failures must be loud in
+proof/CI and must not block unrelated valid animals from batching.
+
+## Future Feature Examples
+
+Shifting:
+
+- Producer: move/shifting command emits `goat.location.changed`.
+- Consumers: vaccination rescope/recheck, feed direction, counts, procurement
+  blockers, critical-action guardrails.
+- Edge cases: sick to normal, ICU/quarantine entry and exit, death/cull/sale
+  closure, pregnant/mother state, and stale out-of-order move events.
+
+Dead birth:
+
+- Producer: reproductive/birth command emits reproductive/birth event(s).
+- Consumers: breeding history, health follow-up, feed direction for mother,
+  vaccination eligibility only for live registered offspring.
+- Dead offspring do not create vaccination obligations; mother state changes
+  still trigger downstream policy checks.
+
+Feed direction:
+
+- Producer/consumer mix: consumes goat stage, location, health, reproductive,
+  and feed protocol publish events; produces feed obligations/batches.
+- It must use the same outbox/idempotency/replay/DLQ contract as vaccination,
+  not a private Slack-only or frontend-only workflow.
+
+## E2E Floor
+
+Every feature in this family needs at least these proof shapes:
+
+- Single command and sheet/import path both produce canonical state and event.
+- Backend consumer runs and updates downstream obligations/read models.
+- Replay of the same event is idempotent.
+- Out-of-order stale event cannot undo newer state.
+- Death/cull/sale cancels open work and preserves completed history.
+- Held states such as sick, ICU, late pregnancy, and recovering reopen or defer
+  through the same event chain when they change.
+- Admin-web renders backend-owned contract state; mobile writes, when present,
+  use an offline idempotent command and later converge through the same event.

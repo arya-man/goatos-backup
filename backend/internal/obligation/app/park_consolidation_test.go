@@ -72,6 +72,21 @@ func TestPickBestParkDriveDateRespectsLatestWindow(t *testing.T) {
 	}
 }
 
+func TestParkObligationNilWindowEndIsBoundedToDueDate(t *testing.T) {
+	row := domain.ParkConsolidationCandidate{
+		ObligationID: "obl-1",
+		TargetID:     "goat-1",
+		ShedID:       "shed-a",
+		DueAt:        time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
+	}
+	if !parkObligationFeasibleOnDate(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC), row) {
+		t.Fatal("nil window_end obligation must be feasible on due date")
+	}
+	if parkObligationFeasibleOnDate(time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC), row) {
+		t.Fatal("nil window_end obligation must not be treated as unbounded after due date")
+	}
+}
+
 func TestConsolidateParkDrivesCanMergeSameShedAnimalsAtParkLevel(t *testing.T) {
 	repo := &fakeSweepRepo{
 		parkRows: []domain.ParkConsolidationCandidate{
@@ -178,6 +193,42 @@ func TestConsolidateParkDrivesAllowsOverCapOnLastSafeDay(t *testing.T) {
 	}
 	if repo.createdBatches[0].EstimatedTargets != 3 {
 		t.Fatalf("estimated targets = %d, want 3 animals despite cap 2", repo.createdBatches[0].EstimatedTargets)
+	}
+}
+
+func TestConsolidateParkDrivesWalksPastUnderThresholdShotCapDate(t *testing.T) {
+	now := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 8, 13, 0, 0, 0, 0, time.UTC)
+	rows := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-1", TargetID: "goat-1", RuleID: "rule-a", ShedID: "shed-1", ParkID: "park-1", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "obl-2", TargetID: "goat-2", RuleID: "rule-a", ShedID: "shed-2", ParkID: "park-1", DueAt: now, WindowEnd: &winEnd},
+		{ObligationID: "obl-3", TargetID: "goat-3", RuleID: "rule-a", ShedID: "shed-3", ParkID: "park-1", DueAt: now, WindowEnd: &winEnd},
+	}
+	base := &fakeSweepRepo{parkRows: rows, attachAll: true}
+	repo := &fakeDateVisitShotLockerRepo{
+		fakeSweepRepo: base,
+		persisted: map[string]int32{
+			visitShotCountKey(now, "goat-2"): 1,
+			visitShotCountKey(now, "goat-3"): 1,
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	res, err := svc.consolidateParkDrives(context.Background(), "tenant-1", "version-1", SweepConfig{
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:                   true,
+			MaxShotsPerAnimalPerDrive: 1,
+		},
+		ParkConsolidation: domain.DefaultParkConsolidationSettings(),
+	}, now)
+	if err != nil {
+		t.Fatalf("consolidateParkDrives: %v", err)
+	}
+	if res.ParkBatches != 1 || res.ParkObligations != 3 {
+		t.Fatalf("result = %#v, want one later park batch with all three animals", res)
+	}
+	if got := dateKey(base.createdBatches[0].PlannedDate); got != "2026-08-11" {
+		t.Fatalf("planned date = %s, want 2026-08-11 after under-threshold cap day", got)
 	}
 }
 

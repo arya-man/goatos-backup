@@ -489,6 +489,80 @@ WHERE tenant_id = $1
 	}
 }
 
+func TestCreateBatchWithObligationsDoesNotBurnHoldAgainForAlreadyAttachedReplay(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	firstObligationID := seed(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+	const secondGoatID = "10000000-0000-4000-8000-0000000000d7"
+	seedComboGoat(t, ctx, pool, secondGoatID)
+	secondObligationID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: secondGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled",
+		IdempotencyKey: "obl-hold-replay-new", Sequence: 2,
+	})
+	if err != nil || !applied || secondObligationID == "" {
+		t.Fatalf("seed second obligation: id=%q applied=%v err=%v", secondObligationID, applied, err)
+	}
+	batchDate := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	holdUntil := batchDate.AddDate(0, 0, 7)
+	batchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		ScopeType:         "park",
+		ScopeID:           cbePark,
+		Session:           "hold-replay",
+		PlannedDate:       &batchDate,
+		Status:            "planned",
+		EstimatedTargets:  1,
+		PlannedQuantity:   "1",
+		QuantityUnit:      "dose",
+		BatchingHoldUntil: &holdUntil,
+	}, []string{firstObligationID})
+	if err != nil || attached != 1 {
+		t.Fatalf("create first batch: batch=%s attached=%d err=%v", batchID, attached, err)
+	}
+	replayBatchID, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		ScopeType:         "park",
+		ScopeID:           cbePark,
+		Session:           "hold-replay",
+		PlannedDate:       &batchDate,
+		Status:            "planned",
+		EstimatedTargets:  2,
+		PlannedQuantity:   "2",
+		QuantityUnit:      "dose",
+		BatchingHoldUntil: &holdUntil,
+	}, []string{firstObligationID, secondObligationID})
+	if err != nil || attached != 1 || replayBatchID != batchID {
+		t.Fatalf("mixed replay: batch=%s attached=%d err=%v, want existing batch %s and one new attach", replayBatchID, attached, err, batchID)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND obligation_id = $2::uuid
+  AND COALESCE(batching_hold_count, 0) = 1`, tenantID, firstObligationID); got != 1 {
+		t.Fatalf("already-attached hold count rows=%d, want still exactly one hold", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND obligation_id = $2::uuid
+  AND COALESCE(batching_hold_count, 0) = 1
+  AND first_batching_hold_until IS NOT NULL`, tenantID, secondObligationID); got != 1 {
+		t.Fatalf("newly attached hold rows=%d, want one hold recorded", got)
+	}
+}
+
 func TestPlannedBatchFinalizationOneToManyPageBoundaryScheduledDateParkScopeStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

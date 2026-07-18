@@ -183,6 +183,7 @@ run_android() {
 
 run_guardrails() {
   run_common
+  step "domain-event-architecture-guard" make domain-event-architecture-guard
   run_backend
   run_android_guards
 }

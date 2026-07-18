@@ -122,10 +122,10 @@ func TestSweeperRollsBackShotCapClaimsWhenAttachPartiallySucceeds(t *testing.T) 
 func TestSweeperMarksBatchBlockedWhenStockReservationFails(t *testing.T) {
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
-			{ObligationID: "obl-1", ScopeType: "park", ScopeID: "park-1"},
-			{ObligationID: "obl-2", ScopeType: "park", ScopeID: "park-1"},
-			{ObligationID: "obl-3", ScopeType: "park", ScopeID: "park-2"},
-			{ObligationID: "obl-4", ScopeType: "park", ScopeID: "park-2"},
+			{ObligationID: "obl-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+			{ObligationID: "obl-2", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+			{ObligationID: "obl-3", ScopeType: "shed", ScopeID: "shed-2", ParkID: "park-2", DueAt: time.Now()},
+			{ObligationID: "obl-4", ScopeType: "shed", ScopeID: "shed-2", ParkID: "park-2", DueAt: time.Now()},
 		},
 		createBatchIDs:      []string{"batch-1", "batch-2"},
 		createBatchAttached: 2,
@@ -235,11 +235,12 @@ func TestVaccinationFallbackFailsWhenShedRowHasNoPark(t *testing.T) {
 }
 
 func TestSweeperCreatesSideEffectsAfterAttach(t *testing.T) {
+	due := time.Now()
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
-			{ObligationID: "obl-1", ScopeType: "park", ScopeID: "park-1"},
-			{ObligationID: "obl-2", ScopeType: "park", ScopeID: "park-1"},
-			{ObligationID: "obl-raced", ScopeType: "park", ScopeID: "park-1"},
+			{ObligationID: "obl-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: due},
+			{ObligationID: "obl-2", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: due},
+			{ObligationID: "obl-raced", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: due},
 		},
 		createBatchID:       "batch-1",
 		createBatchAttached: 2,
@@ -595,6 +596,48 @@ func TestSweepVersionWalksEverySafeOverflowDateWhenShotCapFull(t *testing.T) {
 	}
 }
 
+func TestSweepVersionPrefersLaterDateWithMoreAnimalsOverTinyPartialCapFit(t *testing.T) {
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	next := due.AddDate(0, 0, 1)
+	repo := &fakeDateVisitShotLockerRepo{
+		fakeSweepRepo: &fakeSweepRepo{
+			rowsByVersion: map[string][]domain.UnbatchedDue{
+				"v-club": {
+					{ObligationID: "obl-1", RuleID: "rule-club", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-1", DueAt: due, WindowEnd: &next},
+					{ObligationID: "obl-2", RuleID: "rule-club", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-2", DueAt: due, WindowEnd: &next},
+					{ObligationID: "obl-3", RuleID: "rule-club", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", TargetID: "goat-3", DueAt: due, WindowEnd: &next},
+				},
+			},
+			attachAll: true,
+		},
+		persisted: map[string]int32{
+			visitShotCountKey(due, "goat-2"): 1,
+			visitShotCountKey(due, "goat-3"): 1,
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	_, err := svc.SweepVersionWithSessionAsOf(context.Background(), "tenant-1", "v-club", SweepConfig{
+		VaccineCode: "FMD",
+		DrivePlanner: domain.DrivePlannerSettings{
+			Enabled:                   true,
+			MaxShotsPerAnimalPerDrive: 1,
+		},
+	}, due, due, NewSweepSession())
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionAsOf: %v", err)
+	}
+
+	if len(repo.fakeSweepRepo.createdBatches) != 1 {
+		t.Fatalf("created batches = %d, want one clubbed batch", len(repo.fakeSweepRepo.createdBatches))
+	}
+	if got := dateKey(repo.fakeSweepRepo.createdBatches[0].PlannedDate); got != "2026-07-02" {
+		t.Fatalf("planned date = %s, want later legal date 2026-07-02 with more animals", got)
+	}
+	if got := len(repo.fakeSweepRepo.createdBatchObligationIDs[0]); got != 3 {
+		t.Fatalf("attached obligations = %d, want all three animals clubbed", got)
+	}
+}
+
 func TestParkMergeStepWalksEverySafeOverflowDateWhenShotCapFull(t *testing.T) {
 	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	winEnd := due.AddDate(0, 0, 2)
@@ -808,8 +851,8 @@ func TestSweepVersionSnapshotDrainsPartialShotCapLeftovers(t *testing.T) {
 		t.Fatalf("result = %#v, want both snapshot obligations drained", result)
 	}
 	dates := obligationIDPlannedDates(repo.fakeSweepRepo)
-	if dates["obl-open"] != "2026-07-01" {
-		t.Fatalf("dates=%#v, want open goat batched on original date", dates)
+	if dates["obl-open"] != "2026-07-02" {
+		t.Fatalf("dates=%#v, want open goat held one day to club with capped goat", dates)
 	}
 	if dates["obl-capped"] != "2026-07-02" {
 		t.Fatalf("dates=%#v, want capped goat retried onto next safe date, not stranded", dates)
@@ -1175,11 +1218,11 @@ func TestSweeperMarkMissedPagesUntilDrained(t *testing.T) {
 
 func TestSweepVersionSnapshotReadsCandidatesInBoundedChunks(t *testing.T) {
 	rows := []domain.UnbatchedDue{
-		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1"},
-		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1"},
-		{ObligationID: "obl-3", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1"},
-		{ObligationID: "obl-4", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1"},
-		{ObligationID: "obl-5", RuleID: "rule-1", ScopeType: "park", ScopeID: "park-1"},
+		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+		{ObligationID: "obl-3", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+		{ObligationID: "obl-4", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+		{ObligationID: "obl-5", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
 	}
 	baseRepo := &fakeSweepRepo{
 		rows:      rows,
@@ -1224,11 +1267,11 @@ func TestSweepVersionSnapshotReadsCandidatesInBoundedChunks(t *testing.T) {
 
 func TestSweepVersionSnapshotFallbackReadsCandidatesInBoundedChunks(t *testing.T) {
 	rows := []domain.UnbatchedDue{
-		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
-		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
-		{ObligationID: "obl-3", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
-		{ObligationID: "obl-4", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
-		{ObligationID: "obl-5", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
+		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+		{ObligationID: "obl-3", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+		{ObligationID: "obl-4", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+		{ObligationID: "obl-5", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
 	}
 	baseRepo := &fakeSweepRepo{
 		rows:      rows,
@@ -1413,9 +1456,9 @@ func TestSweepVersionSnapshotParksWholeCandidateWindowBeforeShedFallback(t *test
 
 func TestSweepVersionSnapshotDoesNotLeakToFullHWMScanWhenNoParkCandidatesRemain(t *testing.T) {
 	rows := []domain.UnbatchedDue{
-		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
-		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1"},
-		{ObligationID: "obl-raced", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-raced"},
+		{ObligationID: "obl-1", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+		{ObligationID: "obl-2", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-1", ParkID: "park-1", DueAt: time.Now()},
+		{ObligationID: "obl-raced", RuleID: "rule-1", ScopeType: "shed", ScopeID: "shed-raced", ParkID: "park-1", DueAt: time.Now()},
 	}
 	baseRepo := &fakeSweepRepo{
 		rows:      rows,

@@ -620,6 +620,7 @@ drive_sources AS (
   UNION ALL
   SELECT * FROM catchup_drive_events
 ),
+-- projection-review: membership=drive_sources (batch_events plus catchup_drive_events, one source event row per stable event_id); group_key=(park_id, due_day) where due_day is derived from the source event due_at in Asia/Kolkata and batched sources already prefer planned_date before window_start; join_cardinality=source rows are UNION ALL event facts, grouped once by park/day with count(DISTINCT shed_id) only for shed metadata and scheduled_count filtered to active scheduled/review batch statuses so completed/canceled batches cannot create scheduled work; pagination=calendar park-drive grouping is computed inside the bounded canonical list request before the event page is emitted, while month markers use their own whole-month aggregate; scope=park_id from the event source, shed only remains a display dimension and never narrows park-drive membership
 park_drive_groups AS (
   SELECT
     park_id,
@@ -631,7 +632,10 @@ park_drive_groups AS (
     sum(target_count)::int AS target_count,
     count(*)::int AS drive_count,
     sum(target_count) FILTER (WHERE source_target_type = 'catchup')::int AS catch_up_count,
-    sum(target_count) FILTER (WHERE source_target_type = 'batch')::int AS scheduled_count,
+    sum(target_count) FILTER (
+      WHERE source_target_type = 'batch'
+        AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
+    )::int AS scheduled_count,
     sum(COALESCE((detail->'summary'->>'queue_count')::int, 0))::int AS queue_count,
     bool_or(source_target_type = 'catchup') AS has_catch_up,
     sum(target_count) FILTER (WHERE status = 'deferred')::int AS deferred_count,
@@ -725,7 +729,7 @@ obligation_drive_membership AS (
       CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_type ELSE oi.scope_type END AS scope_type,
       CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_id ELSE oi.scope_id END AS scope_id,
       CASE
-        WHEN oi.batch_id IS NOT NULL THEN COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)
+        WHEN oi.batch_id IS NOT NULL THEN COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end)
         ELSE oi.due_at
       END AS membership_at
   ) member

@@ -15,6 +15,13 @@ func TestCrossVaccineGapDaysLiveToLive(t *testing.T) {
 	}
 }
 
+func TestCompatibilityPolicyUsesApprovedComboSessionCap(t *testing.T) {
+	got := genCompatibilityPolicy{MaxVaccinesPerComboSession: 1}.withDefaults().MaxVaccinesPerComboSession
+	if got != DefaultMaxVaccinesPerComboSession {
+		t.Fatalf("max combo session cap = %d, want approved cap %d", got, DefaultMaxVaccinesPerComboSession)
+	}
+}
+
 func TestCrossVaccineGapDaysLiveToKilledDefaultGap(t *testing.T) {
 	policy := genCompatibilityPolicy{LiveToKilledGapDays: 14}
 	got := crossVaccineGapDays(immunoLive, immunoKilled, policy)

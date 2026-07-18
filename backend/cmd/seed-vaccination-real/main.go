@@ -765,8 +765,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	goatStageByAnimalKey := map[string]string{}
 	goatShedByAnimalKey := map[string]string{}
 	goatParkByAnimalKey := map[string]string{}
+	seenAnimalKeys := map[string]int{}
 	var goatRows []seedGoatUpsertRow
-	for _, g := range goats {
+	for rowIndex, g := range goats {
 		placement := seedPlacementKey(g)
 		shedID, ok := shedByKey[placement]
 		if !ok {
@@ -776,6 +777,10 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if animalKey == "" {
 			continue
 		}
+		if firstRow, ok := seenAnimalKeys[animalKey]; ok {
+			return st, fmt.Errorf("duplicate source animal identity %q at source rows %d and %d: seed must not merge two goats under one deterministic goat_id", animalKey, firstRow+1, rowIndex+1)
+		}
+		seenAnimalKeys[animalKey] = rowIndex
 		animalIdentifier1, animalIdentifier2 := identifierSlots(g.RFID, g.OldID, g.OldIDSuffix)
 		goatID := detUUID("goat", tenantID, animalKey)
 		parkID := parkByFarm[placement.farm]
@@ -789,16 +794,27 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		// Parse DOB for later use in schedule path resolution
 		var dobTime *time.Time
 		if g.DOB != "" {
-			if d, err := time.ParseInLocation("2006-01-02", g.DOB, loc); err == nil {
-				dobTime = &d
-				goatDOBByAnimalKey[animalKey] = dobTime
+			d, err := time.ParseInLocation("2006-01-02", g.DOB, loc)
+			if err != nil {
+				return st, fmt.Errorf("source animal %q has invalid DOB %q: %w", animalKey, g.DOB, err)
 			}
+			if d.After(now) {
+				return st, fmt.Errorf("source animal %q has future DOB %s after seed business date %s", animalKey, d.Format("2006-01-02"), now.Format("2006-01-02"))
+			}
+			dobTime = &d
+			goatDOBByAnimalKey[animalKey] = dobTime
 		}
 
 		// Resolve entry_date from source mapping
 		entryDate := entryDateByAnimalKey[animalKey]
 		entryDateValue := ""
 		if entryDate != nil {
+			if entryDate.After(now) {
+				return st, fmt.Errorf("source animal %q has future entry_date %s after seed business date %s", animalKey, entryDate.Format("2006-01-02"), now.Format("2006-01-02"))
+			}
+			if dobTime != nil && dobTime.After(*entryDate) {
+				return st, fmt.Errorf("source animal %q has DOB %s after entry_date %s", animalKey, dobTime.Format("2006-01-02"), entryDate.Format("2006-01-02"))
+			}
 			goatEntryDateByAnimalKey[animalKey] = entryDate
 			entryDateValue = entryDate.Format("2006-01-02")
 		}

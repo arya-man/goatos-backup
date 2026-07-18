@@ -115,6 +115,36 @@ func TestCalendarDefaultListHidesDeferredHoldsButDateMarkersExposeThem(t *testin
 	}
 }
 
+func TestCalendarBatchedDriveRosterAndTargetsUsePlannedDateScheduledDateParkScopeOneToManyMultiPageStatusBuckets(t *testing.T) {
+	const badMembershipDate = "WHEN oi.batch_id IS NOT NULL THEN COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)"
+	if strings.Contains(calendarCanonicalListSQL, badMembershipDate) {
+		t.Fatalf("batched drive membership still resolves on window_start before planned_date")
+	}
+	const wantedMembershipDate = "WHEN oi.batch_id IS NOT NULL THEN COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end)"
+	if !strings.Contains(calendarCanonicalListSQL, wantedMembershipDate) {
+		t.Fatalf("batched drive membership must resolve on planned_date before window_start")
+	}
+	const badTargetDate = "COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)"
+	if strings.Contains(calendarDriveTargetsSQL, badTargetDate) {
+		t.Fatalf("park-drive target lookup still matches batches by window_start before planned_date")
+	}
+	const wantedTargetDate = "COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end)"
+	if !strings.Contains(calendarDriveTargetsSQL, wantedTargetDate) {
+		t.Fatalf("park-drive target lookup must match batches by planned_date before window_start")
+	}
+}
+
+func TestCalendarParkDriveScheduledCountIgnoresCompletedBatchSourcesStatusBucketsScheduledDateParkScopeOneToManyMultiPage(t *testing.T) {
+	const oldBucket = "sum(target_count) FILTER (WHERE source_target_type = 'batch')::int AS scheduled_count"
+	if strings.Contains(calendarCanonicalListSQL, oldBucket) {
+		t.Fatalf("park drive scheduled_count still counts completed batch sources")
+	}
+	const statusBucket = "AND status IN ('scheduled', 'due', 'overdue', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')"
+	if !strings.Contains(calendarCanonicalListSQL, statusBucket) {
+		t.Fatalf("park drive scheduled_count must be filtered by active scheduled/review statuses")
+	}
+}
+
 func TestCalendarVaccineFilterOneToManyMultiPageDateShiftParkScopeStatusBuckets(t *testing.T) {
 	vaccinePredicate := "AND (\n      $14::text = ''"
 	keysetPredicate := "AND ($8::timestamptz IS NULL"

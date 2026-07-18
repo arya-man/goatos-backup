@@ -130,7 +130,8 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 			_ = release(ctx)
 			return remaining, 0, plannedDate, false, true, err
 		}
-		if len(selected) > 0 || plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 {
+		selectedRows := filterRows(remaining, selected)
+		if plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 || int32(uniqueParkTargetCount(selectedRows)) >= minMergeTargets {
 			break
 		}
 		overflowDate := nextFeasibleParkDriveDateAfter(*plannedDate, remaining)
@@ -140,6 +141,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 			}
 			return remaining, 0, plannedDate, false, true, nil
 		}
+		session.releaseClaims(shotClaims)
 		if relErr := release(ctx); relErr != nil {
 			return remaining, 0, plannedDate, false, true, relErr
 		}
@@ -506,7 +508,10 @@ func obligationLatestDate(row domain.ParkConsolidationCandidate) time.Time {
 	if row.WindowEnd != nil && !row.WindowEnd.IsZero() {
 		return biztime.BusinessDayStart(*row.WindowEnd)
 	}
-	return time.Date(9999, 12, 31, 0, 0, 0, 0, biztime.DefaultLocation())
+	if !row.DueAt.IsZero() {
+		return biztime.BusinessDayStart(row.DueAt)
+	}
+	return obligationEarliestDate(row)
 }
 
 func parkDriveWindow(rows []domain.ParkConsolidationCandidate, selected []string) (*time.Time, *time.Time) {

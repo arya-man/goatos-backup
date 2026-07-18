@@ -85,6 +85,22 @@ starts only after accepted ET+TT dose 2/course completion. Blue Tongue kid dose
 2 remains 28 days after dose 1; pox vaccines still obey the 28-day live-to-live
 spacing after PPR.
 
+## Domain Event Integration Is Mandatory
+
+Backend, admin-web, and mobile business mutations all use the same domain-event
+architecture. Any CRUD/import/sheet/mobile-offline/worker path that creates,
+moves, closes, reclassifies, or consumes business state must register producer,
+event, consumer, replay/DLQ behavior, and E2E proof in
+`context/architecture/domain-event-registry.json`, following
+`context/architecture/domain-event-integration-contract.md`. Run
+`make domain-event-architecture-guard`.
+
+Frontend/mobile render backend-owned contracts and send idempotent commands; they
+do not create private business follow-up pipelines. Direct live-animal table
+writes are allowed only through registered canonical producers or approved seed
+closeout paths. Future shifting, dead-birth, feed-direction, procurement, and
+vaccination changes must plug into this same event spine.
+
 ## Consolidated Defect-Ledger Closure (Mandatory)
 
 When asked to fix/continue/close the consolidated audit ledger or its bugs, read

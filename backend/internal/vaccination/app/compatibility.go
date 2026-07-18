@@ -107,7 +107,7 @@ func (p genCompatibilityPolicy) withDefaults() genCompatibilityPolicy {
 	if out.MaxVaccinesPerComboSession <= 0 {
 		out.MaxVaccinesPerComboSession = DefaultMaxVaccinesPerComboSession
 	}
-	if out.MaxVaccinesPerComboSession > DefaultMaxVaccinesPerComboSession {
+	if out.MaxVaccinesPerComboSession != DefaultMaxVaccinesPerComboSession {
 		out.MaxVaccinesPerComboSession = DefaultMaxVaccinesPerComboSession
 	}
 	return out

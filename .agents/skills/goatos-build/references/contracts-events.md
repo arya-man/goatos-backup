@@ -56,6 +56,13 @@ Operational kernel contracts:
 - Any feature that introduces a business trigger must define the domain event,
   idempotency key, outbox payload, consumer replay behavior, DLQ/repair behavior,
   and read-model projection contract.
+- Any backend, admin-web, or mobile feature that creates/imports/updates/moves/
+  closes business state must be registered in
+  `context/architecture/domain-event-registry.json` and follow
+  `context/architecture/domain-event-integration-contract.md`. This includes
+  sheet imports/seeds, mobile offline writes, shifting, dead birth, feed
+  direction, procurement, and vaccination changes. Run
+  `make domain-event-architecture-guard`.
 - Reminder, nudge, deadline, notification, escalation, proof, verification, and
   completion actions must be durable backend contracts, never frontend-only
   state.

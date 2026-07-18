@@ -588,33 +588,15 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 	targetIDs := distinctUnbatchedTargetIDs(g.rows)
 	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
 	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
-	var release func(context.Context) error
-	var selectedIDs []string
-	var shotClaims []shotCapReservation
-	for {
-		release, err = s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
-		if err != nil {
-			return false, 0, err
-		}
-		selectedIDs, shotClaims, err = selectIDsWithinVisitShotCapForSession(g.rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
-		if err != nil {
-			_ = release(ctx)
-			return false, 0, err
-		}
-		if len(selectedIDs) > 0 || plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 {
-			break
-		}
-		overflowDate := nextFeasibleUnbatchedDriveDateAfter(*plannedDate, g.rows)
-		if overflowDate == nil {
-			if err := release(ctx); err != nil {
-				return false, 0, err
-			}
-			return false, 0, nil
-		}
+	plannedDate, selectedIDs, shotClaims, release, err := s.selectBestUnbatchedDriveDateWithVisitCap(ctx, tenantID, g.rows, targetIDs, plannedDate, planner, ruleVaccineID, session)
+	if err != nil {
+		return false, 0, err
+	}
+	if len(selectedIDs) == 0 {
 		if err := release(ctx); err != nil {
 			return false, 0, err
 		}
-		plannedDate = overflowDate
+		return false, 0, nil
 	}
 	defer func() {
 		if relErr := release(ctx); relErr != nil && err == nil {
@@ -665,6 +647,76 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		obligations += n
 	}
 	return batched, obligations, nil
+}
+
+func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Context, tenantID string, rows []domain.UnbatchedDue, targetIDs []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, ruleVaccineID RuleVaccineIdentity, session *SweepSession) (*time.Time, []string, []shotCapReservation, func(context.Context) error, error) {
+	if plannedDate == nil || planner.MaxShotsPerAnimalPerDrive <= 0 {
+		release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, plannedDate, planner.MaxShotsPerAnimalPerDrive, session)
+		if err != nil {
+			return plannedDate, nil, nil, noopRelease, err
+		}
+		selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, plannedDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+		if err != nil {
+			_ = release(ctx)
+			return plannedDate, nil, nil, noopRelease, err
+		}
+		return plannedDate, selectedIDs, shotClaims, release, nil
+	}
+
+	candidates := driveCandidatesFromUnbatched(rows)
+	latest := latestUnbatchedDriveDate(candidates)
+	if latest.IsZero() {
+		return plannedDate, nil, nil, noopRelease, nil
+	}
+
+	var bestDate *time.Time
+	var bestIDs []string
+	bestAnimals := -1
+	for probe := businessDate(*plannedDate); !probe.After(latest); {
+		if len(obligationsFeasibleOnDriveDate(probe, candidates)) > 0 {
+			day := probe
+			release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session)
+			if err != nil {
+				return plannedDate, nil, nil, noopRelease, err
+			}
+			selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, &day, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+			if err != nil {
+				session.releaseClaims(shotClaims)
+				_ = release(ctx)
+				return plannedDate, nil, nil, noopRelease, err
+			}
+			animals := uniqueUnbatchedTargetCount(selectedUnbatchedRows(rows, selectedIDs))
+			session.releaseClaims(shotClaims)
+			if err := release(ctx); err != nil {
+				return plannedDate, nil, nil, noopRelease, err
+			}
+			if animals > bestAnimals || (animals == bestAnimals && len(selectedIDs) > len(bestIDs)) {
+				chosen := day
+				bestDate = &chosen
+				bestIDs = append(bestIDs[:0], selectedIDs...)
+				bestAnimals = animals
+			}
+		}
+		next := nextFeasibleUnbatchedDriveDateAfter(probe, rows)
+		if next == nil {
+			break
+		}
+		probe = *next
+	}
+	if bestDate == nil || len(bestIDs) == 0 {
+		return plannedDate, nil, nil, noopRelease, nil
+	}
+
+	release, err := s.lockAndRefreshVisitShots(ctx, tenantID, targetIDs, bestDate, planner.MaxShotsPerAnimalPerDrive, session)
+	if err != nil {
+		return bestDate, nil, nil, noopRelease, err
+	}
+	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, bestDate, planner.MaxShotsPerAnimalPerDrive, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+	if err != nil {
+		_ = release(ctx)
+		return bestDate, nil, nil, noopRelease, err
+	}
+	return bestDate, selectedIDs, shotClaims, release, nil
 }
 
 func vaccinationDriveBatchScope(g *dueGroup, rows []domain.UnbatchedDue) (string, string, error) {
@@ -737,6 +789,21 @@ func selectedUnbatchedRows(rows []domain.UnbatchedDue, selected []string) []doma
 		}
 	}
 	return out
+}
+
+func uniqueUnbatchedTargetCount(rows []domain.UnbatchedDue) int {
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		targetID := strings.TrimSpace(row.TargetID)
+		if targetID == "" {
+			targetID = strings.TrimSpace(row.ObligationID)
+		}
+		if targetID == "" {
+			continue
+		}
+		seen[targetID] = struct{}{}
+	}
+	return len(seen)
 }
 
 func unbatchedDriveWindow(rows []domain.UnbatchedDue) (*time.Time, *time.Time) {

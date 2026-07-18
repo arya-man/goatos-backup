@@ -43,6 +43,13 @@ empty/error copy, disabled reasons, and summary-vs-detail field sets.
 Frontend may own only: layout, CSS, responsive density, icon-token rendering,
 focus/hover state, and local open/closed or selected-row state.
 
+Business writes are commands, not frontend side effects. Any admin-web route that
+adds/edits/imports/moves/closes business state must point to a backend command
+registered in `context/architecture/domain-event-registry.json`; the downstream
+event/outbox/consumer/E2E proof belongs to the backend contract. Frontend must
+send an idempotency key where the contract requires one and render the backend
+result/error; it must not schedule local follow-up work.
+
 Check for:
 - [ ] No hardcoded page titles / section labels / table headers / filter labels /
       chips / disabled reasons in JSX — they come from the page contract /

@@ -224,6 +224,26 @@ func TestBuildEntryDateMappingUsesEntrySourcesOnly(t *testing.T) {
 	}
 }
 
+func TestSeedRejectsDuplicateAnimalKeysAndImpossibleSourceDates(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read seed source: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"duplicate source animal identity",
+		"seed must not merge two goats under one deterministic goat_id",
+		"has invalid DOB",
+		"has future DOB",
+		"has future entry_date",
+		"has DOB %s after entry_date %s",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("seed duplicate/date fail-closed guard missing %q", want)
+		}
+	}
+}
+
 func TestLoadGoatsMissingSpeciesColumnLeavesSpeciesEmpty(t *testing.T) {
 	dir := t.TempDir()
 	data := `{"values":[["rfid","old_id","old_id_suffix","farm","shed","stage","age","breed","gender","dob","stage_entry_date","purchase_date","status","health_status"],["RFID-SHEEP-HINT","","","CBE","Shed 1","Adult","","Sojat","Female","","","","Alive","Healthy"]]}`

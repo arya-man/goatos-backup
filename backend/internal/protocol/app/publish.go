@@ -988,6 +988,9 @@ func validateVaccinationComboLimits(env ruleDSLEnvelope) error {
 			if max > maxVaccinesPerComboSession {
 				return fmt.Errorf("%w: compatibility_policy.max_vaccines_per_combo_session cannot exceed %d", ErrNotPublishable, maxVaccinesPerComboSession)
 			}
+			if max != maxVaccinesPerComboSession {
+				return fmt.Errorf("%w: compatibility_policy.max_vaccines_per_combo_session must be exactly %d to match approved vaccination combo sessions", ErrNotPublishable, maxVaccinesPerComboSession)
+			}
 		}
 	}
 	if len(env.ProcurementPolicy) == 0 || string(env.ProcurementPolicy) == "null" {

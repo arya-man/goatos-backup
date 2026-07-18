@@ -941,6 +941,24 @@ func TestPublishVersionRejectsProcurementComboOverTwoVaccines(t *testing.T) {
 	}
 }
 
+func TestPublishVersionRejectsVaccinationComboCapBelowApprovedSessionSize(t *testing.T) {
+	repo := &fakeProtocolRepo{
+		version: validPublishVersion("draft"),
+	}
+	dsl := validVaccinationMatrixRuleDSL()
+	dsl = strings.Replace(dsl, `"compatibility_policy":{"live_to_killed_gap_days":14`, `"compatibility_policy":{"max_vaccines_per_combo_session":1,"live_to_killed_gap_days":14`, 1)
+	repo.version.RuleDsl = []byte(dsl)
+	service := NewService(repo)
+
+	err := service.PublishVersion(context.Background(), "tenant-1", "version-1", nil)
+	if !errors.Is(err, ErrNotPublishable) {
+		t.Fatalf("publish max combo 1 err=%v, want ErrNotPublishable", err)
+	}
+	if repo.createRuleCalled || repo.publishCalled {
+		t.Fatalf("invalid combo cap should not create rules or publish")
+	}
+}
+
 func validPublishVersion(status string) domain.Version {
 	return domain.Version{
 		ProtocolVersionID: "version-1",
