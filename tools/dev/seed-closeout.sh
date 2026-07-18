@@ -44,6 +44,15 @@ run_go_cmd() {
   run_cmd "$cmd" go run "./cmd/$cmd" "$@"
 }
 
+run_goat_shed_integrity_proof() {
+  echo "==> seed-closeout: goat-shed-integrity proof"
+  if [ "$dry_run" -eq 1 ]; then
+    printf '    bash tools/dev/check-goat-shed-integrity.sh\n'
+    return
+  fi
+  bash "$repo/tools/dev/check-goat-shed-integrity.sh"
+}
+
 india_schedule_window() {
   python3 - <<'PY'
 from datetime import datetime
@@ -84,6 +93,7 @@ run_vaccination_drive_batching() {
 
   if [ "$dry_run" -eq 1 ]; then
     run_go_cmd generate-vaccination-obligations -tenant-id "$tenant_id"
+    run_goat_shed_integrity_proof
     if [ -n "${as_of// }" ]; then
       run_go_cmd obligation-sweeper -tenant-id "$tenant_id" -actor-id "$actor_id" -as-of "$as_of" -due-before "$due_before" -mark-missed=false -sweep-reminders=false -sweep-escalations=false -timeout 5m
     else
@@ -95,6 +105,7 @@ run_vaccination_drive_batching() {
   fi
 
   run_go_cmd generate-vaccination-obligations -tenant-id "$tenant_id"
+  run_goat_shed_integrity_proof
   if [ -n "${as_of// }" ]; then
     run_go_cmd obligation-sweeper -tenant-id "$tenant_id" -actor-id "$actor_id" -as-of "$as_of" -due-before "$due_before" -mark-missed=false -sweep-reminders=false -sweep-escalations=false -timeout 5m
   else
@@ -127,6 +138,7 @@ run_vaccination_drive_batching() {
     GOATOS_DRIVE_CLUBBING_TO="${GOATOS_DRIVE_CLUBBING_TO:-${due_before%%T*}}" \
       bash "$repo/tools/dev/check-vaccination-drive-clubbing-proof.sh"
   fi
+  run_goat_shed_integrity_proof
 }
 
 run_calendar_projectors() {
@@ -158,6 +170,7 @@ if [ "$dry_run" -eq 0 ] && [ -d "$repo/backend/cmd/seed-state-check" ]; then
   echo "==> seed-closeout: seed-state-check (mode=closeout)"
   (cd "$repo/backend" && go run ./cmd/seed-state-check -tenant-id "$tenant_id" -mode closeout)
 fi
+run_goat_shed_integrity_proof
 run_required_projectors
 run_vaccination_drive_batching
 run_calendar_projectors

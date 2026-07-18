@@ -115,23 +115,94 @@ func TestHistoryIdempotencyIncludesAdministeredSourceDate(t *testing.T) {
 
 func TestSeedObligationScopePrefersAnimalLocation(t *testing.T) {
 	t.Run("shed scope wins for calendar-visible history", func(t *testing.T) {
-		scopeType, scopeID := seedObligationScope("tenant-1", "park-1", "shed-1")
+		scopeType, scopeID, err := seedObligationScope("shed-1")
+		if err != nil {
+			t.Fatalf("seedObligationScope: %v", err)
+		}
 		if scopeType != "shed" || scopeID != "shed-1" {
 			t.Fatalf("scope = %s/%s, want shed/shed-1", scopeType, scopeID)
 		}
 	})
 
-	t.Run("park fallback keeps park-filtered history visible", func(t *testing.T) {
-		scopeType, scopeID := seedObligationScope("tenant-1", "park-1", "")
-		if scopeType != "park" || scopeID != "park-1" {
-			t.Fatalf("scope = %s/%s, want park/park-1", scopeType, scopeID)
+	t.Run("missing shed has no park or tenant fallback", func(t *testing.T) {
+		if _, _, err := seedObligationScope(""); err == nil {
+			t.Fatal("seedObligationScope err=nil, want missing shed failure")
+		}
+	})
+}
+
+func TestSeedReconciliationOneToManyPaginationScheduledDateScopeHierarchyStatusBucketsShedInvariants(t *testing.T) {
+	t.Run("missing placement is deterministic seed intake", func(t *testing.T) {
+		got := seedPlacementKey(goatRecord{})
+		if got.farm != seedFallbackFarm || got.shed != seedFallbackShed {
+			t.Fatalf("placement key = %#v, want deterministic fallback %s/%s", got, seedFallbackFarm, seedFallbackShed)
+		}
+		keys := distinctShedKeys([]goatRecord{
+			{Farm: "CPT", Shed: "Yashoda 4"},
+			{Farm: "CPT", Shed: "Yashoda 4"},
+			{},
+		})
+		if len(keys) != 2 {
+			t.Fatalf("distinct shed keys = %d, want 2 stable placement groups", len(keys))
 		}
 	})
 
-	t.Run("tenant fallback is last resort only", func(t *testing.T) {
-		scopeType, scopeID := seedObligationScope("tenant-1", "", "")
-		if scopeType != "tenant" || scopeID != "tenant-1" {
-			t.Fatalf("scope = %s/%s, want tenant/tenant-1", scopeType, scopeID)
+	t.Run("scope hierarchy is shed only", func(t *testing.T) {
+		scopeType, scopeID, err := seedObligationScope("shed-123")
+		if err != nil {
+			t.Fatalf("seedObligationScope: %v", err)
+		}
+		if scopeType != "shed" || scopeID != "shed-123" {
+			t.Fatalf("scope = %s/%s, want shed/shed-123", scopeType, scopeID)
+		}
+		if _, _, err := seedObligationScope(""); err == nil {
+			t.Fatal("missing shed scope must fail closed")
+		}
+	})
+
+	t.Run("status buckets and one to many vaccination rows stay at goat shed grain", func(t *testing.T) {
+		goatSQL := activeGoatShedInvariantSQL()
+		for _, want := range []string{
+			"g.current_location_id <> g.shed_id",
+			"shed.location_type <> 'shed'",
+			"shed.parent_location_id IS DISTINCT FROM g.park_id",
+			"g.lifecycle_status NOT IN",
+		} {
+			if !strings.Contains(goatSQL, want) {
+				t.Fatalf("active goat shed invariant missing %q", want)
+			}
+		}
+
+		obligationSQL := vaccinationObligationShedScopeInvariantSQL()
+		for _, want := range []string{
+			"pd.category = 'vaccination'",
+			"oi.status NOT IN",
+			"g.lifecycle_status NOT IN",
+			"oi.scope_type <> 'shed'",
+			"oi.scope_id IS DISTINCT FROM g.shed_id",
+		} {
+			if !strings.Contains(obligationSQL, want) {
+				t.Fatalf("vaccination obligation shed invariant missing %q", want)
+			}
+		}
+	})
+
+	t.Run("scheduled date reconciliation is whole tenant not page bounded", func(t *testing.T) {
+		source, err := os.ReadFile("main.go")
+		if err != nil {
+			t.Fatalf("read seed source: %v", err)
+		}
+		text := string(source)
+		for _, want := range []string{
+			"projection-review: membership=obligation_instances",
+			"pagination=none",
+			"GROUP BY target_id, rule_id",
+			"HAVING count(*) > 1",
+			"target_type = 'goat'",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("seed reconciliation aggregate missing %q", want)
+			}
 		}
 	})
 }

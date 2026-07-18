@@ -1329,8 +1329,9 @@ and compatibility spacing are V1.
 - Add a no-rolling-postponement proof case:
   after one due group has already used the +7-day batching hold, it must not be
   moved again to chase a later/larger drive. The next state must be execute,
-  micro-drive, real defer/blocker, or process-broken if the medical window was
-  missed.
+  micro-drive, or defer while a real temporary blocker is active. When a
+  temporary blocker clears, recovery/clearance becomes the new ready anchor and
+  the planner schedules inside that anchor's +7-day buffer.
 - Add shot-cap proof cases:
   one live + one killed can share the same visit when otherwise safe; a later
   live must wait at least 4 weeks from the prior live; when 3+ vaccines are due,
@@ -1350,7 +1351,7 @@ and compatibility spacing are V1.
 |---|---|
 | Same park, shed/tag A due today + compatible shed/tag B due within 7 days | One park-level drive is created on the held date, with per-shed/tag counts visible and every animal inside medical window |
 | Same case, but A's medical window ends before B is safe | A becomes a micro-drive now; no unsafe hold |
-| Same obligation/dose already held once | No second postponement; execute/micro-drive/defer/process-broken only |
+| Same obligation/dose already held once | No second postponement; execute, micro-drive, or defer only while a real temporary blocker is active; after recovery/clearance, schedule from the new ready anchor within +7 days |
 | 3-week booster overlaps safely at week 4 | One-time +7 batching hold is allowed; no move to week 5/week 6 |
 | Kid goat+sheep shared group | Goat and sheep kids can share one compatible kid drive group, with species-specific vaccine rows still correct |
 | Adult goat+sheep same park visit | Adult goat and adult sheep are planned as separate species execution groups inside the same park visit |

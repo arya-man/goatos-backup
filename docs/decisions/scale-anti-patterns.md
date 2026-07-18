@@ -218,7 +218,15 @@ Forbidden:
   yields more safe animals;
 - ranking by obligation/vaccine rows before distinct animals;
 - hiding bad drive fragmentation in Calendar by merging rows in the frontend;
-- repeatedly rolling a held animal forward to chase larger future drives.
+- repeatedly rolling a held animal forward to chase larger future drives;
+- leaving any live seed/import goat without `park_id`, `shed_id`, and
+  `current_location_id = shed_id`;
+- creating park-scoped or tenant-scoped goat vaccination obligations. Park is
+  the drive/visit grouping scope after obligations exist, not a fallback animal
+  obligation scope;
+- treating screenshots after generation but before sweeper closeout as
+  vaccination proof. Generation creates due obligations; the sweeper creates
+  clubbed drive batches.
 
 Required behavior: maximize compatible distinct animals per same-park visit
 inside the selected animals' safe windows. Default policy allows one batching
@@ -233,6 +241,14 @@ eligibility horizon as "today": keep `asOf` for planner date math and
 execution/control-tower rows is the same micro-drive leak in projection form. CI guard:
 `make vaccination-drive-clubbing-guard`. Post-reseed DB proof:
 `make vaccination-drive-clubbing-db-proof`.
+
+Seed/import proof is part of the same contract. During this build phase, missing
+source placement is completed deterministically into an explicit seed-intake
+shed; do not skip goats and do not invent vaccination dates/history to make
+output look clean. `tools/dev/seed-closeout.sh` must run the goat-shed integrity
+proof after seed, generation, and sweeper. Static guard:
+`make goat-shed-scope-guard`. Post-seed DB proof:
+`make goat-shed-integrity-db-proof`.
 
 ## Projection rebuild anti-patterns
 

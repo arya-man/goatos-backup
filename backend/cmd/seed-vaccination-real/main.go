@@ -164,6 +164,11 @@ type stats struct {
 	VaccineUnrecognizedDatedFacts  int // dated cell under a vaccine header not present in the seeded matrix
 }
 
+const (
+	seedFallbackFarm = "SEED_INTAKE"
+	seedFallbackShed = "Seed Intake Shed"
+)
+
 type oblIns struct {
 	obligationID, versionID, ruleID, goatID string
 	scopeType, scopeID                      string
@@ -576,11 +581,25 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		st.Purged = pc
 	}
 
-	// 1. Parks: resolve existing CBE/CPT park rows by location_code.
+	// 1. Parks: resolve/create every park needed by accepted source animals. While the
+	// product validators are still being built, missing placement fields are completed
+	// deterministically by seed; vaccination dates/history are never invented.
 	parkByFarm := map[string]string{}
-	for _, farm := range distinct(goats, func(g goatRecord) string { return g.Farm }) {
+	for _, farm := range distinct(goats, func(g goatRecord) string { return seedFarm(g) }) {
 		var parkID string
-		if err := tx.QueryRow(ctx, `SELECT location_id FROM locations WHERE tenant_id=$1 AND location_type='park' AND location_code=$2 LIMIT 1`, tenantID, farm).Scan(&parkID); err != nil {
+		code := seedLocationCode(farm)
+		err := tx.QueryRow(ctx, `SELECT location_id FROM locations WHERE tenant_id=$1 AND location_type='park' AND location_code=$2 LIMIT 1`, tenantID, code).Scan(&parkID)
+		if err == pgx.ErrNoRows {
+			parkID = detUUID("park", tenantID, farm)
+			if _, err := tx.Exec(ctx, `
+			INSERT INTO locations (location_id, tenant_id, location_type, location_code, name,
+				country, state_region, timezone, status, updated_at)
+			VALUES ($1,$2,'park',$3,$4,'IN','Tamil Nadu','Asia/Kolkata','active',now())
+			ON CONFLICT (tenant_id, location_code) DO UPDATE SET name=EXCLUDED.name, status='active', updated_at=now()`,
+				parkID, tenantID, code, farm); err != nil {
+				return st, fmt.Errorf("create park %q: %w", farm, err)
+			}
+		} else if err != nil {
 			return st, fmt.Errorf("resolve park for farm %q: %w", farm, err)
 		}
 		parkByFarm[farm] = parkID
@@ -591,9 +610,6 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	//    so EVERY goat maps to its real shed.
 	shedByKey := map[shedKey]string{}
 	for _, k := range distinctShedKeys(goats) {
-		if k.shed == "" {
-			continue
-		}
 		parkID := parkByFarm[k.farm]
 		var shedID string
 		err := tx.QueryRow(ctx, `
@@ -751,10 +767,10 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	goatParkByAnimalKey := map[string]string{}
 	var goatRows []seedGoatUpsertRow
 	for _, g := range goats {
-		shedID, ok := shedByKey[shedKey{g.Farm, g.Shed}]
+		placement := seedPlacementKey(g)
+		shedID, ok := shedByKey[placement]
 		if !ok {
-			// No shed (blank) -> cannot place in a cohort; skip animal placement.
-			continue
+			return st, fmt.Errorf("source animal %q has no deterministic seed shed for placement %s/%s", sourceAnimalIdentifier(g.RFID, g.OldID, g.OldIDSuffix), placement.farm, placement.shed)
 		}
 		animalKey := sourceAnimalIdentifier(g.RFID, g.OldID, g.OldIDSuffix)
 		if animalKey == "" {
@@ -762,7 +778,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		}
 		animalIdentifier1, animalIdentifier2 := identifierSlots(g.RFID, g.OldID, g.OldIDSuffix)
 		goatID := detUUID("goat", tenantID, animalKey)
-		parkID := parkByFarm[g.Farm]
+		parkID := parkByFarm[placement.farm]
 		goatIDByAnimalKey[animalKey] = goatID
 		goatLifecycleByAnimalKey[animalKey] = normalizeLifecycle(g.Status)
 		goatOriginTypeByAnimalKey[animalKey] = normalizeOriginType(g.OriginType)
@@ -816,6 +832,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 	if err := upsertSeedGoats(ctx, tx, tenantID, goatRows, custodianPartyID); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
+	}
+	if err := verifyActiveGoatsHaveShedInTx(ctx, tx, tenantID); err != nil {
+		return st, err
 	}
 	st.Animals = len(goatRows)
 
@@ -959,7 +978,10 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 
 		oblID := detUUID("obligation", tenantID, c.AnimalKey, def.Code, doseCodeForPath)
 		oblIdem := "vacc-real-obl:" + c.AnimalKey + ":" + def.Code + ":" + doseCodeForPath
-		scopeType, scopeID := seedObligationScope(tenantID, goatParkByAnimalKey[c.AnimalKey], goatShedByAnimalKey[c.AnimalKey])
+		scopeType, scopeID, err := seedObligationScope(goatShedByAnimalKey[c.AnimalKey])
+		if err != nil {
+			return st, err
+		}
 
 		// Open (scheduled/due) vaccination obligations are blocked by the procurement
 		// exclusion guard for goats that are dead/sold/lost/culled/transferred/merged/inactive.
@@ -1104,6 +1126,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	if err := verifyPersistedSourceFactsInTx(ctx, tx, tenantID, facts); err != nil {
 		return st, err
 	}
+	if err := verifyVaccinationObligationsShedScopedInTx(ctx, tx, tenantID); err != nil {
+		return st, err
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return st, fmt.Errorf("commit: %w", err)
@@ -1135,6 +1160,12 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, genErr
 	}
 	if err := verifySeedReconciliation(ctx, pool, tenantID, now, st); err != nil {
+		return st, err
+	}
+	if err := verifyActiveGoatsHaveShed(ctx, pool, tenantID); err != nil {
+		return st, err
+	}
+	if err := verifyVaccinationObligationsShedScoped(ctx, pool, tenantID); err != nil {
 		return st, err
 	}
 
@@ -1527,14 +1558,11 @@ func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) e
 	return nil
 }
 
-func seedObligationScope(tenantID, parkID, shedID string) (scopeType, scopeID string) {
+func seedObligationScope(shedID string) (scopeType, scopeID string, err error) {
 	if strings.TrimSpace(shedID) != "" {
-		return "shed", shedID
+		return "shed", shedID, nil
 	}
-	if strings.TrimSpace(parkID) != "" {
-		return "park", parkID
-	}
-	return "tenant", tenantID
+	return "", "", errors.New("seed-vaccination-real: accepted goat vaccination obligation has no shed scope")
 }
 
 func printSeedSummary(st stats, genRes vaccinationdomain.GenerateResult) {
@@ -2146,6 +2174,96 @@ func verifyPersistedSourceFactsInTx(ctx context.Context, tx pgx.Tx, tenantID str
 	return nil
 }
 
+func verifyActiveGoatsHaveShedInTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
+	var offenders int64
+	if err := tx.QueryRow(ctx, activeGoatShedInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify active goat shed placement: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("active goat shed invariant failed: %d active animals are missing a real shed/park/current shed placement", offenders)
+	}
+	return nil
+}
+
+func verifyActiveGoatsHaveShed(ctx context.Context, pool *pgxpool.Pool, tenantID string) error {
+	var offenders int64
+	if err := pool.QueryRow(ctx, activeGoatShedInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify active goat shed placement: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("active goat shed invariant failed: %d active animals are missing a real shed/park/current shed placement", offenders)
+	}
+	return nil
+}
+
+func activeGoatShedInvariantSQL() string {
+	return `
+SELECT count(*)
+FROM goats g
+LEFT JOIN locations shed
+  ON shed.tenant_id = g.tenant_id
+ AND shed.location_id = g.shed_id
+LEFT JOIN locations park
+  ON park.tenant_id = g.tenant_id
+ AND park.location_id = g.park_id
+WHERE g.tenant_id = $1::uuid
+  AND g.lifecycle_status NOT IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
+  AND (
+    g.shed_id IS NULL
+    OR g.park_id IS NULL
+    OR g.current_location_id IS NULL
+    OR g.current_location_id <> g.shed_id
+    OR shed.location_type <> 'shed'
+    OR shed.status <> 'active'
+    OR park.location_type <> 'park'
+    OR park.status <> 'active'
+    OR shed.parent_location_id IS DISTINCT FROM g.park_id
+  )`
+}
+
+func verifyVaccinationObligationsShedScopedInTx(ctx context.Context, tx pgx.Tx, tenantID string) error {
+	var offenders int64
+	if err := tx.QueryRow(ctx, vaccinationObligationShedScopeInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify vaccination obligation shed scope: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("vaccination obligation shed-scope invariant failed: %d active open goat obligations are not scoped to the goat's shed", offenders)
+	}
+	return nil
+}
+
+func verifyVaccinationObligationsShedScoped(ctx context.Context, pool *pgxpool.Pool, tenantID string) error {
+	var offenders int64
+	if err := pool.QueryRow(ctx, vaccinationObligationShedScopeInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify vaccination obligation shed scope: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("vaccination obligation shed-scope invariant failed: %d active open goat obligations are not scoped to the goat's shed", offenders)
+	}
+	return nil
+}
+
+func vaccinationObligationShedScopeInvariantSQL() string {
+	return `
+SELECT count(*)
+FROM obligation_instances oi
+JOIN protocol_versions pv
+  ON pv.tenant_id = oi.tenant_id
+ AND pv.protocol_version_id = oi.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id
+ AND pd.protocol_id = pv.protocol_id
+JOIN goats g
+  ON g.tenant_id = oi.tenant_id
+ AND g.goat_id = oi.target_id
+WHERE oi.tenant_id = $1::uuid
+  AND pd.category = 'vaccination'
+  AND oi.target_type = 'goat'
+  AND oi.status NOT IN ('completed', 'canceled', 'superseded', 'waived')
+  AND g.lifecycle_status NOT IN ('dead', 'sold', 'lost', 'culled', 'transferred', 'merged', 'inactive')
+  AND (oi.scope_type <> 'shed' OR oi.scope_id IS DISTINCT FROM g.shed_id)`
+}
+
 func keysOf(m map[string]struct{}) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -2296,7 +2414,7 @@ func distinctShedKeys(goats []goatRecord) []shedKey {
 	seen := map[shedKey]bool{}
 	var out []shedKey
 	for _, g := range goats {
-		k := shedKey{g.Farm, g.Shed}
+		k := seedPlacementKey(g)
 		if !seen[k] {
 			seen[k] = true
 			out = append(out, k)
@@ -2305,21 +2423,52 @@ func distinctShedKeys(goats []goatRecord) []shedKey {
 	return out
 }
 
-func shedCode(farm, shed string) string {
-	slug := strings.ToUpper(shed)
-	slug = strings.Map(func(r rune) rune {
+func seedPlacementKey(g goatRecord) shedKey {
+	return shedKey{farm: seedFarm(g), shed: seedShed(g)}
+}
+
+func seedFarm(g goatRecord) string {
+	farm := strings.TrimSpace(g.Farm)
+	if farm == "" {
+		return seedFallbackFarm
+	}
+	return farm
+}
+
+func seedShed(g goatRecord) string {
+	shed := strings.TrimSpace(g.Shed)
+	if shed == "" {
+		return seedFallbackShed
+	}
+	return shed
+}
+
+func seedLocationCode(name string) string {
+	code := strings.ToUpper(strings.TrimSpace(name))
+	code = strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
 			return r
 		default:
 			return '_'
 		}
-	}, slug)
-	for strings.Contains(slug, "__") {
-		slug = strings.ReplaceAll(slug, "__", "_")
+	}, code)
+	for strings.Contains(code, "__") {
+		code = strings.ReplaceAll(code, "__", "_")
 	}
-	slug = strings.Trim(slug, "_")
-	return farm + "_SHED_" + slug
+	code = strings.Trim(code, "_")
+	if code == "" {
+		return seedFallbackFarm
+	}
+	return code
+}
+
+func shedCode(farm, shed string) string {
+	slug := seedLocationCode(shed)
+	if slug == seedFallbackFarm {
+		slug = "SHED"
+	}
+	return seedLocationCode(farm) + "_SHED_" + slug
 }
 
 func normalizeSex(g string) string {

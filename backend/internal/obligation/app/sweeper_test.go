@@ -82,6 +82,43 @@ func TestSweeperRollsBackShotCapClaimWhenAttachNoOps(t *testing.T) {
 	}
 }
 
+func TestSweeperRollsBackShotCapClaimsWhenAttachPartiallySucceeds(t *testing.T) {
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rowsByVersion: map[string][]domain.UnbatchedDue{
+			"version-partial": {
+				{ObligationID: "obl-attached", RuleID: "rule-partial", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due},
+				{ObligationID: "obl-raced", RuleID: "rule-partial", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-2", DueAt: due},
+			},
+			"version-valid": {
+				{ObligationID: "obl-valid", RuleID: "rule-valid", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-2", DueAt: due},
+			},
+		},
+		createBatchAttachedSeq: []int64{1, 1},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	session := NewSweepSession()
+	cfg := SweepConfig{
+		VaccineCode:  "PPR",
+		DrivePlanner: domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 1},
+	}
+
+	first, err := svc.SweepVersionWithSessionAsOf(context.Background(), "tenant-1", "version-partial", cfg, due, due, session)
+	if err != nil {
+		t.Fatalf("first SweepVersionWithSessionAsOf: %v", err)
+	}
+	if first.Obligations != 1 {
+		t.Fatalf("first result = %#v, want one attached obligation", first)
+	}
+	second, err := svc.SweepVersionWithSessionAsOf(context.Background(), "tenant-1", "version-valid", cfg, due, due, session)
+	if err != nil {
+		t.Fatalf("second SweepVersionWithSessionAsOf: %v", err)
+	}
+	if second.Obligations != 1 {
+		t.Fatalf("second result = %#v, want later goat-2 obligation to attach after partial rollback", second)
+	}
+}
+
 func TestSweeperMarksBatchBlockedWhenStockReservationFails(t *testing.T) {
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
@@ -108,6 +145,38 @@ func TestSweeperMarksBatchBlockedWhenStockReservationFails(t *testing.T) {
 	}
 	if result.Batches != 2 || result.Obligations != 4 {
 		t.Fatalf("result = %#v, want blocked batch counted", result)
+	}
+}
+
+func TestUnbatchedDriveWindowUsesSelectedIntersection(t *testing.T) {
+	startA := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	endA := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	startB := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	endB := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
+
+	windowStart, windowEnd := unbatchedDriveWindow([]domain.UnbatchedDue{
+		{ObligationID: "obl-a", DueAt: startA, WindowStart: &startA, WindowEnd: &endA},
+		{ObligationID: "obl-b", DueAt: startB, WindowStart: &startB, WindowEnd: &endB},
+	})
+	if got := dateKey(windowStart); got != "2026-08-12" {
+		t.Fatalf("window start = %s, want latest selected start 2026-08-12", got)
+	}
+	if got := dateKey(windowEnd); got != "2026-08-18" {
+		t.Fatalf("window end = %s, want binding selected safe-until 2026-08-18", got)
+	}
+}
+
+func TestRejectNonShedUnbatchedDueFailsClosed(t *testing.T) {
+	err := rejectNonShedUnbatchedDue([]domain.UnbatchedDue{{
+		ObligationID: "obl-park",
+		ScopeType:    "park",
+		ScopeID:      "park-1",
+	}})
+	if err == nil {
+		t.Fatal("rejectNonShedUnbatchedDue err=nil, want fail-closed non-shed obligation")
+	}
+	if !strings.Contains(err.Error(), "non-shed goat obligation") {
+		t.Fatalf("error = %q, want non-shed invariant message", err.Error())
 	}
 }
 
@@ -189,7 +258,7 @@ func TestSweeperGroupsByRuleAndReservesAgainstPlannedDate(t *testing.T) {
 	}
 }
 
-func TestSweeperDoesNotReserveNoWindowObligationsWeeksLate(t *testing.T) {
+func TestSweeperFailsNoWindowObligationsWeeksLate(t *testing.T) {
 	dueA := time.Date(2026, time.August, 14, 9, 30, 0, 0, time.UTC)
 	dueB := time.Date(2026, time.August, 15, 9, 30, 0, 0, time.UTC)
 	repo := &fakeSweepRepo{
@@ -207,8 +276,11 @@ func TestSweeperDoesNotReserveNoWindowObligationsWeeksLate(t *testing.T) {
 		VaccineItemID: "vaccine-1",
 		DosesPerGoat:  1,
 	}, time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC), time.Date(2026, time.August, 31, 0, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatalf("SweepVersionAsOf: %v", err)
+	if err == nil {
+		t.Fatal("SweepVersionAsOf err=nil, want stale eligible row to fail closed")
+	}
+	if !strings.Contains(err.Error(), "no feasible date") {
+		t.Fatalf("SweepVersionAsOf err = %q, want no feasible date failure", err.Error())
 	}
 	if result.Batches != 0 || result.Obligations != 0 {
 		t.Fatalf("result = %#v, want no late no-window work", result)

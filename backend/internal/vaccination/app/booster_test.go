@@ -348,6 +348,12 @@ type boosterGoatReaderFake struct {
 }
 
 func (f *boosterGoatReaderFake) GetGoatForGeneration(context.Context, string, string) (vaccdomain.EligibleGoat, bool, error) {
+	if f.goat.ParkID == "" {
+		f.goat.ParkID = "park-1"
+	}
+	if f.goat.ShedID == "" {
+		f.goat.ShedID = "shed-1"
+	}
 	return f.goat, f.found, nil
 }
 

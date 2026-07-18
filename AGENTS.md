@@ -351,6 +351,14 @@ Do:
   proof is also failed if it stops after generation and leaves visible-window
   `scheduled`/`due` vaccination obligations unbatched; `tools/dev/seed-closeout.sh`
   must run the obligation sweeper and fail on that condition.
+- Every accepted live goat in seed/import/dev data must resolve to a real active
+  shed. During the current build phase, missing source placement is completed
+  deterministically into an explicit seed-intake park/shed; do not skip the
+  animal, leave `shed_id` blank, or fall back to a park/tenant vaccination
+  obligation. Goat vaccination obligations are **shed-scoped only**; park is
+  the drive execution/grouping scope. Required guards:
+  `make goat-shed-scope-guard`; post-seed DB proof:
+  `make goat-shed-integrity-db-proof` or `tools/dev/seed-closeout.sh`.
 - Vaccination drive batching is park-level, animal-first, and safe-window-bound.
   Shed count is never a merge constraint; it is display/proof detail. A 1-2
   animal drive is valid only after proving no compatible same-park animal group

@@ -602,7 +602,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Projection-backed vaccination Full Schedule for one materialized month. */
+        /** Canonical vaccination Full Schedule for one business-calendar month. */
         get: operations["getVaccinationSchedule"];
         put?: never;
         post?: never;

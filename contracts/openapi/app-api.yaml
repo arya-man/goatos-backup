@@ -1404,7 +1404,7 @@ paths:
       tags:
         - Vaccination
       operationId: getVaccinationSchedule
-      summary: Projection-backed vaccination Full Schedule for one materialized month.
+      summary: Canonical vaccination Full Schedule for one business-calendar month.
       parameters:
         - name: park_id
           in: query

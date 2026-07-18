@@ -2733,6 +2733,19 @@ WHERE ob.tenant_id = $1
   AND ob.batch_id = $2`, tenant, batch); err != nil {
 		return "", 0, fmt.Errorf("obligation: update batch target count: %w", err)
 	}
+	if in.BatchingHoldUntil != nil {
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_instances oi
+SET batching_hold_count = COALESCE(oi.batching_hold_count, 0) + 1,
+    first_batching_hold_until = COALESCE(oi.first_batching_hold_until, $3),
+    updated_at = now(),
+    row_version = row_version + 1
+FROM unnest($2::uuid[]) AS selected(obligation_id)
+WHERE oi.tenant_id = $1
+  AND oi.obligation_id = selected.obligation_id`, tenant, ids, pgconv.Timestamptz(*in.BatchingHoldUntil)); err != nil {
+			return "", 0, fmt.Errorf("obligation: record batching hold in batch attach tx: %w", err)
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return "", 0, fmt.Errorf("obligation: commit batch attach: %w", err)
 	}

@@ -114,6 +114,13 @@ tiny drive that could have been clubbed. Local worker loops must invoke current
 `obligation-sweeper` flags (`-tenant-id`, `-actor-id`) and must not revive
 removed vaccination projection workers or `-project-*` flags.
 
+Vaccination seed/import must also prove placement before and after generation:
+every accepted live goat has a real active shed, and every open goat vaccination
+obligation is scoped to that shed. Missing source placement is completed
+deterministically into the seed-intake shed during this build phase. Park is the
+drive grouping scope, not an animal-obligation fallback. Static guard:
+`make goat-shed-scope-guard`; DB proof: `make goat-shed-integrity-db-proof`.
+
 For Calendar work, read
 `context/execution/calendar-vaccination-slice-parallel-handoff.md` and
 `docs/decisions/calendar-ownership.md` before adding routes, projections,

@@ -334,6 +334,11 @@ one product; this skill is the navigation layer.
   batching, calendar/full-schedule canonical reads, and the zero-unbatched
   check. Do not inspect Calendar/Full Schedule between generation and sweeper
   and call the micro-drive output meaningful; that is a partial environment.
+- Vaccination seed/import must leave no accepted live goat without a real active
+  shed. Missing source placement is completed deterministically into the
+  seed-intake shed during this build phase; do not skip the animal and do not
+  invent vaccination history. Goat vaccination obligations are shed-scoped only.
+  Run `make goat-shed-scope-guard`; seed closeout runs the DB proof.
 - For Preventive Care (PC) vaccination, never ask about, model, seed, import,
   expose, or schedule from mother-not-vaccinated / unknown-mother status. The
   source/wiki branch is ignored in GoatOS; mothers are kept vaccinated

@@ -83,6 +83,7 @@ type NewBatch struct {
 	PrimaryInventoryLotID *string
 	SopTaskID             *string
 	ConductedBy           *string
+	BatchingHoldUntil     *time.Time
 }
 
 // UnbatchedDue is an unbatched scheduled/due obligation (SM-4 sweep input).

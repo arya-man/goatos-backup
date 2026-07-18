@@ -8,6 +8,16 @@ tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 from_date="${GOATOS_DRIVE_CLUBBING_FROM:-2026-01-01}"
 to_date="${GOATOS_DRIVE_CLUBBING_TO:-2026-12-31}"
 max_small="${GOATOS_DRIVE_CLUBBING_MAX_SMALL:-2}"
+species_policy="${GOATOS_DRIVE_SPECIES_GROUPING_POLICY:-kid_mixed}"
+
+if [ "${1:-}" = "--self-test" ]; then
+  bash -n "$0"
+  grep -q "ob.status = 'planned'" "$0"
+  grep -q "sp.location_id = g.shed_id" "$0"
+  grep -q "GOATOS_DRIVE_SPECIES_GROUPING_POLICY" "$0"
+  echo "vaccination-drive-clubbing-proof: self-test passed"
+  exit 0
+fi
 
 if [ -z "${DATABASE_URL:-}" ]; then
   echo "vaccination-drive-clubbing-proof: DATABASE_URL is required" >&2
@@ -19,7 +29,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
   -v tenant_id="$tenant_id" \
   -v from_date="$from_date" \
   -v to_date="$to_date" \
-  -v max_small="$max_small" <<'SQL'
+  -v max_small="$max_small" \
+  -v species_policy="$species_policy" <<'SQL'
 WITH event_rows AS (
   SELECT
     ob.batch_id,
@@ -28,6 +39,7 @@ WITH event_rows AS (
     COALESCE(gs.name, 'unknown') AS shed,
     oi.target_id,
     CASE
+      WHEN :'species_policy' = 'species_specific' THEN 'species:' || lower(coalesce(g.species,'goat'))
       WHEN upper(COALESCE(asl.stage_code, g.management_stage, '')) LIKE 'K%'
         OR upper(COALESCE(asl.stage_code, g.management_stage, '')) LIKE '%KID%'
         THEN 'kid_mixed'
@@ -45,7 +57,7 @@ WITH event_rows AS (
   LEFT JOIN locations gs ON gs.location_id = g.shed_id
   LEFT JOIN locations gp ON gp.location_id = g.park_id
   LEFT JOIN locations lp ON lp.location_id = gs.parent_location_id
-  LEFT JOIN shed_profiles sp ON sp.tenant_id = g.tenant_id AND sp.location_id = COALESCE(g.shed_id, oi.scope_id)
+  LEFT JOIN shed_profiles sp ON sp.tenant_id = g.tenant_id AND sp.location_id = g.shed_id
   LEFT JOIN animal_stage_lookup asl ON asl.tenant_id = sp.tenant_id
     AND asl.animal_stage_id = sp.animal_stage_id
     AND asl.status = 'active'
@@ -53,7 +65,8 @@ WITH event_rows AS (
     AND pd.category = 'vaccination'
     AND ob.planned_date >= (:'from_date'::date AT TIME ZONE 'Asia/Kolkata')
     AND ob.planned_date < ((:'to_date'::date + interval '1 day') AT TIME ZONE 'Asia/Kolkata')
-    AND ob.status IN ('planned', 'in_progress', 'completed')
+    AND ob.status = 'planned'
+    AND g.shed_id IS NOT NULL
 ),
 drive_groups AS (
   SELECT

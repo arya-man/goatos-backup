@@ -355,7 +355,7 @@ models. **compute-on-read stays banned everywhere else.**
 
 The exemption is machine-scoped, never blanket. `make scale-guard` (the CI
 `guardrails` job) still blocks the compute-on-read/god-CTE shape mechanically;
-the five reads clear it only through the sanctioned scoped annotation
+the six reads clear it only through the sanctioned scoped annotation
 `// scale-guard:ignore: 5k-50k-envelope; see operational-kernel-5k-50k-scale-envelope.md`
 on each read (plus a `tools/scale-guard/baseline.txt` entry where required) AND
 a passing query-plan test at both list and aggregate shapes. Review checkpoints

@@ -628,8 +628,9 @@ stay available to detail and audit surfaces.
    `max_batching_hold_days = 7` and `max_batching_hold_count = 1`. If a due
    obligation/dose cycle was already held once, or if its stored hold-until date
    has arrived, it cannot be moved again to chase a larger future drive. It must
-   execute, micro-drive, defer for a real blocker, or become process-broken if
-   the medical window was missed. Example: a 3-week booster can move once to
+   execute, micro-drive, or defer while a real temporary blocker is active; when
+   that blocker clears, recovery/clearance becomes the new ready anchor and the
+   planner schedules inside that anchor's +7-day buffer. Example: a 3-week booster can move once to
    week 4 when that creates a safe larger park drive; it cannot keep rolling to
    week 5 or week 6.
    Recovery re-entry uses the same cap from `ready_again_at`: animals recovered

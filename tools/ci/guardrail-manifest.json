@@ -178,6 +178,38 @@
       "ciStep": "vaccination-schedule-canonical-guard"
     },
     {
+      "id": "goat-shed-scope",
+      "script": "tools/agent-hooks/check-goat-shed-scope.mjs",
+      "makeTarget": "goat-shed-scope-guard",
+      "realCheck": "node tools/agent-hooks/check-goat-shed-scope.mjs",
+      "selfTest": "node tools/agent-hooks/check-goat-shed-scope.mjs --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
+      "requiredInCI": true,
+      "ciStep": "goat-shed-scope-guard"
+    },
+    {
+      "id": "goat-shed-integrity-db-proof",
+      "script": "tools/dev/check-goat-shed-integrity.sh",
+      "makeTarget": "goat-shed-integrity-db-proof",
+      "realCheck": "bash tools/dev/check-goat-shed-integrity.sh",
+      "selfTest": "bash tools/dev/check-goat-shed-integrity.sh --self-test",
+      "owningDoc": "docs/runbooks/vaccination-seed-source-date-contract.md",
+      "requiredInCI": false,
+      "ciStep": "goat-shed-integrity-db-proof",
+      "notes": "Post-seed/import DB proof. It requires DATABASE_URL and is run by tools/dev/seed-closeout.sh, not by ordinary no-DB CI."
+    },
+    {
+      "id": "vaccination-drive-clubbing-db-proof",
+      "script": "tools/dev/check-vaccination-drive-clubbing-proof.sh",
+      "makeTarget": "vaccination-drive-clubbing-db-proof",
+      "realCheck": "bash tools/dev/check-vaccination-drive-clubbing-proof.sh",
+      "selfTest": "bash tools/dev/check-vaccination-drive-clubbing-proof.sh --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
+      "requiredInCI": false,
+      "ciStep": "vaccination-drive-clubbing-db-proof",
+      "notes": "Post-sweeper DB proof. It requires DATABASE_URL and is run by seed closeout/reseed evidence after the sweeper."
+    },
+    {
       "id": "india-business-date",
       "script": "tools/agent-hooks/check-india-business-date.mjs",
       "makeTarget": "india-date-guard",

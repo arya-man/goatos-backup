@@ -305,8 +305,10 @@ The planner works like this:
 7. Enforce the one-time hold rule. A due item can use the configured batching
    hold once, defaulting to at most 7 calendar days. If it has already been held
    once for this obligation/dose cycle, the next decision is execute, micro-drive,
-   defer for a real blocker, or mark process-broken when the medical window was
-   missed. It is never moved again just because another larger group appears.
+   defer while a real temporary blocker is active; when that blocker clears,
+   recovery/clearance becomes the new ready anchor and the planner schedules
+   inside that anchor's +7-day buffer. It is never moved again just because
+   another larger group appears.
 8. Enforce the per-animal shot cap before finalizing a same-day plan. The default
    cap is 2 shots per animal per drive/doctor visit. If 3+ vaccines are due, the
    planner chooses the highest-priority compatible pair that is medically safe

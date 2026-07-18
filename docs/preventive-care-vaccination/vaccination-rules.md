@@ -230,12 +230,17 @@ must use India/local operational dates:
   if any 1-2 animal drive has another compatible same-park drive inside that
   tiny drive's own due/ready-to-safe-until window. A tiny drive is acceptable
   only when this proof has no reachable clubbing target.
+- Live goat placement is mandatory. Seed/import must deterministically assign
+  every accepted live goat to a real active shed before vaccination generation.
+  Goat vaccination obligations are shed-scoped only (`scope_type='shed'`,
+  `scope_id=goats.shed_id`). Park is the visit/drive grouping scope used after
+  obligations exist; it is not a fallback location for an animal's obligation.
 - This batching hold is **one-time per obligation/dose cycle**. Once a due item
   has been held to overlap with a later compatible group, it cannot be held
   again to chase the next group. No rolling postponement.
 - If the item was already held once, the medical window would expire, vaccine
   compatibility fails, stock/proof/worker requirements fail, or the animal enters
-  a defer state, GoatOS runs a micro-drive now or escalates the explicit blocker.
+  a defer state, GoatOS runs a micro-drive now or applies the explicit blocker.
 - Dead, culled, and sold animals are permanently out of vaccination scheduling.
   Sick, ICU, quarantine, under-treatment, pregnancy month 4-5, post-breeding
   hold, and similar temporary blocks defer; when the animal becomes eligible

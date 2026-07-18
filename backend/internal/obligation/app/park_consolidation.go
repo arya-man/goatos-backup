@@ -175,6 +175,11 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		return remaining, 0, plannedDate, false, true, nil
 	}
 	windowStart, windowEnd := parkDriveWindow(selectedRows, selected)
+	var batchingHoldUntil *time.Time
+	if parkDriveDateUsesBatchingHold(*plannedDate, selectedRows) {
+		holdUntil := *plannedDate
+		batchingHoldUntil = &holdUntil
+	}
 	_, n, createErr := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
 		TenantID:          tenantID,
 		ProtocolVersionID: versionID,
@@ -188,6 +193,7 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		EstimatedTargets:  int32(uniqueParkTargetCount(selectedRows)),
 		PlannedQuantity:   parkDrivePlannedQuantity(cfg, selectedRows),
 		QuantityUnit:      "dose",
+		BatchingHoldUntil: batchingHoldUntil,
 	}, selected)
 	if createErr != nil {
 		session.releaseClaims(shotClaims)
@@ -197,8 +203,8 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		session.releaseClaims(shotClaims)
 		return remaining, 0, plannedDate, animalCapReached, true, nil
 	}
-	if holdErr := s.recordParkBatchingHoldIfNeeded(ctx, tenantID, selected, selectedRows, plannedDate, asOf); holdErr != nil {
-		return remaining, 0, plannedDate, animalCapReached, true, holdErr
+	if int(n) < len(selected) {
+		session.releaseClaims(shotClaims)
 	}
 	return removeRows(remaining, selected), n, plannedDate, animalCapReached, false, nil
 }
@@ -515,11 +521,11 @@ func parkDriveWindow(rows []domain.ParkConsolidationCandidate, selected []string
 		}
 		start := obligationEarliestDate(row)
 		end := obligationLatestDate(row)
-		if windowStart == nil || start.Before(*windowStart) {
+		if windowStart == nil || start.After(*windowStart) {
 			s := start
 			windowStart = &s
 		}
-		if row.WindowEnd != nil && !row.WindowEnd.IsZero() && (windowEnd == nil || end.After(*windowEnd)) {
+		if row.WindowEnd != nil && !row.WindowEnd.IsZero() && (windowEnd == nil || end.Before(*windowEnd)) {
 			e := end
 			windowEnd = &e
 		}

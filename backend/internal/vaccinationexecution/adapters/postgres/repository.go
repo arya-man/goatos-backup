@@ -447,6 +447,7 @@ func (r *Repository) VaccinationGaps(ctx context.Context, q domain.GapsQuery) ([
 
 const vaccinationScheduleWindowSQL = `
 -- projection-review: membership=obligation_instances whose due_at or accepted completion falls inside the requested month window; group_key=(park_uuid,shed_uuid,stage,protocol_id,protocol_name) with month-window due/accepted membership applied before cohort pagination; join_cardinality=completions/asof_terminal are pre-aggregated one row per obligation and goat/location/protocol joins are keyed 1:1, while COUNT(DISTINCT goat_id) protects animal counts from multi-vaccine one-to-many obligations; pagination=cohort_page keysets groups before the final aggregate so page boundaries never truncate a cohort or change total_count; scope=tenant plus optional park filter resolved through raw.direct_park_uuid or the shed parent, with status buckets derived from as_of-effective eff_status.
+-- scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — bounded monthly canonical Full Schedule read, keyset-paginated by cohort and query-plan-tested (canonical_read_plan_test.go).
 WITH completions AS (
   SELECT
     obligation_id,

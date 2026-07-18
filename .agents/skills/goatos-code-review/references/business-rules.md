@@ -101,6 +101,15 @@ Rule shapes a reviewer checks (illustrative values — verify against source):
   earliest member animal `due_at`. Required guard:
   `make vaccination-drive-clubbing-guard`; post-reseed proof:
   `make vaccination-drive-clubbing-db-proof`.
+- **Seed/import placement is not optional:** every accepted live goat must have
+  `park_id`, `shed_id`, and `current_location_id = shed_id` by the end of
+  seed/import/closeout. During this build phase, missing source placement is
+  completed deterministically into the seed-intake shed; do not skip the goat,
+  and do not fabricate vaccination dates/history. Goat vaccination obligations
+  are shed-scoped only (`scope_type='shed'`, `scope_id=goats.shed_id`). Park is
+  the drive grouping scope, not a fallback animal scope. Required guard:
+  `make goat-shed-scope-guard`; post-seed DB proof:
+  `make goat-shed-integrity-db-proof`.
 - **Seed source dates are history anchors, not due work:** when reviewing seed,
   import, or replay code, verify trusted past source dates are preserved as
   accepted history, open work on or before the backend business date is

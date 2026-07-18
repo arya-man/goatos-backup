@@ -452,6 +452,24 @@ func TestPickBestParkDriveDateIteratesRemainder(t *testing.T) {
 	}
 }
 
+func TestParkDriveWindowUsesSelectedIntersection(t *testing.T) {
+	startA := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	endA := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	startB := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	endB := time.Date(2026, 8, 18, 0, 0, 0, 0, time.UTC)
+
+	windowStart, windowEnd := parkDriveWindow([]domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-a", DueAt: startA, WindowStart: &startA, WindowEnd: &endA},
+		{ObligationID: "obl-b", DueAt: startB, WindowStart: &startB, WindowEnd: &endB},
+	}, []string{"obl-a", "obl-b"})
+	if got := dateKey(windowStart); got != "2026-08-12" {
+		t.Fatalf("window start = %s, want latest selected start 2026-08-12", got)
+	}
+	if got := dateKey(windowEnd); got != "2026-08-18" {
+		t.Fatalf("window end = %s, want binding selected safe-until 2026-08-18", got)
+	}
+}
+
 func ptrTime(v time.Time) *time.Time {
 	return &v
 }

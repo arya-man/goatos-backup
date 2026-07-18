@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Post-seed/post-import DB proof for vaccination placement invariants.
+# Every live goat must have a real active shed, and every open goat vaccination
+# obligation must be scoped to that same shed. Park is a drive execution scope,
+# not a fallback animal scope.
+set -euo pipefail
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
+
+if [ "${1:-}" = "--self-test" ]; then
+  bash -n "$0"
+  grep -q "active_goat_shed_invariant" "$0"
+  grep -q "vaccination_obligation_shed_scope_invariant" "$0"
+  echo "goat-shed-integrity proof: self-test passed"
+  exit 0
+fi
+
+if [ -z "${DATABASE_URL:-}" ]; then
+  echo "goat-shed-integrity proof: DATABASE_URL is required" >&2
+  exit 2
+fi
+
+offenders="$(
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
+  -v tenant_id="$tenant_id" <<'SQL'
+WITH active_goat_shed_invariant AS (
+  SELECT
+    'active_goat_shed_invariant' AS invariant,
+    COALESCE(g.display_id, g.goat_id::text) AS goat,
+    COALESCE(g.lifecycle_status, '') AS lifecycle,
+    COALESCE(g.health_status, '') AS health,
+    COALESCE(g.park_id::text, 'missing') AS park_id,
+    COALESCE(g.shed_id::text, 'missing') AS shed_id,
+    COALESCE(g.current_location_id::text, 'missing') AS current_location_id,
+    CASE
+      WHEN g.shed_id IS NULL THEN 'missing shed_id'
+      WHEN g.park_id IS NULL THEN 'missing park_id'
+      WHEN g.current_location_id IS DISTINCT FROM g.shed_id THEN 'current_location_id is not shed_id'
+      WHEN shed.location_id IS NULL THEN 'shed_id is not an active shed'
+      WHEN park.location_id IS NULL THEN 'park_id is not an active park'
+      WHEN shed.parent_location_id IS DISTINCT FROM g.park_id THEN 'shed parent is not goat park'
+      ELSE 'unknown'
+    END AS reason
+  FROM goats g
+  LEFT JOIN locations shed
+    ON shed.tenant_id = g.tenant_id
+   AND shed.location_id = g.shed_id
+   AND shed.location_type = 'shed'
+   AND shed.status = 'active'
+  LEFT JOIN locations park
+    ON park.tenant_id = g.tenant_id
+   AND park.location_id = g.park_id
+   AND park.location_type = 'park'
+   AND park.status = 'active'
+  WHERE g.tenant_id = :'tenant_id'::uuid
+    AND g.lifecycle_status = 'alive'
+    AND g.merged_into_goat_id IS NULL
+    AND (
+      g.shed_id IS NULL
+      OR g.park_id IS NULL
+      OR g.current_location_id IS DISTINCT FROM g.shed_id
+      OR shed.location_id IS NULL
+      OR park.location_id IS NULL
+      OR shed.parent_location_id IS DISTINCT FROM g.park_id
+    )
+),
+vaccination_obligation_shed_scope_invariant AS (
+  SELECT
+    'vaccination_obligation_shed_scope_invariant' AS invariant,
+    COALESCE(g.display_id, oi.target_id::text) AS goat,
+    COALESCE(g.lifecycle_status, '') AS lifecycle,
+    COALESCE(g.health_status, '') AS health,
+    COALESCE(g.park_id::text, 'missing') AS park_id,
+    COALESCE(g.shed_id::text, 'missing') AS shed_id,
+    COALESCE(oi.scope_id::text, 'missing') AS current_location_id,
+    'vaccination obligation scope is not the goat shed' AS reason
+  FROM obligation_instances oi
+  JOIN protocol_versions pv
+    ON pv.tenant_id = oi.tenant_id
+   AND pv.protocol_version_id = oi.protocol_version_id
+  JOIN protocol_definitions pd
+    ON pd.tenant_id = pv.tenant_id
+   AND pd.protocol_id = pv.protocol_id
+   AND pd.category = 'vaccination'
+  JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.lifecycle_status = 'alive'
+   AND g.merged_into_goat_id IS NULL
+  WHERE oi.tenant_id = :'tenant_id'::uuid
+    AND oi.target_type = 'goat'
+    AND oi.status IN ('scheduled', 'due', 'in_progress', 'deferred', 'missed')
+    AND (
+      oi.scope_type <> 'shed'
+      OR oi.scope_id IS DISTINCT FROM g.shed_id
+      OR g.shed_id IS NULL
+    )
+)
+SELECT invariant || ' | goat=' || goat || ' | lifecycle=' || lifecycle ||
+       ' | health=' || health || ' | park=' || park_id ||
+       ' | shed=' || shed_id || ' | observed=' || current_location_id ||
+       ' | reason=' || reason
+FROM (
+  SELECT * FROM active_goat_shed_invariant
+  UNION ALL
+  SELECT * FROM vaccination_obligation_shed_scope_invariant
+) bad
+ORDER BY invariant, goat
+LIMIT 50;
+SQL
+)"
+
+if [ -n "${offenders//[[:space:]]/}" ]; then
+  echo "goat-shed-integrity proof: FAILED" >&2
+  echo "Seed/import left goats or vaccination obligations outside the shed-scoped contract:" >&2
+  echo "$offenders" >&2
+  exit 1
+fi
+
+summary="$(
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
+  -v tenant_id="$tenant_id" <<'SQL'
+SELECT
+  count(*) FILTER (WHERE g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL) AS active_goats,
+  count(*) FILTER (WHERE g.lifecycle_status = 'alive' AND g.merged_into_goat_id IS NULL AND g.shed_id IS NOT NULL) AS active_goats_with_shed
+FROM goats g
+WHERE g.tenant_id = :'tenant_id'::uuid;
+SQL
+)"
+
+echo "goat-shed-integrity proof: passed (${summary})"
