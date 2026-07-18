@@ -1,5 +1,5 @@
 // Horizontal bar chart, ported from the mock's `svgHBars` helper
-// (mock/goatos-dashboard-mock.html) together with its `palette()` series colours.
+// (the dashboard mock) together with its `palette()` series colours.
 //
 // Deliberately NOT a charting library. The mock's chart anatomy is dependency-free inline SVG,
 // and the mock is the UI source of truth, so porting it keeps this a pure SERVER component:

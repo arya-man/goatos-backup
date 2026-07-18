@@ -419,6 +419,76 @@ func TestCreateBatchWithObligationsSkipsObligationCanceledAfterSelection(t *test
 	}
 }
 
+func TestCreateBatchWithObligationsRecordsHoldOnlyForAttachedRows(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	firstObligationID := seed(t, ctx, pool)
+
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+	secondObligationID, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: testGoatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC), Status: "scheduled",
+		IdempotencyKey: "obl-partial-hold-canceled", Sequence: 2,
+	})
+	if err != nil || !applied || secondObligationID == "" {
+		t.Fatalf("seed second obligation: id=%q applied=%v err=%v", secondObligationID, applied, err)
+	}
+	batchDate := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	holdUntil := batchDate.AddDate(0, 0, 7)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET status = 'canceled',
+    updated_at = now()
+WHERE tenant_id = $1
+  AND obligation_id = $2::uuid`, tenantID, secondObligationID); err != nil {
+		t.Fatalf("cancel second selected obligation: %v", err)
+	}
+
+	_, attached, err := repo.CreateBatchWithObligations(ctx, domain.NewBatch{
+		TenantID:          tenantID,
+		ProtocolVersionID: versionID,
+		ScopeType:         "park",
+		ScopeID:           cbePark,
+		Session:           "morning",
+		PlannedDate:       &batchDate,
+		Status:            "planned",
+		EstimatedTargets:  2,
+		PlannedQuantity:   "2",
+		QuantityUnit:      "dose",
+		BatchingHoldUntil: &holdUntil,
+	}, []string{firstObligationID, secondObligationID})
+	if err != nil {
+		t.Fatalf("create batch with partial attach: %v", err)
+	}
+	if attached != 1 {
+		t.Fatalf("attached=%d, want only the uncanceled obligation attached", attached)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND obligation_id = $2::uuid
+  AND COALESCE(batching_hold_count, 0) = 1
+  AND first_batching_hold_until IS NOT NULL`, tenantID, firstObligationID); got != 1 {
+		t.Fatalf("attached obligation hold rows=%d, want 1", got)
+	}
+	if got := countRows(t, ctx, pool, `
+SELECT count(*)
+FROM obligation_instances
+WHERE tenant_id = $1
+  AND obligation_id = $2::uuid
+  AND batch_id IS NULL
+  AND COALESCE(batching_hold_count, 0) = 0
+  AND first_batching_hold_until IS NULL`, tenantID, secondObligationID); got != 1 {
+		t.Fatalf("unattached canceled obligation hold rows=%d, want 1 with no hold burned", got)
+	}
+}
+
 func TestPlannedBatchFinalizationOneToManyPageBoundaryScheduledDateParkScopeStatusMatrix(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

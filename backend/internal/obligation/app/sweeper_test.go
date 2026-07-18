@@ -563,6 +563,63 @@ func TestSweepVersionWithSessionSharesShotCapAcrossVersions(t *testing.T) {
 	}
 }
 
+func TestSweepVersionWalksEverySafeOverflowDateWhenShotCapFull(t *testing.T) {
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	winEnd := due.AddDate(0, 0, 2)
+	repo := &fakeDateVisitShotLockerRepo{
+		fakeSweepRepo: &fakeSweepRepo{
+			rowsByVersion: map[string][]domain.UnbatchedDue{
+				"v-overflow": {
+					{ObligationID: "obl-overflow", RuleID: "rule-overflow", ScopeType: "shed", ScopeID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+				},
+			},
+			attachAll: true,
+		},
+		persisted: map[string]int32{
+			visitShotCountKey(due, "goat-1"):                  1,
+			visitShotCountKey(due.AddDate(0, 0, 1), "goat-1"): 1,
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	_, err := svc.SweepVersionWithSessionAsOf(context.Background(), "tenant-1", "v-overflow", SweepConfig{
+		VaccineCode:  "FMD",
+		DrivePlanner: domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 1},
+	}, due, due, NewSweepSession())
+	if err != nil {
+		t.Fatalf("SweepVersionWithSessionAsOf: %v", err)
+	}
+
+	dates := obligationIDPlannedDates(repo.fakeSweepRepo)
+	if dates["obl-overflow"] != "2026-07-03" {
+		t.Fatalf("dates=%#v, want obligation to skip two capped days and land on 2026-07-03", dates)
+	}
+}
+
+func TestParkMergeStepWalksEverySafeOverflowDateWhenShotCapFull(t *testing.T) {
+	due := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	winEnd := due.AddDate(0, 0, 2)
+	repo := &fakeDateVisitShotLockerRepo{
+		fakeSweepRepo: &fakeSweepRepo{attachAll: true},
+		persisted: map[string]int32{
+			visitShotCountKey(due, "goat-1"):                  1,
+			visitShotCountKey(due.AddDate(0, 0, 1), "goat-1"): 1,
+		},
+	}
+	svc := NewSweeperService(repo, nil, nil)
+	remaining := []domain.ParkConsolidationCandidate{
+		{ObligationID: "obl-park-overflow", RuleID: "rule-overflow", ParkID: "park-1", ShedID: "shed-1", TargetID: "goat-1", DueAt: due, WindowEnd: &winEnd},
+	}
+	_, attached, plannedDate, _, _, err := svc.parkMergeStep(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineCode: "FMD",
+	}, domain.DrivePlannerSettings{Enabled: true, MaxShotsPerAnimalPerDrive: 1}, due, due, NewSweepSession(), "park-1", remaining, 1, map[string]struct{}{})
+	if err != nil {
+		t.Fatalf("parkMergeStep: %v", err)
+	}
+	if attached != 1 || plannedDate == nil || plannedDate.Format("2006-01-02") != "2026-07-03" {
+		t.Fatalf("attached=%d plannedDate=%v, want one obligation on 2026-07-03", attached, plannedDate)
+	}
+}
+
 // TestSweepVersionWithSessionRetainsHighestPriorityPairNotArrivalOrder covers BUG2 requirement
 // 2: when 3 vaccines compete for one animal's over-cap visit, the retained pair is the two
 // highest resolved-priority vaccines -- determined by sweeping in the order
@@ -1492,6 +1549,27 @@ type fakeSweepRepo struct {
 	ruleCountsByBatch         map[string][]domain.RuleAttachmentCount
 	parkListCalls             int
 	repeatParkPage            bool
+}
+
+type fakeDateVisitShotLockerRepo struct {
+	*fakeSweepRepo
+	persisted map[string]int32
+}
+
+func (f *fakeDateVisitShotLockerRepo) CountVisitShotsForTargets(_ context.Context, _ string, targetIDs []string, date time.Time) (map[string]int32, error) {
+	out := make(map[string]int32, len(targetIDs))
+	for _, targetID := range targetIDs {
+		out[targetID] = f.persisted[visitShotCountKey(date, targetID)]
+	}
+	return out, nil
+}
+
+func (f *fakeDateVisitShotLockerRepo) LockVisitShots(ctx context.Context, tenantID string, targetIDs []string, date time.Time) (map[string]int32, func(context.Context) error, error) {
+	counts, err := f.CountVisitShotsForTargets(ctx, tenantID, targetIDs, date)
+	if err != nil {
+		return nil, nil, err
+	}
+	return counts, func(context.Context) error { return nil }, nil
 }
 
 func (f *fakeSweepRepo) Ping(context.Context) error { return nil }

@@ -206,8 +206,9 @@ clinical-defer-guard:
 	node tools/agent-hooks/check-clinical-defer-states.mjs
 
 vaccination-drive-clubbing-guard:
-	cd backend && go test ./internal/obligation/app -run 'Test(DrivePlanner|BatchSession|Normalized|Pick|Park|Combo)' -count=1 -timeout=60s
-	cd backend && go test ./internal/obligation/adapters/postgres -run 'TestSM4Sweeper(ClubsNearbyDueDatesWithinSafeWindow|RecordsOneTimeBatchingHoldMetadata|DoesNotBackdateOverdueHoldCap|EnforcesTwoShotsPerAnimalPerDrive)' -count=1
+	cd backend && go test ./internal/obligation/app -run 'Test(DrivePlanner|BatchSession|Normalized|Pick|Park|Combo|SweepVersionWalksEverySafeOverflowDateWhenShotCapFull|ParkMergeStepWalksEverySafeOverflowDateWhenShotCapFull)' -count=1 -timeout=60s
+	cd backend && go test ./internal/obligation/adapters/postgres -run 'Test(SM4Sweeper(ClubsNearbyDueDatesWithinSafeWindow|RecordsOneTimeBatchingHoldMetadata|DoesNotBackdateOverdueHoldCap|EnforcesTwoShotsPerAnimalPerDrive)|CreateBatchWithObligationsRecordsHoldOnlyForAttachedRows)' -count=1
+	cd backend && go test ./internal/calendar/adapters/postgres -run 'TestCalendar(ParkDriveTargetsIncludeParkScopedBatchMembers|DefaultListKeepsPlannedDriveWhenSameDayCatchupDeferred)' -count=1
 	cd backend && go test ./tests/e2e -run TestKernelStoryAK_DriveClubbingWithinBuffer -count=1 -timeout=5m
 
 vaccination-drive-clubbing-db-proof:

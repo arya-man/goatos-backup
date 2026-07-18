@@ -786,6 +786,92 @@ WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
 	})
 }
 
+func TestCalendarParkDriveTargetsIncludeParkScopedBatchMembers(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	dueAt := time.Date(2026, 8, 2, 6, 0, 0, 0, time.UTC)
+	const (
+		protocolID  = "86000000-0000-4000-8000-00000000d201"
+		versionID   = "86000000-0000-4000-8000-00000000d202"
+		ruleID      = "86000000-0000-4000-8000-00000000d203"
+		obligationA = "86000000-0000-4000-8000-00000000d204"
+		obligationB = "86000000-0000-4000-8000-00000000d205"
+		animalA     = "86000000-0000-4000-8000-00000000d206"
+		animalB     = "86000000-0000-4000-8000-00000000d207"
+		batchID     = "86000000-0000-4000-8000-00000000d208"
+	)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationA, dueAt)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, obligationB, dueAt)
+	attachObligationToGoatScope(t, ctx, pool, obligationA, animalA, "shed", testShedA)
+	attachObligationToGoatScope(t, ctx, pool, obligationB, animalB, "shed", testShedB)
+	setCalendarGoatCurrentShed(t, ctx, pool, animalA, testParkA, testShedA)
+	setCalendarGoatCurrentShed(t, ctx, pool, animalB, testParkA, testShedB)
+	seedVaccinationBatchForPark(t, ctx, pool, batchID, versionID, testParkA, dueAt, obligationA, obligationB)
+
+	eventID := parkDriveEventID(testParkA, dueAt)
+	assertDriveTargets(t, ctx, repo, eventID, []string{animalA, animalB})
+	assertDriveTargetSheds(t, ctx, repo, eventID, map[string]string{
+		animalA: "Test Shed 0711",
+		animalB: "Test Shed 0712",
+	})
+}
+
+func TestCalendarDefaultListKeepsPlannedDriveWhenSameDayCatchupDeferred(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	driveDate := time.Date(2026, 8, 5, 6, 0, 0, 0, time.UTC)
+	const (
+		protocolID  = "86000000-0000-4000-8000-00000000d301"
+		versionID   = "86000000-0000-4000-8000-00000000d302"
+		ruleID      = "86000000-0000-4000-8000-00000000d303"
+		batchedOb   = "86000000-0000-4000-8000-00000000d304"
+		deferredOb  = "86000000-0000-4000-8000-00000000d305"
+		batchedGoat = "86000000-0000-4000-8000-00000000d306"
+		deferGoat   = "86000000-0000-4000-8000-00000000d307"
+		batchID     = "86000000-0000-4000-8000-00000000d308"
+	)
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, batchedOb, driveDate)
+	seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, deferredOb, driveDate)
+	attachObligationToGoatScope(t, ctx, pool, batchedOb, batchedGoat, "shed", testShedA)
+	attachObligationToGoatScope(t, ctx, pool, deferredOb, deferGoat, "shed", testShedA)
+	seedVaccinationBatchForPark(t, ctx, pool, batchID, versionID, testParkA, driveDate, batchedOb)
+	setDriveObligationStatus(t, ctx, pool, deferredOb, "deferred")
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: driveDate.Add(-time.Hour),
+		DateTo:   driveDate.Add(24 * time.Hour),
+		Limit:    20,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	var drive *domain.CalendarEvent
+	for i := range resp.Items {
+		if resp.Items[i].EventType == domain.EventVaccinationDrive {
+			drive = &resp.Items[i]
+			break
+		}
+	}
+	if drive == nil {
+		t.Fatalf("planned drive disappeared from default list; items=%#v", resp.Items)
+	}
+	if drive.Status != domain.StatusScheduled {
+		t.Fatalf("drive status=%s, want scheduled while same-day deferred_count remains summary-only", drive.Status)
+	}
+	if drive.ScheduledCount != 1 || drive.DriveSummary == nil || drive.DriveSummary.DeferredCount != 1 {
+		t.Fatalf("drive scheduled_count=%d summary=%#v, want scheduled_count=1 deferred_count=1", drive.ScheduledCount, drive.DriveSummary)
+	}
+}
+
 func TestCalendarVaccinationProjectionDoesNotReclassifyDeferredCatchupAsOverdue(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -2516,6 +2602,42 @@ SET batch_id = $3::uuid,
 WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
 			testTenantID, obligationID, batchID, shedID); err != nil {
 			t.Fatalf("attach obligation %s to batch: %v", obligationID, err)
+		}
+	}
+}
+
+func seedVaccinationBatchForPark(t *testing.T, ctx context.Context, pool *pgxpool.Pool, batchID, versionID, parkID string, dueAt time.Time, obligationIDs ...string) {
+	t.Helper()
+	seedCalendarLocations(t, ctx, pool, parkID, testShedA)
+	_, err := pool.Exec(ctx, `
+INSERT INTO obligation_batches (
+  batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status,
+  planned_date, window_start, window_end, estimated_targets, planned_quantity
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'park', $4::uuid, 'planned',
+  ($5::timestamptz AT TIME ZONE 'Asia/Kolkata')::date, $5::timestamptz, $5::timestamptz + interval '8 hours',
+  $6::int, ($6::int)::numeric
+)
+ON CONFLICT (batch_id) DO UPDATE
+SET scope_type = 'park',
+    scope_id = EXCLUDED.scope_id,
+    window_start = EXCLUDED.window_start,
+    window_end = EXCLUDED.window_end,
+    estimated_targets = EXCLUDED.estimated_targets,
+    planned_quantity = EXCLUDED.planned_quantity,
+    updated_at = now()`,
+		batchID, testTenantID, versionID, parkID, dueAt, len(obligationIDs))
+	if err != nil {
+		t.Fatalf("seed park vaccination batch: %v", err)
+	}
+	for _, obligationID := range obligationIDs {
+		if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET batch_id = $3::uuid,
+    updated_at = now()
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+			testTenantID, obligationID, batchID); err != nil {
+			t.Fatalf("attach obligation %s to park batch: %v", obligationID, err)
 		}
 	}
 }

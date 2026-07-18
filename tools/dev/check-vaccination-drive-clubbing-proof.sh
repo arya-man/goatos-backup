@@ -78,7 +78,10 @@ WITH event_rows AS (
       ELSE 'species:' || lower(coalesce(g.species,'goat'))
     END AS planner_group,
     (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date,
-    (COALESCE(oi.window_end, oi.due_at) AT TIME ZONE 'Asia/Kolkata')::date AS safe_until,
+    (COALESCE(
+      oi.window_end,
+      oi.due_at + make_interval(days => GREATEST(COALESCE(pr.due_window_days, 0), 0))
+    ) AT TIME ZONE 'Asia/Kolkata')::date AS safe_until,
     COALESCE(pr.eligibility_json#>>'{vaccine,name}', pr.eligibility_json#>>'{vaccine,code}', pr.dose_code) AS vaccine
   FROM obligation_batches ob
   JOIN protocol_versions pv ON pv.protocol_version_id = ob.protocol_version_id
