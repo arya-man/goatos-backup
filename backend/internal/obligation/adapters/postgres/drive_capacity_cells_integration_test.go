@@ -575,3 +575,113 @@ func TestCountDriveCellsScopeHierarchyParkShedGoatFallback(t *testing.T) {
 		t.Fatalf("other park cells = %d, want 2 (own park batch + resident goat fallback)", other)
 	}
 }
+
+// TestDriveCapacityRelockObservesConcurrentCommit is the C-2 guard (DB half): worker A probes a
+// park/date (lock + count + release); worker B commits cells in the gap; A's final re-lock must
+// read a FRESH persisted count that includes B's cells -- proving the refresh source is live, so
+// the session's monotonic adopt (TestSweepSessionAdoptsHigherPersistedOnRefresh) sees them.
+func TestDriveCapacityRelockObservesConcurrentCommit(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	due := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+
+	// Worker A probe: lock, read, release.
+	countA1, releaseA1, err := repo.LockDriveCapacity(ctx, tenantID, cbePark, planned)
+	if err != nil {
+		t.Fatalf("A probe lock: %v", err)
+	}
+	if err := releaseA1(ctx); err != nil {
+		t.Fatalf("A probe release: %v", err)
+	}
+
+	// Worker B commits a 2-cell batch on the same park/date in the gap.
+	goatID := "34000000-0000-4000-8000-000000000001"
+	seedCapacityGoatInPark(t, ctx, pool, goatID, cbePark)
+	obl := insertCapacityObligation(t, ctx, repo, versionID, ruleID, goatID, "relock-1", due)
+	if _, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID,
+		ScopeType: "park", ScopeID: cbePark, Session: "relock",
+		PlannedDate: &planned, Status: "planned",
+		EstimatedTargets: 1, PlannedQuantity: "2", QuantityUnit: "dose",
+	}, []string{obl}, map[string]int32{obl: 2}); err != nil || len(attached) != 1 {
+		t.Fatalf("B commit: attached=%d err=%v", len(attached), err)
+	}
+
+	// Worker A final re-lock must observe B's cells.
+	countA2, releaseA2, err := repo.LockDriveCapacity(ctx, tenantID, cbePark, planned)
+	if err != nil {
+		t.Fatalf("A final lock: %v", err)
+	}
+	defer func() { _ = releaseA2(ctx) }()
+	if countA2 != countA1+2 {
+		t.Fatalf("final re-lock count = %d, want %d (+2 cells committed by B in the probe gap)", countA2, countA1+2)
+	}
+}
+
+// TestCancelMemberRemovesExactCellsFromBatch is the C-3 guard: a mixed [2,1] batch counts 3
+// cells; canceling the 2-cell member must drop the batch's planned_quantity AND the park/date
+// counter to exactly 1 -- the removed obligation's OWN cells from the persisted cell ledger,
+// never an average, never a stale phantom.
+func TestCancelMemberRemovesExactCellsFromBatch(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	due := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	gTwo := "35000000-0000-4000-8000-000000000001"
+	gOne := "35000000-0000-4000-8000-000000000002"
+	seedCapacityGoatInPark(t, ctx, pool, gTwo, cbePark)
+	seedCapacityGoatInPark(t, ctx, pool, gOne, cbePark)
+	oblTwo := insertCapacityObligation(t, ctx, repo, versionID, ruleID, gTwo, "cellrm-2", due)
+	oblOne := insertCapacityObligation(t, ctx, repo, versionID, ruleID, gOne, "cellrm-1", due)
+
+	batchID, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID,
+		ScopeType: "park", ScopeID: cbePark, Session: "cellrm",
+		PlannedDate: &planned, Status: "planned",
+		EstimatedTargets: 2, PlannedQuantity: "3", QuantityUnit: "dose",
+	}, []string{oblTwo, oblOne}, map[string]int32{oblTwo: 2, oblOne: 1})
+	if err != nil || len(attached) != 2 {
+		t.Fatalf("create mixed batch: attached=%d err=%v", len(attached), err)
+	}
+	if got := batchPlannedQuantity(t, ctx, pool, batchID); got != 3 {
+		t.Fatalf("mixed batch planned_quantity = %v, want 3", got)
+	}
+	before, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
+	if err != nil {
+		t.Fatalf("count before: %v", err)
+	}
+	if before != 3 {
+		t.Fatalf("park/date cells before cancel = %d, want 3", before)
+	}
+
+	// Cancel the 2-cell member (vaccination goat/version cancel path).
+	n, err := repo.CancelOpenVaccinationObligationsForGoatVersion(ctx, tenantID, gTwo, versionID, "ineligible_after_shift", time.Now().UTC())
+	if err != nil || n != 1 {
+		t.Fatalf("cancel 2-cell member: n=%d err=%v", n, err)
+	}
+	if got := batchPlannedQuantity(t, ctx, pool, batchID); got != 1 {
+		t.Fatalf("planned_quantity after canceling 2-cell member = %v, want exactly 1 (ledger cells removed, not averaged)", got)
+	}
+	after, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
+	if err != nil {
+		t.Fatalf("count after: %v", err)
+	}
+	if after != 1 {
+		t.Fatalf("park/date cells after cancel = %d, want 1 (no phantom cells)", after)
+	}
+}

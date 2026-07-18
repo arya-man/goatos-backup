@@ -300,6 +300,10 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrIdempotencyPending) {
 		return Conflict("idempotency_pending", "Idempotency-Key is already processing")
 	}
+	if errors.Is(err, ports.ErrCrossParkMove) {
+		return Unprocessable("cross_park_move_forbidden",
+			"cross-park goat movement does not exist: sheds move only within one park; leaving a park is a terminal transfer/sale exit, not a move")
+	}
 	if errors.Is(err, ports.ErrWriteConflict) {
 		return Conflict("write_conflict", "identity write cannot be applied with the supplied state or row_version")
 	}

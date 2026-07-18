@@ -89,7 +89,9 @@ graphify-out/cache/
 
 # generated E2E harness report (rendered by backend/tests/e2e/report.go via
 # TestMain; .github/workflows/pages.yml regenerates it in CI before publishing)
-backend/tests/e2e/report/
+backend/tests/e2e/report/*
+# hand-authored audit reports inside the category are committed, not generated
+!backend/tests/e2e/report/vaccination-closure-audit-2026-07-19.html
 
 wiki/
 

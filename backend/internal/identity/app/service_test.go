@@ -736,6 +736,29 @@ func TestMoveGoatBuildsLifecycleCommand(t *testing.T) {
 	}
 }
 
+func TestMoveGoatCrossParkRejectedAs422(t *testing.T) {
+	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}, moveGoatErr: ports.ErrCrossParkMove}
+	svc := NewService(repo)
+	_, err := svc.MoveGoat(context.Background(), MoveGoatInput{
+		TenantID:       testTenant,
+		ActorID:        testActor,
+		IdempotencyKey: "idem-move-crosspark-0001",
+		TraceID:        testTrace,
+		GoatID:         goatA,
+		RawBody:        []byte(`{"park_id":"00000000-0000-4000-8000-000000003002","shed_id":"00000000-0000-4000-8000-000000004001","reason":"attempted cross-park move","evidence_refs":[{"evidence_type":"source_record","evidence_id":"move-ticket-2"}],"row_version":7}`),
+	})
+	if err == nil {
+		t.Fatal("expected cross-park move rejection")
+	}
+	var appErr *Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected *app.Error, got %T: %v", err, err)
+	}
+	if appErr.HTTPStatus != 422 || appErr.Code != "cross_park_move_forbidden" {
+		t.Fatalf("cross-park move error = %#v, want 422 cross_park_move_forbidden", appErr)
+	}
+}
+
 func TestExitGoatBuildsLifecycleCommand(t *testing.T) {
 	repo := &fakeRepo{goats: map[string]*domain.GoatPassport{}}
 	svc := NewService(repo)
@@ -1119,6 +1142,7 @@ type fakeRepo struct {
 	lastAddIdentifierCmd        ports.AddGoatIdentifierCommand
 	lastRetireIdentifierCmd     ports.RetireGoatIdentifierCommand
 	lastMoveGoatCmd             ports.MoveGoatCommand
+	moveGoatErr                 error
 	lastExitGoatCmd             ports.ExitGoatCommand
 	lastStageGoatCmd            ports.StageGoatCommand
 	lastHealthGoatCmd           ports.HealthGoatCommand
@@ -1234,6 +1258,9 @@ func (f *fakeRepo) RetireGoatIdentifier(_ context.Context, cmd ports.RetireGoatI
 
 func (f *fakeRepo) MoveGoat(_ context.Context, cmd ports.MoveGoatCommand) (*ports.AdminGoatMutationResult, error) {
 	f.lastMoveGoatCmd = cmd
+	if f.moveGoatErr != nil {
+		return nil, f.moveGoatErr
+	}
 	return &ports.AdminGoatMutationResult{
 		Goat:        summary(cmd.GoatID, "G-000001", "clean"),
 		Identifiers: []domain.GoatIdentifier{},

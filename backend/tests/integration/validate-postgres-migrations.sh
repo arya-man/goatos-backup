@@ -54,17 +54,22 @@ validate_goose_structure() {
   done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
 }
 
-validate_clean_slate_baseline() {
-  local count
-  count="$(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | wc -l | tr -d ' ')"
-  if [[ "$count" != "1" ]]; then
-    echo "clean-slate baseline expects exactly one Postgres migration, found $count" >&2
-    exit 1
-  fi
+validate_ordered_migrations() {
+  # The baseline must be 000001 and forward migrations must be contiguous 000001..N so a
+  # clean install and an old-baseline upgrade both apply the same ordered set.
   if [[ ! -f "$repo_root/backend/migrations/postgres/000001_goatos_clean_slate_baseline.sql" ]]; then
     echo "missing clean-slate baseline migration 000001_goatos_clean_slate_baseline.sql" >&2
     exit 1
   fi
+  local expected=1 version
+  while IFS= read -r migration; do
+    version="$(basename "$migration" | sed -E 's/^([0-9]+)_.*/\1/')"
+    if [[ "$((10#$version))" -ne "$expected" ]]; then
+      echo "non-contiguous migration numbering: expected $(printf '%06d' "$expected"), found $(basename "$migration")" >&2
+      exit 1
+    fi
+    expected=$((expected + 1))
+  done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
 }
 
 apply_goose_up() {
@@ -90,7 +95,7 @@ expect_failure() {
 }
 
 validate_goose_structure
-validate_clean_slate_baseline
+validate_ordered_migrations
 
 docker run --rm --name "$container_name" \
   -e POSTGRES_PASSWORD=goatos \
@@ -315,5 +320,86 @@ INSERT INTO goat_identifiers (
   'test_v1'
 );
 "
+
+# ---------------------------------------------------------------------------
+# Old-baseline upgrade validation: a dev/stg database that applied the ORIGINAL
+# 000001 baseline (old overflow_policy enum + old CHECK constraint) must upgrade
+# cleanly through 000002 -- proving live that the migration drops the old
+# constraint BEFORE rewriting rows (the VAXCAP-001 ordering fix).
+# ---------------------------------------------------------------------------
+upgrade_container="goatos-migration-upgrade-$$"
+
+cleanup_upgrade() {
+  docker rm -f "$upgrade_container" >/dev/null 2>&1 || true
+}
+trap 'cleanup; cleanup_upgrade' EXIT
+
+run_upgrade_psql() {
+  postgres_ci_psql "$upgrade_container" "$db_user" "$db_name" "$@"
+}
+
+apply_goose_up_upgrade() {
+  local migration="$1"
+  awk '
+    /^-- \+goose Up/ { in_up = 1; next }
+    /^-- \+goose Down/ { in_up = 0 }
+    in_up { print }
+  ' "$migration" | run_upgrade_psql
+}
+
+docker run --rm --name "$upgrade_container" \
+  -e POSTGRES_PASSWORD=goatos \
+  -e POSTGRES_DB="$db_name" \
+  -d "$image" >/dev/null
+
+postgres_ci_wait_ready "$upgrade_container" "$db_user" "$db_name"
+
+echo "Applying 000001 baseline for upgrade validation"
+apply_goose_up_upgrade "$repo_root/backend/migrations/postgres/000001_goatos_clean_slate_baseline.sql"
+
+# Recreate the PRE-rename world: the historical baseline constrained overflow_policy to the
+# retired enum value and existing rows carry it.
+run_upgrade_psql <<'SQL'
+ALTER TABLE vaccination_capacity_config
+  DROP CONSTRAINT IF EXISTS vaccination_capacity_config_overflow_check;
+UPDATE vaccination_capacity_config
+SET overflow_policy = 'split_within_safe_window_then_mark_needs_review';
+INSERT INTO vaccination_capacity_config (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy)
+VALUES ('00000000-0000-4000-8000-000000000001', 100, 'tenant', 7, 'split_within_safe_window_then_mark_needs_review')
+ON CONFLICT (tenant_id) DO NOTHING;
+ALTER TABLE vaccination_capacity_config
+  ADD CONSTRAINT vaccination_capacity_config_overflow_check
+  CHECK (overflow_policy = 'split_within_safe_window_then_mark_needs_review');
+SQL
+
+while IFS= read -r migration; do
+  [[ "$(basename "$migration")" == "000001_goatos_clean_slate_baseline.sql" ]] && continue
+  echo "Applying $(basename "$migration") on old-baseline database"
+  apply_goose_up_upgrade "$migration"
+done < <(find "$repo_root/backend/migrations/postgres" -maxdepth 1 -type f -name '*.sql' | sort)
+
+run_upgrade_psql <<'SQL'
+DO $$
+DECLARE
+  bad_rows integer;
+  new_constraint integer;
+BEGIN
+  SELECT count(*) INTO bad_rows
+  FROM vaccination_capacity_config
+  WHERE overflow_policy <> 'split_within_safe_window_last_safe_may_exceed_cap';
+  IF bad_rows <> 0 THEN
+    RAISE EXCEPTION 'upgrade left % row(s) on the retired overflow_policy value', bad_rows;
+  END IF;
+  SELECT count(*) INTO new_constraint
+  FROM pg_constraint
+  WHERE conname = 'vaccination_capacity_config_overflow_check'
+    AND pg_get_constraintdef(oid) LIKE '%last_safe_may_exceed_cap%';
+  IF new_constraint <> 1 THEN
+    RAISE EXCEPTION 'upgrade did not install the new overflow_policy CHECK constraint';
+  END IF;
+END $$;
+SQL
+
+echo "Old-baseline upgrade validation passed"
 
 echo "Migration validation passed"

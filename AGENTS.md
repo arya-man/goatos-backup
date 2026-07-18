@@ -85,6 +85,12 @@ starts only after accepted ET+TT dose 2/course completion. Blue Tongue kid dose
 2 remains 28 days after dose 1; pox vaccines still obey the 28-day live-to-live
 spacing after PPR.
 
+Confirmed movement rule (maintainer decision 2026-07-19): goats never move
+between parks — shed moves exist only within one park; leaving a park is a
+terminal transferred/sold exit, never a move. Initial placement is exempt. See
+`context/source-findings/goats-and-parks-source-findings.md` → Movement
+Semantics.
+
 ## Domain Event Integration Is Mandatory
 
 Backend, admin-web, and mobile business mutations all use the same domain-event

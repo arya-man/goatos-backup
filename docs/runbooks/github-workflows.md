@@ -903,7 +903,12 @@ Publishes CI and E2E report categories to GitHub Pages as one combined site:
 /nav-graph/           Compose Navigation routes + navigate() edges (Mermaid)
 /e2e-report/          vaccination kernel-story E2E report (story count is read
                       from the generated report; currently 38 production-path
-                      stories with direct derived-state seeding forbidden)
+                      stories with direct derived-state seeding forbidden).
+                      Also hosts committed hand-authored audit reports in the
+                      same category (gitignore-negated, uploaded alongside the
+                      generated index by the e2e-report job), currently the
+                      2026-07-19 vaccination-closure audit; the generated index
+                      links to them via report.go's related-reports block.
 /e2e-hrms-report/     HRMS roster/RBAC kernel-story E2E report
 /scale-audit-e2e-report/
                       scale-audit fix E2E report BOUND to current-SHA latency

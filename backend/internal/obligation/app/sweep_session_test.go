@@ -122,3 +122,37 @@ func TestSweepSessionDriveCapacityMultipleParkDates(t *testing.T) {
 		t.Fatalf("D2 should not be affected by D1 release = %d, want 28", got)
 	}
 }
+
+// TestSweepSessionAdoptsHigherPersistedOnRefresh is the C-2 guard (session half): date probes
+// release the park/date advisory lock between probes, so another worker can commit cells in the
+// gap. A later refresh carrying a HIGHER persisted count must be adopted (monotonically) without
+// resetting this session's claims; a lower/equal refresh must never clobber claims (VAXCAP-007).
+func TestSweepSessionAdoptsHigherPersistedOnRefresh(t *testing.T) {
+	parkID := "park-1"
+	date := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	session := NewSweepSession()
+
+	// Probe 1 seeds baseline 4 and claims 3 in-session (total 7).
+	session.resetDriveCapacity(parkID, date, 4)
+	session.claimDriveCapacity(parkID, date, "obl-1", 3)
+	if got := session.driveCapacityUsed(parkID, date); got != 7 {
+		t.Fatalf("after claim = %d, want 7", got)
+	}
+
+	// Concurrent worker B committed 5 more cells; final re-lock reads persisted 9 (> 7).
+	session.resetDriveCapacity(parkID, date, 9)
+	if got := session.driveCapacityUsed(parkID, date); got != 9 {
+		t.Fatalf("after higher persisted refresh = %d, want 9 (B's cells observed)", got)
+	}
+
+	// A refresh at or below the running count must not reset claims (VAXCAP-007 preserved).
+	session.resetDriveCapacity(parkID, date, 4)
+	if got := session.driveCapacityUsed(parkID, date); got != 9 {
+		t.Fatalf("after lower persisted refresh = %d, want 9 (never lower, claims kept)", got)
+	}
+	session.claimDriveCapacity(parkID, date, "obl-2", 2)
+	session.resetDriveCapacity(parkID, date, 9)
+	if got := session.driveCapacityUsed(parkID, date); got != 11 {
+		t.Fatalf("claims after adopt = %d, want 11 (claims accumulate on top)", got)
+	}
+}

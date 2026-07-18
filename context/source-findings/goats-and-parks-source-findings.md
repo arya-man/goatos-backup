@@ -297,6 +297,22 @@ GoatOS implication:
   models must preserve the distinction between physical shed placement and the
   nutrition/health/reproductive cohort implied by the shed tag.
 
+## Movement Semantics
+
+Locked maintainer decision (2026-07-19): goats NEVER move between parks.
+
+- Shed-to-shed movement exists only WITHIN one park. A move command for an
+  already-placed goat whose destination shed belongs to a different park is
+  invalid and must be rejected (backend returns 422
+  `cross_park_move_forbidden`).
+- Leaving a park is always a terminal exit (transferred/sold) through the exit
+  flow, never a move. There is no park-to-park transfer-and-continue lifecycle.
+- Initial placement is not a move: seed/import paths that assign a goat its
+  first park/shed (no prior park on record) are not blocked by this rule.
+- Enforcement lives in the shared `MoveGoat` command transaction
+  (`backend/internal/identity/adapters/postgres/goat_lifecycle.go`,
+  `ports.ErrCrossParkMove`), so HTTP, worker, and import callers all inherit it.
+
 ## Cross-Slice Build Rules
 
 - Operational kernel: every source-backed exception should become canonical
