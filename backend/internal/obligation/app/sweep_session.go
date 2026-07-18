@@ -270,7 +270,7 @@ func (s *SweepSession) claimComboBatchTargets(targetIDs []string, date time.Time
 // swept in this run) instead of a private per-call map, and it surfaces
 // ShotCapPriorityTieError when the cap would force a same-priority, different-vaccine drop
 // instead of silently picking an arrival-order winner.
-func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDate *time.Time, planner domain.DrivePlannerSettings, vaccineCode string, priority int32, session *SweepSession) ([]string, []shotCapReservation, error) {
+func selectIDsWithinVisitShotCapForSession(now time.Time, rows []domain.UnbatchedDue, plannedDate *time.Time, planner domain.DrivePlannerSettings, vaccineCode string, priority int32, session *SweepSession) ([]string, []shotCapReservation, error) {
 	if plannedDate == nil {
 		ids := make([]string, 0, len(rows))
 		for _, row := range rows {
@@ -281,7 +281,7 @@ func selectIDsWithinVisitShotCapForSession(rows []domain.UnbatchedDue, plannedDa
 	selected := make([]string, 0, len(rows))
 	claims := make([]shotCapReservation, 0, len(rows))
 	for _, row := range rows {
-		if !driveCandidateFeasibleOnPlannerDate(*plannedDate, driveCandidate{
+		if !driveCandidateFeasibleOnPlannerDate(now, *plannedDate, driveCandidate{
 			ObligationID:             row.ObligationID,
 			TargetID:                 row.TargetID,
 			TargetReproductiveStatus: row.TargetReproductiveStatus,
@@ -330,7 +330,7 @@ type ruleVaccineIdentityResolver = func(ruleID string) RuleVaccineIdentity
 // several rules/vaccines at once, so the caller supplies identityFor to resolve each row's OWN
 // vaccine identity (R2-05(b) fix) instead of a single vaccineCode/priority pair applied to every
 // row.
-func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, identityFor ruleVaccineIdentityResolver, session *SweepSession) ([]string, []shotCapReservation, error) {
+func selectParkIDsWithinVisitShotCapForSession(now time.Time, rows []domain.ParkConsolidationCandidate, selected []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, identityFor ruleVaccineIdentityResolver, session *SweepSession) ([]string, []shotCapReservation, error) {
 	if plannedDate == nil || len(selected) == 0 {
 		return selected, nil, nil
 	}
@@ -344,7 +344,7 @@ func selectParkIDsWithinVisitShotCapForSession(rows []domain.ParkConsolidationCa
 		if _, ok := selectedSet[row.ObligationID]; !ok {
 			continue
 		}
-		if !driveCandidateFeasibleOnPlannerDate(*plannedDate, driveCandidate{
+		if !driveCandidateFeasibleOnPlannerDate(now, *plannedDate, driveCandidate{
 			ObligationID:             row.ObligationID,
 			TargetID:                 row.TargetID,
 			TargetReproductiveStatus: row.TargetReproductiveStatus,

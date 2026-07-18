@@ -2162,7 +2162,12 @@ SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
        COALESCE(b.scope_id::text, '')::text AS scope_id,
-       COALESCE(oi.park_id, '')::text AS park_id,
+       COALESCE(
+         CASE WHEN b.scope_type = 'park' THEN b.scope_id::text END,
+         oi.shed_park_id,
+         oi.goat_park_id,
+         ''
+       )::text AS park_id,
        COALESCE(b.session, '')::text AS session,
        b.planned_date,
        oi.safe_start,
@@ -2177,12 +2182,12 @@ LEFT JOIN LATERAL (
            min(COALESCE(o.window_end, o.due_at)::date) AS safe_end,
            min(COALESCE(o.first_batching_hold_until, o.due_at + interval '7 days')::date) AS hold_until,
            count(*)::int AS obligation_count,
-           COALESCE(
-             max(CASE WHEN b.scope_type = 'park' THEN b.scope_id::text END),
-             max(scope_loc.parent_location_id::text),
-             max(g.park_id::text),
-             ''
-           ) AS park_id
+           -- park resolution split across levels on purpose: the b.scope_type/'park' branch lives
+           -- in the OUTER select (an aggregate over only outer columns is attributed to the outer
+           -- query level and is illegal in a LATERAL FROM item, SQLSTATE 42803); only the
+           -- inner-joined shed-location and goat park fallbacks are aggregated here.
+           max(scope_loc.parent_location_id::text) AS shed_park_id,
+           max(g.park_id::text) AS goat_park_id
     FROM obligation_instances o
     LEFT JOIN goats g
       ON g.tenant_id = o.tenant_id
@@ -2295,7 +2300,12 @@ SELECT b.batch_id::text,
        b.protocol_version_id::text,
        b.scope_type,
        COALESCE(b.scope_id::text, '')::text AS scope_id,
-       COALESCE(oi.park_id, '')::text AS park_id,
+       COALESCE(
+         CASE WHEN b.scope_type = 'park' THEN b.scope_id::text END,
+         oi.shed_park_id,
+         oi.goat_park_id,
+         ''
+       )::text AS park_id,
        COALESCE(b.session, '')::text AS session,
        b.planned_date,
        oi.safe_start,
@@ -2310,12 +2320,12 @@ LEFT JOIN LATERAL (
            min(COALESCE(o.window_end, o.due_at)::date) AS safe_end,
            min(COALESCE(o.first_batching_hold_until, o.due_at + interval '7 days')::date) AS hold_until,
            count(*)::int AS obligation_count,
-           COALESCE(
-             max(CASE WHEN b.scope_type = 'park' THEN b.scope_id::text END),
-             max(scope_loc.parent_location_id::text),
-             max(g.park_id::text),
-             ''
-           ) AS park_id
+           -- park resolution split across levels on purpose: the b.scope_type/'park' branch lives
+           -- in the OUTER select (an aggregate over only outer columns is attributed to the outer
+           -- query level and is illegal in a LATERAL FROM item, SQLSTATE 42803); only the
+           -- inner-joined shed-location and goat park fallbacks are aggregated here.
+           max(scope_loc.parent_location_id::text) AS shed_park_id,
+           max(g.park_id::text) AS goat_park_id
     FROM obligation_instances o
     LEFT JOIN goats g
       ON g.tenant_id = o.tenant_id
@@ -2567,6 +2577,20 @@ func (r *Repository) CreateBatchWithObligations(ctx context.Context, in domain.N
 }
 
 func (r *Repository) CreateBatchWithObligationsReturningAttachedIDs(ctx context.Context, in domain.NewBatch, obligationIDs []string) (string, []string, error) {
+	return r.createBatchWithObligations(ctx, in, obligationIDs, nil)
+}
+
+// CreateBatchWithObligationCells is the exact-cell-accounting variant (VAXCAP-003): the caller
+// supplies each obligation's own administration-cell count (mixed-rule park merges carry 1- and
+// 2-dose rows in one batch), and the batch's planned_quantity is recomputed inside the SAME
+// transaction from the rows ACTUALLY attached -- never from the pre-attach selected set, and never
+// from an average. Both paths are covered: a newly created batch gets exactly the attached cells,
+// and a merge into an existing planned batch ADDS only the newly attached cells.
+func (r *Repository) CreateBatchWithObligationCells(ctx context.Context, in domain.NewBatch, obligationIDs []string, cellsByObligation map[string]int32) (string, []string, error) {
+	return r.createBatchWithObligations(ctx, in, obligationIDs, cellsByObligation)
+}
+
+func (r *Repository) createBatchWithObligations(ctx context.Context, in domain.NewBatch, obligationIDs []string, cellsByObligation map[string]int32) (string, []string, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	if len(obligationIDs) == 0 {
@@ -2643,7 +2667,9 @@ FOR UPDATE`,
 		in.WindowStart != nil, in.WindowStart,
 		in.WindowEnd != nil, in.WindowEnd,
 	).Scan(&batchID)
+	createdNewBatch := false
 	if errors.Is(err, pgx.ErrNoRows) {
+		createdNewBatch = true
 		batchID, err = qtx.CreateObligationBatch(ctx, obligationdb.CreateObligationBatchParams{
 			TenantID:              tenant,
 			ProtocolVersionID:     version,
@@ -2699,9 +2725,31 @@ WHERE tenant_id = $2
 	if len(attachedIDs) == 0 {
 		return "", nil, nil
 	}
+	// VAXCAP-003: planned_quantity is recomputed from the rows ACTUALLY attached, using each
+	// obligation's exact cell count -- summed over attachedIDs only, never averaged, never taken
+	// from the pre-attach selected set. A partial attach therefore persists exactly the attached
+	// cells; a merge into an existing planned batch adds only the newly attached cells; a
+	// same-batch retry attaches zero rows and never reaches this update. Callers that don't carry
+	// per-obligation cells (cellsByObligation == nil, the legacy non-cell-unit paths) leave
+	// planned_quantity untouched.
+	attachedCells := int64(0)
+	if cellsByObligation != nil {
+		for _, id := range attachedIDs {
+			cells := cellsByObligation[id]
+			if cells <= 0 {
+				cells = 1
+			}
+			attachedCells += int64(cells)
+		}
+	}
 	if _, err := tx.Exec(ctx, `
 UPDATE obligation_batches ob
 SET estimated_targets = live.attached::int,
+    planned_quantity = CASE
+      WHEN NOT $3::boolean THEN ob.planned_quantity
+      WHEN $4::boolean THEN $5::numeric
+      ELSE COALESCE(ob.planned_quantity, 0) + $5::numeric
+    END,
     updated_at = now()
 FROM (
   SELECT count(*) AS attached
@@ -2710,7 +2758,7 @@ FROM (
     AND oi.batch_id = $2
 ) live
 	WHERE ob.tenant_id = $1
-	  AND ob.batch_id = $2`, tenant, batch); err != nil {
+	  AND ob.batch_id = $2`, tenant, batch, cellsByObligation != nil, createdNewBatch, attachedCells); err != nil {
 		return "", nil, fmt.Errorf("obligation: update batch target count: %w", err)
 	}
 	if in.BatchingHoldUntil != nil {

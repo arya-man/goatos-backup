@@ -270,3 +270,50 @@ func TestComboAlignmentSettingsForPlansUsesStrictestPolicy(t *testing.T) {
 		t.Fatalf("max drive cells = %d, want strictest 50", maxDriveCells)
 	}
 }
+
+// TestOverdueHoldBoundaryClampsToSweepDay is the stranded-overdue guard: an obligation due Jul 1
+// with a 7-day hold cap (boundary Jul 8) swept on Jul 10 inside its medical window (ends Jul 20)
+// must be schedule-NOW on the sweep day -- the hold cap stops FUTURE postponement, it never
+// excludes overdue work (rule 8). The clamped row is immovable, so two-pass admission gives it
+// last-safe priority.
+func TestOverdueHoldBoundaryClampsToSweepDay(t *testing.T) {
+	sweep := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
+	winEnd := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	row := driveCandidate{
+		ObligationID: "obl-overdue",
+		TargetID:     "goat-1",
+		DueAt:        time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		WindowEnd:    &winEnd,
+	}
+	planner := domain.DefaultDrivePlannerSettings() // MaxBatchingHoldDays 7, MaxBatchingHoldCount 1
+
+	if !driveCandidateFeasibleOnPlannerDate(sweep, sweep, row, planner) {
+		t.Fatal("overdue obligation must be feasible on the sweep day (schedule-now), not stranded")
+	}
+	if driveCandidateFeasibleOnPlannerDate(sweep, sweep.AddDate(0, 0, 1), row, planner) {
+		t.Fatal("clamped overdue obligation must not be postponable past the sweep day")
+	}
+	if driveCandidateCanMoveAfter(sweep, sweep, row, planner) {
+		t.Fatal("clamped overdue obligation must classify as IMMOVABLE for last-safe admission priority")
+	}
+
+	// Hold-count-exhausted twin: already held to cap, overdue -> same schedule-now clamp.
+	heldRow := row
+	heldRow.BatchingHoldCount = planner.MaxBatchingHoldCount
+	if !driveCandidateFeasibleOnPlannerDate(sweep, sweep, heldRow, planner) {
+		t.Fatal("hold-count-exhausted overdue obligation must still be feasible on the sweep day")
+	}
+	if driveCandidateFeasibleOnPlannerDate(sweep, sweep.AddDate(0, 0, 1), heldRow, planner) {
+		t.Fatal("hold-count-exhausted obligation must not be postponable past the sweep day")
+	}
+
+	// Not-yet-overdue rows keep the normal boundary: due Jul 12, hold to Jul 19, swept Jul 10.
+	future := row
+	future.DueAt = time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
+	if !driveCandidateFeasibleOnPlannerDate(sweep, time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC), future, planner) {
+		t.Fatal("future-due obligation must stay feasible up to due+hold")
+	}
+	if driveCandidateFeasibleOnPlannerDate(sweep, time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC), future, planner) {
+		t.Fatal("future-due obligation must stay bounded by due+hold when the boundary is still ahead")
+	}
+}

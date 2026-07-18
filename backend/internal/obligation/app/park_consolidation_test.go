@@ -79,10 +79,10 @@ func TestParkObligationNilWindowEndIsBoundedToDueDate(t *testing.T) {
 		ShedID:       "shed-a",
 		DueAt:        time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC),
 	}
-	if !parkObligationFeasibleOnDate(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC), row) {
+	if !parkObligationFeasibleOnDate(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC), row) {
 		t.Fatal("nil window_end obligation must be feasible on due date")
 	}
-	if parkObligationFeasibleOnDate(time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC), row) {
+	if parkObligationFeasibleOnDate(time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 11, 0, 0, 0, 0, time.UTC), row) {
 		t.Fatal("nil window_end obligation must not be treated as unbounded after due date")
 	}
 }
@@ -597,7 +597,7 @@ func TestLimitParkSelectionReservesCapacityForLastSafeRows(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitParkSelectionByDriveCells(rows, []string{"obl-movable", "obl-last-safe"}, planned, planner, NewSweepSession(), SweepConfig{})
+	out := limitParkSelectionByDriveCells(planned, rows, []string{"obl-movable", "obl-last-safe"}, planned, planner, NewSweepSession(), SweepConfig{})
 	if len(out) != 1 || out[0] != "obl-last-safe" {
 		t.Fatalf("admitted = %#v, want only obl-last-safe (movable row must yield its cell)", out)
 	}
@@ -615,7 +615,7 @@ func TestLimitParkSelectionAllLastSafeExceedsCap(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitParkSelectionByDriveCells(rows, []string{"obl-1", "obl-2", "obl-3"}, planned, planner, NewSweepSession(), SweepConfig{})
+	out := limitParkSelectionByDriveCells(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, planned, planner, NewSweepSession(), SweepConfig{})
 	if len(out) != 3 {
 		t.Fatalf("admitted = %#v, want all three last-safe rows despite cap 1 (legitimate overflow)", out)
 	}

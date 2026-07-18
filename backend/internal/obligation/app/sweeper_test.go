@@ -2023,7 +2023,7 @@ func TestLimitUnbatchedSelectionReservesCapacityForLastSafeRows(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitUnbatchedSelectionByDriveCells(rows, []string{"obl-movable", "obl-last-safe"}, &planned, planner, NewSweepSession(), 1)
+	out := limitUnbatchedSelectionByDriveCells(planned, rows, []string{"obl-movable", "obl-last-safe"}, &planned, planner, NewSweepSession(), 1)
 	if len(out) != 1 || out[0] != "obl-last-safe" {
 		t.Fatalf("admitted = %#v, want only obl-last-safe (movable row must yield its cell)", out)
 	}
@@ -2041,7 +2041,7 @@ func TestLimitUnbatchedSelectionAllLastSafeExceedsCap(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxGoatsPerDrive = 1
 
-	out := limitUnbatchedSelectionByDriveCells(rows, []string{"obl-1", "obl-2", "obl-3"}, &planned, planner, NewSweepSession(), 1)
+	out := limitUnbatchedSelectionByDriveCells(planned, rows, []string{"obl-1", "obl-2", "obl-3"}, &planned, planner, NewSweepSession(), 1)
 	if len(out) != 3 {
 		t.Fatalf("admitted = %#v, want all three last-safe rows despite cap 1 (legitimate overflow)", out)
 	}

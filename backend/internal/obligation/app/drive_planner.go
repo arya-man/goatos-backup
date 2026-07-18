@@ -282,11 +282,11 @@ func obligationsFeasibleOnDriveDate(day time.Time, rows []driveCandidate) []stri
 	return ids
 }
 
-func obligationsFeasibleOnDriveDateForPlanner(day time.Time, rows []driveCandidate, planner domain.DrivePlannerSettings) []string {
+func obligationsFeasibleOnDriveDateForPlanner(now, day time.Time, rows []driveCandidate, planner domain.DrivePlannerSettings) []string {
 	day = businessDate(day)
 	ids := make([]string, 0, len(rows))
 	for _, row := range rows {
-		if !driveCandidateFeasibleOnPlannerDate(day, row, planner) {
+		if !driveCandidateFeasibleOnPlannerDate(now, day, row, planner) {
 			continue
 		}
 		ids = append(ids, row.ObligationID)
@@ -306,7 +306,16 @@ func driveCandidateFeasibleOnDate(day time.Time, row driveCandidate) bool {
 	return !day.Before(earliest) && !day.After(latest)
 }
 
-func driveCandidateFeasibleOnPlannerDate(day time.Time, row driveCandidate, planner domain.DrivePlannerSettings) bool {
+// driveCandidateFeasibleOnPlannerDate reports whether row may be planned on day. The batching
+// hold caps (MaxBatchingHoldDays / MaxBatchingHoldCount) bound FUTURE POSTPONEMENT of batching;
+// they never exclude already-overdue work (rule 8: normal eligible goats must be scheduled).
+// When the sweep day (now) is already past the row's hold boundary, the boundary CLAMPS to the
+// sweep day: the row is schedule-now -- feasible on the current day inside its medical window
+// (WindowEnd still binds via driveCandidateFeasibleOnDate) and infeasible on every later day, so
+// driveCandidateCanMoveAfter classifies it immovable and two-pass admission gives it last-safe
+// priority. Without the clamp an overdue row (due Jul 1, hold Jul 8, sweep Jul 10) is infeasible
+// on the sweep day AND every later day -- stranded forever.
+func driveCandidateFeasibleOnPlannerDate(now, day time.Time, row driveCandidate, planner domain.DrivePlannerSettings) bool {
 	if !driveCandidateFeasibleOnDate(day, row) {
 		return false
 	}
@@ -318,20 +327,28 @@ func driveCandidateFeasibleOnPlannerDate(day time.Time, row driveCandidate, plan
 	if !day.After(due) {
 		return true
 	}
-	if planner.MaxBatchingHoldCount > 0 && row.BatchingHoldCount >= planner.MaxBatchingHoldCount {
-		return false
+	var boundary time.Time
+	switch {
+	case planner.MaxBatchingHoldCount > 0 && row.BatchingHoldCount >= planner.MaxBatchingHoldCount:
+		// Hold budget exhausted: no further postponement past due at all.
+		boundary = due
+	case planner.MaxBatchingHoldDays > 0:
+		boundary = due.AddDate(0, 0, int(planner.MaxBatchingHoldDays))
+	default:
+		return true
 	}
-	if planner.MaxBatchingHoldDays > 0 && day.After(due.AddDate(0, 0, int(planner.MaxBatchingHoldDays))) {
-		return false
+	if nowDay := businessDate(now); boundary.Before(nowDay) {
+		// Already past the hold boundary: clamp to the sweep day (schedule-now), never exclude.
+		boundary = nowDay
 	}
-	return true
+	return !day.After(boundary)
 }
 
-func driveCandidateCanMoveAfter(plannedDate time.Time, row driveCandidate, planner domain.DrivePlannerSettings) bool {
+func driveCandidateCanMoveAfter(now, plannedDate time.Time, row driveCandidate, planner domain.DrivePlannerSettings) bool {
 	next := businessDate(plannedDate).AddDate(0, 0, 1)
 	latest := driveLatestDate(row)
 	for !latest.IsZero() && !next.After(latest) {
-		if driveCandidateFeasibleOnPlannerDate(next, row, planner) {
+		if driveCandidateFeasibleOnPlannerDate(now, next, row, planner) {
 			return true
 		}
 		next = next.AddDate(0, 0, 1)
@@ -404,12 +421,12 @@ func selectIDsWithinVisitShotCap(rows []domain.UnbatchedDue, plannedDate *time.T
 	return selected
 }
 
-func nextFeasibleUnbatchedDriveDateAfter(plannedDate time.Time, rows []domain.UnbatchedDue, planner domain.DrivePlannerSettings) *time.Time {
+func nextFeasibleUnbatchedDriveDateAfter(now, plannedDate time.Time, rows []domain.UnbatchedDue, planner domain.DrivePlannerSettings) *time.Time {
 	next := businessDate(plannedDate).AddDate(0, 0, 1)
 	candidates := driveCandidatesFromUnbatched(rows)
 	latest := latestUnbatchedDriveDate(candidates)
 	for !latest.IsZero() && !next.After(latest) {
-		if len(obligationsFeasibleOnDriveDateForPlanner(next, candidates, planner)) > 0 {
+		if len(obligationsFeasibleOnDriveDateForPlanner(now, next, candidates, planner)) > 0 {
 			day := next
 			return &day
 		}
@@ -456,11 +473,11 @@ func selectParkIDsWithinVisitShotCap(rows []domain.ParkConsolidationCandidate, s
 	return out
 }
 
-func nextFeasibleParkDriveDateAfter(plannedDate time.Time, rows []domain.ParkConsolidationCandidate, planner domain.DrivePlannerSettings) *time.Time {
+func nextFeasibleParkDriveDateAfter(now, plannedDate time.Time, rows []domain.ParkConsolidationCandidate, planner domain.DrivePlannerSettings) *time.Time {
 	next := businessDate(plannedDate).AddDate(0, 0, 1)
 	latest := latestParkDriveDate(rows)
 	for !latest.IsZero() && !next.After(latest) {
-		if len(obligationsFeasibleOnDateForPlanner(next, rows, planner)) > 0 {
+		if len(obligationsFeasibleOnDateForPlanner(now, next, rows, planner)) > 0 {
 			day := next
 			return &day
 		}

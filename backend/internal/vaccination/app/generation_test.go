@@ -126,7 +126,13 @@ func TestGenerateForVersionCreatesSuccessorWhenCanceledWorkBecomesEligibleAgain(
 		t.Fatalf("first result=%#v inserted=%d, want one scheduled obligation", first, len(obl.inserted))
 	}
 	baseKey := obl.inserted[0].IdempotencyKey
+	// The REAL persisted reason written by generation's shift-away cancel path
+	// (CancelOpenVaccinationObligationsForGoatVersion at generation.go): park A -> B shift.
 	obl.inserted[0].Status = "canceled"
+	if obl.cancelReasonsByKey == nil {
+		obl.cancelReasonsByKey = map[string]string{}
+	}
+	obl.cancelReasonsByKey[baseKey] = "ineligible_after_shift"
 
 	second, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf.AddDate(0, 0, 1))
 	if err != nil {
@@ -144,6 +150,136 @@ func TestGenerateForVersionCreatesSuccessorWhenCanceledWorkBecomesEligibleAgain(
 	}
 	if successor.IdempotencyKey == baseKey || !strings.HasPrefix(successor.IdempotencyKey, baseKey+":successor:") {
 		t.Fatalf("successor key=%q base=%q", successor.IdempotencyKey, baseKey)
+	}
+}
+
+// TestGenerateForVersionCanceledWithoutReasonFailsClosedNoSuccessor: a canceled row whose
+// cancellation event carries NO reason (legacy data) gives no evidence the goat is returning —
+// generation must NOT mint a successor.
+func TestGenerateForVersionCanceledWithoutReasonFailsClosedNoSuccessor(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		rules: []protodomain.Rule{{
+			RuleID: "rule-fmd", DoseCode: "fmd-dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28,
+		}},
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]}}`),
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "legacy-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1",
+			ParkID: "park-1", ShedID: "shed-1",
+		}},
+	}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+	obl.inserted[0].Status = "canceled" // no reason recorded anywhere
+
+	second, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+	if second.Generated != 0 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%d, want NO successor for reason-less canceled row", second, len(obl.inserted))
+	}
+}
+
+// TestGenerateForVersionShiftCanceledClinicallyHeldGoatGetsDeferredSuccessor is the LIFE-001
+// guard: a goat whose work was canceled by a park shift ("ineligible_after_shift") and that
+// requalifies while clinically held must receive a fresh DEFERRED successor — not nothing, and
+// not a forced-scheduled row.
+func TestGenerateForVersionShiftCanceledClinicallyHeldGoatGetsDeferredSuccessor(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		rules: []protodomain.Rule{{
+			RuleID: "rule-fmd", DoseCode: "fmd-dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28,
+		}},
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":["sick"]}}`),
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "returning-sick-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1",
+			ParkID: "park-1", ShedID: "shed-1",
+		}},
+	}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+	baseKey := obl.inserted[0].IdempotencyKey
+	obl.inserted[0].Status = "canceled"
+	if obl.cancelReasonsByKey == nil {
+		obl.cancelReasonsByKey = map[string]string{}
+	}
+	obl.cancelReasonsByKey[baseKey] = "ineligible_after_shift"
+	// Goat returns but is now clinically held.
+	goats.list[0].HealthStatus = "sick"
+
+	second, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+	if second.Generated != 1 || second.Deferred != 1 || len(obl.inserted) != 2 {
+		t.Fatalf("result=%#v inserted=%d, want one DEFERRED successor", second, len(obl.inserted))
+	}
+	if obl.inserted[0].Status != "canceled" {
+		t.Fatalf("base status=%s want canceled preserved", obl.inserted[0].Status)
+	}
+	successor := obl.inserted[1]
+	if successor.Status != "deferred" {
+		t.Fatalf("successor status=%s want deferred (LIFE-001)", successor.Status)
+	}
+	if !strings.HasPrefix(successor.IdempotencyKey, baseKey+":successor:") {
+		t.Fatalf("successor key=%q base=%q", successor.IdempotencyKey, baseKey)
+	}
+}
+
+// TestGenerateForVersionExitCanceledGoatGetsNoSuccessor: "ineligible_after_exit" (goat left the
+// herd) is terminal for this row — re-entry generation handles a returning goat fresh.
+func TestGenerateForVersionExitCanceledGoatGetsNoSuccessor(t *testing.T) {
+	ctx := context.Background()
+	dob := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	asOf := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	proto := &generationProtoFake{
+		rules: []protodomain.Rule{{
+			RuleID: "rule-fmd", DoseCode: "fmd-dose-1", Sequence: 1, TriggerType: "birth_age", OffsetDays: 28,
+		}},
+		ruleDSL: []byte(`{"vaccine":{"code":"FMD","type":"killed","pathogen_class":"viral"},"eligibility":{"animal_stage":"K1","sex":"all","breed":"all","lifecycle":"alive","health":"any","reproductive":"any","defer_states":[]}}`),
+	}
+	goats := &generationGoatFake{
+		list: []domain.EligibleGoat{{
+			GoatID: "exited-goat", DOB: &dob, LifecycleStatus: "alive", Species: "goat", Stage: "K1",
+			ParkID: "park-1", ShedID: "shed-1",
+		}},
+	}
+	obl := &generationObligationFake{}
+	gen := NewGenerationService(proto, goats, obl)
+
+	if _, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf); err != nil {
+		t.Fatalf("first generate: %v", err)
+	}
+	baseKey := obl.inserted[0].IdempotencyKey
+	obl.inserted[0].Status = "canceled"
+	if obl.cancelReasonsByKey == nil {
+		obl.cancelReasonsByKey = map[string]string{}
+	}
+	obl.cancelReasonsByKey[baseKey] = "ineligible_after_exit"
+
+	second, err := gen.GenerateForVersion(ctx, "tenant-1", "version-1", asOf.AddDate(0, 0, 1))
+	if err != nil {
+		t.Fatalf("second generate: %v", err)
+	}
+	if second.Generated != 0 || len(obl.inserted) != 1 {
+		t.Fatalf("result=%#v inserted=%d, want NO successor for exit-canceled row", second, len(obl.inserted))
 	}
 }
 
@@ -3381,7 +3517,9 @@ func TestGenerateReplayTerminalObligationDoesNotDelayCoDueVaccine(t *testing.T) 
 			}
 			// PPR reaches a terminal state (given, waived, replaced, or canceled) -- no upcoming shot.
 			obl.inserted[0].Status = terminal
-			// Mark the obligation as having a terminal cancellation reason (simulating it was given elsewhere)
+			// Inject the REAL producer reason string written by generation's history
+			// reconciliation (generation.go CancelOpenObligationByIdempotencyKey call site):
+			// "vaccine_history_outranks_anchor" is terminal — must never mint a successor.
 			if obl.cancelReasonsByKey == nil {
 				obl.cancelReasonsByKey = make(map[string]string)
 			}

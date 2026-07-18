@@ -142,6 +142,7 @@ func TestLockAndRefreshReLocksAlreadyLoadedKey(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxShotsPerAnimalPerDrive = 2
 	selected, _, err := selectIDsWithinVisitShotCapForSession(
+		date,
 		[]domain.UnbatchedDue{{ObligationID: "obl-x", TargetID: "goat-1"}},
 		&date, planner, "vaccineB", 6, session,
 	)

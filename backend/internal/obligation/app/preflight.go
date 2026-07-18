@@ -245,7 +245,7 @@ func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cf
 	// BUG #1: use per-rule vaccine identity instead of version-level wrapper.
 	ruleVaccineID := cfg.getRuleVaccineIdentity(g.ruleID)
 	cellsPerObligation := normalizedDosesPerGoat(cfg.forRule(g.ruleID).DosesPerGoat)
-	_, selectedIDs, _, err := s.preflightBestUnbatchedDriveDateWithVisitCap(ctx, tenantID, g.rows, targetIDs, plannedDate, planner, ruleVaccineID, cellsPerObligation, session)
+	_, selectedIDs, _, err := s.preflightBestUnbatchedDriveDateWithVisitCap(ctx, tenantID, operationalAsOf, g.rows, targetIDs, plannedDate, planner, ruleVaccineID, cellsPerObligation, session)
 	if err != nil {
 		return false, err
 	}
@@ -253,7 +253,7 @@ func (s *SweeperService) preflightGroup(ctx context.Context, tenantID string, cf
 	return len(selectedIDs) > 0, nil
 }
 
-func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context.Context, tenantID string, rows []domain.UnbatchedDue, targetIDs []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, ruleVaccineID RuleVaccineIdentity, cellsPerObligation int32, session *SweepSession) (*time.Time, []string, []shotCapReservation, error) {
+func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context.Context, tenantID string, now time.Time, rows []domain.UnbatchedDue, targetIDs []string, plannedDate *time.Time, planner domain.DrivePlannerSettings, ruleVaccineID RuleVaccineIdentity, cellsPerObligation int32, session *SweepSession) (*time.Time, []string, []shotCapReservation, error) {
 	if cellsPerObligation <= 0 {
 		cellsPerObligation = 1
 	}
@@ -269,12 +269,12 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			return plannedDate, nil, nil, err
 		}
 		release := combineReleases(driveRelease, visitRelease)
-		selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, plannedDate, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+		selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(now, rows, plannedDate, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 		if err != nil {
 			_ = release(ctx)
 			return plannedDate, nil, nil, err
 		}
-		cappedIDs := limitUnbatchedSelectionByDriveCells(rows, selectedIDs, plannedDate, planner, session, cellsPerObligation)
+		cappedIDs := limitUnbatchedSelectionByDriveCells(now, rows, selectedIDs, plannedDate, planner, session, cellsPerObligation)
 		if len(cappedIDs) < len(selectedIDs) {
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
@@ -294,7 +294,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 	var bestIDs []string
 	bestAnimals := -1
 	for probe := businessDate(*plannedDate); !probe.After(latest); {
-		if len(obligationsFeasibleOnDriveDateForPlanner(probe, candidates, planner)) > 0 {
+		if len(obligationsFeasibleOnDriveDateForPlanner(now, probe, candidates, planner)) > 0 {
 			day := probe
 			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 				return plannedDate, nil, nil, err
@@ -303,12 +303,12 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			if err != nil {
 				return plannedDate, nil, nil, err
 			}
-			selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, &day, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+			selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(now, rows, &day, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 			if err != nil {
 				_ = driveRelease(ctx)
 				return plannedDate, nil, nil, err
 			}
-			cappedIDs := limitUnbatchedSelectionByDriveCells(rows, selectedIDs, &day, planner, session, cellsPerObligation)
+			cappedIDs := limitUnbatchedSelectionByDriveCells(now, rows, selectedIDs, &day, planner, session, cellsPerObligation)
 			session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 			shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
 			animals := uniqueUnbatchedTargetCount(selectedUnbatchedRows(rows, cappedIDs))
@@ -323,7 +323,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 				bestAnimals = animals
 			}
 		}
-		next := nextFeasibleUnbatchedDriveDateAfter(probe, rows, planner)
+		next := nextFeasibleUnbatchedDriveDateAfter(now, probe, rows, planner)
 		if next == nil {
 			break
 		}
@@ -340,12 +340,12 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 	if err != nil {
 		return bestDate, nil, nil, err
 	}
-	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(rows, bestDate, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
+	selectedIDs, shotClaims, err := selectIDsWithinVisitShotCapForSession(now, rows, bestDate, planner, ruleVaccineID.VaccineCode, ruleVaccineID.VaccinePriority, session)
 	if err != nil {
 		_ = driveRelease(ctx)
 		return bestDate, nil, nil, err
 	}
-	cappedIDs := limitUnbatchedSelectionByDriveCells(rows, selectedIDs, bestDate, planner, session, cellsPerObligation)
+	cappedIDs := limitUnbatchedSelectionByDriveCells(now, rows, selectedIDs, bestDate, planner, session, cellsPerObligation)
 	if len(cappedIDs) < len(selectedIDs) {
 		session.releaseClaims(claimsOutsideSelection(shotClaims, cappedIDs))
 		shotClaims = claimsOutsideSelection(shotClaims, differenceIDs(selectedIDs, cappedIDs))
@@ -476,12 +476,12 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		return remaining, nil, plannedDate, false, true, err
 	}
 	release := combineReleases(driveRelease, visitRelease)
-	selected, shotClaims, err := selectParkIDsWithinVisitShotCapForSession(orderedRemaining, obligationsFeasibleOnDateForPlanner(*plannedDate, remaining, planner), plannedDate, planner, cfg.getRuleVaccineIdentity, session)
+	selected, shotClaims, err := selectParkIDsWithinVisitShotCapForSession(now, orderedRemaining, obligationsFeasibleOnDateForPlanner(now, *plannedDate, remaining, planner), plannedDate, planner, cfg.getRuleVaccineIdentity, session)
 	if err != nil {
 		_ = release(ctx)
 		return remaining, nil, plannedDate, false, true, err
 	}
-	capped := limitParkSelectionByDriveCells(orderedRemaining, selected, *plannedDate, planner, session, cfg)
+	capped := limitParkSelectionByDriveCells(now, orderedRemaining, selected, *plannedDate, planner, session, cfg)
 	if len(capped) < len(selected) {
 		animalCapReached = true
 		cappedClaims := splitShotCapReservations(shotClaims, selected, [][]string{capped})

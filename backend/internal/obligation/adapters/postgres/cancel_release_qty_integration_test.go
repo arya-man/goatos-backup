@@ -22,7 +22,9 @@ import (
 // by the real sweeper+inventory reserver; the cancellation runs through the production repo.
 //
 // release_qty (per batch, when reserved > 0) =
-//     existing_cancel_release + LEAST( reserved-pending, count*(reserved-pending)/estimated_targets )
+//
+//	existing_cancel_release + LEAST( reserved-pending, count*(reserved-pending)/estimated_targets )
+//
 // where pending = sum of prior defer/shift/cancel/missed repair release_qty that are still
 // 'stock_reconcile_required', and count = obligations of this cancel that belonged to the batch.
 func TestCancelReleaseQtyAcrossReservedBatches(t *testing.T) {

@@ -192,6 +192,41 @@ func actionableObligationForSpacing(ref obldomain.ObligationRef) bool {
 	}
 }
 
+// cancelReasonMintsSuccessor classifies a persisted cancellation reason (from the most recent
+// 'canceled' obligation_status_events payload, wired through ObligationRef.Reason) into
+// successor-eligible vs terminal. FAIL CLOSED: empty or unrecognized reasons never mint a
+// successor — a legacy row with no recorded reason gives no evidence the goat is returning.
+//
+// The vocabulary below is the FULL set of reasons real producers write today (grep of every
+// CancelOpen* call site plus adapter defaults):
+//
+//	"ineligible_after_shift"                    generation.go shift-away cancel (park A -> B).
+//	                                            THE returning-goat case: the goat later
+//	                                            requalifies (B -> A) and must get fresh work. MINTS.
+//	"ineligible_after_exit"                     obligation/app/cancel.go goat.exited handler.
+//	                                            Goat left the herd; if it ever returns, re-entry
+//	                                            generation creates fresh work. NO successor.
+//	"vaccine_history_outranks_anchor"           generation history reconciliation — the shot is
+//	                                            already covered by real history. NO successor.
+//	"vaccine_history_now_available"             generation history reconciliation — catch-up row
+//	                                            replaced by history-anchored schedule. NO successor.
+//	"missing_due_date_resolved"                 generation — placeholder row replaced by a real
+//	                                            dated obligation. NO successor.
+//	"version_no_longer_effective_after_recheck" generation recheck — version superseded for this
+//	                                            goat's scope. NO successor.
+//	"version_no_longer_effective"               adapter default for the except-versions cancel.
+//	                                            Same semantics as above. NO successor.
+//	"ineligible_after_recheck"                  adapter default for the per-version cancel when a
+//	                                            caller passes no reason. Ambiguous → fail closed.
+func cancelReasonMintsSuccessor(reason string) bool {
+	switch strings.TrimSpace(reason) {
+	case "ineligible_after_shift":
+		return true
+	default:
+		return false
+	}
+}
+
 // applyCrossVaccineGapFloorFromPending floors a vaccine's due date against incompatible
 // pending vaccines already generated in this pass. Cross-vaccine spacing is a positive medical
 // assertion between two IDENTIFIED, DIFFERENT vaccine products, so it applies ONLY when both the
@@ -1442,26 +1477,21 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 			// terminal obligation made reopening a no-op.
 			if actionableObligationForSpacing(finalRef) {
 				pending = append(pending, pendingVaccine{code: ruleVaccine.Code, class: ruleVaccine.Class, due: finalRef.DueAt})
-			} else if !deferred && strings.EqualFold(strings.TrimSpace(finalRef.Status), "canceled") {
-				// Create a successor only for returning-goat scenarios (requalification/return/park-shift).
-				// Terminal cancellations (vaccine_history_outranks_anchor, vaccine_history_now_available,
-				// missing_due_date_resolved) must NOT create successors or act as spacing anchors.
-				// The Reason field comes from the persisted cancellation event (status_events payload);
-				// if empty, treat as returning-goat and create successor (backward compat until wired).
-				shouldCreateSuccessor := finalRef.Reason == "" || // Not yet wired from SQL
-					strings.EqualFold(finalRef.Reason, "return") ||
-					strings.EqualFold(finalRef.Reason, "requalification") ||
-					strings.EqualFold(finalRef.Reason, "park_shift")
-				if !shouldCreateSuccessor {
-					// Terminal cancellation - don't create successor or add to spacing
-					continue
-				}
+			} else if strings.EqualFold(strings.TrimSpace(finalRef.Status), "canceled") &&
+				cancelReasonMintsSuccessor(finalRef.Reason) {
+				// Returning-goat successor: the goat requalified for this version after its prior
+				// row was canceled by a shift-away. Minted with the goat's CURRENT clinical status
+				// (deferred=true → deferred successor, LIFE-001), preserving the canceled predecessor.
+				// Terminal/history cancellations never reach here (see cancelReasonMintsSuccessor).
 				successorRef, successorChanged, successorApplied, err := s.insertSuccessorForCanceledGenerationReplay(ctx, tenantID, key, newObligation, asOf, deferred)
 				if err != nil {
 					return err
 				}
 				if successorApplied {
 					res.Generated++
+					if deferred {
+						res.Deferred++
+					}
 				}
 				if successorChanged {
 					res.Reopened++
@@ -1526,7 +1556,16 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 		if applied {
 			return obldomain.ObligationRef{ObligationID: obID, Status: successor.Status, DueAt: successor.DueAt, Reason: ""}, false, true, nil
 		}
-		ref, changed, err := s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, asOf, nil)
+		// Replay: reconcile the existing successor row with the goat's CURRENT clinical status.
+		// A still-held goat must keep (or re-enter) deferred — reopening here would wrongly
+		// schedule work for a sick/ICU goat.
+		var ref obldomain.ObligationRef
+		var changed bool
+		if deferred {
+			ref, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, "defer_state", asOf)
+		} else {
+			ref, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, asOf, nil)
+		}
 		if err != nil {
 			return obldomain.ObligationRef{}, false, false, err
 		}

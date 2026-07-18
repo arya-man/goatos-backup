@@ -15,7 +15,7 @@ func TestSelectIDsWithinVisitShotCapForSessionFiltersUnsafeRows(t *testing.T) {
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxShotsPerAnimalPerDrive = 2
 
-	selected, _, err := selectIDsWithinVisitShotCapForSession([]domain.UnbatchedDue{
+	selected, _, err := selectIDsWithinVisitShotCapForSession(planned, []domain.UnbatchedDue{
 		{ObligationID: "expired", TargetID: "goat-1", DueAt: planned, WindowEnd: &expired},
 		{ObligationID: "open", TargetID: "goat-2", DueAt: planned, WindowEnd: &open},
 	}, &planned, planner, "FMD", 5, NewSweepSession())
@@ -34,7 +34,7 @@ func TestSelectParkIDsWithinVisitShotCapForSessionFiltersUnsafeRows(t *testing.T
 	planner := domain.DefaultDrivePlannerSettings()
 	planner.MaxShotsPerAnimalPerDrive = 2
 
-	selected, _, err := selectParkIDsWithinVisitShotCapForSession([]domain.ParkConsolidationCandidate{
+	selected, _, err := selectParkIDsWithinVisitShotCapForSession(planned, []domain.ParkConsolidationCandidate{
 		{ObligationID: "expired", RuleID: "rule-fmd", TargetID: "goat-1", DueAt: planned, WindowEnd: &expired},
 		{ObligationID: "open", RuleID: "rule-fmd", TargetID: "goat-2", DueAt: planned, WindowEnd: &open},
 	}, []string{"expired", "open"}, &planned, planner, func(string) RuleVaccineIdentity {

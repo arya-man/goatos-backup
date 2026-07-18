@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	protocolpg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
 	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
-	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
 
 // TestComboAlignKeysetQueryUsesPartialIndex is the R2-06b guard: the AlignComboDrives keyset query
