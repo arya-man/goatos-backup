@@ -235,8 +235,8 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideCalendarRepository(api: AppApi, dao: CalendarCacheDao): CalendarRepository =
-        DefaultCalendarRepository(api, dao)
+    fun provideCalendarRepository(api: AppApi, dao: CalendarCacheDao, database: GoatDatabase): CalendarRepository =
+        DefaultCalendarRepository(api, dao, database)
 
     @Provides
     @Singleton

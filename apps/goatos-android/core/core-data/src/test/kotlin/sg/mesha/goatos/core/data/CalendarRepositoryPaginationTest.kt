@@ -64,7 +64,7 @@ class CalendarRepositoryPaginationTest {
             val dao = database.calendarCacheDao()
 
             // --- session 1: load two pages, both persisted into Room ---
-            val repo1 = repository(dao, backend, requests)
+            val repo1 = repository(database, dao, backend, requests)
             repo1.refreshEvents(dateFrom = DAY, dateTo = DAY, limit = PAGE_SIZE).getOrThrow()
             repo1.appendEvents(cursor = "cursor-1", dateFrom = DAY, dateTo = DAY, limit = PAGE_SIZE).getOrThrow()
 
@@ -78,7 +78,7 @@ class CalendarRepositoryPaginationTest {
             // with the network now hard-down. The observed read must return both ordered pages
             // from Room alone, issuing ZERO new network calls. ---
             backend.offline = true
-            val repo2 = repository(dao, backend, requests)
+            val repo2 = repository(database, dao, backend, requests)
             val restored = repo2.observeEvents(dateFrom = DAY, dateTo = DAY, limit = PAGE_SIZE).first().data!!
 
             assertEquals("no network call may happen during the offline Room read", requestsAfterLoad, requests.size)
@@ -109,7 +109,7 @@ class CalendarRepositoryPaginationTest {
             val requests = mutableListOf<Request>()
             val backend = Backend()
             val dao = database.calendarCacheDao()
-            val repo = repository(dao, backend, requests)
+            val repo = repository(database, dao, backend, requests)
             repo.refreshEvents(dateFrom = DAY, dateTo = DAY, limit = PAGE_SIZE).getOrThrow()
 
             backend.offline = true
@@ -140,7 +140,7 @@ class CalendarRepositoryPaginationTest {
             val requests = mutableListOf<Request>()
             val backend = Backend()
             val dao = database.calendarCacheDao()
-            val repo = repository(dao, backend, requests)
+            val repo = repository(database, dao, backend, requests)
             repo.refreshEvents(dateFrom = DAY, dateTo = DAY, limit = PAGE_SIZE).getOrThrow()
             val requestsAfterLoad = requests.size
 
@@ -157,15 +157,20 @@ class CalendarRepositoryPaginationTest {
         }
     }
 
-    private fun repository(dao: CalendarCacheDao, backend: Backend, requests: MutableList<Request>): DefaultCalendarRepository {
+    private fun repository(
+        database: GoatDatabase,
+        dao: CalendarCacheDao,
+        backend: Backend,
+        requests: MutableList<Request>,
+    ): DefaultCalendarRepository {
         val api = Proxy.newProxyInstance(AppApi::class.java.classLoader, arrayOf(AppApi::class.java)) { proxy, method, args ->
             when (method.name) {
                 "listCalendarVaccinationEvents" -> {
                     val request = Request(
                         status = args?.get(3) as String?,
                         dateFrom = args?.get(4) as String?,
-                        cursor = args?.get(7) as String?,
-                        limit = args?.get(8) as Int?,
+                        cursor = args?.get(9) as String?,
+                        limit = args?.get(10) as Int?,
                     )
                     requests += request
                     if (backend.offline) throw IOException("offline")
@@ -177,7 +182,7 @@ class CalendarRepositoryPaginationTest {
                 else -> error("unexpected AppApi method ${method.name}")
             }
         } as AppApi
-        return DefaultCalendarRepository(api, dao, json, clock = { 42L })
+        return DefaultCalendarRepository(api, dao, database, json, clock = { 42L })
     }
 
     private class Backend {

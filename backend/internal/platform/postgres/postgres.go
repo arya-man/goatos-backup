@@ -48,6 +48,7 @@ func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("parse postgres config: %w", err)
 	}
 	poolCfg.MaxConns = cfg.MaxConns
+	configureOLTPRuntime(poolCfg)
 	// otelpgx attaches a span per query/batch/copy/prepare/acquire (using the
 	// OTel global TracerProvider/MeterProvider, which observability.SetupTelemetry
 	// installs) plus its own duration/error metrics. It defaults to
@@ -69,6 +70,19 @@ func Connect(ctx context.Context, cfg Config) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 	return pool, nil
+}
+
+func configureOLTPRuntime(poolCfg *pgxpool.Config) {
+	// Goat OS API traffic is latency-sensitive OLTP. PostgreSQL JIT can spend
+	// several seconds compiling the large canonical Calendar statement once its
+	// estimated cost crosses jit_above_cost, even though the indexed execution
+	// itself completes in a few hundred milliseconds. Disable JIT per connection
+	// so every pooled request gets predictable latency instead of query-specific
+	// compilation pauses.
+	if poolCfg.ConnConfig.RuntimeParams == nil {
+		poolCfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	poolCfg.ConnConfig.RuntimeParams["jit"] = "off"
 }
 
 // Ping verifies database readiness within the provided timeout.

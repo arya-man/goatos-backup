@@ -58,7 +58,7 @@ class CalendarRepositoryCacheRecoveryTest {
                 }
             } as AppApi
 
-            val repository = DefaultCalendarRepository(api, dao, json, clock = { 2L })
+            val repository = DefaultCalendarRepository(api, dao, database, json, clock = { 2L })
 
             // Before any refresh: the corrupt row must read as "no data yet", not crash, and
             // must have been quarantined (deleted) rather than left to block forever.

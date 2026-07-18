@@ -51,6 +51,23 @@ data class CalendarKeyLabelDto(
 )
 
 @Serializable
+data class CalendarFilterOptionDto(
+    @SerialName("value") val value: String = "",
+    @SerialName("label") val label: String = "",
+    @SerialName("parent_value") val parentValue: String? = null,
+)
+
+@Serializable
+data class CalendarFilterOptionsDto(
+    @SerialName("parks") val parks: List<CalendarFilterOptionDto> = emptyList(),
+    @SerialName("sheds") val sheds: List<CalendarFilterOptionDto> = emptyList(),
+    @SerialName("vaccines") val vaccines: List<CalendarFilterOptionDto> = emptyList(),
+    @SerialName("statuses") val statuses: List<CalendarKeyLabelDto> = emptyList(),
+    @SerialName("months") val months: List<CalendarKeyLabelDto> = emptyList(),
+    @SerialName("years") val years: List<CalendarKeyLabelDto> = emptyList(),
+)
+
+@Serializable
 data class CalendarDateMarkerDto(
     @SerialName("date") val date: String = "",
     @SerialName("event_count") val eventCount: Int = 0,
@@ -172,5 +189,6 @@ data class CalendarEventListResponseDto(
     @SerialName("presentation") val presentation: CalendarPresentationDto = CalendarPresentationDto(),
     @SerialName("items") val items: List<CalendarEventDto> = emptyList(),
     @SerialName("date_markers") val dateMarkers: List<CalendarDateMarkerDto> = emptyList(),
+    @SerialName("filter_options") val filterOptions: CalendarFilterOptionsDto? = null,
     @SerialName("next_cursor") val nextCursor: String? = null,
 )

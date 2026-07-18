@@ -180,7 +180,7 @@ fun GoatOsShellChrome(
 
     // Top-level routes: backend nav items + Routes.YOU. Detail screens (with args) won't match.
     val topLevelRoutes = navState.items.map { it.href } + Routes.YOU
-    val isTopLevel = currentRoute != null && currentRoute in topLevelRoutes
+    val isTopLevel = isTopLevelRoute(currentRoute, topLevelRoutes)
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -229,6 +229,13 @@ fun GoatOsShellChrome(
         }
     }
 }
+
+/**
+ * Only exact bootstrap roots own global navigation chrome. A child route must
+ * never inherit the bar from a root with a similar path prefix.
+ */
+internal fun isTopLevelRoute(currentRoute: String?, topLevelRoutes: Collection<String>): Boolean =
+    currentRoute != null && currentRoute in topLevelRoutes
 
 // ---------------------------------------------------------------------------
 // Bottom navigation — M3 NavigationBar with the active-indicator pill. Icons are

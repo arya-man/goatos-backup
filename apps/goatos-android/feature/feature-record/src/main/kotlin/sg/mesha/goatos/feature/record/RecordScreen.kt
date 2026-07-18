@@ -1,5 +1,7 @@
 package sg.mesha.goatos.feature.record
 
+// telemetry:exempt pure stateless renderer; RecordViewModel owns record-open analytics and non-fatal refresh reporting.
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -36,7 +39,7 @@ import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 
 // ---------------------------------------------------------------------------
-// Shed / drive record sheet (screens.md: ovl-shedrec, ovl-driverec) — READ-ONLY.
+// Shed / drive record destination — READ-ONLY.
 //
 // Opened from calendar history or a shed card. Per TRD §14 dumb-renderer the screen
 // only RENDERS the backend record: it never re-derives given/due counts, never
@@ -81,7 +84,7 @@ data class RecordMetaRow(
 )
 
 /**
- * Everything the read-only record sheet renders. [title]/[subtitle]/[statusLabel]
+ * Everything the read-only record destination renders. [title]/[subtitle]/[statusLabel]
  * are backend labels (shed or drive · date · status); [groups] is the per-vaccine
  * breakdown; [meta] carries operator/window/proof or a "not started" status line.
  *
@@ -120,28 +123,20 @@ fun RecordScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(RecordTokens.Bg),
+            .background(RecordTokens.Surf),
     ) {
-        // Sheet-styled surface (mock .sheet: Surf, rounded top 26, internal scroll).
-        Column(
+        RecordHeader(state = state, onEvent = onEvent)
+        LazyColumn(
             modifier = Modifier
-                .fillMaxSize()
-                .background(RecordTokens.Surf, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)),
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(bottom = 20.dp),
         ) {
-            SheetGrip()
-            RecordHeader(state = state, onEvent = onEvent)
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentPadding = PaddingValues(bottom = 20.dp),
-            ) {
-                item { RecordSummaryCard(state) }
-                state.statusLabel?.let { label ->
-                    item {
-                        Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
-                            StatusPill(text = label, tone = state.statusTone)
-                        }
+            item { RecordSummaryCard(state) }
+            state.statusLabel?.let { label ->
+                item {
+                    Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+                        StatusPill(text = label, tone = state.statusTone)
                     }
                 }
             }
@@ -150,29 +145,30 @@ fun RecordScreen(
 }
 
 @Composable
-private fun SheetGrip() {
-    Box(
+private fun RecordHeader(state: RecordUiState, onEvent: (RecordEvent) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 9.dp),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(width = 40.dp, height = 5.dp)
-                .background(RecordTokens.Faint.copy(alpha = 0.5f), shape = RoundedCornerShape(3.dp)),
-        )
-    }
-}
-
-@Composable
-private fun RecordHeader(state: RecordUiState, onEvent: (RecordEvent) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.Top,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 20.dp, end = 12.dp, bottom = 10.dp),
-    ) {
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(RecordTokens.Surf2)
+                .border(1.dp, RecordTokens.Hair, RoundedCornerShape(12.dp))
+                .clickable { onEvent(RecordEvent.Close) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MeshaIcons.ChevronLeft,
+                contentDescription = stringResource(R.string.record_back_button),
+                tint = RecordTokens.Muted,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = state.countLabel?.let { "${state.title} · $it" } ?: state.title,
@@ -185,20 +181,6 @@ private fun RecordHeader(state: RecordUiState, onEvent: (RecordEvent) -> Unit) {
                 color = RecordTokens.Muted,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .background(RecordTokens.Surf2, shape = RoundedCornerShape(12.dp))
-                .clickable { onEvent(RecordEvent.Close) },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = MeshaIcons.Close,
-                contentDescription = stringResource(R.string.record_close_button),
-                tint = RecordTokens.Muted,
-                modifier = Modifier.size(16.dp),
             )
         }
     }

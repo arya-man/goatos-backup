@@ -159,6 +159,7 @@ run_admin_web() {
 run_android_guards() {
   step "offline-first-guard"          make offline-first-guard
   step "mobile-guard"                 make mobile-guard
+  step "android-navigation-stack-guard" make android-navigation-stack-guard
   step "telemetry-guard"              make telemetry-guard
   step "android-bounded-memory-guard" make android-bounded-memory-guard
   step "room-migration-guard"         make room-migration-guard

@@ -189,6 +189,8 @@ interface AppApi {
         dateFrom: String? = null,
         dateTo: String? = null,
         includeDateMarkers: Boolean = false,
+        vaccine: String? = null,
+        includeFilterOptions: Boolean = false,
         cursor: String? = null,
         limit: Int? = null,
     ): CalendarEventListResponseDto
@@ -422,6 +424,8 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        vaccine: String?,
+        includeFilterOptions: Boolean,
         cursor: String?,
         limit: Int?,
     ): CalendarEventListResponseDto = CalendarEventListResponseDto()

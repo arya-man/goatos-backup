@@ -105,6 +105,8 @@ interface AppApiService {
         @Query("date_from") dateFrom: String?,
         @Query("date_to") dateTo: String?,
         @Query("include_date_markers") includeDateMarkers: Boolean?,
+        @Query("vaccine") vaccine: String?,
+        @Query("include_filter_options") includeFilterOptions: Boolean?,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int?,
     ): CalendarEventListResponseDto
@@ -293,6 +295,8 @@ class RetrofitAppApi(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        vaccine: String?,
+        includeFilterOptions: Boolean,
         cursor: String?,
         limit: Int?,
     ): CalendarEventListResponseDto =
@@ -304,6 +308,8 @@ class RetrofitAppApi(
             dateFrom,
             dateTo,
             includeDateMarkers.takeIf { it },
+            vaccine,
+            includeFilterOptions.takeIf { it },
             cursor,
             limit,
         )

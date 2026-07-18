@@ -55,7 +55,15 @@ class GoatDatabaseUpgradeCrashTest {
         //    If any migration is wrong (e.g. the missing roster-cache tables), Room throws here —
         //    the crash an updated APK would hit on first launch.
         val upgraded = Room.databaseBuilder(context, GoatDatabase::class.java, DB_NAME)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+            .addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+                MIGRATION_7_8,
+            )
             .build()
         try {
             // Force Room to actually open + migrate + validate (builders are lazy).

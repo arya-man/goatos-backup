@@ -2177,12 +2177,26 @@ export interface components {
             presentation: components["schemas"]["CalendarPresentation"];
             items: components["schemas"]["CalendarEvent"][];
             date_markers: components["schemas"]["CalendarDateMarker"][];
+            filter_options?: components["schemas"]["CalendarFilterOptions"];
             next_cursor: string | null;
             projection: components["schemas"]["CalendarProjectionMetadata"];
             /** @description Freshness and coverage metadata for the completed-history projection, populated only when this read consulted the history CTE (explicit status=completed filter or date-marker inclusion). Null otherwise. */
             history_projection?: components["schemas"]["CalendarProjectionMetadata"];
             /** @description Backend-computed, whole-filtered-week reminder/escalation rail. Populated only when include_reminder_rail is set (the week view request shape); null otherwise so a plain paged list fetch does not pay for it. */
             reminder_rail?: components["schemas"]["CalendarReminderRail"];
+        };
+        CalendarFilterOption: {
+            value: string;
+            label: string;
+            parent_value?: string | null;
+        };
+        CalendarFilterOptions: {
+            parks: components["schemas"]["CalendarFilterOption"][];
+            sheds: components["schemas"]["CalendarFilterOption"][];
+            vaccines: components["schemas"]["CalendarFilterOption"][];
+            statuses: components["schemas"]["CalendarKeyLabel"][];
+            months: components["schemas"]["CalendarKeyLabel"][];
+            years: components["schemas"]["CalendarKeyLabel"][];
         };
         CalendarReminderRail: {
             /** @description Total active reminder/escalation events in the full filtered week window, independent of the bounded items preview below. */
@@ -5024,6 +5038,10 @@ export interface operations {
                 markers_only?: boolean;
                 /** @description Include the whole-filtered-week reminder/escalation rail summary (week view). Separate from include_date_markers so the week list gets the rail without paying for month date-markers. */
                 include_reminder_rail?: boolean;
+                /** @description Exact backend-provided vaccine label from filter_options. */
+                vaccine?: string;
+                /** @description Include caller-scoped park, shed, vaccine, status, month, and year choices on the first page. */
+                include_filter_options?: boolean;
                 cursor?: string;
                 limit?: number;
             };

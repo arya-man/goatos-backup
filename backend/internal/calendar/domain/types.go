@@ -133,12 +133,13 @@ type CalendarEvent struct {
 }
 
 type CalendarEventListResponse struct {
-	Source       string               `json:"source"`
-	Presentation CalendarPresentation `json:"presentation"`
-	Items        []CalendarEvent      `json:"items"`
-	DateMarkers  []CalendarDateMarker `json:"date_markers"`
-	NextCursor   *string              `json:"next_cursor"`
-	Projection   ProjectionMetadata   `json:"projection"`
+	Source        string                 `json:"source"`
+	Presentation  CalendarPresentation   `json:"presentation"`
+	Items         []CalendarEvent        `json:"items"`
+	DateMarkers   []CalendarDateMarker   `json:"date_markers"`
+	FilterOptions *CalendarFilterOptions `json:"filter_options,omitempty"`
+	NextCursor    *string                `json:"next_cursor"`
+	Projection    ProjectionMetadata     `json:"projection"`
 	// HistoryProjection is always nil now (5k-50k envelope, migration 000189): the separate
 	// completed-history projection is retired, and completed/history rows are served by the same
 	// canonical predicate as everything else in Projection, so there is no separate freshness/
@@ -152,6 +153,27 @@ type CalendarEventListResponse struct {
 	// only when q.IncludeDateMarkers is true (the week/month view request shape); nil otherwise so a
 	// plain paged list fetch does not pay for it.
 	ReminderRail *CalendarReminderRail `json:"reminder_rail,omitempty"`
+}
+
+// CalendarFilterOption is a backend-authorized choice for the mobile monthly
+// schedule. ParentValue links a shed to its park without asking the client to
+// reconstruct the location hierarchy.
+type CalendarFilterOption struct {
+	Value       string  `json:"value"`
+	Label       string  `json:"label"`
+	ParentValue *string `json:"parent_value,omitempty"`
+}
+
+// CalendarFilterOptions contains only choices visible inside the caller's
+// effective Calendar scope. It is returned on demand with the first page so
+// continuation requests do not repeat option discovery work.
+type CalendarFilterOptions struct {
+	Parks    []CalendarFilterOption `json:"parks"`
+	Sheds    []CalendarFilterOption `json:"sheds"`
+	Vaccines []CalendarFilterOption `json:"vaccines"`
+	Statuses []CalendarKeyLabel     `json:"statuses"`
+	Months   []CalendarKeyLabel     `json:"months"`
+	Years    []CalendarKeyLabel     `json:"years"`
 }
 
 // CalendarReminderRail is the whole-result reminder/escalation rail for the requested week window.
@@ -374,17 +396,19 @@ type CalendarActionResponse struct {
 }
 
 type Query struct {
-	TenantID           string
-	ParkID             *string
-	ShedID             *string
-	OwnerKey           string
-	Status             *string
-	DateFrom           time.Time
-	DateTo             time.Time
-	Cursor             *CalendarCursor
-	Limit              int
-	IncludeDateMarkers bool
-	MarkersOnly        bool
+	TenantID             string
+	ParkID               *string
+	ShedID               *string
+	Vaccine              *string
+	OwnerKey             string
+	Status               *string
+	DateFrom             time.Time
+	DateTo               time.Time
+	Cursor               *CalendarCursor
+	Limit                int
+	IncludeDateMarkers   bool
+	MarkersOnly          bool
+	IncludeFilterOptions bool
 	// IncludeReminderRail requests the whole-week reminder/escalation rail summary. It is a
 	// SEPARATE trigger from IncludeDateMarkers: the week view needs the rail but not the month
 	// date-markers, so gating the rail on IncludeDateMarkers left it null on the week list.

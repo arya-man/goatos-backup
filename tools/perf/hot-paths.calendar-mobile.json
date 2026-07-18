@@ -1,0 +1,67 @@
+{
+  "scope": {
+    "included": [
+      "calendar_mobile_month_page_20",
+      "calendar_mobile_month_filter_options",
+      "calendar_mobile_month_status_filter",
+      "calendar_mobile_month_vaccine_filter",
+      "calendar_mobile_history_page_20"
+    ],
+    "excluded": {
+      "cold_start": "Measured separately because warm percentile gates intentionally include warmup.",
+      "continuation_page": "Measured separately with the backend-issued cursor from the first response."
+    }
+  },
+  "endpoints": [
+    {
+      "name": "calendar_mobile_month_page_20",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from=2026-07-01&date_to=2026-07-31&limit=20",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "calendar_mobile_month_filter_options",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from=2026-07-01&date_to=2026-07-31&limit=20&include_filter_options=true",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "filter_options.sheds", "min": 1 }
+    },
+    {
+      "name": "calendar_mobile_month_status_filter",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from=2026-07-01&date_to=2026-07-31&limit=20&status=scheduled",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "calendar_mobile_month_vaccine_filter",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from=2026-07-01&date_to=2026-07-31&limit=20&vaccine=FMD",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 1 }
+    },
+    {
+      "name": "calendar_mobile_history_page_20",
+      "method": "GET",
+      "path": "/calendar/vaccination/events?date_from=2026-07-01&date_to=2026-07-31&limit=20&status=completed",
+      "p90_ms": 300,
+      "p95_ms": 500,
+      "p99_ms": 1000,
+      "max_response_bytes": 524288,
+      "assertion": { "type": "array_min", "path": "items", "min": 20 }
+    }
+  ]
+}

@@ -645,6 +645,14 @@ Do:
     Otherwise the over-fetch just moves from network to DB.
   If a case is genuinely bounded (e.g. a fixed 7-cell week loop) annotate the line
   `// mobile-guard:ignore: <reason>`; do not disable the guard.
+  Android navigation has a separate structural invariant: backend-composed root
+  destinations are L0 and alone own the bottom bar/drawer. Every L1/L2/L3/L4
+  drill is a distinct hosted `NavHost` destination with Up/Back and no root
+  chrome; exact route membership is mandatory, prefix matching and reusing an
+  L0 route as a drill target are forbidden, and structural details must not be
+  disguised as modal sheets. Machine-blocked by
+  `make android-navigation-stack-guard`; canonical decision:
+  `docs/decisions/android-navigation-stack.md`.
   The retention twin is memory, not fetch size: an in-heap cache/accumulator that
   grows with no cap/TTL/eviction, or a DAO reading a whole table into memory
   (`observeAll` `SELECT *`), OOMs the phone at scale (fixed in `7058fff2` +

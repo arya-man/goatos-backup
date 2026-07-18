@@ -41,12 +41,16 @@ object AnalyticsEvents {
     /** Operator triggered an RFID reader setup action. */
     const val RFID_READER_ACTION = "rfid_reader_action"
 
+    /** A read-only vaccination shed record was opened. */
+    const val VACCINATION_RECORD_OPENED = "vaccination_record_opened"
+
     /** Standard event parameter keys. */
     object Params {
         const val METHOD = "method"
         const val REASON = "reason"
         const val CHROME = "chrome"
         const val ACTION = "action"
+        const val SHED_ID = "shed_id"
     }
 
     /** Durable user-property keys (set via [AnalyticsPort.setUserProperty]). */

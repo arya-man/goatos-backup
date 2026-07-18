@@ -248,6 +248,16 @@
       "ciStep": "android-bounded-memory-guard"
     },
     {
+      "id": "android-navigation-stack",
+      "script": "tools/agent-hooks/check-android-navigation-stack.mjs",
+      "makeTarget": "android-navigation-stack-guard",
+      "realCheck": "node tools/agent-hooks/check-android-navigation-stack.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-navigation-stack.mjs --self-test",
+      "owningDoc": "docs/decisions/android-navigation-stack.md",
+      "requiredInCI": true,
+      "ciStep": "android-navigation-stack-guard"
+    },
+    {
       "id": "room-migration-safety",
       "script": "tools/agent-hooks/check-room-migration-safety.mjs",
       "makeTarget": "room-migration-guard",

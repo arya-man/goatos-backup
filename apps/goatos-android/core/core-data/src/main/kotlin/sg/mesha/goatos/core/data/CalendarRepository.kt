@@ -1,21 +1,62 @@
 package sg.mesha.goatos.core.data
 
+import androidx.paging.ExperimentalPagingApi
+import androidx.paging.LoadType
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.PagingState
+import androidx.paging.RemoteMediator
+import androidx.paging.map
+import androidx.room.withTransaction
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.cache.CalendarCacheDao
 import sg.mesha.goatos.core.data.cache.CalendarCacheEntity
+import sg.mesha.goatos.core.data.cache.CalendarScheduleEntity
+import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyEntity
+import sg.mesha.goatos.core.data.cache.CacheGovernance
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.dto.CalendarEventDto
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
+
+const val CALENDAR_SCHEDULE_PAGE_SIZE = 20
+private const val CALENDAR_SCHEDULE_CACHED_QUERIES = 24
+
+/** One backend-filtered monthly schedule. The server still applies effective RBAC scope. */
+data class CalendarScheduleQuery(
+    val parkId: String? = null,
+    val shedId: String? = null,
+    val vaccine: String? = null,
+    val status: String? = null,
+    val ownerKey: String? = null,
+    val dateFrom: String,
+    val dateTo: String,
+) {
+    internal fun roomKey(): String = cacheKey(
+        "calendar-schedule-v1",
+        parkId,
+        shedId,
+        vaccine,
+        status,
+        ownerKey,
+        dateFrom,
+        dateTo,
+        CALENDAR_SCHEDULE_PAGE_SIZE.toString(),
+    )
+}
 
 /**
  * Calendar screen area: the PC vaccination calendar (backend presentation +
@@ -34,6 +75,8 @@ interface CalendarRepository {
         dateFrom: String? = null,
         dateTo: String? = null,
         includeDateMarkers: Boolean = false,
+        vaccine: String? = null,
+        includeFilterOptions: Boolean = false,
         cursor: String? = null,
         limit: Int? = null,
     ): CalendarEventListResponseDto
@@ -48,6 +91,8 @@ interface CalendarRepository {
         dateFrom: String? = null,
         dateTo: String? = null,
         includeDateMarkers: Boolean = false,
+        vaccine: String? = null,
+        includeFilterOptions: Boolean = false,
         cursor: String? = null,
         limit: Int? = null,
     ): Flow<Resource<CalendarEventListResponseDto>>
@@ -62,6 +107,8 @@ interface CalendarRepository {
         dateFrom: String? = null,
         dateTo: String? = null,
         includeDateMarkers: Boolean = false,
+        vaccine: String? = null,
+        includeFilterOptions: Boolean = false,
         cursor: String? = null,
         limit: Int? = null,
     ): Result<Unit>
@@ -83,13 +130,21 @@ interface CalendarRepository {
         dateFrom: String? = null,
         dateTo: String? = null,
         includeDateMarkers: Boolean = false,
+        vaccine: String? = null,
         limit: Int? = null,
     ): Result<Unit>
+
+    /** Room PagingSource + backend keyset RemoteMediator; collection triggers the first read. */
+    fun schedule(query: CalendarScheduleQuery): Flow<PagingData<CalendarEventDto>>
+
+    /** Presentation/filter metadata cached alongside the first page for stale-while-revalidate. */
+    fun observeScheduleMetadata(query: CalendarScheduleQuery): Flow<Resource<CalendarEventListResponseDto>>
 }
 
 class DefaultCalendarRepository(
     private val api: AppApi,
     private val dao: CalendarCacheDao,
+    private val database: GoatDatabase,
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) : CalendarRepository {
@@ -103,10 +158,24 @@ class DefaultCalendarRepository(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        vaccine: String?,
+        includeFilterOptions: Boolean,
         cursor: String?,
         limit: Int?,
     ): CalendarEventListResponseDto =
-        api.listCalendarVaccinationEvents(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers, cursor, limit)
+        api.listCalendarVaccinationEvents(
+            parkId = parkId,
+            shedId = shedId,
+            ownerKey = ownerKey,
+            status = status,
+            dateFrom = dateFrom,
+            dateTo = dateTo,
+            includeDateMarkers = includeDateMarkers,
+            vaccine = vaccine,
+            includeFilterOptions = includeFilterOptions,
+            cursor = cursor,
+            limit = limit,
+        )
 
     override fun observeEvents(
         parkId: String?,
@@ -116,10 +185,24 @@ class DefaultCalendarRepository(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        vaccine: String?,
+        includeFilterOptions: Boolean,
         cursor: String?,
         limit: Int?,
     ): Flow<Resource<CalendarEventListResponseDto>> {
-        val key = cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers.toString(), cursor, limit?.toString())
+        val key = eventCacheKey(
+            parkId,
+            shedId,
+            ownerKey,
+            status,
+            dateFrom,
+            dateTo,
+            includeDateMarkers,
+            vaccine,
+            includeFilterOptions,
+            cursor,
+            limit,
+        )
         return dao.observe(key)
             .map { entity -> entity.toResource(key) }
             .flowOn(Dispatchers.Default)
@@ -133,13 +216,44 @@ class DefaultCalendarRepository(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        vaccine: String?,
+        includeFilterOptions: Boolean,
         cursor: String?,
         limit: Int?,
-    ): Result<Unit> = runCatching {
-        val dto = events(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers, cursor, limit)
-        val key = cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers.toString(), cursor, limit?.toString())
+    ): Result<Unit> = try {
+        val dto = events(
+            parkId,
+            shedId,
+            ownerKey,
+            status,
+            dateFrom,
+            dateTo,
+            includeDateMarkers,
+            vaccine,
+            includeFilterOptions,
+            cursor,
+            limit,
+        )
+        val key = eventCacheKey(
+            parkId,
+            shedId,
+            ownerKey,
+            status,
+            dateFrom,
+            dateTo,
+            includeDateMarkers,
+            vaccine,
+            includeFilterOptions,
+            cursor,
+            limit,
+        )
         dao.upsert(CalendarCacheEntity(cacheKey = key, dtoJson = json.encodeToString(dto), updatedAt = clock()))
         dao.enforceCacheBounds()
+        Result.success(Unit)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
     }
 
     override suspend fun appendEvents(
@@ -151,12 +265,25 @@ class DefaultCalendarRepository(
         dateFrom: String?,
         dateTo: String?,
         includeDateMarkers: Boolean,
+        vaccine: String?,
         limit: Int?,
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = try {
         eventsAppendMutex.withLock {
             // The scope key the UI observes is the first-page key (cursor = null); every page
             // merges into THAT row so the observed Room flow re-emits the growing keyset window.
-            val key = cacheKey(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers.toString(), null, limit?.toString())
+            val key = eventCacheKey(
+                parkId,
+                shedId,
+                ownerKey,
+                status,
+                dateFrom,
+                dateTo,
+                includeDateMarkers,
+                vaccine,
+                false,
+                null,
+                limit,
+            )
             val currentEntity = dao.get(key)
             val current = readCachedJson<CalendarEventListResponseDto>(
                 json = json,
@@ -169,7 +296,19 @@ class DefaultCalendarRepository(
             if (current.nextCursor != cursor) {
                 throw CalendarEventsCursorException("calendar cursor is stale or belongs to another filter")
             }
-            val page = events(parkId, shedId, ownerKey, status, dateFrom, dateTo, includeDateMarkers, cursor, limit)
+            val page = events(
+                parkId,
+                shedId,
+                ownerKey,
+                status,
+                dateFrom,
+                dateTo,
+                includeDateMarkers,
+                vaccine,
+                false,
+                cursor,
+                limit,
+            )
             if (page.nextCursor == cursor) {
                 throw CalendarEventsCursorException("calendar backend returned a non-advancing cursor")
             }
@@ -181,6 +320,46 @@ class DefaultCalendarRepository(
                 ),
             )
         }
+        Result.success(Unit)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
+    @OptIn(ExperimentalPagingApi::class)
+    override fun schedule(query: CalendarScheduleQuery): Flow<PagingData<CalendarEventDto>> {
+        val key = query.roomKey()
+        val scheduleDao = database.calendarScheduleDao()
+        return Pager(
+            config = PagingConfig(
+                pageSize = CALENDAR_SCHEDULE_PAGE_SIZE,
+                initialLoadSize = CALENDAR_SCHEDULE_PAGE_SIZE,
+                prefetchDistance = 3,
+                enablePlaceholders = false,
+                maxSize = CALENDAR_SCHEDULE_PAGE_SIZE * 3,
+            ),
+            remoteMediator = CalendarScheduleRemoteMediator(
+                query = query,
+                api = api,
+                database = database,
+                metadataDao = dao,
+                json = json,
+                clock = clock,
+            ),
+            pagingSourceFactory = {
+                scheduleDao.pagingSource(queryKey = key)
+            },
+        ).flow
+            .map { page -> page.map { entity -> json.decodeFromString<CalendarEventDto>(entity.dtoJson) } }
+            .flowOn(Dispatchers.Default)
+    }
+
+    override fun observeScheduleMetadata(query: CalendarScheduleQuery): Flow<Resource<CalendarEventListResponseDto>> {
+        val key = query.roomKey()
+        return dao.observe(key)
+            .map { entity -> entity.toResource(key) }
+            .flowOn(Dispatchers.Default)
     }
 
     private suspend fun CalendarCacheEntity?.toResource(key: String): Resource<CalendarEventListResponseDto> {
@@ -193,6 +372,147 @@ class DefaultCalendarRepository(
             quarantine = { dao.delete(it) },
         )
         return Resource(data = cached.data, lastSyncedAt = cached.updatedAt)
+    }
+}
+
+private fun eventCacheKey(
+    parkId: String?,
+    shedId: String?,
+    ownerKey: String?,
+    status: String?,
+    dateFrom: String?,
+    dateTo: String?,
+    includeDateMarkers: Boolean,
+    vaccine: String?,
+    includeFilterOptions: Boolean,
+    cursor: String?,
+    limit: Int?,
+): String {
+    // Keep existing cache keys stable for every pre-schedule caller.
+    if (vaccine == null && !includeFilterOptions) {
+        return cacheKey(
+            parkId,
+            shedId,
+            ownerKey,
+            status,
+            dateFrom,
+            dateTo,
+            includeDateMarkers.toString(),
+            cursor,
+            limit?.toString(),
+        )
+    }
+    return cacheKey(
+        parkId,
+        shedId,
+        ownerKey,
+        status,
+        dateFrom,
+        dateTo,
+        includeDateMarkers.toString(),
+        vaccine,
+        includeFilterOptions.toString(),
+        cursor,
+        limit?.toString(),
+    )
+}
+
+@OptIn(ExperimentalPagingApi::class)
+private class CalendarScheduleRemoteMediator(
+    private val query: CalendarScheduleQuery,
+    private val api: AppApi,
+    private val database: GoatDatabase,
+    private val metadataDao: CalendarCacheDao,
+    private val json: Json,
+    private val clock: () -> Long,
+) : RemoteMediator<Int, CalendarScheduleEntity>() {
+    private val queryKey = query.roomKey()
+
+    override suspend fun initialize(): InitializeAction {
+        val cachedAt = database.calendarScheduleRemoteKeyDao().get(queryKey)?.updatedAt
+        return if (cachedAt != null && clock() - cachedAt < CacheGovernance.DEFAULT_TTL_MILLIS) {
+            InitializeAction.SKIP_INITIAL_REFRESH
+        } else {
+            InitializeAction.LAUNCH_INITIAL_REFRESH
+        }
+    }
+
+    override suspend fun load(
+        loadType: LoadType,
+        state: PagingState<Int, CalendarScheduleEntity>,
+    ): MediatorResult {
+        val cursor = when (loadType) {
+            LoadType.PREPEND -> return MediatorResult.Success(endOfPaginationReached = true)
+            LoadType.REFRESH -> null
+            LoadType.APPEND -> {
+                val remoteKey = database.calendarScheduleRemoteKeyDao().get(queryKey)
+                    ?: return MediatorResult.Success(endOfPaginationReached = true)
+                remoteKey.nextCursor
+                    ?: return MediatorResult.Success(endOfPaginationReached = true)
+            }
+        }
+        return try {
+            val response = api.listCalendarVaccinationEvents(
+                parkId = query.parkId,
+                shedId = query.shedId,
+                ownerKey = query.ownerKey,
+                status = query.status,
+                dateFrom = query.dateFrom,
+                dateTo = query.dateTo,
+                includeDateMarkers = false,
+                vaccine = query.vaccine,
+                includeFilterOptions = loadType == LoadType.REFRESH,
+                cursor = cursor,
+                limit = CALENDAR_SCHEDULE_PAGE_SIZE,
+            )
+            val updatedAt = clock()
+            database.withTransaction {
+                val scheduleDao = database.calendarScheduleDao()
+                val remoteKeyDao = database.calendarScheduleRemoteKeyDao()
+                if (loadType == LoadType.REFRESH) {
+                    scheduleDao.deleteQuery(queryKey)
+                    remoteKeyDao.delete(queryKey)
+                }
+                scheduleDao.upsertAll(
+                    response.items.map { item ->
+                        CalendarScheduleEntity(
+                            queryKey = queryKey,
+                            eventId = item.eventId,
+                            dueAt = item.dueAt,
+                            dtoJson = json.encodeToString(item),
+                            updatedAt = updatedAt,
+                        )
+                    },
+                )
+                remoteKeyDao.upsert(
+                    CalendarScheduleRemoteKeyEntity(
+                        queryKey = queryKey,
+                        nextCursor = response.nextCursor,
+                        updatedAt = updatedAt,
+                    ),
+                )
+                if (loadType == LoadType.REFRESH) {
+                    metadataDao.upsert(
+                        CalendarCacheEntity(
+                            cacheKey = queryKey,
+                            // Metadata is fixed-size; normalized Room rows own the page data.
+                            dtoJson = json.encodeToString(
+                                response.copy(items = emptyList(), dateMarkers = emptyList(), nextCursor = null),
+                            ),
+                            updatedAt = updatedAt,
+                        ),
+                    )
+                    scheduleDao.deleteRowsOutsideNewestQueries(CALENDAR_SCHEDULE_CACHED_QUERIES)
+                    remoteKeyDao.deleteOutsideNewestQueries(CALENDAR_SCHEDULE_CACHED_QUERIES)
+                }
+            }
+            if (loadType == LoadType.REFRESH) metadataDao.enforceCacheBounds()
+            MediatorResult.Success(endOfPaginationReached = response.nextCursor == null)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            MediatorResult.Error(error)
+        }
     }
 }
 

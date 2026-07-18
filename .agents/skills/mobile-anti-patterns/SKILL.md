@@ -4,9 +4,11 @@ description: >-
   Use when writing OR reviewing Android/mobile code under apps/goatos-android/**
   (screens, ViewModels, repositories, Room DAOs, Flows). Enforces Room-SSOT
   offline-first, ~20-row keyset pagination, bounded memory, off-main decode,
-  lifecycle-aware collection, and stable list keys. Invoke before touching any
-  list/VM/repo/DAO and before pushing. Complements `make mobile-guard` +
-  `make android-bounded-memory-guard` (the machine gates) with the how-to-fix.
+  lifecycle-aware collection, stable list keys, and a correct hosted navigation
+  stack with L0-only global chrome. Invoke before touching any list/VM/repo/DAO/
+  screen/route and before pushing. Complements `make mobile-guard`,
+  `make android-bounded-memory-guard`, and
+  `make android-navigation-stack-guard` with the how-to-fix.
 ---
 
 # Mobile anti-patterns (phone-scale + offline-first)
@@ -57,6 +59,21 @@ The mobile UI must NOT gate visibility by role (`role ==`); render the backend-c
 nav/actions/disabled-reasons contract. Also blocks hardcoded disabled/blocked-reason
 literals in production screens (preview/sample sources excluded). Machine-blocked by `make mobile-contract-ownership-guard`.
 
+## Navigation stack and L0 chrome (machine: `make android-navigation-stack-guard`)
+Canonical rulebook: `docs/decisions/android-navigation-stack.md`.
+- **L0 only owns global chrome.** The bottom bar/drawer renders only when the
+  current route exactly equals a backend-composed root route. Never infer root
+  ownership with a path prefix, substring, or ancestor.
+- **L1/L2/L3/L4 are hosted destinations.** Push them through the same
+  `NavController`; show Up/Back, fill the `NavHost`, and hide root chrome.
+- **Never reuse a root route for a drill.** Give the child a distinct route even
+  when it reuses the same feature renderer. A Calendar card must not navigate to
+  top-level Vaccination.
+- A `ModalBottomSheet` is for temporary filters/pickers/actions, not structural
+  detail. Back pops L4 → L3 → L2 → L1 → L0 and restores chrome only at L0.
+- Before handoff, click the real stack on a device/emulator and capture each
+  reachable level. Never describe multiple L0 states as L1/L2 evidence.
+
 ## Room migrations (machine: `make room-migration-guard`)
 An installed APK must survive every schema change. Room creates a DB two ways: a **fresh
 install** runs `createAllTables` (every `@Entity`); an **in-place upgrade** runs ONLY the
@@ -79,4 +96,4 @@ to it.
 ## Test integrity
 No committed `@Ignore`/`@Disabled`/commented-`// @Test`; no flaky wall-clock
 assertions; no fake-green — run `./gradlew … testStgDebugUnitTest --rerun-tasks`
-and `make mobile-guard` for REAL before claiming pass.
+and the mobile/navigation guards for REAL before claiming pass.

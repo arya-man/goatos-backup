@@ -1412,6 +1412,14 @@ canonical_selected AS (
     AND ($5::text <> '' OR status NOT IN ('completed', 'canceled', 'deferred'))
     AND ($6::text = '' OR park_id::text = nullif($6::text, ''))
     AND ($7::text = '' OR shed_id::text = nullif($7::text, ''))
+    AND (
+      $14::text = ''
+      OR vaccine_name = $14::text
+      OR (
+        jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array'
+        AND (detail->'summary'->'vaccine_labels') ? $14::text
+      )
+    )
     AND ($8::timestamptz IS NULL OR (due_at, event_id) > ($8::timestamptz, $9::text))
     AND ($11::bool OR park_id = ANY($12::uuid[]) OR shed_id = ANY($13::uuid[]))
   ORDER BY due_at ASC, event_id ASC
@@ -1466,19 +1474,20 @@ LIMIT 1`
 
 // listEventsCanonical runs the canonical read-through page for ListEvents. Params mirror the projector
 // window ($1 tenant, $2 dateFrom, $3 dateToExclusive) plus the list filters ($4 owner, $5 status,
-// $6 park, $7 shed, $8/$9 keyset cursor, $10 fetch limit, $11 tenantWide, $12/$13 park/shed scope).
+// $6 park, $7 shed, $8/$9 keyset cursor, $10 fetch limit, $11 tenantWide,
+// $12/$13 park/shed scope, $14 vaccine).
 func (r *Repository) listEventsCanonical(
 	ctx context.Context,
 	tenantID string,
 	dateFrom, dateToExclusive time.Time,
-	ownerKey, status, parkID, shedID string,
+	ownerKey, status, parkID, shedID, vaccine string,
 	cursorDue any, cursorEventID string,
 	fetchLimit int,
 	tenantWide bool, parkIDs, shedIDs []string,
 ) ([]domain.CalendarEvent, error) {
 	rows, err := r.pool.Query(ctx, calendarCanonicalListSQL,
 		tenantID, dateFrom, dateToExclusive, ownerKey, status, parkID, shedID,
-		cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs)
+		cursorDue, cursorEventID, fetchLimit, tenantWide, parkIDs, shedIDs, vaccine)
 	if err != nil {
 		return nil, fmt.Errorf("calendar: canonical list events: %w", err)
 	}

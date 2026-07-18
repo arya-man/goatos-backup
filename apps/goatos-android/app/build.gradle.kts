@@ -185,6 +185,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.paging.compose)
     baselineProfile(project(":benchmark"))
 
     // Firebase Auth + Credential Manager for stg/prod mobile SSO. Firebase options for

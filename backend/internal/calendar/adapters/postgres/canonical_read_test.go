@@ -36,7 +36,7 @@ func TestCalendarCanonicalListKeysetPlanUsesIndex(t *testing.T) {
 	// (1) The full canonical read must plan without error against the real schema.
 	explainRows, err := pool.Query(ctx, "EXPLAIN (COSTS OFF) "+calendarCanonicalListSQL,
 		testTenantID, dateFrom, dateToExclusive, "", "", "", "",
-		nil, "", 21, true, []string{}, []string{})
+		nil, "", 21, true, []string{}, []string{}, "")
 	if err != nil {
 		t.Fatalf("canonical read did not plan (composition/schema error): %v", err)
 	}
@@ -112,6 +112,45 @@ func TestCalendarDefaultListHidesDeferredHoldsButDateMarkersExposeThem(t *testin
 	}
 	if !strings.Contains(calendarDateMarkersSQL, "count(*) FILTER (WHERE status = 'deferred')::bigint AS deferred_count") {
 		t.Fatalf("calendar date marker query must expose deferred_count")
+	}
+}
+
+func TestCalendarVaccineFilterOneToManyMultiPageDateShiftParkScopeStatusBuckets(t *testing.T) {
+	vaccinePredicate := "AND (\n      $14::text = ''"
+	keysetPredicate := "AND ($8::timestamptz IS NULL"
+	limitClause := "LIMIT $10"
+	vaccineIndex := strings.Index(calendarCanonicalListSQL, vaccinePredicate)
+	keysetIndex := strings.Index(calendarCanonicalListSQL, keysetPredicate)
+	limitIndex := strings.Index(calendarCanonicalListSQL, limitClause)
+	if vaccineIndex < 0 || keysetIndex < 0 || limitIndex < 0 {
+		t.Fatalf("canonical vaccine, keyset, or limit clause is missing")
+	}
+	if vaccineIndex > keysetIndex || vaccineIndex > limitIndex {
+		t.Fatalf("vaccine filtering must happen before keyset paging and LIMIT")
+	}
+	if !strings.Contains(calendarCanonicalListSQL, "(detail->'summary'->'vaccine_labels') ? $14::text") {
+		t.Fatalf("aggregated drive vaccine labels are not filterable")
+	}
+	historyStart := strings.Index(calendarDateMarkersSQL, "-- Accepted vaccination administration history")
+	if historyStart < 0 {
+		t.Fatal("canonical history marker branch is missing")
+	}
+	historyBranch := calendarDateMarkersSQL[historyStart:]
+	if strings.Contains(historyBranch, "LEFT JOIN protocol_rule_dimensions") {
+		t.Fatal("history markers must not fan out one completion across protocol-rule dimensions")
+	}
+	if !strings.Contains(historyBranch, "OR EXISTS (\n        SELECT 1\n        FROM protocol_rule_dimensions prd") {
+		t.Fatal("history vaccine filtering must use a cardinality-preserving EXISTS predicate")
+	}
+	for name, fragment := range map[string]string{
+		"date shift":        "AT TIME ZONE 'Asia/Kolkata'",
+		"park scope":        "park_id::text = nullif($6::text, '')",
+		"status buckets":    "count(*) FILTER (WHERE status = 'overdue')",
+		"published options": "SELECT DISTINCT COALESCE(",
+	} {
+		if !strings.Contains(calendarDateMarkersSQL+calendarFilterOptionsSQL, fragment) {
+			t.Fatalf("calendar vaccine filter lost %s invariant %q", name, fragment)
+		}
 	}
 }
 

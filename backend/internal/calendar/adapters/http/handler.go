@@ -256,18 +256,22 @@ func (h *Handler) ResolveEscalation(w stdhttp.ResponseWriter, r *stdhttp.Request
 func (h *Handler) listQuery(w stdhttp.ResponseWriter, r *stdhttp.Request) (domain.Query, bool) {
 	query := r.URL.Query()
 	q := domain.Query{
-		TenantID:            tenantID(r),
-		OwnerKey:            query.Get("owner_key"),
-		IncludeDateMarkers:  query.Get("include_date_markers") == "true",
-		MarkersOnly:         query.Get("markers_only") == "true",
-		IncludeReminderRail: query.Get("include_reminder_rail") == "true",
-		Scope:               calendarScope(r, permissions.CalendarRead),
+		TenantID:             tenantID(r),
+		OwnerKey:             query.Get("owner_key"),
+		IncludeDateMarkers:   query.Get("include_date_markers") == "true",
+		MarkersOnly:          query.Get("markers_only") == "true",
+		IncludeReminderRail:  query.Get("include_reminder_rail") == "true",
+		IncludeFilterOptions: query.Get("include_filter_options") == "true",
+		Scope:                calendarScope(r, permissions.CalendarRead),
 	}
 	if raw := query.Get("park_id"); raw != "" {
 		q.ParkID = &raw
 	}
 	if raw := query.Get("shed_id"); raw != "" {
 		q.ShedID = &raw
+	}
+	if raw := query.Get("vaccine"); raw != "" {
+		q.Vaccine = &raw
 	}
 	if raw := query.Get("status"); raw != "" {
 		q.Status = &raw

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
@@ -40,6 +41,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ShedsViewModel @Inject constructor(
     private val repo: ExecutionRepository,
+    private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
     private companion object {
@@ -97,6 +99,9 @@ class ShedsViewModel @Inject constructor(
         val result = repo.refreshRows(limit = PAGE_LIMIT)
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
+        result.exceptionOrNull()?.let {
+            crashReporter.recordException(it, "vaccination sheds refresh failed")
+        }
     }
 
     fun loadMore() = viewModelScope.launch {
@@ -106,6 +111,9 @@ class ShedsViewModel @Inject constructor(
         val result = repo.appendRows(cursor = cursor, limit = PAGE_LIMIT)
         _isLoadingMore.value = false
         _isOffline.value = result.isFailure
+        result.exceptionOrNull()?.let {
+            crashReporter.recordException(it, "vaccination sheds append failed")
+        }
     }
 
     fun onEvent(event: ShedsEvent) {

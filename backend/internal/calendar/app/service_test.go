@@ -87,6 +87,35 @@ func TestServiceAllowsMissedStatusFilter(t *testing.T) {
 	}
 }
 
+func TestServiceAddsBoundedFilterChromeToRepositoryOptions(t *testing.T) {
+	repo := &fakeRepo{listResp: domain.CalendarEventListResponse{
+		Source: domain.SourceAPI,
+		FilterOptions: &domain.CalendarFilterOptions{
+			Parks: []domain.CalendarFilterOption{{Value: "70000000-0000-4000-8000-000000000001", Label: "CPT"}},
+		},
+	}}
+	svc := NewService(repo)
+	svc.now = func() time.Time { return time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC) }
+	resp, err := svc.ListEvents(context.Background(), domain.Query{
+		TenantID:             "00000000-0000-4000-8000-000000000001",
+		DateFrom:             time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		DateTo:               time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC),
+		IncludeFilterOptions: true,
+	})
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if resp.FilterOptions == nil || len(resp.FilterOptions.Parks) != 1 {
+		t.Fatalf("filter options = %#v, want repository-scoped park", resp.FilterOptions)
+	}
+	if len(resp.FilterOptions.Statuses) != 13 || len(resp.FilterOptions.Months) != 12 || len(resp.FilterOptions.Years) != 3 {
+		t.Fatalf("filter chrome = %#v, want bounded status/month/year options", resp.FilterOptions)
+	}
+	if got := resp.FilterOptions.Years[1].Key; got != "2026" {
+		t.Fatalf("middle year = %q, want 2026", got)
+	}
+}
+
 func TestServiceRejectsUnsupportedOwnerKey(t *testing.T) {
 	svc := NewService(&fakeRepo{})
 	_, err := svc.ListEvents(context.Background(), domain.Query{
@@ -219,7 +248,7 @@ func (f *fakeRepo) ListEvents(_ context.Context, q domain.Query) (domain.Calenda
 	if f.listErr != nil {
 		return domain.CalendarEventListResponse{}, f.listErr
 	}
-	if f.listResp.Source != "" || f.listResp.NextCursor != nil || len(f.listResp.Items) > 0 {
+	if f.listResp.Source != "" || f.listResp.NextCursor != nil || len(f.listResp.Items) > 0 || f.listResp.FilterOptions != nil {
 		return f.listResp, nil
 	}
 	return domain.CalendarEventListResponse{Source: domain.SourceAPI}, nil

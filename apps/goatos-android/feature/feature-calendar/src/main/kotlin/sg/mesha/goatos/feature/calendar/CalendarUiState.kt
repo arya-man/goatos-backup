@@ -84,6 +84,11 @@ data class CalendarItem(
     val vaccineCount: Int = 0,
     val targetCount: Int = 0,
     val vaccineLabels: List<String> = emptyList(),
+    val shedLabels: List<String> = emptyList(),
+    val dateLabel: String = "",
+    val dateKey: String? = null,
+    val parkLabel: String = "",
+    val parkId: String? = null,
     /** Park-level drive progress card content (v4); see [CalendarDriveSummary]. */
     val driveSummary: CalendarDriveSummary? = null,
     val statusLabel: String,
@@ -91,6 +96,36 @@ data class CalendarItem(
     val categoryLabel: String? = null,
     val ctaLabel: String? = null,
     val target: String? = null,
+)
+
+@Immutable
+data class CalendarFilterOption(
+    val value: String,
+    val label: String,
+    val parentValue: String? = null,
+)
+
+@Immutable
+data class CalendarMonthFilters(
+    val year: Int,
+    val month: Int,
+    val parkId: String? = null,
+    val shedId: String? = null,
+    val vaccine: String? = null,
+    val status: String? = null,
+) {
+    val secondaryFilterCount: Int
+        get() = listOf(parkId, shedId, vaccine, status).count { !it.isNullOrBlank() }
+}
+
+@Immutable
+data class CalendarMonthFilterOptions(
+    val parks: List<CalendarFilterOption> = emptyList(),
+    val sheds: List<CalendarFilterOption> = emptyList(),
+    val vaccines: List<CalendarFilterOption> = emptyList(),
+    val statuses: List<CalendarFilterOption> = emptyList(),
+    val months: List<CalendarFilterOption> = emptyList(),
+    val years: List<CalendarFilterOption> = emptyList(),
 )
 
 /** A cell in the month grid. [dateKey]/[dayNumber] are null for leading blank cells. */
@@ -166,6 +201,9 @@ data class CalendarUiState(
     val monthWeekdayLabels: List<String> = emptyList(),
     val monthDays: List<CalendarMonthDay> = emptyList(),
     val monthHint: String = "",
+    val monthFilters: CalendarMonthFilters = CalendarMonthFilters(year = 2026, month = 1),
+    val monthFilterOptions: CalendarMonthFilterOptions = CalendarMonthFilterOptions(),
+    val monthEmptyLabel: String = "",
     // HISTORY
     val historyLabel: String = "",
     val historyCount: Int = 0,
@@ -187,7 +225,11 @@ sealed interface CalendarEvent {
      *  never drills into an empty open-work query. */
     data class OpenDay(val dateKey: String, val showCompletedHistory: Boolean = false) : CalendarEvent
 
-    data class TapItem(val itemId: String) : CalendarEvent
+    data class TapItem(val itemId: String, val target: String? = null) : CalendarEvent
+
+    data class ApplyMonthFilters(val filters: CalendarMonthFilters) : CalendarEvent
+
+    data object ClearMonthFilters : CalendarEvent
 
     data object LoadMoreWeek : CalendarEvent
 
