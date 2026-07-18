@@ -404,6 +404,87 @@ fail on `5433` with no override. The port must come from the chosen runtime:
 `55432` for mutating proof/load work against the explicit local GCP-kernel
 parity stack.
 
+## False-DOB disposition (`-null-false-dob`)
+
+`cmd/seed-vaccination-real` validates `dob <= entry_date` for every source
+animal, where `entry_date` resolves `purchase_date -> stage_entry_date` for
+purchased/imported animals, and `stage_entry_date` ONLY for birth-origin
+animals (a birth-origin row's `purchase_date` is the DAM's purchase, not the
+kid's — see the incident below). A purchased/imported-origin animal that still
+fails this gate carries a provably-false DOB, most often a bulk-fill error in
+the upstream sheet rather than a genuine data defect. The `-null-false-dob`
+flag (default `false`) lets the seed null that animal's DOB in-memory before
+insert instead of hard-failing the whole run: the animal is counted
+(`dob_nulled=<n>` on stdout; gate the exact count with
+`-expect-null-false-dob=<n>`), one entry is appended to a per-run audit
+sidecar `<source-dir>/seed-dob-disposition-<YYYY-MM-DD>.json` (RFID, origin
+type, original DOB, resolved entry date + its source column, delta days,
+disposition, run timestamp), and the goat is inserted with `dob = NULL`. No
+substitute date (purchase-minus-365 or similar) is ever written — nulling to
+unknown is the only accepted disposition. Source files
+(`goats.json`/`vaccination.json`) are never modified. Because
+`upsertSeedGoats` is a full-refresh upsert (`dob=EXCLUDED.dob` on every
+reseed), a future rerun automatically restores the real DOB the moment the
+upstream source is corrected — no manual cleanup is required on this side.
+Birth-origin animals are NEVER eligible for this flag: a birth-origin
+DOB-after-own-`stage_entry_date` violation stays a hard failure regardless of
+`-null-false-dob`, because it is a genuine data defect rather than the
+purchased/imported bulk-fill pattern.
+
+### 2026-07-19 false-DOB incident
+
+The `dob <= entry_date` gate (added in commit `c8df4e57`) failed 45 of 1311
+source animal rows on first run against
+`/Users/ravi/mesha/source-material/vgoats-seed`. Tracing the lineage
+(`goats.json` -> `Demo DB.xlsx` -> the `goatos-sheets` BigQuery export) showed
+all three carry the identical corrupted values — there is no truer upstream
+source to recover a correct DOB from for the affected rows.
+
+Cluster breakdown of the 45:
+
+- **28x identical bulk-fill pair** — DOB `2025-06-12` against purchase date
+  `2025-05-24`, repeated verbatim across 28 distinct animals. Consistent with a
+  spreadsheet fill-down/copy error rather than 28 independently mistyped
+  dates.
+- **6x ~1-year shift** — DOB one calendar year after the true purchase window
+  (year-digit transposition pattern).
+- **7x 3-day reversal** — DOB 2-4 days after purchase date, consistent with a
+  swapped or off-by-a-few-days manual entry.
+- All 41 of the above are **adult purchased** animals per independent evidence
+  (shed tags, purchase weights, and the `vaccination.json` age column all
+  agree with "adult," not "newborn/kid") — the false DOB is a data-entry
+  defect, not a genuine birth-timing anomaly.
+- **3x birth-origin K2 kids** whose "violation" was not a data defect at all:
+  the pre-fix validator compared the kid's own DOB against its **dam's**
+  `purchase_date` (the only `purchase_date` present on that source row,
+  because a birth-origin animal was never itself purchased). Fixed in code —
+  `buildEntryDateMapping` now resolves a birth-origin animal's entry date from
+  its OWN `stage_entry_date` only, and never consults `purchase_date` for
+  birth-origin rows.
+
+Judge-ruled disposition:
+
+- **Purchased false DOB -> NULL** via `-null-false-dob` (the 42 adult
+  purchased rows across the 3 clusters above). These animals are
+  history-anchored: `vaccination.json` carries real accepted vaccine
+  administrations for all of them, so scheduling continues from that trusted
+  history and the DOB loss has minimal scheduling impact. Originals are
+  preserved in the sidecar `seed-dob-disposition-<YYYY-MM-DD>.json`, never
+  discarded.
+- **Birth-origin kids keep their DOB** — no nulling; the validator fix alone
+  resolves all 3.
+- Total 45 failures at commit `c8df4e57` = 42 nulled (purchased) + 3 fixed
+  by the birth-origin validator correction (0 remaining failures).
+
+Remaining maintainer debt: the root cause lives upstream in `Demo DB.xlsx`
+(and its `goatos-sheets` BigQuery mirror), which still carries the corrupted
+DOB values for these 42 animals. Fixing the origin file is out of scope for
+this seed change; the sidecar file is the worklist for that follow-up. Until
+that upstream fix lands and this seed is rerun, the pre-existing local
+`:5433` dev database is tainted for these 42 animals (it may hold rows seeded
+before this fix, with the false DOB still present) and should be treated as
+stale for this data until reseeded with `-null-false-dob`.
+
 ## Test Gates
 
 At minimum, this contract is guarded by:
@@ -411,6 +492,12 @@ At minimum, this contract is guarded by:
 - `backend/cmd/seed-vaccination-real/main_test.go`: source dates on or before
   the business date import as trusted anchor history, while future business
   dates do not; open work materialized by the seed is strictly future-only.
+  The same file covers the false-DOB disposition above: birth-origin entry
+  dates never resolve from a dam's `purchase_date`; a purchased/imported false
+  DOB hard-fails without `-null-false-dob` and is nulled + counted (never
+  replaced with a substitute date) with the flag; a birth-origin DOB defect
+  hard-fails even with the flag; and the audit sidecar preserves the original
+  DOB verbatim.
 - `backend/internal/vaccination/app/generation_test.go`: a recurring completion
   advances to a due date strictly after the backend business date, including
   when the preceding historical window would still be open; a later DOB/entry

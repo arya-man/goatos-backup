@@ -224,6 +224,162 @@ func TestBuildEntryDateMappingUsesEntrySourcesOnly(t *testing.T) {
 	}
 }
 
+func TestBuildEntryDateMappingBirthOriginNeverUsesDamPurchaseDate(t *testing.T) {
+	// A birth-origin (kid) source row's purchase_date belongs to the DAM, not the kid.
+	// Even when a purchase_date is present, the kid's entry date must resolve to its
+	// OWN stage_entry_date, never the dam's purchase_date (2026-07-19 false-DOB
+	// incident: this conflation made a valid pre-registration kid DOB look like
+	// "DOB after entry").
+	got := buildEntryDateMapping([]goatRecord{
+		{RFID: "rfid-kid", OriginType: "Birth", DOB: "2026-04-01", StageEntryDate: "2026-04-10", PurchaseDate: "2025-01-01"},
+	})
+	if got["rfid-kid"] == nil || got["rfid-kid"].Format("2006-01-02") != "2026-04-10" {
+		t.Fatalf("birth-origin entry date = %v, want stage_entry_date 2026-04-10 (never dam purchase_date)", got["rfid-kid"])
+	}
+}
+
+func TestResolveGoatDOBViolationBirthOriginPassesWithoutFlagWhenDOBBeforeOwnStageEntry(t *testing.T) {
+	// (a) Birth-origin fixture: kid DOB before its OWN stage_entry_date, with a dam
+	// purchase_date present. Under the OLD logic (purchase_date wins for every origin)
+	// this row would have failed the DOB<=entry gate. Under the fix it must pass WITHOUT
+	// -null-false-dob at all, because the entry date resolves to stage_entry_date.
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	now := time.Date(2026, 7, 19, 0, 0, 0, 0, loc)
+	g := goatRecord{RFID: "rfid-kid-k2", OriginType: "Birth", DOB: "2026-04-01", StageEntryDate: "2026-04-10", PurchaseDate: "2025-01-01"}
+	entryDate := buildEntryDateMapping([]goatRecord{g})["rfid-kid-k2"]
+	if entryDate == nil {
+		t.Fatal("expected a resolved entry date for the birth-origin fixture")
+	}
+	dob, perr := time.ParseInLocation("2006-01-02", g.DOB, loc)
+	if perr != nil {
+		t.Fatalf("parse dob: %v", perr)
+	}
+	disposition, err := resolveGoatDOBViolation(g, "rfid-kid-k2", &dob, entryDate, false, now)
+	if err != nil {
+		t.Fatalf("birth-origin kid with valid DOB before its own stage_entry_date must pass without -null-false-dob, got error: %v", err)
+	}
+	if disposition != nil {
+		t.Fatalf("birth-origin kid must never be nulled, got disposition: %+v", disposition)
+	}
+}
+
+func TestResolveGoatDOBViolationPurchasedFailsHardWithoutFlag(t *testing.T) {
+	// (b) purchased-origin false-DOB row must hard fail WITHOUT -null-false-dob.
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	now := time.Date(2026, 7, 19, 0, 0, 0, 0, loc)
+	g := goatRecord{RFID: "rfid-adult", OriginType: "Purchase", DOB: "2025-06-12", PurchaseDate: "2025-05-24"}
+	entryDate := buildEntryDateMapping([]goatRecord{g})["rfid-adult"]
+	dob, _ := time.ParseInLocation("2006-01-02", g.DOB, loc)
+	disposition, err := resolveGoatDOBViolation(g, "rfid-adult", &dob, entryDate, false, now)
+	if err == nil {
+		t.Fatal("purchased-origin false DOB must hard-fail without -null-false-dob")
+	}
+	if disposition != nil {
+		t.Fatalf("no flag: must not null, got disposition: %+v", disposition)
+	}
+}
+
+func TestResolveGoatDOBViolationPurchasedNulledAndCountedWithFlag(t *testing.T) {
+	// (b continued) same purchased-origin false-DOB row: nulled + counted (via the
+	// returned disposition) WITH -null-false-dob, never erroring and never writing a
+	// substitute date (the disposition carries the original DOB for the audit sidecar,
+	// but the caller nulls the in-memory value to empty).
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	now := time.Date(2026, 7, 19, 0, 0, 0, 0, loc)
+	g := goatRecord{RFID: "rfid-adult", OriginType: "Purchase", DOB: "2025-06-12", PurchaseDate: "2025-05-24"}
+	entryDate := buildEntryDateMapping([]goatRecord{g})["rfid-adult"]
+	dob, _ := time.ParseInLocation("2006-01-02", g.DOB, loc)
+	disposition, err := resolveGoatDOBViolation(g, "rfid-adult", &dob, entryDate, true, now)
+	if err != nil {
+		t.Fatalf("purchased-origin false DOB with -null-false-dob must not error, got: %v", err)
+	}
+	if disposition == nil {
+		t.Fatal("expected a disposition entry to be returned for counting + audit")
+	}
+	if disposition.RFID != "rfid-adult" || disposition.OriginType != "procured" {
+		t.Fatalf("disposition = %+v, want rfid=rfid-adult origin_type=procured", disposition)
+	}
+	if disposition.OriginalDOB != "2025-06-12" {
+		t.Fatalf("disposition.OriginalDOB = %q, want the real original DOB preserved for audit, never a substitute date", disposition.OriginalDOB)
+	}
+	if disposition.EntryDate != "2025-05-24" || disposition.EntrySource != "purchase_date" {
+		t.Fatalf("disposition entry fields = %+v, want entry_date=2025-05-24 entry_source=purchase_date", disposition)
+	}
+	if disposition.Disposition != "dob_nulled_false" {
+		t.Fatalf("disposition.Disposition = %q, want dob_nulled_false", disposition.Disposition)
+	}
+}
+
+func TestResolveGoatDOBViolationBirthOriginHardFailsEvenWithFlag(t *testing.T) {
+	// A genuine birth-origin data defect (DOB after the kid's OWN stage_entry_date) must
+	// stay a hard failure even with -null-false-dob set: the flag exists for the
+	// purchased/imported bulk-fill pattern, never for birth-origin animals.
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	now := time.Date(2026, 7, 19, 0, 0, 0, 0, loc)
+	g := goatRecord{RFID: "rfid-kid-bad", OriginType: "Birth", DOB: "2026-05-01", StageEntryDate: "2026-04-10"}
+	entryDate := buildEntryDateMapping([]goatRecord{g})["rfid-kid-bad"]
+	dob, _ := time.ParseInLocation("2006-01-02", g.DOB, loc)
+	disposition, err := resolveGoatDOBViolation(g, "rfid-kid-bad", &dob, entryDate, true, now)
+	if err == nil {
+		t.Fatal("birth-origin DOB-after-own-entry must hard fail even with -null-false-dob")
+	}
+	if disposition != nil {
+		t.Fatalf("birth-origin must never be nulled, got disposition: %+v", disposition)
+	}
+}
+
+func TestWriteDobDispositionAuditWritesNoSubstituteDateAndPreservesOriginal(t *testing.T) {
+	// (c) assert the audit sidecar records the ORIGINAL DOB for the nulled animal and no
+	// substitute date is ever fabricated anywhere in this flow.
+	dir := t.TempDir()
+	runDate := time.Date(2026, 7, 19, 0, 0, 0, 0, time.UTC)
+	entries := []dobDisposition{{
+		RFID:         "rfid-adult",
+		OriginType:   "procured",
+		OriginalDOB:  "2025-06-12",
+		EntryDate:    "2025-05-24",
+		EntrySource:  "purchase_date",
+		DeltaDays:    19,
+		Disposition:  "dob_nulled_false",
+		RunTimestamp: runDate.Format(time.RFC3339),
+	}}
+	if err := writeDobDispositionAudit(dir, runDate, entries); err != nil {
+		t.Fatalf("write audit: %v", err)
+	}
+	path := dir + "/seed-dob-disposition-2026-07-19.json"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read audit sidecar: %v", err)
+	}
+	var got []dobDisposition
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal audit sidecar: %v", err)
+	}
+	if len(got) != 1 || got[0].OriginalDOB != "2025-06-12" {
+		t.Fatalf("audit entries = %+v, want original DOB 2025-06-12 preserved", got)
+	}
+	if got[0].RFID != "rfid-adult" {
+		t.Fatalf("audit rfid = %q, want rfid-adult", got[0].RFID)
+	}
+}
+
+func TestWriteDobDispositionAuditIsNoOpWhenNothingNulled(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeDobDispositionAudit(dir, time.Now(), nil); err != nil {
+		t.Fatalf("write audit with no entries: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected no sidecar file when there is nothing to null, got %v", entries)
+	}
+}
+
 func TestSeedRejectsDuplicateAnimalKeysAndImpossibleSourceDates(t *testing.T) {
 	source, err := os.ReadFile("main.go")
 	if err != nil {

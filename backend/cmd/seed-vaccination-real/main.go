@@ -27,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -152,6 +153,7 @@ type stats struct {
 	KernelDeferred     int         // kernel-deferred obligations
 	KernelSuppressed   int         // kernel-suppressed (already completed) obligations
 	Purged             purgeCounts // synthetic fixtures removed
+	DobNulled          int         // purchased/imported-origin animals with provably-false DOB, nulled via -null-false-dob
 
 	// Fix Plan A1 — explicit, non-silent accounting for every dated (non-blank/NA/Pending)
 	// source cell. Every dated fact must land in exactly one bucket: Completed, Scheduled,
@@ -204,6 +206,8 @@ func run(args []string) error {
 	purgeFixtures := fs.Bool("purge-fixtures", true, "purge leftover synthetic dev fixtures (trigger-seed protocol family, synthetic G-0000NN goats, junk-named sheds, stale calendar projections) so every surface shows only real herd data")
 	allowPartialGeneration := fs.Bool("allow-partial-generation", false, "allow seed to exit successfully when kernel generation isolates per-goat failures")
 	allowOwnerlessSeed := fs.Bool("allow-ownerless-seed", false, "dangerous/dev-only: allow vaccination seed when HRMS roster/position prerequisites are absent")
+	nullFalseDob := fs.Bool("null-false-dob", false, "when a purchased/imported-origin source animal has a provably-false DOB (DOB after its own entry_date), null the DOB in-memory before insert instead of hard-failing the seed; every nulled row is counted and recorded in a source-dir audit sidecar. Birth-origin animals are never nulled by this flag — a birth-origin DOB-after-entry failure is always a hard error")
+	expectNullFalseDob := fs.Int("expect-null-false-dob", -1, "when >= 0, fail the run if the actual -null-false-dob count differs from this expected count (count gate)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -242,8 +246,13 @@ func run(args []string) error {
 		return fmt.Errorf("load vaccination cells: %w", err)
 	}
 
-	if _, err := seed(ctx, pool, pgCfg, *tenantID, loc, goats, cells, *purgeFixtures, *allowPartialGeneration); err != nil {
+	seedResult, err := seed(ctx, pool, pgCfg, *tenantID, loc, goats, cells, *purgeFixtures, *allowPartialGeneration, *sourcePath, *nullFalseDob)
+	if err != nil {
 		return fmt.Errorf("seed: %w", err)
+	}
+	fmt.Printf("dob_nulled=%d\n", seedResult.DobNulled)
+	if *expectNullFalseDob >= 0 && seedResult.DobNulled != *expectNullFalseDob {
+		return fmt.Errorf("dob_nulled count gate failed: expected %d, got %d", *expectNullFalseDob, seedResult.DobNulled)
 	}
 	if err := analyzePostSeedTables(ctx, pool); err != nil {
 		return fmt.Errorf("analyze post-seed tables: %w", err)
@@ -511,6 +520,85 @@ func headerIndex(hdr []interface{}) map[string]int {
 // on the pair.
 type shedKey struct{ farm, shed string }
 
+// dobDisposition is one audit entry for a source animal whose provably-false DOB
+// (purchased/imported-origin, DOB after its own entry_date — a bulk-fill data error,
+// never a genuine birth-origin defect) was nulled in-memory before insert under
+// -null-false-dob. Source files are never modified; this is a sidecar record only.
+type dobDisposition struct {
+	RFID         string `json:"rfid"`
+	OriginType   string `json:"origin_type"`
+	OriginalDOB  string `json:"original_dob"`
+	EntryDate    string `json:"entry_date"`
+	EntrySource  string `json:"entry_source"`
+	DeltaDays    int    `json:"delta_days"`
+	Disposition  string `json:"disposition"`
+	RunTimestamp string `json:"run_timestamp"`
+}
+
+// entryDateSourceLabel reports which source column resolved the animal's entry_date,
+// mirroring the precedence in buildEntryDateMapping (purchase_date -> stage_entry_date,
+// except birth-origin animals which use only their own stage_entry_date).
+func entryDateSourceLabel(g goatRecord) string {
+	if normalizeOriginType(g.OriginType) == "birth" {
+		if parseSourceDate(g.StageEntryDate) != nil {
+			return "stage_entry_date"
+		}
+		return ""
+	}
+	if parseSourceDate(g.PurchaseDate) != nil {
+		return "purchase_date"
+	}
+	if parseSourceDate(g.StageEntryDate) != nil {
+		return "stage_entry_date"
+	}
+	return ""
+}
+
+// resolveGoatDOBViolation checks a source animal's DOB against its resolved entry_date.
+// It returns nil, nil when there is no violation (dobTime is nil or on/before entryDate).
+// On a violation it either returns a non-nil dobDisposition (purchased/imported-origin,
+// nullFalseDob set — caller must null the in-memory DOB and count it) or a hard error
+// (no flag, or birth-origin — a birth-origin DOB-after-entry violation is always a
+// genuine data defect and is never eligible for -null-false-dob).
+func resolveGoatDOBViolation(g goatRecord, animalKey string, dobTime *time.Time, entryDate *time.Time, nullFalseDob bool, now time.Time) (*dobDisposition, error) {
+	if dobTime == nil || entryDate == nil || !dobTime.After(*entryDate) {
+		return nil, nil
+	}
+	originType := normalizeOriginType(g.OriginType)
+	if !nullFalseDob || originType == "birth" {
+		return nil, fmt.Errorf("source animal %q has DOB %s after entry_date %s", animalKey, dobTime.Format("2006-01-02"), entryDate.Format("2006-01-02"))
+	}
+	return &dobDisposition{
+		RFID:         animalKey,
+		OriginType:   originType,
+		OriginalDOB:  dobTime.Format("2006-01-02"),
+		EntryDate:    entryDate.Format("2006-01-02"),
+		EntrySource:  entryDateSourceLabel(g),
+		DeltaDays:    int(dobTime.Sub(*entryDate).Hours() / 24),
+		Disposition:  "dob_nulled_false",
+		RunTimestamp: now.Format(time.RFC3339),
+	}, nil
+}
+
+// writeDobDispositionAudit writes the false-DOB null-out sidecar to
+// <sourcePath>/seed-dob-disposition-<YYYY-MM-DD>.json. Source files (goats.json,
+// vaccination.json) are never touched — this is an additive audit record only, and
+// it is a no-op when there is nothing to record.
+func writeDobDispositionAudit(sourcePath string, runDate time.Time, entries []dobDisposition) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	path := filepath.Join(sourcePath, fmt.Sprintf("seed-dob-disposition-%s.json", runDate.Format("2006-01-02")))
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal dob disposition audit: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write dob disposition audit %s: %w", path, err)
+	}
+	return nil
+}
+
 type seedGoatUpsertRow struct {
 	goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
 	entryDate                                                                                                                                     string
@@ -535,8 +623,9 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 	})
 }
 
-func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool) (st stats, retErr error) {
+func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool, sourcePath string, nullFalseDob bool) (st stats, retErr error) {
 	now := time.Now().In(loc)
+	var dobDispositions []dobDisposition
 
 	// VACC-REV-02: open a persisted seed-run in the `loading` state on the pool (outside the data
 	// tx). Any error return below transitions it to `failed`/reset_required via the defer, so a
@@ -793,6 +882,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 
 		// Parse DOB for later use in schedule path resolution
 		var dobTime *time.Time
+		dobForRow := g.DOB
 		if g.DOB != "" {
 			d, err := time.ParseInLocation("2006-01-02", g.DOB, loc)
 			if err != nil {
@@ -812,8 +902,16 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			if entryDate.After(now) {
 				return st, fmt.Errorf("source animal %q has future entry_date %s after seed business date %s", animalKey, entryDate.Format("2006-01-02"), now.Format("2006-01-02"))
 			}
-			if dobTime != nil && dobTime.After(*entryDate) {
-				return st, fmt.Errorf("source animal %q has DOB %s after entry_date %s", animalKey, dobTime.Format("2006-01-02"), entryDate.Format("2006-01-02"))
+			disposition, err := resolveGoatDOBViolation(g, animalKey, dobTime, entryDate, nullFalseDob, now)
+			if err != nil {
+				return st, err
+			}
+			if disposition != nil {
+				dobDispositions = append(dobDispositions, *disposition)
+				st.DobNulled++
+				dobTime = nil
+				dobForRow = ""
+				delete(goatDOBByAnimalKey, animalKey)
 			}
 			goatEntryDateByAnimalKey[animalKey] = entryDate
 			entryDateValue = entryDate.Format("2006-01-02")
@@ -842,7 +940,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			reproductiveStatus: resolveGoatReproductiveStatus(g.ShedTag),
 			shedID:             shedID,
 			parkID:             parkID,
-			dob:                g.DOB,
+			dob:                dobForRow,
 			entryDate:          entryDateValue,
 		})
 	}
@@ -1150,6 +1248,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, fmt.Errorf("commit: %w", err)
 	}
 	committed = true
+	if err := writeDobDispositionAudit(sourcePath, now, dobDispositions); err != nil {
+		return st, err
+	}
 	// Source committed; move the run into the generating state (kernel derivation runs next).
 	if err := markSeedRunState(ctx, pool, seedRunID, seedRunStateGenerating, false); err != nil {
 		return st, err
@@ -1870,10 +1971,22 @@ func batch[T any](ctx context.Context, tx pgx.Tx, rows []T, size int, queue func
 
 func buildEntryDateMapping(goats []goatRecord) map[string]*time.Time {
 	// Precedence: purchase_date -> stage_entry_date. DOB is not an entry date.
+	//
+	// BIRTH-origin exception: purchase_date on a birth-origin (kid) source row belongs to
+	// the DAM, not the kid — it is not this animal's own entry into the herd/stage. Using it
+	// as the kid's entry date makes a valid pre-registration DOB look like "DOB after entry"
+	// (the kid was born before the dam was purchased). For birth-origin animals the entry
+	// date is ALWAYS the animal's own stage_entry_date; purchase_date is never consulted.
 	out := map[string]*time.Time{}
 	for _, g := range goats {
 		animalKey := sourceAnimalIdentifier(g.RFID, g.OldID, g.OldIDSuffix)
 		if animalKey == "" {
+			continue
+		}
+		if normalizeOriginType(g.OriginType) == "birth" {
+			if d := parseSourceDate(g.StageEntryDate); d != nil {
+				out[animalKey] = d
+			}
 			continue
 		}
 		for _, raw := range []string{g.PurchaseDate, g.StageEntryDate} {
