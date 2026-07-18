@@ -23,6 +23,8 @@ export type BreakdownFilterField = {
   label: string;
   value: string;
   options: BreakdownFilterOption[];
+  /** When set, the control renders disabled and shows this as its reason. */
+  disabledReason?: string;
 };
 
 export function CountsBreakdownFilters({
@@ -75,6 +77,9 @@ export function CountsBreakdownFilters({
             className="tsize"
             value={field.value}
             aria-label={field.label}
+            disabled={Boolean(field.disabledReason)}
+            title={field.disabledReason}
+            style={field.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
             onChange={(event) => applyFilter(field.param, event.target.value)}
           >
             <option value="">{allLabel}</option>

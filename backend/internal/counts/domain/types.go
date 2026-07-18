@@ -454,6 +454,8 @@ type CountsBreakdownCharts struct {
 type CountsBreakdownFacets struct {
 	Stages []CountsBreakdownSeriesPoint `json:"stages"`
 	Breeds []CountsBreakdownSeriesPoint `json:"breeds"`
+	// Parks keyed by park_id, labelled with the park code — the Farm filter's vocabulary.
+	Parks []CountsBreakdownSeriesPoint `json:"parks"`
 }
 
 // CountsBreakdown is the whole census breakdown payload: one page of grain rows plus

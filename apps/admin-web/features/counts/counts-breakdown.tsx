@@ -62,6 +62,7 @@ export async function CountsBreakdownPage({
   const scope = parseScope(sp);
   const { parkId } = backendScope(scope);
 
+  const farmParkId = one(sp, "bd_farm");
   const shedId = one(sp, "bd_shed");
   const stage = one(sp, "bd_stage");
   const breed = one(sp, "bd_breed");
@@ -78,7 +79,7 @@ export async function CountsBreakdownPage({
   // facets come back together, so there is no per-chart fan-out and no serial await.
   const [breakdownResult, locations] = await Promise.all([
     getCountsBreakdown({
-      park_id: parkId,
+      park_id: parkId || farmParkId,
       shed_id: shedId,
       management_stage: stage,
       breed,
@@ -94,7 +95,7 @@ export async function CountsBreakdownPage({
 
   const breakdown: CountsBreakdownResponse | null = breakdownResult.ok ? breakdownResult.data : null;
   const rows = breakdown?.items ?? [];
-  const hasFilter = Boolean(shedId || stage || breed || sex);
+  const hasFilter = Boolean(farmParkId || shedId || stage || breed || sex);
 
   const noParkLabel = copy(pageContract, "label.unassigned_farm");
   const noShedLabel = copy(pageContract, "label.unassigned_shed");
@@ -120,6 +121,17 @@ export async function CountsBreakdownPage({
   // blank bucket would need a real sentinel value round-tripped through the API; it is not worth
   // that until someone asks for it.
   const filterFields: BreakdownFilterField[] = [
+    {
+      param: "bd_farm",
+      label: copy(pageContract, "filter.farm_label"),
+      value: farmParkId ?? "",
+      // Disabled (not hidden) when the top bar already scopes a park: the mock's rule is
+      // disable-with-reason, and hiding it would make the control appear to come and go.
+      disabledReason: parkId ? copy(pageContract, "filter.scope_readonly") : undefined,
+      options: (breakdown?.facets.parks ?? [])
+        .filter((point) => point.key !== "")
+        .map((point) => ({ value: point.key, label: point.label })),
+    },
     {
       param: "bd_stage",
       label: copy(pageContract, "filter.stage_label"),

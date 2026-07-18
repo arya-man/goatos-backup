@@ -3491,6 +3491,8 @@ export interface components {
             /** @description Distinct management_stage values actually present, so a filter cannot offer a dead option. */
             stages: components["schemas"]["CountsBreakdownSeriesPoint"][];
             breeds: components["schemas"]["CountsBreakdownSeriesPoint"][];
+            /** @description Parks holding animals, keyed by park_id and labelled with the park code. Backs the Farm filter so its options are live data rather than a hardcoded park list. */
+            parks: components["schemas"]["CountsBreakdownSeriesPoint"][];
         };
         CountsBreakdownResponse: {
             items: components["schemas"]["CountsBreakdownRow"][];

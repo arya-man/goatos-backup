@@ -2691,19 +2691,30 @@ SELECT * FROM (
 // Facets must describe the whole selectable vocabulary, not the current selection — filtering
 // them by the active filter would collapse each dropdown to the one value already chosen.
 const countsBreakdownFacetsSQL = `
-SELECT 'stage' AS dimension, COALESCE(g.management_stage, '') AS series_key, count(*) AS series_count
+SELECT 'stage' AS dimension, COALESCE(g.management_stage, '') AS series_key,
+       COALESCE(g.management_stage, '') AS series_label, count(*) AS series_count
 FROM goats g
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.management_stage, '')
 UNION ALL
-SELECT 'breed', COALESCE(g.breed, ''), count(*)
+SELECT 'breed', COALESCE(g.breed, ''), COALESCE(g.breed, ''), count(*)
 FROM goats g
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.breed, '')
+UNION ALL
+SELECT 'park', COALESCE(g.park_id::text, ''),
+       COALESCE(NULLIF(park.location_code, ''), park.name, ''),
+       count(*)
+FROM goats g
+LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = g.park_id
+WHERE g.tenant_id = $1::uuid
+  AND g.merged_into_goat_id IS NULL
+  AND ($2 = '' OR g.lifecycle_status = $2)
+GROUP BY COALESCE(g.park_id::text, ''), park.location_code, park.name
 ORDER BY 1, 2`
 
 const (
@@ -2836,18 +2847,20 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets query: %w", err)
 	}
 	for facetRows.Next() {
-		var dimension, key string
+		var dimension, key, label string
 		var count int64
-		if err := facetRows.Scan(&dimension, &key, &count); err != nil {
+		if err := facetRows.Scan(&dimension, &key, &label, &count); err != nil {
 			facetRows.Close()
 			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets scan: %w", err)
 		}
-		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: key, Count: count}
+		point := domain.CountsBreakdownSeriesPoint{Key: key, Label: label, Count: count}
 		switch dimension {
 		case "stage":
 			out.Facets.Stages = append(out.Facets.Stages, point)
 		case "breed":
 			out.Facets.Breeds = append(out.Facets.Breeds, point)
+		case "park":
+			out.Facets.Parks = append(out.Facets.Parks, point)
 		}
 	}
 	facetRows.Close()
@@ -2872,6 +2885,9 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	}
 	if out.Facets.Breeds == nil {
 		out.Facets.Breeds = []domain.CountsBreakdownSeriesPoint{}
+	}
+	if out.Facets.Parks == nil {
+		out.Facets.Parks = []domain.CountsBreakdownSeriesPoint{}
 	}
 
 	out.ProjectedAt = time.Now().UTC()
