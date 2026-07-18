@@ -58,6 +58,7 @@ import sg.mesha.goatos.core.data.cache.InsightsGapsCacheDao
 import sg.mesha.goatos.core.data.cache.RosterCoverageCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
+import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
@@ -136,6 +137,9 @@ object AppModule {
 
     @Provides
     fun provideScanRosterCacheDao(db: GoatDatabase): ScanRosterCacheDao = db.scanRosterCacheDao()
+
+    @Provides
+    fun provideScanRosterRowDao(db: GoatDatabase): ScanRosterRowDao = db.scanRosterRowDao()
 
     @Provides
     fun provideAdherenceCacheDao(db: GoatDatabase): AdherenceCacheDao = db.adherenceCacheDao()
@@ -231,7 +235,8 @@ object AppModule {
         rowsDao: ExecutionRowsCacheDao,
         shedDao: ExecutionShedCacheDao,
         scanRosterDao: ScanRosterCacheDao,
-    ): ExecutionRepository = DefaultExecutionRepository(api, rowsDao, shedDao, scanRosterDao)
+        scanRosterRowDao: ScanRosterRowDao,
+    ): ExecutionRepository = DefaultExecutionRepository(api, rowsDao, shedDao, scanRosterDao, scanRosterRowDao)
 
     @Provides
     @Singleton

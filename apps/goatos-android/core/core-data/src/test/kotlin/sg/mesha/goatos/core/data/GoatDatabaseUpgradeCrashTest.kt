@@ -15,6 +15,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
+import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 
 /**
  * Upgrade-crash E2E for [GoatDatabase]: simulates an already-installed APK whose on-device DB was
@@ -63,6 +64,7 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_5_6,
                 MIGRATION_6_7,
                 MIGRATION_7_8,
+                MIGRATION_8_9,
             )
             .build()
         try {
@@ -82,6 +84,29 @@ class GoatDatabaseUpgradeCrashTest {
             dao.upsert(RosterTimetableCacheEntity(cacheKey = "center-1", dtoJson = "{}", updatedAt = 7L))
             val row = dao.observe("center-1").first()
             assertEquals(7L, row?.updatedAt)
+
+            // 5. The v9 scan_roster_row table (R50-007) is present and usable post-upgrade — a
+            //    write + indexed tag lookup + GROUP BY aggregate round-trip proves the table AND
+            //    its indices came out of MIGRATION_8_9 with the shape Room expects.
+            val rosterDao = upgraded.scanRosterRowDao()
+            rosterDao.upsert(
+                ScanRosterRowEntity(
+                    id = "shed-1#obl-1",
+                    shedId = "shed-1",
+                    goatId = "goat-1",
+                    primaryTag = "IN-1234",
+                    secondaryTag = null,
+                    vaccineLabel = "ET+TT",
+                    status = "pending",
+                    obligationId = "obl-1",
+                    updatedAt = 9L,
+                ),
+            )
+            val byTag = rosterDao.findByTag("shed-1", "in1234")
+            assertEquals("obl-1", byTag?.obligationId)
+            val counts = rosterDao.countByStatus("shed-1")
+            assertEquals(1, counts.single().count)
+            assertEquals("pending", counts.single().status)
         } finally {
             upgraded.close()
         }

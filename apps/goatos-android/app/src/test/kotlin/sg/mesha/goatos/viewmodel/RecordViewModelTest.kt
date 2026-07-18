@@ -197,6 +197,24 @@ private class FakeExecutionRepository : ExecutionRepository {
     override suspend fun refreshShed(shedId: String, asOf: String?, dueBefore: String?, limit: Int?): Result<Unit> =
         Result.success(Unit)
 
+    override suspend fun findScanRosterByTag(
+        shedId: String,
+        normalizedTag: String,
+    ): sg.mesha.goatos.core.data.cache.ScanRosterRowEntity? = null
+
+    override fun observeScanRosterStatusCounts(
+        shedId: String,
+    ): Flow<List<sg.mesha.goatos.core.data.cache.StatusCount>> = kotlinx.coroutines.flow.flowOf(emptyList())
+
+    override suspend fun getScanRosterStatusCountsFor(
+        shedId: String,
+        obligationIds: List<String>,
+    ): List<sg.mesha.goatos.core.data.cache.StatusCount> = emptyList()
+
+    override suspend fun getScanRosterStatusCounts(
+        shedId: String,
+    ): List<sg.mesha.goatos.core.data.cache.StatusCount> = emptyList()
+
     override suspend fun rows(
         parkId: String?, workState: String?, asOf: String?, dueBefore: String?, limit: Int?, cursor: String?,
     ): VaccinationExecutionResponseDto = error("unused")

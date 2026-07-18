@@ -32,6 +32,8 @@ import sg.mesha.goatos.core.data.cache.RosterTimetableCacheDao
 import sg.mesha.goatos.core.data.cache.RosterTimetableCacheEntity
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheDao
 import sg.mesha.goatos.core.data.cache.ScanRosterCacheEntity
+import sg.mesha.goatos.core.data.cache.ScanRosterRowDao
+import sg.mesha.goatos.core.data.cache.ScanRosterRowEntity
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
@@ -64,6 +66,7 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         ExecutionRowsCacheEntity::class,
         ExecutionShedCacheEntity::class,
         ScanRosterCacheEntity::class,
+        ScanRosterRowEntity::class,
         AdherenceCacheEntity::class,
         InsightsGapsCacheEntity::class,
         InsightsCoverageCacheEntity::class,
@@ -77,11 +80,13 @@ import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
         CalendarScheduleEntity::class,
         CalendarScheduleRemoteKeyEntity::class,
     ],
-    version = 8,
+    version = 9,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
     // change reviewable as a diff. A version bump with no new schema JSON is a red flag.
+    // v9 (see [MIGRATION_8_9]) adds scan_roster_row entity for R50-007: full-roster tag lookup
+    // via bounded indexed Room query (offline-first SSOT single-row entities instead of merged blob).
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -93,6 +98,7 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun executionRowsCacheDao(): ExecutionRowsCacheDao
     abstract fun executionShedCacheDao(): ExecutionShedCacheDao
     abstract fun scanRosterCacheDao(): ScanRosterCacheDao
+    abstract fun scanRosterRowDao(): ScanRosterRowDao
     abstract fun adherenceCacheDao(): AdherenceCacheDao
     abstract fun insightsGapsCacheDao(): InsightsGapsCacheDao
     abstract fun insightsCoverageCacheDao(): InsightsCoverageCacheDao

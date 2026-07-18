@@ -241,6 +241,17 @@ func TestGenerateForVersionShiftCanceledClinicallyHeldGoatGetsDeferredSuccessor(
 	if !strings.HasPrefix(successor.IdempotencyKey, baseKey+":successor:") {
 		t.Fatalf("successor key=%q base=%q", successor.IdempotencyKey, baseKey)
 	}
+	// R50-006: the deferred successor must record its 'deferred' status event exactly like the
+	// non-successor deferred path — atomically alongside the insert, not silently skipped.
+	deferredEvents := 0
+	for _, ev := range obl.recordedStatusEvents {
+		if ev.ObligationID == "obligation-1" && ev.EventType == "deferred" {
+			deferredEvents++
+		}
+	}
+	if deferredEvents != 1 {
+		t.Fatalf("recorded %d deferred status events for deferred successor, want exactly 1: %#v", deferredEvents, obl.recordedStatusEvents)
+	}
 }
 
 // TestGenerateForVersionExitCanceledGoatGetsNoSuccessor: "ineligible_after_exit" (goat left the
@@ -2539,6 +2550,7 @@ type generationObligationFake struct {
 	failOnceAfterInserted  int
 	failErr                error
 	failed                 bool
+	recordedStatusEvents   []obldomain.NewStatusEvent
 }
 
 type nearestBatchLookup struct {
@@ -2653,7 +2665,8 @@ func (o *generationObligationFake) CancelOpenVaccinationObligationsForGoatVersio
 	return 1, nil
 }
 
-func (o *generationObligationFake) RecordStatusEvent(context.Context, obldomain.NewStatusEvent) (string, bool, error) {
+func (o *generationObligationFake) RecordStatusEvent(_ context.Context, ev obldomain.NewStatusEvent) (string, bool, error) {
+	o.recordedStatusEvents = append(o.recordedStatusEvents, ev)
 	return "event-1", true, nil
 }
 

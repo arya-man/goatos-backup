@@ -110,3 +110,77 @@ interface ScanRosterCacheDao : JsonBlobCacheDao<ScanRosterCacheEntity> {
     )
     override suspend fun deleteOldest(n: Int)
 }
+
+/** Individual scan roster row for tag-based lookup (R50-007: RFID tag matching against the full shed
+ *  roster, not just the loaded page). Indexed on shed_id + primary_tag + secondary_tag for efficient
+ *  keyset searches. Per offline-first rules, Room is the single source of truth for the roster. */
+@Entity(
+    tableName = "scan_roster_row",
+    indices = [
+        androidx.room.Index(value = ["shedId"]),
+        androidx.room.Index(value = ["shedId", "primaryTag"]),
+        androidx.room.Index(value = ["shedId", "secondaryTag"]),
+    ],
+)
+data class ScanRosterRowEntity(
+    @PrimaryKey val id: String, // "{shedId}#{obligationId}" or "{shedId}#{goatId}#{primaryTag}"
+    val shedId: String,
+    val goatId: String,
+    val primaryTag: String,
+    val secondaryTag: String?,
+    val vaccineLabel: String,
+    val status: String,
+    val obligationId: String,
+    val updatedAt: Long,
+)
+
+@Dao
+interface ScanRosterRowDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: ScanRosterRowEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(entities: List<ScanRosterRowEntity>)
+
+    /** Find a roster row by shed and normalized tag (primary or secondary). Returns the first match
+     *  or null if no goat in this shed has the tag. Normalized tag comparison (alphanumeric lowercase). */
+    @Query(
+        "SELECT * FROM scan_roster_row WHERE shedId = :shedId AND " +
+            "(LOWER(REPLACE(REPLACE(REPLACE(primaryTag, '-', ''), ' ', ''), '_', '')) = :normalizedTag OR " +
+            "LOWER(REPLACE(REPLACE(REPLACE(secondaryTag, '-', ''), ' ', ''), '_', '')) = :normalizedTag) " +
+            "LIMIT 1"
+    )
+    suspend fun findByTag(shedId: String, normalizedTag: String): ScanRosterRowEntity?
+
+    /** Count rows by status for a shed. Used to derive total/done/pending counts without reloading
+     *  the entire JSON blob. (R50-008: aggregates independent of loaded page size). */
+    @Query("SELECT status, COUNT(*) as count FROM scan_roster_row WHERE shedId = :shedId GROUP BY status")
+    suspend fun countByStatus(shedId: String): List<StatusCount>
+
+    /** R50-008: Observable status aggregates for a shed — a bounded GROUP BY (max a handful of
+     *  status rows), re-emitted whenever the roster rows change, so ring/tile counters stay
+     *  page-independent. */
+    @Query("SELECT status, COUNT(*) as count FROM scan_roster_row WHERE shedId = :shedId GROUP BY status")
+    fun observeCountsByStatus(shedId: String): Flow<List<StatusCount>>
+
+    /** R50-008: Status aggregates for a bounded id set (the session's local unsynced DONE overlay,
+     *  at most a scan session's worth of ids). Lets the ViewModel add local edits to the full-roster
+     *  counts without double-counting rows the backend already reports DONE. */
+    @Query(
+        "SELECT status, COUNT(*) as count FROM scan_roster_row " +
+            "WHERE shedId = :shedId AND obligationId IN (:obligationIds) GROUP BY status"
+    )
+    suspend fun countByStatusForObligations(shedId: String, obligationIds: List<String>): List<StatusCount>
+
+    @Query("DELETE FROM scan_roster_row WHERE shedId = :shedId")
+    suspend fun deleteForShed(shedId: String)
+
+    @Query("DELETE FROM scan_roster_row")
+    suspend fun deleteAll()
+}
+
+/** Helper data class for status-based aggregation (R50-008). */
+data class StatusCount(
+    val status: String,
+    val count: Int,
+)

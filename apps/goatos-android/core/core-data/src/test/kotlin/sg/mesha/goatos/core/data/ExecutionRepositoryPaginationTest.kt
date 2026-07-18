@@ -56,8 +56,19 @@ class ExecutionRepositoryPaginationTest {
             assertEquals(TOTAL_ROWS, cached.rows.size)
             assertEquals(TOTAL_ROWS, cached.rows.map { it.obligationId }.distinct().size)
             assertNull(cached.nextCursor)
-            assertEquals(listOf(null, "cursor-1", "cursor-2"), requests.map { it.cursor })
+            // refresh now walks the whole keyset (R50-007/008 full-roster row sync: null, c1, c2),
+            // then the two appends re-fetch their continuation pages for the UI blob.
+            assertEquals(
+                listOf(null, "cursor-1", "cursor-2", "cursor-1", "cursor-2"),
+                requests.map { it.cursor },
+            )
             assertTrue(requests.all { it.shedId == SHED_ID && it.taskId == TASK_ID && it.limit == PAGE_SIZE })
+
+            // R50-008: the per-row SSOT holds EVERY roster row after a plain refresh, so status
+            // aggregates are independent of the loaded page size.
+            assertEquals(TOTAL_ROWS, repository.getScanRosterStatusCounts(SHED_ID).sumOf { it.count })
+            // R50-007: a page-3 tag resolves from Room even though the UI blob paged.
+            assertEquals("obligation-45", repository.findScanRosterByTag(SHED_ID, "tag45")?.obligationId)
         }
     }
 
@@ -70,7 +81,7 @@ class ExecutionRepositoryPaginationTest {
             val result = repository.appendScanRoster(SHED_ID, TASK_ID, "wrong-cursor", PAGE_SIZE)
 
             assertTrue(result.exceptionOrNull() is ScanRosterCursorException)
-            assertEquals(1, requests.size)
+            assertEquals(3, requests.size) // the refresh row-sync walk (null, c1, c2); no append fetch
             val cached = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
             assertEquals(PAGE_SIZE, cached.rows.size)
             assertEquals("cursor-1", cached.nextCursor)
@@ -106,12 +117,16 @@ class ExecutionRepositoryPaginationTest {
 
             val shedWide = repository.observeScanRoster(SHED_ID, taskId = null, limit = PAGE_SIZE).first().data!!
             assertEquals(PAGE_SIZE * 2, shedWide.rows.size)
-            assertEquals(listOf(null, null), requests.map { it.taskId })
+            // refresh row-sync walk = 3 shed-wide requests (null, c1, c2), then 1 append request
+            assertEquals(listOf(null, null, null, null), requests.map { it.taskId })
 
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
             val taskScoped = repository.observeScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).first().data!!
             assertEquals(PAGE_SIZE, taskScoped.rows.size)
-            assertEquals(listOf(null, null, TASK_ID), requests.map { it.taskId })
+            assertEquals(
+                listOf(null, null, null, null, TASK_ID, TASK_ID, TASK_ID),
+                requests.map { it.taskId },
+            )
         }
     }
 
@@ -152,6 +167,7 @@ class ExecutionRepositoryPaginationTest {
                     database.executionRowsCacheDao(),
                     database.executionShedCacheDao(),
                     database.scanRosterCacheDao(),
+                    database.scanRosterRowDao(),
                     clock = { 42L },
                 ),
                 backend,

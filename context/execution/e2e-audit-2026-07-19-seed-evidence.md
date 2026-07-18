@@ -285,3 +285,51 @@ The E2E seed validation audit **cannot proceed past Stage 3 (HRMS)** due to a so
 
 **Evidence File Generated**: /Users/ravi/mesha/goatos/context/execution/e2e-audit-2026-07-19-seed-evidence.md  
 **Database**: Still running on port 15544 for manual inspection (cleanup: `docker rm -f goatos-e2e-audit-pg`)
+
+---
+
+# RERUN — 2026-07-19 (main = e451ad93, blocker fix landed)
+
+**Commit**: e451ad93 "fix: per-origin seed entry semantics + sanctioned false-DOB disposition"
+**DB**: fresh goatos-e2e-audit-pg (postgres:16-alpine, port 15544; previous container removed)
+**Tenant**: 00000000-0000-4000-8000-000000000001
+
+## Stage Table (rerun)
+
+| # | Stage | Command | Exit | Key counts |
+|---|-------|---------|------|-----------|
+| 1 | Migrations | `go run ./cmd/migrate` (GOATOS_ENV=local) | 0 | 000001 baseline + 000002 vaccination_capacity_overflow_policy both applied cleanly on fresh DB |
+| 2 | Founder grants | `make seed-dev-email-grants` | 0 | 5 ceo_internal grants |
+| 3 | HRMS roster | `seed-roster-real` | 0 | members=31, positions=33, leaves=6, department_matches=4, 1 unresolved slot (known) |
+| 4 | Vaccination source seed | `seed-vaccination-real -null-false-dob -expect-null-false-dob=42` | 0 | animals=1311, parks=2, sheds_resolved=100(+16 created), completions_history=3836, reconciled=3836 (later_administrations=447, unresolved=0), kernel generated=4078 deferred=723 failed_goats=0 suppressed_trusted=3009, **dob_nulled=42**, reconciliation all-zero defects, post_seed_analyze completed |
+| 4a | DOB disposition sidecar | — | — | `/Users/ravi/mesha/source-material/vgoats-seed/seed-dob-disposition-2026-07-19.json`: **42 entries**, disposition=dob_nulled_false, includes original_dob/entry_date/entry_source/delta_days |
+| 5 | Shed positions | `seed-shed-positions -strict` | 0 | active_sheds=170, reviewed_seats=116, park_fallback=54, manager gaps=0, backup gaps=0, seats_inserted=170 |
+| 6 | Position duties | `seed-position-duties` | 0 | duties_inserted=16 (shed_manager unmapped skipped — known warning) |
+| 7 | Seed closeout | `tools/dev/seed-closeout.sh` | **1** | seed-state-check OK (latest_state=verified); goat-shed integrity **passed (1192\|1192)** twice; eligibility rollup grains=402 eligible=963; generation idempotent re-run (generated=0, suppressed_trusted=3009); sweeper batches=47 obligations=2329 (park_batches=45/2327); in-window unbatched leftover=0; **clubbing proof FAILED (Finding F002)** |
+
+Note: first closeout attempt aborted with `psql: command not found` (host PATH); environmental fix = `PATH=/opt/homebrew/opt/libpq/bin:$PATH`, rerun succeeded to the proof stage.
+
+## Proofs and gates
+
+| Gate | Result | Evidence |
+|------|--------|----------|
+| Migration 000002 fresh-baseline apply | PASS | `migration_applying ... 000002_vaccination_capacity_overflow_policy` no error |
+| Goat-shed integrity | PASS | `goat-shed-integrity proof: passed (1192|1192)` (after seed and after generation) |
+| Unbatched-due in window | PASS | 0 vaccination scheduled/due obligations unbatched through 2026-12-31 |
+| Owner completeness | PASS | 116 sheds with goats, 0 without an active held position seat; strict preflight: 0 manager gaps, 0 backup gaps; 6 active backup slots |
+| Judge 42-animal acceptance | PASS | 42/42 nulled goats resolved; herd=1311; obligations by trigger: post_arrival (177 completed/14 deferred/30 scheduled), after_previous_completion (41 deferred/48 scheduled), birth_age ACTIVE=**0**. Observation: 4 birth_age COMPLETED rows exist among the 42 — imported sheet history reconciled under kid-course rules despite nulled DOB; these are accepted history, not generated open work, but worth review. |
+| Capacity-aware clubbing proof (first live run) | **FAIL — Finding F002** | Script SQL executed without error (no SQL bug). Proof asserts: small drive 2026-12-21 Coimbatore kid_mixed animals=2 (Godel 2, Yashoda 6; due_from=2026-12-19, safe_until=2027-01-18) has a compatible same-park FMD drive 2026-12-31 (animals=100, 17 sheds) inside its safe window — i.e. the sweeper left an avoidable micro-drive unclubbed. |
+| Micro-drive evidence | **FAIL** (by F002) | 5 batches with <=2 animals: 2026-08-02(2), 2026-08-29(1), 2026-09-20(2), 2026-11-03(1), 2026-12-21(2). At least the 2026-12-21 one is proven avoidable by the proof script. |
+
+## Capacity observations (config: max_per_day=100, scope=tenant, buffer=7d, policy=split_within_safe_window_last_safe_may_exceed_cap)
+
+- Per-park per-day batches are ≤100 except **2026-08-12 Channapatna = 166 in a single batch** (may be sanctioned by last-safe-may-exceed policy; flag for review).
+- Tenant-wide days exceeding 100: 2026-07-22 (200), 2026-07-23 (200), 2026-07-24 (167), 2026-07-25 (200), 2026-08-12 (230), 2026-12-19 (196). Cap scope is `tenant`, so if the cap is tenant-wide these six days exceed it; if operationally per-park, only 2026-08-12 does. Needs a product ruling.
+
+## Findings (rerun)
+
+- **F002 (REAL, from first live run of rewritten capacity-aware clubbing proof)**: `tools/dev/check-vaccination-drive-clubbing-proof.sh` fails — sweeper produced a 2-animal kid_mixed drive on 2026-12-21 (Coimbatore) although a compatible 100-animal FMD drive on 2026-12-31 sits inside the safe window (due_from 2026-12-19 → safe_until 2027-01-18). Either the sweeper's clubbing missed a legal merge, or the proof's compatibility test is broader than the sweeper's (kid_mixed vs FMD protocol-lineage compatibility). Not hacked around; closeout intentionally left failed.
+- **F003 (observation)**: 4 completed birth_age history rows reconciled for goats whose false DOB was nulled — kid-course rule mapping used the pre-null DOB path during history reconciliation. Accepted history only; zero active birth_age work.
+- **F004 (observation)**: capacity cap scope=tenant vs per-park batching ambiguity; 6 tenant-days >100 animals, one single-park batch of 166.
+
+**Overall**: seed chain end-to-end GREEN through generation/sweeper with all hard seed gates passing; the run is amber solely on the clubbing-proof failure (F002), which is exactly the class of defect this proof was rewritten to catch.

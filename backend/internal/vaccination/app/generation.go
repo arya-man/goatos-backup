@@ -1473,7 +1473,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 				// row was canceled by a shift-away. Minted with the goat's CURRENT clinical status
 				// (deferred=true → deferred successor, LIFE-001), preserving the canceled predecessor.
 				// Terminal/history cancellations never reach here (see cancelReasonMintsSuccessor).
-				successorRef, successorChanged, successorApplied, err := s.insertSuccessorForCanceledGenerationReplay(ctx, tenantID, key, newObligation, asOf, deferred)
+				successorRef, successorChanged, successorApplied, err := s.insertSuccessorForCanceledGenerationReplay(ctx, tenantID, key, newObligation, asOf, deferred, deferReason)
 				if err != nil {
 					return err
 				}
@@ -1528,7 +1528,7 @@ func (s *GenerationService) genOneGoat(ctx context.Context, tenantID, versionID 
 	return nil
 }
 
-func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx context.Context, tenantID, baseKey string, base obldomain.NewObligation, asOf time.Time, deferred bool) (obldomain.ObligationRef, bool, bool, error) {
+func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx context.Context, tenantID, baseKey string, base obldomain.NewObligation, asOf time.Time, deferred bool, deferReason string) (obldomain.ObligationRef, bool, bool, error) {
 	// LIFE-001 fix: successor status must reflect the newly calculated clinical status.
 	// A requalified sick/ICU goat must get a fresh DEFERRED successor, not forced to scheduled.
 	successorStatus := "scheduled"
@@ -1536,6 +1536,9 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 		successorStatus = "deferred"
 	}
 	base.Status = successorStatus
+	if deferred && deferReason == "" {
+		deferReason = "defer_state"
+	}
 	for attempt := 1; attempt <= 32; attempt++ {
 		successor := base
 		successor.IdempotencyKey = fmt.Sprintf("%s:successor:%02d", baseKey, attempt)
@@ -1544,6 +1547,26 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 			return obldomain.ObligationRef{}, false, false, err
 		}
 		if applied {
+			if deferred {
+				// R50-006: a deferred successor must record its 'deferred' status event exactly
+				// like the non-successor deferred path (see the caller's own
+				// s.obl.RecordStatusEvent call for the same event shape/idempotency-key pattern).
+				// Same repo call, same ctx/tx as the insert above, so this succeeds or fails with
+				// it rather than silently leaving a deferred successor with no audit event.
+				payload, _ := json.Marshal(map[string]string{"reason": "defer_state", "defer_status": deferReason})
+				if _, _, err := s.obl.RecordStatusEvent(ctx, obldomain.NewStatusEvent{
+					TenantID:       tenantID,
+					ObligationID:   obID,
+					EventType:      "deferred",
+					OccurredAt:     asOf,
+					Payload:        payload,
+					IdempotencyKey: obID + ":deferred:" + asOf.UTC().Format(time.RFC3339Nano),
+					Scope:          "obligation.status_event",
+					RequestHash:    "defer:" + deferReason,
+				}); err != nil {
+					return obldomain.ObligationRef{}, false, false, err
+				}
+			}
 			return obldomain.ObligationRef{ObligationID: obID, Status: successor.Status, DueAt: successor.DueAt, Reason: ""}, false, true, nil
 		}
 		// Replay: reconcile the existing successor row with the goat's CURRENT clinical status.
@@ -1552,7 +1575,7 @@ func (s *GenerationService) insertSuccessorForCanceledGenerationReplay(ctx conte
 		var ref obldomain.ObligationRef
 		var changed bool
 		if deferred {
-			ref, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, "defer_state", asOf)
+			ref, changed, err = s.obl.DeferOpenObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, deferReason, asOf)
 		} else {
 			ref, changed, err = s.obl.ReopenDeferredObligationForGeneration(ctx, tenantID, successor.IdempotencyKey, asOf, nil)
 		}

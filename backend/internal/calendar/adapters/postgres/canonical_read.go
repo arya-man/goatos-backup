@@ -466,10 +466,10 @@ batch_events AS (
       ob.batch_id,
       ob.status AS batch_status,
       ob.scope_type AS batch_scope_type,
-      COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end) AS due_at,
-      COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end) AS window_start,
+      COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end) AS due_at,
+      COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end) AS window_start,
       CASE
-        WHEN ob.planned_date IS NOT NULL THEN ob.planned_date::timestamptz + interval '8 hours'
+        WHEN ob.planned_date IS NOT NULL THEN (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '8 hours'
         ELSE COALESCE(ob.window_end, ob.window_start + interval '8 hours')
       END AS window_end,
       COALESCE(
@@ -567,8 +567,8 @@ batch_events AS (
       AND (
         (
           ob.planned_date IS NOT NULL
-          AND ob.planned_date::timestamptz < $3::timestamptz
-          AND ob.planned_date::timestamptz + interval '1 day' > $2::timestamptz
+          AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
+          AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
         )
         OR (
           ob.planned_date IS NULL
@@ -583,9 +583,9 @@ batch_events AS (
       ob.batch_id,
       ob.status,
       ob.scope_type,
-      COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end),
+      COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end),
       CASE
-        WHEN ob.planned_date IS NOT NULL THEN ob.planned_date::timestamptz + interval '8 hours'
+        WHEN ob.planned_date IS NOT NULL THEN (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '8 hours'
         ELSE COALESCE(ob.window_end, ob.window_start + interval '8 hours')
       END,
       CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_id END,
@@ -690,8 +690,8 @@ obligation_drive_membership AS (
       AND (
         (
           ob2.planned_date IS NOT NULL
-          AND ob2.planned_date::timestamptz < $3::timestamptz
-          AND ob2.planned_date::timestamptz + interval '1 day' > $2::timestamptz
+          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
+          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
         )
         OR (
           ob2.planned_date IS NULL
@@ -729,7 +729,7 @@ obligation_drive_membership AS (
       CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_type ELSE oi.scope_type END AS scope_type,
       CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_id ELSE oi.scope_id END AS scope_id,
       CASE
-        WHEN oi.batch_id IS NOT NULL THEN COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end)
+        WHEN oi.batch_id IS NOT NULL THEN COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end)
         ELSE oi.due_at
       END AS membership_at
   ) member

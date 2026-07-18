@@ -22,6 +22,17 @@ if [ "${1:-}" = "--self-test" ]; then
   grep -q "'in_progress'" "$0"
   grep -q "sum(cells)" "$0"
   grep -q "first_batching_hold_until" "$0"
+  # Round-9: small-drive test must be park/date grain and the merge-target join
+  # must check the target date's free capacity / last-safe overflow evidence.
+  grep -q "park_date_animals" "$0"
+  grep -q "total_animals <= :'max_small'" "$0"
+  grep -q "target_cells" "$0"
+  grep -q "s.animals <= :'capacity_max'" "$0"
+  grep -q "g.drive_date = s.binding_safe_until" "$0"
+  # Round-10: park attribution must come from the BATCH's own scope, not goat
+  # residence (duplicate shed names / mid-shift goats fabricate phantom drives).
+  grep -q "ob.scope_type = 'park' THEN bs.name" "$0"
+  grep -q "ob.scope_type = 'shed' THEN bsp.name" "$0"
   echo "vaccination-drive-clubbing-proof: self-test passed"
   exit 0
 fi
@@ -204,12 +215,20 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
   -v from_date="$from_date" \
   -v to_date="$to_date" \
   -v max_small="$max_small" \
+  -v capacity_max="$capacity_max" \
   -v species_policy="$species_policy" <<'SQL'
 WITH event_rows AS (
   SELECT
     ob.batch_id,
     (ob.planned_date AT TIME ZONE 'Asia/Kolkata')::date AS drive_date,
-    COALESCE(lp.name, gp.name, 'unknown') AS park,
+    -- Batch-scope park attribution: a drive belongs to the park the BATCH is
+    -- scoped to (park scope -> itself; shed scope -> that shed parent park).
+    -- Goat residence is only a last-resort fallback: duplicate shed names across
+    -- parks and mid-shift goats otherwise fabricate phantom cross-park drives.
+    COALESCE(
+      CASE WHEN ob.scope_type = 'park' THEN bs.name END,
+      CASE WHEN ob.scope_type = 'shed' THEN bsp.name END,
+      lp.name, gp.name, 'unknown') AS park,
     COALESCE(gs.name, 'unknown') AS shed,
     oi.target_id,
     CASE
@@ -231,6 +250,8 @@ WITH event_rows AS (
   JOIN obligation_instances oi ON oi.batch_id = ob.batch_id
   JOIN protocol_rules pr ON pr.rule_id = oi.rule_id
   JOIN goats g ON g.goat_id = oi.target_id
+  LEFT JOIN locations bs ON bs.location_id = ob.scope_id
+  LEFT JOIN locations bsp ON bsp.location_id = bs.parent_location_id
   LEFT JOIN locations gs ON gs.location_id = g.shed_id
   LEFT JOIN locations gp ON gp.location_id = g.park_id
   LEFT JOIN locations lp ON lp.location_id = gs.parent_location_id
@@ -252,16 +273,67 @@ drive_groups AS (
     planner_group,
     count(DISTINCT target_id) AS animals,
     min(due_date) AS due_from,
+    max(due_date) AS due_latest,
     min(safe_until) AS binding_safe_until,
     string_agg(DISTINCT shed, ', ' ORDER BY shed) AS sheds,
     string_agg(DISTINCT vaccine, ', ' ORDER BY vaccine) AS vaccines
   FROM event_rows
   GROUP BY drive_date, park, planner_group
 ),
+-- A drive is park/date-grain: a planner_group partition is storage, not a drive.
+-- The small-drive test applies only when the WHOLE park/date visit is small.
+park_date_animals AS (
+  SELECT drive_date, park, count(DISTINCT target_id) AS total_animals
+  FROM event_rows
+  GROUP BY drive_date, park
+),
 small AS (
-  SELECT *
-  FROM drive_groups
-  WHERE animals <= :'max_small'::int
+  SELECT dg.*
+  FROM drive_groups dg
+  JOIN park_date_animals pda
+    ON pda.drive_date = dg.drive_date AND pda.park = dg.park
+  WHERE pda.total_animals <= :'max_small'::int
+),
+-- Persisted dose-cell load per park/date across ALL active batches (planned +
+-- in_progress + completed), so a merge target free capacity can be checked.
+capacity_batches AS (
+  SELECT
+    ob.batch_id,
+    (ob.planned_date AT TIME ZONE 'Asia/Kolkata')::date AS drive_date,
+    -- Batch-scope park attribution first; goat residence only as last resort.
+    COALESCE(
+      CASE WHEN ob.scope_type = 'park' THEN bs.name END,
+      CASE WHEN ob.scope_type = 'shed' THEN bsp.name END,
+      pk.park, 'unknown') AS park,
+    GREATEST(
+      COALESCE(ob.planned_quantity, 1)::int,
+      count(oi.obligation_id) FILTER (WHERE oi.status NOT IN ('canceled', 'superseded'))::int
+    ) AS cells
+  FROM obligation_batches ob
+  JOIN protocol_versions pv ON pv.protocol_version_id = ob.protocol_version_id
+  JOIN protocol_definitions pd ON pd.protocol_id = pv.protocol_id
+  LEFT JOIN obligation_instances oi ON oi.batch_id = ob.batch_id
+  LEFT JOIN locations bs ON bs.location_id = ob.scope_id
+  LEFT JOIN locations bsp ON bsp.location_id = bs.parent_location_id
+  LEFT JOIN LATERAL (
+    SELECT COALESCE(lp0.name, gp0.name, 'unknown') AS park
+    FROM obligation_instances oi0
+    JOIN goats g0 ON g0.goat_id = oi0.target_id
+    LEFT JOIN locations gs0 ON gs0.location_id = g0.shed_id
+    LEFT JOIN locations gp0 ON gp0.location_id = g0.park_id
+    LEFT JOIN locations lp0 ON lp0.location_id = gs0.parent_location_id
+    WHERE oi0.batch_id = ob.batch_id
+    LIMIT 1
+  ) pk ON TRUE
+  WHERE ob.tenant_id = :'tenant_id'::uuid
+    AND pd.category = 'vaccination'
+    AND ob.status IN ('planned', 'in_progress', 'completed')
+  GROUP BY ob.batch_id, ob.planned_date, ob.scope_type, bs.name, bsp.name, pk.park, ob.planned_quantity
+),
+target_cells AS (
+  SELECT drive_date, park, sum(cells)::int AS total_cells
+  FROM capacity_batches
+  GROUP BY drive_date, park
 )
 SELECT
   s.drive_date || ' | ' ||
@@ -269,13 +341,27 @@ SELECT
   s.planner_group || ' | animals=' || s.animals || ' | sheds=' || s.sheds ||
   ' | due_from=' || s.due_from || ' | safe_until=' || s.binding_safe_until ||
   ' | compatible_nearby=' ||
-  string_agg(g.drive_date::text || ':animals=' || g.animals || ':sheds=' || g.sheds || ':vaccines=' || g.vaccines, ' ; ' ORDER BY g.drive_date)
+  string_agg(
+    g.drive_date::text || ':animals=' || g.animals || ':cells=' || COALESCE(tc.total_cells, 0) ||
+    ':sheds=' || g.sheds || ':vaccines=' || g.vaccines,
+    ' ; ' ORDER BY g.drive_date)
 FROM small s
 JOIN drive_groups g
   ON g.park = s.park
  AND g.planner_group = s.planner_group
  AND g.drive_date <> s.drive_date
- AND g.drive_date BETWEEN s.due_from AND s.binding_safe_until
+ -- Every mover must itself be movable to the target date: at/after the latest
+ -- due date in the small group and at/before its binding safe-until.
+ AND g.drive_date BETWEEN s.due_latest AND s.binding_safe_until
+LEFT JOIN target_cells tc
+  ON tc.park = g.park AND tc.drive_date = g.drive_date
+-- Merge target is only a genuine option when it has free capacity for the
+-- movers, or the target date IS the mover last safe day (overflow justified
+-- by per-goat last-safe evidence).
+WHERE (
+  COALESCE(tc.total_cells, 0) + s.animals <= :'capacity_max'::int
+  OR g.drive_date = s.binding_safe_until
+)
 GROUP BY s.drive_date, s.park, s.planner_group, s.animals, s.sheds, s.due_from, s.binding_safe_until
 ORDER BY s.drive_date, s.park, s.planner_group;
 SQL

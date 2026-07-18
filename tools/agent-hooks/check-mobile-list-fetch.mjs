@@ -100,6 +100,37 @@ export function findingsForSource(source) {
     }
   });
 
+  // 5) R50-007: Page-scoped entity matching (only searches loaded page collection, not full roster).
+  //    Pattern: state.value.X.firstOrNull { it.matchesTag } or similar single-page lookups.
+  //    Full roster searches must use a bounded Repository/DAO query, not the loaded page state.
+  lines.forEach((text, i) => {
+    if (/mobile-guard:ignore/.test(text)) return;
+    if (/state\.value\.\w+\.(?:firstOrNull|find|any)\s*\{\s*(?:it\.)?(?:matchesTag|matches|contains)\b/.test(text)) {
+      findings.push({
+        line: i + 1,
+        rule: "page-scoped-entity-matching",
+        message: "searches only the loaded page collection via state.value (R50-007); use a bounded Room/Repository query to search the full roster by tag/id",
+      });
+    }
+  });
+
+  // 6) R50-008: Unbounded accumulated JSON blobs in merge operations.
+  //    Pattern: merging pages into a single growing JSON blob without a row/byte cap.
+  //    Each page must be stored as individual Room rows (keyset-paginated) or bounded per-page JSON,
+  //    never accumulated into an ever-growing blob.
+  lines.forEach((text, i) => {
+    if (/mobile-guard:ignore/.test(text)) return;
+    // Detect merges that concatenate two DTO row lists into one accumulated collection
+    // (the growing-blob shape), regardless of where the surrounding .copy( sits.
+    if (/\b(?:rows|items|entries)\s*=\s*\(\s*\w+\.(?:rows|items|entries)\s*\+\s*\w+\.(?:rows|items|entries)\s*\)/.test(text)) {
+      findings.push({
+        line: i + 1,
+        rule: "unbounded-json-accumulation",
+        message: "merges pages into an unbounded growing blob (R50-008); use individual Room rows with keyset pagination or enforce row/byte caps via Cache governance",
+      });
+    }
+  });
+
   return findings;
 }
 
@@ -141,6 +172,9 @@ function selfTest() {
     ["private fun buildMonthDays(items: List<Dto>) {\n  items.mapNotNull { parseLocalDate(it.dueAt) }\n}\nprivate fun next() {}", "overview-parses-events"],
     ["val t = items.find { parseLocalDate(it.dueAt) == date }?.tone()", "on2-date-scan"],
     ["@Query(\"SELECT * FROM outbox ORDER BY createdAt ASC\")", "unbounded-db-read"],
+    ["val row = state.value.roster.firstOrNull { it.matchesTag(target) } // R50-007 anti-pattern", "page-scoped-entity-matching"],
+    ["val match = state.value.items.find { it.contains(query) }", "page-scoped-entity-matching"],
+    ["val merged = page.copy(rows = (current.rows + page.rows).distinctBy { it.id })", "unbounded-json-accumulation"],
   ];
   for (const [src, rule] of bad) {
     const f = findingsForSource(src);
@@ -154,6 +188,8 @@ function selfTest() {
     "private fun buildMonthDays(markers: List<DayMarker>) {\n  markers.forEach { cell(it.date, it.tone) }\n}\nprivate fun next() {}",
     "@Query(\"SELECT * FROM outbox ORDER BY createdAt DESC LIMIT :pageSize\")",
     "@Query(\"SELECT * FROM calendar_cache WHERE cacheKey = :key\")",
+    "val row = repo.findByTag(shedId, tag) // R50-007 correct: bounded Room query",
+    "val merged = mergeScanRosterPage(current, page) // Uses bounded per-entity Room rows",
   ];
   for (const src of good) {
     const f = findingsForSource(src);

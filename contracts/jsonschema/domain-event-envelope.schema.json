@@ -60,6 +60,8 @@
         "notification.exhausted",
         "notification.sent",
         "obligation.missed",
+    "obligation.rescoped",
+    "goat.obligations_canceled",
         "vaccination.verify.accepted",
         "vaccination.verify.rejected",
         "vaccination.completed",

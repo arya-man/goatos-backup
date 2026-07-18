@@ -3,11 +3,13 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
 	oblapp "github.com/vgoats/goatos/backend/internal/obligation/app"
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
+	outboxapp "github.com/vgoats/goatos/backend/internal/outbox/app"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 )
@@ -373,5 +375,118 @@ WHERE tenant_id=$1 AND goat_id=$2`, tenantID, testGoatID).Scan(&lastEventID); er
 	}
 	if lastEventID != "60000000-0000-4000-8000-000000000402" {
 		t.Fatalf("watermark event id = %q, want higher same-time event", lastEventID)
+	}
+}
+
+// TestSM2ShiftReScopesGoatWithBatchedOpenObligation is the L1 P0 regression: a shifted goat whose
+// open obligation is ALREADY attached to a planned batch (the majority state in a seeded herd)
+// must still re-scope. The dirty per-old-batch UPDATE passed the goat id as a bare $4 used only
+// inside jsonb_build_object(...), which Postgres rejects at parse time with SQLSTATE 42P18
+// ("could not determine data type of parameter $4") -- so the whole shift handler failed and the
+// obligation was never re-scoped. This test exercises the exact oldBatches-non-empty branch.
+func TestSM2ShiftReScopesGoatWithBatchedOpenObligation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obl := seed(t, ctx, pool) // scheduled, scope park CBE, unbatched
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Attach the open obligation to a PLANNED batch so reScopeOpenForGoatInTx hits the
+	// per-old-batch repair UPDATE (the 42P18 statement).
+	planned := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	batchID, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: mustVersionOf(t, ctx, pool),
+		ScopeType: "park", ScopeID: cbePark, Session: "shift-batched",
+		PlannedDate: &planned, Status: "planned",
+		EstimatedTargets: 1, PlannedQuantity: "1", QuantityUnit: "dose",
+	}, []string{obl}, map[string]int32{obl: 1})
+	if err != nil || len(attached) != 1 {
+		t.Fatalf("attach obligation to planned batch: attached=%d err=%v", len(attached), err)
+	}
+
+	shiftedAt := time.Date(2026, 7, 21, 8, 0, 0, 0, time.UTC)
+	count, applied, err := repo.ReScopeOpenForGoatShift(ctx, tenantID, testGoatID, "park", cptPark, shiftedAt, "60000000-0000-4000-8000-000000000301")
+	if err != nil {
+		t.Fatalf("ReScopeOpenForGoatShift with batched obligation: %v (42P18 regression)", err)
+	}
+	if !applied || count != 1 {
+		t.Fatalf("rescope applied=%v count=%d, want applied with 1 obligation", applied, count)
+	}
+
+	var scopeID string
+	if err := pool.QueryRow(ctx,
+		`SELECT scope_id::text FROM obligation_instances WHERE tenant_id=$1 AND obligation_id=$2`,
+		tenantID, obl).Scan(&scopeID); err != nil {
+		t.Fatalf("read scope: %v", err)
+	}
+	if scopeID != cptPark {
+		t.Fatalf("scope_id = %s, want re-scoped to %s", scopeID, cptPark)
+	}
+	var estTargets int
+	if err := pool.QueryRow(ctx,
+		`SELECT estimated_targets FROM obligation_batches WHERE tenant_id=$1 AND batch_id=$2`,
+		tenantID, batchID).Scan(&estTargets); err != nil {
+		t.Fatalf("read old batch: %v", err)
+	}
+	if estTargets != 0 {
+		t.Fatalf("old batch estimated_targets = %d, want decremented to 0", estTargets)
+	}
+}
+
+// TestRescopedOutboxEnvelopeValidatesAgainstContract proves the obligation.rescoped internal
+// notification event conforms to contracts/jsonschema/domain-event-envelope.schema.json -- the
+// same validator the outbox relay runs before publish. Before the fix the envelope enum did not
+// admit obligation.rescoped (or goat.obligations_canceled), so every rescope left a permanently
+// 'failed' outbox row and no consumer could ever subscribe.
+func TestRescopedOutboxEnvelopeValidatesAgainstContract(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	obl := seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	planned := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	if _, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: mustVersionOf(t, ctx, pool),
+		ScopeType: "park", ScopeID: cbePark, Session: "shift-env",
+		PlannedDate: &planned, Status: "planned",
+		EstimatedTargets: 1, PlannedQuantity: "1", QuantityUnit: "dose",
+	}, []string{obl}, map[string]int32{obl: 1}); err != nil || len(attached) != 1 {
+		t.Fatalf("attach: attached=%d err=%v", len(attached), err)
+	}
+	if _, applied, err := repo.ReScopeOpenForGoatShift(ctx, tenantID, testGoatID, "park", cptPark, time.Date(2026, 7, 21, 8, 0, 0, 0, time.UTC), "60000000-0000-4000-8000-000000000302"); err != nil || !applied {
+		t.Fatalf("rescope: applied=%v err=%v", applied, err)
+	}
+
+	validator, err := outboxapp.NewEnvelopeValidator(filepath.Join("..", "..", "..", "..", "..", "contracts", "jsonschema", "domain-event-envelope.schema.json"))
+	if err != nil {
+		t.Fatalf("load envelope schema: %v", err)
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT payload FROM outbox_messages WHERE tenant_id=$1 AND event_type='obligation.rescoped'`,
+		tenantID)
+	if err != nil {
+		t.Fatalf("read outbox: %v", err)
+	}
+	defer rows.Close()
+	validated := 0
+	for rows.Next() {
+		var payload []byte
+		if err := rows.Scan(&payload); err != nil {
+			t.Fatalf("scan payload: %v", err)
+		}
+		if err := validator.Validate(payload); err != nil {
+			t.Fatalf("obligation.rescoped envelope fails schema validation (relay would mark it failed): %v\n%s", err, payload)
+		}
+		validated++
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("outbox rows: %v", err)
+	}
+	if validated == 0 {
+		t.Fatal("no obligation.rescoped outbox rows produced by the rescope path")
 	}
 }

@@ -170,7 +170,13 @@ class CalendarViewModel @Inject constructor(
             refreshInFlight = values[9] as Boolean,
             offline = values[10] as Boolean,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), calendarPlaceholder("Loading…"))
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        // R50-009: On cold start, show loading state; on cold cache + failed refresh, error handling
+        // is via buildCalendarState checking if data is null with offline flag set
+        calendarPlaceholder("Loading…")
+    )
 
     init {
         refresh()

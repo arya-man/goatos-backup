@@ -384,7 +384,7 @@ UPDATE workforce_member_devices
 SET status = 'revoked',
     revoked_by = $4::uuid,
     revoked_at = now(),
-    metadata = metadata || jsonb_build_object('revocation_reason', $5),
+    metadata = metadata || jsonb_build_object('revocation_reason', $5::text),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND workforce_member_id = $2::uuid

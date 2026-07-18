@@ -179,3 +179,30 @@ val MIGRATION_7_8: Migration = object : Migration(7, 8) {
         )
     }
 }
+
+/** v8 -> v9: adds scan_roster_row entity for R50-007 (full-roster tag lookup via bounded
+ *  indexed Room query instead of page-scoped state.value collection). Individual row entities
+ *  replace accumulated JSON blobs per offline-first SSOT pattern. Purely additive. */
+val MIGRATION_8_9: Migration = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `scan_roster_row` " +
+                "(`id` TEXT NOT NULL, `shedId` TEXT NOT NULL, `goatId` TEXT NOT NULL, " +
+                "`primaryTag` TEXT NOT NULL, `secondaryTag` TEXT, `vaccineLabel` TEXT NOT NULL, " +
+                "`status` TEXT NOT NULL, `obligationId` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`id`))",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_scan_roster_row_shedId` " +
+                "ON `scan_roster_row` (`shedId`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_scan_roster_row_shedId_primaryTag` " +
+                "ON `scan_roster_row` (`shedId`, `primaryTag`)",
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_scan_roster_row_shedId_secondaryTag` " +
+                "ON `scan_roster_row` (`shedId`, `secondaryTag`)",
+        )
+    }
+}

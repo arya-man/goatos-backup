@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -116,13 +117,19 @@ func TestCalendarDefaultListHidesDeferredHoldsButDateMarkersExposeThem(t *testin
 }
 
 func TestCalendarBatchedDriveRosterAndTargetsUsePlannedDateScheduledDateParkScopeOneToManyMultiPageStatusBuckets(t *testing.T) {
-	const badMembershipDate = "WHEN oi.batch_id IS NOT NULL THEN COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)"
+	const badMembershipDate = "WHEN oi.batch_id IS NOT NULL THEN COALESCE(ob.window_start, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', ob.window_end)"
 	if strings.Contains(calendarCanonicalListSQL, badMembershipDate) {
 		t.Fatalf("batched drive membership still resolves on window_start before planned_date")
 	}
-	const wantedMembershipDate = "WHEN oi.batch_id IS NOT NULL THEN COALESCE(ob.planned_date::timestamptz, ob.window_start, ob.window_end)"
+	// R50-012: planned_date (a DATE column) must be converted to an instant via an
+	// explicit AT TIME ZONE 'Asia/Kolkata' conversion, never a bare ::timestamptz
+	// cast — the bare cast is silently dependent on the Postgres session timezone.
+	const wantedMembershipDate = "WHEN oi.batch_id IS NOT NULL THEN COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end)"
 	if !strings.Contains(calendarCanonicalListSQL, wantedMembershipDate) {
 		t.Fatalf("batched drive membership must resolve on planned_date before window_start")
+	}
+	if strings.Contains(calendarCanonicalListSQL, "ob.planned_date::timestamptz") || strings.Contains(calendarCanonicalListSQL, "ob2.planned_date::timestamptz") {
+		t.Fatalf("canonical read must not cast planned_date to timestamptz without an explicit AT TIME ZONE 'Asia/Kolkata' conversion (session-timezone dependent)")
 	}
 	const badTargetDate = "COALESCE(ob.window_start, ob.planned_date::timestamptz, ob.window_end)"
 	if strings.Contains(calendarDriveTargetsSQL, badTargetDate) {
@@ -213,5 +220,64 @@ func TestCalendarDateMarkersStatusBucketsDateShiftParkScopeMultiPageOneToMany(t 
 	}
 	if got := strings.Count(calendarDateMarkersSQL, "GROUP BY (COALESCE(vc.administered_at, vc.created_at) AT TIME ZONE 'Asia/Kolkata')::date"); got != 1 {
 		t.Fatalf("history marker branch must aggregate to one row per shifted date before UNION, got %d groupings", got)
+	}
+}
+
+// TestObligationBatchPlannedDateTimezoneIndependent is the R50-012 DB proof. planned_date is a
+// bare DATE column; the canonical read must resolve it to an instant via an explicit
+// `(planned_date::timestamp AT TIME ZONE 'Asia/Kolkata')` conversion, never a bare
+// `planned_date::timestamptz` cast (which silently interprets the date's midnight in whatever
+// timezone the Postgres SESSION happens to be in). This test proves the fragment used by
+// calendarCanonicalListSQL/calendarDriveTargetsSQL produces the identical instant regardless of
+// session timezone by evaluating it once under a UTC session and once under an Asia/Tokyo
+// session and asserting the results match.
+func TestObligationBatchPlannedDateTimezoneIndependent(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	parkID := "86000000-0000-4000-8000-0000000007a1"
+	shedID := "86000000-0000-4000-8000-0000000007a2"
+	batchID := "86000000-0000-4000-8000-0000000007a3"
+	protocolID := "86000000-0000-4000-8000-0000000007a4"
+	versionID := "86000000-0000-4000-8000-0000000007a5"
+	ruleID := "86000000-0000-4000-8000-0000000007a6"
+	obligationID := "86000000-0000-4000-8000-0000000007a7"
+	dueAt := time.Date(2026, 7, 20, 10, 0, 0, 0, time.UTC)
+
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, obligationID, dueAt)
+	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, parkID, shedID, dueAt)
+
+	queryDueAt := func(sessionTZ string) time.Time {
+		t.Helper()
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin tx (tz=%s): %v", sessionTZ, err)
+		}
+		defer tx.Rollback(ctx)
+		// SET LOCAL does not accept a bind parameter; sessionTZ is a fixed constant passed by
+		// this test ("UTC" / "Asia/Tokyo"), never external input.
+		if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL timezone = '%s'", sessionTZ)); err != nil {
+			t.Fatalf("set local timezone %s: %v", sessionTZ, err)
+		}
+		var got time.Time
+		err = tx.QueryRow(ctx, `
+SELECT COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end)
+FROM obligation_batches ob
+WHERE ob.tenant_id = $1::uuid AND ob.batch_id = $2::uuid`,
+			testTenantID, batchID).Scan(&got)
+		if err != nil {
+			t.Fatalf("query due_at fragment under session tz %s: %v", sessionTZ, err)
+		}
+		return got
+	}
+
+	utcResult := queryDueAt("UTC")
+	tokyoResult := queryDueAt("Asia/Tokyo")
+
+	if !utcResult.Equal(tokyoResult) {
+		t.Fatalf("planned_date resolution is session-timezone dependent: UTC session=%s, Asia/Tokyo session=%s",
+			utcResult.Format(time.RFC3339), tokyoResult.Format(time.RFC3339))
 	}
 }

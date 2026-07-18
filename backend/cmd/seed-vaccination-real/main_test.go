@@ -346,10 +346,10 @@ func TestWriteDobDispositionAuditWritesNoSubstituteDateAndPreservesOriginal(t *t
 		Disposition:  "dob_nulled_false",
 		RunTimestamp: runDate.Format(time.RFC3339),
 	}}
-	if err := writeDobDispositionAudit(dir, runDate, entries); err != nil {
+	if err := writeDobDispositionAudit(dir, runDate, "run-abc", entries); err != nil {
 		t.Fatalf("write audit: %v", err)
 	}
-	path := dir + "/seed-dob-disposition-2026-07-19.json"
+	path := dir + "/seed-dob-disposition-2026-07-19T00-00-00-run-abc.json"
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read audit sidecar: %v", err)
@@ -368,7 +368,7 @@ func TestWriteDobDispositionAuditWritesNoSubstituteDateAndPreservesOriginal(t *t
 
 func TestWriteDobDispositionAuditIsNoOpWhenNothingNulled(t *testing.T) {
 	dir := t.TempDir()
-	if err := writeDobDispositionAudit(dir, time.Now(), nil); err != nil {
+	if err := writeDobDispositionAudit(dir, time.Now(), "run-noop", nil); err != nil {
 		t.Fatalf("write audit with no entries: %v", err)
 	}
 	entries, err := os.ReadDir(dir)
@@ -377,6 +377,45 @@ func TestWriteDobDispositionAuditIsNoOpWhenNothingNulled(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("expected no sidecar file when there is nothing to null, got %v", entries)
+	}
+}
+
+func TestWriteDobDispositionAuditSameSecondDifferentRunsDoNotOverwrite(t *testing.T) {
+	// R50-005: two seed runs started within the same second must produce two
+	// distinct sidecar files, keyed off seedRunID, not clobber each other.
+	dir := t.TempDir()
+	runDate := time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC)
+	entriesA := []dobDisposition{{RFID: "rfid-a", OriginType: "procured", OriginalDOB: "2025-01-01", EntryDate: "2024-12-01", Disposition: "dob_nulled_false"}}
+	entriesB := []dobDisposition{{RFID: "rfid-b", OriginType: "imported", OriginalDOB: "2025-02-02", EntryDate: "2024-12-02", Disposition: "dob_nulled_false"}}
+	if err := writeDobDispositionAudit(dir, runDate, "run-1", entriesA); err != nil {
+		t.Fatalf("write audit A: %v", err)
+	}
+	if err := writeDobDispositionAudit(dir, runDate, "run-2", entriesB); err != nil {
+		t.Fatalf("write audit B: %v", err)
+	}
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 distinct sidecar files for same-second different runs, got %d: %v", len(files), files)
+	}
+}
+
+func TestResolveGoatDOBViolationBlankOriginHardFailsEvenWithFlag(t *testing.T) {
+	// R50-004: nulling eligibility is an allowlist of exactly "procured"/"imported".
+	// A blank/unrecognized origin_type must hard-fail even with -null-false-dob set.
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	now := time.Date(2026, 7, 19, 0, 0, 0, 0, loc)
+	g := goatRecord{RFID: "rfid-blank-origin", OriginType: "", DOB: "2026-05-01", StageEntryDate: "2026-04-10"}
+	entryDate := buildEntryDateMapping([]goatRecord{g})["rfid-blank-origin"]
+	dob, _ := time.ParseInLocation("2006-01-02", g.DOB, loc)
+	disposition, err := resolveGoatDOBViolation(g, "rfid-blank-origin", &dob, entryDate, true, now)
+	if err == nil {
+		t.Fatal("blank-origin DOB-after-entry must hard fail even with -null-false-dob")
+	}
+	if disposition != nil {
+		t.Fatalf("blank-origin must never be nulled, got disposition: %+v", disposition)
 	}
 }
 
@@ -543,6 +582,32 @@ func TestSeedSchedulePathUsesLiveCutoffForSourceHistory(t *testing.T) {
 	}
 	if doseCode != "ppr_adult_w1" {
 		t.Fatalf("over-cutoff PPR source date mapped to %q, want ppr_adult_w1", doseCode)
+	}
+}
+
+// TestSeedSchedulePathClassifiesByDoseDateNotCurrentAge is the R50-001 regression guard.
+// A kid-age (15-week) dose administration on an animal that is NOW 30+ weeks old (well past the
+// 16/20-week kid-course cutoff, so no longer a "continuation" case even with a kid-stage tag) must
+// still classify under the KID rule family, because classification is evaluated AS OF the dose's
+// own administration date, never the seed's current business date/"now". Passing the current age
+// (asOf=now) would wrongly reclassify this historical kid-age dose onto the adult path.
+func TestSeedSchedulePathClassifiesByDoseDateNotCurrentAge(t *testing.T) {
+	dob := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	doseDate := dob.AddDate(0, 0, 15*7) // dose administered at exactly 15 weeks of age
+	now := dob.AddDate(0, 0, 30*7)      // seed's current business date: goat is now 30 weeks old
+
+	// Classifying AS OF the dose's own date: still within the kid cutoff -> kid.
+	pathAtDoseDate := seedSchedulePathForGoat("birth", &dob, "K1", nil, doseDate, seedKidsNormalScheduleUntilWeeks, nil)
+	if pathAtDoseDate != "kid" {
+		t.Fatalf("15-week dose classified at its own dose date = %q, want kid", pathAtDoseDate)
+	}
+
+	// Sanity: classifying the SAME animal as of "now" (30 weeks, well past the 20-week
+	// finishing cutoff -- always adult regardless of stage tag) resolves to adult, proving
+	// these two anchors genuinely diverge and the fix is not vacuously true.
+	pathAtNow := seedSchedulePathForGoat("birth", &dob, "K1", nil, now, seedKidsNormalScheduleUntilWeeks, nil)
+	if pathAtNow != "adult" {
+		t.Fatalf("age-at-now classification for a 30-week-old = %q, want adult (divergence check)", pathAtNow)
 	}
 }
 

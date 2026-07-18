@@ -18,6 +18,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
+import sg.mesha.goatos.core.data.cache.StatusCount
 import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.data.capture.RfidScanAttemptOutcome
 import sg.mesha.goatos.core.data.capture.RfidScanTagRole
@@ -26,6 +27,7 @@ import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.feature.scan.RosterRow
+import sg.mesha.goatos.feature.scan.ScanError
 import sg.mesha.goatos.feature.scan.ScanEvent
 import sg.mesha.goatos.feature.scan.ScanFeedEntry
 import sg.mesha.goatos.feature.scan.ScanFeedTone
@@ -79,6 +81,15 @@ class ScanViewModel @Inject constructor(
             Resource(data = null)
         )
 
+    // R50-008: full-roster status aggregates (Room GROUP BY, page-independent). Re-emits on every
+    // roster upsert; combined into [state] so ring/tile counters are identical for page size 1 and 20.
+    private val statusCounts: StateFlow<List<StatusCount>> =
+        (if (shedId != null) {
+            repo.observeScanRosterStatusCounts(shedId)
+        } else {
+            flowOf(emptyList())
+        }).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
@@ -111,6 +122,7 @@ class ScanViewModel @Inject constructor(
         _feed,
         reader.status,
         reader.readerName,
+        statusCounts,
     ) { values: Array<Any?> ->
         val resource = values[0] as Resource<ScanRosterResponseDto>
         val isRefreshing = values[1] as Boolean
@@ -123,15 +135,23 @@ class ScanViewModel @Inject constructor(
         val feed = values[8] as List<ScanFeedEntry>
         val readerStatus = values[9] as RfidReaderStatus
         val readerName = values[10] as String?
+        val counts = values[11] as List<StatusCount>
         val dto = resource.data
         nextCursor = dto?.nextCursor  // Update pagination cursor for loadMore()
+        // R50-009: Cold cache + failed refresh → error/retry state (data null + error present)
+        val error = if (dto == null && resource.error != null) {
+            ScanError(message = "Roster could not load. Check your connection and try again.", tag = "cold_cache_failed")
+        } else null
         val base = dto?.let { applyResource(it, localDone) } ?: emptyScanState()
-        base.copy(
+        // R50-008: overlay page-independent full-roster aggregates onto the page-derived base.
+        val aggregated = applyFullRosterCounts(base, counts, localDone)
+        aggregated.copy(
             feed = feed,
             isRefreshing = isRefreshing,
             isLoadingMore = isLoadingMore,
             lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
             isOffline = isOffline,
+            error = error,
             selectedFilter = selectedFilter,
             rosterExpanded = rosterExpanded,
             vaccineGroups = base.vaccineGroups.map { group ->
@@ -241,84 +261,60 @@ class ScanViewModel @Inject constructor(
         _manualDone.update { it + row.obligationId }
     }
 
-    /** Hardware tag read (keyboard-wedge): match the tag against the current roster and fold it
-     *  into the draft overlay — a PENDING match is marked DONE, a SKIPPED/unknown match only
-     *  pushes an informational feed row. */
+    /** Hardware tag read (keyboard-wedge): match the tag against the FULL roster (R50-007: via bounded
+     *  Room query, not just the loaded page in state.value.roster.firstOrNull) and fold into draft overlay.
+     *  A PENDING match is marked DONE; SKIPPED/unknown only pushes an informational feed row. */
     private fun onTagRead(tag: String) {
         val target = normalize(tag)
         if (target.isEmpty()) return
-        val row = state.value.roster.firstOrNull { it.matchesTag(target) }
-        if (row == null) {
-            recordScanAttempt(
-                tag = tag,
-                row = null,
-                outcome = RfidScanAttemptOutcome.UNKNOWN,
-                tagRole = RfidScanTagRole.UNKNOWN,
-                reason = "unknown_tag",
-            )
-            _feed.update { prependFeed(ScanFeedEntry(tag, null, "unknown tag · not in this shed", ScanStatus.SKIPPED), it) }
-            return
-        }
-        val tagRole = row.tagRoleFor(target)
-        when (row.status) {
-            ScanStatus.PENDING -> {
-                markRowDone(row)
-                _manualDone.update { it - row.obligationId }
+        val id = shedId ?: return
+        viewModelScope.launch {
+            // R50-007: Find by tag in full shed roster via bounded indexed Room query
+            val dbRow = repo.findScanRosterByTag(id, target) ?: run {
                 recordScanAttempt(
                     tag = tag,
-                    row = row,
-                    outcome = RfidScanAttemptOutcome.ACCEPTED,
-                    tagRole = tagRole,
-                    reason = null,
+                    row = null,
+                    outcome = RfidScanAttemptOutcome.UNKNOWN,
+                    tagRole = RfidScanTagRole.UNKNOWN,
+                    reason = "unknown_tag",
                 )
-                recordRosterScan(row = row, tag = tag)
+                _feed.update { prependFeed(ScanFeedEntry(tag, null, "unknown tag · not in this shed", ScanStatus.SKIPPED), it) }
+                return@launch
             }
-            ScanStatus.DONE -> {
-                if (row.obligationId in _manualDone.value) {
+            // Map DB row to UI row for status and tag-role matching, overlaying the session's
+            // local unsynced DONE edits (same overlay as applyResource) so a re-scan of an
+            // already-locally-done goat takes the DUPLICATE path, not a second capture.
+            val locallyDone = dbRow.obligationId.isNotBlank() && dbRow.obligationId in _localDone.value
+            val row = RosterRow(
+                primaryTag = dbRow.primaryTag,
+                secondaryTag = dbRow.secondaryTag,
+                vaccineLabel = dbRow.vaccineLabel,
+                status = if (locallyDone) ScanStatus.DONE else statusOf(dbRow.status),
+                unsynced = locallyDone,
+                goatId = dbRow.goatId,
+                obligationId = dbRow.obligationId,
+            )
+            val tagRole = row.tagRoleFor(target)
+            when (row.status) {
+                ScanStatus.PENDING -> {
+                    markRowDone(row)
                     _manualDone.update { it - row.obligationId }
-                    recordScanAttempt(
-                        tag = tag,
-                        row = row,
-                        outcome = RfidScanAttemptOutcome.ACCEPTED,
-                        tagRole = tagRole,
-                        reason = "manual_done_replaced_by_reader_scan",
-                    )
-                    recordRosterScan(row = row, tag = tag)
-                } else {
-                    recordScanAttempt(
-                        tag = tag,
-                        row = row,
-                        outcome = RfidScanAttemptOutcome.DUPLICATE,
-                        tagRole = tagRole,
-                        reason = "goat_already_scanned",
-                    )
-                    _feed.update {
-                        prependFeed(
-                            ScanFeedEntry(
-                                row.primaryTag,
-                                row.secondaryTag,
-                                "already scanned · ${row.vaccineLabel}",
-                                ScanStatus.DONE,
-                                ScanFeedTone.DUPLICATE,
-                            ),
-                            it,
-                        )
+                    recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, null)
+                    recordRosterScan(row, tag)
+                }
+                ScanStatus.DONE -> {
+                    if (row.obligationId in _manualDone.value) {
+                        _manualDone.update { it - row.obligationId }
+                        recordScanAttempt(tag, row, RfidScanAttemptOutcome.ACCEPTED, tagRole, "manual_done_replaced_by_reader_scan")
+                        recordRosterScan(row, tag)
+                    } else {
+                        recordScanAttempt(tag, row, RfidScanAttemptOutcome.DUPLICATE, tagRole, "goat_already_scanned")
+                        _feed.update { prependFeed(ScanFeedEntry(row.primaryTag, row.secondaryTag, "already scanned · ${row.vaccineLabel}", ScanStatus.DONE, ScanFeedTone.DUPLICATE), it) }
                     }
                 }
-            }
-            ScanStatus.SKIPPED -> {
-                recordScanAttempt(
-                    tag = tag,
-                    row = row,
-                    outcome = RfidScanAttemptOutcome.NOT_DUE,
-                    tagRole = tagRole,
-                    reason = "not_due",
-                )
-                _feed.update {
-                    prependFeed(
-                        ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED),
-                        it,
-                    )
+                ScanStatus.SKIPPED -> {
+                    recordScanAttempt(tag, row, RfidScanAttemptOutcome.NOT_DUE, tagRole, "not_due")
+                    _feed.update { prependFeed(ScanFeedEntry(row.primaryTag, row.secondaryTag, "not due · ${row.vaccineLabel}", ScanStatus.SKIPPED), it) }
                 }
             }
         }
@@ -374,6 +370,42 @@ class ScanViewModel @Inject constructor(
         }
     }
 
+    /** R50-008: derive ring/tile counters from the FULL shed roster (Room GROUP BY aggregates),
+     *  not the loaded page, then overlay the session's local unsynced DONE edits. A local edit only
+     *  increments done when the persisted row is not already DONE (no double count after a refresh
+     *  syncs the backend truth). Falls back to the page-derived counts only while the row table is
+     *  still empty (cold pre-refresh with a leftover blob cache). Counters are therefore identical
+     *  for page size 1 and 20 once the roster is persisted. */
+    private suspend fun applyFullRosterCounts(
+        base: ScanUiState,
+        counts: List<StatusCount>,
+        localDone: Set<String>,
+    ): ScanUiState {
+        val id = shedId ?: return base
+        val dbTotal = counts.sumOf { it.count }
+        if (dbTotal == 0) return base
+        val dbDone = counts.filter { statusOf(it.status) == ScanStatus.DONE }.sumOf { it.count }
+        val dbSkipped = counts.filter { statusOf(it.status) == ScanStatus.SKIPPED }.sumOf { it.count }
+        // Local unsynced DONE overlay: count only ids whose persisted status is not already DONE.
+        val extraDone = if (localDone.isEmpty()) {
+            0
+        } else {
+            repo.getScanRosterStatusCountsFor(id, localDone.toList())
+                .filter { statusOf(it.status) != ScanStatus.DONE }
+                .sumOf { it.count }
+        }
+        val done = (dbDone + extraDone).coerceAtMost(dbTotal)
+        val pending = (dbTotal - done - dbSkipped).coerceAtLeast(0)
+        return base.copy(
+            ringTotal = dbTotal,
+            ringDone = done,
+            doneCount = done,
+            pendingCount = pending,
+            skippedCount = dbSkipped,
+            canSubmit = pending == 0 && !base.hasMore,
+        )
+    }
+
     private fun applyResource(dto: ScanRosterResponseDto, localDone: Set<String>): ScanUiState {
         val rosterRows = dto.rows.map { dtoRow ->
             // Overlay local (unsynced) DONE edits so an in-progress scan survives Room re-emission.
@@ -389,6 +421,9 @@ class ScanViewModel @Inject constructor(
                 obligationId = dtoRow.obligationId,
             )
         }
+        // Page-derived counts are only the cold fallback; [applyFullRosterCounts] overrides them with
+        // the page-independent full-roster aggregates once scan_roster_row is populated (R50-008).
+        // The per-row localDone overlay above already flips loaded rows to DONE, so no extra add here.
         val done = rosterRows.count { it.status == ScanStatus.DONE }
         val skipped = rosterRows.count { it.status == ScanStatus.SKIPPED }
         val pending = (rosterRows.size - done - skipped).coerceAtLeast(0)

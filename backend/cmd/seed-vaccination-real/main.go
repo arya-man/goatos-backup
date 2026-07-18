@@ -246,7 +246,11 @@ func run(args []string) error {
 		return fmt.Errorf("load vaccination cells: %w", err)
 	}
 
-	seedResult, err := seed(ctx, pool, pgCfg, *tenantID, loc, goats, cells, *purgeFixtures, *allowPartialGeneration, *sourcePath, *nullFalseDob)
+	// R50-003: the -expect-null-false-dob count gate is validated INSIDE seed(),
+	// before the seed transaction commits, so a mismatch leaves the database
+	// untouched (deferred Rollback fires). This post-call check is a redundant
+	// defensive backstop only.
+	seedResult, err := seed(ctx, pool, pgCfg, *tenantID, loc, goats, cells, *purgeFixtures, *allowPartialGeneration, *sourcePath, *nullFalseDob, *expectNullFalseDob)
 	if err != nil {
 		return fmt.Errorf("seed: %w", err)
 	}
@@ -565,7 +569,11 @@ func resolveGoatDOBViolation(g goatRecord, animalKey string, dobTime *time.Time,
 		return nil, nil
 	}
 	originType := normalizeOriginType(g.OriginType)
-	if !nullFalseDob || originType == "birth" {
+	// R50-004: nulling eligibility is an ALLOWLIST of exactly "procured" or
+	// "imported" origin — never a denylist of "not birth". Birth-origin,
+	// blank, and any unrecognized origin_type value must hard-fail so
+	// unknown-origin source rows can never silently lose their DOB.
+	if !nullFalseDob || (originType != "procured" && originType != "imported") {
 		return nil, fmt.Errorf("source animal %q has DOB %s after entry_date %s", animalKey, dobTime.Format("2006-01-02"), entryDate.Format("2006-01-02"))
 	}
 	return &dobDisposition{
@@ -581,14 +589,17 @@ func resolveGoatDOBViolation(g goatRecord, animalKey string, dobTime *time.Time,
 }
 
 // writeDobDispositionAudit writes the false-DOB null-out sidecar to
-// <sourcePath>/seed-dob-disposition-<YYYY-MM-DD>.json. Source files (goats.json,
-// vaccination.json) are never touched — this is an additive audit record only, and
-// it is a no-op when there is nothing to record.
-func writeDobDispositionAudit(sourcePath string, runDate time.Time, entries []dobDisposition) error {
+// <sourcePath>/seed-dob-disposition-<YYYY-MM-DDTHH-MM-SS>-<seedRunID>.json.
+// R50-005: the filename embeds both a seconds-precision timestamp and the
+// seed run id so two seeds started in the same second (or a same-day rerun)
+// never silently overwrite a prior run's audit sidecar. Source files
+// (goats.json, vaccination.json) are never touched — this is an additive
+// audit record only, and it is a no-op when there is nothing to record.
+func writeDobDispositionAudit(sourcePath string, runDate time.Time, seedRunID string, entries []dobDisposition) error {
 	if len(entries) == 0 {
 		return nil
 	}
-	path := filepath.Join(sourcePath, fmt.Sprintf("seed-dob-disposition-%s.json", runDate.Format("2006-01-02")))
+	path := filepath.Join(sourcePath, fmt.Sprintf("seed-dob-disposition-%s-%s.json", runDate.Format("2006-01-02T15-04-05"), seedRunID))
 	data, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal dob disposition audit: %w", err)
@@ -623,7 +634,7 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 	})
 }
 
-func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool, sourcePath string, nullFalseDob bool) (st stats, retErr error) {
+func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool, sourcePath string, nullFalseDob bool, expectNullFalseDob int) (st stats, retErr error) {
 	now := time.Now().In(loc)
 	var dobDispositions []dobDisposition
 
@@ -1065,12 +1076,18 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		// SAME wave as a later recorded administration (Fix Plan A1) so the fact is
 		// retained and available to anchor recurrence, instead of being silently
 		// dropped as unmapped.
+		// R50-001: classify this administration's schedule path (kid vs adult) AS OF the
+		// dose's OWN administration date `d`, not the current seed business date `now`.
+		// An animal now 17+ weeks old that received a 15-week dose must still classify
+		// under whichever rule family applied to it AT THAT TIME — age-at-now silently
+		// reclassifies old kid-course doses onto the adult path once the goat ages past
+		// the kid cutoff.
 		path := seedSchedulePathForGoat(
 			goatOriginTypeByAnimalKey[c.AnimalKey],
 			goatDOBByAnimalKey[c.AnimalKey],
 			goatStageByAnimalKey[c.AnimalKey],
 			goatEntryDateByAnimalKey[c.AnimalKey],
-			now,
+			d,
 			seedKidsNormalScheduleUntilWeeks,
 			nil,
 		)
@@ -1244,11 +1261,28 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		return st, err
 	}
 
+	// R50-003: validate the -expect-null-false-dob count gate BEFORE commit, not
+	// after. Dispositions are computed at load time (in-memory, pre-insert); check
+	// them here so a mismatch aborts the transaction (deferred Rollback fires,
+	// nothing is persisted) instead of failing only after the source data is
+	// already durably committed.
+	st.DobNulled = len(dobDispositions)
+	if expectNullFalseDob >= 0 && st.DobNulled != expectNullFalseDob {
+		return st, fmt.Errorf("dob_nulled count gate failed: expected %d, got %d", expectNullFalseDob, st.DobNulled)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return st, fmt.Errorf("commit: %w", err)
 	}
 	committed = true
-	if err := writeDobDispositionAudit(sourcePath, now, dobDispositions); err != nil {
+	// R50-005: the sidecar write happens AFTER commit (the audit record documents
+	// what was durably persisted) but its error is surfaced and returned BEFORE
+	// the run is ever marked verified below — a failed sidecar write still fails
+	// the seed run (failSeedRun via the deferred retErr handler) even though the
+	// source data itself is already committed. A full write-before-commit
+	// refactor is not done here: the disposition audit is a side-channel record
+	// of committed facts, not a gating input to the transaction itself.
+	if err := writeDobDispositionAudit(sourcePath, now, seedRunID, dobDispositions); err != nil {
 		return st, err
 	}
 	// Source committed; move the run into the generating state (kernel derivation runs next).

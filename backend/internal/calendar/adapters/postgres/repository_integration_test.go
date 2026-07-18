@@ -539,7 +539,13 @@ WHERE tenant_id=$1::uuid AND batch_id=$2::uuid`, testTenantID, canceledBatch); e
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID,
 		OwnerKey: domain.OwnerAll,
-		DateFrom: time.Now().UTC().Add(-time.Hour),
+		// R50-012: a batch's due_at is now derived from planned_date via an explicit
+		// `AT TIME ZONE 'Asia/Kolkata'` conversion (midnight of the Asia/Kolkata business
+		// day), never a session-timezone-dependent bare cast. That instant can legitimately
+		// fall up to ~24h before this test's dueAt (a business day starting near midnight
+		// Kolkata for a dueAt scheduled late in that same Kolkata day), so the lower window
+		// bound must cover a full day, not a narrow "-1h" buffer tied to wall-clock "now".
+		DateFrom: time.Now().UTC().Add(-25 * time.Hour),
 		DateTo:   time.Now().UTC().Add(24 * time.Hour),
 		Limit:    20,
 		Scope:    domain.ScopeFilter{TenantWide: true},
@@ -555,7 +561,7 @@ WHERE tenant_id=$1::uuid AND batch_id=$2::uuid`, testTenantID, canceledBatch); e
 		TenantID: testTenantID,
 		OwnerKey: domain.OwnerAll,
 		Status:   &completed,
-		DateFrom: time.Now().UTC().Add(-time.Hour),
+		DateFrom: time.Now().UTC().Add(-25 * time.Hour),
 		DateTo:   time.Now().UTC().Add(24 * time.Hour),
 		Limit:    20,
 		Scope:    domain.ScopeFilter{TenantWide: true},
@@ -4016,9 +4022,13 @@ func TestCalendarHeldDriveTargetsReturnPlannedDateNotStaleDueAt(t *testing.T) {
 
 	// Event date: the drive appears on D+7 with the stable park-drive identity for D+7, not D.
 	wantID := parkDriveEventID(testParkA, heldAt)
+	// R50-012: the batch's due_at is derived from planned_date via an explicit
+	// AT TIME ZONE 'Asia/Kolkata' conversion (midnight of the Asia/Kolkata business day),
+	// which can fall up to ~24h before heldAt's own clock time, so the lower window bound
+	// must cover a full day rather than a narrow "-2h" buffer.
 	list, err := repo.ListEvents(ctx, domain.Query{
 		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
-		DateFrom: heldAt.Add(-2 * time.Hour), DateTo: heldAt.Add(24 * time.Hour), Limit: 20,
+		DateFrom: heldAt.Add(-25 * time.Hour), DateTo: heldAt.Add(24 * time.Hour), Limit: 20,
 		Scope: domain.ScopeFilter{TenantWide: true},
 	})
 	if err != nil {

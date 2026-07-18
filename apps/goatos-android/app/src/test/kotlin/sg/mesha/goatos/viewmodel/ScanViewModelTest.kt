@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -339,6 +340,56 @@ private class FakeScanExecutionRepository(
     private val scanRoster = MutableStateFlow(Resource<ScanRosterResponseDto>(data = null))
 
     override fun observeScanRoster(shedId: String, taskId: String?, limit: Int?): Flow<Resource<ScanRosterResponseDto>> = scanRoster
+
+    private fun norm(tag: String): String = tag.filter { it.isLetterOrDigit() }.lowercase()
+
+    private fun allRows() = scanRoster.value.data?.rows.orEmpty()
+
+    override suspend fun findScanRosterByTag(
+        shedId: String,
+        normalizedTag: String,
+    ): sg.mesha.goatos.core.data.cache.ScanRosterRowEntity? =
+        allRows().firstOrNull {
+            norm(it.primaryTag) == normalizedTag || it.secondaryTag?.let { s -> norm(s) == normalizedTag } == true
+        }?.let {
+            sg.mesha.goatos.core.data.cache.ScanRosterRowEntity(
+                id = "$shedId#${it.obligationId}",
+                shedId = shedId,
+                goatId = it.goatId,
+                primaryTag = it.primaryTag,
+                secondaryTag = it.secondaryTag,
+                vaccineLabel = it.vaccineLabel,
+                status = it.status,
+                obligationId = it.obligationId,
+                updatedAt = 0L,
+            )
+        }
+
+    override fun observeScanRosterStatusCounts(
+        shedId: String,
+    ): Flow<List<sg.mesha.goatos.core.data.cache.StatusCount>> =
+        scanRoster.map { resource ->
+            resource.data?.rows.orEmpty()
+                .groupingBy { it.status }
+                .eachCount()
+                .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
+        }
+
+    override suspend fun getScanRosterStatusCountsFor(
+        shedId: String,
+        obligationIds: List<String>,
+    ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
+        allRows().filter { it.obligationId in obligationIds }
+            .groupingBy { it.status }
+            .eachCount()
+            .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
+
+    override suspend fun getScanRosterStatusCounts(
+        shedId: String,
+    ): List<sg.mesha.goatos.core.data.cache.StatusCount> =
+        allRows().groupingBy { it.status }
+            .eachCount()
+            .map { (status, count) -> sg.mesha.goatos.core.data.cache.StatusCount(status, count) }
 
     override suspend fun refreshScanRoster(shedId: String, taskId: String?, limit: Int?): Result<Unit> = runCatching {
         scanRoster.value = Resource(data = firstPage, lastSyncedAt = 1L)

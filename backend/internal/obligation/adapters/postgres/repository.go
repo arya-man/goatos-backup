@@ -3410,7 +3410,9 @@ SET estimated_targets = GREATEST(0, estimated_targets - $3::int),
       WHEN reserved.qty > 0 THEN context || jsonb_build_object(
         'shift_repair', jsonb_build_object(
           'state', 'stock_reconcile_required',
-          'moved_target_id', $4,
+          -- $4::text: a bare param used ONLY inside jsonb_build_object args has no
+          -- inferable type and fails with SQLSTATE 42P18 at parse time (L1 P0).
+          'moved_target_id', $4::text,
           'reason', 'goat_shifted_after_batch_planned',
           'release_qty',
             (CASE
