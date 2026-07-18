@@ -10,6 +10,8 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/obligation/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
+	protopg "github.com/vgoats/goatos/backend/internal/protocol/adapters/postgres"
+	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
 // VAXCAP-002/003/004 Postgres guards.
@@ -288,4 +290,288 @@ func TestComboListCellCountNumericQuantity(t *testing.T) {
 	assertCells("ListPlannedComboBatches", rows, err)
 	keysetRows, err := repo.ListPlannedComboBatchesKeyset(ctx, tenantID, dueBefore, nil, 100)
 	assertCells("ListPlannedComboBatchesKeyset", keysetRows, err)
+}
+
+// seedCapacityGoatInPark inserts one alive goat with an explicit park.
+func seedCapacityGoatInPark(t *testing.T, ctx context.Context, pool *pgxpool.Pool, goatID, parkID string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id)
+			 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $4)
+			 ON CONFLICT (goat_id) DO NOTHING`,
+		goatID, tenantID, meshaParty, parkID); err != nil {
+		t.Fatalf("seed goat %s in park %s: %v", goatID, parkID, err)
+	}
+}
+
+func insertCapacityObligation(t *testing.T, ctx context.Context, repo *Repository, versionID, ruleID, goatID, key string, due time.Time) string {
+	t.Helper()
+	id, applied, err := repo.InsertObligation(ctx, domain.NewObligation{
+		TenantID: tenantID, ProtocolVersionID: versionID, RuleID: ruleID,
+		TargetType: "goat", TargetID: goatID, ScopeType: "park", ScopeID: cbePark,
+		DueAt: due, Status: "scheduled", IdempotencyKey: key, Sequence: 1,
+	})
+	if err != nil || !applied {
+		t.Fatalf("insert obligation %s: applied=%v err=%v", key, applied, err)
+	}
+	return id
+}
+
+// TestCountDriveCellsOneToManyGoatWithTwoVaccineBatches is the fan-out guard for
+// countDriveCellsForParkDate: one goat joined to TWO vaccine batches on the same park/date must
+// count its CELLS twice (one administration per vaccine -- product rule 3) without the
+// obligation-row JOIN fanning out any batch's planned_quantity. The adversarial batch carries
+// planned_quantity 2 across 2 obligation rows: a per-row SUM of planned_quantity would report 4,
+// the correct per-batch GREATEST(planned_quantity, row count) reports 2.
+func TestCountDriveCellsOneToManyGoatWithTwoVaccineBatches(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	due := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	g1 := "30000000-0000-4000-8000-000000000001"
+	g2 := "30000000-0000-4000-8000-000000000002"
+	g3 := "30000000-0000-4000-8000-000000000003"
+	for _, g := range []string{g1, g2, g3} {
+		seedCapacityGoatInPark(t, ctx, pool, g, cbePark)
+	}
+	// Goat g1 due TWO vaccines: two obligations, two batches (one cell each). The second vaccine
+	// is a SECOND RULE -- the dup guard (tenant, version, rule, target, due) forbids two rows for
+	// the same rule/goat/due, exactly like production co-due multi-vaccine work.
+	proto := protopg.NewRepository(pool, 5*time.Second)
+	rule2, err := proto.CreateRule(ctx, protodomain.NewRule{
+		TenantID: tenantID, ProtocolVersionID: versionID, DoseCode: "second-vaccine", Sequence: 2,
+		TriggerType: "birth_age", Repeat: "none", CatchUp: "pc_approval",
+		EligibilityJSON: []byte(`{}`), ProofPolicy: []byte(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("create second vaccine rule: %v", err)
+	}
+	oblFMD := insertCapacityObligation(t, ctx, repo, versionID, ruleID, g1, "o2m-fmd", due)
+	oblHS := insertCapacityObligation(t, ctx, repo, versionID, rule2, g1, "o2m-hs", due)
+	// Adversarial fan-out batch: quantity 2 spread over TWO obligation rows (g2, g3).
+	oblG2 := insertCapacityObligation(t, ctx, repo, versionID, ruleID, g2, "o2m-g2", due)
+	oblG3 := insertCapacityObligation(t, ctx, repo, versionID, ruleID, g3, "o2m-g3", due)
+
+	mk := func(session, qty string, ids []string, cells map[string]int32) {
+		t.Helper()
+		_, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+			TenantID: tenantID, ProtocolVersionID: versionID,
+			ScopeType: "park", ScopeID: cbePark, Session: session,
+			PlannedDate: &planned, Status: "planned",
+			EstimatedTargets: int32(len(ids)), PlannedQuantity: qty, QuantityUnit: "dose",
+		}, ids, cells)
+		if err != nil || len(attached) != len(ids) {
+			t.Fatalf("create %s: attached=%d err=%v", session, len(attached), err)
+		}
+	}
+	mk("o2m:fmd", "1", []string{oblFMD}, map[string]int32{oblFMD: 1})
+	mk("o2m:hs", "1", []string{oblHS}, map[string]int32{oblHS: 1})
+	mk("o2m:pair", "2", []string{oblG2, oblG3}, map[string]int32{oblG2: 1, oblG3: 1})
+
+	count, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
+	if err != nil {
+		t.Fatalf("CountDriveCellsForParkDate: %v", err)
+	}
+	// g1's two vaccines = 2 cells (cells DO double per vaccine), pair batch = 2 cells exactly
+	// (per-row planned_quantity fan-out would have made it 4, total 6).
+	if count != 4 {
+		t.Fatalf("park/date cells = %d, want 4 (2 one-cell vaccine batches for one goat + one 2-cell batch; no JOIN fan-out)", count)
+	}
+}
+
+// TestComboListMultiPageKeysetCellTotalsIndependentOfPageSize proves the keyset combo-list
+// projection reports identical per-batch cell counts whether read in one page or walked one row
+// per page across page boundaries.
+func TestComboListMultiPageKeysetCellTotalsIndependentOfPageSize(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	due := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	sessions := []string{"combo:etv+ppr", "combo:fmd+hs", "combo:ppr+pox"}
+	for i, session := range sessions {
+		goatID := fmt.Sprintf("31000000-0000-4000-8000-00000000000%d", i+1)
+		seedCapacityGoatInPark(t, ctx, pool, goatID, cbePark)
+		obl := insertCapacityObligation(t, ctx, repo, versionID, ruleID, goatID, "mp-"+session, due)
+		if _, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+			TenantID: tenantID, ProtocolVersionID: versionID,
+			ScopeType: "park", ScopeID: cbePark, Session: session,
+			PlannedDate: &planned, Status: "planned",
+			EstimatedTargets: 1, PlannedQuantity: "2", QuantityUnit: "dose",
+		}, []string{obl}, map[string]int32{obl: 2}); err != nil || len(attached) != 1 {
+			t.Fatalf("create %s: attached=%d err=%v", session, len(attached), err)
+		}
+	}
+	dueBefore := planned.AddDate(0, 0, 1)
+
+	single, err := repo.ListPlannedComboBatchesKeyset(ctx, tenantID, dueBefore, nil, 100)
+	if err != nil {
+		t.Fatalf("single page: %v", err)
+	}
+	singleCells := map[string]int32{}
+	for _, row := range single {
+		singleCells[row.BatchID] = row.CellCount
+	}
+
+	walked := map[string]int32{}
+	var cursor *domain.ComboBatchCursor
+	pages := 0
+	for {
+		page, err := repo.ListPlannedComboBatchesKeyset(ctx, tenantID, dueBefore, cursor, 1)
+		if err != nil {
+			t.Fatalf("page %d: %v", pages, err)
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, row := range page {
+			if _, dup := walked[row.BatchID]; dup {
+				t.Fatalf("batch %s returned twice across page boundary", row.BatchID)
+			}
+			walked[row.BatchID] = row.CellCount
+		}
+		last := page[len(page)-1]
+		cursor = &domain.ComboBatchCursor{ScopeType: last.ScopeType, ScopeID: last.ScopeID, Session: last.Session, BatchID: last.BatchID}
+		if pages++; pages > 20 {
+			t.Fatal("keyset walk did not terminate")
+		}
+	}
+	if len(singleCells) < len(sessions) {
+		t.Fatalf("single page returned %d combo batches, want >= %d", len(singleCells), len(sessions))
+	}
+	if len(walked) != len(singleCells) {
+		t.Fatalf("page-size-1 walk saw %d batches, single page saw %d -- totals depend on page size", len(walked), len(singleCells))
+	}
+	for batchID, want := range singleCells {
+		if got := walked[batchID]; got != want {
+			t.Fatalf("batch %s cell_count %d via page-size-1 walk, %d via single page", batchID, got, want)
+		}
+	}
+}
+
+// TestCountDriveCellsDateShiftPlannedVsDueDate proves the park/date cell ledger groups by the
+// batch's PLANNED date, not the obligation's due date: work due on D but held to a D+7 drive
+// consumes D+7 capacity and none of D's.
+func TestCountDriveCellsDateShiftPlannedVsDueDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	dueD := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	plannedD7 := dueD.AddDate(0, 0, 7)
+	goatID := "32000000-0000-4000-8000-000000000001"
+	seedCapacityGoatInPark(t, ctx, pool, goatID, cbePark)
+	obl := insertCapacityObligation(t, ctx, repo, versionID, ruleID, goatID, "dateshift-1", dueD)
+	if _, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+		TenantID: tenantID, ProtocolVersionID: versionID,
+		ScopeType: "park", ScopeID: cbePark, Session: "dateshift",
+		PlannedDate: &plannedD7, Status: "planned",
+		EstimatedTargets: 1, PlannedQuantity: "2", QuantityUnit: "dose",
+	}, []string{obl}, map[string]int32{obl: 2}); err != nil || len(attached) != 1 {
+		t.Fatalf("create dateshift batch: attached=%d err=%v", len(attached), err)
+	}
+
+	onDue, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, dueD)
+	if err != nil {
+		t.Fatalf("count on due day: %v", err)
+	}
+	if onDue != 0 {
+		t.Fatalf("cells on DUE day D = %d, want 0 (held drive must not consume D capacity)", onDue)
+	}
+	onPlanned, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, plannedD7)
+	if err != nil {
+		t.Fatalf("count on planned day: %v", err)
+	}
+	if onPlanned != 2 {
+		t.Fatalf("cells on PLANNED day D+7 = %d, want 2", onPlanned)
+	}
+}
+
+// TestCountDriveCellsScopeHierarchyParkShedGoatFallback covers every scope resolution branch of
+// countDriveCellsForParkDate: park-scoped batch directly, shed-scoped batch rolled up via the
+// shed location's parent park, goat-park fallback when the batch scope resolves nowhere, and a
+// foreign park excluded.
+func TestCountDriveCellsScopeHierarchyParkShedGoatFallback(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	_ = seed(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+	versionID := mustVersionOf(t, ctx, pool)
+	ruleID := mustRuleOf(t, ctx, pool)
+
+	otherPark := "00000000-0000-4000-8000-000000003002"
+	shedInCBE := "00000000-0000-4000-8000-000000004001"
+	orphanShed := "00000000-0000-4000-8000-000000004002"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id)
+			 VALUES ($1, $2, 'shed', 'CBE-S1', 'CBE Shed 1', 'active', $3),
+			        ($4, $2, 'shed', 'ORPH-S1', 'Orphan Shed', 'active', NULL)`,
+		shedInCBE, tenantID, cbePark, orphanShed); err != nil {
+		t.Fatalf("seed sheds: %v", err)
+	}
+
+	due := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
+	planned := time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC)
+	gPark := "33000000-0000-4000-8000-000000000001"   // cbePark, park-scoped batch
+	gShed := "33000000-0000-4000-8000-000000000002"   // OTHER park, counted for CBE only via shed->parent
+	gOrphan := "33000000-0000-4000-8000-000000000003" // cbePark, counted via goat-park fallback
+	gOther := "33000000-0000-4000-8000-000000000004"  // other park, must NOT count for CBE
+	seedCapacityGoatInPark(t, ctx, pool, gPark, cbePark)
+	seedCapacityGoatInPark(t, ctx, pool, gShed, otherPark)
+	seedCapacityGoatInPark(t, ctx, pool, gOrphan, cbePark)
+	seedCapacityGoatInPark(t, ctx, pool, gOther, otherPark)
+
+	mk := func(session, scopeType, scopeID, goatID, key string) {
+		t.Helper()
+		obl := insertCapacityObligation(t, ctx, repo, versionID, ruleID, goatID, key, due)
+		if _, attached, err := repo.CreateBatchWithObligationCells(ctx, domain.NewBatch{
+			TenantID: tenantID, ProtocolVersionID: versionID,
+			ScopeType: scopeType, ScopeID: scopeID, Session: session,
+			PlannedDate: &planned, Status: "planned",
+			EstimatedTargets: 1, PlannedQuantity: "1", QuantityUnit: "dose",
+		}, []string{obl}, map[string]int32{obl: 1}); err != nil || len(attached) != 1 {
+			t.Fatalf("create %s: attached=%d err=%v", session, len(attached), err)
+		}
+	}
+	mk("scope:park", "park", cbePark, gPark, "scope-park")
+	mk("scope:shed", "shed", shedInCBE, gShed, "scope-shed")
+	mk("scope:orphan", "shed", orphanShed, gOrphan, "scope-orphan")
+	mk("scope:other", "park", otherPark, gOther, "scope-other")
+
+	cbe, err := repo.CountDriveCellsForParkDate(ctx, tenantID, cbePark, planned)
+	if err != nil {
+		t.Fatalf("count cbe: %v", err)
+	}
+	// park-scoped (1) + shed rolled to parent park (1) + goat-park fallback (1); foreign park excluded.
+	if cbe != 3 {
+		t.Fatalf("CBE park cells = %d, want 3 (park direct + shed->parent rollup + goat-park fallback; foreign park excluded)", cbe)
+	}
+	other, err := repo.CountDriveCellsForParkDate(ctx, tenantID, otherPark, planned)
+	if err != nil {
+		t.Fatalf("count other: %v", err)
+	}
+	// other park: its own park-scoped batch (1) + gShed's goat-park fallback (1).
+	if other != 2 {
+		t.Fatalf("other park cells = %d, want 2 (own park batch + resident goat fallback)", other)
+	}
 }
