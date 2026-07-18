@@ -202,6 +202,7 @@ func TestCreateUploadRejectsVideoWithoutCameraAttestation(t *testing.T) {
 }
 
 func baseProof() domain.Artifact {
+	now := time.Now().UTC()
 	return domain.Artifact{
 		ProofID:         proofTestID,
 		TenantID:        proofTestTenant,
@@ -215,8 +216,8 @@ func baseProof() domain.Artifact {
 		SubjectID:       stringPtr(proofTestShed),
 		ProofType:       "video",
 		Metadata:        map[string]any{},
-		CreatedAt:       time.Now().UTC(),
-		UpdatedAt:       time.Now().UTC(),
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 }
 
