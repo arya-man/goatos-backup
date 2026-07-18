@@ -1279,21 +1279,21 @@ spacing, only when the Vaccination Rules smoke evidence below is fresh.
 
 ## Handover: V1 Batching Boundary And Later Planner
 
-The handover must clearly separate V1 due generation plus basic shed-drive
+The handover must clearly separate V1 due generation plus basic park-drive
 batching from the later route/resource optimizer. Basic Calendar de-duplication
 and compatibility spacing are V1.
 
-### V1 due generation + basic shed-drive batching
+### V1 due generation + basic park-drive batching
 
 - Matrix/config decides which herd animals are eligible.
 - Schedule rows decide due date, latest date, dose amount, unit, and route/site.
 - Animal creation/import/backfill/stage/health/location changes trigger due-work
   generation or recheck.
 - This creates per-animal due vaccination work.
-- The V1 sweeper groups compatible same-rule due work by shed/cohort into
-  `obligation_batches` for execution.
-- Calendar uses the batch as the active operations item: one shed-drive row with
-  target count. Batched per-animal due rows remain available to Passport,
+- The V1 sweeper groups compatible same-park due work into park-scoped
+  `obligation_batches` for execution, with shed breakdown retained.
+- Calendar uses the batch as the active operations item: one park-drive row with
+  target and shed counts. Batched per-animal due rows remain available to Passport,
   Protocol Adherence, Vaccination detail, and audit, but must not flood Calendar
   as separate active events.
 

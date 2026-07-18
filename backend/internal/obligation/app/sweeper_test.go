@@ -180,6 +180,60 @@ func TestRejectNonShedUnbatchedDueFailsClosed(t *testing.T) {
 	}
 }
 
+func TestVaccinationFallbackShedRowsCreateParkDriveBatch(t *testing.T) {
+	due := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-1", RuleID: "rule-goat-pox", ScopeType: "shed", ScopeID: "shed-y7", ParkID: "park-cbe", TargetID: "goat-1", DueAt: due},
+		},
+		attachAll: true,
+	}
+	svc := NewSweeperService(repo, nil, nil)
+
+	result, err := svc.SweepVersion(context.Background(), "tenant-1", "version-1", SweepConfig{
+		VaccineCode: "Goat Pox",
+	}, due)
+	if err != nil {
+		t.Fatalf("SweepVersion: %v", err)
+	}
+	if result.Batches != 1 || result.Obligations != 1 {
+		t.Fatalf("result = %#v, want one planned drive", result)
+	}
+	if len(repo.createdBatches) != 1 {
+		t.Fatalf("created batches = %d, want 1", len(repo.createdBatches))
+	}
+	batch := repo.createdBatches[0]
+	if batch.ScopeType != "park" || batch.ScopeID != "park-cbe" {
+		t.Fatalf("batch scope = %s/%s, want park/park-cbe", batch.ScopeType, batch.ScopeID)
+	}
+}
+
+func TestVaccinationFallbackFailsWhenShedRowHasNoPark(t *testing.T) {
+	due := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	repo := &fakeSweepRepo{attachAll: true}
+	svc := NewSweeperService(repo, nil, nil)
+	group := &dueGroup{
+		scopeType: "shed",
+		scopeID:   "shed-y7",
+		ruleID:    "rule-goat-pox",
+		rows: []domain.UnbatchedDue{
+			{ObligationID: "obl-1", RuleID: "rule-goat-pox", ScopeType: "shed", ScopeID: "shed-y7", TargetID: "goat-1", DueAt: due},
+		},
+		ids: []string{"obl-1"},
+	}
+
+	_, _, err := svc.batchDueGroup(context.Background(), "tenant-1", "version-1", SweepConfig{VaccineCode: "Goat Pox"}, domain.DrivePlannerSettings{}, due, due, NewSweepSession(), group)
+	if err == nil {
+		t.Fatal("batchDueGroup err=nil, want missing park placement to fail closed")
+	}
+	if !strings.Contains(err.Error(), "missing park_id") {
+		t.Fatalf("err = %q, want missing park_id", err.Error())
+	}
+	if len(repo.createdBatches) != 0 {
+		t.Fatalf("created batches = %d, want no non-park batch", len(repo.createdBatches))
+	}
+}
+
 func TestSweeperCreatesSideEffectsAfterAttach(t *testing.T) {
 	repo := &fakeSweepRepo{
 		rows: []domain.UnbatchedDue{
@@ -1588,9 +1642,20 @@ func (f *fakeSweepRepo) ListPlannedBatchesNeedingFinalization(context.Context, s
 
 func (f *fakeSweepRepo) ListUnbatchedDueForVersion(_ context.Context, _, versionID string, _ time.Time, _ int32) ([]domain.UnbatchedDue, error) {
 	if f.rowsByVersion != nil {
-		return f.rowsByVersion[versionID], nil
+		return normalizeFakeUnbatchedDue(f.rowsByVersion[versionID]), nil
 	}
-	return f.rows, nil
+	return normalizeFakeUnbatchedDue(f.rows), nil
+}
+
+func normalizeFakeUnbatchedDue(rows []domain.UnbatchedDue) []domain.UnbatchedDue {
+	out := make([]domain.UnbatchedDue, len(rows))
+	copy(out, rows)
+	for i := range out {
+		if out[i].ScopeType == "shed" && out[i].ParkID == "" {
+			out[i].ParkID = "park-for-" + out[i].ScopeID
+		}
+	}
+	return out
 }
 
 type snapshotChunkFakeRepo struct {
@@ -1605,7 +1670,7 @@ func (f *snapshotChunkFakeRepo) ListUnbatchedDueForVersionSnapshot(_ context.Con
 	if f.rowsByVersion != nil {
 		rows = f.rowsByVersion[versionID]
 	}
-	out := filterUnbatchedDueSnapshot(rows, candidateIDs)
+	out := filterUnbatchedDueSnapshot(normalizeFakeUnbatchedDue(rows), candidateIDs)
 	if limit > 0 && int32(len(out)) > limit {
 		out = out[:limit]
 	}

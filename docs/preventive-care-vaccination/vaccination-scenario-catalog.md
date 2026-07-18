@@ -57,7 +57,7 @@ goat.created / recheck / completed   →    obligation scheduled/due, batch_id N
 - Obligation status is `scheduled`, `due`, or `missed` (not `deferred`)
 - `batch_id IS NULL`
 - `due_at <= sweeper cutoff`
-- Same **shed + rule + due window + species** as other goats in that batch chunk
+- Same compatible **park + rule + due window + species/planner group** as other goats in that drive chunk; shed remains roster detail.
 
 ---
 
@@ -65,18 +65,18 @@ goat.created / recheck / completed   →    obligation scheduled/due, batch_id N
 
 These are **only about SM-4** — assume the goat already has an open obligation from Stage A.
 
-### Batch story A — Normal shed drive (enough goats)
+### Batch story A — Normal park drive (enough goats)
 
 **Goat:** Healthy. Due for PPR. Shed has 8 goats due same rule/window.
 
 | Step | What happens to this goat | Code |
 |------|---------------------------|------|
 | 1 | Obligation `scheduled`, scope = **shed**, no batch | `genOneGoat` → `generationScope` |
-| 2 | Sweeper layer 1 groups 8 rows | `sweepWindowGroupKey` = shed \| rule \| species \| window |
+| 2 | Sweeper groups compatible rows and keeps their shed detail | `sweepWindowGroupKey` + park drive scope |
 | 3 | Drive date picked inside window | `pickBestDriveDate` |
 | 4 | Batch created `status=planned`, session e.g. `rule:{ruleID}` or `combo:…` | `CreateBatchWithObligations` |
 | 5 | SOP task + stock reserved | `finalizePlannedBatches` |
-| 6 | Calendar shows shed drive | `RefreshVaccinationProjection` |
+| 6 | Calendar shows one park drive with shed breakdown | Calendar canonical read |
 
 **Built:** Yes.
 

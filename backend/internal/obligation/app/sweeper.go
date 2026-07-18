@@ -630,12 +630,17 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 			continue
 		}
 		selectedRows := selectedUnbatchedRows(g.rows, chunk)
+		batchScopeType, batchScopeID, scopeErr := vaccinationDriveBatchScope(g, selectedRows)
+		if scopeErr != nil {
+			session.releaseClaims(claimChunk)
+			return batched, obligations, scopeErr
+		}
 		windowStart, windowEnd := unbatchedDriveWindow(selectedRows)
 		_, n, createErr := s.repo.CreateBatchWithObligations(ctx, domain.NewBatch{
 			TenantID:          tenantID,
 			ProtocolVersionID: versionID,
-			ScopeType:         g.scopeType,
-			ScopeID:           g.scopeID,
+			ScopeType:         batchScopeType,
+			ScopeID:           batchScopeID,
 			Session:           batchSession(g.ruleID, ruleVaccineID.VaccineCode),
 			PlannedDate:       plannedDate,
 			WindowStart:       windowStart,
@@ -659,6 +664,32 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		obligations += n
 	}
 	return batched, obligations, nil
+}
+
+func vaccinationDriveBatchScope(g *dueGroup, rows []domain.UnbatchedDue) (string, string, error) {
+	if g == nil {
+		return "", "", fmt.Errorf("obligation: missing due group for vaccination drive batch")
+	}
+	if g.scopeType != "shed" {
+		return g.scopeType, g.scopeID, nil
+	}
+	parkID := strings.TrimSpace(g.parkID)
+	for _, row := range rows {
+		rowParkID := strings.TrimSpace(row.ParkID)
+		if rowParkID == "" {
+			return "", "", fmt.Errorf("obligation: vaccination shed obligation %s missing park_id; seed/import must assign every live goat to a real park and shed before batching", row.ObligationID)
+		}
+		if parkID == "" {
+			parkID = rowParkID
+		}
+		if rowParkID != parkID {
+			return "", "", fmt.Errorf("obligation: vaccination fallback batch crossed parks for shed group %s: %s vs %s", g.scopeID, parkID, rowParkID)
+		}
+	}
+	if parkID == "" {
+		return "", "", fmt.Errorf("obligation: vaccination shed group %s missing park_id; cannot create non-park drive batch", g.scopeID)
+	}
+	return "park", parkID, nil
 }
 
 func (s *SweeperService) deferBlockedSweepCandidates(ctx context.Context, tenantID, versionID string, dueBefore time.Time) error {
@@ -799,8 +830,9 @@ func deferShedGroupToPark(cfg SweepConfig, scopeType string, obligationCount int
 	return int32(obligationCount) <= min
 }
 
-// batchRemainingShedObligations creates shed drives for every still-unbatched shed obligation,
-// including missed singletons, so coverage is never left behind after the park merge pass.
+// batchRemainingShedObligations drains every still-unbatched shed obligation into vaccination drive
+// batches. The obligation remains shed-scoped for animal roster/audit, but the created drive batch
+// is park-scoped via vaccinationDriveBatchScope.
 func (s *SweeperService) batchRemainingShedObligations(ctx context.Context, tenantID, versionID string, cfg SweepConfig, dueBefore time.Time) (domain.SweepResult, error) {
 	planner := normalizedDrivePlannerSettings(cfg.DrivePlanner, cfg.VaccineCode)
 	return s.batchRemainingShedObligationsWithVisitCounts(ctx, tenantID, versionID, cfg, time.Time{}, dueBefore, planner, NewSweepSession(), time.Time{}, nil)

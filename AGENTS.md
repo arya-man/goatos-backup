@@ -641,9 +641,9 @@ Do:
   - **Every drill level paginates** — L1 day list, L2 sheds, L3 vaccine-capture
     (done/pending/skipped animals) are each a keyset page of **~20** with infinite
     scroll (prefetch next at item ~17-18). Never request > ~20 rows in one page.
-  - **A vaccination drive is a mix of SHEDS, never grouped by vaccine** — a shed may
-    bundle same/different vaccines, but the drive is shed-scoped. Coverage-by-vaccine is
-    a metric, not the drive grouping.
+  - **A vaccination drive is a park visit with a mix of SHEDS, never grouped by
+    vaccine** — one drive can contain one or many sheds. Coverage-by-vaccine is a
+    metric, not the drive grouping.
   - Parse/transform each field ONCE (never re-parse inside `.find`/`.filter` → O(n^2)),
     off the Main thread (`Dispatchers.Default`, ideally in the repo via `flowOn`).
   - **Room is the single source of truth, so pagination binds BOTH layers** — the network

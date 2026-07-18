@@ -16,6 +16,7 @@ import (
 type dueGroup struct {
 	scopeType   string
 	scopeID     string
+	parkID      string
 	ruleID      string
 	windowStart *time.Time
 	windowEnd   *time.Time
@@ -32,7 +33,7 @@ func groupUnbatchedDue(rows []domain.UnbatchedDue, speciesGroupingPolicy string)
 		k := sweepWindowGroupKey(r, speciesGroupingPolicy)
 		g := groups[k]
 		if g == nil {
-			g = &dueGroup{scopeType: r.ScopeType, scopeID: r.ScopeID, ruleID: r.RuleID, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
+			g = &dueGroup{scopeType: r.ScopeType, scopeID: r.ScopeID, parkID: r.ParkID, ruleID: r.RuleID, windowStart: r.WindowStart, windowEnd: r.WindowEnd}
 			groups[k] = g
 			order = append(order, k)
 		}

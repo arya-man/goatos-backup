@@ -61,6 +61,7 @@ SELECT oi.obligation_id::text AS obligation_id,
        oi.rule_id::text AS rule_id,
        oi.scope_type,
        COALESCE(oi.scope_id::text, '')::text AS scope_id,
+       COALESCE(g.park_id::text, '')::text AS park_id,
        COALESCE(oi.target_id::text, '')::text AS target_id,
        CASE
          WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text

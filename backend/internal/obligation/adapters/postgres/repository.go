@@ -1541,6 +1541,7 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 			RuleID:                   row.RuleID,
 			ScopeType:                row.ScopeType,
 			ScopeID:                  row.ScopeID,
+			ParkID:                   row.ParkID,
 			TargetID:                 row.TargetID,
 			TargetSpecies:            row.TargetSpecies,
 			TargetAnimalStage:        row.TargetAnimalStage,
@@ -1585,6 +1586,7 @@ WITH candidates AS (
          oi.rule_id AS rule_id_key,
          oi.scope_type AS scope_type,
          oi.scope_id AS scope_id_key,
+         COALESCE(g.park_id::text, '')::text AS park_id,
          oi.target_id AS target_id_key,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
@@ -1629,6 +1631,7 @@ SELECT obligation_id_key::text AS obligation_id,
        rule_id_key::text AS rule_id,
        scope_type,
        scope_id_key::text AS scope_id,
+       park_id,
        target_id_key::text AS target_id,
        target_species, target_animal_stage,
        target_reproductive_status, due_at, window_start, window_end, batching_hold_count, first_batching_hold_until
@@ -1720,7 +1723,7 @@ func (r *Repository) listUnbatchedDueForVersionKeysetSnapshot(ctx context.Contex
 		var u domain.UnbatchedDue
 		var windowStart, windowEnd, firstHold *time.Time
 		if err := rows.Scan(
-			&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.TargetID,
+			&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.ParkID, &u.TargetID,
 			&u.TargetSpecies, &u.TargetAnimalStage, &u.TargetReproductiveStatus,
 			&u.DueAt, &windowStart, &windowEnd, &u.BatchingHoldCount, &firstHold,
 		); err != nil {

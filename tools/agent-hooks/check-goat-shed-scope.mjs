@@ -4,6 +4,7 @@
 // - every accepted live goat must resolve to a real shed during seed/import;
 // - goat vaccination obligations are shed-scoped only;
 // - park/tenant fallback scopes are forbidden for goat vaccination obligations.
+// - vaccination drive batches are park-scoped only, even when produced from shed obligations.
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -13,8 +14,10 @@ const repo = resolve(import.meta.dirname, "../..");
 const files = {
   seed: "backend/cmd/seed-vaccination-real/main.go",
   generation: "backend/internal/vaccination/app/generation.go",
+  sweeper: "backend/internal/obligation/app/sweeper.go",
   closeout: "tools/dev/seed-closeout.sh",
   proof: "tools/dev/check-goat-shed-integrity.sh",
+  driveProof: "tools/dev/check-vaccination-drive-clubbing-proof.sh",
 };
 
 function problemIfMissing(text, pattern, message) {
@@ -34,8 +37,10 @@ export function validate(readText, present = () => true) {
 
   const seed = readText(files.seed);
   const generation = readText(files.generation);
+  const sweeper = readText(files.sweeper);
   const closeout = readText(files.closeout);
   const proof = readText(files.proof);
+  const driveProof = readText(files.driveProof);
 
   problems.push(
     ...problemIfMissing(seed, /seedFallbackFarm/, `${files.seed}: missing deterministic fallback farm for incomplete source placement`),
@@ -57,9 +62,16 @@ export function validate(readText, present = () => true) {
   );
 
   problems.push(
+    ...problemIfMissing(sweeper, /vaccinationDriveBatchScope/, `${files.sweeper}: sweeper must convert shed-scoped goat obligations into park-scoped vaccination drive batches`),
+    ...problemIfMissing(sweeper, /return\s+"park"\s*,\s*parkID\s*,\s*nil/, `${files.sweeper}: vaccination drive batches must be park-scoped`),
+    ...problemIfMissing(sweeper, /missing park_id/, `${files.sweeper}: fallback batching must fail closed when a shed obligation has no park_id`),
+  );
+
+  problems.push(
     ...problemIfMissing(closeout, /check-goat-shed-integrity\.sh/, `${files.closeout}: seed closeout must run goat-shed-integrity proof`),
     ...problemIfMissing(proof, /active_goat_shed_invariant/, `${files.proof}: DB proof missing active goat shed invariant`),
     ...problemIfMissing(proof, /vaccination_obligation_shed_scope_invariant/, `${files.proof}: DB proof missing obligation shed-scope invariant`),
+    ...problemIfMissing(driveProof, /ob\.scope_type <> 'park'/, `${files.driveProof}: DB proof must reject non-park vaccination drive batches`),
   );
 
   return problems;
@@ -82,8 +94,15 @@ func generationScope(_ string, g domain.EligibleGoat) (string,string,error) {
   return "shed", g.ShedID, nil
 }
 `,
+    [files.sweeper]: `
+func vaccinationDriveBatchScope() (string,string,error) {
+  if parkID == "" { return "", "", fmt.Errorf("missing park_id") }
+  return "park", parkID, nil
+}
+`,
     [files.closeout]: `bash tools/dev/check-goat-shed-integrity.sh`,
     [files.proof]: `active_goat_shed_invariant vaccination_obligation_shed_scope_invariant`,
+    [files.driveProof]: `AND ob.scope_type <> 'park'`,
   };
   const clean = validate((path) => good[path]);
   if (clean.length !== 0) throw new Error(`self-test: expected clean fixture, got ${JSON.stringify(clean)}`);

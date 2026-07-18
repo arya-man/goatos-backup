@@ -240,7 +240,7 @@ the farm run a practical drive, which animals go into it, and how to allocate
 route/resources around the V1-approved vaccine groups.
 
 Basic Calendar aggregation is V1. Once the sweeper attaches animal due
-rows to a shed-drive batch, Calendar must show the drive as the active item and
+rows to a park-drive batch, Calendar must show the drive as the active item and
 must not duplicate every batched per-animal `dose_due` row as a separate active
 Calendar event. Animal-level due status remains visible in Passport, Protocol
 Adherence, Vaccination detail, and audit surfaces. Any Calendar drive target

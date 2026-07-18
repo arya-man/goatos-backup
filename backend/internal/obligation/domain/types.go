@@ -92,6 +92,7 @@ type UnbatchedDue struct {
 	RuleID                   string
 	ScopeType                string
 	ScopeID                  string
+	ParkID                   string
 	TargetID                 string
 	TargetSpecies            string
 	TargetAnimalStage        string

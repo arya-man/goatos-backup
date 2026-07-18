@@ -13,6 +13,7 @@ species_policy="${GOATOS_DRIVE_SPECIES_GROUPING_POLICY:-kid_mixed}"
 if [ "${1:-}" = "--self-test" ]; then
   bash -n "$0"
   grep -q "ob.status = 'planned'" "$0"
+  grep -q "ob.scope_type <> 'park'" "$0"
   grep -q "sp.location_id = g.shed_id" "$0"
   grep -q "GOATOS_DRIVE_SPECIES_GROUPING_POLICY" "$0"
   echo "vaccination-drive-clubbing-proof: self-test passed"
@@ -22,6 +23,37 @@ fi
 if [ -z "${DATABASE_URL:-}" ]; then
   echo "vaccination-drive-clubbing-proof: DATABASE_URL is required" >&2
   exit 2
+fi
+
+non_park_batches="$(
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt \
+  -v tenant_id="$tenant_id" \
+  -v from_date="$from_date" \
+  -v to_date="$to_date" <<'SQL'
+SELECT
+  (ob.planned_date AT TIME ZONE 'Asia/Kolkata')::date || ' | scope=' ||
+  ob.scope_type || ' | batch=' || ob.batch_id::text || ' | animals=' ||
+  count(DISTINCT oi.target_id)::text
+FROM obligation_batches ob
+JOIN protocol_versions pv ON pv.protocol_version_id = ob.protocol_version_id
+JOIN protocol_definitions pd ON pd.protocol_id = pv.protocol_id
+JOIN obligation_instances oi ON oi.batch_id = ob.batch_id
+WHERE ob.tenant_id = :'tenant_id'::uuid
+  AND pd.category = 'vaccination'
+  AND ob.status = 'planned'
+  AND ob.scope_type <> 'park'
+  AND ob.planned_date >= (:'from_date'::date AT TIME ZONE 'Asia/Kolkata')
+  AND ob.planned_date < ((:'to_date'::date + interval '1 day') AT TIME ZONE 'Asia/Kolkata')
+GROUP BY ob.batch_id, ob.planned_date, ob.scope_type
+ORDER BY ob.planned_date, ob.batch_id;
+SQL
+)"
+
+if [ -n "${non_park_batches//[[:space:]]/}" ]; then
+  echo "vaccination-drive-clubbing-proof: FAILED" >&2
+  echo "Vaccination drive batches must be park-scoped. Non-park planned batches:" >&2
+  echo "$non_park_batches" >&2
+  exit 1
 fi
 
 offenders="$(
